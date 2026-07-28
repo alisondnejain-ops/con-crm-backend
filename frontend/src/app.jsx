@@ -8,6 +8,29 @@ const C = {
 };
 const DISPLAY="'Sora',sans-serif", FONT="'Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
 const ADM_CODE="CONECTA-JAZ-2026";
+
+/* ===== API (backend hospedado) =====
+   Para apontar para outro servidor sem recompilar, defina window.CON_CRM_API no index.html. */
+const API=(typeof window!=="undefined"&&window.CON_CRM_API||"https://con-crm-backend-production.up.railway.app").replace(/\/$/,"");
+const CADASTRO_URL=`${API}/cadastro?c=${ADM_CODE}`;
+
+// Token guardado no navegador para o corretor não ter que logar toda vez (importante no celular).
+const STORE="concrm_token";
+let TOKEN=null;
+try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
+function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
+
+async function api(path,{method="GET",body}={}){
+  let res;
+  try{
+    res=await fetch(API+path,{method,
+      headers:{...(body?{"Content-Type":"application/json"}:{}),...(TOKEN?{Authorization:"Bearer "+TOKEN}:{})},
+      body:body?JSON.stringify(body):undefined});
+  }catch(e){ throw new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."); }
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||`Erro ${res.status} ao falar com o servidor.`);
+  return data;
+}
 const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"}};
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
@@ -157,48 +180,49 @@ function Brand({size=44}){
   </div>;
 }
 
-/* ===== LOGIN / CADASTRO ===== */
-function Auth({brokers,onLogin,onSignup}){
-  const [tab,setTab]=useState("entrar");
-  const [f,setF]=useState({name:"",email:"",pass:"",code:""});
+/* ===== LOGIN (contas reais, via backend) ===== */
+function Auth({onLogin}){
+  const [f,setF]=useState({email:"",pass:""});
   const [err,setErr]=useState("");
+  const [busy,setBusy]=useState(false);
   const isMobile=useIsMobile();
   const set=(k)=>(e)=>setF({...f,[k]:e.target.value});
-  function signup(){
-    if(!f.name||!f.email||!f.pass)return setErr("Preencha nome, e-mail e senha.");
-    if(f.code.trim().toUpperCase()!==ADM_CODE)return setErr("Código da imobiliária inválido. Peça o código à ADM da Conecta.");
-    setErr("");onSignup(f);
+  async function entrar(){
+    if(!f.email.trim()||!f.pass) return setErr("Preencha e-mail e senha.");
+    setErr(""); setBusy(true);
+    try{
+      const d=await api("/auth/login",{method:"POST",body:{email:f.email.trim(),password:f.pass}});
+      setToken(d.token); onLogin(d.user);
+    }catch(e){ setErr(e.message); }
+    finally{ setBusy(false); }
   }
-  const accBtn=(u,tag)=><button key={u.id} onClick={()=>onLogin(u)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,border:`1px solid ${C.line}`,borderRadius:12,padding:10,marginBottom:8,background:C.card,cursor:"pointer"}}>
-    <Avatar ini={u.ini} color={u.color} size={36}/><div style={{textAlign:"left",flex:1}}><div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{u.name}</div><div style={{color:C.faint,fontSize:11}}>{u.email}</div></div>{tag}</button>;
+  const onEnter=(e)=>{ if(e.key==="Enter") entrar(); };
   return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center",padding:isMobile?0:24}}>
     <div style={{width:"100%",maxWidth:isMobile?"none":860,display:"grid",gridTemplateColumns:"1fr 1fr",borderRadius:isMobile?0:24,overflow:"hidden",boxShadow:isMobile?"none":"0 20px 60px rgba(0,0,0,.12)",border:isMobile?"none":`1px solid ${C.line}`}} className="authgrid">
       <div style={{background:C.greenDeep,padding:isMobile?"24px 22px":32,color:"#fff",display:"flex",flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,minHeight:isMobile?0:460}}>
         <Brand size={isMobile?38:44}/>
         <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:26,fontWeight:700,lineHeight:1.15,marginBottom:isMobile?8:12}}>Cada lead na mão certa, no tempo certo.</div>
           {!isMobile&&<p style={{color:"rgba(255,255,255,.75)",fontSize:13,lineHeight:1.6}}>Todos atendem pelo número da Conecta, cada mensagem assinada com o nome do corretor. A SDR distribui na catraca, e o funil avança sozinho conforme a conversa evolui.</p>}</div>
-        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>Prévia · dados de exemplo</div>}
+        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>Acesso restrito à equipe da Conecta</div>}
       </div>
-      <div style={{background:C.card,padding:isMobile?"24px 22px 40px":32}}>
-        <div style={{display:"flex",background:C.surface,borderRadius:12,padding:4,marginBottom:24}}>
-          {[["entrar","Entrar"],["cadastrar","Criar conta"]].map(([k,l])=>(
-            <button key={k} onClick={()=>{setTab(k);setErr("");}} style={{flex:1,fontSize:13,fontWeight:600,padding:"8px",borderRadius:8,border:"none",cursor:"pointer",background:tab===k?C.card:"transparent",color:tab===k?C.ink:C.faint,boxShadow:tab===k?"0 1px 3px rgba(0,0,0,.08)":"none"}}>{l}</button>
-          ))}
+      <div style={{background:C.card,padding:isMobile?"24px 22px 40px":32,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:4}}>Entrar</div>
+        <div style={{color:C.sub,fontSize:13,marginBottom:22,lineHeight:1.5}}>Use o e-mail e a senha que você criou no seu cadastro.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Field n="mail" type="email" autoComplete="email" inputMode="email" placeholder="E-mail" value={f.email} onChange={set("email")} onKeyDown={onEnter}/>
+          <Field n="lock" type="password" autoComplete="current-password" placeholder="Senha" value={f.pass} onChange={set("pass")} onKeyDown={onEnter}/>
+          {err&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:8,padding:"10px 12px",lineHeight:1.45}}>{err}</div>}
+          <button onClick={entrar} disabled={busy} style={{background:busy?C.faint:C.green,color:"#fff",fontSize:15,fontWeight:600,padding:"13px",borderRadius:12,border:"none",cursor:busy?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {busy?<React.Fragment><Icon n="loader" size={16} spin/> Entrando…</React.Fragment>:<React.Fragment>Entrar <Icon n="arrow" size={16}/></React.Fragment>}
+          </button>
         </div>
-        {tab==="entrar"?<div>
-          <div style={{color:C.sub,fontSize:12,marginBottom:12}}>Selecione uma conta (demonstração):</div>
-          {accBtn(GESTOR,<Pill c={C.greenMid} bg={C.greenSoft}>ADM</Pill>)}
-          {accBtn(SDR,<Pill c={"#B07C1F"} bg={C.amberSoft}>SDR</Pill>)}
-          {brokers.map(b=>accBtn(b,<Icon n="chevron" size={16} color={C.faint}/>))}
-        </div>:<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Field n="users" placeholder="Nome completo" value={f.name} onChange={set("name")}/>
-          <Field n="mail" placeholder="E-mail" value={f.email} onChange={set("email")}/>
-          <Field n="lock" placeholder="Senha" type="password" value={f.pass} onChange={set("pass")}/>
-          <div><Field n="key" placeholder="Código da imobiliária (ADM)" value={f.code} onChange={set("code")}/>
-            <div style={{color:C.faint,fontSize:11,marginTop:4,marginLeft:4}}>Vincula sua conta à ADM da Conecta. Demo: <b style={{color:C.greenMid}}>{ADM_CODE}</b></div></div>
-          {err&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:8,padding:"8px 12px"}}>{err}</div>}
-          <button onClick={signup} style={{background:C.green,color:"#fff",fontSize:14,fontWeight:600,padding:"10px",borderRadius:12,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>Criar conta e vincular <Icon n="arrow" size={16}/></button>
-        </div>}
+        <div style={{borderTop:`1px solid ${C.line}`,marginTop:22,paddingTop:18,textAlign:"center"}}>
+          <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Ainda não tem conta?</div>
+          <a href={CADASTRO_URL} style={{display:"inline-flex",alignItems:"center",gap:7,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:13.5,fontWeight:600,padding:"11px 18px",borderRadius:12}}>
+            <Icon n="userplus" size={15}/> Criar minha conta
+          </a>
+          <div style={{color:C.faint,fontSize:11,marginTop:10,lineHeight:1.5}}>Você vai receber um e-mail para confirmar e definir sua senha.</div>
+        </div>
       </div>
     </div>
   </div>;
@@ -206,20 +230,57 @@ function Auth({brokers,onLogin,onSignup}){
 function Field({n,...p}){return <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:12,padding:"0 12px"}}><Icon n={n} size={16} color={C.faint}/><input {...p} style={{flex:1,fontSize:13.5,padding:"10px 0",outline:"none",border:"none",background:"transparent",color:C.ink,width:"100%"}}/></div>;}
 
 /* ===== APP ===== */
+const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
+// Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
+function toSession(u){
+  const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
+  return {id:u.id,name:u.name,email:u.email,role:u.role,ini:initials(u.name),
+          color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
+}
+// Os leads ainda são de exemplo (a Meta não está ligada). Para o corretor conseguir
+// explorar a ferramenta, passamos para ele os leads que no protótipo eram dos fictícios.
+function personalizar(leads,s){
+  if(s.role==="adm") return leads;
+  const meus = s.role==="sdr" ? ["s1"] : ["b1","b2","b3","b4"];
+  return leads.map(l=>{
+    if(!l.assignedTo||!meus.includes(l.assignedTo)) return l;
+    return {...l,assignedTo:s.id,
+      msgs:l.msgs.map(m=>m.by&&meus.includes(m.by)?{...m,by:s.id,byName:first(s.name)}:m)};
+  });
+}
+
 function ConCRM(){
-  const [brokers,setBrokers]=useState(SEED_BROKERS);
+  const [brokers]=useState(SEED_BROKERS);
   const [avail,setAvail]=useState(SEED_AVAIL);
   const [conecta,setConecta]=useState({connected:true,number:"+55 (87) 3021-9000"});
   const [leads,setLeads]=useState(LEAD_SEED);
   const [session,setSession]=useState(null);
-  function signup(f){
-    const id="b"+Date.now().toString().slice(-4);
-    const cols=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
-    const nb={id,name:f.name,ini:initials(f.name),color:cols[brokers.length%cols.length],role:"corretor",email:f.email};
-    setBrokers(p=>[...p,nb]);setAvail(p=>({...p,[id]:false}));setSession(nb);
+  const [carregando,setCarregando]=useState(!!TOKEN);
+
+  // Se já existe token guardado, entra direto — sem pedir senha de novo.
+  useEffect(()=>{
+    if(!TOKEN){setCarregando(false);return;}
+    api("/auth/me").then(d=>entrar(d.user)).catch(()=>setToken(null)).finally(()=>setCarregando(false));
+  },[]);
+
+  function entrar(u){
+    const s=toSession(u);
+    setLeads(personalizar(LEAD_SEED,s));
+    setAvail(p=>({...p,[s.id]:p[s.id]!==undefined?p[s.id]:true}));
+    setSession(s);
   }
-  if(!session)return <Auth brokers={brokers} onLogin={setSession} onSignup={signup}/>;
-  return <Workspace {...{session,setSession,brokers,avail,setAvail,conecta,setConecta,leads,setLeads}}/>;
+  function sair(){ setToken(null); setSession(null); }
+
+  if(carregando) return <Splash/>;
+  if(!session) return <Auth onLogin={entrar}/>;
+  return <Workspace {...{session,setSession:sair,brokers,avail,setAvail,conecta,setConecta,leads,setLeads}}/>;
+}
+
+function Splash(){
+  return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14}}>
+    <Brand/>
+    <div style={{color:C.faint,fontSize:13,display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Entrando…</div>
+  </div>;
 }
 
 function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta,leads,setLeads}){
@@ -305,7 +366,10 @@ function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:17,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1>
-          {!isMobile&&<Pill c={C.greenMid} bg={C.greenSoft}>Campanha Jardim Amazonas</Pill>}
+          {/* Enquanto a Meta não estiver ligada, os leads são de exemplo — ninguém pode confundir com cliente real. */}
+          <span style={{color:"#8a6d1f",background:C.amberSoft,border:`1px solid ${C.amber}44`,fontSize:isMobile?10:11,fontWeight:700,padding:"3px 8px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>
+            {isMobile?"Leads de exemplo":"Leads de exemplo — a Meta ainda não está conectada"}
+          </span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
           {!isMobile&&<div style={{textAlign:"right"}}><div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div><div style={{color:C.faint,fontSize:10.5}}>{roleLabel}</div></div>}
