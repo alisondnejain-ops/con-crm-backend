@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0A3D30"/>
+<title>Criar minha senha — Con CRM · Conecta Imóveis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#F4F6F5;font-family:'Inter',sans-serif;color:#14181F;
+       display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:430px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;
+        padding:34px;box-shadow:0 20px 60px rgba(0,0,0,.10)}
+  .logo{display:flex;align-items:center;gap:10px;margin-bottom:26px}
+  .mark{width:42px;height:42px;border-radius:12px;background:#0E8F6E;display:flex;align-items:center;justify-content:center}
+  .mark span{width:14px;height:14px;border-radius:50%;background:#fff;display:block}
+  .wordmark{font-family:'Sora',sans-serif;font-size:20px;font-weight:700;line-height:1}
+  .wordmark em{color:#0E8F6E;font-style:normal}
+  .tag{font-size:10px;letter-spacing:.6px;color:#8A93A0;margin-top:2px}
+  h2{font-family:'Sora',sans-serif;font-size:20px;margin:0 0 4px}
+  .lead{color:#5A6472;font-size:13.5px;line-height:1.55;margin:0 0 22px}
+  label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
+  input{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 14px;outline:none}
+  input:focus{border-color:#0E8F6E;background:#fff}
+  .field{margin-bottom:15px}
+  .hint{font-size:11.5px;color:#8A93A0;margin-top:5px}
+  button{width:100%;font-family:inherit;font-size:15px;font-weight:600;color:#fff;background:#0E8F6E;
+         border:none;border-radius:12px;padding:14px;cursor:pointer;margin-top:6px}
+  button:disabled{background:#A9BDB6;cursor:default}
+  .msg{font-size:13px;border-radius:12px;padding:12px 14px;margin-bottom:16px;line-height:1.5;display:none}
+  .msg.err{display:block;color:#B0463A;background:#FBE7E1}
+  .center{text-align:center}
+  .ico{width:66px;height:66px;border-radius:20px;background:#E5F2EC;display:flex;align-items:center;
+       justify-content:center;margin:0 auto 18px}
+  .who{background:#E5F2EC;border-radius:12px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#0A3D30}
+  .who b{display:block;font-size:15px;margin-bottom:2px}
+  a.btn{display:inline-block;text-decoration:none;background:#0E8F6E;color:#fff;font-weight:600;
+        font-size:15px;padding:13px 26px;border-radius:12px;margin-top:8px}
+  @media(max-width:520px){
+    body{padding:0;align-items:stretch}
+    .card{border:none;border-radius:0;box-shadow:none;min-height:100vh;padding:28px 22px}
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="mark"><span></span></div>
+    <div>
+      <div class="wordmark">Con<em>CRM</em></div>
+      <div class="tag">CONECTA IMÓVEIS</div>
+    </div>
+  </div>
+
+  <div id="loading" class="center" style="color:#8A93A0;font-size:14px;padding:30px 0">Verificando seu convite…</div>
+
+  <div id="formView" style="display:none">
+    <h2>Criar minha senha</h2>
+    <p class="lead">Último passo para ativar seu acesso ao Con CRM.</p>
+    <div class="who" id="who"></div>
+    <div class="msg" id="msg"></div>
+    <div class="field">
+      <label for="p1">Sua senha</label>
+      <input id="p1" type="password" autocomplete="new-password" placeholder="Mínimo de 6 caracteres"/>
+    </div>
+    <div class="field">
+      <label for="p2">Repita a senha</label>
+      <input id="p2" type="password" autocomplete="new-password" placeholder="Digite de novo"/>
+      <div class="hint">Guarde bem: é com ela que você entra no CRM todo dia.</div>
+    </div>
+    <button id="go">Ativar meu acesso</button>
+  </div>
+
+  <div id="errView" style="display:none" class="center">
+    <div class="ico" style="background:#FBE7E1">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#B0463A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    </div>
+    <h2>Não deu certo</h2>
+    <p class="lead" id="errText"></p>
+    <a class="btn" href="/cadastro">Fazer o cadastro de novo</a>
+  </div>
+
+  <div id="okView" style="display:none" class="center">
+    <div class="ico">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E8F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+    </div>
+    <h2>Acesso ativado! 🎉</h2>
+    <p class="lead" id="okText"></p>
+  </div>
+</div>
+
+<script>
+(function(){
+  var token = new URLSearchParams(location.search).get("token");
+  var loading = document.getElementById("loading");
+  var msg = document.getElementById("msg"), btn = document.getElementById("go");
+
+  function fail(text){
+    loading.style.display = "none";
+    document.getElementById("formView").style.display = "none";
+    document.getElementById("errView").style.display = "block";
+    document.getElementById("errText").textContent = text;
+  }
+
+  if (!token) { fail("O link veio sem o código de confirmação. Abra o link direto do e-mail."); return; }
+
+  fetch("/auth/invite/" + encodeURIComponent(token))
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      if (!res.ok) return fail(res.d.error || "Link inválido.");
+      loading.style.display = "none";
+      document.getElementById("formView").style.display = "block";
+      document.getElementById("who").innerHTML = "<b>" + res.d.name + "</b>" + res.d.email;
+    })
+    .catch(function(){ fail("Sem conexão com o servidor. Tente de novo em instantes."); });
+
+  async function submit(){
+    var p1 = document.getElementById("p1").value, p2 = document.getElementById("p2").value;
+    msg.className = "msg";
+    if (p1.length < 6) { msg.className = "msg err"; msg.textContent = "A senha precisa ter pelo menos 6 caracteres."; return; }
+    if (p1 !== p2) { msg.className = "msg err"; msg.textContent = "As duas senhas não são iguais."; return; }
+
+    btn.disabled = true; btn.textContent = "Ativando…";
+    try {
+      var r = await fetch("/auth/set-password", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ token: token, password: p1 })
+      });
+      var d = await r.json();
+      if (!r.ok) { msg.className = "msg err"; msg.textContent = d.error || "Não foi possível ativar."; return; }
+      document.getElementById("formView").style.display = "none";
+      var ok = document.getElementById("okView"); ok.style.display = "block";
+      document.getElementById("okText").innerHTML =
+        "Pronto, " + d.user.name.split(" ")[0] + "! Sua conta está ativa. Entre no Con CRM com <b>" +
+        d.user.email + "</b> e a senha que você acabou de criar.";
+    } catch (e) {
+      msg.className = "msg err"; msg.textContent = "Sem conexão com o servidor. Tente de novo.";
+    } finally {
+      btn.disabled = false; btn.textContent = "Ativar meu acesso";
+    }
+  }
+
+  btn.addEventListener("click", submit);
+  document.addEventListener("keydown", function(e){ if (e.key === "Enter") submit(); });
+})();
+</script>
+</body>
+</html>

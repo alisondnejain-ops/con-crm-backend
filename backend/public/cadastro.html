@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0A3D30"/>
+<title>Cadastro de corretor — Con CRM · Conecta Imóveis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#F4F6F5;font-family:'Inter',sans-serif;color:#14181F;
+       display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:900px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;overflow:hidden;
+        box-shadow:0 20px 60px rgba(0,0,0,.10);display:grid;grid-template-columns:1fr 1fr}
+  .side{background:#0A3D30;color:#fff;padding:36px;display:flex;flex-direction:column;justify-content:space-between;gap:28px}
+  .logo{display:flex;align-items:center;gap:10px}
+  .mark{width:42px;height:42px;border-radius:12px;background:#0E8F6E;display:flex;align-items:center;justify-content:center}
+  .mark span{width:14px;height:14px;border-radius:50%;background:#fff;display:block}
+  .wordmark{font-family:'Sora',sans-serif;font-size:20px;font-weight:700;line-height:1}
+  .wordmark em{color:#7FD8BC;font-style:normal}
+  .tag{font-size:10px;letter-spacing:.6px;color:rgba(255,255,255,.55);margin-top:2px}
+  .side h1{font-family:'Sora',sans-serif;font-size:25px;line-height:1.15;margin:0 0 12px}
+  .side p{color:rgba(255,255,255,.72);font-size:13.5px;line-height:1.65;margin:0}
+  .steps{list-style:none;padding:0;margin:16px 0 0;display:flex;flex-direction:column;gap:9px}
+  .steps li{color:rgba(255,255,255,.72);font-size:12.5px;display:flex;gap:9px;align-items:flex-start}
+  .steps b{color:#7FD8BC;font-weight:600;flex-shrink:0}
+  .form{padding:36px}
+  .form h2{font-family:'Sora',sans-serif;font-size:20px;margin:0 0 4px}
+  .form .lead{color:#5A6472;font-size:13px;margin:0 0 22px;line-height:1.55}
+  label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
+  input{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 14px;outline:none}
+  input:focus{border-color:#0E8F6E;background:#fff}
+  input:disabled{color:#8A93A0;background:#EDF0EE}
+  .field{margin-bottom:15px}
+  .hint{font-size:11.5px;color:#8A93A0;margin-top:5px;line-height:1.45}
+  button{width:100%;font-family:inherit;font-size:15px;font-weight:600;color:#fff;background:#0E8F6E;
+         border:none;border-radius:12px;padding:14px;cursor:pointer;margin-top:6px}
+  button:disabled{background:#A9BDB6;cursor:default}
+  .msg{font-size:13px;border-radius:12px;padding:12px 14px;margin-bottom:16px;line-height:1.5;display:none}
+  .msg.err{display:block;color:#B0463A;background:#FBE7E1}
+  .msg.ok{display:block;color:#0A3D30;background:#E5F2EC}
+  .done{text-align:center;padding:8px 0}
+  .done .ico{width:66px;height:66px;border-radius:20px;background:#E5F2EC;display:flex;align-items:center;
+             justify-content:center;margin:0 auto 18px}
+  .done h2{margin-bottom:10px}
+  .done p{color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 12px}
+  .linkbox{background:#F4F6F5;border:1px dashed #0E8F6E;border-radius:12px;padding:12px;
+           font-size:12px;word-break:break-all;color:#0C6B52;text-align:left}
+  @media(max-width:780px){
+    body{padding:0;align-items:stretch}
+    .card{grid-template-columns:1fr;border:none;border-radius:0;box-shadow:none;min-height:100vh}
+    .side{padding:26px 22px;gap:18px}
+    .side h1{font-size:21px}
+    .steps{display:none}
+    .form{padding:26px 22px 40px}
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="side">
+    <div class="logo">
+      <div class="mark"><span></span></div>
+      <div>
+        <div class="wordmark">Con<em>CRM</em></div>
+        <div class="tag" id="orgTag">CONECTA IMÓVEIS</div>
+      </div>
+    </div>
+    <div>
+      <h1>Cada lead na mão certa, no tempo certo.</h1>
+      <p>Você atende pelo número único da Conecta, e toda mensagem sai assinada com o seu nome — o cliente sempre sabe com quem está falando.</p>
+      <ul class="steps">
+        <li><b>1.</b> Preencha seus dados aqui ao lado.</li>
+        <li><b>2.</b> Confirme no link que chega no seu e-mail.</li>
+        <li><b>3.</b> Crie sua senha e comece a atender.</li>
+      </ul>
+    </div>
+    <div style="color:rgba(255,255,255,.45);font-size:11px">Acesso restrito à equipe da Conecta.</div>
+  </div>
+
+  <div class="form">
+    <div id="formView">
+      <h2>Criar minha conta</h2>
+      <p class="lead">Leva menos de um minuto. Use o e-mail que você acessa no celular — é nele que chega a confirmação.</p>
+      <div class="msg" id="msg"></div>
+      <div class="field">
+        <label for="name">Nome completo</label>
+        <input id="name" autocomplete="name" placeholder="Ex.: Marina Alves de Souza"/>
+      </div>
+      <div class="field">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com"/>
+      </div>
+      <div class="field">
+        <label for="phone">WhatsApp (com DDD)</label>
+        <input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999"/>
+        <div class="hint">É o seu contato interno com a equipe. Os clientes continuam falando pelo número da Conecta.</div>
+      </div>
+      <div class="field">
+        <label for="code">Código da imobiliária</label>
+        <input id="code" placeholder="CONECTA-XXX-0000"/>
+        <div class="hint" id="codeHint">Vincula sua conta à Conecta. A ADM te passa esse código.</div>
+      </div>
+      <button id="go">Continuar</button>
+    </div>
+
+    <div id="doneView" style="display:none" class="done">
+      <div class="ico">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E8F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>
+        </svg>
+      </div>
+      <h2>Confira seu e-mail</h2>
+      <p id="doneText"></p>
+      <div id="manual" style="display:none">
+        <p style="font-size:13px;color:#8A93A0">O envio automático de e-mail ainda não está ligado. Abra o link abaixo para criar sua senha (ou peça esse link à ADM):</p>
+        <div class="linkbox"><a id="manualLink" href="#" style="color:#0C6B52"></a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var qs = new URLSearchParams(location.search);
+  var codeEl = document.getElementById("code");
+  // O link enviado pela ADM já traz o código: /cadastro?c=CONECTA-JAZ-2026
+  var fromLink = qs.get("c");
+  if (fromLink) {
+    codeEl.value = fromLink.toUpperCase();
+    codeEl.disabled = true;
+    document.getElementById("codeHint").textContent = "Já preenchido pelo link que a ADM te enviou.";
+  }
+
+  var msg = document.getElementById("msg"), btn = document.getElementById("go");
+  function show(kind, text){ msg.className = "msg " + kind; msg.textContent = text; }
+
+  // Máscara simples de telefone brasileiro.
+  var phone = document.getElementById("phone");
+  phone.addEventListener("input", function(){
+    var d = phone.value.replace(/\D/g, "").slice(0, 11);
+    var out = d;
+    if (d.length > 2) out = "(" + d.slice(0,2) + ") " + d.slice(2);
+    if (d.length > 7) out = "(" + d.slice(0,2) + ") " + d.slice(2,3) + " " + d.slice(3,7) + "-" + d.slice(7);
+    else if (d.length > 6) out = "(" + d.slice(0,2) + ") " + d.slice(2,7);
+    phone.value = out;
+  });
+
+  async function submit(){
+    var body = {
+      name: document.getElementById("name").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      phone: phone.value.trim(),
+      adm_code: codeEl.value.trim()
+    };
+    if (!body.name || !body.email || !body.phone || !body.adm_code)
+      return show("err", "Preencha todos os campos para continuar.");
+    if (body.phone.replace(/\D/g,"").length < 10)
+      return show("err", "Confira o WhatsApp: informe DDD + número.");
+
+    btn.disabled = true; btn.textContent = "Enviando…";
+    try {
+      var res = await fetch("/auth/register", {
+        method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
+      });
+      var data = await res.json();
+      if (!res.ok) { show("err", data.error || "Não foi possível cadastrar agora."); return; }
+
+      document.getElementById("formView").style.display = "none";
+      var done = document.getElementById("doneView"); done.style.display = "block";
+      document.getElementById("doneText").innerHTML =
+        "Enviamos um link de confirmação para <b>" + body.email + "</b>. Abra o e-mail e crie sua senha para ativar o acesso.";
+      if (data.link) {
+        document.getElementById("doneText").innerHTML =
+          "Cadastro registrado para <b>" + body.email + "</b>.";
+        document.getElementById("manual").style.display = "block";
+        var a = document.getElementById("manualLink");
+        a.href = data.link; a.textContent = data.link;
+      }
+    } catch (e) {
+      show("err", "Sem conexão com o servidor. Tente de novo em instantes.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Continuar";
+    }
+  }
+
+  btn.addEventListener("click", submit);
+  document.addEventListener("keydown", function(e){ if (e.key === "Enter") submit(); });
+})();
+</script>
+</body>
+</html>

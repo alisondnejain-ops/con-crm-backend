@@ -1,0 +1,13 @@
+{
+  "name": "con-crm-frontend",
+  "version": "1.0.0",
+  "description": "Con CRM — Conecta Imóveis. index.html autossuficiente gerado a partir de src/app.jsx.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

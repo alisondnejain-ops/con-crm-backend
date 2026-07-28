@@ -1,0 +1,43 @@
+# Configuração pronta para o Render (alternativa ao Railway).
+# Importante: no plano gratuito o serviço hiberna e os leads da Meta chegam atrasados.
+# Para operação real, use um plano pago (starter) — é o que está marcado abaixo.
+services:
+  - type: web
+    name: con-crm-backend
+    runtime: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    disk:
+      name: dados
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /data/concrm.db
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADM_CODE
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: ADM_EMAIL
+        sync: false
+      - key: ADM_PASSWORD
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: META_PAGE_ACCESS_TOKEN
+        sync: false
+      - key: UAZAPI_HOST
+        sync: false
+      - key: UAZAPI_TOKEN
+        sync: false
