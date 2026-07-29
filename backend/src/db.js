@@ -106,6 +106,8 @@ addUserCol("phone", "TEXT");                            // WhatsApp do corretor 
 addUserCol("status", "TEXT DEFAULT 'ativo'");           // pendente = convidado, ainda sem senha
 addUserCol("invite_token", "TEXT");                     // token do link "definir senha"
 addUserCol("invite_expires", "INTEGER");                // validade do token (ms)
+addUserCol("avatar_url", "TEXT");                       // foto de perfil
+addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);

@@ -163,7 +163,11 @@ function Icon({n,size=18,color,fill="none",spin}){
 }
 
 /* ===== átomos ===== */
-function Avatar({ini,color,size=34}){return <div style={{width:size,height:size,background:color,color:"#fff",fontFamily:DISPLAY,fontWeight:600,fontSize:size*0.4,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ini}</div>;}
+function Avatar({ini,color,size=34,foto}){
+  const base={width:size,height:size,borderRadius:"50%",flexShrink:0};
+  if(foto) return <img src={foto} alt="" style={{...base,objectFit:"cover",background:C.surface}}/>;
+  return <div style={{...base,background:color,color:"#fff",fontFamily:DISPLAY,fontWeight:600,fontSize:size*0.4,display:"flex",alignItems:"center",justifyContent:"center"}}>{ini}</div>;
+}
 function Pill({children,c,bg}){return <span style={{color:c,background:bg,fontSize:11,fontWeight:600,padding:"3px 8px",borderRadius:999,whiteSpace:"nowrap"}}>{children}</span>;}
 function Metric({n,label,value,sub,accent=C.green}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,flex:1,minWidth:150}}>
@@ -239,7 +243,8 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
-  return {id:u.id,name:u.name,email:u.email,role:u.role,ini:initials(u.name),
+  return {id:u.id,name:u.name,email:u.email,phone:u.phone,role:u.role,funcao:u.funcao,
+          avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
 const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
@@ -334,6 +339,22 @@ function ConCRM(){
     subirMidia:(id,mime,base64)=>api(`/produtos/${id}/midias`,{method:"POST",body:{mime,base64}}),
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
+    // Minha conta: qualquer alteração precisa refletir na sessão na hora — é o
+    // nome e a foto que aparecem no topo e assinam as mensagens.
+    salvarPerfil:async(dados)=>{
+      const d=await api("/auth/me",{method:"PATCH",body:dados});
+      if(d.token) setToken(d.token);
+      setSession(toSession(d.user));
+    },
+    trocarSenha:(atual,nova)=>api("/auth/me/senha",{method:"POST",body:{atual,nova}}),
+    enviarFoto:async(mime,base64)=>{
+      await api("/auth/me/foto",{method:"POST",body:{mime,base64}});
+      setSession(toSession((await api("/auth/me")).user));
+    },
+    removerFoto:async()=>{
+      await api("/auth/me/foto",{method:"DELETE"});
+      setSession(toSession((await api("/auth/me")).user));
+    },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     abrir,
@@ -399,8 +420,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
     sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
-  }[role];
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",imoveis:"Imóveis e terrenos",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  }[role].concat([["conta","users","Minha conta"]]);
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
@@ -429,7 +450,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
           {!isMobile&&<div style={{textAlign:"right"}}><div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div><div style={{color:C.faint,fontSize:10.5}}>{roleLabel}</div></div>}
-          <Avatar ini={session.ini} color={session.color} size={isMobile?30:34}/>
+          <button onClick={()=>setView("conta")} title="Minha conta" style={{border:"none",background:"transparent",padding:0,cursor:"pointer",display:"flex"}}>
+            <Avatar ini={session.ini} color={session.color} size={isMobile?30:34} foto={session.avatar}/>
+          </button>
           {isMobile&&<button onClick={()=>setSession(null)} title="Sair" aria-label="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="logout" size={16}/></button>}
         </div>
       </header>
@@ -450,6 +473,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,isMobile,supervisor}}/>}
+        {/* Minha conta é igual para os três papéis. */}
+        {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
@@ -962,6 +987,99 @@ function ComporADM({lead,session,acoes,isMobile}){
   </div>;
 }
 
+/* ===== MINHA CONTA =====
+   Igual para corretor, atendente e gestor. Cada um cuida dos próprios dados. */
+function MinhaConta({session,acoes,isMobile,aoAtualizar}){
+  const [f,setF]=useState({name:session.name,email:session.email,phone:session.phone||""});
+  const [senha,setSenha]=useState({atual:"",nova:"",repetir:""});
+  const [avisoDados,setAviso]=useState(null);
+  const [avisoSenha,setAvisoSenha]=useState(null);
+  const [salvando,setSalvando]=useState(false);
+  const [trocando,setTrocando]=useState(false);
+  const [subindo,setSubindo]=useState(false);
+
+  const set=(k)=>(e)=>setF({...f,[k]:e.target.value});
+  const setS=(k)=>(e)=>setSenha({...senha,[k]:e.target.value});
+  const mudou=f.name!==session.name||f.email!==session.email||f.phone!==(session.phone||"");
+
+  async function salvarDados(){
+    setAviso(null); setSalvando(true);
+    try{ await acoes.salvarPerfil(f); setAviso({ok:true,txt:"Dados atualizados."}); }
+    catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setSalvando(false); }
+  }
+  async function trocarSenha(){
+    setAvisoSenha(null);
+    if(senha.nova!==senha.repetir) return setAvisoSenha({ok:false,txt:"A nova senha e a repetição não são iguais."});
+    setTrocando(true);
+    try{ await acoes.trocarSenha(senha.atual,senha.nova);
+      setSenha({atual:"",nova:"",repetir:""}); setAvisoSenha({ok:true,txt:"Senha alterada. Ela já vale no próximo acesso."}); }
+    catch(e){ setAvisoSenha({ok:false,txt:e.message}); }
+    finally{ setTrocando(false); }
+  }
+  async function enviarFoto(ev){
+    const arq=ev.target.files&&ev.target.files[0]; ev.target.value="";
+    if(!arq) return;
+    setSubindo(true); setAviso(null);
+    try{
+      const base64=await new Promise((ok,err)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=err;fr.readAsDataURL(arq);});
+      await acoes.enviarFoto(arq.type,base64);
+    }catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setSubindo(false); }
+  }
+  const recado=(a)=>a&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",lineHeight:1.45,
+    color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <Avatar ini={session.ini} color={session.color} size={64} foto={session.avatar}/>
+        <div style={{flex:1,minWidth:150}}>
+          <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:17,fontWeight:700}}>{session.name}</div>
+          <div style={{color:C.faint,fontSize:12.5}}>{session.funcao||roleParaTexto(session.role)}</div>
+          <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap"}}>
+            <label style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:subindo?"default":"pointer"}}>
+              <Icon n={subindo?"loader":"users"} size={13} spin={subindo}/>{subindo?"Enviando…":session.avatar?"Trocar foto":"Adicionar foto"}
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={enviarFoto} disabled={subindo} style={{display:"none"}}/>
+            </label>
+            {session.avatar&&<button onClick={()=>acoes.removerFoto()} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Remover</button>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Meus dados</div>
+        <div>{rotulo("Nome completo")}<input value={f.name} onChange={set("name")} style={entrada}/></div>
+        <div>
+          {rotulo("E-mail")}
+          <input value={f.email} onChange={set("email")} type="email" inputMode="email" style={entrada}/>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no ComHub.</div>
+        </div>
+        <div>{rotulo("WhatsApp")}<input value={f.phone} onChange={set("phone")} type="tel" inputMode="tel" placeholder="(87) 9 9999-9999" style={entrada}/></div>
+        {recado(avisoDados)}
+        <button onClick={salvarDados} disabled={salvando||!mudou}
+          style={{background:salvando||!mudou?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:600,cursor:salvando||!mudou?"default":"pointer"}}>
+          {salvando?"Salvando…":"Salvar dados"}
+        </button>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Trocar senha</div>
+        <div>{rotulo("Senha atual")}<input value={senha.atual} onChange={setS("atual")} type="password" autoComplete="current-password" style={entrada}/></div>
+        <div>{rotulo("Nova senha")}<input value={senha.nova} onChange={setS("nova")} type="password" autoComplete="new-password" placeholder="Mínimo de 6 caracteres" style={entrada}/></div>
+        <div>{rotulo("Repita a nova senha")}<input value={senha.repetir} onChange={setS("repetir")} type="password" autoComplete="new-password" style={entrada}/></div>
+        {recado(avisoSenha)}
+        <button onClick={trocarSenha} disabled={trocando||!senha.atual||!senha.nova}
+          style={{background:trocando||!senha.atual||!senha.nova?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:600,cursor:trocando?"default":"pointer"}}>
+          {trocando?"Alterando…":"Alterar senha"}
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+const roleParaTexto=(r)=>r==="adm"?"Gestor(a)":r==="sdr"?"Atendente":"Corretor(a)";
+
 /* ===== ENVIAR IMÓVEL PARA O LEAD =====
    O corretor escolhe o produto e o que vai junto. A localização fica DESMARCADA
    por padrão: mandar endereço sem querer não tem desfazer no WhatsApp. */
@@ -1435,7 +1553,7 @@ function Equipe({acoes,session,isMobile,versao}){
 
   const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13}}>
     <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-      <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38}/>
+      <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38} foto={u.avatar_url}/>
       <div style={{flex:1,minWidth:150}}>
         <div style={{color:C.ink,fontSize:14,fontWeight:600}}>{u.name}{u.id===session.id&&<span style={{color:C.faint,fontWeight:500}}> · você</span>}</div>
         <div style={{color:C.faint,fontSize:11.5}}>{u.email}{u.phone?" · "+fmtTel(u.phone):""}</div>

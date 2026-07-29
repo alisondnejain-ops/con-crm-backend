@@ -5,6 +5,7 @@ import db from "../db.js";
 import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
+import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -124,12 +125,82 @@ r.get("/me", authRequired, (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+// ── Minha conta ───────────────────────────────────────────────────────────────
+// Cada pessoa cuida dos próprios dados. Nada aqui depende de papel: corretor,
+// atendente e gestor têm exatamente as mesmas opções.
+
+r.patch("/me", authRequired, (req, res) => {
+  const { name, email, phone } = req.body || {};
+  const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!eu) return res.status(404).json({ error: "Conta não encontrada" });
+
+  const nome = String(name ?? eu.name).trim();
+  if (nome.length < 2) return res.status(400).json({ error: "Informe seu nome completo." });
+
+  const mail = norm(email ?? eu.email);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return res.status(400).json({ error: "E-mail inválido." });
+  if (mail !== eu.email && db.prepare("SELECT 1 FROM users WHERE email = ? AND id <> ?").get(mail, eu.id))
+    return res.status(409).json({ error: "Já existe outra conta com esse e-mail." });
+
+  const fone = phone === undefined ? eu.phone : normalizePhone(phone);
+
+  db.prepare("UPDATE users SET name=?, email=?, phone=? WHERE id=?").run(nome, mail, fone, eu.id);
+  const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);
+  // O nome viaja dentro do token e é ele que assina as mensagens no WhatsApp —
+  // então trocar o nome exige um token novo, senão as mensagens sairiam com o antigo.
+  res.json({ token: sign(atualizado), user: publicUser(atualizado) });
+});
+
+r.post("/me/senha", authRequired, (req, res) => {
+  const { atual, nova } = req.body || {};
+  const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!eu) return res.status(404).json({ error: "Conta não encontrada" });
+  if (!bcrypt.compareSync(String(atual || ""), eu.pass_hash))
+    return res.status(403).json({ error: "A senha atual não confere." });
+  if (!nova || String(nova).length < 6)
+    return res.status(400).json({ error: "A nova senha precisa ter pelo menos 6 caracteres." });
+  if (bcrypt.compareSync(String(nova), eu.pass_hash))
+    return res.status(400).json({ error: "A nova senha é igual à atual." });
+
+  db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(bcrypt.hashSync(String(nova), 10), eu.id);
+  res.json({ ok: true });
+});
+
+r.post("/me/foto", authRequired, async (req, res) => {
+  const { mime, base64 } = req.body || {};
+  if (!mime || !base64) return res.status(400).json({ error: "Escolha uma imagem." });
+  if (ehVideo(mime) || !tipoPermitido(mime))
+    return res.status(400).json({ error: "Use uma imagem JPG, PNG ou WEBP." });
+
+  const buffer = Buffer.from(String(base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (buffer.length > 4 * 1024 * 1024)
+    return res.status(413).json({ error: "Imagem muito grande. O limite é 4 MB." });
+
+  const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  try {
+    const { url, chave } = await salvar({ buffer, mime, prefixo: `perfil/${eu.id}` });
+    if (eu.avatar_key) apagar(eu.avatar_key); // não acumula foto antiga
+    db.prepare("UPDATE users SET avatar_url=?, avatar_key=? WHERE id=?").run(url, chave, eu.id);
+    res.json({ ok: true, avatar_url: url });
+  } catch (e) {
+    console.error("[perfil] falha ao salvar foto:", e.message);
+    res.status(500).json({ error: "Não consegui guardar a foto. Tente de novo." });
+  }
+});
+
+r.delete("/me/foto", authRequired, (req, res) => {
+  const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (eu.avatar_key) apagar(eu.avatar_key);
+  db.prepare("UPDATE users SET avatar_url=NULL, avatar_key=NULL WHERE id=?").run(eu.id);
+  res.json({ ok: true });
+});
+
 // Quem já se cadastrou. Gestor e atendente acompanham as confirmações e aprovações.
 // Traz também quantos leads a pessoa tem em aberto — é o que a gestão precisa saber
 // antes de remover alguém: esses leads têm que ir para algum lugar.
 r.get("/users", authRequired, roles("adm", "sdr"), (req, res) => {
   const rows = db.prepare(`
-    SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,
+    SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,u.avatar_url,
       (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id
         AND l.stage NOT IN ('Venda','Perdido')) AS leads_abertos
     FROM users u WHERE u.org_id = ? ORDER BY u.created_at DESC`).all(req.user.org_id);
@@ -239,7 +310,8 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
 
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role,
-           funcao: PAPEIS[u.role].rotulo, org_id: u.org_id, status: u.status, available: !!u.available };
+           funcao: PAPEIS[u.role].rotulo, org_id: u.org_id, status: u.status,
+           available: !!u.available, avatar_url: u.avatar_url || null };
 }
 
 export default r;
