@@ -1512,6 +1512,10 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
 /* ===== EQUIPE E APROVAÇÕES =====
    Corretor entra direto pelo link. Atendente e gestor param aqui esperando
    o aval — são papéis que enxergam a operação inteira. */
+// Papel interno -> valor do formulário. Os dois nomes existem de propósito: o
+// banco herdou adm/sdr, e a equipe fala gestor/atendente.
+const PAPEL_PARA_FORM={corretor:"corretor",sdr:"atendente",adm:"gestor"};
+
 const SELO_STATUS={
   aguardando_aprovacao:{t:"Aguardando sua aprovação",c:"#8a6d1f",bg:C.amberSoft},
   pendente:{t:"Não confirmou o e-mail",c:C.cool,bg:C.coolSoft},
@@ -1603,7 +1607,9 @@ function Equipe({acoes,session,isMobile,versao}){
       {comBotoes&&<div style={{width:"100%",color:C.sub,fontSize:11.5,lineHeight:1.4}}>Confira a função antes de aprovar — dá para corrigir no seletor acima.</div>}
       {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:0,alignItems:"center",flexWrap:"wrap"}}>
         {/* Trocar a função vale em qualquer estado — inclusive antes de aprovar. */}
-        {u.status!=="removido"&&<select value={u.role} onChange={e=>trocarFuncao(u.id,e.target.value)} title="Mudar a função"
+        {/* O banco guarda corretor/sdr/adm; o seletor fala corretor/atendente/gestor.
+            Sem essa tradução, quem é sdr aparecia como "Corretor(a)" na caixinha. */}
+        {u.status!=="removido"&&<select value={PAPEL_PARA_FORM[u.role]||"corretor"} onChange={e=>trocarFuncao(u.id,e.target.value)} title="Mudar a função"
           style={{fontSize:isMobile?16:12,fontWeight:600,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px",outline:"none",cursor:"pointer"}}>
           <option value="corretor">Corretor(a)</option>
           <option value="atendente">Atendente</option>
