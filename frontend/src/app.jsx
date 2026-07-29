@@ -31,61 +31,38 @@ async function api(path,{method="GET",body}={}){
   if(!res.ok) throw new Error(data.error||`Erro ${res.status} ao falar com o servidor.`);
   return data;
 }
+
+/* ===== tradução backend -> telas =====
+   O backend fala em name/phone/stage; as telas nasceram falando nome/tel/status.
+   Traduzimos aqui, num lugar só, em vez de espalhar a mudança por tudo. */
+const QUAL_VAZIA={renda:"—",entrada:"—",situacao:"—",cpf:"—",prazo:"—"};
+function adaptLead(l,anterior){
+  return {
+    id:l.id, nome:l.name||"Sem nome", tel:l.phone||"", email:l.email||"",
+    prio:l.priority||"MORNO", origem:l.origem||"WhatsApp",
+    createdAt:l.created_at, firstRespAt:l.first_resp_at,
+    assignedTo:l.assigned_to, assignedName:l.assigned_name,
+    status:l.stage||"Lead",
+    qual:{...QUAL_VAZIA,...(l.qual||{})},
+    unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
+    venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
+    // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
+    msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
+    carregado:!!l.messages||(anterior?anterior.carregado:false),
+  };
+}
+const adaptMsg=(m)=>({
+  from:m.direction==="in"?"lead":"corretor",
+  text:m.body, at:m.created_at, by:m.from_user_id, byName:m.from_name,
+});
 const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"}};
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
 const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprovação":"#2F80C4","Agendamento":"#7A5AD6","Visita":"#C8912B","Proposta":"#D97706","Venda":"#0A3D30","Perdido":"#B0463A","Recaptação":"#B07C1F","Transferido por ligação":"#5C6B7A"};
 
-/* ===== avanço automático de etapa pela conversa ===== */
-function inferStage(cur, msgs){
-  const i = LINEAR.indexOf(cur);
-  if(i<0) return cur; // etapas manuais (Venda/Perdido/Recaptação/Transferido) não mexem
-  const text = msgs.filter(m=>m.from!=="system").map(m=>(m.text||"").toLowerCase()).join(" ");
-  const leadReplies = msgs.filter(m=>m.from==="lead").length;
-  const has=(arr)=>arr.some(k=>text.includes(k));
-  let t=i;
-  if(msgs.some(m=>m.from==="corretor")||leadReplies>=1) t=Math.max(t,LINEAR.indexOf("Atendimento"));
-  if(has(["documento","documentação","documentacao","pasta","cadastro","comprovante","enviar rg"])) t=Math.max(t,LINEAR.indexOf("Pasta"));
-  if(has(["aprov","crédito","credito","análise","analise","financiamento","banco","caixa","simulação","simulacao"])) t=Math.max(t,LINEAR.indexOf("Aprovação"));
-  if(has(["agendar","agenda","marcar","horário","horario","que dia","sábado","sabado","disponibilidade","podemos marcar"])) t=Math.max(t,LINEAR.indexOf("Agendamento"));
-  if(has(["confirmad","te espero","endereço","endereco","combinado","no local","pode vir"])) t=Math.max(t,LINEAR.indexOf("Visita"));
-  if(has(["proposta","contrato","assinar","valor final","fechar negócio","fechar negocio"])) t=Math.max(t,LINEAR.indexOf("Proposta"));
-  t=Math.min(t,LINEAR.indexOf("Proposta")); // automático nunca fecha como Venda
-  return LINEAR[t];
-}
+/* O avanço automático de etapa agora acontece no backend (services/stages.js).
+   O frontend só exibe a etapa que o servidor devolve — uma fonte da verdade só. */
 
-/* ===== EQUIPE ===== */
-const GESTOR={id:"g1",name:"Ali",ini:"AL",color:C.greenDeep,role:"adm",email:"ali@conecta.com"};
-const SDR={id:"s1",name:"Camila Rocha",ini:"CR",color:"#B07C1F",role:"sdr",email:"camila@conecta.com"};
-const SEED_BROKERS=[
-  {id:"b1",name:"Marina Alves",ini:"MA",color:"#0E8F6E",role:"corretor",email:"marina@conecta.com"},
-  {id:"b2",name:"Rafael Nunes",ini:"RN",color:"#3B7BC4",role:"corretor",email:"rafael@conecta.com"},
-  {id:"b3",name:"Juliana Prado",ini:"JP",color:"#C8912B",role:"corretor",email:"juliana@conecta.com"},
-  {id:"b4",name:"Diego Matos",ini:"DM",color:"#7A5AD6",role:"corretor",email:"diego@conecta.com"},
-];
-const SEED_AVAIL={s1:true,b1:true,b2:true,b3:false,b4:true};
-const SEED_NAMES={g1:"Ali",s1:"Camila",b1:"Marina",b2:"Rafael",b3:"Juliana",b4:"Diego"};
-
-/* ===== LEADS ===== */
-const now=Date.now(), min=(m)=>m*60000, q=(a,b,c,d,e)=>({renda:a,entrada:b,situacao:c,cpf:d,prazo:e});
-let LEAD_SEED=[
-  {nome:"Antônio Marcos",tel:"+55 (87) 99212-8802",prio:"QUENTE",origem:"Instagram",createdAgo:min(9),assignedTo:"b1",status:"Proposta",firstRespMin:3,qual:q("Acima de R$ 5.000","Sim, acima de R$ 15 mil","Servidor público","Não, CPF regular","O mais rápido possível"),msgs:[["lead","Oi, vi o anúncio da casa no Jardim Amazonas",8],["corretor","Oi Antônio! Aqui é a Marina, da Conecta 👋 Posso te passar as condições?",7,"b1"],["lead","Pode sim! Qual o valor da entrada?",5]]},
-  {nome:"Beatriz Carvalho",tel:"+55 (87) 99155-7596",prio:"QUENTE",origem:"Facebook",createdAgo:min(40),assignedTo:"b1",status:"Agendamento",firstRespMin:6,qual:q("Entre R$ 3.501 e R$ 5.000","Sim, entre R$ 5 mil e R$ 15 mil","CLT","Não, CPF regular","Nos próximos 3 meses"),msgs:[["corretor","Oi Beatriz! Podemos marcar uma visita no sábado?",38,"b1"],["lead","Adorei! Consigo visitar sábado sim",30]]},
-  {nome:"Jackson Silva",tel:"+55 (74) 98112-1382",prio:"QUENTE",origem:"Instagram",createdAgo:min(70),assignedTo:"b2",status:"Venda",firstRespMin:4,qual:q("Acima de R$ 5.000","Sim, acima de R$ 15 mil","Autônomo","Não, CPF regular","O mais rápido possível"),msgs:[["corretor","Oi Jackson, aqui é o Rafael da Conecta!",68,"b2"],["lead","Fechado, quero seguir com a proposta",20]]},
-  {nome:"Aline Souza",tel:"+55 (87) 98158-9003",prio:"QUENTE",origem:"Facebook",createdAgo:min(120),assignedTo:"b2",status:"Visita",firstRespMin:9,qual:q("Acima de R$ 5.000","Sim, entre R$ 5 mil e R$ 15 mil","Servidor público","CPF regularizado","Nos próximos 3 meses"),msgs:[["corretor","Oi Aline! Visita confirmada, te espero no local 🏡",110,"b2"]]},
-  {nome:"Ednaldo Gomes",tel:"+55 (87) 99151-3193",prio:"MORNO",origem:"Instagram",createdAgo:min(30),assignedTo:"b3",status:"Atendimento",firstRespMin:12,qual:q("Entre R$ 2.001 e R$ 3.500","Sim, até R$ 5 mil","CLT","Não, CPF regular","Entre 3 e 6 meses"),msgs:[["corretor","Oi Ednaldo! Aqui é a Juliana da Conecta 🙂",28,"b3"],["lead","Oi! Ainda tô pesquisando",15]]},
-  {nome:"Raquel Oliveira",tel:"+55 (87) 98866-4969",prio:"MORNO",origem:"Facebook",createdAgo:min(55),assignedTo:"b3",status:"Recaptação",firstRespMin:20,qual:q("Entre R$ 3.501 e R$ 5.000","Sim, até R$ 5 mil","Autônomo","Não, CPF regular","Entre 3 e 6 meses"),msgs:[["corretor","Oi Raquel! Consegue falar por aqui?",50,"b3"]]},
-  {nome:"Lucas Henrique",tel:"+55 (87) 98834-3139",prio:"MORNO",origem:"Instagram",createdAgo:min(15),assignedTo:"b4",status:"Pasta",firstRespMin:8,qual:q("Entre R$ 2.001 e R$ 3.500","Não tenho entrada","CLT","Não, CPF regular","Nos próximos 3 meses"),msgs:[["corretor","Oi Lucas! Me envia sua documentação pra montar a pasta?",13,"b4"],["lead","Opa! Mando sim",10]]},
-  {nome:"Silvanda Rodrigues",tel:"+55 (87) 99199-5225",prio:"MORNO",origem:"Facebook",createdAgo:min(200),assignedTo:"b4",status:"Perdido",firstRespMin:45,qual:q("Até R$ 2.000","Não tenho entrada","Desempregado","Tem restrição","Só pesquisando"),msgs:[["corretor","Oi Silvanda! Posso te ajudar?",190,"b4"]]},
-  {nome:"Anderson Augusto",tel:"+55 (87) 99159-6170",prio:"MORNO",origem:"Instagram",createdAgo:min(22),assignedTo:"b1",status:"Aprovação",firstRespMin:5,qual:q("Entre R$ 3.501 e R$ 5.000","Sim, até R$ 5 mil","CLT","Não, CPF regular","Entre 3 e 6 meses"),msgs:[["corretor","Oi Anderson! Já mandei sua simulação de crédito pro banco 🏦",20,"b1"],["lead","Show! Qual a parcela?",12]]},
-  {nome:"Marcos Vinícius",tel:"+55 (87) 98701-2244",prio:"MORNO",origem:"Instagram",createdAgo:min(90),assignedTo:"b2",status:"Transferido por ligação",firstRespMin:15,qual:q("Entre R$ 3.501 e R$ 5.000","Sim, até R$ 5 mil","Autônomo","Não, CPF regular","Nos próximos 3 meses"),msgs:[["corretor","Oi Marcos! Te liguei agora há pouco 📞",80,"b2"]]},
-  {nome:"Patrícia Nunes",tel:"+55 (87) 99633-1050",prio:"QUENTE",origem:"Instagram",createdAgo:min(18),assignedTo:"s1",status:"Atendimento",firstRespMin:7,qual:q("Acima de R$ 5.000","Sim, entre R$ 5 mil e R$ 15 mil","CLT","Não, CPF regular","O mais rápido possível"),msgs:[["corretor","Oi Patrícia! Aqui é a Camila, da Conecta 👋",16,"s1"],["lead","Oi! Quero saber mais sobre a casa",12]]},
-  // fila da SDR (não atribuídos)
-  {nome:"Fernanda Camila",tel:"+55 (87) 99942-4151",prio:"QUENTE",origem:"Instagram",createdAgo:min(2),assignedTo:null,status:"Lead",firstRespMin:null,qual:q("Acima de R$ 5.000","Sim, acima de R$ 15 mil","Servidor público","Não, CPF regular","O mais rápido possível"),msgs:[]},
-  {nome:"Wesley Roberto",tel:"+55 (87) 98834-2383",prio:"MORNO",origem:"Facebook",createdAgo:min(1),assignedTo:null,status:"Lead",firstRespMin:null,qual:q("Entre R$ 2.001 e R$ 3.500","Sim, até R$ 5 mil","Autônomo","Não, CPF regular","Nos próximos 3 meses"),msgs:[]},
-  {nome:"Eveline Lima",tel:"+55 (74) 98825-4449",prio:"QUENTE",origem:"Instagram",createdAgo:min(4),assignedTo:null,status:"Lead",firstRespMin:null,qual:q("Acima de R$ 5.000","Sim, entre R$ 5 mil e R$ 15 mil","CLT","Não, CPF regular","O mais rápido possível"),msgs:[]},
-].map((l,i)=>({id:"l"+(i+1),createdAt:now-l.createdAgo,firstRespAt:l.firstRespMin!=null?now-l.createdAgo+min(l.firstRespMin):null,...l,
-  msgs:l.msgs.map(m=>({from:m[0],text:m[1],at:now-min(m[2]),by:m[3]||null}))}));
 
 const TEMPLATES=[
   {t:"Primeiro contato (forte)",body:"Oi {nome}! Aqui é o time da Conecta Imóveis. Você se cadastrou pra realizar o sonho da casa própria no Jardim Amazonas e eu não quero que você perca as condições dessa fase. Posso te mostrar agora quanto ficaria a sua entrada e a parcela que cabe no seu bolso?"},
@@ -111,8 +88,25 @@ const useIsCompact=()=>useMedia(`(max-width:${COMPACT_BP}px)`);
 const fmtAge=(ms)=>{const s=Math.max(0,Math.floor(ms/1000));if(s<60)return s+"s";const m=Math.floor(s/60);if(m<60)return m+" min";return Math.floor(m/60)+"h "+(m%60)+"min";};
 const ageColor=(ms)=>{const m=ms/60000;return m<2?C.green:m<10?C.amber:C.hot;};
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-const initials=(n)=>n.split(" ").map(x=>x[0]).slice(0,2).join("").toUpperCase();
-const first=(n)=>n.split(" ")[0];
+const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
+const first=(n)=>String(n||"").split(" ")[0];
+// O backend guarda 5587991234567; aqui mostramos legível.
+function fmtTel(t){
+  const d=String(t||"").replace(/\D/g,"");
+  if(d.length===13) return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
+  if(d.length===12) return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
+  return t||"—";
+}
+const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
+// Abre o discador do celular com o número já preenchido.
+function BotaoLigar({tel,compacto}){
+  if(!tel) return null;
+  return <a href={"tel:+"+String(tel).replace(/\D/g,"")} title="Ligar para o lead" aria-label="Ligar"
+    style={{display:"flex",alignItems:"center",gap:6,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:12,fontWeight:600,padding:compacto?"8px":"7px 12px",borderRadius:10}}>
+    <Icon n="phone" size={14}/>{!compacto&&"Ligar"}
+  </a>;
+}
 
 /* ===== ícones (SVG inline) ===== */
 const ICO={
@@ -237,43 +231,86 @@ function toSession(u){
   return {id:u.id,name:u.name,email:u.email,role:u.role,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
-// Os leads ainda são de exemplo (a Meta não está ligada). Para o corretor conseguir
-// explorar a ferramenta, passamos para ele os leads que no protótipo eram dos fictícios.
-function personalizar(leads,s){
-  if(s.role==="adm") return leads;
-  const meus = s.role==="sdr" ? ["s1"] : ["b1","b2","b3","b4"];
-  return leads.map(l=>{
-    if(!l.assignedTo||!meus.includes(l.assignedTo)) return l;
-    return {...l,assignedTo:s.id,
-      msgs:l.msgs.map(m=>m.by&&meus.includes(m.by)?{...m,by:s.id,byName:first(s.name)}:m)};
-  });
-}
+const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
 function ConCRM(){
-  const [brokers]=useState(SEED_BROKERS);
-  const [avail,setAvail]=useState(SEED_AVAIL);
-  const [conecta,setConecta]=useState({connected:true,number:"+55 (87) 3021-9000"});
-  const [leads,setLeads]=useState(LEAD_SEED);
   const [session,setSession]=useState(null);
   const [carregando,setCarregando]=useState(!!TOKEN);
+  const [leads,setLeads]=useState([]);
+  const [fila,setFila]=useState([]);
+  const [equipe,setEquipe]=useState([]);
+  const [conecta,setConecta]=useState({connected:false,number:""});
+  const [erro,setErro]=useState("");
+  const [selId,setSelId]=useState(null);
+  const selRef=useRef(null); selRef.current=selId;
 
-  // Se já existe token guardado, entra direto — sem pedir senha de novo.
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
-    api("/auth/me").then(d=>entrar(d.user)).catch(()=>setToken(null)).finally(()=>setCarregando(false));
+    api("/auth/me").then(d=>setSession(toSession(d.user))).catch(()=>setToken(null)).finally(()=>setCarregando(false));
   },[]);
 
-  function entrar(u){
-    const s=toSession(u);
-    setLeads(personalizar(LEAD_SEED,s));
-    setAvail(p=>({...p,[s.id]:p[s.id]!==undefined?p[s.id]:true}));
-    setSession(s);
+  // Mescla a lista nova preservando as conversas já baixadas, para não piscar a tela.
+  const mesclar=(novos)=>setLeads(ant=>{
+    const antes=new Map(ant.map(l=>[l.id,l]));
+    return novos.map(l=>adaptLead(l,antes.get(l.id)));
+  });
+
+  async function recarregar(){
+    if(!session) return;
+    try{
+      const [ls,eq]=await Promise.all([
+        api("/leads"),
+        session.role==="corretor"?Promise.resolve(null):api("/distribution/attendants"),
+      ]);
+      mesclar(ls);
+      if(eq) setEquipe(eq);
+      if(session.role!=="corretor") setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
+      setErro("");
+    }catch(e){ setErro(e.message); }
   }
-  function sair(){ setToken(null); setSession(null); }
+
+  useEffect(()=>{ if(!session) return; recarregar();
+    api("/integracoes").then(d=>setConecta({connected:!!(d.whatsapp&&d.whatsapp.ok),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
+    const t=setInterval(()=>{ recarregar(); if(selRef.current) abrir(selRef.current,true); },INTERVALO_ATUALIZACAO);
+    return ()=>clearInterval(t);
+  },[session]);
+
+  // Abre a conversa: baixa as mensagens e marca como lida (o backend ignora a marcação
+  // quando é a ADM supervisionando lead de outra pessoa).
+  async function abrir(id,silencioso){
+    if(!silencioso) setSelId(id);
+    try{
+      const full=await api(`/leads/${id}`);
+      setLeads(ant=>{
+        const achou=ant.some(l=>l.id===id);
+        const atualizado=ant.map(l=>l.id===id?adaptLead(full,l):l);
+        return achou?atualizado:[adaptLead(full),...ant];
+      });
+      if(!silencioso) api(`/leads/${id}/read`,{method:"POST"}).then(()=>recarregar()).catch(()=>{});
+    }catch(e){ if(!silencioso) setErro(e.message); }
+  }
+
+  const acao=(fn)=>async(...a)=>{ try{ await fn(...a); await recarregar(); if(selRef.current) await abrir(selRef.current,true); }
+                                  catch(e){ setErro(e.message); } };
+
+  const acoes={
+    enviar:acao((leadId,text)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text}})),
+    mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
+    registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
+    transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
+    proximo:acao((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
+    repassar:acao((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
+    disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
+    buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
+    relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
+    abrir,
+  };
+
+  function sair(){ setToken(null); setSession(null); setLeads([]); setFila([]); }
 
   if(carregando) return <Splash/>;
-  if(!session) return <Auth onLogin={entrar}/>;
-  return <Workspace {...{session,setSession:sair,brokers,avail,setAvail,conecta,setConecta,leads,setLeads}}/>;
+  if(!session) return <Auth onLogin={(u)=>setSession(toSession(u))}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro}}/>;
 }
 
 function Splash(){
@@ -283,73 +320,50 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta,leads,setLeads}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
-  const attendants=[...brokers,SDR]; // a SDR também atende
   const [view,setView]=useState(role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
-  const [selId,setSelId]=useState(null);
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
-  const [repBroker,setRepBroker]=useState(brokers[0].id);
-  const [ptr,setPtr]=useState(0);
-  const [handoffPtr,setHandoffPtr]=useState(0);
+  const [enviando,setEnviando]=useState(false);
   const chatRef=useRef(null);
   const isMobile=useIsMobile();
 
+  // Cores e iniciais da equipe real, derivadas do id — estáveis entre sessões.
+  const pessoas=useMemo(()=>equipe.map(u=>({...u,ini:initials(u.name),
+    color:COLORS[[...u.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]})),[equipe]);
+  const corretores=pessoas.filter(p=>p.role==="corretor");
+  const disponiveis=pessoas.filter(p=>p.available);
+  const availCorretores=corretores.filter(p=>p.available);
+  const euDisponivel=(pessoas.find(p=>p.id===session.id)||{}).available;
+
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[selId,leads]);
-  // No desktop já abrimos o primeiro lead; no celular o corretor começa vendo a lista.
-  useEffect(()=>{if(canAttend&&!selId&&!isMobile){const fst=leads.find(l=>l.assignedTo===session.id);if(fst)setSelId(fst.id);}},[]);
 
-  const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id).sort((a,b)=>{const o={QUENTE:0,MORNO:1,FRIO:2};return o[a.prio]-o[b.prio]||b.createdAt-a.createdAt;}),[leads,session,tick]);
+  const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
+    .sort((a,b)=>{const o={QUENTE:0,MORNO:1,FRIO:2};
+      // Quem está esperando resposta sobe na lista, independente da temperatura.
+      return (b.unread>0)-(a.unread>0)||o[a.prio]-o[b.prio]||b.createdAt-a.createdAt;}),[leads,session,tick]);
   const sel=leads.find(l=>l.id===selId);
 
-  function applyMsg(leadId, entry, simulateReply){
-    setLeads(prev=>prev.map(l=>{
-      if(l.id!==leadId)return l;
-      const msgs=[...l.msgs,entry];
-      let status=l.status, firstRespAt=l.firstRespAt;
-      if(entry.from==="corretor"&&firstRespAt==null&&!l.msgs.some(m=>m.from==="corretor"))firstRespAt=Date.now();
-      const inf=inferStage(status,msgs);
-      if(inf!==status){msgs.push({from:"system",text:"Etapa atualizada automaticamente para "+inf,at:Date.now()});status=inf;}
-      return {...l,msgs,status,firstRespAt};
-    }));
-    if(simulateReply){
-      setTimeout(()=>applyMsg(leadId,{from:"lead",text:"Que ótimo! Tenho interesse 😊 me explica como funciona a entrada e o agendamento da visita?",at:Date.now()},false),1600);
-    }
-  }
-  function send(){
-    if(!draft.trim()||!sel)return;
+  async function send(){
+    if(!draft.trim()||!sel||enviando)return;
     const text=draft.replace("{nome}",first(sel.nome));
-    const replies=sel.msgs.filter(m=>m.from==="lead").length;
-    applyMsg(sel.id,{from:"corretor",text,at:Date.now(),by:session.id,byName:first(session.name)}, replies<2);
-    setDraft("");
+    setEnviando(true); setDraft("");
+    try{ await acoes.enviar(sel.id,text); }finally{ setEnviando(false); }
   }
-  const setStatus=(id,status)=>setLeads(prev=>prev.map(l=>l.id===id?{...l,status}:l));
-  const openLead=(id)=>{setSelId(id);setView("atendimento");};
-  const toggleAvail=(id)=>setAvail(p=>({...p,[id]:!p[id]}));
-  const transfer=(leadId,bId)=>setLeads(prev=>prev.map(l=>l.id===leadId?{...l,assignedTo:bId}:l));
-  function catracaNext(leadId){
-    const avl=attendants.filter(b=>avail[b.id]);
-    if(!avl.length)return;
-    const b=avl[ptr%avl.length];setPtr(ptr+1);transfer(leadId,b.id);
-  }
-  // SDR faz o 1º atendimento e repassa: o lead vai para o corretor da vez e sai do inbox dela.
-  const availCorretores=brokers.filter(b=>avail[b.id]); // brokers = apenas corretores
-  function handoffNext(leadId){
-    if(!availCorretores.length)return;
-    const b=availCorretores[handoffPtr%availCorretores.length];setHandoffPtr(handoffPtr+1);
-    transfer(leadId,b.id);setSelId(p=>p===leadId?null:p);
-  }
-  function handoffTo(leadId,bId){transfer(leadId,bId);setSelId(p=>p===leadId?null:p);}
+  const setStatus=(id,status)=>acoes.mudarEtapa(id,status);
+  const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
+  const toggleAvail=(id,estaDisponivel)=>acoes.disponibilidade(id,!estaDisponivel);
 
   const NAV={
-    adm:[["dashboard","grid","Painel"],["relatorios","chart","Relatórios"],["conexao","phone2","Conexão"]],
+    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["relatorios","chart","Relatórios"],["conexao","phone2","Conexão"]],
     sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
     corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role];
-  const TITLES={dashboard:"Painel da equipe",relatorios:"Relatório por corretor",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",equipe:"Equipe & disponibilidade",atendimento:"Atendimento",funil:"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatório por corretor",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
 
   const roleLabel=role==="adm"?"Administração":role==="sdr"?"SDR":"Corretor(a)";
 
@@ -358,7 +372,11 @@ function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta
       <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",marginBottom:4}}><Icon n="dot" size={20}/></div>
       <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Con<br/>CRM</div>
       <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
-        {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}><Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span></button>)}
+        {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{position:"relative",width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}>
+          <Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span>
+          {v==="atendimento"&&naoLidas>0&&<Badge n={naoLidas} top={4} right={8}/>}
+          {v==="catraca"&&fila.length>0&&<Badge n={fila.length} top={4} right={8}/>}
+        </button>)}
       </div>
       <button onClick={()=>setSession(null)} title="Sair" style={{width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,.55)",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}><Icon n="logout" size={18}/><span style={{fontSize:9}}>Sair</span></button>
     </aside>}
@@ -366,10 +384,9 @@ function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:17,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1>
-          {/* Enquanto a Meta não estiver ligada, os leads são de exemplo — ninguém pode confundir com cliente real. */}
-          <span style={{color:"#8a6d1f",background:C.amberSoft,border:`1px solid ${C.amber}44`,fontSize:isMobile?10:11,fontWeight:700,padding:"3px 8px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>
-            {isMobile?"Leads de exemplo":"Leads de exemplo — a Meta ainda não está conectada"}
-          </span>
+          {!isMobile&&<span style={{color:conecta.connected?C.greenMid:C.hot,background:conecta.connected?C.greenSoft:C.hotSoft,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
+            <Icon n={conecta.connected?"wifi":"wifioff"} size={11}/>{conecta.connected?"WhatsApp conectado":"WhatsApp desconectado"}
+          </span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
           {!isMobile&&<div style={{textAlign:"right"}}><div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div><div style={{color:C.faint,fontSize:10.5}}>{roleLabel}</div></div>}
@@ -377,34 +394,70 @@ function Workspace({session,setSession,brokers,avail,setAvail,conecta,setConecta
           {isMobile&&<button onClick={()=>setSession(null)} title="Sair" aria-label="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="logout" size={16}/></button>}
         </div>
       </header>
+      {erro&&<div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}44`,color:C.hot,fontSize:12.5,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+        <Icon n="wifioff" size={14}/><span style={{flex:1}}>{erro}</span>
+        <button onClick={()=>setErro("")} style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",fontWeight:700}}>×</button>
+      </div>}
       <div style={{flex:1,minHeight:0}}>
-        {canAttend&&view==="atendimento"&&<Atendimento {...{myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef,conecta,session,canHandoff:role==="sdr",handoffNext,handoffTo,availCorretores,isMobile}}/>}
+        {canAttend&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:role==="sdr",availCorretores,isMobile}}/>}
         {canAttend&&view==="funil"&&<Funil leads={myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile}/>}
-        {canAttend&&view==="disp"&&<Disponibilidade avail={avail[session.id]} toggle={()=>toggleAvail(session.id)} name={session.name}/>}
-        {canAttend&&view==="produtividade"&&<Produtividade leads={leads} broker={session} isMobile={isMobile}/>}
-        {role==="sdr"&&view==="catraca"&&<Catraca {...{leads,brokers:attendants,avail,toggleAvail,transfer,catracaNext,isMobile}}/>}
-        {role==="adm"&&view==="dashboard"&&<Dashboard {...{leads,brokers:attendants,avail,setRepBroker,setView,isMobile}}/>}
-        {role==="adm"&&view==="relatorios"&&<Produtividade leads={leads} broker={attendants.find(b=>b.id===repBroker)} pickable brokers={attendants} repBroker={repBroker} setRepBroker={setRepBroker} isMobile={isMobile}/>}
-        {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta} setConecta={setConecta}/>}
+        {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name}/>}
+        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
+        {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
+        {role==="adm"&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
+        {role==="adm"&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile}}/>}
+        {role==="adm"&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
+        {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
     {isMobile&&<nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"env(safe-area-inset-bottom)"}}>
-      {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} style={{flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+      {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
         <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
+        {v==="atendimento"&&naoLidas>0&&<Badge n={naoLidas} top={4} right={"22%"}/>}
+        {v==="catraca"&&fila.length>0&&<Badge n={fila.length} top={4} right={"22%"}/>}
       </button>)}
     </nav>}
   </div>;
 }
 
+function Badge({n,top,right}){
+  return <span style={{position:"absolute",top,right,minWidth:16,height:16,padding:"0 4px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{n>9?"9+":n}</span>;
+}
+
+/* ===== item da lista de leads =====
+   Não lida em destaque: nome em negrito, fundo levemente verde e contador.
+   É o sinal de "o cliente está esperando" que o Ali pediu. */
+function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
+  const naoLida=l.unread>0, espera=Date.now()-(l.lastAt||l.createdAt);
+  return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
+      <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+        {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{l.unread}</span>}
+        <Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill>
+      </div>
+    </div>
+    <span style={{color:naoLida?C.ink:C.faint,fontWeight:naoLida?500:400,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+      {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:"Novo lead — sem contato"}
+    </span>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+      {naoLida
+        ?<span style={{display:"flex",alignItems:"center",gap:4,color:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600}}><Icon n="timer" size={12} color={ageColor(espera)}/>aguardando há {fmtAge(espera)}</span>
+        :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
+      {mostrarDono&&<span style={{color:C.faint,fontSize:10.5}}>{l.assignedName||"na fila"}</span>}
+    </div>
+  </button>;
+}
+
 /* ===== ATENDIMENTO ===== */
-function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef,conecta,session,canHandoff,handoffNext,handoffTo,availCorretores,isMobile}){
+function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile}){
   const [filter,setFilter]=useState("Todos");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
-  const list=myLeads.filter(l=>filter==="Todos"?true:filter==="Aguardando"?l.firstRespAt==null:l.prio===filter.toUpperCase());
-  const openChat=(id)=>{setSelId(id);setPane("chat");};
+  const list=myLeads.filter(l=>filter==="Todos"?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase());
+  const openChat=(id)=>{abrir(id);setPane("chat");};
   // Se o lead sai da conta (repasse da SDR), volta sozinho para a lista.
   useEffect(()=>{if(!sel&&pane!=="lista")setPane("lista");},[sel,pane]);
   const showList=!isMobile||pane==="lista";
@@ -419,12 +472,7 @@ function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
-        {list.map(l=>{const active=!isMobile&&sel&&sel.id===l.id,waiting=l.firstRespAt==null,age=Date.now()-l.createdAt,last=l.msgs.filter(m=>m.from!=="system").slice(-1)[0];
-          return <button key={l.id} onClick={()=>openChat(l.id)} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${active?C.green:"transparent"}`,background:active?C.greenSoft:"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span><Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill></div>
-            <span style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{last?(last.from==="lead"?"":"Você: ")+last.text:"Novo lead — sem contato"}</span>
-            {waiting?<div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}><Icon n="timer" size={12} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:11,fontWeight:600}}>aguardando há {fmtAge(age)}</span></div>:<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,alignSelf:"flex-start",marginTop:2}}>{l.status}</span>}
-          </button>;})}
+        {list.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
       </div>
     </div>}
     {showChat&&<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
@@ -432,17 +480,20 @@ function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:12,minWidth:0}}>
           {isMobile&&backBtn(()=>setPane("lista"),"Voltar para a lista")}
           <Avatar ini={initials(sel.nome)} color={PRIO[sel.prio].c} size={36}/>
-          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{sel.tel}</div></div>
+          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}</div></div>
         </div>
-        {fichaPorBotao
-          ?<button onClick={()=>setPane("ficha")} style={{flexShrink:0,display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>
-          :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4,flexShrink:0}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
+        <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
+          <BotaoLigar tel={sel.tel} compacto={isMobile}/>
+          {fichaPorBotao
+            ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>
+            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
+        </div>
       </div>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
           if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,margin:"2px 0"}}>{m.text}</div>;
-          const mine=m.from==="corretor";const senderName=m.byName||SEED_NAMES[m.by]||first(session.name);
+          const mine=m.from==="corretor";const senderName=m.byName||first(session.name);
           return <div key={i} style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{senderName} · Conecta</div>}
@@ -455,7 +506,7 @@ function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={isMobile?"Escreva a mensagem…":"Escreva a mensagem…  ({nome} vira o primeiro nome do lead)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
-          <button onClick={send} style={{width:44,height:44,borderRadius:12,border:"none",cursor:"pointer",background:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="send" size={18}/></button>
+          <button onClick={send} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
         </div>
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
       </div>
@@ -470,10 +521,10 @@ function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
-          <button onClick={()=>handoffNext(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> Passar para o corretor da vez</button>
+          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> Passar para o corretor da vez</button>
           <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-            {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>handoffTo(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
+            {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
           </div>
         </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
@@ -482,12 +533,58 @@ function Atendimento({myLeads,sel,setSelId,draft,setDraft,send,setStatus,chatRef
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {[["Renda familiar",sel.qual.renda,"target"],["Entrada",sel.qual.entrada,"check"],["Situação",sel.qual.situacao,"users"],["Restrição CPF",sel.qual.cpf,"award"],["Prazo p/ comprar",sel.qual.prazo,"calendar"]].map(([k,v,n])=><div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
         </div>
+        <FichaVenda lead={sel} onSalvar={(d)=>acoes.registrarVenda(sel.id,d)}/>
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="clock" size={12} color={C.faint}/> entrou há {fmtAge(Date.now()-sel.createdAt)}</div>
         </div>
       </div>
     </div>}
+  </div>;
+}
+
+/* ===== REGISTRO DE VENDA (pedido do Ali: valor, data e qual imóvel) ===== */
+function FichaVenda({lead,onSalvar}){
+  const v=lead.venda;
+  const [aberto,setAberto]=useState(false);
+  const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:""});
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ setAberto(false); setErro("");
+    setF({valor:v?String(v.valor):"",data:v&&v.data?new Date(v.data).toISOString().slice(0,10):new Date().toISOString().slice(0,10),imovel:v&&v.imovel||""});
+  },[lead.id]);
+
+  async function salvar(){
+    const valor=Number(String(f.valor).replace(/\./g,"").replace(",","."));
+    if(!isFinite(valor)||valor<=0) return setErro("Informe o valor da venda.");
+    setErro(""); await onSalvar({valor,data:f.data,imovel:f.imovel}); setAberto(false);
+  }
+
+  if(v&&!aberto) return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginTop:14}}>
+    <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:8}}><Icon n="check" size={13} color={C.greenMid}/> Venda registrada</div>
+    <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
+    <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||"Imóvel não informado"} · {fmtData(v.data)}</div>
+    <button onClick={()=>setAberto(true)} style={{marginTop:8,border:"none",background:"transparent",color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Editar registro</button>
+  </div>;
+
+  if(!aberto) return <button onClick={()=>setAberto(true)} style={{width:"100%",marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,fontSize:12.5,fontWeight:600,padding:"10px",borderRadius:12,cursor:"pointer"}}><Icon n="award" size={14}/> Registrar venda</button>;
+
+  return <div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginTop:14}}>
+    <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:8}}>Registrar venda</div>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Valor do imóvel</label>
+    <input value={f.valor} onChange={e=>setF({...f,valor:e.target.value})} inputMode="decimal" placeholder="285000"
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Data da venda</label>
+    <input type="date" value={f.data} onChange={e=>setF({...f,data:e.target.value})}
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Qual imóvel</label>
+    <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder="Ex.: Jardim Amazonas — Casa 14"
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:6}}>
+      <button onClick={salvar} style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+      <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</div>
   </div>;
 }
 
@@ -534,16 +631,19 @@ function Disponibilidade({avail,toggle,name}){
 }
 
 /* ===== CATRACA (SDR) ===== */
-function Catraca({leads,brokers,avail,toggleAvail,transfer,catracaNext,isMobile}){
-  const novos=leads.filter(l=>l.assignedTo===null).sort((a,b)=>({QUENTE:0,MORNO:1,FRIO:2}[a.prio]-{QUENTE:0,MORNO:1,FRIO:2}[b.prio]));
-  const disp=brokers.filter(b=>avail[b.id]);
+function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
+  const novos=[...fila].sort((a,b)=>({QUENTE:0,MORNO:1,FRIO:2}[a.prio]-{QUENTE:0,MORNO:1,FRIO:2}[b.prio]));
+  const brokers=pessoas, disp=disponiveis;
+  const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
+  const catracaNext=(leadId)=>acoes.proximo(leadId);
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
       {/* roster de disponibilidade */}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {brokers.map(b=>{const on=avail[b.id];return <button key={b.id} onClick={()=>toggleAvail(b.id)} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
+          {brokers.length===0&&<span style={{color:C.faint,fontSize:12}}>Ninguém cadastrado ainda — mande o link de cadastro para a equipe.</span>}
+          {brokers.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on)} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
             <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span><Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
         </div>
         <div style={{color:C.faint,fontSize:11,marginTop:8}}>Clique para marcar quem falou com você e está pronto para atender. Só quem está verde entra na catraca.</div>
@@ -558,7 +658,7 @@ function Catraca({leads,brokers,avail,toggleAvail,transfer,catracaNext,isMobile}
           return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <Avatar ini={initials(l.nome)} color={PRIO[l.prio].c} size={38}/>
-              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span><Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill></div><div style={{color:C.faint,fontSize:11.5}}>{l.qual.renda} · {l.qual.prazo}</div></div>
+              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span><Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill></div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:4,marginRight:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
               {/* no celular o botão desce para a linha de baixo, em largura total */}
               {!isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:12,fontWeight:600,padding:"8px 12px",borderRadius:10,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><Icon n="transfer" size={14}/> Próximo</button>}
@@ -566,11 +666,95 @@ function Catraca({leads,brokers,avail,toggleAvail,transfer,catracaNext,isMobile}
             {isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{width:"100%",marginTop:10,background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:13,fontWeight:600,padding:"11px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> Passar para o próximo</button>}
             <div style={{display:"flex",alignItems:"center",gap:6,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.line}`,flexWrap:"wrap"}}>
               <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Transferir para:</span>
-              {disp.length?disp.map(b=><button key={b.id} onClick={()=>transfer(l.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11.5}}>Ninguém disponível — marque um corretor acima.</span>}
+              {disp.length?disp.map(b=><button key={b.id} onClick={()=>transfer(l.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11.5}}>Ninguém disponível — marque um atendente acima.</span>}
             </div>
           </div>;})}
       </div>
     </div>
+  </div>;
+}
+
+/* ===== CONVERSAS (ADM) =====
+   Acesso irrestrito: a ADM abre a conversa de qualquer corretor, com filtros
+   para analisar atendimento por atendimento. Somente leitura — supervisionar
+   não marca a conversa como lida, para não apagar o aviso do corretor. */
+function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
+  const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:""});
+  const [lista,setLista]=useState([]);
+  const [carregando,setCarregando]=useState(true);
+  const [pane,setPane]=useState("lista");
+  const [busca,setBusca]=useState("");
+
+  useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
+  useEffect(()=>{
+    let vivo=true; setCarregando(true);
+    const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
+    acoes.buscar(params).then(r=>{if(vivo){setLista(r);setCarregando(false);}}).catch(()=>vivo&&setCarregando(false));
+    return()=>{vivo=false;};
+  },[f.atendente,f.etapa,f.prioridade,f.q]);
+
+  const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
+  const mostrarLista=!isMobile||pane==="lista";
+  const mostrarChat=sel&&(!isMobile||pane==="chat");
+  const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    <option value="">{label}</option>
+    {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+  </select>;
+
+  return <div style={{height:"100%",display:"flex",minHeight:0}}>
+    {mostrarLista&&<div style={{width:isMobile?"100%":340,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
+      <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
+          <Icon n="search" size={15} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {selo("Todo mundo",f.atendente,"atendente",[{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
+          {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+        </div>
+        <div style={{color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${lista.length} conversa(s)`}</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        {!carregando&&lista.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
+        {lista.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono/>)}
+      </div>
+    </div>}
+
+    {mostrarChat?<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
+      <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        {isMobile&&<button onClick={()=>setPane("lista")} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
+        <Avatar ini={initials(sel.nome)} color={PRIO[sel.prio].c} size={36}/>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
+        </div>
+        <BotaoLigar tel={sel.tel} compacto/>
+      </div>
+      <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,padding:"6px 14px",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+        <Icon n="lock" size={12}/> Modo supervisão — somente leitura. Abrir aqui não marca a conversa como lida para o corretor.
+      </div>
+      <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
+        {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
+        {sel.msgs.map((m,i)=>{
+          const meu=m.from==="corretor";
+          return <div key={i} style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
+            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
+              {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{m.byName||"Conecta"}</div>}
+              {m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
+            </div>
+          </div>;})}
+      </div>
+      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:"10px 14px",display:"flex",gap:14,flexWrap:"wrap",flexShrink:0}}>
+        {[["Etapa",sel.status],["Entrou há",fmtAge(Date.now()-sel.createdAt)],["Origem",sel.origem],
+          ["Venda",sel.venda?fmtMoeda(sel.venda.valor):"—"]].map(([k,v])=>
+          <div key={k}><div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{v}</div></div>)}
+      </div>
+    </div>:(!isMobile&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
+    </div>)}
   </div>;
 }
 
@@ -589,27 +773,23 @@ function Equipe({brokers,avail,toggleAvail,leads}){
 }
 
 /* ===== CONEXÃO (ADM, número único) ===== */
-function Conexao({conecta,setConecta}){
-  const [num,setNum]=useState("");const [busy,setBusy]=useState(false);
+function Conexao({conecta}){
   const isMobile=useIsMobile();
-  function connect(){if(!num.trim())return;setBusy(true);setTimeout(()=>{setConecta({connected:true,number:num});setBusy(false);setNum("");},1300);}
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:24}}>
     <div style={{maxWidth:560,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
-        <div style={{background:conecta.connected?C.greenSoft:C.amberSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:conecta.connected?C.green:C.amber}}><Icon n={conecta.connected?"wifi":"phone2"} size={28}/></div>
-        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{conecta.connected?"WhatsApp da Conecta conectado":"Conectar o WhatsApp da Conecta"}</div>
+        <div style={{background:conecta.connected?C.greenSoft:C.hotSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:conecta.connected?C.green:C.hot}}><Icon n={conecta.connected?"wifi":"wifioff"} size={28}/></div>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{conecta.connected?"WhatsApp da Conecta conectado":"WhatsApp desconectado"}</div>
         {conecta.connected?<React.Fragment>
           <div style={{color:C.sub,fontSize:13,marginTop:4}}>Todos os corretores atendem por este número:</div>
-          <div style={{color:C.green,fontFamily:MONO,fontSize:16,fontWeight:600,margin:"8px 0"}}>{conecta.number}</div>
+          <div style={{color:C.green,fontFamily:MONO,fontSize:16,fontWeight:600,margin:"8px 0"}}>{fmtTel(conecta.number)}</div>
           <Pill c={C.greenMid} bg={C.greenSoft}>Ativo via Uazapi</Pill>
-          <div><button onClick={()=>setConecta({connected:false,number:""})} style={{marginTop:16,background:"transparent",color:C.hot,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Desconectar</button></div>
-        </React.Fragment>:<React.Fragment>
-          <div style={{color:C.sub,fontSize:13,margin:"6px 0 14px"}}>Informe o número da Conecta. A conexão é feita via instância Uazapi (QR / código de pareamento).</div>
-          <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 12px",flex:1,minWidth:0}}><Icon n="phone" size={14} color={C.faint}/><input value={num} onChange={e=>setNum(e.target.value)} type="tel" inputMode="tel" placeholder="+55 (87) 9 9999-9999" style={{border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",width:"100%",color:C.ink}}/></div>
-            <button onClick={connect} disabled={busy} style={{background:busy?C.faint:C.greenDeep,color:"#fff",border:"none",cursor:"pointer",fontSize:isMobile?14:12.5,fontWeight:600,padding:isMobile?"12px 18px":"0 18px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>{busy?<React.Fragment><Icon n="loader" size={14} spin/> Conectando…</React.Fragment>:"Conectar"}</button>
-          </div>
-        </React.Fragment>}
+        </React.Fragment>:<div style={{color:C.sub,fontSize:13,margin:"6px 0 0",lineHeight:1.6}}>
+          O CRM não está conseguindo falar com a Uazapi. Confira no painel da Uazapi se a instância
+          está <b>connected</b>, e na hospedagem se <b>UAZAPI_HOST</b> e <b>UAZAPI_TOKEN</b> continuam preenchidos.
+        </div>}
+        {/* A conexão em si é feita no painel da Uazapi (QR / pareamento). Aqui só espelhamos o estado real —
+            botão de "conectar" aqui daria a falsa impressão de que o CRM controla o pareamento. */}
       </div>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Icon n="link" size={15} color={C.green}/> Como funciona</div>
@@ -619,75 +799,148 @@ function Conexao({conecta,setConecta}){
   </div>;
 }
 
-/* ===== PRODUTIVIDADE ===== */
-function computeStats(leads,id){
-  const mine=leads.filter(l=>l.assignedTo===id);
-  const at=mine.filter(l=>l.firstRespAt!=null);
-  const resp=at.map(l=>(l.firstRespAt-l.createdAt)/60000);
-  const avg=resp.length?Math.round(resp.reduce((a,b)=>a+b,0)/resp.length):0;
-  const c=(s)=>mine.filter(l=>l.status===s).length;
-  const fech=c("Venda"),ag=c("Agendamento")+c("Visita");
-  return {recebidos:mine.length,atendidos:at.length,avg,fech,ag,conv:mine.length?Math.round(fech/mine.length*100):0,taxa:mine.length?Math.round(at.length/mine.length*100):0,byStage:STAGES.reduce((o,s)=>(o[s]=c(s),o),{})};
-}
-function Produtividade({leads,broker,pickable,brokers,repBroker,setRepBroker,isMobile}){
-  if(!broker)return null;const s=computeStats(leads,broker.id);
+/* ===== RELATÓRIOS (dados reais, com filtro de período) ===== */
+const hojeISO=()=>new Date().toISOString().slice(0,10);
+const diasAtras=(n)=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
+
+function Relatorios({acoes,session,pickable,isMobile}){
+  const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
+  const [dados,setDados]=useState(null);
+  const [carregando,setCarregando]=useState(true);
+  const [sel,setSel]=useState(null);
+
+  useEffect(()=>{
+    let vivo=true; setCarregando(true);
+    acoes.relatorio(periodo).then(d=>{if(vivo){setDados(d);setCarregando(false);
+      setSel(p=>p&&d.atendentes.some(a=>a.id===p)?p:(d.atendentes[0]||{}).id);}}).catch(()=>vivo&&setCarregando(false));
+    return()=>{vivo=false;};
+  },[periodo.de,periodo.ate]);
+
+  const atalho=(label,dias)=><button key={label} onClick={()=>setPeriodo({de:diasAtras(dias),ate:hojeISO()})}
+    style={{fontSize:12,fontWeight:600,padding:"6px 11px",borderRadius:999,border:"none",cursor:"pointer",
+      background:periodo.de===diasAtras(dias)?C.greenDeep:C.surface,color:periodo.de===diasAtras(dias)?"#fff":C.sub}}>{label}</button>;
+
+  if(carregando&&!dados) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Calculando…</div>;
+  if(!dados) return <div style={{padding:24,color:C.faint}}>Não consegui carregar o relatório.</div>;
+
+  const linha=dados.atendentes.find(a=>a.id===sel)||dados.atendentes[0];
+
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:920,margin:"0 auto"}}>
-      {pickable&&<div style={{display:"flex",gap:8,marginBottom:16,flexWrap:isMobile?"nowrap":"wrap",overflowX:isMobile?"auto":"visible",paddingBottom:isMobile?4:0}}>{brokers.map(b=><button key={b.id} onClick={()=>setRepBroker(b.id)} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${repBroker===b.id?C.green:C.line}`,background:repBroker===b.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(b.name)}</span></button>)}</div>}
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-        <Avatar ini={broker.ini} color={broker.color} size={46}/>
-        <div style={{minWidth:0}}><div style={{color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700}}>{broker.name}</div><div style={{color:C.faint,fontSize:12}}>Corretor(a) · Conecta · últimas 24h</div></div>
-        <div style={{marginLeft:"auto",textAlign:"right"}}><div style={{color:s.avg<=10?C.green:s.avg<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{s.avg}<span style={{fontSize:15}}> min</span></div><div style={{color:C.faint,fontSize:11,marginTop:4}}>tempo médio de 1ª resposta</div></div>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:14,marginBottom:16}}>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+          {atalho("7 dias",7)}{atalho("30 dias",30)}{atalho("90 dias",90)}
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>De</span>
+          <input type="date" value={periodo.de} onChange={e=>setPeriodo({...periodo,de:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",background:C.surface,color:C.ink,outline:"none"}}/>
+          <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>até</span>
+          <input type="date" value={periodo.ate} onChange={e=>setPeriodo({...periodo,ate:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",background:C.surface,color:C.ink,outline:"none"}}/>
+        </div>
       </div>
+
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        <Metric n="users" label="Leads recebidos" value={s.recebidos} accent={C.cool}/>
-        <Metric n="msg" label="Atendidos" value={s.atendidos} sub={s.taxa+"% de resposta"} accent={C.green}/>
-        <Metric n="calendar" label="Agendados / visitas" value={s.ag} accent="#3B7BC4"/>
-        <Metric n="check" label="Vendas" value={s.fech} sub={s.conv+"% de conversão"} accent={C.greenDeep}/>
+        <Metric n="users" label="Leads no período" value={dados.total.leads} accent={C.cool}/>
+        <Metric n="transfer" label="Ainda na fila" value={dados.total.na_fila} accent={dados.total.na_fila?C.hot:C.green}/>
+        <Metric n="check" label="Vendas" value={dados.total.vendas} accent={C.greenDeep}/>
+        <Metric n="award" label="Valor vendido" value={fmtMoeda(dados.total.valor_vendido)} accent={C.green}/>
       </div>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
-        {STAGES.map(st=>{const v=s.byStage[st],pct=s.recebidos?v/s.recebidos*100:0;
-          return <div key={st} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}><span style={{color:C.sub,fontSize:11.5,width:isMobile?104:150,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span><div style={{height:10,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}><div style={{width:Math.max(pct,v?6:0)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div><span style={{color:C.ink,fontFamily:MONO,fontSize:12,fontWeight:600,width:20,textAlign:"right"}}>{v}</span></div>;})}
-      </div>
+
+      {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+        {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
+          <Avatar ini={initials(a.nome)} color={COLORS[[...a.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={26}/>
+          <span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(a.nome)}</span></button>)}
+      </div>}
+
+      {!linha?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum atendente cadastrado ainda.</div>
+      :<React.Fragment>
+        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <Avatar ini={initials(linha.nome)} color={COLORS[[...linha.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={46}/>
+          <div style={{minWidth:0}}>
+            <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700}}>{linha.nome}</div>
+            <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
+          </div>
+          <div style={{marginLeft:"auto",textAlign:"right"}}>
+            <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{linha.primeira_resposta_mediana_min}<span style={{fontSize:15}}> min</span></div>
+            <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool}/>
+          <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
+          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos} accent="#3B7BC4"/>
+          <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
+        </div>
+
+        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
+          {STAGES.map(st=>{const v=linha.por_etapa[st]||0,pct=linha.recebidos?v/linha.recebidos*100:0;
+            return <div key={st} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{color:C.sub,fontSize:11.5,width:isMobile?104:150,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span>
+              <div style={{height:10,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}><div style={{width:Math.max(pct,v?6:0)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
+              <span style={{color:C.ink,fontFamily:MONO,fontSize:12,fontWeight:600,width:20,textAlign:"right"}}>{v}</span>
+            </div>;})}
+        </div>
+      </React.Fragment>}
     </div>
   </div>;
 }
 
 /* ===== DASHBOARD (ADM) ===== */
-function Dashboard({leads,brokers,avail,setRepBroker,setView,isMobile}){
-  const team=brokers.map(b=>({b,s:computeStats(leads,b.id)}));
-  const tot=(k)=>team.reduce((a,t)=>a+t.s[k],0);
-  const avgAll=(()=>{const a=team.map(t=>t.s.avg).filter(x=>x>0);return a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):0;})();
-  const novos=leads.filter(l=>l.assignedTo===null).length;
-  const ranked=[...team].sort((a,b)=>b.s.fech-a.s.fech||b.s.conv-a.s.conv);
-  const stageTot=STAGES.map(st=>({st,v:leads.filter(l=>l.status===st).length}));
-  const maxBar=Math.max(1,...team.map(t=>t.s.recebidos));
+function Dashboard({acoes,pessoas,fila,setView,isMobile}){
+  const [d,setD]=useState(null);
+  useEffect(()=>{
+    let vivo=true;
+    const carregar=()=>acoes.relatorio({de:diasAtras(30),ate:hojeISO()}).then(r=>vivo&&setD(r)).catch(()=>{});
+    carregar(); const t=setInterval(carregar,30000);
+    return()=>{vivo=false;clearInterval(t);};
+  },[]);
+
+  if(!d) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando o painel…</div>;
+
+  const team=d.atendentes;
+  const medianas=team.map(a=>a.primeira_resposta_mediana_min).filter(x=>x>0);
+  const medianaGeral=medianas.length?Math.round(medianas.reduce((a,b)=>a+b,0)/medianas.length):0;
+  const ranked=[...team].sort((a,b)=>b.vendas-a.vendas||b.conversao-a.conversao);
+  const maxBar=Math.max(1,...team.map(a=>a.recebidos));
+  const totalPorEtapa=(st)=>team.reduce((s,a)=>s+(a.por_etapa[st]||0),0);
+  const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
+  const disponivel=(id)=>(pessoas.find(p=>p.id===id)||{}).available;
+
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
-      {novos>0&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12}}><Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500}}>{novos} lead(s) na fila da SDR aguardando distribuição.</span></div>}
+      {fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+        <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
+      </button>}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        <Metric n="users" label="Leads na equipe" value={tot("recebidos")} accent={C.cool}/>
-        <Metric n="clock" label="1ª resposta (média)" value={avgAll+" min"} sub="meta: até 10 min" accent={avgAll<=10?C.green:C.amber}/>
-        <Metric n="calendar" label="Agendados" value={tot("ag")} accent="#3B7BC4"/>
-        <Metric n="check" label="Vendas" value={tot("fech")} accent={C.greenDeep}/>
+        <Metric n="users" label="Leads (30 dias)" value={d.total.leads} accent={C.cool}/>
+        <Metric n="clock" label="1ª resposta (mediana)" value={medianaGeral+" min"} sub="meta: até 10 min" accent={medianaGeral<=10?C.green:C.amber}/>
+        <Metric n="check" label="Vendas" value={d.total.vendas} accent={C.greenDeep}/>
+        <Metric n="award" label="Valor vendido" value={fmtMoeda(d.total.valor_vendido)} accent={C.green}/>
       </div>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa (equipe)</div>
         <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-          {stageTot.map(({st,v})=><div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>)}
+          {STAGES.map(st=>{const v=totalPorEtapa(st);
+            return <div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>;})}
         </div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
+      {team.length===0?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center"}}>
+        <Icon n="userplus" size={26} color={C.faint}/>
+        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum corretor cadastrado ainda</div>
+        <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</div>
+      </div>
+      :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:14}}>Comparativo por corretor</div>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {team.map(t=><div key={t.b.id}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{color:C.ink,fontWeight:600}}>{first(t.b.name)}</span><span style={{color:C.faint,fontFamily:MONO}}>{t.s.recebidos} leads · {t.s.fech} vendas</span></div>
+            {team.map(a=><div key={a.id}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,gap:8}}><span style={{color:C.ink,fontWeight:600}}>{first(a.nome)}</span><span style={{color:C.faint,fontFamily:MONO}}>{a.recebidos} leads · {a.vendas} vendas</span></div>
               <div style={{display:"flex",height:16,borderRadius:6,overflow:"hidden",background:C.surface}}>
-                <div style={{width:t.s.recebidos/maxBar*100+"%",background:C.cool,height:"100%"}} title="recebidos"/>
-                <div style={{width:t.s.atendidos/maxBar*100+"%",background:C.green,height:"100%"}} title="atendidos"/>
-                <div style={{width:t.s.fech/maxBar*100+"%",background:C.greenDeep,height:"100%"}} title="vendas"/>
+                <div style={{width:a.recebidos/maxBar*100+"%",background:C.cool,height:"100%"}} title="recebidos"/>
+                <div style={{width:a.atendidos/maxBar*100+"%",background:C.green,height:"100%"}} title="atendidos"/>
+                <div style={{width:a.vendas/maxBar*100+"%",background:C.greenDeep,height:"100%"}} title="vendas"/>
               </div>
             </div>)}
           </div>
@@ -696,15 +949,18 @@ function Dashboard({leads,brokers,avail,setRepBroker,setView,isMobile}){
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Ranking & tempo de resposta</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {ranked.map((t,i)=><button key={t.b.id} onClick={()=>{setRepBroker(t.b.id);setView("relatorios");}} style={{width:"100%",display:"flex",alignItems:"center",gap:10,borderRadius:12,padding:10,textAlign:"left",border:"none",cursor:"pointer",background:C.surface}}>
+            {ranked.map((a,i)=><button key={a.id} onClick={()=>setView("relatorios")} style={{width:"100%",display:"flex",alignItems:"center",gap:10,borderRadius:12,padding:10,textAlign:"left",border:"none",cursor:"pointer",background:C.surface}}>
               <span style={{color:i===0?C.green:C.faint,fontFamily:MONO,fontSize:14,fontWeight:700,width:20}}>{i+1}º</span>
-              <Avatar ini={t.b.ini} color={t.b.color} size={30}/>
-              <div style={{minWidth:0,flex:1}}><div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(t.b.name)} <span style={{color:avail[t.b.id]?C.green:C.faint,display:"inline-flex"}}><Icon n={avail[t.b.id]?"toggleOn":"toggleOff"} size={13}/></span></div><div style={{color:t.s.avg<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{t.s.avg} min · {t.s.conv}% conv.</div></div>
-              <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{t.s.fech}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
+              <Avatar ini={initials(a.nome)} color={corDe(a.id)} size={30}/>
+              <div style={{minWidth:0,flex:1}}>
+                <div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(a.nome)} <span style={{color:disponivel(a.id)?C.green:C.faint,display:"inline-flex"}}><Icon n={disponivel(a.id)?"toggleOn":"toggleOff"} size={13}/></span></div>
+                <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{a.primeira_resposta_mediana_min} min · {a.conversao}% conv.</div>
+              </div>
+              <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{a.vendas}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
             </button>)}
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   </div>;
 }
