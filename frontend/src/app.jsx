@@ -417,11 +417,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
+    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    // "Atender" da atendente já é a tela completa de conversas — ter as duas
+    // separadas só criava dúvida sobre qual usar.
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
@@ -461,7 +463,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         <button onClick={()=>setErro("")} style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",fontWeight:700}}>×</button>
       </div>}
       <div style={{flex:1,minHeight:0}}>
-        {canAttend&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:role==="sdr",availCorretores,isMobile}}/>}
+        {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
+            completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
+        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name}/>}
@@ -469,7 +473,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
-        {supervisor&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
+        {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,isMobile,supervisor}}/>}
@@ -781,6 +785,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
    não marca a conversa como lida, para não apagar o aviso do corretor. */
 function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
+  const [rapido,setRapido]=useState("Todos"); // atalhos que existiam na caixa de entrada
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
@@ -797,6 +802,15 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact;
   const corretoresDisponiveis=pessoas.filter(p=>p.role==="corretor"&&p.available);
+  // Atalhos aplicados sobre o resultado já filtrado pelo servidor. "Aguardando"
+  // é o cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
+  const visiveis=useMemo(()=>lista.filter(l=>
+    rapido==="Meus"?l.assignedTo===session.id:
+    rapido==="Aguardando"?l.unread>0:
+    rapido==="Quente"?l.prio==="QUENTE":
+    rapido==="Morno"?l.prio==="MORNO":true
+  ).sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,session.id]);
+
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
   const mostrarLista=!isMobile||pane==="lista";
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
@@ -816,7 +830,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo (direção)"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {["Todos","Meus","Aguardando","Quente","Morno"].map(a=><button key={a} onClick={()=>setRapido(a)}
+            style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 13px":"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
+              background:rapido===a?C.greenDeep:C.surface,color:rapido===a?"#fff":C.sub}}>{a}</button>)}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
           {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
           {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
         </div>
@@ -830,11 +849,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
           {(f.de||f.ate)&&<button onClick={()=>setF({...f,de:"",ate:""})} style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
         </div>
-        <div style={{color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${lista.length} conversa(s)`}</div>
+        <div style={{color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</div>
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
-        {!carregando&&lista.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
-        {lista.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono/>)}
+        {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
+        {visiveis.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono/>)}
       </div>
     </div>}
 
@@ -961,6 +980,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 function ComporADM({lead,session,acoes,isMobile}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
+  const [enviandoImovel,setEnviandoImovel]=useState(false);
   useEffect(()=>setDraft(""),[lead.id]);
 
   async function enviar(){
@@ -972,8 +992,10 @@ function ComporADM({lead,session,acoes,isMobile}){
 
   return <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
     <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-      {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft}}><Icon n="zap" size={11}/> {tp.t}</button>)}
+      <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
+      {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
     </div>
+    {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)}
         onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
