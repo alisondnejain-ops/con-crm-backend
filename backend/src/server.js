@@ -10,6 +10,7 @@ import msgRoutes from "./routes/messages.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
 import diagRoutes from "./routes/diag.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
@@ -30,6 +31,7 @@ app.get("/definir-senha", (_req, res) => res.sendFile(path.join(publicDir, "defi
 app.use("/auth", authRoutes);
 app.use("/leads", leadsRoutes);
 app.use("/distribution", distRoutes);
+app.use("/reports", reportsRoutes);
 // Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
 // Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages

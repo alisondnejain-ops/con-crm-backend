@@ -69,4 +69,11 @@ addUserCol("invite_token", "TEXT");                     // token do link "defini
 addUserCol("invite_expires", "INTEGER");                // validade do token (ms)
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
+const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
+const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
+addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa
+addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
+addLeadCol("sale_date", "INTEGER");      // data da venda
+addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
+
 export default db;
