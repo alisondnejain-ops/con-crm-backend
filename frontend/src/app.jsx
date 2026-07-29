@@ -1326,7 +1326,8 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
   });
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
   const [id,setId]=useState(produto?produto.id:null);
-  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false); const [subindo,setSubindo]=useState(false);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [subindo,setSubindo]=useState(false); const [progresso,setProgresso]=useState("");
   const set=(k)=>(e)=>setF({...f,[k]:e.target.type==="checkbox"?e.target.checked:e.target.value});
   const limites=LIMITE_MIDIA[f.tipo]||LIMITE_MIDIA.casa;
   const fotos=midias.filter(m=>m.tipo==="foto"), videos=midias.filter(m=>m.tipo==="video");
@@ -1344,20 +1345,35 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
     finally{ setSalvando(false); }
   }
 
-  // As fotos só sobem depois que o produto existe — precisam de um dono.
+  // Aceita vários arquivos de uma vez. Sobem em fila, um de cada vez: dez fotos
+  // em paralelo derrubariam o servidor e o corretor não saberia qual falhou.
   async function enviarArquivo(ev){
-    const arquivo=ev.target.files&&ev.target.files[0];
+    const arquivos=[...(ev.target.files||[])];
     ev.target.value="";
-    if(!arquivo) return;
+    if(!arquivos.length) return;
+
+    // As fotos precisam de um dono, então o produto é salvo antes.
     let alvo=id;
-    if(!alvo){ alvo=await salvar(); if(!alvo){ setErro("Salve os dados do produto antes de enviar as fotos."); return; } }
+    if(!alvo){ alvo=await salvar(); if(!alvo){ setErro("Confira os dados do produto antes de enviar as fotos."); return; } }
+
     setSubindo(true); setErro("");
-    try{
-      const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=falhou;fr.readAsDataURL(arquivo);});
-      const r=await acoes.subirMidia(alvo,arquivo.type,base64);
-      setMidias(m=>[...m,r.midia]);
-    }catch(e){ setErro(e.message); }
-    finally{ setSubindo(false); }
+    const problemas=[];
+    for(let i=0;i<arquivos.length;i++){
+      const arq=arquivos[i];
+      setProgresso(`Enviando ${i+1} de ${arquivos.length}…`);
+      try{
+        const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=falhou;fr.readAsDataURL(arq);});
+        const r=await acoes.subirMidia(alvo,arq.type,base64);
+        setMidias(m=>[...m,r.midia]);
+      }catch(e){
+        problemas.push(`${arq.name}: ${e.message}`);
+        // Limite atingido não adianta insistir com o resto da fila.
+        if(/Limite de/.test(e.message)) break;
+      }
+    }
+    setProgresso(""); setSubindo(false);
+    if(problemas.length) setErro(problemas.length===1?problemas[0]
+      :`${problemas.length} arquivo(s) não subiram:\n• ${problemas.join("\n• ")}`);
   }
   async function removerMidia(m){
     try{ await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); }catch(e){ setErro(e.message); }
@@ -1370,7 +1386,7 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
         <button onClick={()=>aoFechar(false)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{id?"Editar produto":"Cadastrar produto"}</div>
       </div>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,whiteSpace:"pre-line",lineHeight:1.5}}>{erro}</div>}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:13}}>
         <div>
@@ -1450,10 +1466,13 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
             </div>)}
           </div>
           <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
-            <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?"Enviando…":"Adicionar foto ou vídeo"}
-            <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
+            <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?(progresso||"Enviando…"):"Adicionar fotos ou vídeo"}
+            <input type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
           </label>
-          {!id&&<div style={{color:C.faint,fontSize:11,marginTop:6}}>Ao enviar a primeira foto, o produto é salvo automaticamente.</div>}
+          <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>
+            Dá para escolher várias de uma vez: segure <b>Ctrl</b> (ou <b>Cmd</b>) ao clicar, ou toque em "Selecionar" no celular.
+            {!id&&" Ao enviar a primeira, o produto é salvo automaticamente."}
+          </div>
         </div>
 
         <div style={{display:"flex",gap:8,borderTop:`1px solid ${C.line}`,paddingTop:13}}>
