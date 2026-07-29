@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 
 const r = Router();
@@ -14,7 +14,8 @@ r.get("/", (req, res) => {
   const de = req.query.de ? inicioDoDia(req.query.de) : ate - 30 * 86400000;
   if (!isFinite(de) || !isFinite(ate)) return res.status(400).json({ error: "Período inválido." });
 
-  const equipe = req.user.role === "adm"
+  // Quem supervisiona vê a equipe toda; o corretor vê só a própria linha.
+  const equipe = supervisiona(req.user)
     ? db.prepare("SELECT id,name,role FROM users WHERE org_id=? AND role IN ('corretor','sdr') AND status='ativo' ORDER BY name").all(req.user.org_id)
     : db.prepare("SELECT id,name,role FROM users WHERE id=?").all(req.user.id);
 

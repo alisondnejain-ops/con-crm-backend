@@ -118,7 +118,10 @@
       if (!res.ok) return fail(res.d.error || "Link inválido.");
       loading.style.display = "none";
       document.getElementById("formView").style.display = "block";
-      document.getElementById("who").innerHTML = "<b>" + res.d.name + "</b>" + res.d.email;
+      document.getElementById("who").innerHTML =
+        "<b>" + res.d.name + "</b>" + res.d.email +
+        (res.d.funcao ? '<div style="margin-top:6px;font-size:12px;color:#0C6B52">Função: <b>' + res.d.funcao + "</b></div>" : "") +
+        (res.d.precisaAprovacao ? '<div style="margin-top:6px;font-size:12px;color:#8a6d1f">Este acesso passa pela aprovação da gestão.</div>' : "");
     })
     .catch(function(){ fail("Sem conexão com o servidor. Tente de novo em instantes."); });
 
@@ -138,8 +141,21 @@
       if (!r.ok) { msg.className = "msg err"; msg.textContent = d.error || "Não foi possível ativar."; return; }
       document.getElementById("formView").style.display = "none";
       var ok = document.getElementById("okView"); ok.style.display = "block";
+      var primeiro = d.user.name.split(" ")[0];
+
+      if (d.aguardandoAprovacao) {
+        // Senha criada, mas atendente e gestor só entram depois do aval da gestão.
+        ok.querySelector(".ico").style.background = "#F7EFD9";
+        ok.querySelector(".ico").innerHTML =
+          '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#C8912B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+        ok.querySelector("h2").textContent = "Senha criada — falta a liberação";
+        document.getElementById("okText").innerHTML =
+          "Tudo certo, " + primeiro + "! Como você se cadastrou como <b>" + (d.funcao || "atendente") +
+          "</b>, a gestão da Conecta precisa aprovar seu acesso. Você será avisado assim que for liberado.";
+        return;
+      }
       document.getElementById("okText").innerHTML =
-        "Pronto, " + d.user.name.split(" ")[0] + "! Sua conta está ativa. Entre no Con CRM com <b>" +
+        "Pronto, " + primeiro + "! Sua conta está ativa. Entre no Con CRM com <b>" +
         d.user.email + "</b> e a senha que você acabou de criar.";
     } catch (e) {
       msg.className = "msg err"; msg.textContent = "Sem conexão com o servidor. Tente de novo.";

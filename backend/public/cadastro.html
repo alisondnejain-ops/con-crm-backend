@@ -49,6 +49,13 @@
   .done p{color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 12px}
   .linkbox{background:#F4F6F5;border:1px dashed #0E8F6E;border-radius:12px;padding:12px;
            font-size:12px;word-break:break-all;color:#0C6B52;text-align:left}
+  .funcoes{display:flex;flex-direction:column;gap:8px}
+  .funcao{display:flex;align-items:flex-start;gap:10px;border:1px solid #E6E9E7;background:#F4F6F5;
+          border-radius:12px;padding:11px 13px;cursor:pointer}
+  .funcao:has(input:checked){border-color:#0E8F6E;background:#E5F2EC}
+  .funcao input{width:17px;height:17px;margin:1px 0 0;flex-shrink:0;accent-color:#0E8F6E}
+  .funcao span{font-size:12.5px;color:#5A6472;line-height:1.45}
+  .funcao b{display:block;font-size:14px;color:#14181F;margin-bottom:1px}
   @media(max-width:780px){
     body{padding:0;align-items:stretch}
     .card{grid-template-columns:1fr;border:none;border-radius:0;box-shadow:none;min-height:100vh}
@@ -100,6 +107,26 @@
         <div class="hint">É o seu contato interno com a equipe. Os clientes continuam falando pelo número da Conecta.</div>
       </div>
       <div class="field">
+        <label>Sua função na Conecta</label>
+        <div class="funcoes">
+          <label class="funcao">
+            <input type="radio" name="funcao" value="corretor" checked/>
+            <span><b>Corretor(a)</b>Atende os leads que recebe e cuida do próprio funil.</span>
+          </label>
+          <label class="funcao">
+            <input type="radio" name="funcao" value="atendente"/>
+            <span><b>Atendente</b>Distribui os leads na catraca e acompanha os atendimentos da equipe.</span>
+          </label>
+          <label class="funcao">
+            <input type="radio" name="funcao" value="gestor"/>
+            <span><b>Gestor(a)</b>Acesso completo: equipe, conversas, relatórios e aprovações.</span>
+          </label>
+        </div>
+        <div class="hint" id="avisoAprovacao" style="display:none">
+          ⚠️ Cadastros de <b>atendente</b> e <b>gestor</b> passam pela aprovação da gestão antes de liberar o acesso.
+        </div>
+      </div>
+      <div class="field">
         <label for="code">Código da imobiliária</label>
         <input id="code" placeholder="CONECTA-XXX-0000"/>
         <div class="hint" id="codeHint">Vincula sua conta à Conecta. A ADM te passa esse código.</div>
@@ -149,12 +176,21 @@
     phone.value = out;
   });
 
+  // Avisa sobre a aprovação assim que a pessoa escolhe atendente ou gestor.
+  var aviso = document.getElementById("avisoAprovacao");
+  var radios = [].slice.call(document.querySelectorAll('input[name="funcao"]'));
+  function funcaoEscolhida(){ return (radios.filter(function(r){return r.checked;})[0]||{}).value || "corretor"; }
+  radios.forEach(function(r){ r.addEventListener("change", function(){
+    aviso.style.display = funcaoEscolhida() === "corretor" ? "none" : "block";
+  });});
+
   async function submit(){
     var body = {
       name: document.getElementById("name").value.trim(),
       email: document.getElementById("email").value.trim(),
       phone: phone.value.trim(),
-      adm_code: codeEl.value.trim()
+      adm_code: codeEl.value.trim(),
+      funcao: funcaoEscolhida()
     };
     if (!body.name || !body.email || !body.phone || !body.adm_code)
       return show("err", "Preencha todos os campos para continuar.");

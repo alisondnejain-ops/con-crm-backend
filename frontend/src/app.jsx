@@ -269,16 +269,20 @@ function ConCRM(){
     return novos.map(l=>adaptLead(l,antes.get(l.id)));
   });
 
+  const supervisiona=session&&(session.role==="adm"||session.role==="sdr");
+
   async function recarregar(){
     if(!session) return;
     try{
+      // /auth/users já traz papel, status e disponibilidade — serve tanto para a
+      // catraca quanto para o contador de aprovações pendentes.
       const [ls,eq]=await Promise.all([
         api("/leads"),
-        session.role==="corretor"?Promise.resolve(null):api("/distribution/attendants"),
+        supervisiona?api("/auth/users"):Promise.resolve(null),
       ]);
       mesclar(ls);
       if(eq) setEquipe(eq);
-      if(session.role!=="corretor") setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
+      if(supervisiona) setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
       setErro(""); setVersao(v=>v+1);
     }catch(e){ setErro(e.message); }
   }
@@ -318,6 +322,8 @@ function ConCRM(){
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
+    equipe:()=>api("/auth/users"),
+    decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     abrir,
   };
@@ -339,6 +345,8 @@ function Splash(){
 function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
+  // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
+  const supervisor=role==="adm"||role==="sdr";
   const [view,setView]=useState(role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
@@ -346,9 +354,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const chatRef=useRef(null);
   const isMobile=useIsMobile();
 
-  // Cores e iniciais da equipe real, derivadas do id — estáveis entre sessões.
-  const pessoas=useMemo(()=>equipe.map(u=>({...u,ini:initials(u.name),
-    color:COLORS[[...u.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]})),[equipe]);
+  // Quem atende de fato: corretor e atendente já liberados. Gestor não entra na catraca.
+  const pessoas=useMemo(()=>equipe
+    .filter(u=>(u.role==="corretor"||u.role==="sdr")&&u.status==="ativo")
+    .map(u=>({...u,ini:initials(u.name),
+      color:COLORS[[...u.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]})),[equipe]);
   const corretores=pessoas.filter(p=>p.role==="corretor");
   const disponiveis=pessoas.filter(p=>p.available);
   const availCorretores=corretores.filter(p=>p.available);
@@ -373,15 +383,18 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
   const toggleAvail=(id,estaDisponivel)=>acoes.disponibilidade(id,!estaDisponivel);
 
+  // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["relatorios","chart","Relatórios"],["conexao","phone2","Conexão"]],
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
+    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["equipe","userplus","Equipe"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
     corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role];
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatório por corretor",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
+  const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
+  const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
 
-  const roleLabel=role==="adm"?"Administração":role==="sdr"?"SDR":"Corretor(a)";
+  const roleLabel=role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {!isMobile&&<aside style={{background:C.greenDeep,width:74,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0"}}>
@@ -390,8 +403,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
         {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{position:"relative",width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}>
           <Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span>
-          {v==="atendimento"&&naoLidas>0&&<Badge n={naoLidas} top={4} right={8}/>}
-          {v==="catraca"&&fila.length>0&&<Badge n={fila.length} top={4} right={8}/>}
+          {aviso(v)>0&&<Badge n={aviso(v)} top={4} right={8}/>}
         </button>)}
       </div>
       <button onClick={()=>setSession(null)} title="Sair" style={{width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,.55)",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}><Icon n="logout" size={18}/><span style={{fontSize:9}}>Sair</span></button>
@@ -420,20 +432,48 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
-        {role==="adm"&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
-        {role==="adm"&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
-        {role==="adm"&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
+        {/* Gestor e atendente compartilham as telas de supervisão. */}
+        {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
+        {supervisor&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
+        {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
+        {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
-    {isMobile&&<nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"env(safe-area-inset-bottom)"}}>
-      {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
-        <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
-        {v==="atendimento"&&naoLidas>0&&<Badge n={naoLidas} top={4} right={"22%"}/>}
-        {v==="catraca"&&fila.length>0&&<Badge n={fila.length} top={4} right={"22%"}/>}
-      </button>)}
-    </nav>}
+    {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso}/>}
   </div>;
+}
+
+/* Barra inferior do celular. Acima de 5 abas, as extras vão para "Mais" —
+   espremer sete ícones em 375px torna todos difíceis de acertar com o dedo. */
+function NavCelular({nav,view,setView,aviso}){
+  const [maisAberto,setMaisAberto]=useState(false);
+  const cabem=nav.length<=5?nav:nav.slice(0,4);
+  const extras=nav.length<=5?[]:nav.slice(4);
+  const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
+  const escolher=(v)=>{setView(v);setMaisAberto(false);};
+  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+    <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
+    {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
+  </button>;
+
+  return <React.Fragment>
+    {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:20}}/>}
+    {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
+      <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto 12px"}}/>
+      {extras.map(([v,n,label])=><button key={v} onClick={()=>escolher(v)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 10px",border:"none",borderBottom:`1px solid ${C.line}`,background:"transparent",cursor:"pointer",color:view===v?C.green:C.ink,fontSize:14.5,fontWeight:view===v?700:500}}>
+        <Icon n={n} size={19}/><span style={{flex:1,textAlign:"left"}}>{label}</span>
+        {aviso(v)>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aviso(v)}</span>}
+      </button>)}
+    </div>}
+    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"env(safe-area-inset-bottom)",zIndex:22}}>
+      {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
+        <Icon n="grid" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
+        {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
+      </button>}
+    </nav>
+  </React.Fragment>;
 }
 
 function Badge({n,top,right}){
@@ -709,9 +749,13 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     return()=>{vivo=false;};
   },[f.atendente,f.etapa,f.prioridade,f.q,versao]);
 
+  const isCompact=useIsCompact();
+  const fichaPorBotao=isMobile||isCompact;
+  const corretoresDisponiveis=pessoas.filter(p=>p.role==="corretor"&&p.available);
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
   const mostrarLista=!isMobile||pane==="lista";
-  const mostrarChat=sel&&(!isMobile||pane==="chat");
+  const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
+  const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":true);
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
@@ -748,6 +792,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
         </div>
         <BotaoLigar tel={sel.tel} compacto/>
+        {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
       </div>
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
@@ -762,14 +807,62 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           </div>;})}
       </div>
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile}/>
-      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:"8px 14px",display:"flex",gap:14,flexWrap:"wrap",flexShrink:0}}>
-        {[["Etapa",sel.status],["Entrou há",fmtAge(Date.now()-sel.createdAt)],["Origem",sel.origem],
-          ["Venda",sel.venda?fmtMoeda(sel.venda.valor):"—"]].map(([k,v])=>
-          <div key={k}><div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{v}</div></div>)}
-      </div>
-    </div>:(!isMobile&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
+    </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
+
+    {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} corretoresDisponiveis={corretoresDisponiveis}
+      aoVoltar={fichaPorBotao?()=>setPane("chat"):null} largura={fichaPorBotao?"100%":300}/>}
+  </div>;
+}
+
+/* ===== FICHA DO LEAD (supervisão) =====
+   A mesma ficha que o corretor vê no Atendimento: qualificação, etapa, venda —
+   mais o direcionamento para um corretor, como a SDR faz na catraca. */
+function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
+  return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",WebkitOverflowScrolling:"touch",minHeight:0}}>
+    <div style={{padding:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
+        <Icon n="star" size={14} color={PRIO[lead.prio].c} fill={PRIO[lead.prio].c}/>
+        <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
+      </div>
+
+      <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+        <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Direcionar para um corretor</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>O lead sai da conta atual e passa para o corretor escolhido.</div>
+        <button onClick={()=>acoes.repassar(lead.id)} disabled={!corretoresDisponiveis.length}
+          style={{width:"100%",background:corretoresDisponiveis.length?C.green:C.coolSoft,color:corretoresDisponiveis.length?"#fff":C.faint,border:"none",cursor:corretoresDisponiveis.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon n="transfer" size={14}/> Corretor da vez (rodízio)
+        </button>
+        <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher:</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {corretoresDisponiveis.length
+            ?corretoresDisponiveis.map(b=><button key={b.id} onClick={()=>acoes.repassar(lead.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>)
+            :<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora — marque alguém na catraca.</span>}
+        </div>
+      </div>
+
+      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
+      <select value={lead.status} onChange={e=>acoes.mudarEtapa(lead.id,e.target.value)}
+        style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[lead.status],background:C.surface}}>
+        {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.4}}>A etapa avança sozinha conforme a conversa. Você pode ajustar aqui.</div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {[["Renda familiar",lead.qual.renda,"target"],["Entrada",lead.qual.entrada,"check"],["Situação",lead.qual.situacao,"users"],["Restrição CPF",lead.qual.cpf,"award"],["Prazo p/ comprar",lead.qual.prazo,"calendar"]].map(([k,v,n])=>
+          <div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
+      </div>
+
+      <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
+
+      <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="users" size={12} color={C.faint}/> {lead.assignedName?"com "+lead.assignedName:"na fila da catraca"}</div>
+        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {lead.origem}</div>
+        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="clock" size={12} color={C.faint}/> entrou há {fmtAge(Date.now()-lead.createdAt)}</div>
+      </div>
+    </div>
   </div>;
 }
 
@@ -839,16 +932,79 @@ function ComporADM({lead,session,acoes,isMobile}){
   </div>;
 }
 
-/* ===== EQUIPE (SDR) ===== */
-function Equipe({brokers,avail,toggleAvail,leads}){
-  return <div style={{height:"100%",overflowY:"auto",padding:20}}>
-    <div style={{maxWidth:720,margin:"0 auto",display:"flex",flexDirection:"column",gap:10}}>
-      {brokers.map(b=>{const on=avail[b.id],count=leads.filter(l=>l.assignedTo===b.id).length,ativos=leads.filter(l=>l.assignedTo===b.id&&LINEAR.indexOf(l.status)>=0&&l.status!=="Venda").length;
-        return <div key={b.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:14,display:"flex",alignItems:"center",gap:12}}>
-          <Avatar ini={b.ini} color={b.color} size={40}/>
-          <div style={{flex:1,minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600}}>{b.name}</div><div style={{color:C.faint,fontSize:11.5}}>{count} leads · {ativos} em atendimento</div></div>
-          <button onClick={()=>toggleAvail(b.id)} style={{display:"flex",alignItems:"center",gap:6,border:"none",cursor:"pointer",background:on?C.greenSoft:C.coolSoft,color:on?C.greenMid:C.sub,fontSize:12,fontWeight:600,padding:"6px 12px",borderRadius:999}}><Icon n={on?"toggleOn":"toggleOff"} size={18}/> {on?"Disponível":"Indisponível"}</button>
-        </div>;})}
+/* ===== EQUIPE E APROVAÇÕES =====
+   Corretor entra direto pelo link. Atendente e gestor param aqui esperando
+   o aval — são papéis que enxergam a operação inteira. */
+const SELO_STATUS={
+  aguardando_aprovacao:{t:"Aguardando sua aprovação",c:"#8a6d1f",bg:C.amberSoft},
+  pendente:{t:"Não confirmou o e-mail",c:C.cool,bg:C.coolSoft},
+  recusado:{t:"Acesso recusado",c:C.hot,bg:C.hotSoft},
+  ativo:{t:"Ativo",c:C.greenMid,bg:C.greenSoft},
+};
+
+function Equipe({acoes,session,isMobile,versao}){
+  const [users,setUsers]=useState(null);
+  const [erro,setErro]=useState("");
+  const [copiado,setCopiado]=useState(false);
+
+  useEffect(()=>{let vivo=true;
+    acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[versao]);
+
+  const decidir=async(id,acao)=>{ try{ await acoes.decidirCadastro(id,acao); setUsers(await acoes.equipe()); }
+                                  catch(e){ setErro(e.message); } };
+  const copiar=()=>{ navigator.clipboard.writeText(CADASTRO_URL).then(()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);}).catch(()=>{}); };
+
+  if(!users) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando a equipe…</div>;
+
+  const aguardando=users.filter(u=>u.status==="aguardando_aprovacao");
+  const resto=users.filter(u=>u.status!=="aguardando_aprovacao");
+  const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
+
+  const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+    <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38}/>
+    <div style={{flex:1,minWidth:150}}>
+      <div style={{color:C.ink,fontSize:14,fontWeight:600}}>{u.name}{u.id===session.id&&<span style={{color:C.faint,fontWeight:500}}> · você</span>}</div>
+      <div style={{color:C.faint,fontSize:11.5}}>{u.email}{u.phone?" · "+fmtTel(u.phone):""}</div>
+      <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
+        <Pill c={C.sub} bg={C.surface}>{u.funcao}</Pill>
+        <Pill c={SELO_STATUS[u.status].c} bg={SELO_STATUS[u.status].bg}>{SELO_STATUS[u.status].t}</Pill>
+        {u.status==="ativo"&&u.role!=="adm"&&<Pill c={u.available?C.greenMid:C.faint} bg={u.available?C.greenSoft:C.coolSoft}>{u.available?"disponível hoje":"indisponível"}</Pill>}
+      </div>
+    </div>
+    {comBotoes&&<div style={{display:"flex",gap:7,flexShrink:0,width:isMobile?"100%":"auto"}}>
+      <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
+      <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
+    </div>}
+    {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>Liberar mesmo assim</button>}
+  </div>;
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:760,margin:"0 auto"}}>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:16}}>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><Icon n="link" size={14} color={C.green}/> Link de cadastro da equipe</div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Corretor entra direto; atendente e gestor aparecem aqui para você aprovar.</div>
+        <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
+          <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
+          <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
+        </div>
+      </div>
+
+      {aguardando.length>0&&<div style={{marginBottom:18}}>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:7}}>
+          <span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aguardando.length}</span>
+          Aguardando sua aprovação
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>{aguardando.map(u=>cartao(u,true))}</div>
+      </div>}
+
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Equipe ({resto.length})</div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {resto.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:24}}>Ninguém cadastrado ainda.</div>}
+        {resto.map(u=>cartao(u,false))}
+      </div>
     </div>
   </div>;
 }

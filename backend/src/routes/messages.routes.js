@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, supervisiona } from "../auth.js";
 import { sendText } from "../services/uazapi.js";
 import { inferStage } from "../services/stages.js";
 
@@ -17,8 +17,8 @@ r.post("/:id/messages", async (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
 
-  // Corretor/SDR só fala com o próprio lead; ADM pode em qualquer um.
-  if (req.user.role !== "adm" && lead.assigned_to !== req.user.id)
+  // O corretor só fala com o próprio lead; gestor e atendente falam em qualquer um.
+  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
     return res.status(403).json({ error: "Este lead não está com você" });
 
   const firstName = (req.user.name || "").split(" ")[0];

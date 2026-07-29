@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired, roles } from "../auth.js";
+import { authRequired, roles, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 
 const r = Router();
@@ -25,10 +25,10 @@ const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread
 // Filtros (pensados para a supervisão da ADM):
 //   ?atendente=<id|fila>  ?etapa=<etapa>  ?prioridade=QUENTE  ?q=<nome ou telefone>
 r.get("/", (req, res) => {
-  const { role, id, org_id } = req.user;
+  const { id, org_id } = req.user;
   const where = [], args = [];
 
-  if (role === "adm") {
+  if (supervisiona(req.user)) {
     where.push("l.org_id = ?"); args.push(org_id);
     const { atendente, etapa, prioridade, q } = req.query;
     if (atendente === "fila") where.push("l.assigned_to IS NULL");
@@ -50,14 +50,12 @@ r.get("/queue", roles("sdr", "adm"), (req, res) => {
   res.json(rows.map(parse));
 });
 
-// Só a ADM abre a conversa de qualquer um. Corretor e SDR ficam nos seus leads —
-// a SDR também enxerga os da fila, que ainda não têm dono.
-// Antes desta checagem, qualquer usuário logado conseguia ler qualquer lead pelo id.
+// Gestor e atendente abrem a conversa de qualquer um. O corretor fica nos leads dele.
+// Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.
 function podeVer(user, lead) {
   if (!lead) return false;
-  if (user.role === "adm") return lead.org_id === user.org_id;
-  if (lead.assigned_to === user.id) return true;
-  return user.role === "sdr" && lead.assigned_to === null && lead.org_id === user.org_id;
+  if (supervisiona(user)) return lead.org_id === user.org_id;
+  return lead.assigned_to === user.id;
 }
 
 r.get("/:id", (req, res) => {
@@ -73,7 +71,7 @@ r.get("/:id", (req, res) => {
 r.post("/:id/read", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Sem acesso a este lead" });
-  if (req.user.role === "adm" && lead.assigned_to !== req.user.id)
+  if (supervisiona(req.user) && lead.assigned_to !== req.user.id)
     return res.json({ ok: true, ignorado: "supervisão não marca como lida" });
   db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(Date.now(), lead.id);
   res.json({ ok: true });

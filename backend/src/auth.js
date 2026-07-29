@@ -25,3 +25,17 @@ export function roles(...allowed) {
     next();
   };
 }
+
+// Quem enxerga e comanda a operação inteira: gestor (adm) e atendente (sdr).
+// O atendente tem o mesmo alcance do gestor — por isso o cadastro dele precisa
+// de aprovação, diferente do corretor, que entra direto pelo link.
+export const supervisiona = (user) => user.role === "adm" || user.role === "sdr";
+
+// Nomes que aparecem para o usuário. Internamente os papéis continuam
+// adm/sdr/corretor para não quebrar o banco e as rotas existentes.
+export const PAPEIS = {
+  corretor: { rotulo: "Corretor(a)", precisaAprovacao: false },
+  sdr:      { rotulo: "Atendente",   precisaAprovacao: true },
+  adm:      { rotulo: "Gestor(a)",   precisaAprovacao: true },
+};
+export const papelDoFormulario = (v) => ({ corretor: "corretor", atendente: "sdr", gestor: "adm" }[String(v || "").toLowerCase()]);

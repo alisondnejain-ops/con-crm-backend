@@ -74,7 +74,7 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
 // A ADM assume a negociação: o lead passa a ser dela e sai da lista do corretor.
 // Sem checagem de disponibilidade — a ADM não entra no rodízio da catraca, ela
 // intervém quando quer (atendimento travado, cliente importante, corretor ausente).
-r.post("/assumir", roles("adm"), (req, res) => {
+r.post("/assumir", roles("adm", "sdr"), (req, res) => {
   const { lead_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
@@ -89,7 +89,7 @@ r.post("/assumir", roles("adm"), (req, res) => {
 
 // Devolve o lead: para um corretor específico, ou de volta à fila da catraca
 // (sem user_id). Contrapartida do "assumir" — a ADM não fica com o lead preso.
-r.post("/devolver", roles("adm"), (req, res) => {
+r.post("/devolver", roles("adm", "sdr"), (req, res) => {
   const { lead_id, user_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
