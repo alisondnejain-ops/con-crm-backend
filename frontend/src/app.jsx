@@ -785,6 +785,9 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
 function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
   const [rapido,setRapido]=useState("Todos"); // atalhos que existiam na caixa de entrada
+  const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
+  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length;
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
@@ -833,22 +836,36 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 13px":"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
               background:rapido===a?C.greenDeep:C.surface,color:rapido===a?"#fff":C.sub}}>{a}</button>)}
         </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
-          {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
-          {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+        {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista de
+            conversas para baixo e sobravam duas visíveis. O contador ao lado do
+            botão avisa quando algum está ativo, para ninguém esquecer ligado. */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setFiltrosAbertos(a=>!a)}
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            <Icon n="columns" size={13}/>Filtros
+            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
+            <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+          </button>
+          {filtrosAtivos>0&&<button onClick={()=>setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""})}
+            style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
+          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</span>
         </div>
-        {/* Período de entrada do lead */}
-        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
-          <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
-          <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-          {(f.de||f.ate)&&<button onClick={()=>setF({...f,de:"",ate:""})} style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
-        </div>
-        <div style={{color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</div>
+
+        {filtrosAbertos&&<React.Fragment>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+            {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
+            {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+            <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
+              style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+            <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
+              style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          </div>
+        </React.Fragment>}
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
