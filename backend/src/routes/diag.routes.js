@@ -12,8 +12,10 @@ r.get("/integracoes", async (_req, res) => {
   const org = db.prepare("SELECT name FROM orgs LIMIT 1").get();
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
 
+  const base = (process.env.APP_URL || "").replace(/\/$/, "");
   res.json({
     org: org?.name || null,
+    cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: await instanceStatus(),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
     email: { configurado: mailConfigured() },

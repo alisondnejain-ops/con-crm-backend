@@ -59,8 +59,18 @@ export function sendLocation({ toPhone, latitude, longitude, name, address }) {
 }
 
 // Estado da instância — usado pelo diagnóstico, para conferir a conexão sem expor o token.
+// Reporta HOST e TOKEN separadamente: "não configurado" sozinho não diz qual faltou.
 export async function instanceStatus() {
-  if (!uazapiConfigured()) return { configurado: false };
+  if (!uazapiConfigured()) {
+    return {
+      configurado: false,
+      UAZAPI_HOST: HOST ? `definido (${HOST})` : "FALTANDO",
+      UAZAPI_TOKEN: TOKEN ? `definido (${TOKEN.length} caracteres)` : "FALTANDO",
+      dica: !HOST && !TOKEN
+        ? "Nenhuma das duas chegou. No Railway, salvar as variáveis não basta — é preciso clicar em Deploy para aplicar."
+        : "Falta a que está marcada como FALTANDO. Confira também se o nome está escrito exatamente assim, em maiúsculas.",
+    };
+  }
   try {
     const res = await fetch(`${HOST}/instance/status`, { headers: { token: TOKEN } });
     const data = await res.json().catch(() => ({}));
