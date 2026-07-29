@@ -183,7 +183,7 @@ function Brand({size=44}){
   return <div style={{display:"flex",alignItems:"center",gap:10}}>
     <div style={{background:C.green,width:size,height:size,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={size*0.5}/></div>
     <div style={{fontFamily:DISPLAY,lineHeight:1}}>
-      <div style={{color:C.ink,fontSize:20,fontWeight:700}}>Com<span style={{color:C.green}}>Hub</span></div>
+      <div style={{color:C.ink,fontSize:20,fontWeight:700}}>Con<span style={{color:C.green}}>Hub</span></div>
       <div style={{color:C.faint,fontSize:10,fontWeight:500,letterSpacing:.5}}>CONECTA IMÓVEIS</div>
     </div>
   </div>;
@@ -433,7 +433,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {!isMobile&&<aside style={{background:C.greenDeep,width:74,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0"}}>
       <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",marginBottom:4}}><Icon n="dot" size={20}/></div>
-      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Com<br/>Hub</div>
+      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Con<br/>Hub</div>
       <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
         {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{position:"relative",width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}>
           <Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span>
@@ -1075,7 +1075,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
         <div>
           {rotulo("E-mail")}
           <input value={f.email} onChange={set("email")} type="email" inputMode="email" style={entrada}/>
-          <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no ComHub.</div>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no ConHub.</div>
         </div>
         <div>{rotulo("WhatsApp")}<input value={f.phone} onChange={set("phone")} type="tel" inputMode="tel" placeholder="(87) 9 9999-9999" style={entrada}/></div>
         {recado(avisoDados)}
