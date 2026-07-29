@@ -1189,11 +1189,14 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
   const atualizar=()=>setRecarga(r=>r+1);
   const decidir=async(p,status)=>{ setErro("");
     try{ await acoes.situacaoProduto(p.id,status); atualizar(); }catch(e){ setErro(e.message); } };
+  const apagar=async(p)=>{ setErro("");
+    if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
+    try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
   if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} acoes={acoes}
     isMobile={isMobile} aoFechar={(mudou)=>{setEditando(null);if(mudou)atualizar();}}/>;
   if(aberto) return <DetalheProduto produto={aberto} acoes={acoes} isMobile={isMobile} supervisor={supervisor} session={session}
-    aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir}/>;
+    aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir} aoApagar={apagar}/>;
 
   const campo=(label,valor,chave,opts)=><select value={valor} onChange={e=>setF({...f,[chave]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
@@ -1414,7 +1417,7 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
   </div>;
 }
 
-function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,aoEditar,aoMudarSituacao}){
+function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,aoEditar,aoMudarSituacao,aoApagar}){
   const fotos=(p.midias||[]).filter(m=>m.tipo==="foto"), videos=(p.midias||[]).filter(m=>m.tipo==="video");
   const s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
   const meu=p.created_by===session.id;
@@ -1473,6 +1476,13 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
         </React.Fragment>}
         {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Marcar como vendido</button>}
       </div>
+      {/* Excluir é só da gestão, e fica separado do resto para não ser clicado sem querer. */}
+      {supervisor&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:14}}>
+        <button onClick={()=>aoApagar(p)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+          Excluir este {p.tipo==="casa"?"imóvel":"terreno"} do catálogo
+        </button>
+        <div style={{color:C.faint,fontSize:11,textAlign:"center",marginTop:7,lineHeight:1.45}}>Apaga o cadastro e as fotos. Não dá para desfazer — se for só tirar do ar, use "Marcar como vendido".</div>
+      </div>}
     </div>
   </div>;
 }

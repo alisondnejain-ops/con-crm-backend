@@ -149,9 +149,11 @@ r.post("/:id/status", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, status });
 });
 
-r.delete("/:id", (req, res) => {
+// Apagar do catálogo é só de gestor e atendente. O corretor pode cadastrar e
+// corrigir o que enviou, mas tirar produto do ar é decisão da gestão.
+r.delete("/:id", roles("adm", "sdr"), (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
-  if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Você não pode apagar este produto." });
+  if (!p) return res.status(404).json({ error: "Produto não encontrado" });
   for (const m of db.prepare("SELECT chave FROM produto_midias WHERE produto_id=?").all(p.id)) apagar(m.chave);
   db.prepare("DELETE FROM produto_midias WHERE produto_id=?").run(p.id);
   db.prepare("DELETE FROM produtos WHERE id=?").run(p.id);
