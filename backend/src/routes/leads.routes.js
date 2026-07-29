@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
+import { numero as numeroBR } from "./produtos.routes.js";
 
 const r = Router();
 r.use(authRequired);
@@ -105,8 +106,9 @@ r.patch("/:id/venda", (req, res) => {
     db.prepare("UPDATE leads SET sale_value=NULL, sale_date=NULL, sale_property=NULL WHERE id=?").run(lead.id);
     return res.json({ ok: true, removido: true });
   }
-  const v = Number(valor);
-  if (!isFinite(v) || v <= 0) return res.status(400).json({ error: "Informe um valor de venda válido." });
+  // Mesmo tratamento do catálogo: aceita 285000 e "285.000,50" sem virar 285.
+  const v = numeroBR(valor);
+  if (!v || v <= 0) return res.status(400).json({ error: "Informe um valor de venda válido." });
 
   const quando = data ? new Date(data).getTime() : Date.now();
   if (!isFinite(quando)) return res.status(400).json({ error: "Data da venda inválida." });

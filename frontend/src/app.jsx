@@ -658,8 +658,8 @@ function FichaVenda({lead,onSalvar}){
   },[lead.id]);
 
   async function salvar(){
-    const valor=Number(String(f.valor).replace(/\./g,"").replace(",","."));
-    if(!isFinite(valor)||valor<=0) return setErro("Informe o valor da venda.");
+    const valor=numeroBR(f.valor);
+    if(!valor||valor<=0) return setErro("Informe o valor da venda.");
     setErro(""); await onSalvar({valor,data:f.data,imovel:f.imovel}); setAberto(false);
   }
 
@@ -675,8 +675,7 @@ function FichaVenda({lead,onSalvar}){
   return <div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:8}}>Registrar venda</div>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Valor do imóvel</label>
-    <input value={f.valor} onChange={e=>setF({...f,valor:e.target.value})} inputMode="decimal" placeholder="285000"
-      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    <div style={{margin:"3px 0 8px"}}><CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder="285.000,00"/></div>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Data da venda</label>
     <input type="date" value={f.data} onChange={e=>setF({...f,data:e.target.value})}
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
@@ -1287,6 +1286,37 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
 }
 
 const rotulo=(t)=><label style={{display:"block",color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{t}</label>;
+
+/* Número no formato brasileiro: ponto separa milhar, vírgula separa decimal.
+   Sem isso, "285.000" vira 285 — o JavaScript lê o ponto como decimal. */
+function numeroBR(v){
+  if(v===null||v===undefined||v==="") return null;
+  if(typeof v==="number") return isFinite(v)?v:null;
+  const s=String(v).trim();
+  let normal;
+  if(s.includes(",")) normal=s.replace(/\./g,"").replace(",",".");          // 1.250.000,50
+  else if(/^\d{1,3}(\.\d{3})+$/.test(s)) normal=s.replace(/\./g,"");        // 285.000 = 285 mil
+  else normal=s;                                                            // 285000 ou 285000.50
+  const n=Number(normal);
+  return isFinite(n)?n:null;
+}
+
+/* Campo de dinheiro. A pessoa digita só os números e o campo formata sozinho —
+   é como todo app brasileiro faz, e elimina a dúvida de onde vai ponto ou vírgula.
+   Guardamos centavos internamente para não depender de como foi digitado. */
+function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
+  const texto=valor===null||valor===undefined||valor===""?""
+    :Number(valor).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  function digitou(e){
+    const digitos=e.target.value.replace(/\D/g,"").slice(0,12);
+    onChange(digitos===""?"":Number(digitos)/100);
+  }
+  return <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"0 11px"}}>
+    <span style={{color:C.faint,fontSize:14,fontWeight:600,flexShrink:0}}>R$</span>
+    <input value={texto} onChange={digitou} inputMode="numeric" placeholder={placeholder}
+      style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:16,padding:"10px 0",color:C.ink,fontFamily:MONO,fontWeight:600}}/>
+  </div>;
+}
 const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
 function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
@@ -1305,9 +1335,8 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
     setErro(""); setSalvando(true);
     try{
       const salvo=await acoes.salvarProduto({...f,
-        valor:f.valor===""?null:Number(f.valor), quartos:f.quartos===""?null:Number(f.quartos),
-        banheiros:f.banheiros===""?null:Number(f.banheiros), metragem:f.metragem===""?null:Number(f.metragem),
-        comissao_pct:f.comissao_pct===""?null:Number(f.comissao_pct)}, id);
+        valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
+        metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct)}, id);
       setId(salvo.id); setF({...salvo,morar_bem:!!salvo.morar_bem});
       if(!id) setErro(""); // agora dá para enviar as fotos
       return salvo.id;
@@ -1333,7 +1362,7 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
   async function removerMidia(m){
     try{ await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); }catch(e){ setErro(e.message); }
   }
-  const comissao=f.valor&&f.comissao_pct?(Number(f.valor)*Number(f.comissao_pct))/100:null;
+  const comissao=numeroBR(f.valor)&&numeroBR(f.comissao_pct)?(numeroBR(f.valor)*numeroBR(f.comissao_pct))/100:null;
 
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:640,margin:"0 auto"}}>
@@ -1364,8 +1393,8 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
 
         <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
 
+        <div>{rotulo("Valor do imóvel")}<CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder="285.000,00" isMobile={isMobile}/></div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
-          <div>{rotulo("Valor")}<input value={f.valor} onChange={set("valor")} inputMode="decimal" placeholder="285000" style={entrada}/></div>
           <div>{rotulo("Terreno (m²)")}<input value={f.metragem} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
           {f.tipo==="casa"&&<React.Fragment>
             <div>{rotulo("Quartos")}<input value={f.quartos} onChange={set("quartos")} inputMode="numeric" placeholder="3" style={entrada}/></div>

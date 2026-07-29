@@ -70,7 +70,25 @@ r.get("/:id", (req, res) => {
 });
 
 const limpar = (v) => (v == null || v === "" ? null : String(v).trim());
-const numero = (v) => (v == null || v === "" ? null : Number(v));
+// Aceita 285000, "285000", "285.000,50" e "285000.5". Sem tratar o formato
+// brasileiro, "285.000" viraria 285 — o JavaScript lê o ponto como decimal.
+export function numero(v) {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return isFinite(v) ? v : null;
+  const s = String(v).trim();
+  let normal;
+  if (s.includes(",")) {
+    // Com vírgula, o ponto só pode ser separador de milhar: "1.250.000,50".
+    normal = s.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+    // Grupos exatos de 3 dígitos sem vírgula: "285.000" é 285 mil, não 285.
+    normal = s.replace(/\./g, "");
+  } else {
+    normal = s; // "285000" ou "285000.50", já no formato do sistema
+  }
+  const n = Number(normal);
+  return isFinite(n) ? n : null;
+}
 
 function validar(b) {
   if (!["casa", "terreno"].includes(b.tipo)) return "Escolha se é casa ou terreno.";
@@ -78,7 +96,7 @@ function validar(b) {
   if (b.tipo === "casa" && !["empreendimento", "solta"].includes(b.formato))
     return "Para casa, informe se é empreendimento ou casa solta.";
   if (!limpar(b.cidade)) return "Informe a cidade.";
-  if (b.valor != null && b.valor !== "" && !isFinite(Number(b.valor))) return "Valor inválido.";
+  if (b.valor != null && b.valor !== "" && numero(b.valor) == null) return "Valor inválido.";
   if (b.maps_url && !/^https?:\/\//i.test(b.maps_url)) return "O link do Maps precisa começar com https://";
   return null;
 }
