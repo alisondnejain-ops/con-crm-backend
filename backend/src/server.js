@@ -11,13 +11,16 @@ import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
+import produtosRoutes from "./routes/produtos.routes.js";
+import { pastaLocal, modoArmazenamento } from "./services/storage.js";
 import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
-app.use(express.json({ limit: "1mb" }));
+// 30mb porque as fotos e vídeos dos imóveis sobem em base64 no corpo da requisição.
+app.use(express.json({ limit: "30mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "con-crm" }));
 
@@ -32,6 +35,11 @@ app.use("/auth", authRoutes);
 app.use("/leads", leadsRoutes);
 app.use("/distribution", distRoutes);
 app.use("/reports", reportsRoutes);
+app.use("/produtos", produtosRoutes);
+// Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
+// Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
+// rota deixa de ser usada sozinha.
+app.use("/arquivos", express.static(pastaLocal(), { maxAge: "7d" }));
 // Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
 // Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages
@@ -47,5 +55,6 @@ app.listen(PORT, () => {
   console.log(`Link de cadastro dos corretores: ${base}/cadastro?c=${org.adm_code}`);
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
   console.log(`WhatsApp (Uazapi): ${uazapiConfigured() ? "configurado" : "NÃO configurado — defina UAZAPI_HOST e UAZAPI_TOKEN"}`);
+  console.log(`Fotos e vídeos dos imóveis: ${modoArmazenamento()}`);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });

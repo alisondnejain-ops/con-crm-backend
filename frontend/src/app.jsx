@@ -326,6 +326,14 @@ function ConCRM(){
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
     mudarFuncao:acao((userId,funcao)=>api(`/auth/users/${userId}/funcao`,{method:"POST",body:{funcao}})),
+    produtos:(params)=>api("/produtos?"+new URLSearchParams(params||{})),
+    produtoOpcoes:()=>api("/produtos/opcoes"),
+    salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
+    situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
+    apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
+    subirMidia:(id,mime,base64)=>api(`/produtos/${id}/midias`,{method:"POST",body:{mime,base64}}),
+    apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
+    enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     abrir,
@@ -388,11 +396,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
-    corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
+    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
+    corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role];
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",imoveis:"Imóveis e terrenos",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
@@ -440,6 +448,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
         {supervisor&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
+        {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
+        {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,isMobile,supervisor}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
@@ -514,6 +524,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [filter,setFilter]=useState("Todos");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
+  const [enviandoImovel,setEnviandoImovel]=useState(false);
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   const list=myLeads.filter(l=>filter==="Todos"?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase());
@@ -562,7 +573,11 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </div>;})}
       </div>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
-        <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>{TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft}}><Icon n="zap" size={11}/> {tp.t}</button>)}</div>
+        <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
+          <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
+          {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
+        </div>
+        {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={isMobile?"Escreva a mensagem…":"Escreva a mensagem…  ({nome} vira o primeiro nome do lead)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
@@ -943,6 +958,403 @@ function ComporADM({lead,session,acoes,isMobile}){
     </div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
       <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
+    </div>
+  </div>;
+}
+
+/* ===== ENVIAR IMÓVEL PARA O LEAD =====
+   O corretor escolhe o produto e o que vai junto. A localização fica DESMARCADA
+   por padrão: mandar endereço sem querer não tem desfazer no WhatsApp. */
+function EnviarImovel({lead,acoes,isMobile,aoFechar}){
+  const [lista,setLista]=useState(null);
+  const [busca,setBusca]=useState("");
+  const [sel,setSel]=useState(null);
+  const [opc,setOpc]=useState({fotos:true,video:false,localizacao:false});
+  const [enviando,setEnviando]=useState(false);
+  const [erro,setErro]=useState("");
+
+  useEffect(()=>{let vivo=true;
+    const t=setTimeout(()=>acoes.produtos({status:"ativo",q:busca}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message)),300);
+    return()=>{vivo=false;clearTimeout(t);};},[busca]);
+
+  async function enviar(){
+    if(!sel||enviando) return;
+    setEnviando(true); setErro("");
+    try{ await acoes.enviarProduto(lead.id,{produto_id:sel.id,...opc}); aoFechar(); }
+    catch(e){ setErro(e.message); setEnviando(false); }
+  }
+  const marca=(chave,texto,aviso)=><label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",padding:"9px 10px",borderRadius:9,background:opc[chave]?C.greenSoft:C.surface,border:`1px solid ${opc[chave]?C.green+"55":C.line}`}}>
+    <input type="checkbox" checked={opc[chave]} onChange={e=>setOpc({...opc,[chave]:e.target.checked})} style={{width:17,height:17,marginTop:1,accentColor:C.green}}/>
+    <span style={{fontSize:13,color:C.ink}}>{texto}{aviso&&<span style={{display:"block",color:C.faint,fontSize:11,marginTop:2}}>{aviso}</span>}</span>
+  </label>;
+
+  return <div style={{position:"fixed",inset:0,zIndex:40,background:"rgba(0,0,0,.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:520,maxHeight:isMobile?"88vh":"84vh",borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Enviar imóvel para {first(lead.nome)}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>O cliente recebe as informações e as fotos pelo WhatsApp.</div>
+        </div>
+        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+
+      <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.line}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px"}}>
+          <Icon n="search" size={15} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar imóvel"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"8px 16px",minHeight:120}}>
+        {lista===null&&<div style={{color:C.faint,fontSize:13,padding:16,textAlign:"center"}}>Carregando…</div>}
+        {lista&&lista.length===0&&<div style={{color:C.faint,fontSize:13,padding:16,textAlign:"center"}}>Nenhum imóvel disponível com esse termo.</div>}
+        {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto");
+          return <button key={p.id} onClick={()=>setSel(p)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",padding:9,marginBottom:6,borderRadius:11,cursor:"pointer",
+            border:`1px solid ${sel&&sel.id===p.id?C.green:C.line}`,background:sel&&sel.id===p.id?C.greenSoft:C.card}}>
+            <div style={{width:52,height:52,borderRadius:9,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
+            </div>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{color:C.ink,fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.titulo}</div>
+              <div style={{color:C.faint,fontSize:11.5}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")}</div>
+              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:12.5,fontWeight:700}}>{p.valor?fmtMoeda(p.valor):"a combinar"}</div>
+            </div>
+            <span style={{color:C.faint,fontSize:10.5,flexShrink:0}}>{(p.midias||[]).filter(m=>m.tipo==="foto").length} foto(s)</span>
+          </button>;})}
+      </div>
+
+      {sel&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:7}}>
+        {marca("fotos",`Enviar as ${(sel.midias||[]).filter(m=>m.tipo==="foto").length} foto(s)`)}
+        {(sel.midias||[]).some(m=>m.tipo==="video")&&marca("video","Enviar o vídeo")}
+        {sel.maps_url&&marca("localizacao","Enviar a localização","Fica desmarcado de propósito — mandar endereço sem querer não tem desfazer.")}
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:8,padding:"8px 10px"}}>{erro}</div>}
+        <button onClick={enviar} disabled={enviando} style={{background:enviando?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:14.5,fontWeight:600,cursor:enviando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          <Icon n={enviando?"loader":"send"} size={16} spin={enviando}/>{enviando?"Enviando…":"Enviar pelo WhatsApp"}
+        </button>
+      </div>}
+    </div>
+  </div>;
+}
+
+/* ===== IMÓVEIS E TERRENOS =====
+   O ponto do módulo: a equipe para de depender de grupo de WhatsApp para
+   saber o que está disponível e quem captou. */
+const SITUACAO_PRODUTO={
+  ativo:{t:"Disponível",c:C.greenMid,bg:C.greenSoft},
+  aguardando_aprovacao:{t:"Aguardando aprovação",c:"#8a6d1f",bg:C.amberSoft},
+  recusado:{t:"Recusado",c:C.hot,bg:C.hotSoft},
+  vendido:{t:"Vendido",c:C.greenDeep,bg:C.greenSoft},
+  inativo:{t:"Inativo",c:C.faint,bg:C.coolSoft},
+};
+const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
+
+function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
+  const [f,setF]=useState({q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",morar_bem:"",status:""});
+  const [busca,setBusca]=useState("");
+  const [lista,setLista]=useState(null);
+  const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
+  const [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null); // objeto do produto, ou "novo"
+  const [aberto,setAberto]=useState(null);     // produto em detalhe
+  const [recarga,setRecarga]=useState(0);
+
+  useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
+  useEffect(()=>{acoes.produtoOpcoes().then(setOpcoes).catch(()=>{});},[recarga]);
+  useEffect(()=>{
+    let vivo=true;
+    const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
+    acoes.produtos(params).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};
+  },[f.q,f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.morar_bem,f.status,recarga]);
+
+  const atualizar=()=>setRecarga(r=>r+1);
+  const decidir=async(p,status)=>{ setErro("");
+    try{ await acoes.situacaoProduto(p.id,status); atualizar(); }catch(e){ setErro(e.message); } };
+
+  if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} acoes={acoes}
+    isMobile={isMobile} aoFechar={(mudou)=>{setEditando(null);if(mudou)atualizar();}}/>;
+  if(aberto) return <DetalheProduto produto={aberto} acoes={acoes} isMobile={isMobile} supervisor={supervisor} session={session}
+    aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir}/>;
+
+  const campo=(label,valor,chave,opts)=><select value={valor} onChange={e=>setF({...f,[chave]:e.target.value})}
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
+      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    <option value="">{label}</option>
+    {opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+  </select>;
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:1020,margin:"0 auto"}}>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:16,display:"flex",flexDirection:"column",gap:9}}>
+        <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
+          <div style={{flex:1,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px",minWidth:0}}>
+            <Icon n="search" size={15} color={C.faint}/>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, bairro, cidade ou construtora"
+              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
+          </div>
+          <button onClick={()=>setEditando("novo")} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
+            <Icon n="userplus" size={15}/> Cadastrar
+          </button>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {campo("Casa ou terreno",f.tipo,"tipo",[{v:"casa",t:"Casas"},{v:"terreno",t:"Terrenos"}])}
+          {campo("Cidade",f.cidade,"cidade",opcoes.cidades.map(c=>({v:c,t:c})))}
+          {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
+          {campo("Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`})))}
+          {campo("Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)})))}
+          {campo("Morar Bem",f.morar_bem,"morar_bem",[{v:"1",t:"Só Morar Bem PE"}])}
+          {supervisor&&campo("Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t})))}
+        </div>
+        <div style={{color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</div>
+      </div>
+
+      {lista&&lista.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:34,textAlign:"center"}}>
+        <Icon n="pin" size={26} color={C.faint}/>
+        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum produto encontrado</div>
+        <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>Ajuste os filtros ou cadastre o primeiro imóvel.</div>
+      </div>}
+
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+        {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto"),s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
+          return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
+            <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                   :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
+              <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
+              {p.morar_bem&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>Morar Bem</span>}
+            </div>
+            <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
+              <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
+              <div style={{color:C.faint,fontSize:11.5}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")||"sem localização"}</div>
+              {p.tipo==="casa"&&<div style={{color:C.sub,fontSize:11.5}}>{[p.quartos&&`${p.quartos} quarto(s)`,p.banheiros&&`${p.banheiros} banheiro(s)`,p.metragem&&`${p.metragem} m²`].filter(Boolean).join(" · ")}</div>}
+              {p.tipo==="terreno"&&p.metragem&&<div style={{color:C.sub,fontSize:11.5}}>{p.metragem} m²</div>}
+              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.valor?fmtMoeda(p.valor):"valor a combinar"}</div>
+              <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
+                <span style={{color:C.faint,fontSize:10.5}}>captou: {first(p.captador_nome||"—")}</span>
+              </div>
+            </div>
+          </button>;})}
+      </div>
+    </div>
+  </div>;
+}
+
+const rotulo=(t)=><label style={{display:"block",color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{t}</label>;
+const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
+
+function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
+  const [f,setF]=useState(()=>produto?{...produto,morar_bem:!!produto.morar_bem}:{
+    tipo:"casa",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
+    cidade:"",bairro:"",endereco:"",maps_url:"",morar_bem:false,comissao_pct:"",captador_id:"",observacoes:"",
+  });
+  const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
+  const [id,setId]=useState(produto?produto.id:null);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false); const [subindo,setSubindo]=useState(false);
+  const set=(k)=>(e)=>setF({...f,[k]:e.target.type==="checkbox"?e.target.checked:e.target.value});
+  const limites=LIMITE_MIDIA[f.tipo]||LIMITE_MIDIA.casa;
+  const fotos=midias.filter(m=>m.tipo==="foto"), videos=midias.filter(m=>m.tipo==="video");
+
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    try{
+      const salvo=await acoes.salvarProduto({...f,
+        valor:f.valor===""?null:Number(f.valor), quartos:f.quartos===""?null:Number(f.quartos),
+        banheiros:f.banheiros===""?null:Number(f.banheiros), metragem:f.metragem===""?null:Number(f.metragem),
+        comissao_pct:f.comissao_pct===""?null:Number(f.comissao_pct)}, id);
+      setId(salvo.id); setF({...salvo,morar_bem:!!salvo.morar_bem});
+      if(!id) setErro(""); // agora dá para enviar as fotos
+      return salvo.id;
+    }catch(e){ setErro(e.message); return null; }
+    finally{ setSalvando(false); }
+  }
+
+  // As fotos só sobem depois que o produto existe — precisam de um dono.
+  async function enviarArquivo(ev){
+    const arquivo=ev.target.files&&ev.target.files[0];
+    ev.target.value="";
+    if(!arquivo) return;
+    let alvo=id;
+    if(!alvo){ alvo=await salvar(); if(!alvo){ setErro("Salve os dados do produto antes de enviar as fotos."); return; } }
+    setSubindo(true); setErro("");
+    try{
+      const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=falhou;fr.readAsDataURL(arquivo);});
+      const r=await acoes.subirMidia(alvo,arquivo.type,base64);
+      setMidias(m=>[...m,r.midia]);
+    }catch(e){ setErro(e.message); }
+    finally{ setSubindo(false); }
+  }
+  async function removerMidia(m){
+    try{ await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); }catch(e){ setErro(e.message); }
+  }
+  const comissao=f.valor&&f.comissao_pct?(Number(f.valor)*Number(f.comissao_pct))/100:null;
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:640,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>aoFechar(false)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{id?"Editar produto":"Cadastrar produto"}</div>
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:13}}>
+        <div>
+          {rotulo("O que é")}
+          <div style={{display:"flex",gap:8}}>
+            {[["casa","Casa"],["terreno","Terreno"]].map(([v,t])=>
+              <button key={v} onClick={()=>setF({...f,tipo:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
+                border:`1px solid ${f.tipo===v?C.green:C.line}`,background:f.tipo===v?C.greenSoft:C.surface,color:f.tipo===v?C.greenDeep:C.sub}}>{t}</button>)}
+          </div>
+        </div>
+
+        {f.tipo==="casa"&&<div>
+          {rotulo("Empreendimento ou casa solta")}
+          <div style={{display:"flex",gap:8}}>
+            {[["empreendimento","Empreendimento"],["solta","Casa solta"]].map(([v,t])=>
+              <button key={v} onClick={()=>setF({...f,formato:v})} style={{flex:1,padding:"9px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+                border:`1px solid ${f.formato===v?C.green:C.line}`,background:f.formato===v?C.greenSoft:C.surface,color:f.formato===v?C.greenDeep:C.sub}}>{t}</button>)}
+          </div>
+        </div>}
+
+        <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
+
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
+          <div>{rotulo("Valor")}<input value={f.valor} onChange={set("valor")} inputMode="decimal" placeholder="285000" style={entrada}/></div>
+          <div>{rotulo("Terreno (m²)")}<input value={f.metragem} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
+          {f.tipo==="casa"&&<React.Fragment>
+            <div>{rotulo("Quartos")}<input value={f.quartos} onChange={set("quartos")} inputMode="numeric" placeholder="3" style={entrada}/></div>
+            <div>{rotulo("Banheiros")}<input value={f.banheiros} onChange={set("banheiros")} inputMode="numeric" placeholder="2" style={entrada}/></div>
+          </React.Fragment>}
+        </div>
+
+        {f.tipo==="casa"&&<div>{rotulo("Construtora")}<input value={f.construtor||""} onChange={set("construtor")} placeholder="Nome da construtora" style={entrada}/></div>}
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>{rotulo("Cidade")}<input value={f.cidade||""} onChange={set("cidade")} placeholder="Petrolina" style={entrada}/></div>
+          <div>{rotulo("Bairro")}<input value={f.bairro||""} onChange={set("bairro")} placeholder="Jardim Amazonas" style={entrada}/></div>
+        </div>
+        <div>{rotulo("Endereço")}<input value={f.endereco||""} onChange={set("endereco")} placeholder="Rua, número e referência" style={entrada}/></div>
+        <div>
+          {rotulo("Link do Google Maps")}
+          <input value={f.maps_url||""} onChange={set("maps_url")} placeholder="https://maps.app.goo.gl/..." style={entrada}/>
+          <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Abra o local no Maps, toque em Compartilhar e cole o link aqui. Vira um botão clicável na ficha.</div>
+        </div>
+
+        <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",background:f.morar_bem?C.greenSoft:C.surface,border:`1px solid ${f.morar_bem?C.green+"66":C.line}`,borderRadius:10,padding:"11px 12px"}}>
+          <input type="checkbox" checked={!!f.morar_bem} onChange={set("morar_bem")} style={{width:18,height:18,accentColor:C.green}}/>
+          <span style={{fontSize:13.5,color:C.ink,fontWeight:600}}>Faz parte do Morar Bem Pernambuco</span>
+        </label>
+
+        <div>
+          {rotulo("Quem captou")}
+          <select value={f.captador_id||""} onChange={set("captador_id")} style={entrada}>
+            <option value="">Eu mesmo</option>
+            {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>Aparece no catálogo para quem precisar falar sobre chaves e disponibilidade.</div>
+        </div>
+
+        <div>
+          {rotulo("Comissão da venda (%)")}
+          <input value={f.comissao_pct||""} onChange={set("comissao_pct")} inputMode="decimal" placeholder="6" style={entrada}/>
+          {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",marginTop:7,fontSize:12,color:C.sub,lineHeight:1.6}}>
+            Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b><br/>
+            Conecta (45%): {fmtMoeda(comissao*0.45)} · Corretor (55%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*0.55)}</b>
+          </div>}
+        </div>
+
+        <div>{rotulo("Observações")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Prazo de entrega, condições, o que for útil ao cliente" style={{...entrada,resize:"vertical"}}/></div>
+
+        <div>
+          {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+            {midias.map(m=><div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",border:`1px solid ${C.line}`,background:C.surface}}>
+              {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub}}><Icon n="phone2" size={20}/></div>}
+              <button onClick={()=>removerMidia(m)} aria-label="Remover" style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:999,border:"none",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:12,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>)}
+          </div>
+          <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
+            <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?"Enviando…":"Adicionar foto ou vídeo"}
+            <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
+          </label>
+          {!id&&<div style={{color:C.faint,fontSize:11,marginTop:6}}>Ao enviar a primeira foto, o produto é salvo automaticamente.</div>}
+        </div>
+
+        <div style={{display:"flex",gap:8,borderTop:`1px solid ${C.line}`,paddingTop:13}}>
+          <button onClick={async()=>{const r=await salvar();if(r)aoFechar(true);}} disabled={salvando}
+            style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"13px",fontSize:14.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>
+            {salvando?"Salvando…":id?"Salvar alterações":"Cadastrar produto"}
+          </button>
+          <button onClick={()=>aoFechar(!!id)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"13px 18px",fontSize:14,cursor:"pointer"}}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,aoEditar,aoMudarSituacao}){
+  const fotos=(p.midias||[]).filter(m=>m.tipo==="foto"), videos=(p.midias||[]).filter(m=>m.tipo==="video");
+  const s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
+  const meu=p.created_by===session.id;
+  const linha=(k,v)=>v?<div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"8px 0",borderBottom:`1px solid ${C.line}`}}>
+    <span style={{color:C.faint,fontSize:12}}>{k}</span><span style={{color:C.ink,fontSize:13,fontWeight:600,textAlign:"right"}}>{v}</span></div>:null;
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:640,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.25}}>{p.titulo}</div>
+          <div style={{color:C.faint,fontSize:12}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")}</div>
+        </div>
+        <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
+      </div>
+
+      {fotos.length>0&&<div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:8,marginBottom:12}}>
+        {fotos.map(m=><a key={m.id} href={m.url} target="_blank" rel="noreferrer" style={{flexShrink:0}}>
+          <img src={m.url} alt="" style={{width:isMobile?220:240,height:160,objectFit:"cover",borderRadius:12,border:`1px solid ${C.line}`}}/></a>)}
+      </div>}
+      {videos.map(m=><video key={m.id} src={m.url} controls style={{width:"100%",borderRadius:12,marginBottom:12,background:"#000"}}/>)}
+
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:"4px 14px 14px",marginBottom:12}}>
+        {linha("Valor",p.valor?fmtMoeda(p.valor):null)}
+        {linha("Tipo",p.tipo==="casa"?(p.formato==="empreendimento"?"Casa em empreendimento":"Casa solta"):"Terreno")}
+        {linha("Quartos",p.quartos)}
+        {linha("Banheiros",p.banheiros)}
+        {linha("Terreno",p.metragem?`${p.metragem} m²`:null)}
+        {linha("Construtora",p.construtor)}
+        {linha("Morar Bem PE",p.morar_bem?"Sim":null)}
+        {linha("Endereço",p.endereco)}
+        {linha("Captado por",p.captador_nome)}
+        {p.observacoes&&<div style={{paddingTop:10,color:C.sub,fontSize:13,lineHeight:1.6}}>{p.observacoes}</div>}
+      </div>
+
+      {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer"
+        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,textDecoration:"none",background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenMid,borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:12}}>
+        <Icon n="pin" size={16}/> Abrir no Google Maps
+      </a>}
+
+      {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Comissão da venda</div>
+        <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}</div>
+        <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
+          Conecta ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
+          Corretor ({p.comissao.split.corretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(p.comissao.corretor)}</b>
+        </div>
+      </div>}
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {(supervisor||meu)&&<button onClick={aoEditar} style={{flex:1,minWidth:130,background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+        {supervisor&&p.status==="aguardando_aprovacao"&&<React.Fragment>
+          <button onClick={()=>{aoMudarSituacao(p,"ativo");aoFechar();}} style={{flex:1,minWidth:130,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
+          <button onClick={()=>{aoMudarSituacao(p,"recusado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Recusar</button>
+        </React.Fragment>}
+        {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Marcar como vendido</button>}
+      </div>
     </div>
   </div>;
 }

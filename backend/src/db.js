@@ -55,6 +55,45 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER NOT NULL
 );
 
+-- Catálogo de imóveis e terrenos. Nasceu para tirar a equipe da dependência
+-- de grupo de WhatsApp para saber o que está disponível.
+CREATE TABLE IF NOT EXISTS produtos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('casa','terreno')),
+  titulo TEXT NOT NULL,
+  formato TEXT,            -- casa: 'empreendimento' ou 'solta'
+  quartos INTEGER,
+  banheiros INTEGER,
+  construtor TEXT,
+  valor REAL,
+  metragem REAL,           -- metragem do terreno, em m²
+  cidade TEXT,
+  bairro TEXT,
+  endereco TEXT,
+  maps_url TEXT,           -- link colado do Google Maps (sem custo de API)
+  morar_bem INTEGER DEFAULT 0,
+  comissao_pct REAL,       -- % de comissão da venda do produto
+  captador_id TEXT,
+  captador_nome TEXT,      -- guardado junto para o histórico sobreviver a exclusões
+  observacoes TEXT,
+  status TEXT DEFAULT 'ativo',  -- aguardando_aprovacao | ativo | recusado | vendido | inativo
+  created_by TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS produto_midias (
+  id TEXT PRIMARY KEY,
+  produto_id TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('foto','video')),
+  url TEXT NOT NULL,
+  chave TEXT,              -- caminho no armazenamento, para apagar depois
+  ordem INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_produtos_org ON produtos(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_midias_produto ON produto_midias(produto_id);
 CREATE INDEX IF NOT EXISTS idx_leads_assigned ON leads(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone);
 CREATE INDEX IF NOT EXISTS idx_msg_lead ON messages(lead_id);
@@ -75,5 +114,6 @@ addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a co
 addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
 addLeadCol("sale_date", "INTEGER");      // data da venda
 addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
+addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 
 export default db;
