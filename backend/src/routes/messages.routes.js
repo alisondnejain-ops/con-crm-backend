@@ -10,7 +10,7 @@ r.use(authRequired);
 
 // Envia mensagem ao lead pelo número único da Conecta, ASSINADA com o nome de quem envia.
 // Depois, roda o avanço automático de etapa com base na conversa.
-r.post("/leads/:id/messages", async (req, res) => {
+r.post("/:id/messages", async (req, res) => {
   const { text } = req.body || {};
   if (!text || !text.trim()) return res.status(400).json({ error: "Mensagem vazia" });
 

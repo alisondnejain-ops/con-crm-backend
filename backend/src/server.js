@@ -9,7 +9,9 @@ import distRoutes from "./routes/distribution.routes.js";
 import msgRoutes from "./routes/messages.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
+import diagRoutes from "./routes/diag.routes.js";
 import { mailConfigured } from "./services/mail.js";
+import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
 
 const app = express();
@@ -28,9 +30,12 @@ app.get("/definir-senha", (_req, res) => res.sendFile(path.join(publicDir, "defi
 app.use("/auth", authRoutes);
 app.use("/leads", leadsRoutes);
 app.use("/distribution", distRoutes);
-app.use("/", msgRoutes);              // POST /leads/:id/messages
+// Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
+// Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
+app.use("/leads", msgRoutes);         // POST /leads/:id/messages
 app.use("/webhooks", metaWebhook);    // GET/POST /webhooks/meta
 app.use("/webhooks", uazapiWebhook);  // POST /webhooks/uazapi
+app.use("/", diagRoutes);             // GET /integracoes
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
@@ -39,4 +44,6 @@ app.listen(PORT, () => {
   console.log(`Con CRM backend rodando — org: ${org.name}`);
   console.log(`Link de cadastro dos corretores: ${base}/cadastro?c=${org.adm_code}`);
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
+  console.log(`WhatsApp (Uazapi): ${uazapiConfigured() ? "configurado" : "NÃO configurado — defina UAZAPI_HOST e UAZAPI_TOKEN"}`);
+  console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });
