@@ -35,7 +35,12 @@ function extrair(p) {
 
 // Mensagens que o LEAD envia chegam aqui.
 // Configure na Uazapi: Webhook da Instância -> https://SEU-BACKEND/webhooks/uazapi
-r.post("/uazapi", (req, res) => {
+//
+// Aceitamos também um sufixo no caminho porque a Uazapi tem as opções
+// "addUrlTypesMessages" e "addUrlEvents", que acrescentam o tipo da mensagem
+// ou o nome do evento na URL (.../uazapi/text, .../uazapi/messages). Ligadas
+// sem querer, elas fariam todo webhook cair em 404 silenciosamente.
+r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) => {
   res.sendStatus(200); // responde já: a Uazapi não deve esperar nosso processamento
   try {
     const p = req.body || {};
