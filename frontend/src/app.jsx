@@ -324,6 +324,7 @@ function ConCRM(){
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     equipe:()=>api("/auth/users"),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
+    removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     abrir,
   };
@@ -939,20 +940,54 @@ const SELO_STATUS={
   aguardando_aprovacao:{t:"Aguardando sua aprovação",c:"#8a6d1f",bg:C.amberSoft},
   pendente:{t:"Não confirmou o e-mail",c:C.cool,bg:C.coolSoft},
   recusado:{t:"Acesso recusado",c:C.hot,bg:C.hotSoft},
+  removido:{t:"Fora da equipe",c:C.hot,bg:C.hotSoft},
   ativo:{t:"Ativo",c:C.greenMid,bg:C.greenSoft},
 };
+
+/* Painel de saída: antes de desligar alguém, é preciso dizer para onde vão os
+   leads em aberto dele. Sem isso, cliente fica esperando resposta de quem saiu. */
+function PainelRemocao({alvo,candidatos,onConfirmar,onCancelar,isMobile}){
+  const [destino,setDestino]=useState("");
+  const temLeads=alvo.leads_abertos>0;
+  return <div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:12,padding:13,marginTop:10}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6}}>Remover {first(alvo.name)} da equipe?</div>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:temLeads?9:12}}>
+      O acesso é encerrado na hora e a pessoa sai da catraca. O histórico de atendimento
+      e as vendas dela continuam nos relatórios.
+    </div>
+    {temLeads&&<React.Fragment>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>
+        {alvo.leads_abertos} lead(s) em aberto — para onde vão?
+      </div>
+      <select value={destino} onChange={e=>setDestino(e.target.value)}
+        style={{width:"100%",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",marginBottom:12,background:C.card,color:C.ink,outline:"none"}}>
+        <option value="">Voltar para a fila da catraca</option>
+        {candidatos.map(p=><option key={p.id} value={p.id}>Passar para {p.name}</option>)}
+      </select>
+    </React.Fragment>}
+    <div style={{display:"flex",gap:8}}>
+      <button onClick={()=>onConfirmar(destino)} style={{flex:1,background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Confirmar remoção</button>
+      <button onClick={onCancelar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+    </div>
+  </div>;
+}
 
 function Equipe({acoes,session,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
   const [copiado,setCopiado]=useState(false);
+  const [removendo,setRemovendo]=useState(null); // id de quem está no painel de saída
 
   useEffect(()=>{let vivo=true;
     acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
     return()=>{vivo=false;};},[versao]);
 
-  const decidir=async(id,acao)=>{ try{ await acoes.decidirCadastro(id,acao); setUsers(await acoes.equipe()); }
-                                  catch(e){ setErro(e.message); } };
+  const decidir=async(id,acao)=>{ setErro("");
+    try{ await acoes.decidirCadastro(id,acao); setUsers(await acoes.equipe()); }
+    catch(e){ setErro(e.message); } };
+  const remover=async(id,destino)=>{ setErro("");
+    try{ await acoes.removerDaEquipe(id,destino); setRemovendo(null); setUsers(await acoes.equipe()); }
+    catch(e){ setErro(e.message); setRemovendo(null); } };
   const copiar=()=>{ navigator.clipboard.writeText(CADASTRO_URL).then(()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);}).catch(()=>{}); };
 
   if(!users) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando a equipe…</div>;
@@ -961,22 +996,35 @@ function Equipe({acoes,session,isMobile,versao}){
   const resto=users.filter(u=>u.status!=="aguardando_aprovacao");
   const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
 
-  const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-    <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38}/>
-    <div style={{flex:1,minWidth:150}}>
-      <div style={{color:C.ink,fontSize:14,fontWeight:600}}>{u.name}{u.id===session.id&&<span style={{color:C.faint,fontWeight:500}}> · você</span>}</div>
-      <div style={{color:C.faint,fontSize:11.5}}>{u.email}{u.phone?" · "+fmtTel(u.phone):""}</div>
-      <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
-        <Pill c={C.sub} bg={C.surface}>{u.funcao}</Pill>
-        <Pill c={SELO_STATUS[u.status].c} bg={SELO_STATUS[u.status].bg}>{SELO_STATUS[u.status].t}</Pill>
-        {u.status==="ativo"&&u.role!=="adm"&&<Pill c={u.available?C.greenMid:C.faint} bg={u.available?C.greenSoft:C.coolSoft}>{u.available?"disponível hoje":"indisponível"}</Pill>}
+  // Um gestor só é mexido por outro gestor; ninguém se remove sozinho.
+  const podeMexer=(u)=>u.id!==session.id&&(u.role!=="adm"||session.role==="adm");
+  const candidatos=(u)=>users.filter(p=>p.status==="ativo"&&p.id!==u.id&&(p.role==="corretor"||p.role==="sdr"));
+
+  const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38}/>
+      <div style={{flex:1,minWidth:150}}>
+        <div style={{color:C.ink,fontSize:14,fontWeight:600}}>{u.name}{u.id===session.id&&<span style={{color:C.faint,fontWeight:500}}> · você</span>}</div>
+        <div style={{color:C.faint,fontSize:11.5}}>{u.email}{u.phone?" · "+fmtTel(u.phone):""}</div>
+        <div style={{display:"flex",gap:6,marginTop:5,flexWrap:"wrap"}}>
+          <Pill c={C.sub} bg={C.surface}>{u.funcao}</Pill>
+          <Pill c={SELO_STATUS[u.status].c} bg={SELO_STATUS[u.status].bg}>{SELO_STATUS[u.status].t}</Pill>
+          {u.status==="ativo"&&u.role!=="adm"&&<Pill c={u.available?C.greenMid:C.faint} bg={u.available?C.greenSoft:C.coolSoft}>{u.available?"disponível hoje":"indisponível"}</Pill>}
+          {u.status==="ativo"&&u.leads_abertos>0&&<Pill c={C.cool} bg={C.coolSoft}>{u.leads_abertos} lead(s) em aberto</Pill>}
+        </div>
       </div>
+      {comBotoes&&<div style={{display:"flex",gap:7,flexShrink:0,width:isMobile?"100%":"auto"}}>
+        <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
+        <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
+      </div>}
+      {!comBotoes&&podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:0}}>
+        {u.status==="ativo"
+          ?<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>
+          :u.status!=="pendente"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>}
+      </div>}
     </div>
-    {comBotoes&&<div style={{display:"flex",gap:7,flexShrink:0,width:isMobile?"100%":"auto"}}>
-      <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
-      <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
-    </div>}
-    {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>Liberar mesmo assim</button>}
+    {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}
+      onConfirmar={(destino)=>remover(u.id,destino)} onCancelar={()=>setRemovendo(null)}/>}
   </div>;
 
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>

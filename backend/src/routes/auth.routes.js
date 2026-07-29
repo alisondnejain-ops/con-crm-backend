@@ -106,10 +106,15 @@ r.post("/login", (req, res) => {
     return res.status(403).json({ error: "Sua conta ainda não foi confirmada. Abra o link que enviamos no seu e-mail e crie sua senha." });
   if (!bcrypt.compareSync(password || "", user.pass_hash))
     return res.status(401).json({ error: "E-mail ou senha incorretos." });
-  if (user.status === "aguardando_aprovacao")
-    return res.status(403).json({ error: `Seu cadastro como ${PAPEIS[user.role].rotulo} está aguardando a aprovação da gestão. Você será avisado assim que for liberado.` });
-  if (user.status === "recusado")
-    return res.status(403).json({ error: "Seu acesso não foi liberado. Fale com a gestão da Conecta." });
+  // Só entra quem está ativo. Qualquer outro estado tem sua própria explicação.
+  if (user.status !== "ativo") {
+    const motivos = {
+      aguardando_aprovacao: `Seu cadastro como ${PAPEIS[user.role].rotulo} está aguardando a aprovação da gestão. Você será avisado assim que for liberado.`,
+      recusado: "Seu acesso não foi liberado. Fale com a gestão da Conecta.",
+      removido: "Seu acesso foi encerrado. Fale com a gestão da Conecta.",
+    };
+    return res.status(403).json({ error: motivos[user.status] || "Sua conta não está ativa. Fale com a gestão da Conecta." });
+  }
   res.json({ token: sign(user), user: publicUser(user) });
 });
 
@@ -120,20 +125,35 @@ r.get("/me", authRequired, (req, res) => {
 });
 
 // Quem já se cadastrou. Gestor e atendente acompanham as confirmações e aprovações.
+// Traz também quantos leads a pessoa tem em aberto — é o que a gestão precisa saber
+// antes de remover alguém: esses leads têm que ir para algum lugar.
 r.get("/users", authRequired, roles("adm", "sdr"), (req, res) => {
-  const rows = db.prepare(
-    "SELECT id,name,email,phone,role,status,available,created_at FROM users WHERE org_id = ? ORDER BY created_at DESC"
-  ).all(req.user.org_id);
+  const rows = db.prepare(`
+    SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,
+      (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id
+        AND l.stage NOT IN ('Venda','Perdido')) AS leads_abertos
+    FROM users u WHERE u.org_id = ? ORDER BY u.created_at DESC`).all(req.user.org_id);
   res.json(rows.map(u => ({ ...u, available: !!u.available, funcao: PAPEIS[u.role].rotulo })));
 });
 
+// Só o gestor mexe em outro gestor — senão um atendente poderia desligar a
+// própria chefia ou se promover aprovando um gestor cúmplice.
+function podeMexer(autor, alvo) {
+  if (alvo.role === "adm" && autor.role !== "adm") return "Só um gestor pode alterar outro gestor.";
+  if (alvo.id === autor.id) return "Você não pode alterar a própria conta por aqui.";
+  return null;
+}
+
 // Aprovação de atendente/gestor. Só quem já supervisiona pode liberar outro
 // supervisor — o corretor nunca passa por aqui, ele entra direto pelo link.
+// Aprovar serve também para reativar quem foi recusado ou removido.
 r.post("/users/:id/aprovar", authRequired, roles("adm", "sdr"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
-  if (u.status !== "aguardando_aprovacao" && u.status !== "recusado")
-    return res.status(409).json({ error: "Esse cadastro não está aguardando aprovação." });
+  const impedimento = podeMexer(req.user, u);
+  if (impedimento) return res.status(403).json({ error: impedimento });
+  if (u.status === "ativo") return res.status(409).json({ error: "Esse cadastro já está ativo." });
+  if (u.status === "pendente") return res.status(409).json({ error: "Essa pessoa ainda não confirmou o e-mail e criou a senha." });
   db.prepare("UPDATE users SET status = 'ativo' WHERE id = ?").run(u.id);
   res.json({ ok: true, nome: u.name, funcao: PAPEIS[u.role].rotulo });
 });
@@ -141,9 +161,41 @@ r.post("/users/:id/aprovar", authRequired, roles("adm", "sdr"), (req, res) => {
 r.post("/users/:id/recusar", authRequired, roles("adm", "sdr"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
-  if (u.id === req.user.id) return res.status(400).json({ error: "Você não pode recusar a própria conta." });
-  db.prepare("UPDATE users SET status = 'recusado' WHERE id = ?").run(u.id);
+  const impedimento = podeMexer(req.user, u);
+  if (impedimento) return res.status(403).json({ error: impedimento });
+  db.prepare("UPDATE users SET status = 'recusado', available = 0 WHERE id = ?").run(u.id);
   res.json({ ok: true, nome: u.name });
+});
+
+// Remover da equipe. NÃO apaga o cadastro: desativa. Apagar de verdade quebraria
+// o histórico — as conversas e os relatórios apontam para quem atendeu.
+// Os leads em aberto precisam de destino, senão o cliente fica esperando sozinho.
+r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
+  const { destino_leads } = req.body || {};
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
+  const impedimento = podeMexer(req.user, u);
+  if (impedimento) return res.status(403).json({ error: impedimento });
+
+  // Nunca deixar a organização sem gestor ativo.
+  if (u.role === "adm") {
+    const gestores = db.prepare("SELECT COUNT(*) n FROM users WHERE org_id=? AND role='adm' AND status='ativo'").get(req.user.org_id).n;
+    if (gestores <= 1) return res.status(409).json({ error: "Esse é o único gestor ativo. Promova ou aprove outro antes de remover." });
+  }
+
+  let destino = null;
+  if (destino_leads) {
+    destino = db.prepare("SELECT * FROM users WHERE id=? AND org_id=? AND status='ativo' AND role IN ('corretor','sdr')").get(destino_leads, req.user.org_id);
+    if (!destino) return res.status(404).json({ error: "Escolha um atendente ativo para receber os leads." });
+  }
+
+  const abertos = db.prepare("SELECT COUNT(*) n FROM leads WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')").get(u.id).n;
+  // Leads fechados ficam com ele, para o histórico e os relatórios continuarem certos.
+  db.prepare("UPDATE leads SET assigned_to=? WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')")
+    .run(destino ? destino.id : null, u.id);
+  db.prepare("UPDATE users SET status='removido', available=0 WHERE id=?").run(u.id);
+
+  res.json({ ok: true, nome: u.name, leads_movidos: abertos, destino: destino ? destino.name : "fila da catraca" });
 });
 
 function publicUser(u) {
