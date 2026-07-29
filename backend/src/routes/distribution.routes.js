@@ -71,4 +71,37 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
   res.json({ ok: true, assigned_to: chosen });
 });
 
+// A ADM assume a negociação: o lead passa a ser dela e sai da lista do corretor.
+// Sem checagem de disponibilidade — a ADM não entra no rodízio da catraca, ela
+// intervém quando quer (atendimento travado, cliente importante, corretor ausente).
+r.post("/assumir", roles("adm"), (req, res) => {
+  const { lead_id } = req.body || {};
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (lead.assigned_to === req.user.id) return res.json({ ok: true, ja_era_seu: true });
+
+  const anterior = lead.assigned_to
+    ? db.prepare("SELECT name FROM users WHERE id = ?").get(lead.assigned_to)
+    : null;
+  db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(req.user.id, lead.id);
+  res.json({ ok: true, tirado_de: anterior ? anterior.name : "fila" });
+});
+
+// Devolve o lead: para um corretor específico, ou de volta à fila da catraca
+// (sem user_id). Contrapartida do "assumir" — a ADM não fica com o lead preso.
+r.post("/devolver", roles("adm"), (req, res) => {
+  const { lead_id, user_id } = req.body || {};
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+
+  if (!user_id) {
+    db.prepare("UPDATE leads SET assigned_to = NULL WHERE id = ?").run(lead.id);
+    return res.json({ ok: true, destino: "fila" });
+  }
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ? AND role IN ('corretor','sdr')").get(user_id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Atendente não encontrado" });
+  db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(u.id, lead.id);
+  res.json({ ok: true, destino: u.name });
+});
+
 export default r;

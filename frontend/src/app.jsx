@@ -79,8 +79,19 @@ const TEMPLATES=[
 const MOBILE_BP=760, COMPACT_BP=1024;
 function useMedia(query){
   const [m,setM]=useState(()=>typeof window!=="undefined"&&window.matchMedia(query).matches);
-  useEffect(()=>{const mq=window.matchMedia(query);const h=(e)=>setM(e.matches);
-    mq.addEventListener("change",h);setM(mq.matches);return()=>mq.removeEventListener("change",h);},[query]);
+  useEffect(()=>{
+    const mq=window.matchMedia(query);
+    const sincronizar=()=>setM(mq.matches);
+    mq.addEventListener("change",sincronizar);
+    // O evento de resize é a rede de segurança: em alguns navegadores (e ao virar
+    // o celular de lado) o "change" do matchMedia não dispara de forma confiável.
+    window.addEventListener("resize",sincronizar);
+    window.addEventListener("orientationchange",sincronizar);
+    sincronizar();
+    return()=>{mq.removeEventListener("change",sincronizar);
+      window.removeEventListener("resize",sincronizar);
+      window.removeEventListener("orientationchange",sincronizar);};
+  },[query]);
   return m;
 }
 const useIsMobile=()=>useMedia(`(max-width:${MOBILE_BP}px)`);
@@ -242,6 +253,9 @@ function ConCRM(){
   const [conecta,setConecta]=useState({connected:false,number:""});
   const [erro,setErro]=useState("");
   const [selId,setSelId]=useState(null);
+  // Sobe a cada recarga. Telas que fazem a própria busca (Conversas) observam este
+  // número para se atualizarem depois de uma ação, em vez de mostrar dado velho.
+  const [versao,setVersao]=useState(0);
   const selRef=useRef(null); selRef.current=selId;
 
   useEffect(()=>{
@@ -265,7 +279,7 @@ function ConCRM(){
       mesclar(ls);
       if(eq) setEquipe(eq);
       if(session.role!=="corretor") setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
-      setErro("");
+      setErro(""); setVersao(v=>v+1);
     }catch(e){ setErro(e.message); }
   }
 
@@ -300,6 +314,8 @@ function ConCRM(){
     transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:acao((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
     repassar:acao((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
+    assumir:acao((leadId)=>api("/distribution/assumir",{method:"POST",body:{lead_id:leadId}})),
+    devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
@@ -310,7 +326,7 @@ function ConCRM(){
 
   if(carregando) return <Splash/>;
   if(!session) return <Auth onLogin={(u)=>setSession(toSession(u))}/>;
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro}}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao}}/>;
 }
 
 function Splash(){
@@ -320,7 +336,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   const [view,setView]=useState(role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
@@ -405,7 +421,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
         {role==="adm"&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
-        {role==="adm"&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile}}/>}
+        {role==="adm"&&view==="conversas"&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {role==="adm"&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
@@ -678,7 +694,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
    Acesso irrestrito: a ADM abre a conversa de qualquer corretor, com filtros
    para analisar atendimento por atendimento. Somente leitura — supervisionar
    não marca a conversa como lida, para não apagar o aviso do corretor. */
-function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
+function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:""});
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
@@ -691,7 +707,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.buscar(params).then(r=>{if(vivo){setLista(r);setCarregando(false);}}).catch(()=>vivo&&setCarregando(false));
     return()=>{vivo=false;};
-  },[f.atendente,f.etapa,f.prioridade,f.q]);
+  },[f.atendente,f.etapa,f.prioridade,f.q,versao]);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
   const mostrarLista=!isMobile||pane==="lista";
@@ -711,7 +727,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {selo("Todo mundo",f.atendente,"atendente",[{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo (direção)"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
           {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
           {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
         </div>
@@ -733,9 +749,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
         </div>
         <BotaoLigar tel={sel.tel} compacto/>
       </div>
-      <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,padding:"6px 14px",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-        <Icon n="lock" size={12}/> Modo supervisão — somente leitura. Abrir aqui não marca a conversa como lida para o corretor.
-      </div>
+      <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
         {sel.msgs.map((m,i)=>{
@@ -747,7 +761,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
             </div>
           </div>;})}
       </div>
-      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:"10px 14px",display:"flex",gap:14,flexWrap:"wrap",flexShrink:0}}>
+      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile}/>
+      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:"8px 14px",display:"flex",gap:14,flexWrap:"wrap",flexShrink:0}}>
         {[["Etapa",sel.status],["Entrou há",fmtAge(Date.now()-sel.createdAt)],["Origem",sel.origem],
           ["Venda",sel.venda?fmtMoeda(sel.venda.valor):"—"]].map(([k,v])=>
           <div key={k}><div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{v}</div></div>)}
@@ -755,6 +770,72 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile}){
     </div>:(!isMobile&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
+  </div>;
+}
+
+/* ===== BARRA DE CONTROLE DA ADM =====
+   Mostra de quem é o lead e permite assumir a negociação ou devolver. */
+function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
+  const [devolvendo,setDevolvendo]=useState(false);
+  const meu=lead.assignedTo===session.id;
+  useEffect(()=>setDevolvendo(false),[lead.id]);
+
+  // Fecha o painel assim que a devolução acontece — senão ele fica aberto
+  // sugerindo que a ação não foi concluída.
+  const devolverPara=async(userId)=>{ await acoes.devolver(lead.id,userId); setDevolvendo(false); };
+
+  if(devolvendo) return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",flexShrink:0}}>
+    <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:7}}>Devolver este atendimento para:</div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <button onClick={()=>devolverPara()} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:999,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}><Icon n="transfer" size={13}/> Fila da catraca</button>
+      {pessoas.map(p=><button key={p.id} onClick={()=>devolverPara(p.id)} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}>
+        <Avatar ini={p.ini} color={p.color} size={20}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(p.name)}</span></button>)}
+      <button onClick={()=>setDevolvendo(false)} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer"}}>cancelar</button>
+    </div>
+  </div>;
+
+  return <div style={{background:meu?C.greenSoft:C.amberSoft,borderBottom:`1px solid ${meu?C.green+"33":C.amber+"33"}`,color:meu?C.greenDeep:"#8a6d1f",fontSize:11.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0}}>
+    <Icon n={meu?"star":"users"} size={13}/>
+    <span style={{flex:1,minWidth:isMobile?"100%":160,lineHeight:1.4}}>
+      {meu?"Você assumiu esta negociação — o lead está na sua mão."
+          :lead.assignedName?`Em atendimento por ${lead.assignedName}. Você pode responder assim mesmo; para tomar a frente, assuma.`
+          :"Este lead está na fila, sem atendente."}
+    </span>
+    {meu
+      ?<button onClick={()=>setDevolvendo(true)} style={{border:`1px solid ${C.green}55`,background:C.card,color:C.greenMid,fontSize:11.5,fontWeight:700,padding:"5px 11px",borderRadius:8,cursor:"pointer",flexShrink:0}}>Devolver</button>
+      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:8,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> Assumir negociação</button>}
+  </div>;
+}
+
+/* ===== CAMPO DE ENVIO DA ADM =====
+   A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
+   corretor — o cliente sempre sabe com quem está falando. */
+function ComporADM({lead,session,acoes,isMobile}){
+  const [draft,setDraft]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  useEffect(()=>setDraft(""),[lead.id]);
+
+  async function enviar(){
+    if(!draft.trim()||enviando) return;
+    const texto=draft.replace("{nome}",first(lead.nome));
+    setEnviando(true); setDraft("");
+    try{ await acoes.enviar(lead.id,texto); } finally{ setEnviando(false); }
+  }
+
+  return <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
+    <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
+      {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft}}><Icon n="zap" size={11}/> {tp.t}</button>)}
+    </div>
+    <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+      <textarea value={draft} onChange={e=>setDraft(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
+        rows={2} placeholder="Responder como direção…"
+        style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+      <button onClick={enviar} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+      <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
+    </div>
   </div>;
 }
 
