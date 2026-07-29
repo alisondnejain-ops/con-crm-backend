@@ -43,7 +43,10 @@ r.post("/uazapi", (req, res) => {
     // Só interessa mensagem NOVA. "messages_update" (entrega/leitura), presença,
     // conexão e afins também trazem "message" no nome — por isso o descarte explícito.
     const ehMensagemNova = !evento || (/message/i.test(evento) && !/(update|delete|revoke|status|ack|edit)/i.test(evento));
-    if (!ehMensagemNova) return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)" });
+    if (!ehMensagemNova)
+      // Guardamos só a FORMA do payload (nomes de campos), nunca o conteúdo das
+      // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
+      return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
     const { phone, texto, tipo, nome, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
