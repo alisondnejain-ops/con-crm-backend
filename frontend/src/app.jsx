@@ -179,7 +179,7 @@ function Brand({size=44}){
   return <div style={{display:"flex",alignItems:"center",gap:10}}>
     <div style={{background:C.green,width:size,height:size,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={size*0.5}/></div>
     <div style={{fontFamily:DISPLAY,lineHeight:1}}>
-      <div style={{color:C.ink,fontSize:20,fontWeight:700}}>Con<span style={{color:C.green}}>CRM</span></div>
+      <div style={{color:C.ink,fontSize:20,fontWeight:700}}>Com<span style={{color:C.green}}>Hub</span></div>
       <div style={{color:C.faint,fontSize:10,fontWeight:500,letterSpacing:.5}}>CONECTA IMÓVEIS</div>
     </div>
   </div>;
@@ -325,6 +325,8 @@ function ConCRM(){
     equipe:()=>api("/auth/users"),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
+    mudarFuncao:acao((userId,funcao)=>api(`/auth/users/${userId}/funcao`,{method:"POST",body:{funcao}})),
+    apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     abrir,
   };
@@ -386,11 +388,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["equipe","userplus","Equipe"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
+    adm:[["dashboard","grid","Painel"],["conversas","msg","Conversas"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["conversas","users","Conversas"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
     corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role];
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:"Atendimento",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
@@ -400,7 +402,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {!isMobile&&<aside style={{background:C.greenDeep,width:74,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0"}}>
       <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",marginBottom:4}}><Icon n="dot" size={20}/></div>
-      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Con<br/>CRM</div>
+      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Com<br/>Hub</div>
       <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
         {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{position:"relative",width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}>
           <Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span>
@@ -429,7 +431,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       </div>}
       <div style={{flex:1,minHeight:0}}>
         {canAttend&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:role==="sdr",availCorretores,isMobile}}/>}
-        {canAttend&&view==="funil"&&<Funil leads={myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile}/>}
+        {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
+        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
@@ -646,7 +649,7 @@ function FichaVenda({lead,onSalvar}){
 }
 
 /* ===== FUNIL ===== */
-function Funil({leads,openLead,setStatus,isMobile}){
+function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
   // No celular cada etapa ocupa quase a tela toda e o swipe encaixa de coluna em coluna.
   const colW=isMobile?"82vw":164;
   return <div style={{height:"100%",overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",padding:isMobile?12:16,scrollSnapType:isMobile?"x mandatory":"none"}}>
@@ -659,6 +662,7 @@ function Funil({leads,openLead,setStatus,isMobile}){
               return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:8}}>
                 <button onClick={()=>openLead(l.id)} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"pointer",padding:0}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}><span style={{color:C.ink,fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span><span style={{background:PRIO[l.prio].c,width:6,height:6,borderRadius:"50%",flexShrink:0}}/></div>
+                  {mostrarDono&&<div style={{color:C.faint,fontSize:10,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
                   {waiting&&<div style={{display:"flex",alignItems:"center",gap:4,marginTop:4}}><Icon n="timer" size={10} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:10,fontWeight:600}}>{fmtAge(age)}</span></div>}
                 </button>
               </div>;})}
@@ -736,7 +740,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
    para analisar atendimento por atendimento. Somente leitura — supervisionar
    não marca a conversa como lida, para não apagar o aviso do corretor. */
 function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
-  const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:""});
+  const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
@@ -748,7 +752,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.buscar(params).then(r=>{if(vivo){setLista(r);setCarregando(false);}}).catch(()=>vivo&&setCarregando(false));
     return()=>{vivo=false;};
-  },[f.atendente,f.etapa,f.prioridade,f.q,versao]);
+  },[f.atendente,f.etapa,f.prioridade,f.q,f.de,f.ate,versao]);
 
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact;
@@ -775,6 +779,16 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo (direção)"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
           {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
           {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+        </div>
+        {/* Período de entrada do lead */}
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+          <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+          <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          {(f.de||f.ate)&&<button onClick={()=>setF({...f,de:"",ate:""})} style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
         </div>
         <div style={{color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${lista.length} conversa(s)`}</div>
       </div>
@@ -988,6 +1002,13 @@ function Equipe({acoes,session,isMobile,versao}){
   const remover=async(id,destino)=>{ setErro("");
     try{ await acoes.removerDaEquipe(id,destino); setRemovendo(null); setUsers(await acoes.equipe()); }
     catch(e){ setErro(e.message); setRemovendo(null); } };
+  const trocarFuncao=async(id,funcao)=>{ setErro("");
+    try{ await acoes.mudarFuncao(id,funcao); setUsers(await acoes.equipe()); }
+    catch(e){ setErro(e.message); } };
+  const apagar=async(u)=>{ setErro("");
+    if(!window.confirm(`Apagar o cadastro de ${u.name} definitivamente?\n\nIsso não pode ser desfeito. As conversas antigas continuam guardadas, mas o cadastro some da plataforma.`)) return;
+    try{ await acoes.apagarCadastro(u.id); setUsers(await acoes.equipe()); }
+    catch(e){ setErro(e.message); } };
   const copiar=()=>{ navigator.clipboard.writeText(CADASTRO_URL).then(()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);}).catch(()=>{}); };
 
   if(!users) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando a equipe…</div>;
@@ -1017,10 +1038,21 @@ function Equipe({acoes,session,isMobile,versao}){
         <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
         <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
       </div>}
-      {!comBotoes&&podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:0}}>
-        {u.status==="ativo"
-          ?<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>
-          :u.status!=="pendente"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>}
+      {comBotoes&&<div style={{width:"100%",color:C.sub,fontSize:11.5,lineHeight:1.4}}>Confira a função antes de aprovar — dá para corrigir no seletor acima.</div>}
+      {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:0,alignItems:"center",flexWrap:"wrap"}}>
+        {/* Trocar a função vale em qualquer estado — inclusive antes de aprovar. */}
+        {u.status!=="removido"&&<select value={u.role} onChange={e=>trocarFuncao(u.id,e.target.value)} title="Mudar a função"
+          style={{fontSize:isMobile?16:12,fontWeight:600,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px",outline:"none",cursor:"pointer"}}>
+          <option value="corretor">Corretor(a)</option>
+          <option value="atendente">Atendente</option>
+          {session.role==="adm"&&<option value="gestor">Gestor(a)</option>}
+        </select>}
+        {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
+        {!comBotoes&&u.status==="removido"&&<React.Fragment>
+          <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
+          {session.role==="adm"&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
+        </React.Fragment>}
+        {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar</button>}
       </div>}
     </div>
     {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}

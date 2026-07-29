@@ -33,8 +33,10 @@ export const supervisiona = (user) => user.role === "adm" || user.role === "sdr"
 
 // Nomes que aparecem para o usuário. Internamente os papéis continuam
 // adm/sdr/corretor para não quebrar o banco e as rotas existentes.
+// Todo cadastro passa pela gestão — inclusive corretor. Quem entra vê conversa
+// de cliente, então ninguém é liberado sozinho.
 export const PAPEIS = {
-  corretor: { rotulo: "Corretor(a)", precisaAprovacao: false },
+  corretor: { rotulo: "Corretor(a)", precisaAprovacao: true },
   sdr:      { rotulo: "Atendente",   precisaAprovacao: true },
   adm:      { rotulo: "Gestor(a)",   precisaAprovacao: true },
 };

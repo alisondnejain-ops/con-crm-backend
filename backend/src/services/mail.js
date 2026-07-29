@@ -39,18 +39,18 @@ export async function sendMail({ to, subject, html }) {
 export function inviteEmail({ name, link, orgName }) {
   const first = (name || "").split(" ")[0] || "corretor(a)";
   return {
-    subject: `${orgName}: confirme seu cadastro no Con CRM`,
+    subject: `${orgName}: confirme seu cadastro no ComHub`,
     html: `
 <div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
     <div style="background:#0A3D30;padding:24px">
-      <div style="color:#fff;font-size:20px;font-weight:700">Con<span style="color:#0E8F6E">CRM</span></div>
+      <div style="color:#fff;font-size:20px;font-weight:700">Com<span style="color:#0E8F6E">Hub</span></div>
       <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px">${orgName.toUpperCase()}</div>
     </div>
     <div style="padding:28px">
       <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}! 👋</p>
       <p style="color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 20px">
-        Seu cadastro no Con CRM da ${orgName} foi criado. Falta só um passo:
+        Seu cadastro no ComHub da ${orgName} foi criado. Falta só um passo:
         clique no botão abaixo para <b>criar sua senha</b> e ativar o acesso.
       </p>
       <a href="${link}" style="display:inline-block;background:#0E8F6E;color:#fff;font-size:15px;font-weight:600;text-decoration:none;padding:13px 26px;border-radius:12px">Criar minha senha</a>

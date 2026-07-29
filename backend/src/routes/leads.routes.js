@@ -30,12 +30,18 @@ r.get("/", (req, res) => {
 
   if (supervisiona(req.user)) {
     where.push("l.org_id = ?"); args.push(org_id);
-    const { atendente, etapa, prioridade, q } = req.query;
+    const { atendente, etapa, prioridade, q, de, ate } = req.query;
     if (atendente === "fila") where.push("l.assigned_to IS NULL");
     else if (atendente) { where.push("l.assigned_to = ?"); args.push(atendente); }
     if (etapa) { where.push("l.stage = ?"); args.push(etapa); }
     if (prioridade) { where.push("l.priority = ?"); args.push(prioridade); }
     if (q) { where.push("(l.name LIKE ? OR l.phone LIKE ?)"); args.push(`%${q}%`, `%${q}%`); }
+    // Período de entrada do lead. O "até" cobre o dia inteiro, senão o filtro
+    // exclui tudo que chegou depois da meia-noite da data escolhida.
+    const inicio = de && new Date(`${de}T00:00:00`).getTime();
+    const fim = ate && new Date(`${ate}T23:59:59.999`).getTime();
+    if (inicio && isFinite(inicio)) { where.push("l.created_at >= ?"); args.push(inicio); }
+    if (fim && isFinite(fim)) { where.push("l.created_at <= ?"); args.push(fim); }
   } else {
     where.push("l.assigned_to = ?"); args.push(id);
   }

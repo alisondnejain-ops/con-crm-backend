@@ -167,6 +167,45 @@ r.post("/users/:id/recusar", authRequired, roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, nome: u.name });
 });
 
+// Troca a função de um cadastro (ex.: promover a corretora a atendente).
+// Um atendente não pode criar nem alterar gestor — seria escalar o próprio poder.
+r.post("/users/:id/funcao", authRequired, roles("adm", "sdr"), (req, res) => {
+  const novo = papelDoFormulario(req.body && req.body.funcao);
+  if (!novo) return res.status(400).json({ error: "Função inválida. Use corretor, atendente ou gestor." });
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
+  const impedimento = podeMexer(req.user, u);
+  if (impedimento) return res.status(403).json({ error: impedimento });
+  if (novo === "adm" && req.user.role !== "adm")
+    return res.status(403).json({ error: "Só um gestor pode promover alguém a gestor." });
+  if (u.role === novo) return res.json({ ok: true, funcao: PAPEIS[novo].rotulo, sem_mudanca: true });
+
+  // Gestor não entra na catraca; ao virar gestor, sai da fila de distribuição.
+  db.prepare("UPDATE users SET role = ?, available = CASE WHEN ? = 'adm' THEN 0 ELSE available END WHERE id = ?")
+    .run(novo, novo, u.id);
+  res.json({ ok: true, nome: u.name, funcao: PAPEIS[novo].rotulo });
+});
+
+// Apagar de vez. Só depois de removido — é uma porta de duas etapas de propósito.
+// O histórico de conversa sobrevive: as mensagens guardam o nome de quem enviou
+// (from_name), então quem lê a conversa antiga continua entendendo quem falou.
+r.delete("/users/:id", authRequired, roles("adm"), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
+  if (u.id === req.user.id) return res.status(400).json({ error: "Você não pode apagar a própria conta." });
+  if (u.status !== "removido")
+    return res.status(409).json({ error: "Remova a pessoa da equipe primeiro. Apagar é o passo seguinte." });
+
+  const apagar = db.transaction(() => {
+    // Leads que ainda estivessem com ela voltam para a fila, nunca somem.
+    db.prepare("UPDATE leads SET assigned_to = NULL WHERE assigned_to = ?").run(u.id);
+    db.prepare("UPDATE messages SET from_user_id = NULL WHERE from_user_id = ?").run(u.id);
+    db.prepare("DELETE FROM users WHERE id = ?").run(u.id);
+  });
+  apagar();
+  res.json({ ok: true, nome: u.name });
+});
+
 // Remover da equipe. NÃO apaga o cadastro: desativa. Apagar de verdade quebraria
 // o histórico — as conversas e os relatórios apontam para quem atendeu.
 // Os leads em aberto precisam de destino, senão o cliente fica esperando sozinho.
