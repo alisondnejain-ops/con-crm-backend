@@ -1,0 +1,23 @@
+# Publicação do ConHub no Netlify.
+#
+# Deixar isto versionado, e não só no painel, tem duas vantagens: se o site for
+# recriado ou o link com o GitHub refeito, a configuração vem junto com o código;
+# e qualquer pessoa que abrir o repositório entende como o site é publicado.
+
+[build]
+  # O index.html já vai compilado no repositório (ver frontend/build.mjs),
+  # então não há nada para compilar aqui — o Netlify só serve a pasta.
+  publish = "frontend"
+
+# O index.html é um arquivo único e autossuficiente, e o nome dele nunca muda.
+# Sem isto, o navegador guarda a versão antiga e o corretor continua vendo o
+# sistema desatualizado depois de uma publicação — foi o que aconteceu hoje.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
