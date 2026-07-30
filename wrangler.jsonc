@@ -1,0 +1,22 @@
+{
+  // Publicação do site do ConHub na Cloudflare.
+  //
+  // A Cloudflare juntou o Pages dentro do Workers: projetos novos são criados como
+  // Worker, e o Worker lê este arquivo para saber o que publicar. Sem ele, a
+  // Cloudflare não tem como adivinhar que o site está na pasta "frontend".
+  //
+  // "name" precisa ser igual ao nome do Worker no painel — se um dia ele mudar lá,
+  // mude aqui também, senão a publicação cria um segundo Worker em vez de
+  // atualizar o que já existe.
+  "name": "con-crm-backend",
+  "compatibility_date": "2026-07-30",
+
+  // Site estático puro: não há código de servidor aqui, só a pasta de arquivos.
+  // O index.html já vai compilado no repositório (ver frontend/build.mjs), então
+  // não existe etapa de compilação na hospedagem — a Cloudflare só serve a pasta.
+  //
+  // Os cabeçalhos de cache continuam vindo de frontend/_headers.
+  "assets": {
+    "directory": "./frontend"
+  }
+}
