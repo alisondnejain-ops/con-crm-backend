@@ -110,6 +110,12 @@ addUserCol("avatar_url", "TEXT");                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
+// Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos
+// corretores). Se os dois compartilhassem o mesmo contador, uma catraca
+// embaralharia a ordem da outra.
+const orgCols = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+if (!orgCols.includes("atendente_ptr")) db.exec("ALTER TABLE orgs ADD COLUMN atendente_ptr INTEGER DEFAULT 0");
+
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa
@@ -117,5 +123,6 @@ addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
 addLeadCol("sale_date", "INTEGER");      // data da venda
 addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
+addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
 
 export default db;

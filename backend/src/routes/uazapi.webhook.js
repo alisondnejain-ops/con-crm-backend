@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
+import { proximoAtendente } from "../services/catraca.js";
 import { advanceStage } from "./messages.routes.js";
 
 const r = Router();
@@ -62,21 +63,29 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) =>
 
     let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
 
-    // Número desconhecido = lead novo entrando pelo WhatsApp. Cai na fila da catraca,
-    // sem dono, exatamente como um lead vindo da Meta.
+    // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
+    // atendente da vez, exatamente como um lead vindo da Meta.
     if (!lead) {
       const org = db.prepare("SELECT id FROM orgs LIMIT 1").get();
       if (!org) return lembrar({ em: Date.now(), resultado: "sem organização configurada" });
       const id = "l_" + randomUUID();
+      const dono = proximoAtendente(org.id);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at)
-        VALUES (?,?,?,?,'WhatsApp','MORNO','{}','Lead',NULL,?)`)
-        .run(id, org.id, nome || "Contato do WhatsApp", phone, Date.now());
+        VALUES (?,?,?,?,'WhatsApp','MORNO','{}','Lead',?,?)`)
+        .run(id, org.id, nome || "Contato do WhatsApp", phone, dono, Date.now());
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
-      console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — entrou na fila da catraca`);
+      console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }
 
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
       VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "in", null, null, corpo, Date.now());
+
+    // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
+    // mensagem cairia numa conversa escondida e ninguém responderia.
+    if (lead.closed_at) {
+      db.prepare("UPDATE leads SET closed_at = NULL WHERE id = ?").run(lead.id);
+      console.log(`[uazapi] atendimento de ${lead.name} reaberto: o cliente respondeu`);
+    }
 
     advanceStage(lead.id);
     lembrar({ em: Date.now(), evento, resultado: "ok", lead: lead.name, tipo });

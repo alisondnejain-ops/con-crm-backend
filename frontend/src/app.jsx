@@ -45,6 +45,7 @@ function adaptLead(l,anterior){
     status:l.stage||"Lead",
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
+    finalizado:!!l.closed_at,
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
@@ -282,7 +283,9 @@ function ConCRM(){
       // /auth/users já traz papel, status e disponibilidade — serve tanto para a
       // catraca quanto para o contador de aprovações pendentes.
       const [ls,eq]=await Promise.all([
-        api("/leads"),
+        // Traz os finalizados também: eles somem da caixa de entrada, mas
+        // continuam no funil e nos contadores. Quem esconde é a tela, não a busca.
+        api("/leads?finalizados=1"),
         supervisiona?api("/auth/users"):Promise.resolve(null),
       ]);
       mesclar(ls);
@@ -327,6 +330,11 @@ function ConCRM(){
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
+    // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
+    finalizar:acao((leadId)=>api(`/leads/${leadId}/finalizar`,{method:"POST"})),
+    reabrir:acao((leadId)=>api(`/leads/${leadId}/reabrir`,{method:"POST"})),
+    marcarLida:acao((leadId)=>api(`/leads/${leadId}/read`,{method:"POST"})),
+    marcarNaoLida:acao((leadId)=>api(`/leads/${leadId}/nao-lida`,{method:"POST"})),
     equipe:()=>api("/auth/users"),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
@@ -424,7 +432,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
   const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
-  const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0?1:0),0);
+  // O aviso na navegação conta só o que ainda está em aberto: atendimento
+  // finalizado não pode ficar cobrando resposta.
+  const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
 
@@ -548,6 +558,36 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
   </button>;
 }
 
+/* ===== CONTROLE DA CONVERSA =====
+   Os dois comandos que o atendente e o corretor usam para organizar a própria
+   caixa de entrada. Ficam numa barra fina embaixo do cabeçalho: no celular não
+   sobrava largura para enfiá-los ao lado do nome do lead.
+
+   "Finalizar" encerra o ATENDIMENTO, não o negócio — a etapa do funil não muda,
+   e o lead continua nos relatórios. Se o cliente responder, reabre sozinho.
+   "Marcar como lida" vira "não lida" quando já está lida: abrir a conversa já
+   marca sozinho, então sem o caminho de volta o botão não faria nada. */
+function ControleConversa({lead,acoes,isMobile}){
+  const [ocupado,setOcupado]=useState("");
+  const roda=(nome,fn)=>async()=>{ setOcupado(nome); try{ await fn(lead.id); } finally{ setOcupado(""); } };
+  const pill=(chave,icone,texto,onClick,cor)=><button key={chave} onClick={onClick} disabled={!!ocupado}
+    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${cor?cor+"55":C.line}`,background:cor?cor+"12":C.card,
+      color:ocupado?C.faint:(cor||C.sub),fontSize:isMobile?12:11.5,fontWeight:600,padding:isMobile?"7px 12px":"5px 11px",
+      borderRadius:999,cursor:ocupado?"default":"pointer",whiteSpace:"nowrap"}}>
+    <Icon n={ocupado===chave?"loader":icone} size={12} spin={ocupado===chave}/>{texto}</button>;
+
+  return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:isMobile?"8px 10px":"7px 16px",
+    display:"flex",alignItems:"center",gap:7,flexShrink:0,overflowX:"auto"}}>
+    {lead.unread>0
+      ?pill("lida","check","Marcar como lida",roda("lida",acoes.marcarLida))
+      :pill("naolida","msg","Marcar como não lida",roda("naolida",acoes.marcarNaoLida))}
+    {lead.finalizado
+      ?pill("reabrir","spark","Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
+      :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep)}
+    {lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
+  </div>;
+}
+
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile}){
   const [filter,setFilter]=useState("Todos");
@@ -556,7 +596,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [enviandoImovel,setEnviandoImovel]=useState(false);
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
-  const list=myLeads.filter(l=>filter==="Todos"?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase());
+  // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
+  // é assim que o corretor reabre um atendimento que encerrou sem querer.
+  const list=myLeads.filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
+    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase());
   const openChat=(id)=>{abrir(id);setPane("chat");};
   // Se o lead sai da conta (repasse da SDR), volta sozinho para a lista.
   useEffect(()=>{if(!sel&&pane!=="lista")setPane("lista");},[sel,pane]);
@@ -568,7 +611,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   return <div style={{height:"100%",display:"flex",minHeight:0}}>
     {showList&&<div style={{width:isMobile?"100%":isCompact?250:300,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
       <div style={{padding:12,borderBottom:`1px solid ${C.line}`}}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Quente","Morno"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Quente","Morno","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
@@ -589,6 +632,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
         </div>
       </div>
+      <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
@@ -783,11 +827,17 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
    para analisar atendimento por atendimento. Somente leitura — supervisionar
    não marca a conversa como lida, para não apagar o aviso do corretor. */
 function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
+  // A atendente abre na PRÓPRIA caixa (o que está com ela + a fila): ela também
+  // atende, e ver a imobiliária inteira misturava o trabalho dela com a
+  // supervisão — o lead repassado ao corretor continuava aparecendo. A visão
+  // geral fica a um clique. O gestor abre já na equipe inteira, como antes.
+  const [escopo,setEscopo]=useState(session.role==="sdr"?"meus":"todos");
   const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
   const [rapido,setRapido]=useState("Todos"); // atalhos que existiam na caixa de entrada
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
   const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length;
+  const [verFinalizados,setVerFinalizados]=useState(false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
@@ -797,9 +847,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   useEffect(()=>{
     let vivo=true; setCarregando(true);
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
+    if(escopo==="meus")params.escopo="meus";
+    if(verFinalizados)params.finalizados="1";
     acoes.buscar(params).then(r=>{if(vivo){setLista(r);setCarregando(false);}}).catch(()=>vivo&&setCarregando(false));
     return()=>{vivo=false;};
-  },[f.atendente,f.etapa,f.prioridade,f.q,f.de,f.ate,versao]);
+  },[f.atendente,f.etapa,f.prioridade,f.q,f.de,f.ate,escopo,verFinalizados,versao]);
 
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact;
@@ -831,6 +883,14 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
         </div>
+        {/* Só a atendente vê esta chave: ela atende e supervisiona, e precisa
+            separar as duas coisas. O gestor já enxerga tudo por padrão. */}
+        {session.role==="sdr"&&<div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
+          {[["meus","Minha caixa"],["todos","Toda a equipe"]].map(([v,t])=><button key={v} onClick={()=>setEscopo(v)}
+            style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:8,border:"none",cursor:"pointer",
+              background:escopo===v?C.card:"transparent",color:escopo===v?C.greenDeep:C.sub,
+              boxShadow:escopo===v?"0 1px 2px rgba(0,0,0,.06)":"none"}}>{t}</button>)}
+        </div>}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["Todos","Meus","Aguardando","Quente","Morno"].map(a=><button key={a} onClick={()=>setRapido(a)}
             style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 13px":"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
@@ -848,6 +908,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           </button>
           {filtrosAtivos>0&&<button onClick={()=>setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""})}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
+          {/* Atendimento finalizado sai da lista; este é o caminho de volta,
+              para consultar ou reabrir sem precisar caçar no funil. */}
+          <button onClick={()=>setVerFinalizados(v=>!v)} title="Mostrar também os atendimentos finalizados"
+            style={{border:`1px solid ${verFinalizados?C.green+"66":C.line}`,background:verFinalizados?C.greenSoft:C.surface,
+              color:verFinalizados?C.greenDeep:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            Finalizados</button>
           <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</span>
         </div>
 
@@ -884,6 +950,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         <BotaoLigar tel={sel.tel} compacto/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
       </div>
+      {/* A supervisão não mexe na caixa alheia: os controles só aparecem quando
+          o lead é de quem está olhando. Senão a ADM apagaria o aviso do corretor. */}
+      {sel.assignedTo===session.id&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}

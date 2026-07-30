@@ -31,6 +31,12 @@ r.get("/", (req, res) => {
 
   if (supervisiona(req.user)) {
     where.push("l.org_id = ?"); args.push(org_id);
+    // Caixa de atendimento da atendente: só o que está com ela e o que ainda não
+    // tem dono. Sem isto ela enxerga a imobiliária inteira (é supervisora), e o
+    // lead que ela acabou de repassar continuava na tela dela, atrapalhando o
+    // próprio atendimento. A visão geral continua a um clique, no escopo "todos",
+    // e os filtros abaixo seguem valendo dentro dos dois escopos.
+    if (req.query.escopo === "meus") { where.push("(l.assigned_to = ? OR l.assigned_to IS NULL)"); args.push(id); }
     const { atendente, etapa, prioridade, q, de, ate } = req.query;
     if (atendente === "fila") where.push("l.assigned_to IS NULL");
     else if (atendente) { where.push("l.assigned_to = ?"); args.push(atendente); }
@@ -46,6 +52,10 @@ r.get("/", (req, res) => {
   } else {
     where.push("l.assigned_to = ?"); args.push(id);
   }
+
+  // Atendimento finalizado sai da caixa de entrada, mas continua no funil e nos
+  // relatórios. ?finalizados=1 traz de volta, para reabrir ou consultar.
+  if (req.query.finalizados !== "1") where.push("l.closed_at IS NULL");
 
   const rows = db.prepare(`${SELECT_LEAD} WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC`).all(...args);
   res.json(rows.map(parse));
@@ -82,6 +92,38 @@ r.post("/:id/read", (req, res) => {
     return res.json({ ok: true, ignorado: "supervisão não marca como lida" });
   db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(Date.now(), lead.id);
   res.json({ ok: true });
+});
+
+// Marca como NÃO lida: abrir a conversa marca como lida sozinho, então sem isto
+// o botão de leitura seria um clique sem efeito. Serve para o atendente deixar
+// o aviso vermelho de propósito e voltar depois. Recua a leitura para logo antes
+// da última mensagem do cliente — volta a pendência, sem inventar mensagem nova.
+r.post("/:id/nao-lida", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Sem acesso a este lead" });
+  const ultima = db.prepare(
+    "SELECT created_at FROM messages WHERE lead_id = ? AND direction = 'in' ORDER BY created_at DESC LIMIT 1"
+  ).get(lead.id);
+  if (!ultima) return res.json({ ok: true, ignorado: "o cliente ainda não mandou mensagem" });
+  db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(ultima.created_at - 1, lead.id);
+  res.json({ ok: true });
+});
+
+// Finaliza o atendimento: a conversa sai da caixa de entrada e para de cobrar
+// resposta. A etapa do funil NÃO muda — encerra o atendimento, não o negócio.
+// Se o lead voltar a mandar mensagem, o webhook reabre sozinho (ver messages).
+r.post("/:id/finalizar", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("UPDATE leads SET closed_at = ?, last_read_at = ? WHERE id = ?").run(Date.now(), Date.now(), lead.id);
+  res.json({ ok: true, finalizado: true });
+});
+
+r.post("/:id/reabrir", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("UPDATE leads SET closed_at = NULL WHERE id = ?").run(lead.id);
+  res.json({ ok: true, finalizado: false });
 });
 
 // Ajuste manual de etapa (o automático acontece no envio/recebimento de mensagem).

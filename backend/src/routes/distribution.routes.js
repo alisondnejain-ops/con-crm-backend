@@ -13,6 +13,29 @@ r.get("/attendants", roles("sdr", "adm"), (req, res) => {
   res.json(rows.map(u => ({ ...u, available: !!u.available })));
 });
 
+// Catraca dos ATENDENTES — só o gestor. É a fila de quem recebe os leads que
+// entram, com quantos cada uma já pegou e quem é a próxima da vez. Com uma
+// atendente só, a lista tem uma linha; a tela existe para quando entrar a segunda.
+r.get("/atendentes", roles("adm"), (req, res) => {
+  const fila = db.prepare(
+    "SELECT id,name,available,status FROM users WHERE org_id = ? AND role = 'sdr' AND status = 'ativo' ORDER BY created_at, name"
+  ).all(req.user.org_id);
+  const org = db.prepare("SELECT atendente_ptr FROM orgs WHERE id = ?").get(req.user.org_id);
+  const ptr = (org && org.atendente_ptr) || 0;
+  const emAberto = db.prepare(
+    "SELECT COUNT(*) n FROM leads WHERE assigned_to = ? AND closed_at IS NULL AND stage NOT IN ('Venda','Perdido')"
+  );
+  res.json({
+    proximo: fila.length ? fila[ptr % fila.length].id : null,
+    atendentes: fila.map((u, i) => ({
+      ...u,
+      available: !!u.available,
+      proximo_da_vez: fila.length ? i === ptr % fila.length : false,
+      em_aberto: emAberto.get(u.id).n,
+    })),
+  });
+});
+
 // Prontidão do dia. O próprio usuário pode se prontificar; SDR/ADM podem ajustar de qualquer um.
 r.post("/availability", (req, res) => {
   const { user_id, available } = req.body || {};
