@@ -31,9 +31,24 @@ const R2 = {
 export const usandoR2 = () => !!(R2.conta && R2.chave && R2.segredo && R2.bucket && R2.publico);
 export const modoArmazenamento = () => (usandoR2() ? "Cloudflare R2" : "disco da hospedagem");
 
+// Cadastro de imóveis: só foto e vídeo. É esta lista que `tipoPermitido` guarda.
 const EXTENSOES = {
   "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
   "video/mp4": ".mp4", "video/quicktime": ".mov",
+};
+// O que chega do cliente pelo WhatsApp é mais variado: áudio de voz e a papelada
+// da pasta (RG, comprovante de renda). Vale para guardar e exibir na conversa,
+// mas NÃO libera esses tipos no catálogo de imóveis — são listas separadas.
+const EXTENSOES_RECEBIDAS = {
+  ...EXTENSOES,
+  "image/gif": ".gif", "video/3gpp": ".3gp", "video/webm": ".webm",
+  "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/amr": ".amr", "audio/wav": ".wav",
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "text/plain": ".txt",
 };
 export const tipoPermitido = (mime) => !!EXTENSOES[mime];
 export const ehVideo = (mime) => String(mime).startsWith("video/");
@@ -57,7 +72,9 @@ async function s3() {
 
 // Devolve { url, chave }. A url é pública — é ela que vai para o WhatsApp.
 export async function salvar({ buffer, mime, prefixo = "produtos" }) {
-  const ext = EXTENSOES[mime] || "";
+  // Aceita tanto os tipos do catálogo quanto os recebidos na conversa. Quem
+  // decide o que pode entrar é o chamador; aqui só resolvemos a extensão.
+  const ext = EXTENSOES_RECEBIDAS[mime] || "";
   const chave = `${prefixo}/${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 
   if (usandoR2()) {

@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
+import { guardarMidiaRecebida } from "../services/midia.js";
 import { advanceStage } from "./messages.routes.js";
 
 const r = Router();
@@ -26,10 +27,15 @@ function extrair(p) {
 
   const texto = m.text || m.body || m.caption || m.content?.text || m.conversation || "";
   const tipo = m.messageType || m.type || "";
+  // Em mensagem de mídia, `content` é um objeto com URL, mimetype e o nome do
+  // arquivo. Em mensagem de texto ele é uma string — daí a checagem de tipo.
+  const content = m.content && typeof m.content === "object" ? m.content : null;
   return {
     phone: normalizePhone(chat.split("@")[0]),
     texto: String(texto).trim(),
     tipo,
+    content,
+    messageid: m.messageid || m.id || m.key?.id || "",
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
   };
 }
@@ -41,7 +47,7 @@ function extrair(p) {
 // "addUrlTypesMessages" e "addUrlEvents", que acrescentam o tipo da mensagem
 // ou o nome do evento na URL (.../uazapi/text, .../uazapi/messages). Ligadas
 // sem querer, elas fariam todo webhook cair em 404 silenciosamente.
-r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) => {
+r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, res) => {
   res.sendStatus(200); // responde já: a Uazapi não deve esperar nosso processamento
   try {
     const p = req.body || {};
@@ -54,28 +60,29 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) =>
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, nome, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
-    // Mensagem sem texto (só mídia): registramos um marcador para o corretor saber que chegou algo.
-    const corpo = texto || (tipo ? `[${tipo}]` : "[mensagem sem texto]");
+    // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
+    // mensagem, para a conversa já nascer com a mídia. Se não der, `midia` volta
+    // nulo e a mensagem entra como antes — o marcador de texto, sem travar nada.
+    const temMidia = !!(content && (content.URL || content.url));
+    const midia = temMidia ? await guardarMidiaRecebida({ content, messageid, tipo }) : null;
 
-    // Diagnóstico para ligar a exibição de mídia: quando chega foto/vídeo/documento,
-    // anotamos a FORMA do payload — nomes de campos e, dos que parecem link, só o
-    // início da URL. Nunca o arquivo nem o conteúdo da conversa. É temporário:
-    // serve para descobrir por qual caminho esta conta manda a mídia.
-    if (!texto || /image|video|audio|document|sticker|ptt|media/i.test(tipo)) {
-      const m = p.message || p.data?.message || p.data || p;
-      const forma = {};
-      for (const [k, v] of Object.entries(m)) {
-        if (v == null) continue;
-        if (typeof v === "string") forma[k] = /^https?:\/\//.test(v) ? "URL: " + v.slice(0, 60) + "…"
-                                  : v.length > 120 ? `texto longo (${v.length} chars — pode ser base64)` : typeof v;
-        else forma[k] = Array.isArray(v) ? "lista" : typeof v === "object" ? "objeto{" + Object.keys(v).slice(0, 12).join(",") + "}" : typeof v;
-      }
-      lembrar({ em: Date.now(), evento, resultado: "MÍDIA — forma do payload", tipo, campos: forma });
-    }
+    // Legenda da foto, ou o nome do documento. Sem nenhum dos dois, um rótulo
+    // curto em português: é ele que aparece na prévia da lista de conversas
+    // ("Foto" lê melhor que "[ImageMessage]"). O balão esconde esse rótulo, já
+    // que a imagem está logo ali — mas a lista precisa de alguma palavra.
+    const rotulo = midia
+      ? (/^image\//.test(midia.mime) ? "Foto"
+        : /^video\//.test(midia.mime) ? "Vídeo"
+        : /^audio\//.test(midia.mime) ? "Áudio"
+        : midia.nome || "Documento")
+      : "";
+    const corpo = texto || rotulo || (tipo ? `[${tipo}]` : "[mensagem sem texto]");
+
+    if (temMidia) lembrar({ em: Date.now(), evento, tipo, resultado: midia ? "mídia guardada" : "MÍDIA NÃO BAIXOU — ver log do servidor" });
 
     let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
 
@@ -93,8 +100,9 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) =>
       console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }
 
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
-      VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "in", null, null, corpo, Date.now());
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, Date.now());
 
     // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
     // mensagem cairia numa conversa escondida e ninguém responderia.

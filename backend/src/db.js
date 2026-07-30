@@ -125,4 +125,12 @@ addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
 
+// Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
+// descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
+const msgCols = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name);
+const addMsgCol = (name, ddl) => { if (!msgCols.includes(name)) db.exec(`ALTER TABLE messages ADD COLUMN ${name} ${ddl}`); };
+addMsgCol("media_url", "TEXT");   // endereço público do arquivo guardado
+addMsgCol("media_mime", "TEXT");  // image/jpeg, audio/ogg, application/pdf...
+addMsgCol("media_name", "TEXT");  // nome original, quando é documento
+
 export default db;

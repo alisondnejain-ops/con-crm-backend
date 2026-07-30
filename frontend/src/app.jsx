@@ -55,6 +55,10 @@ function adaptLead(l,anterior){
 const adaptMsg=(m)=>({
   from:m.direction==="in"?"lead":"corretor",
   text:m.body, at:m.created_at, by:m.from_user_id, byName:m.from_name,
+  midia:m.media_url?{url:m.media_url,mime:m.media_mime||"",nome:m.media_name||""}:null,
+  // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
+  // do balão seriam redundantes — a mídia já está à vista.
+  rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
 });
 const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"}};
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
@@ -558,6 +562,39 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
   </button>;
 }
 
+/* ===== MÍDIA NA CONVERSA =====
+   Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
+   descartado e sobrava "[ImageMessage]" na tela; agora o backend guarda e aqui a
+   gente mostra. Clicar na imagem abre o tamanho real em outra aba — é como o
+   corretor confere um comprovante sem sair do CRM. */
+function Midia({m,mine,isMobile}){
+  const {url,mime,nome}=m.midia;
+  const larguraMax=isMobile?220:260;
+  if(/^image\//.test(mime))
+    return <a href={url} target="_blank" rel="noreferrer" style={{display:"block",marginBottom:m.text?6:0}}>
+      <img src={url} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
+        style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
+    </a>;
+  if(/^video\//.test(mime))
+    return <video src={url} controls preload="metadata"
+      style={{maxWidth:larguraMax,borderRadius:10,display:"block",marginBottom:m.text?6:0,background:"#000"}}/>;
+  if(/^audio\//.test(mime))
+    // O áudio de voz é o formato que mais chega: o cliente responde falando.
+    return <audio src={url} controls preload="metadata"
+      style={{maxWidth:isMobile?200:240,display:"block",marginBottom:m.text?6:0}}/>;
+  // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.
+  return <a href={url} target="_blank" rel="noreferrer" download={nome||undefined}
+    style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none",marginBottom:m.text?6:0,
+      background:mine?"rgba(255,255,255,.16)":C.surface,border:`1px solid ${mine?"rgba(255,255,255,.25)":C.line}`,
+      borderRadius:10,padding:"9px 11px",maxWidth:larguraMax}}>
+    <Icon n="mail" size={17} color={mine?"#fff":C.greenMid}/>
+    <span style={{minWidth:0}}>
+      <span style={{display:"block",color:mine?"#fff":C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome||"Documento"}</span>
+      <span style={{color:mine?"rgba(255,255,255,.75)":C.faint,fontSize:10.5}}>Abrir arquivo</span>
+    </span>
+  </a>;
+}
+
 /* ===== CONTROLE DA CONVERSA =====
    Os dois comandos que o atendente e o corretor usam para organizar a própria
    caixa de entrada. Ficam numa barra fina embaixo do cabeçalho: no celular não
@@ -641,7 +678,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           return <div key={i} style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{senderName} · Conecta</div>}
-              {m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
+              {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
+              {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
           </div>;})}
       </div>
@@ -962,7 +1000,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           return <div key={i} style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{m.byName||"Conecta"}</div>}
-              {m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
+              {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
+              {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
           </div>;})}
       </div>
