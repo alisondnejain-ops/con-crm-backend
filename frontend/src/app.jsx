@@ -950,9 +950,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         <BotaoLigar tel={sel.tel} compacto/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
       </div>
-      {/* A supervisão não mexe na caixa alheia: os controles só aparecem quando
-          o lead é de quem está olhando. Senão a ADM apagaria o aviso do corretor. */}
-      {sel.assignedTo===session.id&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
+      {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
+          é dele. Lead na fila também entra — não é de ninguém, então não há aviso
+          de corretor para apagar, e alguém precisa poder encerrar. */}
+      {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
