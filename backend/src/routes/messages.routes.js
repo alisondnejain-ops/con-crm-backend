@@ -2,7 +2,8 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
-import { sendText, sendMedia } from "../services/uazapi.js";
+import { sendText, sendMedia, sendLocation } from "../services/uazapi.js";
+import { salvar, limiteBytes } from "../services/storage.js";
 import { inferStage } from "../services/stages.js";
 
 const r = Router();
@@ -39,6 +40,105 @@ r.post("/:id/messages", async (req, res) => {
   advanceStage(lead.id);
   res.json({ ok: true });
 });
+
+/* Anexos que o CORRETOR manda: áudio gravado, fotos e vídeo.
+
+   Limites combinados com o Ali (30/07/2026): até 10 fotos por envio, 1 vídeo,
+   1 áudio. Não é capricho — cada arquivo vira uma requisição para a Uazapi e
+   ocupa disco, e disparo em rajada num número não-oficial é o que mais chama
+   atenção do WhatsApp.
+
+   O arquivo é guardado primeiro porque a Uazapi envia a partir de uma URL
+   pública: sem guardar, não há o que mandar. Como o arquivo fica salvo, ele
+   também aparece no balão da conversa, igual ao que o cliente manda. */
+const LIMITES = { image: 10, video: 1, audio: 1 };
+const familia = (mime) => (/^image\//.test(mime) ? "image" : /^video\//.test(mime) ? "video" : /^audio\//.test(mime) ? "audio" : "");
+
+r.post("/:id/anexo", async (req, res) => {
+  const { arquivos } = req.body || {};
+  if (!Array.isArray(arquivos) || !arquivos.length) return res.status(400).json({ error: "Nenhum arquivo recebido." });
+
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  // Confere os limites antes de gravar qualquer coisa: melhor recusar tudo do
+  // que mandar 10 fotos e falhar na 11ª, deixando o envio pela metade.
+  const contagem = {};
+  for (const a of arquivos) {
+    const f = familia(a.mime || "");
+    if (!f) return res.status(400).json({ error: `Tipo de arquivo não aceito: ${a.mime || "desconhecido"}` });
+    contagem[f] = (contagem[f] || 0) + 1;
+    if (contagem[f] > LIMITES[f])
+      return res.status(400).json({ error: `Máximo de ${LIMITES[f]} ${f === "image" ? "fotos" : f === "video" ? "vídeo" : "áudio"} por envio.` });
+  }
+
+  const firstName = (req.user.name || "").split(" ")[0];
+  const enviados = [];
+  try {
+    for (const [i, a] of arquivos.entries()) {
+      const buffer = Buffer.from(String(a.base64 || "").replace(/^data:[^;]+;base64,/, ""), "base64");
+      if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+      if (buffer.length > limiteBytes(a.mime))
+        return res.status(413).json({ error: `"${a.nome || "arquivo"}" passa do limite de ${Math.round(limiteBytes(a.mime) / 1048576)} MB.` });
+
+      const { url } = await salvar({ buffer, mime: a.mime, prefixo: "conversas" });
+      const f = familia(a.mime);
+      // "ptt" é o áudio de voz do WhatsApp — aparece como mensagem de voz, e não
+      // como arquivo de música anexado.
+      const tipoUazapi = f === "audio" ? "ptt" : f;
+      // A legenda vai só na primeira: repetida em 10 fotos, vira spam.
+      const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
+      await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
+      enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda });
+    }
+  } catch (e) {
+    // Parte pode ter ido. Registramos o que saiu para a conversa não mentir.
+    for (const m of enviados) gravarSaida(lead, req.user, firstName, m);
+    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message, enviados: enviados.length });
+  }
+
+  for (const m of enviados) gravarSaida(lead, req.user, firstName, m);
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+  advanceStage(lead.id);
+  res.json({ ok: true, enviados: enviados.length });
+});
+
+// Localização de onde o corretor está agora (GPS do celular). Vai como ponto no
+// mapa, não como link — o cliente abre direto no aplicativo de mapas dele.
+r.post("/:id/localizacao", async (req, res) => {
+  const { latitude, longitude } = req.body || {};
+  const lat = Number(latitude), lon = Number(longitude);
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180)
+    return res.status(400).json({ error: "Coordenadas inválidas." });
+
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  const firstName = (req.user.name || "").split(" ")[0];
+  try {
+    await sendLocation({ toPhone: lead.phone, latitude: lat, longitude: lon, name: `${firstName} — Conecta Imóveis` });
+  } catch (e) {
+    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
+  }
+
+  const now = Date.now();
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
+    VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
+      `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now);
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
+  res.json({ ok: true });
+});
+
+function gravarSaida(lead, user, firstName, m) {
+  const rotulo = /^image\//.test(m.mime) ? "Foto" : /^video\//.test(m.mime) ? "Vídeo" : /^audio\//.test(m.mime) ? "Áudio" : (m.nome || "Arquivo");
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
+      m.legenda || rotulo, m.url, m.mime, m.nome || null, Date.now());
+}
 
 // Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial
 // primeiro, sem jargão interno. Comissão e captador NUNCA entram aqui.

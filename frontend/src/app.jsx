@@ -335,6 +335,9 @@ function ConCRM(){
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
+    // Anexos e localização saem pelo número da Conecta, como qualquer mensagem.
+    anexar:acao((leadId,arquivos,texto)=>api(`/leads/${leadId}/anexo`,{method:"POST",body:{arquivos,texto}})),
+    mandarLocal:acao((leadId,latitude,longitude)=>api(`/leads/${leadId}/localizacao`,{method:"POST",body:{latitude,longitude}})),
     finalizar:acao((leadId)=>api(`/leads/${leadId}/finalizar`,{method:"POST"})),
     reabrir:acao((leadId)=>api(`/leads/${leadId}/reabrir`,{method:"POST"})),
     marcarLida:acao((leadId)=>api(`/leads/${leadId}/read`,{method:"POST"})),
@@ -562,6 +565,122 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
   </button>;
 }
 
+/* ===== ANEXAR NA CONVERSA =====
+   O clipe do WhatsApp: fotos (até 10), vídeo (1), áudio gravado na hora e a
+   localização de onde o corretor está. Os limites vêm do backend também — aqui
+   eles existem para avisar antes de subir 40 MB à toa no 4G do corretor.
+
+   O áudio é gravado pelo próprio navegador. No Android sai em webm, no iPhone em
+   mp4; os dois são aceitos e a Uazapi manda como mensagem de voz. */
+const LIMITE_FOTOS=10;
+const lerArquivo=(f)=>new Promise((ok,erro)=>{
+  const r=new FileReader();
+  r.onload=()=>ok({mime:f.type,nome:f.name,base64:String(r.result).split(",")[1]});
+  r.onerror=()=>erro(new Error(`Não consegui ler "${f.name}".`));
+  r.readAsDataURL(f);
+});
+
+function Anexar({lead,acoes,isMobile,aoAvisar}){
+  const [aberto,setAberto]=useState(false);
+  const [ocupado,setOcupado]=useState("");
+  const [gravando,setGravando]=useState(0); // segundos
+  const gravador=useRef(null), pedacos=useRef([]), cronometro=useRef(null);
+  const fotos=useRef(null), video=useRef(null);
+
+  const aviso=(m)=>aoAvisar&&aoAvisar(m);
+
+  async function mandar(lista,rotulo){
+    setAberto(false); setOcupado(rotulo);
+    try{
+      const arquivos=await Promise.all(lista.map(lerArquivo));
+      await acoes.anexar(lead.id,arquivos);
+    }catch(e){ aviso(e.message); }
+    finally{ setOcupado(""); }
+  }
+
+  function escolheuFotos(e){
+    const lista=[...e.target.files]; e.target.value="";
+    if(!lista.length) return;
+    if(lista.length>LIMITE_FOTOS) return aviso(`Dá para mandar até ${LIMITE_FOTOS} fotos por vez. Você escolheu ${lista.length}.`);
+    mandar(lista,"fotos");
+  }
+  function escolheuVideo(e){
+    const f=e.target.files[0]; e.target.value="";
+    if(f) mandar([f],"vídeo");
+  }
+
+  async function local(){
+    setAberto(false);
+    if(!navigator.geolocation) return aviso("Este aparelho não informa a localização.");
+    setOcupado("local");
+    navigator.geolocation.getCurrentPosition(
+      async(pos)=>{ try{ await acoes.mandarLocal(lead.id,pos.coords.latitude,pos.coords.longitude); }
+                    catch(e){ aviso(e.message); } finally{ setOcupado(""); } },
+      ()=>{ setOcupado(""); aviso("Não consegui pegar sua localização. Confira se o navegador tem permissão de GPS."); },
+      {enableHighAccuracy:true,timeout:12000}
+    );
+  }
+
+  async function gravar(){
+    setAberto(false);
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      // O tipo varia por navegador; deixamos o próprio escolher o que sabe gravar.
+      const rec=new MediaRecorder(stream);
+      pedacos.current=[];
+      rec.ondataavailable=(e)=>e.data.size&&pedacos.current.push(e.data);
+      rec.onstop=async()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        clearInterval(cronometro.current); setGravando(0);
+        const blob=new Blob(pedacos.current,{type:rec.mimeType||"audio/webm"});
+        // Só o tipo base: "audio/webm;codecs=opus" não bate com a lista do servidor.
+        const mime=(rec.mimeType||"audio/webm").split(";")[0];
+        setOcupado("áudio");
+        try{
+          const base64=await new Promise(ok=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]);r.readAsDataURL(blob);});
+          await acoes.anexar(lead.id,[{mime,nome:"audio",base64}]);
+        }catch(e){ aviso(e.message); } finally{ setOcupado(""); }
+      };
+      gravador.current=rec; rec.start();
+      setGravando(1); cronometro.current=setInterval(()=>setGravando(s=>s+1),1000);
+    }catch(e){ aviso("Não consegui usar o microfone. Confira a permissão no navegador."); }
+  }
+  const pararGravacao=()=>gravador.current&&gravador.current.state!=="inactive"&&gravador.current.stop();
+
+  if(gravando) return <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+    <span style={{display:"flex",alignItems:"center",gap:6,color:C.hot,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap"}}>
+      <span style={{width:9,height:9,borderRadius:"50%",background:C.hot}}/>
+      {String(Math.floor(gravando/60)).padStart(2,"0")}:{String(gravando%60).padStart(2,"0")}
+    </span>
+    <button onClick={pararGravacao} title="Enviar áudio"
+      style={{width:40,height:40,borderRadius:12,border:"none",background:C.green,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon n="send" size={17}/></button>
+  </div>;
+
+  const item=(icone,texto,onClick)=><button key={texto} onClick={onClick}
+    style={{display:"flex",alignItems:"center",gap:9,width:"100%",border:"none",background:"transparent",cursor:"pointer",padding:"10px 14px",fontSize:13,color:C.ink,textAlign:"left"}}>
+    <span style={{width:30,height:30,borderRadius:"50%",background:C.greenSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+      <Icon n={icone} size={15} color={C.greenMid}/></span>{texto}</button>;
+
+  return <div style={{position:"relative",flexShrink:0}}>
+    <input ref={fotos} type="file" accept="image/*" multiple onChange={escolheuFotos} style={{display:"none"}}/>
+    <input ref={video} type="file" accept="video/*" onChange={escolheuVideo} style={{display:"none"}}/>
+    {aberto&&<React.Fragment>
+      <div onClick={()=>setAberto(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
+      <div style={{position:"absolute",bottom:52,left:0,zIndex:21,background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.14)",padding:"5px 0",minWidth:186}}>
+        {item("star",`Fotos (até ${LIMITE_FOTOS})`,()=>fotos.current.click())}
+        {item("msg","Vídeo (1)",()=>video.current.click())}
+        {item("phone","Gravar áudio",gravar)}
+        {item("pin","Minha localização",local)}
+      </div>
+    </React.Fragment>}
+    <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado} title="Anexar"
+      style={{width:isMobile?40:42,height:isMobile?40:42,borderRadius:12,border:`1px solid ${C.line}`,background:C.surface,
+        color:ocupado?C.faint:C.sub,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon n={ocupado?"loader":"link"} size={18} spin={!!ocupado}/></button>
+  </div>;
+}
+
 /* ===== MÍDIA NA CONVERSA =====
    Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
    descartado e sobrava "[ImageMessage]" na tela; agora o backend guarda e aqui a
@@ -631,6 +750,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
   const [enviandoImovel,setEnviandoImovel]=useState(false);
+  // Avisos do anexo (limite de fotos, microfone negado, GPS bloqueado). Falha de
+  // envio já é tratada pelo aviso geral do topo; aqui é o que acontece antes de sair.
+  const [erroAnexo,setErroAnexo]=useState("");
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
@@ -690,10 +812,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={isMobile?"Escreva a mensagem…":"Escreva a mensagem…  ({nome} vira o primeiro nome do lead)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
           <button onClick={send} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
         </div>
+        {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
       </div>
     </div>}
@@ -1106,6 +1230,7 @@ function ComporADM({lead,session,acoes,isMobile}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
+  const [erroAnexo,setErroAnexo]=useState("");
   useEffect(()=>setDraft(""),[lead.id]);
 
   async function enviar(){
@@ -1122,12 +1247,14 @@ function ComporADM({lead,session,acoes,isMobile}){
     </div>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)}
         onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
         rows={2} placeholder="Responder como direção…"
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
       <button onClick={enviar} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
     </div>
+    {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
       <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
     </div>

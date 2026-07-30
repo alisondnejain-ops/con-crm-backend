@@ -42,7 +42,10 @@ const EXTENSOES = {
 const EXTENSOES_RECEBIDAS = {
   ...EXTENSOES,
   "image/gif": ".gif", "video/3gpp": ".3gp", "video/webm": ".webm",
-  "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/amr": ".amr", "audio/wav": ".wav",
+  // audio/webm é o que o navegador do Android grava; audio/mp4, o do iPhone.
+  // Sem os dois, o áudio gravado no CRM não teria extensão e não tocaria.
+  "audio/ogg": ".ogg", "audio/mpeg": ".mp3", "audio/mp4": ".m4a", "audio/amr": ".amr",
+  "audio/wav": ".wav", "audio/webm": ".webm",
   "application/pdf": ".pdf",
   "application/msword": ".doc",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
