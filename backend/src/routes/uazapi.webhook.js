@@ -61,6 +61,22 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], (req, res) =>
     // Mensagem sem texto (só mídia): registramos um marcador para o corretor saber que chegou algo.
     const corpo = texto || (tipo ? `[${tipo}]` : "[mensagem sem texto]");
 
+    // Diagnóstico para ligar a exibição de mídia: quando chega foto/vídeo/documento,
+    // anotamos a FORMA do payload — nomes de campos e, dos que parecem link, só o
+    // início da URL. Nunca o arquivo nem o conteúdo da conversa. É temporário:
+    // serve para descobrir por qual caminho esta conta manda a mídia.
+    if (!texto || /image|video|audio|document|sticker|ptt|media/i.test(tipo)) {
+      const m = p.message || p.data?.message || p.data || p;
+      const forma = {};
+      for (const [k, v] of Object.entries(m)) {
+        if (v == null) continue;
+        if (typeof v === "string") forma[k] = /^https?:\/\//.test(v) ? "URL: " + v.slice(0, 60) + "…"
+                                  : v.length > 120 ? `texto longo (${v.length} chars — pode ser base64)` : typeof v;
+        else forma[k] = Array.isArray(v) ? "lista" : typeof v === "object" ? "objeto{" + Object.keys(v).slice(0, 12).join(",") + "}" : typeof v;
+      }
+      lembrar({ em: Date.now(), evento, resultado: "MÍDIA — forma do payload", tipo, campos: forma });
+    }
+
     let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
 
     // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
