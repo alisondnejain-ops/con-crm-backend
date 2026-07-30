@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
+import { avisar } from "../services/push.js";
 
 const r = Router();
 r.use(authRequired);
@@ -54,6 +55,7 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
   if (!u.available) return res.status(409).json({ error: "Atendente indisponível — não entra na catraca" });
   const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(user_id, lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
+  avisarNovoLead(user_id, lead_id);
   res.json({ ok: true, assigned_to: user_id });
 });
 
@@ -70,6 +72,7 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
   const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(chosen, lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
   db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);
+  avisarNovoLead(chosen, lead_id);
   res.json({ ok: true, assigned_to: chosen });
 });
 
@@ -91,6 +94,7 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
   }
   const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(chosen, lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
+  avisarNovoLead(chosen, lead_id);
   res.json({ ok: true, assigned_to: chosen });
 });
 
@@ -126,5 +130,16 @@ r.post("/devolver", roles("adm", "sdr"), (req, res) => {
   db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(u.id, lead.id);
   res.json({ ok: true, destino: u.name });
 });
+
+// Aviso de lead novo na mão do corretor. Fora do fluxo da resposta de
+// propósito: se o push demorar ou falhar, a transferência já aconteceu.
+function avisarNovoLead(userId, leadId) {
+  const lead = db.prepare("SELECT name FROM leads WHERE id = ?").get(leadId);
+  avisar(userId, {
+    titulo: "Novo lead com você",
+    corpo: `${lead?.name || "Um lead"} acabou de entrar na sua lista. Fale agora — os primeiros minutos decidem.`,
+    leadId,
+  });
+}
 
 export default r;

@@ -8,3 +8,12 @@
 
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
+
+# O service worker é o pior arquivo para ficar preso em cache: uma versão velha
+# dele continuaria mandando notificação com o comportamento antigo, e o
+# navegador só troca quando o arquivo muda.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.json
+  Cache-Control: public, max-age=0, must-revalidate

@@ -11,6 +11,11 @@ const ADM_CODE="CONECTA-JAZ-2026";
 
 /* ===== API (backend hospedado) =====
    Para apontar para outro servidor sem recompilar, defina window.CON_CRM_API no index.html. */
+// Registra o service worker: é ele que recebe a notificação push com o CRM
+// fechado. Falhar aqui não pode derrubar o app — sem ele, só não há push.
+if(typeof navigator!=="undefined"&&"serviceWorker" in navigator)
+  window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(e=>console.warn("service worker:",e.message)));
+
 const API=(typeof window!=="undefined"&&window.CON_CRM_API||"https://con-crm-backend-production.up.railway.app").replace(/\/$/,"");
 const CADASTRO_URL=`${API}/cadastro?c=${ADM_CODE}`;
 
@@ -335,6 +340,11 @@ function ConCRM(){
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
+    pushChave:()=>api("/push/chave"),
+    pushSituacao:()=>api("/push/situacao"),
+    pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
+    pushCancelar:(endpoint)=>api("/push/cancelar",{method:"POST",body:{endpoint}}),
+    pushTeste:()=>api("/push/teste",{method:"POST"}),
     // Anexos e localização saem pelo número da Conecta, como qualquer mensagem.
     anexar:acao((leadId,arquivos,texto)=>api(`/leads/${leadId}/anexo`,{method:"POST",body:{arquivos,texto}})),
     mandarLocal:acao((leadId,latitude,longitude)=>api(`/leads/${leadId}/localizacao`,{method:"POST",body:{latitude,longitude}})),
@@ -1349,9 +1359,137 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
           {trocando?"Alterando…":"Alterar senha"}
         </button>
       </div>
+      <Notificacoes acoes={acoes} isMobile={isMobile}/>
     </div>
   </div>;
 }
+/* ===== NOTIFICAÇÕES NO CELULAR =====
+   Avisa o corretor quando um lead cai na mão dele ou quando o cliente responde,
+   mesmo com o CRM fechado.
+
+   A permissão é POR APARELHO: ativar no computador não ativa no celular. Por
+   isso a tela fala em "neste aparelho" o tempo todo — sem isso o corretor ativa
+   no PC, não recebe nada no celular e acha que está quebrado.
+
+   No iPhone só funciona com o site ADICIONADO À TELA DE INÍCIO. É limitação da
+   Apple: aba do Safari não recebe push. Detectamos e explicamos, em vez de
+   deixar o botão falhar sem motivo aparente. */
+const base64ParaBytes=(b64)=>{
+  const p=(b64+"=".repeat((4-b64.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/");
+  const cru=atob(p); return Uint8Array.from([...cru].map(c=>c.charCodeAt(0)));
+};
+const ehIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent);
+const naTelaDeInicio=()=>window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
+
+function Notificacoes({acoes,isMobile}){
+  const [estado,setEstado]=useState({carregando:true,configurado:false,aparelhos:0});
+  const [ativoAqui,setAtivoAqui]=useState(false);
+  const [ocupado,setOcupado]=useState("");
+  const [recado,setRecado]=useState(null);
+  const suportado=typeof window!=="undefined"&&"serviceWorker" in navigator&&"PushManager" in window;
+
+  useEffect(()=>{
+    let vivo=true;
+    (async()=>{
+      try{
+        const s=await acoes.pushSituacao();
+        if(suportado){
+          const reg=await navigator.serviceWorker.ready;
+          const sub=await reg.pushManager.getSubscription();
+          if(vivo) setAtivoAqui(!!sub);
+        }
+        if(vivo) setEstado({carregando:false,...s});
+      }catch(e){ if(vivo) setEstado({carregando:false,configurado:false,aparelhos:0}); }
+    })();
+    return()=>{vivo=false;};
+  },[]);
+
+  async function ativar(){
+    setRecado(null); setOcupado("ativar");
+    try{
+      const permissao=await Notification.requestPermission();
+      if(permissao!=="granted"){
+        setRecado({ok:false,txt:"Você recusou as notificações. Para liberar depois, use o cadeado ao lado do endereço do site."});
+        return;
+      }
+      const {chave}=await acoes.pushChave();
+      const reg=await navigator.serviceWorker.ready;
+      const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ParaBytes(chave)});
+      const r=await acoes.pushInscrever(sub.toJSON());
+      setAtivoAqui(true); setEstado(e=>({...e,aparelhos:r.aparelhos}));
+      setRecado({ok:true,txt:"Pronto! Este aparelho vai avisar quando chegar lead ou o cliente responder."});
+    }catch(e){ setRecado({ok:false,txt:e.message||"Não consegui ativar neste aparelho."}); }
+    finally{ setOcupado(""); }
+  }
+
+  async function desativar(){
+    setOcupado("desativar");
+    try{
+      const reg=await navigator.serviceWorker.ready;
+      const sub=await reg.pushManager.getSubscription();
+      if(sub){ await acoes.pushCancelar(sub.endpoint); await sub.unsubscribe(); }
+      setAtivoAqui(false); setRecado({ok:true,txt:"Notificações desligadas neste aparelho."});
+    }catch(e){ setRecado({ok:false,txt:e.message}); }
+    finally{ setOcupado(""); }
+  }
+
+  async function testar(){
+    setOcupado("teste"); setRecado(null);
+    try{
+      const r=await acoes.pushTeste();
+      setRecado(r.enviados
+        ? {ok:true,txt:"Enviei uma notificação de teste. Deve aparecer em instantes."}
+        : {ok:false,txt:"Nenhum aparelho ativo para receber. Ative aqui primeiro."});
+    }catch(e){ setRecado({ok:false,txt:e.message}); }
+    finally{ setOcupado(""); }
+  }
+
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12};
+  const titulo=<div style={{color:C.ink,fontSize:13.5,fontWeight:700,display:"flex",alignItems:"center",gap:7}}>
+    <Icon n="zap" size={15} color={C.greenMid}/> Notificações no celular</div>;
+  const explica=(t)=><div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>{t}</div>;
+
+  if(estado.carregando) return <div style={caixa}>{titulo}{explica("Verificando…")}</div>;
+  // Servidor sem as chaves configuradas: não adianta oferecer o botão.
+  if(!estado.configurado) return <div style={caixa}>{titulo}
+    {explica("As notificações ainda não foram ligadas no servidor. Assim que a gestão configurar, o botão de ativar aparece aqui.")}</div>;
+  if(!suportado) return <div style={caixa}>{titulo}
+    {explica("Este navegador não recebe notificações. Tente pelo Chrome (Android) ou pelo Safari com o site na tela de início (iPhone).")}</div>;
+  // O caso que mais confunde: iPhone com o site aberto no Safari.
+  if(ehIOS()&&!naTelaDeInicio()) return <div style={caixa}>{titulo}
+    {explica("No iPhone, as notificações só funcionam com o ConHub adicionado à tela de início.")}
+    <div style={{background:C.greenSoft,borderRadius:10,padding:12,color:C.greenDeep,fontSize:12.5,lineHeight:1.7}}>
+      <b>Como fazer:</b><br/>1. Toque no botão de compartilhar (a setinha para cima)<br/>
+      2. Escolha <b>Adicionar à Tela de Início</b><br/>3. Abra o ConHub por esse ícone e volte aqui
+    </div></div>;
+
+  return <div style={caixa}>
+    {titulo}
+    {explica("Avisa quando um lead cair na sua mão e quando o cliente responder — mesmo com o ConHub fechado.")}
+    {recado&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
+      color:recado.ok?C.greenDeep:C.hot,background:recado.ok?C.greenSoft:C.hotSoft}}>{recado.txt}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      {ativoAqui
+        ?<React.Fragment>
+          <span style={{display:"flex",alignItems:"center",gap:6,color:C.greenDeep,background:C.greenSoft,fontSize:12.5,fontWeight:600,padding:"10px 13px",borderRadius:10}}>
+            <Icon n="check" size={14}/> Ativado neste aparelho</span>
+          <button onClick={testar} disabled={!!ocupado}
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"10px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="teste"?"Enviando…":"Enviar teste"}</button>
+          <button onClick={desativar} disabled={!!ocupado}
+            style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>
+            desativar aqui</button>
+        </React.Fragment>
+        :<button onClick={ativar} disabled={!!ocupado}
+          style={{background:ocupado?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px 16px",fontSize:13.5,fontWeight:600,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",gap:7}}>
+          <Icon n={ocupado==="ativar"?"loader":"zap"} size={15} spin={ocupado==="ativar"}/>
+          {ocupado==="ativar"?"Ativando…":"Ativar neste aparelho"}</button>}
+    </div>
+    {estado.aparelhos>0&&<div style={{color:C.faint,fontSize:11.5}}>
+      {estado.aparelhos} aparelho(s) seu(s) recebendo notificações.</div>}
+  </div>;
+}
+
 const roleParaTexto=(r)=>r==="adm"?"Gestor(a)":r==="sdr"?"Atendente":"Corretor(a)";
 
 /* ===== ENVIAR IMÓVEL PARA O LEAD =====

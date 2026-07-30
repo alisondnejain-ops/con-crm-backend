@@ -4,6 +4,7 @@ import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
 import { guardarMidiaRecebida } from "../services/midia.js";
+import { avisar } from "../services/push.js";
 import { advanceStage } from "./messages.routes.js";
 
 const r = Router();
@@ -85,6 +86,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     if (temMidia) lembrar({ em: Date.now(), evento, tipo, resultado: midia ? "mídia guardada" : "MÍDIA NÃO BAIXOU — ver log do servidor" });
 
     let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
+    const ehNovo = !lead;
 
     // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
     // atendente da vez, exatamente como um lead vindo da Meta.
@@ -112,6 +114,16 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     }
 
     advanceStage(lead.id);
+
+    // Aviso no celular de quem está com o lead. Lead que acabou de entrar e
+    // cliente que respondeu são situações diferentes — e a pressa também.
+    if (lead.assigned_to) {
+      const resumo = corpo.length > 90 ? corpo.slice(0, 90) + "…" : corpo;
+      avisar(lead.assigned_to, ehNovo
+        ? { titulo: "Novo lead no WhatsApp", corpo: `${lead.name} acabou de chamar. Responda agora — os primeiros minutos decidem.`, leadId: lead.id }
+        : { titulo: `${lead.name} respondeu`, corpo: resumo, leadId: lead.id });
+    }
+
     lembrar({ em: Date.now(), evento, resultado: "ok", lead: lead.name, tipo });
     console.log(`[uazapi] mensagem recebida de ${lead.name}`);
   } catch (e) {

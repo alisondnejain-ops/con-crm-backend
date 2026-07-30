@@ -9,6 +9,7 @@ import distRoutes from "./routes/distribution.routes.js";
 import msgRoutes from "./routes/messages.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
+import pushRoutes from "./routes/push.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
@@ -33,6 +34,7 @@ const RECURSOS = [
   "midia-recebida",       // foto, áudio e documento do cliente aparecem no chat
   "anexos-enviados",      // clipe: fotos, vídeo, áudio gravado
   "localizacao",          // envio do ponto no mapa
+  "push",                 // notificação no celular
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -63,6 +65,7 @@ app.use("/arquivos", express.static(pastaLocal(), { maxAge: "7d" }));
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages
 app.use("/webhooks", metaWebhook);    // GET/POST /webhooks/meta
 app.use("/webhooks", uazapiWebhook);  // POST /webhooks/uazapi
+app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/", diagRoutes);             // GET /integracoes
 
 const PORT = process.env.PORT || 4000;

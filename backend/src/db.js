@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS produto_midias (
   created_at INTEGER NOT NULL
 );
 
+-- Aparelhos inscritos para receber notificação push. Um corretor pode ter
+-- vários (celular e computador), então a chave é o endpoint, não o usuário.
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
 CREATE INDEX IF NOT EXISTS idx_produtos_org ON produtos(org_id, status);
 CREATE INDEX IF NOT EXISTS idx_midias_produto ON produto_midias(produto_id);
 CREATE INDEX IF NOT EXISTS idx_leads_assigned ON leads(assigned_to);
