@@ -1,0 +1,10 @@
+# Cabeçalhos para o Cloudflare Pages (o Netlify usa o netlify.toml da raiz).
+#
+# O index.html é um arquivo único e o nome dele nunca muda. Sem isto, o navegador
+# guarda a versão antiga e o corretor continua vendo o sistema desatualizado
+# depois de uma publicação.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

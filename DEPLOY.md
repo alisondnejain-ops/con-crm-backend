@@ -1,4 +1,57 @@
-# Como colocar o Con CRM no ar (passo a passo)
+# Como colocar o ConHub no ar (passo a passo)
+
+> **O site (a tela do CRM) fica no Cloudflare Pages. O servidor (a API) fica no
+> Railway.** São duas coisas separadas e independentes — instruções do site logo
+> abaixo, do servidor mais adiante.
+
+---
+
+## O site: Cloudflare Pages
+
+Saímos do Netlify porque o plano grátis dele trava as publicações quando o crédito
+acaba — foi o que aconteceu em 29/07/2026: seis atualizações ficaram presas com
+*"Skipped due to account credit usage exceeded"*, e nem o envio manual passava.
+
+### Publicar (uma vez só)
+
+1. Entre em [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → aba **Pages** → **Connect to Git**
+2. Autorize o GitHub e escolha o repositório `con-crm-backend`
+3. Configure exatamente assim:
+
+| Campo | Valor |
+|---|---|
+| Framework preset | **None** |
+| Build command | *deixe vazio* |
+| Build output directory | `frontend` |
+| Root directory | *deixe vazio* |
+
+4. **Save and Deploy**
+
+Pronto. A partir daí, toda mudança no GitHub publica sozinha. O endereço fica
+`algo.pages.dev` e já funciona de imediato — use ele enquanto o domínio não muda.
+
+> **Build command vazio** é de propósito: o `index.html` já vai compilado no
+> repositório (ver `frontend/build.mjs`). A Cloudflare só serve a pasta.
+
+### Levar o domínio conhubcrm.com.br
+
+O caminho mais simples é passar o DNS do domínio para a Cloudflare — assim o
+endereço sem `www` funciona também, o que o registro.br não resolve bem.
+
+1. No painel da Cloudflare: **Add a site** → `conhubcrm.com.br` → plano **Free**
+2. Ela lê os registros atuais e mostra **dois servidores de nome** (algo como
+   `ana.ns.cloudflare.com`)
+3. No **registro.br** → seu domínio → **Alterar servidores DNS** → troque pelos dois
+   da Cloudflare
+4. Volte ao seu projeto no Pages → **Custom domains** → **Set up a domain** →
+   `conhubcrm.com.br` e depois `www.conhubcrm.com.br`
+
+A troca de servidores de nome leva de algumas horas a um dia. O certificado HTTPS
+é emitido automaticamente. Enquanto isso, o endereço `.pages.dev` continua servindo.
+
+---
+
+# Servidor (API) no Railway
 
 Objetivo deste guia: sair de "roda no meu computador" para **um link público que você manda no grupo dos corretores**.
 
