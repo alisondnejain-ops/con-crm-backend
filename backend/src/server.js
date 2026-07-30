@@ -22,7 +22,25 @@ app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
 // 30mb porque as fotos e vídeos dos imóveis sobem em base64 no corpo da requisição.
 app.use(express.json({ limit: "30mb" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "con-crm" }));
+// Três vezes hoje a gente perdeu tempo sem saber se o servidor já estava
+// rodando o código novo ou ainda o antigo. A lista de recursos responde isso
+// em cinco segundos, sem precisar do painel da hospedagem: se o recurso não
+// está aqui, o deploy não chegou — não adianta procurar erro na tela.
+const NO_AR_DESDE = Date.now();
+const RECURSOS = [
+  "catraca-atendentes",   // lead novo cai direto na atendente da vez
+  "finalizar-conversa",   // botões Finalizar / Marcar como lida
+  "midia-recebida",       // foto, áudio e documento do cliente aparecem no chat
+  "anexos-enviados",      // clipe: fotos, vídeo, áudio gravado
+  "localizacao",          // envio do ponto no mapa
+];
+app.get("/health", (_req, res) => res.json({
+  ok: true,
+  service: "con-crm",
+  versao: (process.env.RAILWAY_GIT_COMMIT_SHA || "").slice(0, 7) || "desconhecida",
+  no_ar_desde: new Date(NO_AR_DESDE).toISOString(),
+  recursos: RECURSOS,
+}));
 
 // Páginas públicas do cadastro (servidas pelo próprio backend, para o link ser um só).
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
