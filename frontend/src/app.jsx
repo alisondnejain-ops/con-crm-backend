@@ -592,7 +592,7 @@ function NavCelular({nav,view,setView,aviso}){
   const extras=nav.length<=5?[]:nav.slice(4);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
-  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"10px 2px 8px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
     <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
     {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
   </button>;
@@ -606,9 +606,9 @@ function NavCelular({nav,view,setView,aviso}){
         {aviso(v)>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aviso(v)}</span>}
       </button>)}
     </div>}
-    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"env(safe-area-inset-bottom)",zIndex:22}}>
+    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingTop:6,paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 12px)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
-      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"10px 2px 8px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
