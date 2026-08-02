@@ -302,6 +302,18 @@ function ConCRM(){
   // número para se atualizarem depois de uma ação, em vez de mostrar dado velho.
   const [versao,setVersao]=useState(0);
   const selRef=useRef(null); selRef.current=selId;
+  /* Situação da mensalidade. Consultada no login e de hora em hora: se o
+     pagamento cair enquanto a equipe está trabalhando, o sistema destrava
+     sozinho, sem ninguém precisar sair e entrar de novo. */
+  const [assinatura,setAssinatura]=useState(null);
+  useEffect(()=>{
+    if(!session) return;
+    let vivo=true;
+    const ver=()=>acoes.assinatura().then(a=>vivo&&setAssinatura(a)).catch(()=>{});
+    ver();
+    const t=setInterval(ver,60*60*1000);
+    return()=>{vivo=false;clearInterval(t);};
+  },[session]);
 
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
@@ -372,6 +384,10 @@ function ConCRM(){
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
+    assinatura:()=>api("/assinatura"),
+    configurarAssinatura:(dados)=>api("/assinatura",{method:"PATCH",body:dados}),
+    marcarMensalidadePaga:()=>api("/assinatura/pagar",{method:"POST"}),
+    criarAssinaturaAsaas:(dados)=>api("/assinatura/asaas",{method:"POST",body:dados}),
     importarLeads:(linhas)=>api("/leads/import",{method:"POST",body:{linhas}}),
     // Simulação de financiamento e qualificação do lead.
     simulacoes:(leadId)=>api(`/leads/${leadId}/simulacoes`),
@@ -443,7 +459,83 @@ function ConCRM(){
 
   if(carregando) return <Splash/>;
   if(!session) return <Auth onLogin={(u)=>setSession(toSession(u))}/>;
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao}}/>;
+  // Bloqueado: o trabalho para, mas a saída (sair, exportar, pagar) continua.
+  if(assinatura&&assinatura.status==="bloqueado")
+    return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair}
+      aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
+
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura}}/>;
+}
+
+/* ===== MENSALIDADE ===== */
+// fmtData já existe lá em cima, junto dos outros formatadores de data.
+
+/* Tela de bloqueio. Três cuidados que valem mais que o aviso em si:
+   o corretor não pode achar que o sistema quebrou, precisa saber o que fazer,
+   e a base de clientes continua acessível — prender alguém fora dos próprios
+   dados é briga que não vale a pena comprar. */
+function Bloqueado({assinatura,session,acoes,aoSair,aoRever}){
+  const [baixando,setBaixando]=useState(false);
+  const gestor=session.role==="adm";
+  return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:24,maxWidth:440,width:"100%"}}>
+      <div style={{width:44,height:44,borderRadius:13,background:C.hotSoft,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
+        <Icon n="lock" size={21} color={C.hot}/></div>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:8}}>Acesso suspenso</div>
+      <div style={{color:C.sub,fontSize:13.5,lineHeight:1.6,marginBottom:16}}>
+        {assinatura.motivo||"Mensalidade em atraso."}{" "}
+        {gestor
+          ?"Assim que o pagamento for confirmado, o sistema volta sozinho — não precisa avisar ninguém."
+          :"Fale com a gestão da imobiliária. Assim que a mensalidade for regularizada, tudo volta ao normal."}
+      </div>
+      <div style={{background:C.surface,borderRadius:11,padding:12,marginBottom:16,fontSize:12.5,color:C.sub,lineHeight:1.7}}>
+        <div><b style={{color:C.ink}}>Venceu em:</b> {fmtData(assinatura.vence_em)}</div>
+        {assinatura.valor?<div><b style={{color:C.ink}}>Valor:</b> {fmtMoeda(assinatura.valor)}</div>:null}
+        <div style={{color:C.greenMid,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+          <Icon n="check" size={12}/> Nenhum lead foi perdido — tudo continua registrado.
+        </div>
+      </div>
+
+      {assinatura.link&&<a href={assinatura.link} target="_blank" rel="noreferrer"
+        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,textDecoration:"none",background:C.green,color:"#fff",
+          borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:9}}>
+        <Icon n="zap" size={15}/> Pagar agora</a>}
+
+      {gestor&&<React.Fragment>
+        <button onClick={async()=>{ setBaixando(true); try{ await acoes.baixarLeads(); }catch(e){} finally{ setBaixando(false); } }}
+          style={{width:"100%",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:12,padding:"13px",
+            fontSize:13.5,fontWeight:600,cursor:"pointer",marginBottom:9}}>
+          {baixando?"Gerando…":"Baixar a base de leads"}</button>
+        <button onClick={()=>acoes.marcarMensalidadePaga().then(aoRever).catch(()=>{})}
+          style={{width:"100%",background:"transparent",color:C.faint,border:"none",fontSize:12,cursor:"pointer",marginBottom:9}}>
+          já paguei — liberar acesso</button>
+      </React.Fragment>}
+
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={aoRever} style={{flex:1,background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:12,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Verificar de novo</button>
+        <button onClick={aoSair} style={{flex:1,background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:12,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Sair</button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* Tarja de aviso. Aparece perto do vencimento e durante a carência — o objetivo
+   é a conta nunca chegar a bloquear de surpresa. */
+function TarjaMensalidade({assinatura,isMobile}){
+  if(!assinatura||!assinatura.cobranca) return null;
+  const {status}=assinatura;
+  if(status!=="vence_em_breve"&&status!=="atrasado") return null;
+  const atrasado=status==="atrasado";
+  const texto=atrasado
+    ?`Mensalidade vencida em ${fmtData(assinatura.vence_em)}. O acesso será suspenso em ${assinatura.restam} dia(s).`
+    :`Mensalidade vence em ${assinatura.dias===0?"hoje":assinatura.dias+" dia(s)"} (${fmtData(assinatura.vence_em)}).`;
+  return <div style={{background:atrasado?C.hotSoft:C.amberSoft,borderBottom:`1px solid ${atrasado?C.hot:C.amber}33`,
+    color:atrasado?C.hot:"#8a6d1f",fontSize:isMobile?11.5:12.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
+    <Icon n={atrasado?"lock":"clock"} size={13}/>
+    <span style={{flex:1,lineHeight:1.4}}>{texto}</span>
+    {assinatura.link&&<a href={assinatura.link} target="_blank" rel="noreferrer"
+      style={{color:"inherit",fontWeight:700,textDecoration:"underline",whiteSpace:"nowrap"}}>pagar</a>}
+  </div>;
 }
 
 function Splash(){
@@ -453,7 +545,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -584,6 +676,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           {isMobile&&<button onClick={()=>setSession(null)} title="Sair" aria-label="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="logout" size={16}/></button>}
         </div>
       </header>
+      <TarjaMensalidade assinatura={assinatura} isMobile={isMobile}/>
       {erro&&<div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}44`,color:C.hot,fontSize:12.5,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
         <Icon n="wifioff" size={14}/><span style={{flex:1}}>{erro}</span>
         <button onClick={()=>setErro("")} style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",fontWeight:700}}>×</button>

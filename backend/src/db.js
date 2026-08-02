@@ -161,7 +161,21 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 // corretores). Se os dois compartilhassem o mesmo contador, uma catraca
 // embaralharia a ordem da outra.
 const orgCols = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
-if (!orgCols.includes("atendente_ptr")) db.exec("ALTER TABLE orgs ADD COLUMN atendente_ptr INTEGER DEFAULT 0");
+const addOrgCol = (name, ddl) => { if (!orgCols.includes(name)) db.exec(`ALTER TABLE orgs ADD COLUMN ${name} ${ddl}`); };
+addOrgCol("atendente_ptr", "INTEGER DEFAULT 0");
+
+// Assinatura mensal. Enquanto vence_em for nulo a imobiliária usa sem cobrança
+// — é o estado de quem ainda não foi cobrado, e não pode virar bloqueio por
+// omissão: sistema que se tranca sozinho por falta de configuração é armadilha.
+addOrgCol("plano", "TEXT");                    // nome do plano, só para a tela
+addOrgCol("valor_mensal", "REAL");
+addOrgCol("vence_em", "INTEGER");              // data do próximo vencimento
+addOrgCol("dias_carencia", "INTEGER DEFAULT 5");
+addOrgCol("assinatura_status", "TEXT");        // pago | atrasado | cancelado (o bloqueio é calculado)
+addOrgCol("ultimo_pagamento_em", "INTEGER");
+addOrgCol("link_pagamento", "TEXT");           // fatura em aberto, para o cliente pagar
+addOrgCol("asaas_customer_id", "TEXT");
+addOrgCol("asaas_subscription_id", "TEXT");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };

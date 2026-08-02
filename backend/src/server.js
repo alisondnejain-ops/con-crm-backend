@@ -11,6 +11,7 @@ import msgRoutes from "./routes/messages.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
 import pushRoutes from "./routes/push.routes.js";
+import assinaturaRoutes from "./routes/assinatura.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
@@ -18,6 +19,8 @@ import { pastaLocal, modoArmazenamento } from "./services/storage.js";
 import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
+import { authRequired } from "./auth.js";
+import { porteiro } from "./services/assinatura.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
@@ -39,6 +42,7 @@ const RECURSOS = [
   "score",                // ranking e recomendação de direcionamento
   "base-leads",           // exportação e importação da base
   "simulacoes",           // simulação de financiamento na ficha do lead
+  "assinatura",           // mensalidade e bloqueio por atraso (Asaas)
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -55,11 +59,28 @@ app.get("/", (_req, res) => res.redirect("/cadastro"));
 app.get("/cadastro", (_req, res) => res.sendFile(path.join(publicDir, "cadastro.html")));
 app.get("/definir-senha", (_req, res) => res.sendFile(path.join(publicDir, "definir-senha.html")));
 
+/* Assinatura e webhook do Asaas entram ANTES do porteiro: é esta rota que
+   desenha a tela de bloqueio e é por este webhook que o desbloqueio chega.
+   Trancá-las junto seria trancar a chave do lado de dentro. */
+app.use("/", assinaturaRoutes);
+
 app.use("/auth", authRoutes);
+/* Porteiro da mensalidade. Fica só nas rotas de TRABALHO.
+
+   Precisa rodar DEPOIS da autenticação: sem saber quem é o usuário, não há
+   como saber de qual imobiliária é a cobrança — e ele deixava tudo passar.
+   Por isso autentica aqui antes de conferir.
+
+   De fora, de propósito: os webhooks da Meta e da Uazapi (lead que chega
+   bloqueado e não é gravado está perdido para sempre) e /leads/export
+   (bloquear alguém dos próprios dados de clientes é problema jurídico). */
+const cobrando = (req, res, next) => authRequired(req, res, () => porteiro(req, res, next));
+
+app.use("/leads", (req, res, next) => (req.path === "/export" ? next() : cobrando(req, res, next)));
 app.use("/leads", leadsRoutes);
-app.use("/distribution", distRoutes);
-app.use("/reports", reportsRoutes);
-app.use("/produtos", produtosRoutes);
+app.use("/distribution", cobrando, distRoutes);
+app.use("/reports", cobrando, reportsRoutes);
+app.use("/produtos", cobrando, produtosRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.
