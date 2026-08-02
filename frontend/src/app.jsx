@@ -490,7 +490,20 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      Agora só desce em duas situações: ao abrir outra conversa, e quando chega
      mensagem nova COM o leitor já perto do rodapé. Quem subiu para ler fica
      onde está — igual ao WhatsApp. */
-  const ancora=useRef({id:null,qtd:0,abrindo:false});
+  const ancora=useRef({id:null,qtd:0,abrindo:false,timers:[]});
+  const irAoFim=()=>{ const el=chatRef.current; if(el) el.scrollTop=el.scrollHeight; };
+  /* Uma rolagem só não basta. A altura da conversa muda DEPOIS que o React
+     desenha: foto e áudio carregam, as fontes assentam, o separador de dia
+     entra. Numa conversa de texto puro uma chamada acerta; numa com mídia, ela
+     para no meio. Então insistimos por um instante, até a altura estabilizar. */
+  const fixarNoFim=()=>{
+    ancora.current.timers.forEach(clearTimeout);
+    ancora.current.timers=[60,180,400,800].map(ms=>setTimeout(irAoFim,ms));
+    irAoFim();
+    requestAnimationFrame(irAoFim);
+  };
+  useEffect(()=>()=>ancora.current.timers.forEach(clearTimeout),[]);
+
   useEffect(()=>{
     const el=chatRef.current; if(!el) return;
     const atual=leads.find(l=>l.id===selId);
@@ -499,15 +512,12 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // Trocou de conversa: fica "abrindo" até as mensagens chegarem. Elas vêm de
     // outra requisição, então na primeira passada a lista ainda está vazia — sem
     // este estado, a rolagem acontecia no vazio e a conversa abria no topo.
-    if(ancora.current.id!==selId) ancora.current={id:selId,qtd:0,abrindo:true};
+    if(ancora.current.id!==selId) ancora.current={...ancora.current,id:selId,qtd:0,abrindo:true};
 
     const pertoDoFim=el.scrollHeight-el.scrollTop-el.clientHeight<140;
     const chegouMensagem=qtd>ancora.current.qtd;
     if(ancora.current.abrindo||(chegouMensagem&&pertoDoFim)){
-      el.scrollTop=el.scrollHeight;
-      // Foto e áudio mudam a altura depois de carregar; o quadro seguinte
-      // reposiciona no fim, senão a conversa abre um pouco acima da última.
-      requestAnimationFrame(()=>{ if(chatRef.current) chatRef.current.scrollTop=chatRef.current.scrollHeight; });
+      fixarNoFim();
       if(qtd>0) ancora.current.abrindo=false;   // só está aberta de fato com as mensagens à vista
     }
     ancora.current.qtd=qtd;
@@ -1867,9 +1877,13 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}/>
   </div>;
 
-  return <div style={{position:"fixed",inset:0,zIndex:40,background:"rgba(10,61,48,.35)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-    <div style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"92dvh",overflowY:"auto",
-      borderRadius:isMobile?"18px 18px 0 0":16,padding:16,paddingBottom:"calc(16px + env(safe-area-inset-bottom))"}}>
+  /* Vai para o corpo da página, fora da árvore do app. Dentro dela a barra do
+     celular ficava por cima e escondia justamente os botões do fim — que são os
+     que importam: registrar e enviar ao cliente. */
+  return ReactDOM.createPortal(
+    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(10,61,48,.35)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+    <div style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"90dvh",overflowY:"auto",WebkitOverflowScrolling:"touch",
+      borderRadius:isMobile?"18px 18px 0 0":16,padding:16,paddingBottom:"calc(24px + env(safe-area-inset-bottom))"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
         <Icon n="chart" size={17} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>Simulação — {first(lead.nome)}</span>
@@ -1952,7 +1966,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         </div>)}
       </div>}
     </div>
-  </div>;
+  </div>, document.body);
 }
 
 /* ===== BASE DE LEADS (gestor) =====
