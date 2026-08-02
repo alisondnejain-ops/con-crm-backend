@@ -120,7 +120,11 @@ const fmtMin=(min)=>{
   const m=Math.max(0,Math.round(Number(min)||0));
   if(m<60) return m+" min";
   const h=Math.floor(m/60), r=m%60;
-  return r?`${h}h ${r}min`:`${h}h`;
+  if(h<24) return r?`${h}h ${r}min`:`${h}h`;
+  // Passando de um dia, "31h" não comunica nada: vira "1 dia 7h".
+  const d=Math.floor(h/24), hr=h%24;
+  const dias=`${d} dia${d>1?"s":""}`;
+  return hr?`${dias} ${hr}h`:dias;
 };
 const fmtAge=(ms)=>{const s=Math.max(0,Math.floor(ms/1000));if(s<60)return s+"s";const m=Math.floor(s/60);if(m<60)return m+" min";return Math.floor(m/60)+"h "+(m%60)+"min";};
 const ageColor=(ms)=>{const m=ms/60000;return m<2?C.green:m<10?C.amber:C.hot;};
@@ -360,6 +364,7 @@ function ConCRM(){
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
+    importarLeads:(linhas)=>api("/leads/import",{method:"POST",body:{linhas}}),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
     baixarLeads:async()=>{
@@ -592,7 +597,7 @@ function NavCelular({nav,view,setView,aviso}){
   const extras=nav.length<=5?[]:nav.slice(4);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
-  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"10px 2px 8px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"12px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
     <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
     {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
   </button>;
@@ -606,9 +611,9 @@ function NavCelular({nav,view,setView,aviso}){
         {aviso(v)>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aviso(v)}</span>}
       </button>)}
     </div>}
-    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingTop:6,paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 12px)",zIndex:22}}>
+    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingTop:4,paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
-      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"10px 2px 8px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"12px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
@@ -1683,6 +1688,54 @@ function Notificacoes({acoes,isMobile}){
    temperatura, com amostra mínima. Quando não há histórico bastante, ele diz
    isso em vez de inventar percentual — gestor decidindo com número inventado é
    pior que gestor decidindo sozinho. */
+/* Leitor de planilha (CSV).
+
+   Feito à mão porque o app não usa bibliotecas externas — e porque o caso é
+   simples e conhecido: arquivo exportado de outro CRM. Trata aspas, ponto e
+   vírgula ou vírgula como separador, e quebra de linha dentro do campo. */
+function lerCSV(texto){
+  const limpo=texto.replace(/^\uFEFF/,"");           // BOM que o Excel coloca
+  // Quem manda é o separador mais frequente na primeira linha.
+  const cabecalho=limpo.slice(0,limpo.indexOf("\n")+1||undefined);
+  const sep=(cabecalho.split(";").length>cabecalho.split(",").length)?";":",";
+  const linhas=[]; let campo="",linha=[],aspas=false;
+  for(let i=0;i<limpo.length;i++){
+    const c=limpo[i];
+    if(aspas){
+      if(c==='"'&&limpo[i+1]==='"'){campo+='"';i++;}
+      else if(c==='"') aspas=false;
+      else campo+=c;
+    }else if(c==='"') aspas=true;
+    else if(c===sep){linha.push(campo);campo="";}
+    else if(c==="\n"){linha.push(campo);linhas.push(linha);linha=[];campo="";}
+    else if(c!=="\r") campo+=c;
+  }
+  if(campo||linha.length){linha.push(campo);linhas.push(linha);}
+  return linhas.filter(l=>l.some(c=>String(c).trim()));
+}
+
+/* Descobre qual coluna é o quê. Cada CRM chama de um jeito, então casamos por
+   pedaço do nome em vez de exigir cabeçalho exato. */
+const COLUNAS={
+  nome:["nome","cliente","lead","contato"],
+  telefone:["telefone","celular","whatsapp","fone","tel"],
+  email:["email","e-mail"],
+  origem:["origem","fonte","canal"],
+  temperatura:["temperatura","prioridade","interesse"],
+  etapa:["etapa","status","fase","estagio","estágio"],
+  corretor:["corretor","responsavel","responsável","vendedor","consultor"],
+  entrou_em:["entrou","data","criado","cadastro"],
+};
+function mapearColunas(cabecalho){
+  const mapa={};
+  cabecalho.forEach((titulo,i)=>{
+    const t=String(titulo).trim().toLowerCase();
+    for(const [campo,apelidos] of Object.entries(COLUNAS))
+      if(mapa[campo]===undefined&&apelidos.some(a=>t.includes(a))){mapa[campo]=i;break;}
+  });
+  return mapa;
+}
+
 /* ===== BASE DE LEADS (gestor) =====
    Todos os leads da imobiliária num lugar só, com quem está com cada um, e o
    botão para baixar a planilha. É a visão de dono: nem a caixa de atendimento
@@ -1700,6 +1753,35 @@ function BaseLeads({acoes,isMobile}){
   const baixar=async()=>{ setErro(""); setBaixando(true);
     try{ await acoes.baixarLeads(); }catch(e){ setErro(e.message); } finally{ setBaixando(false); } };
 
+  const arquivo=useRef(null);
+  const [subindo,setSubindo]=useState(false);
+  const [resultado,setResultado]=useState(null);
+
+  async function importar(e){
+    const f=e.target.files[0]; e.target.value=""; if(!f) return;
+    setErro(""); setResultado(null); setSubindo(true);
+    try{
+      const texto=await f.text();
+      const linhas=lerCSV(texto);
+      if(linhas.length<2) throw new Error("A planilha parece vazia — precisa ter o cabeçalho e ao menos uma linha.");
+      const mapa=mapearColunas(linhas[0]);
+      if(mapa.telefone===undefined)
+        throw new Error("Não encontrei a coluna de telefone. Renomeie o cabeçalho para 'Telefone' e tente de novo.");
+      const pegar=(l,c)=>mapa[c]===undefined?"":l[mapa[c]];
+      const dados=linhas.slice(1).map(l=>({
+        nome:pegar(l,"nome"), telefone:pegar(l,"telefone"), email:pegar(l,"email"),
+        origem:pegar(l,"origem")||("Importado de "+f.name.replace(/\.[^.]+$/,"")),
+        temperatura:pegar(l,"temperatura"), etapa:pegar(l,"etapa"),
+        corretor:pegar(l,"corretor"), entrou_em:pegar(l,"entrou_em"),
+      }));
+      const r=await acoes.importarLeads(dados);
+      setResultado(r);
+      const atualizada=await acoes.buscar({finalizados:"1"});
+      setLista(atualizada);
+    }catch(err){ setErro(err.message); }
+    finally{ setSubindo(false); }
+  }
+
   const filtrados=(lista||[]).filter(l=>{
     const t=busca.trim().toLowerCase();
     return !t||[l.nome,l.tel,l.assignedName,l.status].some(v=>String(v||"").toLowerCase().includes(t));
@@ -1716,14 +1798,31 @@ function BaseLeads({acoes,isMobile}){
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, telefone, corretor ou etapa"
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
         </div>
-        <button onClick={baixar} disabled={baixando}
-          style={{background:baixando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",
-            fontSize:13.5,fontWeight:600,cursor:baixando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
-          <Icon n={baixando?"loader":"chart"} size={15} spin={baixando}/>{baixando?"Gerando…":"Baixar planilha"}
-        </button>
+        <div style={{display:"flex",gap:8,flexShrink:0}}>
+          <input ref={arquivo} type="file" accept=".csv,text/csv" onChange={importar} style={{display:"none"}}/>
+          <button onClick={()=>arquivo.current.click()} disabled={subindo}
+            style={{flex:isMobile?1:"none",background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",
+              fontSize:13.5,fontWeight:600,cursor:subindo?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?"Importando…":"Importar leads"}
+          </button>
+          <button onClick={baixar} disabled={baixando}
+            style={{flex:isMobile?1:"none",background:baixando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",
+              fontSize:13.5,fontWeight:600,cursor:baixando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            <Icon n={baixando?"loader":"chart"} size={15} spin={baixando}/>{baixando?"Gerando…":"Baixar planilha"}
+          </button>
+        </div>
       </div>
-      <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>
-        {lista===null?"Carregando…":`${filtrados.length} lead(s)`} · a planilha sai em CSV e abre direto no Excel
+      {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:4}}>
+          {resultado.criados} lead(s) importado(s)</div>
+        {resultado.ignorados>0&&<div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>
+          {resultado.ignorados} linha(s) fora: {Object.entries(resultado.motivos).map(([m,n])=>`${n} ${m}`).join(" · ")}.
+          <div style={{color:C.faint,fontSize:11,marginTop:3}}>Telefone repetido é ignorado de propósito — o cadastro que já existe no ConHub tem histórico e não pode ser sobrescrito por planilha.</div>
+        </div>}
+      </div>}
+      <div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
+        {lista===null?"Carregando…":`${filtrados.length} lead(s)`} · a planilha sai em CSV e abre direto no Excel.
+        <br/>Para <b>importar de outro CRM</b>: exporte em CSV com uma coluna de telefone. Nome, e-mail, origem, temperatura, etapa e corretor entram se existirem.
       </div>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
@@ -1827,7 +1926,7 @@ function ScoreEquipe({acoes,isMobile}){
     {d&&<div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
         <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-          {["#","Corretor","Score","Conversão","1ª resposta","Visitas","Perdas","Vendas","Ligações"].map((h,i)=>
+          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Visitas","Perdas","Vendas","Ligações"].map((h,i)=>
             <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
         </tr></thead>
         <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
@@ -1838,6 +1937,8 @@ function ScoreEquipe({acoes,isMobile}){
               :<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.conversao+"%"}</td>
           <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
+          {/* Espera média a cada pergunta do cliente, não só a primeira. */}
+          <td style={{...celula,textAlign:"right"}}>{m.atendimento_min==null?"—":fmtMin(m.atendimento_min)}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.visitas}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.perdidos}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.vendas}</td>
@@ -2611,6 +2712,10 @@ function Relatorios({acoes,session,pickable,isMobile}){
           <div style={{marginLeft:"auto",textAlign:"right"}}>
             <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{fmtMin(linha.primeira_resposta_mediana_min)}</div>
             <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
+            {linha.atendimento_mediana_min!=null&&<div style={{color:C.sub,fontSize:11.5,marginTop:7,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
+              Atendimento: <b style={{fontFamily:MONO}}>{fmtMin(linha.atendimento_mediana_min)}</b>
+              <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>espera média a cada pergunta do cliente</div>
+            </div>}
           </div>
         </div>
 

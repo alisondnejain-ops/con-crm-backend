@@ -25,7 +25,7 @@ const VENDIDO = "Venda";
 const PERDIDO = "Perdido";
 const resolvido = (l) => l.stage === VENDIDO || l.stage === PERDIDO;
 
-const mediana = (arr) => {
+export const mediana = (arr) => {
   if (!arr.length) return null;
   const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2);
   return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
@@ -42,7 +42,7 @@ const nota = (valor, bom, ruim) => {
    Para cada mensagem do cliente sem resposta anterior pendente, mede quanto
    levou até a próxima mensagem do atendente. É o "tempo de atendimento" que
    o gestor sente na prática: o cliente pergunta, quanto demora a resposta. */
-function temposDeResposta(leadIds) {
+export function temposDeResposta(leadIds) {
   if (!leadIds.length) return [];
   const marcas = "?,".repeat(leadIds.length).slice(0, -1);
   const msgs = db.prepare(

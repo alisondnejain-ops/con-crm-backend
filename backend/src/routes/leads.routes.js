@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
-import { STAGES } from "../services/stages.js";
+import { STAGES, normalizePhone } from "../services/stages.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 
 const r = Router();
@@ -98,6 +98,79 @@ r.get("/export", roles("adm"), (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${arquivo}"`);
   res.send("\uFEFF" + csv);   // BOM: sem ele o Excel come os acentos
+});
+
+/* Importação de leads vindos de outro CRM.
+
+   O frontend lê a planilha e manda as linhas já separadas — assim o servidor
+   não precisa adivinhar codificação nem separador, que é onde importação
+   costuma quebrar.
+
+   Três decisões que evitam estrago numa base que já está rodando:
+   - telefone repetido é IGNORADO, não sobrescrito. Se o cliente já está no
+     ConHub com histórico de conversa, uma planilha antiga não pode apagar isso
+   - lead importado entra SEM dono por padrão. Quem distribui é a catraca ou o
+     gestor; adivinhar corretor por nome parecido daria lead na mão errada
+   - etapa desconhecida vira "Lead". Melhor entrar no começo do funil do que
+     recusar a linha inteira por causa de um nome de coluna diferente */
+/* Data vinda de planilha brasileira. O JS lê "10/03/2026" como OUTUBRO — é o
+   padrão americano — e o lead de março entraria no sistema como de outubro,
+   bagunçando relatório e antiguidade. Aqui dd/mm/aaaa é lido como dd/mm/aaaa. */
+function dataBR(valor) {
+  const t = String(valor || "").trim();
+  if (!t) return NaN;
+  const br = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (br) {
+    const [, d, m, a] = br;
+    const ms = new Date(Number(a), Number(m) - 1, Number(d)).getTime();
+    return isFinite(ms) ? ms : NaN;
+  }
+  return new Date(t).getTime();   // 2026-03-10 e afins
+}
+
+r.post("/import", roles("adm"), (req, res) => {
+  const { linhas } = req.body || {};
+  if (!Array.isArray(linhas) || !linhas.length)
+    return res.status(400).json({ error: "Nenhuma linha recebida." });
+  if (linhas.length > 5000)
+    return res.status(413).json({ error: "Máximo de 5.000 leads por importação. Divida a planilha." });
+
+  const corretores = db.prepare("SELECT id,name FROM users WHERE org_id=? AND status='ativo'").all(req.user.org_id);
+  const porNome = {};
+  for (const u of corretores) porNome[u.name.trim().toLowerCase()] = u.id;
+
+  const TEMPERATURAS = ["QUENTE", "MORNO", "FRIO"];
+  const resultado = { criados: 0, ignorados: 0, motivos: {} };
+  const anota = (motivo) => { resultado.ignorados++; resultado.motivos[motivo] = (resultado.motivos[motivo] || 0) + 1; };
+
+  const inserir = db.prepare(`INSERT INTO leads
+    (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at)
+    VALUES (?,?,?,?,?,?,?,'{}',?,?,?)`);
+
+  const importar = db.transaction((lista) => {
+    for (const l of lista) {
+      const phone = normalizePhone(String(l.telefone || "").trim());
+      if (!phone) { anota("sem telefone válido"); continue; }
+      if (db.prepare("SELECT 1 FROM leads WHERE org_id=? AND phone=?").get(req.user.org_id, phone)) {
+        anota("telefone já cadastrado"); continue;
+      }
+      const etapa = STAGES.includes(l.etapa) ? l.etapa : "Lead";
+      const temperatura = TEMPERATURAS.includes(String(l.temperatura || "").toUpperCase())
+        ? String(l.temperatura).toUpperCase() : "MORNO";
+      // Só aceita o corretor quando o nome bate exatamente com alguém da equipe.
+      const dono = l.corretor ? (porNome[String(l.corretor).trim().toLowerCase()] || null) : null;
+      const entrada = dataBR(l.entrou_em);
+
+      inserir.run("l_" + randomUUID(), req.user.org_id,
+        String(l.nome || "Sem nome").trim().slice(0, 120), phone,
+        String(l.email || "").trim() || null,
+        String(l.origem || "").trim() || "Importado", temperatura, etapa, dono,
+        isFinite(entrada) ? entrada : Date.now());
+      resultado.criados++;
+    }
+  });
+  importar(linhas);
+  res.json(resultado);
 });
 
 // Fila da catraca (leads sem dono). SDR e ADM.

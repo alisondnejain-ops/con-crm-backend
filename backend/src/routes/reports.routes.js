@@ -2,7 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, recomendar, recomendacoes } from "../services/score.js";
+import { ranking, recomendar, recomendacoes, temposDeResposta, mediana } from "../services/score.js";
 
 const r = Router();
 r.use(authRequired);
@@ -27,6 +27,9 @@ r.get("/", (req, res) => {
     const meus = leads.filter(l => l.assigned_to === u.id);
     const atendidos = meus.filter(l => l.first_resp_at != null);
     const temposResposta = atendidos.map(l => (l.first_resp_at - l.created_at) / 60000);
+    // Tempo de ATENDIMENTO: quanto o cliente espera a cada pergunta ao longo da
+    // conversa, não só na primeira. É o que ele sente do começo ao fim — o
+    // primeiro contato pode ser rápido e o resto do atendimento arrastado.
     const vendas = meus.filter(l => l.stage === "Venda");
     const porEtapa = STAGES.reduce((o, s) => (o[s] = meus.filter(l => l.stage === s).length, o), {});
 
@@ -37,7 +40,8 @@ r.get("/", (req, res) => {
       taxa_atendimento: pct(atendidos.length, meus.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
       // distorce a média e faz o corretor parecer pior do que é.
-      primeira_resposta_mediana_min: mediana(temposResposta),
+      primeira_resposta_mediana_min: mediana(temposResposta) ?? 0,
+      atendimento_mediana_min: mediana(temposDeResposta(meus.map(l => l.id))),
       agendamentos: porEtapa["Agendamento"] + porEtapa["Visita"],
       vendas: vendas.length,
       conversao: pct(vendas.length, meus.length),
@@ -62,12 +66,6 @@ r.get("/", (req, res) => {
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
 const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
 const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
-function mediana(arr) {
-  if (!arr.length) return 0;
-  const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2);
-  return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
-}
-
 // Score de performance da equipe. Só gestão: é material de decisão sobre
 // pessoas, não painel de auto-avaliação do corretor.
 r.get("/score", (req, res) => {
