@@ -993,18 +993,85 @@ function FichaVenda({lead,onSalvar}){
 }
 
 /* ===== FUNIL ===== */
+/* ===== FUNIL (kanban) =====
+   Arrastar o lead de uma etapa para outra: segurar, arrastar, soltar.
+
+   Feito com Pointer Events em vez do arrastar nativo do HTML porque o nativo
+   não funciona em celular — e é no celular que o corretor usa. O mesmo código
+   atende dedo e mouse.
+
+   No celular precisa SEGURAR um instante antes de arrastar (250ms). Sem essa
+   espera, qualquer rolagem lateral entre as colunas viraria um arrasto sem
+   querer, e o lead mudava de etapa sozinho. */
 function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
-  // No celular cada etapa ocupa quase a tela toda e o swipe encaixa de coluna em coluna.
   const colW=isMobile?"82vw":164;
-  return <div style={{height:"100%",overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",padding:isMobile?12:16,scrollSnapType:isMobile?"x mandatory":"none"}}>
+  const [arrasto,setArrasto]=useState(null);   // {id,nome,de,x,y}
+  const [alvo,setAlvo]=useState(null);         // etapa sob o dedo
+  const colunas=useRef({});                    // etapa -> elemento, para medir onde soltou
+  const espera=useRef(null);
+  const moveu=useRef(false);
+
+  const cancelarEspera=()=>{ if(espera.current){clearTimeout(espera.current);espera.current=null;} };
+
+  const etapaEm=(x,y)=>{
+    for(const [etapa,el] of Object.entries(colunas.current)){
+      if(!el) continue;
+      const r=el.getBoundingClientRect();
+      if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom) return etapa;
+    }
+    return null;
+  };
+
+  const aoPressionar=(e,lead)=>{
+    if(e.pointerType==="mouse"&&e.button!==0) return;
+    moveu.current=false;
+    const {clientX:x,clientY:y}=e;
+    espera.current=setTimeout(()=>{
+      espera.current=null;
+      setArrasto({id:lead.id,nome:lead.nome,de:lead.status,x,y});
+      setAlvo(lead.status);
+      if(navigator.vibrate) navigator.vibrate(12);   // confirma que pegou
+    },250);
+  };
+
+  const aoMover=(e)=>{
+    if(!arrasto){
+      // Mexeu antes dos 250ms: é rolagem, não arrasto.
+      if(espera.current) cancelarEspera();
+      return;
+    }
+    e.preventDefault();
+    moveu.current=true;
+    setArrasto(a=>a&&{...a,x:e.clientX,y:e.clientY});
+    setAlvo(etapaEm(e.clientX,e.clientY));
+  };
+
+  const aoSoltar=()=>{
+    cancelarEspera();
+    if(arrasto&&alvo&&alvo!==arrasto.de) setStatus(arrasto.id,alvo);
+    setArrasto(null); setAlvo(null);
+  };
+  return <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
+    style={{height:"100%",overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",padding:isMobile?12:16,
+      // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
+      scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
     <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":STAGES.length*172}}>
       {STAGES.map(st=>{const items=leads.filter(l=>l.status===st);
-        return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
+        const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
+        return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:STAGE_C[st],width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
-          <div style={{flex:1,borderRadius:12,border:`1px solid ${C.line}`,background:C.surface,padding:6,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          <div ref={el=>{colunas.current[st]=el;}}
+            style={{flex:1,borderRadius:12,border:`1px solid ${destacada?STAGE_C[st]:C.line}`,
+              background:destacada?STAGE_C[st]+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
+              display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
             {items.map(l=>{const waiting=l.firstRespAt==null,age=Date.now()-l.createdAt;
-              return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:8}}>
-                <button onClick={()=>openLead(l.id)} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"pointer",padding:0}}>
+              const sendoArrastado=arrasto&&arrasto.id===l.id;
+              return <div key={l.id}
+                onPointerDown={(e)=>aoPressionar(e,l)}
+                onContextMenu={(e)=>e.preventDefault()}   /* segurar no celular abriria o menu do sistema */
+                style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:8,
+                  opacity:sendoArrastado?.35:1,cursor:arrasto?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
+                <button onClick={()=>{ if(!moveu.current) openLead(l.id); }} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:0}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}><span style={{color:C.ink,fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span><span style={{background:PRIO[l.prio].c,width:6,height:6,borderRadius:"50%",flexShrink:0}}/></div>
                   {mostrarDono&&<div style={{color:C.faint,fontSize:10,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
                   {waiting&&<div style={{display:"flex",alignItems:"center",gap:4,marginTop:4}}><Icon n="timer" size={10} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:10,fontWeight:600}}>{fmtAge(age)}</span></div>}
@@ -1014,6 +1081,15 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
           </div>
         </div>;})}
     </div>
+    {/* O cartao fantasma segue o dedo: sem ele, arrastar no celular vira um
+        gesto as cegas — nada indica que o lead esta na mao. */}
+    {arrasto&&<div style={{position:"fixed",left:arrasto.x,top:arrasto.y,transform:"translate(-50%,-50%) rotate(-2deg)",
+      pointerEvents:"none",zIndex:60,background:C.card,border:`1px solid ${C.green}`,borderRadius:8,
+      padding:"8px 12px",boxShadow:"0 10px 24px rgba(0,0,0,.22)",maxWidth:200}}>
+      <div style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{arrasto.nome}</div>
+      <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
+        {alvo&&alvo!==arrasto.de?"soltar em "+alvo:"arraste até uma etapa"}</div>
+    </div>}
   </div>;
 }
 
