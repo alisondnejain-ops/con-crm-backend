@@ -112,6 +112,31 @@ CREATE TABLE IF NOT EXISTS ligacoes (
   created_at INTEGER NOT NULL
 );
 
+-- Simulações de financiamento feitas no site da Caixa e registradas aqui.
+-- Uma por vez não basta: o cliente simula de novo quando muda a entrada ou o
+-- prazo, e o corretor precisa do histórico para lembrar o que já ofereceu.
+CREATE TABLE IF NOT EXISTS simulacoes (
+  id TEXT PRIMARY KEY,
+  lead_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  user_id TEXT,
+  valor_imovel REAL,
+  entrada REAL,
+  subsidio REAL,
+  financiado REAL,
+  prazo_meses INTEGER,
+  parcela REAL,
+  juros_aa REAL,
+  renda REAL,
+  modalidade TEXT,
+  observacoes TEXT,
+  print_url TEXT,          -- a imagem original, para conferência depois
+  origem TEXT,             -- 'print' (lida por IA) ou 'manual'
+  enviada_em INTEGER,      -- quando o resumo foi para o cliente
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulacoes_lead ON simulacoes(lead_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_ligacoes_user ON ligacoes(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
 CREATE INDEX IF NOT EXISTS idx_produtos_org ON produtos(org_id, status);

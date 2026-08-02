@@ -3,7 +3,11 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import { STAGES, normalizePhone } from "../services/stages.js";
+import { salvar } from "../services/storage.js";
+import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
+import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
+import { advanceStage } from "./messages.routes.js";
 
 const r = Router();
 r.use(authRequired);
@@ -247,6 +251,143 @@ r.post("/:id/ligacao", (req, res) => {
   db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
     .run("lig_" + randomUUID(), lead.id, req.user.id, Date.now());
   res.json({ ok: true });
+});
+
+/* ── Simulação de financiamento ─────────────────────────────────────────────
+   A simulação acontece no site da Caixa; aqui a gente registra o resultado,
+   guarda no histórico do lead e manda o resumo para o cliente.
+
+   Fica no lead, e não no catálogo de imóveis, porque simulação é de PESSOA:
+   os números dependem da renda e do subsídio de quem vai comprar. */
+
+r.get("/:id/simulacoes", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json({
+    ia: iaConfigurada(),
+    simulacoes: db.prepare("SELECT * FROM simulacoes WHERE lead_id = ? ORDER BY created_at DESC").all(lead.id),
+  });
+});
+
+/* Lê o print e devolve um RASCUNHO. Não grava nada de propósito: o corretor
+   confere na tela antes. Número de financiamento errado indo para o cliente é
+   estrago que não se desfaz com pedido de desculpas. */
+r.post("/:id/simulacao/ler", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const { base64, mime } = req.body || {};
+  const r1 = await lerPrintSimulacao({ base64, mime });
+  if (!r1.ok) return res.status(422).json({ error: r1.erro });
+  res.json({ rascunho: r1.dados });
+});
+
+const numero = (v) => { const n = Number(v); return isFinite(n) && n >= 0 ? n : null; };
+
+r.post("/:id/simulacao", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const b = req.body || {};
+  if (numero(b.parcela) == null && numero(b.valor_imovel) == null)
+    return res.status(400).json({ error: "Informe ao menos o valor do imóvel ou a parcela." });
+
+  // O print fica guardado junto: dá para conferir de onde veio o número meses depois.
+  let printUrl = null;
+  if (b.print_base64 && b.print_mime) {
+    try {
+      const buffer = Buffer.from(String(b.print_base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+      if (buffer.length) ({ url: printUrl } = await salvar({ buffer, mime: b.print_mime, prefixo: "simulacoes" }));
+    } catch (e) { console.warn("[simulacao] print não foi guardado:", e.message); }
+  }
+
+  const id = "sim_" + randomUUID();
+  db.prepare(`INSERT INTO simulacoes
+    (id,lead_id,org_id,user_id,valor_imovel,entrada,subsidio,financiado,prazo_meses,parcela,juros_aa,renda,
+     modalidade,observacoes,print_url,origem,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    id, lead.id, req.user.org_id, req.user.id,
+    numero(b.valor_imovel), numero(b.entrada), numero(b.subsidio), numero(b.financiado),
+    numero(b.prazo_meses), numero(b.parcela), numero(b.juros_aa), numero(b.renda),
+    (b.modalidade || "").trim().slice(0, 60) || null, (b.observacoes || "").trim().slice(0, 400) || null,
+    printUrl, b.origem === "print" ? "print" : "manual", Date.now());
+
+  /* A simulação preenche a qualificação do lead. Renda e entrada estavam
+     vazias na ficha e o corretor teria que digitar duas vezes a mesma coisa.
+     Só preenche o que está em branco: informação conferida por pessoa não
+     pode ser sobrescrita por leitura de imagem. */
+  const qual = JSON.parse(lead.qual_json || "{}");
+  const moeda = (v) => v == null ? null : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  if (!qual.renda && numero(b.renda) != null) qual.renda = moeda(numero(b.renda));
+  if (!qual.entrada && numero(b.entrada) != null) qual.entrada = moeda(numero(b.entrada));
+  db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(qual), lead.id);
+
+  res.json({ ok: true, simulacao: db.prepare("SELECT * FROM simulacoes WHERE id = ?").get(id) });
+});
+
+// Monta o resumo do jeito que o cliente lê — sem jargão e sem prometer nada
+// que a análise de crédito ainda pode mudar.
+export function textoDaSimulacao(s, nomeImovel) {
+  const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  const l = ["*Simulação de financiamento*"];
+  if (nomeImovel) l.push(`🏠 ${nomeImovel}`);
+  if (s.valor_imovel) l.push(`Valor do imóvel: ${moeda(s.valor_imovel)}`);
+  if (s.entrada) l.push(`Entrada: ${moeda(s.entrada)}`);
+  if (s.subsidio) l.push(`Subsídio: ${moeda(s.subsidio)}`);
+  if (s.financiado) l.push(`Financiado: ${moeda(s.financiado)}`);
+  if (s.prazo_meses) l.push(`Prazo: ${s.prazo_meses} meses`);
+  if (s.parcela) l.push(`*Primeira parcela: ${moeda(s.parcela)}*`);
+  if (s.juros_aa) l.push(`Juros: ${String(s.juros_aa).replace(".", ",")}% ao ano`);
+  if (s.modalidade) l.push(`Programa: ${s.modalidade}`);
+  if (s.observacoes) l.push("", s.observacoes);
+  l.push("", "_Simulação feita no site oficial da Caixa. Os valores podem mudar conforme a análise de crédito._");
+  return l.join("\n");
+}
+
+r.post("/:id/simulacao/:simId/enviar", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const sim = db.prepare("SELECT * FROM simulacoes WHERE id = ? AND lead_id = ?").get(req.params.simId, lead.id);
+  if (!sim) return res.status(404).json({ error: "Simulação não encontrada" });
+
+  const produto = lead.produto_id ? db.prepare("SELECT titulo FROM produtos WHERE id = ?").get(lead.produto_id) : null;
+  const texto = textoDaSimulacao(sim, produto?.titulo);
+  const firstName = (req.user.name || "").split(" ")[0];
+  try {
+    await sendText({ toPhone: lead.phone, text: texto, signedBy: firstName });
+  } catch (e) {
+    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
+  }
+
+  const agora = Date.now();
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
+    VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, texto, agora);
+  db.prepare("UPDATE simulacoes SET enviada_em = ? WHERE id = ?").run(agora, sim.id);
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(agora, lead.id);
+  advanceStage(lead.id);
+  res.json({ ok: true });
+});
+
+r.delete("/:id/simulacao/:simId", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("DELETE FROM simulacoes WHERE id = ? AND lead_id = ?").run(req.params.simId, lead.id);
+  res.json({ ok: true });
+});
+
+/* Qualificação do lead editável na mão. Os campos existiam na ficha mas eram
+   só leitura: vinham do formulário da Meta e, se o cliente contasse a renda na
+   conversa, não havia onde anotar. */
+r.patch("/:id/qualificacao", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const permitidos = ["renda", "entrada", "situacao", "cpf", "prazo"];
+  const qual = JSON.parse(lead.qual_json || "{}");
+  for (const campo of permitidos) {
+    if (!(campo in (req.body || {}))) continue;
+    const v = String(req.body[campo] ?? "").trim().slice(0, 80);
+    if (v) qual[campo] = v; else delete qual[campo];
+  }
+  db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(qual), lead.id);
+  res.json({ ok: true, qual });
 });
 
 // Ajuste manual de etapa (o automático acontece no envio/recebimento de mensagem).

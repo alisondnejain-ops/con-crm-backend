@@ -373,6 +373,13 @@ function ConCRM(){
     score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
     importarLeads:(linhas)=>api("/leads/import",{method:"POST",body:{linhas}}),
+    // Simulação de financiamento e qualificação do lead.
+    simulacoes:(leadId)=>api(`/leads/${leadId}/simulacoes`),
+    lerPrint:(leadId,base64,mime)=>api(`/leads/${leadId}/simulacao/ler`,{method:"POST",body:{base64,mime}}),
+    salvarSimulacao:acao((leadId,dados)=>api(`/leads/${leadId}/simulacao`,{method:"POST",body:dados})),
+    enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
+    apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
+    salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
     baixarLeads:async()=>{
@@ -1361,6 +1368,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
    A mesma ficha que o corretor vê no Atendimento: qualificação, etapa, venda —
    mais o direcionamento para um corretor, como a SDR faz na catraca. */
 function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
+  const [simulando,setSimulando]=useState(false);
   return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",WebkitOverflowScrolling:"touch",minHeight:0}}>
     <div style={{padding:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
@@ -1393,9 +1401,18 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.4}}>A etapa avança sozinha conforme a conversa. Você pode ajustar aqui.</div>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {[["Renda familiar",lead.qual.renda,"target"],["Entrada",lead.qual.entrada,"check"],["Situação",lead.qual.situacao,"users"],["Restrição CPF",lead.qual.cpf,"award"],["Prazo p/ comprar",lead.qual.prazo,"calendar"]].map(([k,v,n])=>
-          <div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
+        {[["Renda familiar",lead.qual.renda,"target","renda"],["Entrada",lead.qual.entrada,"check","entrada"],["Situação",lead.qual.situacao,"users","situacao"],["Restrição CPF",lead.qual.cpf,"award","cpf"],["Prazo p/ comprar",lead.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>
+          <CampoQual key={k} rotulo={k} valor={v} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
       </div>
+
+      {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do
+          subsídio de quem vai comprar. Por isso o botão mora aqui na ficha. */}
+      <button onClick={()=>setSimulando(true)}
+        style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
+          borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+        <Icon n="chart" size={15}/> Registrar simulação
+      </button>
+      {simulando&&<Simulacao lead={lead} acoes={acoes} isMobile={largura==="100%"} aoFechar={()=>setSimulando(false)}/>}
 
       <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
 
@@ -1753,6 +1770,189 @@ function mapearColunas(cabecalho){
       if(mapa[campo]===undefined&&apelidos.some(a=>t.includes(a))){mapa[campo]=i;break;}
   });
   return mapa;
+}
+
+/* Campo da qualificação, editável no toque.
+   Antes eram só leitura: vinham do formulário da Meta e, se o cliente contasse
+   a renda na conversa, o corretor não tinha onde anotar. */
+function CampoQual({rotulo,valor,icone,onSalvar}){
+  const [editando,setEditando]=useState(false);
+  const [texto,setTexto]=useState(valor==="—"?"":valor);
+  useEffect(()=>{setTexto(valor==="—"?"":valor);},[valor]);
+  const confirmar=()=>{ setEditando(false); if((texto||"")!==(valor==="—"?"":valor)) onSalvar(texto); };
+
+  return <div>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+      <Icon n={icone} size={11}/>{rotulo}</div>
+    {editando
+      ?<input autoFocus value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
+        onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
+        style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,
+          borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
+      :<button onClick={()=>setEditando(true)} title="Toque para editar"
+        style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{valor}</button>}
+  </div>;
+}
+
+/* ===== SIMULAÇÃO DE FINANCIAMENTO =====
+   O corretor simula no site da Caixa, tira print e registra aqui. A leitura
+   automática do print é opcional: quando a IA não está configurada, ele digita.
+
+   O rascunho lido da imagem SEMPRE passa pela conferência antes de ir ao
+   cliente. Número de financiamento errado vira promessa que a Conecta não
+   cumpre — é o tipo de erro que não se desfaz pedindo desculpa. */
+const moedaBR=(v)=>v==null||v===""?"":Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+
+function Simulacao({lead,acoes,isMobile,aoFechar}){
+  const [d,setD]=useState(null);
+  const [form,setForm]=useState({valor_imovel:"",entrada:"",subsidio:"",financiado:"",prazo_meses:"",parcela:"",juros_aa:"",renda:"",modalidade:"",observacoes:""});
+  const [print,setPrint]=useState(null);       // {base64,mime,nome}
+  const [lendo,setLendo]=useState(false);
+  const [salvando,setSalvando]=useState(false);
+  const [aviso,setAviso]=useState(null);
+  const [confianca,setConfianca]=useState(null);
+  const arq=useRef(null);
+
+  const recarregar=()=>acoes.simulacoes(lead.id).then(setD).catch(()=>{});
+  useEffect(()=>{recarregar();},[lead.id]);
+
+  const set=(k)=>(e)=>setForm({...form,[k]:e.target.value});
+  const preenchido=Object.entries(form).some(([k,v])=>v!==""&&k!=="observacoes");
+
+  async function escolherPrint(e){
+    const f=e.target.files[0]; e.target.value=""; if(!f) return;
+    setAviso(null); setConfianca(null);
+    const base64=await new Promise(ok=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]);r.readAsDataURL(f);});
+    setPrint({base64,mime:f.type,nome:f.name});
+    if(!d||!d.ia) return;                       // sem IA, o print só fica anexado
+    setLendo(true);
+    try{
+      const {rascunho}=await acoes.lerPrint(lead.id,base64,f.type);
+      const num=(v)=>v==null?"":String(v);
+      setForm(f0=>({...f0,
+        valor_imovel:num(rascunho.valor_imovel)||f0.valor_imovel,
+        entrada:num(rascunho.entrada)||f0.entrada,
+        subsidio:num(rascunho.subsidio)||f0.subsidio,
+        financiado:num(rascunho.financiado)||f0.financiado,
+        prazo_meses:num(rascunho.prazo_meses)||f0.prazo_meses,
+        parcela:num(rascunho.parcela)||f0.parcela,
+        juros_aa:num(rascunho.juros_aa)||f0.juros_aa,
+        renda:num(rascunho.renda)||f0.renda,
+        modalidade:rascunho.modalidade||f0.modalidade,
+      }));
+      setConfianca(rascunho.confianca);
+    }catch(err){ setAviso({ok:false,txt:err.message}); }
+    finally{ setLendo(false); }
+  }
+
+  async function salvar(){
+    setAviso(null); setSalvando(true);
+    try{
+      await acoes.salvarSimulacao(lead.id,{...form,
+        print_base64:print?print.base64:null, print_mime:print?print.mime:null,
+        origem:confianca?"print":"manual"});
+      setForm({valor_imovel:"",entrada:"",subsidio:"",financiado:"",prazo_meses:"",parcela:"",juros_aa:"",renda:"",modalidade:"",observacoes:""});
+      setPrint(null); setConfianca(null);
+      await recarregar();
+      setAviso({ok:true,txt:"Simulação registrada. Agora é só enviar para o cliente."});
+    }catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setSalvando(false); }
+  }
+
+  const campo=(rotulo,chave,dica)=><div style={{flex:"1 1 132px",minWidth:0}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{rotulo}</div>
+    <input value={form[chave]} onChange={set(chave)} inputMode="decimal" placeholder={dica||""}
+      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
+        borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}/>
+  </div>;
+
+  return <div style={{position:"fixed",inset:0,zIndex:40,background:"rgba(10,61,48,.35)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+    <div style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"92dvh",overflowY:"auto",
+      borderRadius:isMobile?"18px 18px 0 0":16,padding:16,paddingBottom:"calc(16px + env(safe-area-inset-bottom))"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <Icon n="chart" size={17} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>Simulação — {first(lead.nome)}</span>
+        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+
+      <input ref={arq} type="file" accept="image/*" onChange={escolherPrint} style={{display:"none"}}/>
+      <button onClick={()=>arq.current.click()} disabled={lendo}
+        style={{width:"100%",border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:11,
+          padding:"13px",fontSize:13.5,fontWeight:600,cursor:lendo?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+        <Icon n={lendo?"loader":"star"} size={15} spin={lendo}/>
+        {lendo?"Lendo o print…":print?`Print anexado: ${print.nome}`:"Anexar print da simulação"}
+      </button>
+      <div style={{color:C.faint,fontSize:11,margin:"6px 0 12px",lineHeight:1.45}}>
+        {d&&d.ia
+          ?"O sistema lê os valores do print e preenche abaixo. Confira antes de enviar — a leitura acerta quase sempre, não sempre."
+          :"Anexe o print para ficar guardado no histórico e preencha os campos abaixo."}
+      </div>
+
+      {confianca&&<div style={{background:confianca==="baixa"?C.hotSoft:C.greenSoft,color:confianca==="baixa"?C.hot:C.greenDeep,
+        fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:11,lineHeight:1.45}}>
+        {confianca==="baixa"
+          ?"Não consegui ler bem esse print. Confira cada valor com atenção — pode estar errado."
+          :"Valores lidos do print. Confira antes de enviar."}
+      </div>}
+
+      <div style={{display:"flex",flexWrap:"wrap",gap:9,marginBottom:11}}>
+        {campo("Valor do imóvel","valor_imovel","250000")}
+        {campo("Entrada","entrada","25000")}
+        {campo("Subsídio","subsidio","0")}
+        {campo("Financiado","financiado","")}
+        {campo("Prazo (meses)","prazo_meses","360")}
+        {campo("Parcela inicial","parcela","1180")}
+        {campo("Juros ao ano (%)","juros_aa","8,99")}
+        {campo("Renda familiar","renda","3200")}
+      </div>
+      <div style={{marginBottom:11}}>
+        <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Observação para o cliente (opcional)</div>
+        <textarea value={form.observacoes} onChange={set("observacoes")} rows={2} placeholder="Ex.: condição válida até o fim do mês"
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
+            borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
+      </div>
+
+      {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,marginBottom:11,lineHeight:1.45,
+        color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
+
+      <button onClick={salvar} disabled={salvando||!preenchido}
+        style={{width:"100%",background:salvando||!preenchido?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,
+          padding:"13px",fontSize:14,fontWeight:600,cursor:salvando||!preenchido?"default":"pointer"}}>
+        {salvando?"Registrando…":"Registrar simulação"}
+      </button>
+
+      {d&&d.simulacoes.length>0&&<div style={{marginTop:18}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>Simulações deste lead</div>
+        {d.simulacoes.map(s=><div key={s.id} style={{border:`1px solid ${C.line}`,borderRadius:11,padding:11,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
+            <span style={{color:C.ink,fontSize:13.5,fontWeight:700,fontFamily:MONO}}>{moedaBR(s.parcela)||"—"}</span>
+            <span style={{color:C.faint,fontSize:11}}>por mês</span>
+            {s.enviada_em
+              ?<span style={{marginLeft:"auto",color:C.greenMid,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}><Icon n="check" size={11}/> enviada</span>
+              :<span style={{marginLeft:"auto",color:C.faint,fontSize:10.5}}>não enviada</span>}
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>
+            {[s.valor_imovel&&`Imóvel ${moedaBR(s.valor_imovel)}`,s.entrada&&`entrada ${moedaBR(s.entrada)}`,
+              s.subsidio&&`subsídio ${moedaBR(s.subsidio)}`,s.prazo_meses&&`${s.prazo_meses} meses`].filter(Boolean).join(" · ")}
+          </div>
+          <div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
+            {new Date(s.created_at).toLocaleString("pt-BR")}{s.origem==="print"?" · lida do print":""}
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap"}}>
+            <button onClick={()=>acoes.enviarSimulacao(lead.id,s.id).then(recarregar)}
+              style={{background:s.enviada_em?C.surface:C.green,color:s.enviada_em?C.sub:"#fff",border:s.enviada_em?`1px solid ${C.line}`:"none",
+                borderRadius:9,padding:"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              <Icon n="send" size={12}/>{s.enviada_em?"Enviar de novo":"Enviar resumo ao cliente"}</button>
+            {s.print_url&&<a href={s.print_url} target="_blank" rel="noreferrer"
+              style={{textDecoration:"none",border:`1px solid ${C.line}`,color:C.sub,borderRadius:9,padding:"8px 13px",fontSize:12.5,fontWeight:600}}>ver print</a>}
+            <button onClick={()=>{if(window.confirm("Apagar esta simulação?")) acoes.apagarSimulacao(lead.id,s.id).then(recarregar);}}
+              style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer"}}>apagar</button>
+          </div>
+        </div>)}
+      </div>}
+    </div>
+  </div>;
 }
 
 /* ===== BASE DE LEADS (gestor) =====
