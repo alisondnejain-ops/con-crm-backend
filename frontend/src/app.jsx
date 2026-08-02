@@ -426,6 +426,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     .filter(u=>(u.role==="corretor"||u.role==="sdr")&&u.status==="ativo")
     .map(u=>({...u,ini:initials(u.name),
       color:COLORS[[...u.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]})),[equipe]);
+  // Para captação de imóvel vale a equipe INTEIRA, gestor incluído: ele também
+  // capta. `pessoas` não serve aqui porque existe para a catraca, e ali o gestor
+  // fica de fora de propósito.
+  const equipeToda=useMemo(()=>equipe
+    .filter(u=>u.status==="ativo")
+    .map(u=>({...u,ini:initials(u.name),
+      color:COLORS[[...u.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]})),[equipe]);
   const corretores=pessoas.filter(p=>p.role==="corretor");
   const disponiveis=pessoas.filter(p=>p.available);
   const availCorretores=corretores.filter(p=>p.available);
@@ -439,15 +446,27 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      Agora só desce em duas situações: ao abrir outra conversa, e quando chega
      mensagem nova COM o leitor já perto do rodapé. Quem subiu para ler fica
      onde está — igual ao WhatsApp. */
-  const ancora=useRef({id:null,qtd:0});
+  const ancora=useRef({id:null,qtd:0,abrindo:false});
   useEffect(()=>{
     const el=chatRef.current; if(!el) return;
     const atual=leads.find(l=>l.id===selId);
     const qtd=atual&&atual.msgs?atual.msgs.length:0;
-    const trocouDeConversa=ancora.current.id!==selId;
+
+    // Trocou de conversa: fica "abrindo" até as mensagens chegarem. Elas vêm de
+    // outra requisição, então na primeira passada a lista ainda está vazia — sem
+    // este estado, a rolagem acontecia no vazio e a conversa abria no topo.
+    if(ancora.current.id!==selId) ancora.current={id:selId,qtd:0,abrindo:true};
+
     const pertoDoFim=el.scrollHeight-el.scrollTop-el.clientHeight<140;
-    if(trocouDeConversa||(qtd>ancora.current.qtd&&pertoDoFim)) el.scrollTop=el.scrollHeight;
-    ancora.current={id:selId,qtd};
+    const chegouMensagem=qtd>ancora.current.qtd;
+    if(ancora.current.abrindo||(chegouMensagem&&pertoDoFim)){
+      el.scrollTop=el.scrollHeight;
+      // Foto e áudio mudam a altura depois de carregar; o quadro seguinte
+      // reposiciona no fim, senão a conversa abre um pouco acima da última.
+      requestAnimationFrame(()=>{ if(chatRef.current) chatRef.current.scrollTop=chatRef.current.scrollHeight; });
+      if(qtd>0) ancora.current.abrindo=false;   // só está aberta de fato com as mensagens à vista
+    }
+    ancora.current.qtd=qtd;
   },[selId,leads]);
 
   const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
@@ -529,7 +548,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
-        {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,isMobile,supervisor}}/>}
+        {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
@@ -1643,7 +1662,7 @@ const SITUACAO_PRODUTO={
 };
 const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
 
-function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
+function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [f,setF]=useState({q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
   const [busca,setBusca]=useState("");
   const [lista,setLista]=useState(null);
@@ -1669,7 +1688,7 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
     if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
     try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
-  if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} acoes={acoes}
+  if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} equipeToda={equipeToda} acoes={acoes}
     isMobile={isMobile} aoFechar={(mudou)=>{setEditando(null);if(mudou)atualizar();}}/>;
   if(aberto) return <DetalheProduto produto={aberto} acoes={acoes} isMobile={isMobile} supervisor={supervisor} session={session}
     aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir} aoApagar={apagar}/>;
@@ -1774,7 +1793,7 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
 }
 const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
-function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
+function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar}){
   const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||""}:{
     tipo:"casa",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
     cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
@@ -1908,7 +1927,7 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
           {rotulo("Quem captou")}
           <select value={f.captador_id||""} onChange={set("captador_id")} style={entrada}>
             <option value="">Eu mesmo</option>
-            {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            {(equipeToda||pessoas).map(p=><option key={p.id} value={p.id}>{p.name}{p.role==="adm"?" (gestor)":p.role==="sdr"?" (atendente)":""}</option>)}
           </select>
           <div style={{color:C.faint,fontSize:11,marginTop:5}}>Aparece no catálogo para quem precisar falar sobre chaves e disponibilidade.</div>
         </div>

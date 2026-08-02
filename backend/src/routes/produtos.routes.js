@@ -157,9 +157,21 @@ r.patch("/:id", (req, res) => {
   const erro = validar(b);
   if (erro) return res.status(400).json({ error: erro });
 
+  // Transferir a captação: o UPDATE não gravava captador nenhum, então trocar o
+  // "Quem captou" na edição não fazia efeito — a tela salvava e o banco ignorava.
+  // Vale para a equipe inteira, gestor incluído: ele também capta imóvel.
+  let captador = { id: p.captador_id, nome: p.captador_nome };
+  if (req.body.captador_id && req.body.captador_id !== p.captador_id) {
+    const u = db.prepare("SELECT id,name FROM users WHERE id=? AND org_id=?").get(req.body.captador_id, req.user.org_id);
+    if (!u) return res.status(404).json({ error: "Captador não encontrado." });
+    captador = { id: u.id, nome: u.name };
+  }
+
   db.prepare(`UPDATE produtos SET tipo=@tipo,titulo=@titulo,formato=@formato,quartos=@quartos,banheiros=@banheiros,
     construtor=@construtor,valor=@valor,metragem=@metragem,cidade=@cidade,bairro=@bairro,endereco=@endereco,
-    maps_url=@maps_url,morar_bem=@morar_bem,modalidade=@modalidade,comissao_pct=@comissao_pct,observacoes=@observacoes WHERE id=@id`).run({
+    maps_url=@maps_url,morar_bem=@morar_bem,modalidade=@modalidade,comissao_pct=@comissao_pct,
+    captador_id=@captador_id,captador_nome=@captador_nome,observacoes=@observacoes WHERE id=@id`).run({
+    captador_id: captador.id, captador_nome: captador.nome,
     id: p.id, tipo: b.tipo, titulo: limpar(b.titulo), formato: b.tipo === "casa" ? b.formato : null,
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem), cidade: limpar(b.cidade), bairro: limpar(b.bairro),
