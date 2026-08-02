@@ -593,27 +593,38 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
    espremer sete ícones em 375px torna todos difíceis de acertar com o dedo. */
 function NavCelular({nav,view,setView,aviso}){
   const [maisAberto,setMaisAberto]=useState(false);
+  /* A folha do "Mais" abre colada no rodapé e a barra fica por cima dela — o
+     último item do menu sumia atrás. Medimos a barra em vez de chutar um valor:
+     a altura muda com a área segura de cada aparelho. */
+  const barra=useRef(null);
+  const [alturaBarra,setAlturaBarra]=useState(64);
+  useEffect(()=>{
+    const medir=()=>{ if(barra.current) setAlturaBarra(barra.current.offsetHeight); };
+    medir();
+    window.addEventListener("resize",medir);
+    return()=>window.removeEventListener("resize",medir);
+  },[]);
   const cabem=nav.length<=5?nav:nav.slice(0,4);
   const extras=nav.length<=5?[]:nav.slice(4);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
-  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"12px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
     <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
     {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
   </button>;
 
   return <React.Fragment>
     {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:20}}/>}
-    {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",padding:"14px 14px calc(14px + env(safe-area-inset-bottom))",boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
+    {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",paddingLeft:14,paddingRight:14,paddingTop:14,paddingBottom:alturaBarra+14,boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
       <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto 12px"}}/>
       {extras.map(([v,n,label])=><button key={v} onClick={()=>escolher(v)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 10px",border:"none",borderBottom:`1px solid ${C.line}`,background:"transparent",cursor:"pointer",color:view===v?C.green:C.ink,fontSize:14.5,fontWeight:view===v?700:500}}>
         <Icon n={n} size={19}/><span style={{flex:1,textAlign:"left"}}>{label}</span>
         {aviso(v)>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aviso(v)}</span>}
       </button>)}
     </div>}
-    <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingTop:4,paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
+    <nav ref={barra} style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
-      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"12px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
