@@ -3062,4 +3062,38 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
   </div>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<ConCRM/>);
+/* ===== REDE DE SEGURANÇA =====
+   Sem isto, um erro de JavaScript em qualquer canto derruba a árvore inteira e
+   o corretor vê uma TELA BRANCA — que não diz nada nem para ele nem para quem
+   vai consertar. Aqui o erro vira uma tela legível, com o texto que dá para
+   mandar num print, e um botão para voltar a usar o sistema.
+
+   Não é enfeite: descobrir um erro pelo relato "ficou branco" custa horas. */
+class Rede extends React.Component{
+  constructor(p){ super(p); this.state={erro:null}; }
+  static getDerivedStateFromError(erro){ return {erro}; }
+  componentDidCatch(erro,info){ console.error("[ConHub] erro na tela:",erro,info); }
+  render(){
+    if(!this.state.erro) return this.props.children;
+    const e=this.state.erro;
+    return <div style={{fontFamily:FONT,padding:24,maxWidth:520,margin:"0 auto",color:C.ink}}>
+      <div style={{fontFamily:DISPLAY,fontSize:19,fontWeight:700,marginBottom:8}}>Algo quebrou nesta tela</div>
+      <div style={{color:C.sub,fontSize:13.5,lineHeight:1.6,marginBottom:14}}>
+        O resto do sistema continua funcionando. Mande um print desta tela para o suporte —
+        o texto abaixo diz exatamente o que aconteceu.
+      </div>
+      <div style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}33`,borderRadius:10,padding:12,
+        fontFamily:MONO,fontSize:11.5,lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word",marginBottom:14}}>
+        {String(e&&e.message||e)}
+      </div>
+      <button onClick={()=>{this.setState({erro:null});}}
+        style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",
+          fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:9}}>Voltar</button>
+      <button onClick={()=>window.location.reload()}
+        style={{width:"100%",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,
+          padding:"13px",fontSize:14,fontWeight:600,cursor:"pointer"}}>Recarregar o ConHub</button>
+    </div>;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Rede><ConCRM/></Rede>);
