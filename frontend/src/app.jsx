@@ -73,11 +73,15 @@ const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.a
 // As três modalidades de financiamento com que a Conecta trabalha.
 const MODALIDADES=["Morar Bem PE","Minha Casa Minha Vida","SBPE"];
 
-/* Simulador oficial da Caixa. Abre o site dela, não recria a conta aqui: as
-   regras de faixa, subsídio e juros mudam sem aviso, e simulação nossa
-   desatualizada daria número errado para o cliente — o tipo de erro que custa
-   caro numa negociação. Se a Caixa mudar o endereço, é esta linha que muda. */
-const SIMULADOR_CAIXA="https://habitacao.caixa.gov.br/siopiweb-web/simulaOperacaoInternet.do";
+/* Ferramentas oficiais da Caixa. Abrimos o site dela, não recriamos a conta
+   aqui: as regras de faixa, subsídio e juros mudam sem aviso, e simulação nossa
+   desatualizada daria número errado ao cliente — erro caro numa negociação.
+
+   São duas, e a ordem é a que a própria Caixa recomenda: a calculadora primeiro,
+   para ter uma ideia em um minuto, e a simulação completa quando o cliente já
+   sabe o que quer. Se a Caixa mudar os endereços, são estas duas linhas. */
+const CALCULADORA_CAIXA="https://simuladorhabitacao.caixa.gov.br/calculadora";
+const SIMULADOR_CAIXA="https://simuladorhabitacao.caixa.gov.br/simulacao";
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
 const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprovação":"#2F80C4","Agendamento":"#7A5AD6","Visita":"#C8912B","Proposta":"#D97706","Venda":"#0A3D30","Perdido":"#B0463A","Recaptação":"#B07C1F","Transferido por ligação":"#5C6B7A"};
@@ -2130,16 +2134,24 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, bairro, cidade ou construtora"
               style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
           </div>
-          <div style={{display:"flex",gap:8,flexShrink:0}}>
-            <a href={SIMULADOR_CAIXA} target="_blank" rel="noreferrer" title="Abre o simulador oficial da Caixa em outra aba"
-              style={{flex:isMobile?1:"none",textDecoration:"none",background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon n="chart" size={15}/> Simulação
-            </a>
-            <button onClick={()=>setEditando("novo")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon n="userplus" size={15}/> Cadastrar
-            </button>
-          </div>
+          <button onClick={()=>setEditando("novo")} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
+            <Icon n="userplus" size={15}/> Cadastrar
+          </button>
         </div>
+        {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
+            conversa com o cliente, sem sair do CRM. */}
+        <div style={{display:"flex",gap:8}}>
+          {[[CALCULADORA_CAIXA,"Poder de compra","zap","Estimativa em 1 minuto pela renda ou pela parcela"],
+            [SIMULADOR_CAIXA,"Simulação completa","chart","Simulação oficial da Caixa, com todos os dados"]]
+            .map(([url,texto,icone,dica])=>
+            <a key={texto} href={url} target="_blank" rel="noreferrer" title={dica+" — abre em outra aba"}
+              style={{flex:1,textDecoration:"none",background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,
+                borderRadius:10,padding:isMobile?"10px 8px":"10px 14px",fontSize:isMobile?12.5:13,fontWeight:600,
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6,textAlign:"center"}}>
+              <Icon n={icone} size={14}/>{texto}
+            </a>)}
+        </div>
+
         {/* Mesmo tratamento que os filtros das conversas receberam: abertos, os
             sete seletores empurravam o catálogo para fora da tela no celular.
             O contador ao lado do botão avisa quando algum ficou ligado. */}
