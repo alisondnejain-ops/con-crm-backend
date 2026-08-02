@@ -137,9 +137,10 @@ function fmtTel(t){
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 // Abre o discador do celular com o número já preenchido.
-function BotaoLigar({tel,compacto}){
+function BotaoLigar({tel,compacto,leadId,acoes}){
   if(!tel) return null;
   return <a href={"tel:+"+String(tel).replace(/\D/g,"")} title="Ligar para o lead" aria-label="Ligar"
+    onClick={()=>{ if(leadId&&acoes&&acoes.registrarLigacao) acoes.registrarLigacao(leadId); }}
     style={{display:"flex",alignItems:"center",gap:6,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:12,fontWeight:600,padding:compacto?"8px":"7px 12px",borderRadius:10}}>
     <Icon n="phone" size={14}/>{!compacto&&"Ligar"}
   </a>;
@@ -357,6 +358,11 @@ function ConCRM(){
     disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
+    score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
+    recomendacao:(leadId)=>api(`/reports/recomendacao/${leadId}`),
+    // Tentativa de ligação: o discador é do aparelho, então o CRM só consegue
+    // registrar que o corretor tentou. Falhar aqui não pode impedir a ligação.
+    registrarLigacao:(leadId)=>api(`/leads/${leadId}/ligacao`,{method:"POST"}).catch(()=>{}),
     pushChave:()=>api("/push/chave"),
     pushSituacao:()=>api("/push/situacao"),
     pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
@@ -875,7 +881,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          <BotaoLigar tel={sel.tel} compacto={isMobile}/>
+          <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes}/>
           {fichaPorBotao
             ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>
             :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
@@ -1280,7 +1286,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
         </div>
-        <BotaoLigar tel={sel.tel} compacto/>
+        <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes}/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
       </div>
       {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
@@ -1328,6 +1334,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+        <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
         <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Direcionar para um corretor</div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>O lead sai da conta atual e passa para o corretor escolhido.</div>
         <button onClick={()=>acoes.repassar(lead.id)} disabled={!corretoresDisponiveis.length}
@@ -1653,6 +1660,90 @@ function Notificacoes({acoes,isMobile}){
     </div>
     {estado.aparelhos>0&&<div style={{color:C.faint,fontSize:11.5}}>
       {estado.aparelhos} aparelho(s) seu(s) recebendo notificações.</div>}
+  </div>;
+}
+
+/* ===== RECOMENDAÇÃO DE DIRECIONAMENTO =====
+   Aparece no lead que ainda não tem corretor. Depois de direcionado some, para
+   não virar convite ao troca-troca de lead entre corretores.
+
+   O número vem do histórico da própria equipe, não de palpite: conversão por
+   temperatura, com amostra mínima. Quando não há histórico bastante, ele diz
+   isso em vez de inventar percentual — gestor decidindo com número inventado é
+   pior que gestor decidindo sozinho. */
+/* ===== SCORE DE PERFORMANCE =====
+   Ranking da equipe para gestor e atendente. Quem não recebeu lead no período
+   aparece como "sem dados" e não como nota baixa: não avaliar é diferente de
+   avaliar mal, e a diferença importa quando o número vira conversa de gestão. */
+function ScoreEquipe({acoes,isMobile}){
+  const [d,setD]=useState(null);
+  const [dias,setDias]=useState(90);
+  useEffect(()=>{let vivo=true; setD(null);
+    acoes.score(dias).then(x=>vivo&&setD(x)).catch(()=>{});
+    return()=>{vivo=false;};},[dias]);
+
+  const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
+  const celula={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="award" size={16} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Score de performance</span>
+      <select value={dias} onChange={e=>setDias(Number(e.target.value))}
+        style={{marginLeft:"auto",fontSize:12,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 8px",outline:"none"}}>
+        {[30,60,90,180].map(x=><option key={x} value={x}>últimos {x} dias</option>)}
+      </select>
+    </div>
+    <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
+      Conversão, tempo de resposta, visitas, perdas, vendas e ligações — pesados nessa ordem.
+    </div>
+    {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
+    {d&&<div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
+        <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
+          {["#","Corretor","Score","Conversão","1ª resposta","Visitas","Perdas","Vendas","Ligações"].map((h,i)=>
+            <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
+        </tr></thead>
+        <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
+          <td style={{...celula,fontFamily:MONO,color:C.faint}}>{m.sem_dados?"–":i+1}</td>
+          <td style={{...celula,color:C.ink,fontWeight:600}}>{m.nome}{m.papel==="sdr"&&<span style={{color:C.faint,fontWeight:400}}> · atendente</span>}</td>
+          <td style={{...celula,textAlign:"right"}}>
+            {m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
+              :<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.conversao+"%"}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.visitas}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.perdidos}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.vendas}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.ligacoes}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+  </div>;
+}
+
+function Recomendacao({leadId,acoes,onDirecionar,isMobile}){
+  const [r,setR]=useState(null);
+  useEffect(()=>{let vivo=true; setR(null);
+    acoes.recomendacao(leadId).then(d=>vivo&&setR(d)).catch(()=>{});
+    return()=>{vivo=false;};},[leadId]);
+
+  if(!r||r.situacao==="ja_direcionado"||r.situacao==="sem_corretor_disponivel") return null;
+  const forte=r.situacao==="ok";
+  return <div style={{background:forte?"#F2F7FF":C.surface,border:`1px solid ${forte?"#2F80C433":C.line}`,
+    borderRadius:12,padding:12,marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <Icon n="spark" size={14} color={forte?"#2F80C4":C.faint}/>
+      <span style={{color:forte?"#2F80C4":C.sub,fontSize:12,fontWeight:700}}>Recomendação da IA</span>
+      <span style={{marginLeft:"auto",color:C.faint,fontSize:10}}>lead {String(r.temperatura||"").toLowerCase()}</span>
+    </div>
+    <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5}}>{r.explicacao}</div>
+    {r.sugerido&&<button onClick={()=>onDirecionar&&onDirecionar(r.sugerido.id)}
+      style={{marginTop:9,width:"100%",background:forte?"#2F80C4":C.green,color:"#fff",border:"none",borderRadius:9,
+        padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+      <Icon n="transfer" size={13}/> Direcionar para {first(r.sugerido.nome)}</button>}
+    <div style={{color:C.faint,fontSize:10,marginTop:7,lineHeight:1.4}}>
+      Calculado do histórico da equipe: conversão por temperatura do lead, com amostra mínima de {5} atendimentos concluídos.</div>
   </div>;
 }
 
@@ -2371,6 +2462,9 @@ function Relatorios({acoes,session,pickable,isMobile}){
         <Metric n="award" label="Valor vendido" value={fmtMoeda(dados.total.valor_vendido)} accent={C.green}/>
       </div>
 
+      {/* Só quem supervisiona vê o ranking: é material de decisão sobre pessoas,
+          não painel de auto-avaliação do corretor. */}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile}/>}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
         {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
           <Avatar ini={initials(a.nome)} color={COLORS[[...a.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={26}/>

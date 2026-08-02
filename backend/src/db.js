@@ -102,6 +102,17 @@ CREATE TABLE IF NOT EXISTS push_subs (
   created_at INTEGER NOT NULL
 );
 
+-- Tentativas de ligação. O botão "Ligar" abre o discador do celular e o
+-- navegador não tem como saber se a pessoa atendeu — então registramos a
+-- TENTATIVA, que já diz quem está correndo atrás do lead e quem não está.
+CREATE TABLE IF NOT EXISTS ligacoes (
+  id TEXT PRIMARY KEY,
+  lead_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ligacoes_user ON ligacoes(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
 CREATE INDEX IF NOT EXISTS idx_produtos_org ON produtos(org_id, status);
 CREATE INDEX IF NOT EXISTS idx_midias_produto ON produto_midias(produto_id);

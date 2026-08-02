@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
+import { ranking, recomendar } from "../services/score.js";
 
 const r = Router();
 r.use(authRequired);
@@ -65,5 +66,25 @@ function mediana(arr) {
   const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2);
   return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
 }
+
+// Score de performance da equipe. Só gestão: é material de decisão sobre
+// pessoas, não painel de auto-avaliação do corretor.
+r.get("/score", (req, res) => {
+  if (!supervisiona(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  const dias = Math.min(365, Math.max(7, Number(req.query.dias) || 90));
+  res.json({ dias, equipe: ranking(req.user.org_id, dias) });
+});
+
+// Para quem mandar este lead. Vale só enquanto ele não está com um corretor —
+// depois de direcionado, recomendar de novo seria convidar ao troca-troca.
+r.get("/recomendacao/:leadId", (req, res) => {
+  if (!supervisiona(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  const lead = db.prepare("SELECT * FROM leads WHERE id=? AND org_id=?").get(req.params.leadId, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  const dono = lead.assigned_to
+    ? db.prepare("SELECT role FROM users WHERE id=?").get(lead.assigned_to) : null;
+  if (dono && dono.role === "corretor") return res.json({ situacao: "ja_direcionado" });
+  res.json(recomendar(req.user.org_id, lead));
+});
 
 export default r;

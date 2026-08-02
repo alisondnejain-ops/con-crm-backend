@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
@@ -124,6 +125,17 @@ r.post("/:id/reabrir", (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   db.prepare("UPDATE leads SET closed_at = NULL WHERE id = ?").run(lead.id);
   res.json({ ok: true, finalizado: false });
+});
+
+// Registro de tentativa de ligação. O botão "Ligar" abre o discador do
+// aparelho e o navegador não fica sabendo se atenderam — então guardamos a
+// TENTATIVA. Serve ao score: mostra quem está correndo atrás do lead.
+r.post("/:id/ligacao", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
+    .run("lig_" + randomUUID(), lead.id, req.user.id, Date.now());
+  res.json({ ok: true });
 });
 
 // Ajuste manual de etapa (o automático acontece no envio/recebimento de mensagem).
