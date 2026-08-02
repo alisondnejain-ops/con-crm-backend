@@ -167,6 +167,7 @@ const ICO={
   target:<React.Fragment><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></React.Fragment>,
   award:<React.Fragment><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></React.Fragment>,
   spark:<path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2L12 3z"/>,
+  mais:<React.Fragment><circle cx="5" cy="12" r="1.9" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.9" fill="currentColor" stroke="none"/></React.Fragment>,
   logout:<React.Fragment><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></React.Fragment>,
   lock:<React.Fragment><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></React.Fragment>,
   dot:<React.Fragment><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></React.Fragment>,
@@ -584,7 +585,7 @@ function NavCelular({nav,view,setView,aviso}){
     <nav style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"env(safe-area-inset-bottom)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
       {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"9px 2px 10px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
-        <Icon n="grid" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
+        <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
     </nav>
@@ -1671,6 +1672,9 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [editando,setEditando]=useState(null); // objeto do produto, ou "novo"
   const [aberto,setAberto]=useState(null);     // produto em detalhe
   const [recarga,setRecarga]=useState(0);
+  const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
+  const filtrosAtivos=[f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{acoes.produtoOpcoes().then(setOpcoes).catch(()=>{});},[recarga]);
@@ -1715,7 +1719,21 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             <Icon n="userplus" size={15}/> Cadastrar
           </button>
         </div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {/* Mesmo tratamento que os filtros das conversas receberam: abertos, os
+            sete seletores empurravam o catálogo para fora da tela no celular.
+            O contador ao lado do botão avisa quando algum ficou ligado. */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setFiltrosAbertos(a=>!a)}
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            <Icon n="columns" size={13}/>Filtros
+            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
+            <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+          </button>
+          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""})}
+            style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
+          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</span>
+        </div>
+        {filtrosAbertos&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {campo("Casa ou terreno",f.tipo,"tipo",[{v:"casa",t:"Casas"},{v:"terreno",t:"Terrenos"}])}
           {campo("Cidade",f.cidade,"cidade",opcoes.cidades.map(c=>({v:c,t:c})))}
           {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
@@ -1723,8 +1741,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
           {campo("Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)})))}
           {campo("Modalidade",f.modalidade,"modalidade",MODALIDADES.map(m=>({v:m,t:m})))}
           {supervisor&&campo("Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t})))}
-        </div>
-        <div style={{color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</div>
+        </div>}
       </div>
 
       {lista&&lista.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:34,textAlign:"center"}}>
