@@ -359,6 +359,17 @@ function ConCRM(){
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
+    recomendacoes:()=>api("/reports/recomendacoes"),
+    /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
+       link simples: baixamos com o token e entregamos o arquivo ao navegador. */
+    baixarLeads:async()=>{
+      const res=await fetch(API+"/leads/export",{headers:TOKEN?{Authorization:"Bearer "+TOKEN}:{}});
+      if(!res.ok) throw new Error("Não consegui gerar a lista.");
+      const blob=await res.blob();
+      const url=URL.createObjectURL(blob), a=document.createElement("a");
+      a.href=url; a.download=`leads-conecta-${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    },
     recomendacao:(leadId)=>api(`/reports/recomendacao/${leadId}`),
     // Tentativa de ligação: o discador é do aparelho, então o CRM só consegue
     // registrar que o corretor tentou. Falhar aqui não pode impedir a ligação.
@@ -500,13 +511,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
@@ -557,7 +568,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
-        {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,isMobile}}/>}
+        {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
@@ -565,6 +576,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
+        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
@@ -1671,6 +1683,120 @@ function Notificacoes({acoes,isMobile}){
    temperatura, com amostra mínima. Quando não há histórico bastante, ele diz
    isso em vez de inventar percentual — gestor decidindo com número inventado é
    pior que gestor decidindo sozinho. */
+/* ===== BASE DE LEADS (gestor) =====
+   Todos os leads da imobiliária num lugar só, com quem está com cada um, e o
+   botão para baixar a planilha. É a visão de dono: nem a caixa de atendimento
+   nem o funil mostram a base inteira de uma vez. */
+function BaseLeads({acoes,isMobile}){
+  const [lista,setLista]=useState(null);
+  const [busca,setBusca]=useState("");
+  const [baixando,setBaixando]=useState(false);
+  const [erro,setErro]=useState("");
+
+  useEffect(()=>{let vivo=true;
+    acoes.buscar({finalizados:"1"}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[]);
+
+  const baixar=async()=>{ setErro(""); setBaixando(true);
+    try{ await acoes.baixarLeads(); }catch(e){ setErro(e.message); } finally{ setBaixando(false); } };
+
+  const filtrados=(lista||[]).filter(l=>{
+    const t=busca.trim().toLowerCase();
+    return !t||[l.nome,l.tel,l.assignedName,l.status].some(v=>String(v||"").toLowerCase().includes(t));
+  });
+  const cel={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14,
+        display:"flex",gap:8,flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center"}}>
+        <div style={{flex:1,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px",minWidth:0}}>
+          <Icon n="search" size={15} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, telefone, corretor ou etapa"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
+        </div>
+        <button onClick={baixar} disabled={baixando}
+          style={{background:baixando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",
+            fontSize:13.5,fontWeight:600,cursor:baixando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
+          <Icon n={baixando?"loader":"chart"} size={15} spin={baixando}/>{baixando?"Gerando…":"Baixar planilha"}
+        </button>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>
+        {lista===null?"Carregando…":`${filtrados.length} lead(s)`} · a planilha sai em CSV e abre direto no Excel
+      </div>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
+            {["Lead","Telefone","Origem","Temp.","Etapa","Corretor","Entrou em"].map(h=>
+              <th key={h} style={{...cel,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:"left"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{filtrados.map(l=><tr key={l.id} style={{borderBottom:`1px solid ${C.line}`}}>
+            <td style={{...cel,color:C.ink,fontWeight:600}}>{l.nome}</td>
+            <td style={{...cel,fontFamily:MONO}}>{fmtTel(l.tel)}</td>
+            <td style={cel}>{l.origem}</td>
+            <td style={cel}><span style={{color:PRIO[l.prio].c,fontWeight:700,fontSize:11}}>{PRIO[l.prio].label}</span></td>
+            <td style={cel}><span style={{color:STAGE_C[l.status],fontWeight:600}}>{l.status}</span></td>
+            <td style={{...cel,color:l.assignedName?C.ink:C.hot}}>{l.assignedName||"na fila"}</td>
+            <td style={cel}>{new Date(l.createdAt).toLocaleDateString("pt-BR")}</td>
+          </tr>)}</tbody>
+        </table>
+        {lista!==null&&filtrados.length===0&&<div style={{color:C.faint,fontSize:12.5,textAlign:"center",padding:24}}>Nenhum lead encontrado.</div>}
+      </div>
+    </div>
+  </div>;
+}
+
+/* ===== PAINEL DE RECOMENDAÇÕES =====
+   O "gerente operacional" da tela inicial: em vez de o gestor abrir lead por
+   lead, junta o que merece decisão agora — quem está sem resposta, quem está
+   sem corretor e quem está com alguém que converte bem menos naquela
+   temperatura.
+
+   Só entra na lista o que passa do ganho mínimo. Sugerir troca por 2 pontos de
+   diferença seria ruído estatístico com cara de conselho. */
+function PainelRecomendacoes({acoes,openLead,isMobile}){
+  const [d,setD]=useState(null);
+  const [feito,setFeito]=useState({});
+  useEffect(()=>{let vivo=true;
+    acoes.recomendacoes().then(x=>vivo&&setD(x)).catch(()=>vivo&&setD({itens:[]}));
+    return()=>{vivo=false;};},[]);
+
+  if(!d) return null;
+  const itens=d.itens.filter(i=>!feito[i.lead_id+i.tipo]);
+  const CORES={sem_resposta:C.hot,direcionar:"#2F80C4",trocar:C.amber};
+  const ROTULOS={sem_resposta:"Sem resposta",direcionar:"Direcionar",trocar:"Trocar de corretor"};
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+      <Icon n="spark" size={16} color="#2F80C4"/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Recomendações da IA</span>
+      {d.total>itens.length&&<span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{d.total} no total</span>}
+    </div>
+    <div style={{color:C.faint,fontSize:11,marginBottom:11,lineHeight:1.45}}>
+      Calculado do histórico da equipe: conversão por temperatura do lead e tempo de espera.
+    </div>
+    {itens.length===0&&<div style={{color:C.sub,fontSize:12.5,padding:"14px 0",textAlign:"center"}}>
+      Nada exigindo decisão agora. 👍</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {itens.map(i=><div key={i.lead_id+i.tipo} style={{border:`1px solid ${C.line}`,borderLeft:`3px solid ${CORES[i.tipo]}`,borderRadius:10,padding:11}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
+          <span style={{background:CORES[i.tipo]+"18",color:CORES[i.tipo],fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>{ROTULOS[i.tipo]}</span>
+          <button onClick={()=>openLead&&openLead(i.lead_id)} style={{border:"none",background:"transparent",color:C.ink,fontSize:12.5,fontWeight:700,cursor:"pointer",padding:0,textDecoration:"underline"}}>{i.lead}</button>
+        </div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>{i.texto}</div>
+        <div style={{display:"flex",gap:8,marginTop:8}}>
+          {i.sugerido&&<button onClick={async()=>{ await acoes.repassar(i.lead_id,i.sugerido.id); setFeito(f=>({...f,[i.lead_id+i.tipo]:true})); }}
+            style={{background:CORES[i.tipo],color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="transfer" size={12}/> {first(i.sugerido.nome)}</button>}
+          <button onClick={()=>setFeito(f=>({...f,[i.lead_id+i.tipo]:true}))}
+            style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer"}}>dispensar</button>
+        </div>
+      </div>)}
+    </div>
+  </div>;
+}
+
 /* ===== SCORE DE PERFORMANCE =====
    Ranking da equipe para gestor e atendente. Quem não recebeu lead no período
    aparece como "sem dados" e não como nota baixa: não avaliar é diferente de
@@ -2456,10 +2582,13 @@ function Relatorios({acoes,session,pickable,isMobile}){
       </div>
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        <Metric n="users" label="Leads no período" value={dados.total.leads} accent={C.cool}/>
-        <Metric n="transfer" label="Ainda na fila" value={dados.total.na_fila} accent={dados.total.na_fila?C.hot:C.green}/>
-        <Metric n="check" label="Vendas" value={dados.total.vendas} accent={C.greenDeep}/>
-        <Metric n="award" label="Valor vendido" value={fmtMoeda(dados.total.valor_vendido)} accent={C.green}/>
+        {/* Total da imobiliária é informação de gestão: faturamento e volume da
+            casa não entram na tela de produtividade do corretor. O backend nem
+            manda mais; aqui a guarda evita quebrar se vier nulo. */}
+        {dados.total&&<Metric n="users" label="Leads no período" value={dados.total.leads} accent={C.cool}/>}
+        {dados.total&&<Metric n="transfer" label="Ainda na fila" value={dados.total.na_fila} accent={dados.total.na_fila?C.hot:C.green}/>}
+        {dados.total&&<Metric n="check" label="Vendas" value={dados.total.vendas} accent={C.greenDeep}/>}
+        {dados.total&&<Metric n="award" label="Valor vendido" value={fmtMoeda(dados.total.valor_vendido)} accent={C.green}/>}
       </div>
 
       {/* Só quem supervisiona vê o ranking: é material de decisão sobre pessoas,
@@ -2507,7 +2636,7 @@ function Relatorios({acoes,session,pickable,isMobile}){
 }
 
 /* ===== DASHBOARD (ADM) ===== */
-function Dashboard({acoes,pessoas,fila,setView,isMobile}){
+function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
   const [d,setD]=useState(null);
   useEffect(()=>{
     let vivo=true;
@@ -2529,6 +2658,9 @@ function Dashboard({acoes,pessoas,fila,setView,isMobile}){
 
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
+      {/* Primeiro do painel: o que precisa de decisão hoje. O resto é retrato,
+          isto é pauta. */}
+      <PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>
       {fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
         <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
       </button>}

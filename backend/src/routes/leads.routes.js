@@ -62,6 +62,44 @@ r.get("/", (req, res) => {
   res.json(rows.map(parse));
 });
 
+/* Exportação da base de leads, para o gestor abrir no Excel.
+
+   Sai como CSV com ponto e vírgula e BOM: é o que o Excel em português abre
+   direto, sem a tela de importação em que todo mundo trava. Vírgula como
+   separador quebraria os valores em reais, que já usam vírgula decimal. */
+r.get("/export", roles("adm"), (req, res) => {
+  const linhas = db.prepare(`
+    SELECT l.*, (SELECT u.name FROM users u WHERE u.id = l.assigned_to) AS corretor
+    FROM leads l WHERE l.org_id = ? ORDER BY l.created_at DESC`).all(req.user.org_id);
+
+  const data = (ms) => ms ? new Date(ms).toLocaleString("pt-BR") : "";
+  const cabecalho = ["Nome","Telefone","E-mail","Origem","Temperatura","Etapa","Corretor responsável",
+    "Entrou em","1ª resposta em","Minutos até a 1ª resposta","Atendimento finalizado em",
+    "Valor da venda","Data da venda","Imóvel vendido"];
+
+  const campos = (l) => [
+    l.name || "", l.phone || "", l.email || "", l.origem || "", l.priority || "", l.stage || "",
+    // Sem corretor é estado real, não campo vazio: "na fila" evita a leitura de
+    // que faltou preencher.
+    l.corretor || "na fila",
+    data(l.created_at), data(l.first_resp_at),
+    l.first_resp_at ? Math.round((l.first_resp_at - l.created_at) / 60000) : "",
+    data(l.closed_at),
+    l.sale_value != null ? String(l.sale_value).replace(".", ",") : "",
+    data(l.sale_date), l.sale_property || "",
+  ];
+
+  // Aspas dobradas e o campo entre aspas: nome com ponto e vírgula ou quebra de
+  // linha não pode partir a planilha em duas colunas.
+  const escapar = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const csv = [cabecalho, ...linhas.map(campos)].map(l => l.map(escapar).join(";")).join("\r\n");
+
+  const arquivo = `leads-conecta-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${arquivo}"`);
+  res.send("\uFEFF" + csv);   // BOM: sem ele o Excel come os acentos
+});
+
 // Fila da catraca (leads sem dono). SDR e ADM.
 r.get("/queue", roles("sdr", "adm"), (req, res) => {
   const rows = db.prepare(`${SELECT_LEAD} WHERE l.org_id = ? AND l.assigned_to IS NULL ORDER BY l.created_at DESC`).all(req.user.org_id);

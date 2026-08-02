@@ -2,7 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, recomendar } from "../services/score.js";
+import { ranking, recomendar, recomendacoes } from "../services/score.js";
 
 const r = Router();
 r.use(authRequired);
@@ -46,16 +46,17 @@ r.get("/", (req, res) => {
     };
   });
 
-  res.json({
-    periodo: { de, ate },
-    total: {
-      leads: leads.length,
-      na_fila: leads.filter(l => !l.assigned_to).length,
-      vendas: leads.filter(l => l.stage === "Venda").length,
-      valor_vendido: leads.reduce((s, l) => s + (l.sale_value || 0), 0),
-    },
-    atendentes: linhas,
-  });
+  // O total é da imobiliária inteira — quantos leads entraram, quanto foi
+  // vendido. Isso é informação de gestão: o corretor via o faturamento da casa
+  // dentro da própria tela de produtividade. Só supervisão recebe.
+  const total = supervisiona(req.user) ? {
+    leads: leads.length,
+    na_fila: leads.filter(l => !l.assigned_to).length,
+    vendas: leads.filter(l => l.stage === "Venda").length,
+    valor_vendido: leads.reduce((s, l) => s + (l.sale_value || 0), 0),
+  } : null;
+
+  res.json({ periodo: { de, ate }, total, atendentes: linhas });
 });
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
@@ -85,6 +86,12 @@ r.get("/recomendacao/:leadId", (req, res) => {
     ? db.prepare("SELECT role FROM users WHERE id=?").get(lead.assigned_to) : null;
   if (dono && dono.role === "corretor") return res.json({ situacao: "ja_direcionado" });
   res.json(recomendar(req.user.org_id, lead));
+});
+
+// Painel de recomendações: o que merece decisão do gestor agora.
+r.get("/recomendacoes", (req, res) => {
+  if (!supervisiona(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  res.json(recomendacoes(req.user.org_id, Number(req.query.limite) || 8));
 });
 
 export default r;

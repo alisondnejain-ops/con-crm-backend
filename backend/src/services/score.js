@@ -129,8 +129,10 @@ function pontuar(m, teto) {
 /* Ranking da equipe. `dias` limita o histórico considerado. */
 export function ranking(orgId, dias = 90) {
   const desde = Date.now() - dias * 86400000;
+  // Só CORRETOR entra no ranking. A atendente faz o primeiro contato e repassa
+  // — a venda não é dela, e cobrá-la por conversão seria medir a pessoa errada.
   const equipe = db.prepare(
-    "SELECT id,name,role FROM users WHERE org_id=? AND role IN ('corretor','sdr') AND status='ativo' ORDER BY name"
+    "SELECT id,name,role FROM users WHERE org_id=? AND role='corretor' AND status='ativo' ORDER BY name"
   ).all(orgId);
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at >= ?").all(orgId, desde);
 
@@ -160,7 +162,10 @@ export function ranking(orgId, dias = 90) {
    (1 de 12) seria enganoso. */
 export function recomendar(orgId, lead) {
   const temperatura = (lead.priority || "MORNO").toUpperCase();
-  const lista = ranking(orgId).filter(m => m.papel === "corretor");
+  // O dono atual entra na comparação: a recomendação vale para lead novo e para
+  // lead já em andamento. Se quem está com ele já é o melhor, o retorno diz isso
+  // em vez de sugerir troca por trocar.
+  const lista = ranking(orgId);
   const disponiveis = new Set(
     db.prepare("SELECT id FROM users WHERE org_id=? AND role='corretor' AND status='ativo' AND available=1").all(orgId).map(u => u.id)
   );
@@ -184,6 +189,28 @@ export function recomendar(orgId, lead) {
 
   const ordenados = [...comHistorico].sort((a, b) => b.perfil.conversao - a.perfil.conversao);
   const melhor = ordenados[0], pior = ordenados[ordenados.length - 1];
+
+  // Já está com o melhor da temperatura: confirmar é mais útil que sugerir troca.
+  if (lead.assigned_to === melhor.id)
+    return {
+      temperatura, situacao: "ja_com_o_melhor",
+      sugerido: { id: melhor.id, nome: melhor.nome, conversao: melhor.perfil.conversao, score: melhor.score },
+      explicacao: `${melhor.nome} é quem mais converte leads ${temperatura.toLowerCase()}s (${melhor.perfil.conversao}%). O lead já está com a pessoa certa.`,
+    };
+
+  // Lead já direcionado a outro corretor: compara com quem está, não com o pior
+  // da equipe — é essa a diferença que interessa ao gestor.
+  const atual = lead.assigned_to ? comHistorico.find(c => c.id === lead.assigned_to) : null;
+  if (atual) {
+    const ganho = Math.round((melhor.perfil.conversao - atual.perfil.conversao) * 10) / 10;
+    return {
+      temperatura, situacao: "trocar",
+      sugerido: { id: melhor.id, nome: melhor.nome, conversao: melhor.perfil.conversao, amostra: melhor.perfil.resolvidos, score: melhor.score },
+      comparado: { id: atual.id, nome: atual.nome, conversao: atual.perfil.conversao, amostra: atual.perfil.resolvidos },
+      ganho,
+      explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos leads ${temperatura.toLowerCase()}s (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${atual.nome} converte ${atual.perfil.conversao}%. Passar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${ganho} pontos.`,
+    };
+  }
   return {
     temperatura,
     situacao: "ok",
@@ -192,4 +219,55 @@ export function recomendar(orgId, lead) {
     ganho: Math.round((melhor.perfil.conversao - pior.perfil.conversao) * 10) / 10,
     explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos leads ${temperatura.toLowerCase()}s (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${pior.nome} converte ${pior.perfil.conversao}%. Direcionar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${Math.round((melhor.perfil.conversao - pior.perfil.conversao) * 10) / 10} pontos.`,
   };
+}
+
+/* Painel de recomendações — o "gerente operacional" da tela inicial.
+
+   Em vez de esperar o gestor abrir lead por lead, junta o que merece decisão
+   agora: quem está sem corretor, quem está com alguém que converte bem menos
+   naquela temperatura, e quem está esperando resposta há tempo demais.
+
+   GANHO_MINIMO existe para a lista não virar barulho: trocar um lead de mãos
+   por 2 pontos de diferença é ruído estatístico, não recomendação. */
+export const GANHO_MINIMO = 10;   // pontos de conversão
+const ESPERA_ALERTA = 60;         // minutos sem primeira resposta
+
+export function recomendacoes(orgId, limite = 8) {
+  const abertos = db.prepare(
+    `SELECT * FROM leads WHERE org_id=? AND closed_at IS NULL
+       AND stage NOT IN ('Venda','Perdido') ORDER BY created_at DESC LIMIT 200`
+  ).all(orgId);
+
+  const nomes = {};
+  for (const u of db.prepare("SELECT id,name FROM users WHERE org_id=?").all(orgId)) nomes[u.id] = u.name;
+
+  const itens = [];
+  for (const lead of abertos) {
+    const agora = Date.now();
+
+    // 1) Esperando primeira resposta há tempo demais. É o mais urgente: lead
+    //    parado esfria, e nenhuma recomendação de corretor adianta se ninguém falou.
+    if (!lead.first_resp_at) {
+      const espera = Math.round((agora - lead.created_at) / 60000);
+      if (espera >= ESPERA_ALERTA)
+        itens.push({
+          tipo: "sem_resposta", urgencia: 3, lead_id: lead.id, lead: lead.name,
+          temperatura: lead.priority || "MORNO",
+          texto: `${lead.name} está há ${espera >= 120 ? Math.round(espera / 60) + "h" : espera + " min"} sem primeira resposta${lead.assigned_to ? ` (com ${nomes[lead.assigned_to] || "alguém"})` : " e sem dono"}.`,
+        });
+    }
+
+    const r = recomendar(orgId, lead);
+    // 2) Sem corretor: quem deve pegar.
+    if (r.situacao === "ok" && r.ganho >= GANHO_MINIMO)
+      itens.push({ tipo: "direcionar", urgencia: 2, lead_id: lead.id, lead: lead.name,
+        temperatura: r.temperatura, sugerido: r.sugerido, texto: r.explicacao });
+    // 3) Já direcionado, mas há quem converta bem mais naquela temperatura.
+    else if (r.situacao === "trocar" && r.ganho >= GANHO_MINIMO)
+      itens.push({ tipo: "trocar", urgencia: 1, lead_id: lead.id, lead: lead.name,
+        temperatura: r.temperatura, sugerido: r.sugerido, texto: r.explicacao });
+  }
+
+  itens.sort((a, b) => b.urgencia - a.urgencia);
+  return { total: itens.length, itens: itens.slice(0, limite) };
 }
