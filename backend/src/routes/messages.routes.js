@@ -153,7 +153,8 @@ export function textoDoProduto(p) {
   }
   if (p.metragem) linhas.push(`📐 ${p.metragem} m² de terreno`);
   if (p.tipo === "casa" && p.construtor) linhas.push(`🏗 ${p.construtor}`);
-  if (p.morar_bem) linhas.push("🏡 Faz parte do programa Morar Bem Pernambuco");
+  if (p.modalidade) linhas.push(`🏡 Financiamento: ${p.modalidade}`);
+  else if (p.morar_bem) linhas.push("🏡 Faz parte do programa Morar Bem Pernambuco");
   if (p.valor) linhas.push(`💰 ${moeda(p.valor)}`);
   if (p.observacoes) linhas.push("", p.observacoes);
   return linhas.join("\n");

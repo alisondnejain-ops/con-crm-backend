@@ -50,7 +50,7 @@ function adaptLead(l,anterior){
     status:l.stage||"Lead",
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
-    finalizado:!!l.closed_at,
+    finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
@@ -66,6 +66,8 @@ const adaptMsg=(m)=>({
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
 });
 const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"}};
+// As três modalidades de financiamento com que a Conecta trabalha.
+const MODALIDADES=["Morar Bem PE","Minha Casa Minha Vida","SBPE"];
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
 const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprovação":"#2F80C4","Agendamento":"#7A5AD6","Visita":"#C8912B","Proposta":"#D97706","Venda":"#0A3D30","Perdido":"#B0463A","Recaptação":"#B07C1F","Transferido por ligação":"#5C6B7A"};
@@ -106,6 +108,14 @@ function useMedia(query){
 }
 const useIsMobile=()=>useMedia(`(max-width:${MOBILE_BP}px)`);
 const useIsCompact=()=>useMedia(`(max-width:${COMPACT_BP}px)`);
+/* Tempo de resposta nos relatórios. O backend devolve minutos crus; passando de
+   uma hora, "95 min" não diz nada a ninguém — vira "1h 35min". */
+const fmtMin=(min)=>{
+  const m=Math.max(0,Math.round(Number(min)||0));
+  if(m<60) return m+" min";
+  const h=Math.floor(m/60), r=m%60;
+  return r?`${h}h ${r}min`:`${h}h`;
+};
 const fmtAge=(ms)=>{const s=Math.max(0,Math.floor(ms/1000));if(s<60)return s+"s";const m=Math.floor(s/60);if(m<60)return m+" min";return Math.floor(m/60)+"h "+(m%60)+"min";};
 const ageColor=(ms)=>{const m=ms/60000;return m<2?C.green:m<10?C.amber:C.hot;};
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
@@ -422,7 +432,23 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const euDisponivel=(pessoas.find(p=>p.id===session.id)||{}).available;
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[selId,leads]);
+  /* Rolagem da conversa. Antes isto rodava a cada atualização da lista de leads
+     — e a lista recarrega sozinha a cada 15 segundos. Resultado: quem estava
+     lendo o histórico era jogado para o fim sem parar.
+
+     Agora só desce em duas situações: ao abrir outra conversa, e quando chega
+     mensagem nova COM o leitor já perto do rodapé. Quem subiu para ler fica
+     onde está — igual ao WhatsApp. */
+  const ancora=useRef({id:null,qtd:0});
+  useEffect(()=>{
+    const el=chatRef.current; if(!el) return;
+    const atual=leads.find(l=>l.id===selId);
+    const qtd=atual&&atual.msgs?atual.msgs.length:0;
+    const trocouDeConversa=ancora.current.id!==selId;
+    const pertoDoFim=el.scrollHeight-el.scrollTop-el.clientHeight<140;
+    if(trocouDeConversa||(qtd>ancora.current.qtd&&pertoDoFim)) el.scrollTop=el.scrollHeight;
+    ancora.current={id:selId,qtd};
+  },[selId,leads]);
 
   const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
     .sort((a,b)=>{const o={QUENTE:0,MORNO:1,FRIO:2};
@@ -574,6 +600,34 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
     </div>
   </button>;
 }
+
+/* ===== DIA DA CONVERSA =====
+   A faixa "Hoje / Ontem / 12 de julho" que separa os dias, como no WhatsApp.
+   Sem ela a conversa vira um bloco só e não dá para saber o que foi falado hoje
+   e o que é de semanas atrás. */
+const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
+const soDia=(ts)=>{const d=new Date(ts);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();};
+const mesmoDia=(a,b)=>soDia(a)===soDia(b);
+function rotuloDia(ts){
+  const dias=Math.round((soDia(Date.now())-soDia(ts))/86400000);
+  if(dias===0) return "Hoje";
+  if(dias===1) return "Ontem";
+  const d=new Date(ts);
+  // Dentro da semana o dia da semana ajuda mais que a data ("terça-feira").
+  if(dias<7) return SEMANA[d.getDay()].replace(/^./,c=>c.toUpperCase());
+  const opcoes={day:"2-digit",month:"long"};
+  if(d.getFullYear()!==new Date().getFullYear()) opcoes.year="numeric";
+  return d.toLocaleDateString("pt-BR",opcoes);
+}
+const SeparadorDia=({ts})=><div style={{alignSelf:"center",background:C.card,border:`1px solid ${C.line}`,color:C.sub,
+  fontSize:11,fontWeight:600,padding:"3px 12px",borderRadius:999,margin:"6px 0",textTransform:"none"}}>{rotuloDia(ts)}</div>;
+
+// Fecho do atendimento finalizado: registra quando a conversa foi encerrada,
+// para o histórico não terminar no vazio.
+const FechoAtendimento=({lead})=><div style={{alignSelf:"center",display:"flex",alignItems:"center",gap:6,
+  background:C.greenSoft,color:C.greenDeep,fontSize:11,fontWeight:600,padding:"4px 12px",borderRadius:999,margin:"8px 0"}}>
+  <Icon n="check" size={12}/> Atendimento finalizado {rotuloDia(lead.finalizadoEm).toLowerCase()}
+  {" · "}{fmtClock(lead.finalizadoEm)}</div>;
 
 /* ===== ANEXAR NA CONVERSA =====
    O clipe do WhatsApp: fotos (até 10), vídeo (1), áudio gravado na hora e a
@@ -805,15 +859,20 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
+          const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,margin:"2px 0"}}>{m.text}</div>;
           const mine=m.from==="corretor";const senderName=m.byName||first(session.name);
-          return <div key={i} style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
+          return <React.Fragment key={i}>
+            {abreDia&&<SeparadorDia ts={m.at}/>}
+            <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{senderName} · Conecta</div>}
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
-          </div>;})}
+            </div>
+          </React.Fragment>;})}
+        {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
         <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
@@ -1130,14 +1189,19 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
       <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
         {sel.msgs.map((m,i)=>{
+          const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           const meu=m.from==="corretor";
-          return <div key={i} style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
+          return <React.Fragment key={i}>
+            {abreDia&&<SeparadorDia ts={m.at}/>}
+            <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{m.byName||"Conecta"}</div>}
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
-          </div>;})}
+            </div>
+          </React.Fragment>;})}
+        {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1580,7 +1644,7 @@ const SITUACAO_PRODUTO={
 const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
 
 function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
-  const [f,setF]=useState({q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",morar_bem:"",status:""});
+  const [f,setF]=useState({q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
   const [busca,setBusca]=useState("");
   const [lista,setLista]=useState(null);
   const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
@@ -1596,7 +1660,7 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.produtos(params).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
     return()=>{vivo=false;};
-  },[f.q,f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.morar_bem,f.status,recarga]);
+  },[f.q,f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,recarga]);
 
   const atualizar=()=>setRecarga(r=>r+1);
   const decidir=async(p,status)=>{ setErro("");
@@ -1638,7 +1702,7 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
           {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
           {campo("Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`})))}
           {campo("Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)})))}
-          {campo("Morar Bem",f.morar_bem,"morar_bem",[{v:"1",t:"Só Morar Bem PE"}])}
+          {campo("Modalidade",f.modalidade,"modalidade",MODALIDADES.map(m=>({v:m,t:m})))}
           {supervisor&&campo("Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t})))}
         </div>
         <div style={{color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</div>
@@ -1657,7 +1721,7 @@ function Imoveis({acoes,session,pessoas,isMobile,supervisor}){
               {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
               <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
-              {p.morar_bem&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>Morar Bem</span>}
+              {p.modalidade&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.modalidade==="Minha Casa Minha Vida"?"MCMV":p.modalidade}</span>}
             </div>
             <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
               <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
@@ -1711,9 +1775,9 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
 const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
 function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
-  const [f,setF]=useState(()=>produto?{...produto,morar_bem:!!produto.morar_bem}:{
+  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||""}:{
     tipo:"casa",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
-    cidade:"",bairro:"",endereco:"",maps_url:"",morar_bem:false,comissao_pct:"",captador_id:"",observacoes:"",
+    cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
   });
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
   const [id,setId]=useState(produto?produto.id:null);
@@ -1729,7 +1793,7 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
       const salvo=await acoes.salvarProduto({...f,
         valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
         metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct)}, id);
-      setId(salvo.id); setF({...salvo,morar_bem:!!salvo.morar_bem});
+      setId(salvo.id); setF({...salvo,modalidade:salvo.modalidade||""});
       if(!id) setErro(""); // agora dá para enviar as fotos
       return salvo.id;
     }catch(e){ setErro(e.message); return null; }
@@ -1822,10 +1886,23 @@ function FormularioProduto({produto,pessoas,acoes,isMobile,aoFechar}){
           <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Abra o local no Maps, toque em Compartilhar e cole o link aqui. Vira um botão clicável na ficha.</div>
         </div>
 
-        <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",background:f.morar_bem?C.greenSoft:C.surface,border:`1px solid ${f.morar_bem?C.green+"66":C.line}`,borderRadius:10,padding:"11px 12px"}}>
-          <input type="checkbox" checked={!!f.morar_bem} onChange={set("morar_bem")} style={{width:18,height:18,accentColor:C.green}}/>
-          <span style={{fontSize:13.5,color:C.ink,fontWeight:600}}>Faz parte do Morar Bem Pernambuco</span>
-        </label>
+        {/* Antes era uma caixinha "Morar Bem sim/não". Virou escolha entre as três
+            modalidades reais da Conecta. Clicar na opção já marcada desmarca —
+            imóvel sem programa definido continua sendo possível. */}
+        <div>
+          <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>Modalidade de financiamento</div>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            {MODALIDADES.map(m=>{
+              const ativa=f.modalidade===m;
+              return <button key={m} type="button" onClick={()=>setF({...f,modalidade:ativa?"":m})}
+                style={{flex:"1 1 150px",fontSize:13,fontWeight:600,padding:"11px 12px",borderRadius:10,cursor:"pointer",
+                  border:`1px solid ${ativa?C.green+"88":C.line}`,background:ativa?C.greenSoft:C.surface,
+                  color:ativa?C.greenDeep:C.sub,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                {ativa&&<Icon n="check" size={13}/>}{m}</button>;
+            })}
+          </div>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>Opcional. Aparece na ficha e na apresentação enviada ao cliente.</div>
+        </div>
 
         <div>
           {rotulo("Quem captou")}
@@ -1909,7 +1986,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
         {linha("Banheiros",p.banheiros)}
         {linha("Terreno",p.metragem?`${p.metragem} m²`:null)}
         {linha("Construtora",p.construtor)}
-        {linha("Morar Bem PE",p.morar_bem?"Sim":null)}
+        {linha("Modalidade",p.modalidade||null)}
         {linha("Endereço",p.endereco)}
         {linha("Captado por",p.captador_nome)}
         {p.observacoes&&<div style={{paddingTop:10,color:C.sub,fontSize:13,lineHeight:1.6}}>{p.observacoes}</div>}
@@ -2185,7 +2262,7 @@ function Relatorios({acoes,session,pickable,isMobile}){
             <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
           </div>
           <div style={{marginLeft:"auto",textAlign:"right"}}>
-            <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{linha.primeira_resposta_mediana_min}<span style={{fontSize:15}}> min</span></div>
+            <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{fmtMin(linha.primeira_resposta_mediana_min)}</div>
             <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
           </div>
         </div>
@@ -2239,7 +2316,7 @@ function Dashboard({acoes,pessoas,fila,setView,isMobile}){
       </button>}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
         <Metric n="users" label="Leads (30 dias)" value={d.total.leads} accent={C.cool}/>
-        <Metric n="clock" label="1ª resposta (mediana)" value={medianaGeral+" min"} sub="meta: até 10 min" accent={medianaGeral<=10?C.green:C.amber}/>
+        <Metric n="clock" label="1ª resposta (mediana)" value={fmtMin(medianaGeral)} sub="meta: até 10 min" accent={medianaGeral<=10?C.green:C.amber}/>
         <Metric n="check" label="Vendas" value={d.total.vendas} accent={C.greenDeep}/>
         <Metric n="award" label="Valor vendido" value={fmtMoeda(d.total.valor_vendido)} accent={C.green}/>
       </div>
@@ -2278,7 +2355,7 @@ function Dashboard({acoes,pessoas,fila,setView,isMobile}){
               <Avatar ini={initials(a.nome)} color={corDe(a.id)} size={30}/>
               <div style={{minWidth:0,flex:1}}>
                 <div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(a.nome)} <span style={{color:disponivel(a.id)?C.green:C.faint,display:"inline-flex"}}><Icon n={disponivel(a.id)?"toggleOn":"toggleOff"} size={13}/></span></div>
-                <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{a.primeira_resposta_mediana_min} min · {a.conversao}% conv.</div>
+                <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{fmtMin(a.primeira_resposta_mediana_min)} · {a.conversao}% conv.</div>
               </div>
               <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{a.vendas}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
             </button>)}

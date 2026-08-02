@@ -12,6 +12,11 @@ export const SPLIT = { imobiliaria: 45, corretor: 55 };
 // Quantidade de mídia por tipo de produto, como combinado com a operação.
 const LIMITES = { casa: { foto: 10, video: 1 }, terreno: { foto: 4, video: 1 } };
 
+// As três modalidades com que a Conecta trabalha. Antes era só uma caixinha
+// "Morar Bem sim/não", que não representava a operação.
+export const MODALIDADES = ["Morar Bem PE", "Minha Casa Minha Vida", "SBPE"];
+const modalidadeValida = (m) => (m && MODALIDADES.includes(m) ? m : null);
+
 const midiasDe = (id) => db.prepare("SELECT id,tipo,url,ordem FROM produto_midias WHERE produto_id=? ORDER BY tipo DESC, ordem, created_at").all(id);
 
 function comValores(p) {
@@ -19,7 +24,8 @@ function comValores(p) {
   const total = p.valor && p.comissao_pct ? (p.valor * p.comissao_pct) / 100 : null;
   return {
     ...p,
-    morar_bem: !!p.morar_bem,
+    morar_bem: !!p.morar_bem,   // mantido para não quebrar cadastro antigo
+    modalidade: p.modalidade || null,
     midias: midiasDe(p.id),
     comissao: total == null ? null : {
       total, imobiliaria: (total * SPLIT.imobiliaria) / 100, corretor: (total * SPLIT.corretor) / 100,
@@ -32,7 +38,7 @@ function comValores(p) {
 // grupo de WhatsApp para saber o que está disponível.
 // Filtros: ?q= ?tipo=casa|terreno ?cidade= ?bairro= ?quartos= ?valor_max= ?status=
 r.get("/", (req, res) => {
-  const { q, tipo, cidade, bairro, quartos, valor_min, valor_max, morar_bem, captador, status } = req.query;
+  const { q, tipo, cidade, bairro, quartos, valor_min, valor_max, morar_bem, modalidade, captador, status } = req.query;
   const where = ["p.org_id = ?"], args = [req.user.org_id];
 
   // Quem não supervisiona só vê o que já foi aprovado — mais o que ele mesmo enviou.
@@ -45,7 +51,10 @@ r.get("/", (req, res) => {
   if (quartos) { where.push("p.quartos >= ?"); args.push(Number(quartos)); }
   if (valor_min) { where.push("p.valor >= ?"); args.push(Number(valor_min)); }
   if (valor_max) { where.push("p.valor <= ?"); args.push(Number(valor_max)); }
-  if (morar_bem === "1") where.push("p.morar_bem = 1");
+  if (modalidade) { where.push("p.modalidade = ?"); args.push(modalidade); }
+  // Filtro antigo, de quando só existia Morar Bem: continua funcionando para
+  // links salvos por alguém antes da mudança.
+  else if (morar_bem === "1") where.push("(p.modalidade = 'Morar Bem PE' OR p.morar_bem = 1)");
   if (captador) { where.push("p.captador_id = ?"); args.push(captador); }
   // Busca livre: cobre título, bairro, cidade, endereço e construtora de uma vez.
   if (q) {
@@ -116,15 +125,18 @@ r.post("/", (req, res) => {
   const id = "p_" + randomUUID();
   db.prepare(`INSERT INTO produtos
     (id,org_id,tipo,titulo,formato,quartos,banheiros,construtor,valor,metragem,cidade,bairro,endereco,
-     maps_url,morar_bem,comissao_pct,captador_id,captador_nome,observacoes,status,created_by,created_at)
+     maps_url,morar_bem,modalidade,comissao_pct,captador_id,captador_nome,observacoes,status,created_by,created_at)
     VALUES (@id,@org_id,@tipo,@titulo,@formato,@quartos,@banheiros,@construtor,@valor,@metragem,@cidade,@bairro,@endereco,
-     @maps_url,@morar_bem,@comissao_pct,@captador_id,@captador_nome,@observacoes,@status,@created_by,@created_at)`).run({
+     @maps_url,@morar_bem,@modalidade,@comissao_pct,@captador_id,@captador_nome,@observacoes,@status,@created_by,@created_at)`).run({
     id, org_id: req.user.org_id, tipo: b.tipo, titulo: limpar(b.titulo),
     formato: b.tipo === "casa" ? b.formato : null,
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem),
     cidade: limpar(b.cidade), bairro: limpar(b.bairro), endereco: limpar(b.endereco), maps_url: limpar(b.maps_url),
-    morar_bem: b.morar_bem ? 1 : 0, comissao_pct: numero(b.comissao_pct),
+    modalidade: modalidadeValida(b.modalidade),
+    // Espelha a coluna antiga: relatórios e telas velhas continuam somando certo.
+    morar_bem: modalidadeValida(b.modalidade) === "Morar Bem PE" ? 1 : 0,
+    comissao_pct: numero(b.comissao_pct),
     captador_id: captador.id, captador_nome: captador.name, observacoes: limpar(b.observacoes),
     status: supervisiona(req.user) ? "ativo" : "aguardando_aprovacao",
     created_by: req.user.id, created_at: Date.now(),
@@ -147,11 +159,13 @@ r.patch("/:id", (req, res) => {
 
   db.prepare(`UPDATE produtos SET tipo=@tipo,titulo=@titulo,formato=@formato,quartos=@quartos,banheiros=@banheiros,
     construtor=@construtor,valor=@valor,metragem=@metragem,cidade=@cidade,bairro=@bairro,endereco=@endereco,
-    maps_url=@maps_url,morar_bem=@morar_bem,comissao_pct=@comissao_pct,observacoes=@observacoes WHERE id=@id`).run({
+    maps_url=@maps_url,morar_bem=@morar_bem,modalidade=@modalidade,comissao_pct=@comissao_pct,observacoes=@observacoes WHERE id=@id`).run({
     id: p.id, tipo: b.tipo, titulo: limpar(b.titulo), formato: b.tipo === "casa" ? b.formato : null,
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem), cidade: limpar(b.cidade), bairro: limpar(b.bairro),
-    endereco: limpar(b.endereco), maps_url: limpar(b.maps_url), morar_bem: b.morar_bem ? 1 : 0,
+    endereco: limpar(b.endereco), maps_url: limpar(b.maps_url),
+    modalidade: modalidadeValida(b.modalidade),
+    morar_bem: modalidadeValida(b.modalidade) === "Morar Bem PE" ? 1 : 0,
     comissao_pct: numero(b.comissao_pct), observacoes: limpar(b.observacoes),
   });
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));

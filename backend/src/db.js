@@ -136,6 +136,16 @@ addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
 
+// Modalidade de financiamento do imóvel. Antes existia só a caixinha
+// "morar_bem" (sim/não), que não dava conta da realidade: a Conecta trabalha
+// com três programas. A coluna antiga fica onde está para o histórico não se
+// perder, e quem estava marcado vira "Morar Bem PE".
+const prodCols = db.prepare("PRAGMA table_info(produtos)").all().map(c => c.name);
+if (!prodCols.includes("modalidade")) {
+  db.exec("ALTER TABLE produtos ADD COLUMN modalidade TEXT");
+  db.exec("UPDATE produtos SET modalidade = 'Morar Bem PE' WHERE morar_bem = 1");
+}
+
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
 const msgCols = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name);

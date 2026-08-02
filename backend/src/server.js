@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
 import cors from "cors";
 import path from "path";
