@@ -12,6 +12,11 @@ const INVITE_DAYS = 7;
 
 // URL pública deste backend — usada para montar o link "definir senha" do e-mail.
 const appUrl = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+/* Endereço do SITE, que é o que vai para o corretor no link de definir senha.
+   Separado do APP_URL de propósito: aquele é o do servidor e continua sendo
+   usado para servir os arquivos das conversas (/arquivos). Trocar um pelo outro
+   quebraria as fotos. Sem SITE_URL definido, cai no comportamento antigo. */
+const siteUrl = (req) => (process.env.SITE_URL || process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 const newToken = () => randomBytes(24).toString("hex");
 const norm = (e) => String(e || "").trim().toLowerCase();
 
@@ -50,7 +55,7 @@ r.post("/register", async (req, res) => {
       .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), normalizePhone(phone), token, expires);
   }
 
-  const link = `${appUrl(req)}/definir-senha?token=${token}`;
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
   const { subject, html } = inviteEmail({ name: cleanName, link, orgName: org.name });
   const out = await sendMail({ to: mail, subject, html });
 

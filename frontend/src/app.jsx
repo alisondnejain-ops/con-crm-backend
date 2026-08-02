@@ -17,7 +17,11 @@ if(typeof navigator!=="undefined"&&"serviceWorker" in navigator)
   window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(e=>console.warn("service worker:",e.message)));
 
 const API=(typeof window!=="undefined"&&window.CON_CRM_API||"https://con-crm-backend-production.up.railway.app").replace(/\/$/,"");
-const CADASTRO_URL=`${API}/cadastro?c=${ADM_CODE}`;
+/* O link de cadastro sai no endereço do PRÓPRIO SITE, não no da hospedagem:
+   é ele que a gestão manda no grupo, e "con-crm-backend-production.up.railway.app"
+   não passa confiança para o corretor que vai digitar os dados dele.
+   As páginas são copiadas para cá no build (ver build.mjs). */
+const CADASTRO_URL=(typeof window!=="undefined"?window.location.origin:"")+`/cadastro?c=${ADM_CODE}`;
 
 // Token guardado no navegador para o corretor não ter que logar toda vez (importante no celular).
 const STORE="concrm_token";

@@ -7,7 +7,7 @@
 //
 // Uso:  npm run build   (dentro de frontend/)
 
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile, copyFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import path from "path";
 import esbuild from "esbuild";
@@ -39,3 +39,15 @@ await writeFile(htmlPath, rebuilt, "utf8");
 
 const kb = (n) => (n / 1024).toFixed(0) + " kB";
 console.log(`index.html atualizado — app: ${kb(out.code.length)} · total: ${kb(rebuilt.length)}`);
+
+/* As páginas de cadastro e de definir senha moram no backend (é ele quem tem as
+   rotas), mas também precisam ser servidas pelo SITE, para o link que a gestão
+   manda no grupo sair no domínio da Conecta em vez do endereço da hospedagem.
+
+   Em vez de manter duas cópias que vão divergir, o build copia daqui. A fonte
+   continua sendo backend/public — mexer lá é o certo. */
+const publicas = ["cadastro.html", "definir-senha.html"];
+for (const nome of publicas) {
+  await copyFile(path.join(dir, "..", "backend", "public", nome), path.join(dir, nome));
+  console.log(`${nome} copiado do backend`);
+}

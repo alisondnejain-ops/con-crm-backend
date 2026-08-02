@@ -1,0 +1,10 @@
+# Arquivos desta pasta que NÃO devem ir para o site publicado.
+#
+# Tudo o que fica em frontend/ é servido na internet, então o código-fonte e as
+# ferramentas de compilação ficam de fora. As páginas cadastro.html e
+# definir-senha.html PRECISAM ir — são elas que o corretor abre pelo link.
+build.mjs
+package.json
+package-lock.json
+src
+node_modules
