@@ -468,6 +468,100 @@ function ConCRM(){
 }
 
 /* ===== MENSALIDADE ===== */
+/* Painel da assinatura, dentro de Minha conta e só para o gestor.
+   Existe para você não precisar mexer no banco nem no painel do Asaas para as
+   coisas do dia a dia: ver como está, dar baixa num pagamento por fora e
+   ajustar o vencimento. */
+function PainelAssinatura({acoes,isMobile}){
+  const [a,setA]=useState(null);
+  const [f,setF]=useState({plano:"",valor_mensal:"",vence_em:"",dias_carencia:5});
+  const [novo,setNovo]=useState({nome:"",cpfCnpj:"",email:"",telefone:"",valor:"",vencimento:""});
+  const [ocupado,setOcupado]=useState("");
+  const [aviso,setAviso]=useState(null);
+
+  const rever=()=>acoes.assinatura().then(d=>{
+    setA(d);
+    setF({plano:d.plano||"",valor_mensal:d.valor||"",
+      vence_em:d.vence_em?new Date(d.vence_em).toISOString().slice(0,10):"",
+      dias_carencia:d.carencia==null?5:d.carencia});
+  }).catch(()=>{});
+  useEffect(()=>{rever();},[]);
+  if(!a) return null;
+
+  const CORES={ativo:C.green,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot};
+  const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado"};
+  const roda=(nome,fn)=>async()=>{ setAviso(null); setOcupado(nome);
+    try{ await fn(); await rever(); }catch(e){ setAviso({ok:false,txt:e.message}); } finally{ setOcupado(""); } };
+
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12};
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+  const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
+
+  return <div style={caixa}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <Icon n="award" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensalidade do sistema</span>
+      {a.cobranca&&<span style={{background:CORES[a.status]+"18",color:CORES[a.status],fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:999}}>
+        {ROTULOS[a.status]}</span>}
+    </div>
+
+    {!a.cobranca
+      ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>Nenhuma cobrança configurada — o sistema está liberado. Defina um vencimento abaixo para ligar o controle.</div>
+      :<div style={{color:C.sub,fontSize:12.5,lineHeight:1.7}}>
+        <div>Vencimento: <b style={{color:C.ink}}>{fmtData(a.vence_em)}</b></div>
+        {a.valor?<div>Valor: <b style={{color:C.ink}}>{fmtMoeda(a.valor)}</b></div>:null}
+        {a.ultimo_pagamento_em?<div>Último pagamento: {fmtData(a.ultimo_pagamento_em)}</div>:null}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:3}}>Bloqueia {a.carencia} dia(s) depois do vencimento.</div>
+      </div>}
+
+    {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
+      color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 130px"}}>{rot("Plano")}<input value={f.plano} onChange={e=>setF({...f,plano:e.target.value})} placeholder="ConHub Mensal" style={entrada}/></div>
+      <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={f.valor_mensal} onChange={e=>setF({...f,valor_mensal:e.target.value})} inputMode="decimal" placeholder="297" style={entrada}/></div>
+      <div style={{flex:"1 1 140px"}}>{rot("Próximo vencimento")}<input type="date" value={f.vence_em} onChange={e=>setF({...f,vence_em:e.target.value})} style={entrada}/></div>
+      <div style={{flex:"1 1 110px"}}>{rot("Carência (dias)")}<input value={f.dias_carencia} onChange={e=>setF({...f,dias_carencia:e.target.value})} inputMode="numeric" style={entrada}/></div>
+    </div>
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={roda("salvar",()=>acoes.configurarAssinatura(f))} disabled={!!ocupado}
+        style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+        {ocupado==="salvar"?"Salvando…":"Salvar"}</button>
+      <button onClick={roda("pagar",()=>acoes.marcarMensalidadePaga())} disabled={!!ocupado}
+        style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+        {ocupado==="pagar"?"Registrando…":"Registrar pagamento"}</button>
+    </div>
+
+    {/* Cobrança automática. Sem a chave no servidor, o painel diz o que falta em
+        vez de mostrar um formulário que não vai funcionar. */}
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:6}}>Cobrança automática (Asaas)</div>
+      {!a.asaas
+        ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Não configurada no servidor. Falta a variável <b>ASAAS_API_KEY</b>. Enquanto isso, use o "Registrar pagamento" acima.</div>
+        :a.link||a.valor&&a.vence_em&&a.ultimo_pagamento_em!==undefined&&a.status!=="bloqueado"&&false
+        ?null
+        :<React.Fragment>
+          <div style={{color:C.faint,fontSize:11.5,marginBottom:9,lineHeight:1.5}}>
+            Ambiente: <b>{a.ambiente}</b>. Cria o cliente e a assinatura mensal no Asaas — o cliente recebe a cobrança e escolhe entre Pix, boleto ou cartão.
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 150px"}}>{rot("Nome do responsável")}<input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} style={entrada}/></div>
+            <div style={{flex:"1 1 130px"}}>{rot("CPF ou CNPJ")}<input value={novo.cpfCnpj} onChange={e=>setNovo({...novo,cpfCnpj:e.target.value})} inputMode="numeric" style={entrada}/></div>
+            <div style={{flex:"1 1 150px"}}>{rot("E-mail")}<input value={novo.email} onChange={e=>setNovo({...novo,email:e.target.value})} type="email" style={entrada}/></div>
+            <div style={{flex:"1 1 130px"}}>{rot("WhatsApp")}<input value={novo.telefone} onChange={e=>setNovo({...novo,telefone:e.target.value})} inputMode="tel" style={entrada}/></div>
+            <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={novo.valor} onChange={e=>setNovo({...novo,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
+            <div style={{flex:"1 1 140px"}}>{rot("1º vencimento")}<input type="date" value={novo.vencimento} onChange={e=>setNovo({...novo,vencimento:e.target.value})} style={entrada}/></div>
+          </div>
+          <button onClick={roda("asaas",()=>acoes.criarAssinaturaAsaas(novo))} disabled={!!ocupado}
+            style={{width:"100%",marginTop:9,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="asaas"?"Criando…":"Criar assinatura no Asaas"}</button>
+        </React.Fragment>}
+    </div>
+  </div>;
+}
+
 // fmtData já existe lá em cima, junto dos outros formatadores de data.
 
 /* Tela de bloqueio. Três cuidados que valem mais que o aviso em si:
@@ -1693,6 +1787,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
         </button>
       </div>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
+      {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile}/>}
     </div>
   </div>;
 }
