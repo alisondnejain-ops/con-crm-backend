@@ -1379,6 +1379,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
    mais o direcionamento para um corretor, como a SDR faz na catraca. */
 function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
   const [simulando,setSimulando]=useState(false);
+  // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
+  // não há barra do celular por cima nem disputa de camada.
+  if(simulando) return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:"100%"}}>
+    <Simulacao lead={lead} acoes={acoes} isMobile={largura==="100%"} aoFechar={()=>setSimulando(false)}/>
+  </div>;
   return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",WebkitOverflowScrolling:"touch",minHeight:0}}>
     <div style={{padding:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
@@ -1422,7 +1427,6 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
           borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
         <Icon n="chart" size={15}/> Registrar simulação
       </button>
-      {simulando&&<Simulacao lead={lead} acoes={acoes} isMobile={largura==="100%"} aoFechar={()=>setSimulando(false)}/>}
 
       <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
 
@@ -1877,17 +1881,22 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}/>
   </div>;
 
-  /* Vai para o corpo da página, fora da árvore do app. Dentro dela a barra do
-     celular ficava por cima e escondia justamente os botões do fim — que são os
-     que importam: registrar e enviar ao cliente. */
-  return ReactDOM.createPortal(
-    <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(10,61,48,.35)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-    <div style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"90dvh",overflowY:"auto",WebkitOverflowScrolling:"touch",
-      borderRadius:isMobile?"18px 18px 0 0":16,padding:16,paddingBottom:"calc(24px + env(safe-area-inset-bottom))"}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+  /* Painel comum, no fluxo da página — não é janela flutuante.
+     A primeira versão usava ReactDOM.createPortal para escapar da barra do
+     celular, mas o React embutido no index.html é a versão enxuta e não tem
+     essa função: dava "createPortal is not a function" e tela branca.
+     Este formato é o mesmo do cadastro de imóveis, que já funciona há semanas —
+     ocupa a tela inteira, então não existe barra para ficar por cima. */
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",background:C.card,
+    padding:16,paddingBottom:"calc(28px + env(safe-area-inset-bottom))"}}>
+    <div style={{maxWidth:520,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+        <button onClick={aoFechar} aria-label="Voltar"
+          style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}>
+          <Icon n="chevron" size={17}/></button>
         <Icon n="chart" size={17} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>Simulação — {first(lead.nome)}</span>
-        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
       </div>
 
       <input ref={arq} type="file" accept="image/*" onChange={escolherPrint} style={{display:"none"}}/>
@@ -1966,7 +1975,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         </div>)}
       </div>}
     </div>
-  </div>, document.body);
+  </div>;
 }
 
 /* ===== BASE DE LEADS (gestor) =====

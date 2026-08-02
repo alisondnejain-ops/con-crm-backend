@@ -36,6 +36,9 @@ const RECURSOS = [
   "anexos-enviados",      // clipe: fotos, vídeo, áudio gravado
   "localizacao",          // envio do ponto no mapa
   "push",                 // notificação no celular
+  "score",                // ranking e recomendação de direcionamento
+  "base-leads",           // exportação e importação da base
+  "simulacoes",           // simulação de financiamento na ficha do lead
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
