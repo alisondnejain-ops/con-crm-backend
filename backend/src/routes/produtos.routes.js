@@ -208,6 +208,9 @@ r.delete("/:id", roles("adm", "sdr"), (req, res) => {
 // de multipart — simples e suficiente para o volume de uma imobiliária.
 r.post("/:id/midias", async (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  // Produto inexistente dava "sem permissão", que mandava procurar o erro no
+  // lugar errado. São coisas diferentes e a mensagem tem que dizer qual é.
+  if (!p) return res.status(404).json({ error: "Imóvel não encontrado. Salve o cadastro antes de enviar as fotos." });
   if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Você não pode enviar mídia para este produto." });
 
   const { mime, base64 } = req.body || {};
@@ -232,8 +235,12 @@ r.post("/:id/midias", async (req, res) => {
       .run(id, p.id, tipo, url, chave, jaTem, Date.now());
     res.json({ ok: true, midia: { id, tipo, url }, restantes: max - jaTem - 1 });
   } catch (e) {
+    /* "Tente de novo" não ajuda ninguém: se a causa é armazenamento mal
+       configurado, tentar de novo dá o mesmo erro para sempre. Devolvemos o
+       motivo real — quem lê é o gestor, não o cliente final. */
     console.error("[produtos] falha ao salvar mídia:", e.message);
-    res.status(500).json({ error: "Não consegui guardar o arquivo. Tente de novo." });
+    res.status(500).json({ error: "Não consegui guardar o arquivo: " + e.message,
+      onde: modoArmazenamento() });
   }
 });
 

@@ -3438,6 +3438,43 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
     finally{ setSalvando(false); }
   }
 
+  /* Prepara a foto antes de subir. Resolve três coisas de uma vez:
+
+     - foto de celular passa de 8 MB e batia no limite do servidor. Reduzida
+       para 1920px, uma foto de imóvel fica em torno de 300 KB sem perder nada
+       na tela nem no WhatsApp
+     - iPhone entrega HEIC, que o servidor recusa ("formato não aceito"). O
+       canvas devolve JPEG sempre, então o problema deixa de existir
+     - upload no 4G do corretor, na rua, fica dez vezes mais rápido
+
+     Vídeo passa direto: recodificar vídeo no navegador não vale a pena. Se
+     algo der errado na conversão, manda o arquivo original — melhor tentar e
+     o servidor recusar do que travar aqui. */
+  const LADO_MAX=1920, QUALIDADE=0.82;
+  async function prepararArquivo(arq){
+    const cru=()=>new Promise((ok,falhou)=>{const fr=new FileReader();
+      fr.onload=()=>ok({mime:arq.type,base64:fr.result});fr.onerror=falhou;fr.readAsDataURL(arq);});
+    if(!String(arq.type||"").startsWith("image/")) return cru();
+    try{
+      const img=await new Promise((ok,falhou)=>{
+        const el=new Image(); const url=URL.createObjectURL(arq);
+        el.onload=()=>{URL.revokeObjectURL(url);ok(el);};
+        el.onerror=()=>{URL.revokeObjectURL(url);falhou(new Error("não consegui abrir a imagem"));};
+        el.src=url;
+      });
+      const escala=Math.min(1,LADO_MAX/Math.max(img.width,img.height));
+      const c=document.createElement("canvas");
+      c.width=Math.round(img.width*escala); c.height=Math.round(img.height*escala);
+      const ctx=c.getContext("2d");
+      // Fundo branco: PNG com transparência viraria fundo preto no JPEG.
+      ctx.fillStyle="#fff"; ctx.fillRect(0,0,c.width,c.height);
+      ctx.drawImage(img,0,0,c.width,c.height);
+      const base64=c.toDataURL("image/jpeg",QUALIDADE);
+      if(!base64||base64.length<100) throw new Error("conversão vazia");
+      return {mime:"image/jpeg",base64};
+    }catch(e){ return cru(); }
+  }
+
   // Aceita vários arquivos de uma vez. Sobem em fila, um de cada vez: dez fotos
   // em paralelo derrubariam o servidor e o corretor não saberia qual falhou.
   async function enviarArquivo(ev){
@@ -3445,9 +3482,16 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
     ev.target.value="";
     if(!arquivos.length) return;
 
-    // As fotos precisam de um dono, então o produto é salvo antes.
+    /* As fotos precisam de um dono, então o produto é salvo antes.
+       Se esse salvamento falhar, quem manda é a mensagem do servidor ("Informe
+       o título", "Valor inválido"...). Antes ela era substituída por um
+       "confira os dados" que não dizia O QUE conferir — o corretor escolhia as
+       fotos, via um erro vago e não sabia onde mexer. */
     let alvo=id;
-    if(!alvo){ alvo=await salvar(); if(!alvo){ setErro("Confira os dados do produto antes de enviar as fotos."); return; } }
+    if(!alvo){
+      alvo=await salvar();
+      if(!alvo){ setErro(e=>e||"Confira os dados do imóvel antes de enviar as fotos."); return; }
+    }
 
     setSubindo(true); setErro("");
     const problemas=[];
@@ -3455,8 +3499,8 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
       const arq=arquivos[i];
       setProgresso(`Enviando ${i+1} de ${arquivos.length}…`);
       try{
-        const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=falhou;fr.readAsDataURL(arq);});
-        const r=await acoes.subirMidia(alvo,arq.type,base64);
+        const {mime,base64}=await prepararArquivo(arq);
+        const r=await acoes.subirMidia(alvo,mime,base64);
         setMidias(m=>[...m,r.midia]);
       }catch(e){
         problemas.push(`${arq.name}: ${e.message}`);
@@ -3573,7 +3617,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
           </div>
           <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
             <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?(progresso||"Enviando…"):"Adicionar fotos ou vídeo"}
-            <input type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
+            <input type="file" multiple accept="image/*,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
           </label>
           <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>
             Dá para escolher várias de uma vez: segure <b>Ctrl</b> (ou <b>Cmd</b>) ao clicar, ou toque em "Selecionar" no celular.

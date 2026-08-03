@@ -3,7 +3,7 @@ import db from "../db.js";
 import { instanceStatus } from "../services/uazapi.js";
 import { mailConfigured } from "../services/mail.js";
 import { ultimosEventos } from "./uazapi.webhook.js";
-import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2 } from "../services/storage.js";
+import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
 
 const r = Router();
 
@@ -20,7 +20,7 @@ r.get("/integracoes", async (_req, res) => {
     whatsapp: await instanceStatus(),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
     email: { configurado: mailConfigured() },
-    arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2() },
+    arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2() },
     banco: {
       caminho: process.env.DB_PATH ? "disco persistente" : "dentro do container (some no deploy)",
       usuarios: n("SELECT COUNT(*) n FROM users"),
@@ -72,7 +72,13 @@ r.get("/integracoes/armazenamento/teste", async (_req, res) => {
   try {
     const r1 = await salvar({ buffer, mime: "image/png", prefixo: "teste" });
     chave = r1.chave;
-    passos.push({ passo: "gravar", ok: true, url: r1.url });
+    /* salvar() cai para o disco quando o R2 recusa — de propósito, para o
+       corretor não ficar travado. Aqui isso NÃO pode passar como sucesso: é
+       justamente o que este teste existe para revelar. */
+    const caiu = usandoR2() && falhaR2();
+    passos.push({ passo: "gravar", ok: !caiu, url: r1.url,
+      erro: caiu ? "O R2 recusou o arquivo: " + caiu.erro : undefined,
+      dica: caiu ? "As fotos estão sendo salvas no disco da hospedagem, que some quando o servidor é trocado. Confira as variáveis R2_* na conferência abaixo." : undefined });
 
     let leitura;
     try {

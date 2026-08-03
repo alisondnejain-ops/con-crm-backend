@@ -140,6 +140,19 @@ async function s3() {
   return clienteR2;
 }
 
+/* Última falha do R2, para o diagnóstico. Credencial errada não avisa: o
+   sintoma é o corretor não conseguir subir foto, e o motivo fica só no log. */
+let ultimaFalhaR2 = null;
+export const falhaR2 = () => ultimaFalhaR2;
+
+async function gravarNoDisco(chave, buffer) {
+  const destino = path.join(PASTA, chave);
+  await mkdir(path.dirname(destino), { recursive: true });
+  await writeFile(destino, buffer);
+  const base = (process.env.APP_URL || "").replace(/\/$/, "");
+  return { url: `${base}/arquivos/${chave}`, chave };
+}
+
 // Devolve { url, chave }. A url é pública — é ela que vai para o WhatsApp.
 export async function salvar({ buffer, mime, prefixo = "produtos" }) {
   // Aceita tanto os tipos do catálogo quanto os recebidos na conversa. Quem
@@ -148,19 +161,28 @@ export async function salvar({ buffer, mime, prefixo = "produtos" }) {
   const chave = `${prefixo}/${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
 
   if (usandoR2()) {
-    const { PutObjectCommand } = await import("@aws-sdk/client-s3");
-    const cliente = await s3();
-    await cliente.send(new PutObjectCommand({
-      Bucket: R2.bucket, Key: chave, Body: buffer, ContentType: mime,
-    }));
-    return { url: `${R2.publico}/${chave}`, chave };
+    try {
+      const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+      const cliente = await s3();
+      await cliente.send(new PutObjectCommand({
+        Bucket: R2.bucket, Key: chave, Body: buffer, ContentType: mime,
+      }));
+      ultimaFalhaR2 = null;
+      return { url: `${R2.publico}/${chave}`, chave };
+    } catch (e) {
+      /* R2 configurado errado NÃO pode impedir o corretor de cadastrar imóvel.
+         Cai para o disco e grita no log: a foto entra, a operação continua, e
+         o problema fica visível em /integracoes em vez de virar "deu erro".
+         Mesmo princípio do e-mail, do push e da IA — serviço externo fora do ar
+         degrada, não derruba. */
+      ultimaFalhaR2 = { quando: Date.now(), erro: e.message };
+      console.error("[storage] R2 recusou o arquivo, gravando no disco:", e.message);
+      clienteR2 = null;   // credencial pode ter mudado; força refazer na próxima
+      return gravarNoDisco(chave, buffer);
+    }
   }
 
-  const destino = path.join(PASTA, chave);
-  await mkdir(path.dirname(destino), { recursive: true });
-  await writeFile(destino, buffer);
-  const base = (process.env.APP_URL || "").replace(/\/$/, "");
-  return { url: `${base}/arquivos/${chave}`, chave };
+  return gravarNoDisco(chave, buffer);
 }
 
 export async function apagar(chave) {
