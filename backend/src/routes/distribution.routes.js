@@ -2,9 +2,17 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar } from "../services/push.js";
+import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
+  lerHorario, proximoCorte, PADRAO } from "../services/expediente.js";
 
 const r = Router();
 r.use(authRequired);
+
+/* O corte do fim do expediente roda ANTES de qualquer leitura ou escrita de
+   disponibilidade. É o que garante a regra mesmo se o servidor tiver ficado
+   fora do ar às 18:00: a primeira pessoa que abrir a tela no dia seguinte já
+   encontra todo mundo desligado. É idempotente e custa uma consulta. */
+r.use((req, _res, next) => { try { aplicarCorte(req.user.org_id); } catch (e) {} next(); });
 
 // Quem atende (corretores + SDR) com o status de disponibilidade de hoje.
 r.get("/attendants", roles("sdr", "adm"), (req, res) => {
@@ -37,14 +45,66 @@ r.get("/atendentes", roles("adm"), (req, res) => {
   });
 });
 
-// Prontidão do dia. O próprio usuário pode se prontificar; SDR/ADM podem ajustar de qualquer um.
+/* Prontidão do dia. O próprio usuário pode se prontificar; SDR/ADM ajustam a
+   de qualquer um.
+   Toda mudança vira uma linha no histórico, com a hora e quem fez — é o que
+   permite separar "ele se prontificou" de "o sistema desligou no fim do dia". */
 r.post("/availability", (req, res) => {
   const { user_id, available } = req.body || {};
   const target = user_id || req.user.id;
   if (target !== req.user.id && !["sdr", "adm"].includes(req.user.role))
     return res.status(403).json({ error: "Só a SDR/ADM altera a disponibilidade de outros" });
-  db.prepare("UPDATE users SET available = ? WHERE id = ? AND org_id = ?").run(available ? 1 : 0, target, req.user.org_id);
-  res.json({ ok: true });
+
+  const alvo = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(target, req.user.org_id);
+  if (!alvo) return res.status(404).json({ error: "Pessoa não encontrada" });
+
+  const ligar = !!available;
+  // Clicar duas vezes no mesmo estado não vira duas linhas no histórico.
+  if (!!alvo.available === ligar) return res.json({ ok: true, sem_mudanca: true, available: ligar });
+
+  db.prepare("UPDATE users SET available = ?, available_desde = ? WHERE id = ?")
+    .run(ligar ? 1 : 0, ligar ? Date.now() : null, alvo.id);
+  registrar({ orgId: req.user.org_id, userId: alvo.id, ativo: ligar,
+    origem: target === req.user.id ? "proprio" : "gestor",
+    autor: target === req.user.id ? null : { id: req.user.id, name: req.user.name } });
+
+  const horario = lerHorario(expedienteDa(req.user.org_id));
+  res.json({ ok: true, available: ligar,
+    vale_ate: ligar && horario ? proximoCorte(horario) : null });
+});
+
+/* Até quando a prontidão de hoje vale. A tela do corretor usa para dizer
+   "sua disponibilidade cai às 18:00" em vez de ele descobrir sozinho. */
+r.get("/expediente", (req, res) => {
+  const txt = expedienteDa(req.user.org_id);
+  const horario = lerHorario(txt);
+  res.json({ fim: horario ? txt : null, padrao: PADRAO,
+    proximo_corte: horario ? proximoCorte(horario) : null });
+});
+
+// Só o gestor muda o horário. Vazio desliga o corte automático.
+r.patch("/expediente", roles("adm"), (req, res) => {
+  const bruto = req.body?.fim == null ? PADRAO : String(req.body.fim).trim();
+  if (bruto && !lerHorario(bruto))
+    return res.status(400).json({ error: "Informe o horário como HH:MM (ex.: 18:00), ou deixe em branco para desligar." });
+  db.prepare("UPDATE orgs SET expediente_fim = ? WHERE id = ?").run(bruto, req.user.org_id);
+  const horario = lerHorario(bruto);
+  res.json({ ok: true, fim: bruto || null, proximo_corte: horario ? proximoCorte(horario) : null });
+});
+
+/* Histórico de disponibilidade — para a atendente e a gestão.
+   Fora do alcance do corretor de propósito: é material de cobrança, e quem
+   cobra é quem supervisiona. Cada um vê o próprio pelo ?eu=1. */
+r.get("/disponibilidade/historico", (req, res) => {
+  const supervisiona = ["sdr", "adm"].includes(req.user.role);
+  const userId = supervisiona ? (req.query.user_id || null) : req.user.id;
+  if (!supervisiona && req.query.user_id && req.query.user_id !== req.user.id)
+    return res.status(403).json({ error: "Você vê apenas o seu próprio histórico." });
+  res.json({
+    eventos: historico(req.user.org_id, { dias: req.query.dias, userId }),
+    resumo: supervisiona ? resumoDoDia(req.user.org_id) : null,
+    expediente_fim: expedienteDa(req.user.org_id) || null,
+  });
 });
 
 // Catraca manual: transfere um lead da fila para um atendente específico (disponível).

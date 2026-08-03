@@ -305,7 +305,7 @@ function toSession(u){
           // Sem copiar `master` aqui, o backend marcava a conta certinho e o
           // app continuava tratando o master como um gestor qualquer — o hub
           // nunca aparecia.
-          master:!!u.master,
+          master:!!u.master, available:!!u.available,
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
@@ -364,14 +364,19 @@ function ConCRM(){
     try{
       // /auth/users já traz papel, status e disponibilidade — serve tanto para a
       // catraca quanto para o contador de aprovações pendentes.
-      const [ls,eq]=await Promise.all([
+      const [ls,eq,eu]=await Promise.all([
         // Traz os finalizados também: eles somem da caixa de entrada, mas
         // continuam no funil e nos contadores. Quem esconde é a tela, não a busca.
         api("/leads?finalizados=1"),
         supervisiona?api("/auth/users"):Promise.resolve(null),
+        /* O corretor não pode ler /auth/users, então a disponibilidade DELE só
+           chega por aqui. Sem isto a tela dele dizia "indisponível" para sempre,
+           mesmo depois de ele se prontificar — e não havia como desligar. */
+        supervisiona?Promise.resolve(null):api("/auth/me"),
       ]);
       mesclar(ls);
       if(eq) setEquipe(eq);
+      if(eu&&eu.user) setSession(s=>s&&s.available!==!!eu.user.available?{...s,available:!!eu.user.available}:s);
       if(supervisiona) setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
       setErro(""); setVersao(v=>v+1);
     }catch(e){ setErro(e.message); }
@@ -493,6 +498,9 @@ function ConCRM(){
     },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
+    expediente:()=>api("/distribution/expediente"),
+    definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
+    historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -947,7 +955,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const corretores=pessoas.filter(p=>p.role==="corretor");
   const disponiveis=pessoas.filter(p=>p.available);
   const availCorretores=corretores.filter(p=>p.available);
-  const euDisponivel=(pessoas.find(p=>p.id===session.id)||{}).available;
+  // Para quem supervisiona vem da lista da equipe; para o corretor, da própria
+  // sessão (ele não tem acesso a /auth/users).
+  const euDisponivel=(pessoas.find(p=>p.id===session.id)||{available:session.available}).available;
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
   /* Rolagem da conversa. Antes isto rodava a cada atualização da lista de leads
@@ -1066,9 +1076,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
-        {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name}/>}
+        {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name} acoes={acoes} isMobile={isMobile}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
-        {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}}/>}
+        {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:false}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
@@ -1711,25 +1721,160 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
 }
 
 /* ===== DISPONIBILIDADE (corretor) ===== */
-function Disponibilidade({avail,toggle,name}){
+function Disponibilidade({avail,toggle,name,acoes,isMobile}){
+  const [exp,setExp]=useState(null);
+  const [meu,setMeu]=useState(null);
+  useEffect(()=>{
+    acoes.expediente().then(setExp).catch(()=>{});
+    acoes.historicoDisponibilidade({dias:7}).then(d=>setMeu(d.eventos||[])).catch(()=>setMeu([]));
+  },[avail]);
+
+  const hhmm=(ms)=>new Date(ms).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:16}}>
     <div style={{maxWidth:520,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
         <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={avail?"toggleOn":"toggleOff"} size={30}/></div>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{avail?"Você está disponível hoje":"Você está indisponível"}</div>
         <div style={{color:C.sub,fontSize:13,marginTop:6,lineHeight:1.5}}>{avail?"A SDR pode te transferir novos leads da campanha na catraca de hoje.":"Enquanto indisponível, você não entra na catraca e não recebe leads novos. Fale com a SDR e ative aqui."}</div>
-        <button onClick={toggle} style={{marginTop:18,background:avail?C.coolSoft:C.green,color:avail?C.sub:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,padding:"10px 22px",borderRadius:12}}>{avail?"Ficar indisponível":"Me prontificar para atendimento"}</button>
+        {/* Dizer a hora do corte ANTES de ele acontecer é o que evita o corretor
+            achar que o sistema o desligou por conta própria. */}
+        {exp&&exp.fim&&<div style={{color:avail?C.greenDeep:C.faint,background:avail?C.greenSoft:"transparent",
+          fontSize:12,fontWeight:600,borderRadius:9,padding:avail?"7px 11px":0,marginTop:12,display:"inline-flex",alignItems:"center",gap:6}}>
+          <Icon n="clock" size={13}/>
+          {avail?`Vale até as ${exp.fim} de hoje`:`A prontidão vale até as ${exp.fim} de cada dia`}</div>}
+        <div><button onClick={toggle} style={{marginTop:18,background:avail?C.coolSoft:C.green,color:avail?C.sub:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,padding:"10px 22px",borderRadius:12}}>{avail?"Ficar indisponível":"Me prontificar para atendimento"}</button></div>
       </div>
+
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Icon n="transfer" size={15} color={C.green}/> Como funciona a catraca</div>
-        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>Só recebe lead quem se prontifica no dia. A SDR confirma a sua disponibilidade e transfere os leads manualmente, um a um, apenas para quem está ativo — mantendo a fila justa.</div>
+        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+          Só recebe lead quem se prontifica no dia. A SDR confirma a sua disponibilidade e transfere os leads manualmente, um a um, apenas para quem está ativo — mantendo a fila justa.
+          {exp&&exp.fim&&<React.Fragment><br/><br/>Todo dia às <b style={{color:C.ink}}>{exp.fim}</b> a prontidão de todo mundo é encerrada. No dia seguinte é preciso se prontificar de novo — o que vale é você dizer que está pronto, não o sistema lembrar por você.</React.Fragment>}
+        </div>
       </div>
+
+      {/* O corretor vê o próprio histórico. Ele é cobrado por isso, então tem
+          que conseguir conferir o que foi registrado no nome dele. */}
+      {meu&&meu.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Seus últimos 7 dias</div>
+        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+          {meu.slice(0,20).map(e=><LinhaDisponibilidade key={e.id} e={e} hhmm={hhmm}/>)}
+        </div>
+      </div>}
     </div>
   </div>;
 }
 
+/* Uma linha do histórico. O "quem" é o ponto: a gestão precisa distinguir
+   "ele se prontificou" de "o sistema encerrou no fim do dia". */
+function LinhaDisponibilidade({e,hhmm,mostrarNome}){
+  const dia=new Date(e.created_at).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  const porQuem=e.origem==="sistema"?"encerrado pelo sistema"
+    :e.origem==="gestor"?`por ${first(e.autor_nome||"gestão")}`:"por ele mesmo";
+  return <div style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",borderBottom:`1px solid ${C.line}`}}>
+    <span style={{width:7,height:7,borderRadius:99,background:e.ativo?C.green:e.origem==="sistema"?C.faint:C.hot,flexShrink:0}}/>
+    <span style={{fontFamily:MONO,color:C.sub,fontSize:11.5,flexShrink:0}}>{dia} {hhmm(e.created_at)}</span>
+    {mostrarNome&&<span style={{color:C.ink,fontSize:12.5,fontWeight:600,flexShrink:0,maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.pessoa||"—"}</span>}
+    <span style={{color:e.ativo?C.greenDeep:C.sub,fontSize:12.5,fontWeight:600}}>{e.ativo?"disponível":"indisponível"}</span>
+    <span style={{color:C.faint,fontSize:11,marginLeft:"auto",textAlign:"right"}}>{porQuem}</span>
+  </div>;
+}
+
+/* Histórico da equipe — atendente e gestão. Duas leituras:
+   o resumo de hoje (quem se prontificou, quanto tempo somou, quem foi
+   encerrado pelo sistema) e a lista crua de liga/desliga. */
+function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
+  const [d,setD]=useState(null);
+  const [dias,setDias]=useState(7);
+  const [aberto,setAberto]=useState(false);
+  const [exp,setExp]=useState(null);
+  const [salvando,setSalvando]=useState(false);
+  const [rascunho,setRascunho]=useState("");
+
+  const rever=()=>acoes.historicoDisponibilidade({dias}).then(setD).catch(()=>setD({eventos:[],resumo:[]}));
+  useEffect(()=>{rever();},[dias]);
+  useEffect(()=>{ if(podeConfigurar) acoes.expediente().then(x=>{setExp(x);setRascunho(x.fim||"");}).catch(()=>{}); },[]);
+
+  const hhmm=(ms)=>new Date(ms).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const tempo=(min)=>min<60?`${min} min`:`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`;
+  const salvarExp=async()=>{ setSalvando(true);
+    try{ const x=await acoes.definirExpediente(rascunho.trim()); setExp(x); }catch(e){} finally{ setSalvando(false); } };
+
+  if(!d) return null;
+  const resumo=d.resumo||[];
+  const naoProntificaram=resumo.filter(p=>!p.prontificou);
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="clock" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Disponibilidade da equipe</span>
+      {d.expediente_fim&&<span style={{color:C.faint,fontSize:11}}>encerra às {d.expediente_fim}</span>}
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      Quem se prontificou hoje, a que horas, e se foi a própria pessoa ou o encerramento automático do fim do dia.
+    </div>
+
+    {/* Quem não se prontificou é a informação acionável do dia: são os que
+        estão fora da catraca sem ninguém ter percebido. */}
+    {naoProntificaram.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:12,lineHeight:1.5}}>
+      <b>{naoProntificaram.length} não se prontificou hoje:</b> {naoProntificaram.map(p=>first(p.nome)).join(", ")}.
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+      {resumo.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"9px 11px",flexWrap:"wrap"}}>
+        <span style={{width:8,height:8,borderRadius:99,background:p.disponivel_agora?C.green:C.line,flexShrink:0}}/>
+        <div style={{flex:"1 1 120px",minWidth:0}}>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nome}</div>
+          <div style={{color:C.faint,fontSize:10.5}}>
+            {p.prontificou
+              ?<React.Fragment>ativou {hhmm(p.primeira_ativacao)}
+                {p.ultimo_desligamento?` · saiu ${hhmm(p.ultimo_desligamento)}${p.desligado_pelo_sistema?" (sistema)":""}`:" · ainda disponível"}</React.Fragment>
+              :"não se prontificou hoje"}
+          </div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{fontFamily:MONO,color:p.minutos_disponivel?C.ink:C.faint,fontSize:13,fontWeight:700,lineHeight:1}}>{tempo(p.minutos_disponivel)}</div>
+          <div style={{color:C.faint,fontSize:10}}>disponível hoje</div>
+        </div>
+      </div>)}
+      {resumo.length===0&&<div style={{color:C.faint,fontSize:12}}>Ninguém na catraca ainda.</div>}
+    </div>
+
+    <button onClick={()=>setAberto(a=>!a)}
+      style={{display:"flex",alignItems:"center",gap:6,background:"transparent",border:"none",padding:0,cursor:"pointer",color:C.greenMid,fontSize:12,fontWeight:600}}>
+      <span style={{display:"inline-flex",transform:aberto?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+      {aberto?"Ocultar":"Ver"} o histórico completo
+    </button>
+
+    {aberto&&<React.Fragment>
+      <div style={{display:"flex",gap:6,margin:"10px 0"}}>
+        {[1,7,30].map(n=><button key={n} onClick={()=>setDias(n)}
+          style={{fontSize:11.5,fontWeight:600,padding:"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
+            background:dias===n?C.greenDeep:C.surface,color:dias===n?"#fff":C.sub}}>
+          {n===1?"hoje":`${n} dias`}</button>)}
+      </div>
+      <div style={{display:"flex",flexDirection:"column"}}>
+        {d.eventos.map(e=><LinhaDisponibilidade key={e.id} e={e} hhmm={hhmm} mostrarNome/>)}
+        {d.eventos.length===0&&<div style={{color:C.faint,fontSize:12,padding:"8px 0"}}>Nada registrado neste período.</div>}
+      </div>
+    </React.Fragment>}
+
+    {podeConfigurar&&exp&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:12,paddingTop:12}}>
+      <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Encerrar a prontidão de todos às</div>
+      <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+        <input value={rascunho} onChange={e=>setRascunho(e.target.value)} placeholder="18:00"
+          style={{width:90,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        <button onClick={salvarExp} disabled={salvando}
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          {salvando?"Salvando…":"Salvar"}</button>
+        <span style={{color:C.faint,fontSize:11}}>em branco desliga o encerramento automático</span>
+      </div>
+    </div>}
+  </div>;
+}
+
 /* ===== CATRACA (SDR) ===== */
-function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
+function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente}){
   const novos=[...fila].sort((a,b)=>({QUENTE:0,MORNO:1,FRIO:2}[a.prio]-{QUENTE:0,MORNO:1,FRIO:2}[b.prio]));
   const brokers=pessoas, disp=disponiveis;
   const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
@@ -1745,6 +1890,12 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile}){
             <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span><Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
         </div>
         <div style={{color:C.faint,fontSize:11,marginTop:8}}>Clique para marcar quem falou com você e está pronto para atender. Só quem está verde entra na catraca.</div>
+      </div>
+
+      {/* Histórico logo abaixo do roster: é aqui que a atendente confere se
+          quem está verde se prontificou hoje ou ficou de ontem. */}
+      <div style={{marginBottom:16}}>
+        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
       </div>
 
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -3641,6 +3792,12 @@ function Equipe({acoes,session,isMobile,versao}){
           <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
           <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
         </div>
+      </div>
+
+      {/* Disponibilidade da equipe: é aqui que o gestor cobra quem não se
+          prontificou e ajusta o horário em que a prontidão é encerrada. */}
+      <div style={{marginBottom:18}}>
+        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={session.role==="adm"}/>
       </div>
 
       {aguardando.length>0&&<div style={{marginBottom:18}}>

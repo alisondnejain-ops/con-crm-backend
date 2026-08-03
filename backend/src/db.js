@@ -169,6 +169,25 @@ CREATE TABLE IF NOT EXISTS importacoes (
   created_at INTEGER NOT NULL
 );
 
+-- Cada liga/desliga da prontidão do corretor, com a hora e QUEM fez.
+--
+-- Existe porque a disponibilidade passou a expirar sozinha no fim do
+-- expediente: sem registro, ninguém saberia distinguir "ele se prontificou e
+-- trabalhou" de "o sistema desligou porque ele esqueceu" — e é justamente essa
+-- diferença que a gestão precisa cobrar.
+CREATE TABLE IF NOT EXISTS disponibilidade_log (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  ativo INTEGER NOT NULL,     -- 1 = ficou disponível, 0 = ficou indisponível
+  origem TEXT NOT NULL,       -- 'proprio' | 'gestor' | 'sistema'
+  autor_id TEXT,              -- quem mexeu, quando não foi a própria pessoa
+  autor_nome TEXT,            -- guardado junto: o histórico sobrevive à exclusão
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_disp_org ON disponibilidade_log(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_disp_user ON disponibilidade_log(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_org ON pagamentos(org_id, pago_em);
 CREATE INDEX IF NOT EXISTS idx_importacoes_org ON importacoes(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_simulacoes_lead ON simulacoes(lead_id, created_at);
@@ -201,6 +220,9 @@ addUserCol("avatar_key", "TEXT");                       // caminho no armazename
    Com o ConHub virando SaaS, é o que separa "quem opera a Conecta" de "quem
    mantém o sistema". Ver auth.js -> semMaster(). */
 addUserCol("master", "INTEGER DEFAULT 0");
+// Quando a pessoa se prontificou. É o que faz a disponibilidade expirar no fim
+// do expediente: vale só enquanto for da janela de hoje (ver services/expediente.js).
+addUserCol("available_desde", "INTEGER");
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
 // Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos
@@ -233,6 +255,11 @@ addOrgCol("dono_user_id", "TEXT");
 addOrgCol("vence_base", "INTEGER");
 // Quando a imobiliária entrou na plataforma — aparece no hub de contas.
 addOrgCol("created_at", "INTEGER");
+/* Fim do expediente, "HH:MM". Às 18:00 (padrão) a prontidão de todo mundo cai,
+   e cada um precisa se prontificar de novo no dia seguinte. Vazio desliga a
+   regra — imobiliária com plantão à noite não pode ficar refém dela. */
+addOrgCol("expediente_fim", "TEXT DEFAULT '18:00'");
+addOrgCol("ultimo_corte", "INTEGER");   // até quando o corte já foi aplicado
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };

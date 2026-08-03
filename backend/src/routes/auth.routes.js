@@ -6,6 +6,7 @@ import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, sem
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
+import { aplicarCorte } from "../services/expediente.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -209,6 +210,9 @@ r.delete("/me/foto", authRequired, (req, res) => {
 // Traz também quantos leads a pessoa tem em aberto — é o que a gestão precisa saber
 // antes de remover alguém: esses leads têm que ir para algum lugar.
 r.get("/users", authRequired, roles("adm", "sdr"), (req, res) => {
+  // A tela mostra quem está disponível — precisa refletir o corte das 18:00
+  // mesmo que ninguém tenha aberto a catraca desde ontem.
+  try { aplicarCorte(req.user.org_id); } catch (e) {}
   const rows = db.prepare(`
     SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,u.avatar_url,
       (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id

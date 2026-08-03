@@ -23,6 +23,7 @@ import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
 import { authRequired } from "./auth.js";
 import { porteiro } from "./services/assinatura.js";
+import { agendarCorte } from "./services/expediente.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
@@ -51,6 +52,7 @@ const RECURSOS = [
   "importacao-em-lote",   // conferir antes de subir e desfazer a lista inteira
   "gestor-master",        // dono da plataforma, invisivel para a equipe da imobiliaria
   "hub-de-contas",        // o master escolhe em qual imobiliaria vai trabalhar
+  "expediente",           // prontidao cai no fim do dia + historico de disponibilidade
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -120,5 +122,9 @@ app.listen(PORT, () => {
     for (const p of r2.problemas) console.log(`Atenção (R2): ${p}`);
   const asaas = ambienteConfere();
   if (asaas) console.log(`Atenção (Asaas): ${asaas}`);
+  /* Fim de expediente: derruba a prontidão de quem ficou de ontem. Roda aqui
+     no start (cobre o servidor que estava fora do ar às 18:00) e a cada minuto
+     (para o corte acontecer na hora certa com o sistema em uso). */
+  agendarCorte();
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });
