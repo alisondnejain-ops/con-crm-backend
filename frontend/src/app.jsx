@@ -743,17 +743,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const roleLabel=role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
-    {!isMobile&&<aside style={{background:C.greenDeep,width:74,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0"}}>
-      <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",marginBottom:4}}><Icon n="dot" size={20}/></div>
-      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginBottom:20}}>Con<br/>Hub</div>
-      <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
-        {NAV.map(([v,n,label])=><button key={v} onClick={()=>setView(v)} title={label} style={{position:"relative",width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:view===v?"rgba(255,255,255,.14)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.55)"}}>
-          <Icon n={n} size={19}/><span style={{fontSize:9,fontWeight:500}}>{label}</span>
-          {aviso(v)>0&&<Badge n={aviso(v)} top={4} right={8}/>}
-        </button>)}
-      </div>
-      <button onClick={()=>setSession(null)} title="Sair" style={{width:52,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,.55)",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}><Icon n="logout" size={18}/><span style={{fontSize:9}}>Sair</span></button>
-    </aside>}
+    {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
@@ -801,8 +791,97 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   </div>;
 }
 
-/* Barra inferior do celular. Acima de 5 abas, as extras vão para "Mais" —
-   espremer sete ícones em 375px torna todos difíceis de acertar com o dedo. */
+/* ===== navegação =====
+   Uma regra só de agrupamento, usada no celular E no PC. Acima de cinco abas
+   as extras vão para "Mais": no celular porque espremer sete ícones em 375px
+   torna todos difíceis de acertar com o dedo; no PC porque nove itens numa
+   coluna de 74px quebram o rótulo em duas linhas, cada botão fica com uma
+   altura e a barra sai do esquadro.
+
+   Ter a mesma divisão nos dois é o ponto: o que está em "Mais" no celular está
+   em "Mais" no computador, então quem usa os dois não precisa reaprender. */
+const LIMITE_NAV=5;
+function dividirNav(nav){
+  if(nav.length<=LIMITE_NAV) return {cabem:nav,extras:[]};
+  return {cabem:nav.slice(0,LIMITE_NAV-1),extras:nav.slice(LIMITE_NAV-1)};
+}
+
+// Linha do menu "Mais" — mesma aparência na folha do celular e na do PC.
+function ItemMais({n,label,ativo,badge,onClick,ultimo}){
+  return <button onClick={onClick} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 10px",border:"none",
+    borderBottom:ultimo?"none":`1px solid ${C.line}`,background:"transparent",cursor:"pointer",
+    color:ativo?C.green:C.ink,fontSize:14.5,fontWeight:ativo?700:500}}>
+    <Icon n={n} size={19}/><span style={{flex:1,textAlign:"left"}}>{label}</span>
+    {badge>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{badge}</span>}
+  </button>;
+}
+
+/* Barra lateral do computador. Os quatro primeiros ficam à vista e o resto
+   abre numa folha ao lado, presa ao botão "Mais".
+
+   Sobre o esquadro: altura fixa por botão e rótulo em uma linha só. Antes a
+   altura vinha do texto, então "Base de leads" empurrava o vizinho e a coluna
+   ficava desalinhada. Com quatro itens os rótulos são curtos e nada corta. */
+function BarraLateral({nav,view,setView,aviso,sair}){
+  const [maisAberto,setMaisAberto]=useState(false);
+  const botaoMais=useRef(null);
+  const [topo,setTopo]=useState(0);
+  const {cabem,extras}=dividirNav(nav);
+  const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
+  const maisAtivo=extras.some(([v])=>v===view);
+  const escolher=(v)=>{setView(v);setMaisAberto(false);};
+
+  // Fecha com Esc — no computador é o reflexo de quem abriu sem querer.
+  useEffect(()=>{
+    if(!maisAberto) return;
+    const t=(e)=>{ if(e.key==="Escape") setMaisAberto(false); };
+    window.addEventListener("keydown",t);
+    return()=>window.removeEventListener("keydown",t);
+  },[maisAberto]);
+
+  const alternarMais=()=>{
+    if(botaoMais.current){
+      const r=botaoMais.current.getBoundingClientRect();
+      const alturaFolha=extras.length*47+22;
+      // Nasce na altura do botão, mas nunca passa do rodapé nem do topo da janela.
+      setTopo(Math.max(12,Math.min(r.top,window.innerHeight-alturaFolha-12)));
+    }
+    setMaisAberto(m=>!m);
+  };
+
+  const LARGURA=76;
+  const botao=(v,n,label,badge,ativo,onClick,ref)=><button key={v} ref={ref} onClick={onClick} title={label}
+    style={{position:"relative",width:56,height:54,flexShrink:0,borderRadius:12,border:"none",cursor:"pointer",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:0,
+      background:ativo?"rgba(255,255,255,.14)":"transparent",color:ativo?"#fff":"rgba(255,255,255,.55)"}}>
+    <Icon n={n} size={19}/>
+    <span style={{fontSize:9,fontWeight:500,lineHeight:1,maxWidth:52,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+    {badge>0&&<Badge n={badge} top={6} right={8}/>}
+  </button>;
+
+  return <React.Fragment>
+    <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0 14px",gap:4}}>
+      <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={20}/></div>
+      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,margin:"4px 0 16px"}}>Con<br/>Hub</div>
+      {/* rolagem: em janela baixa (notebook com a tela dividida) os botões não
+          cabem, e sem isto eles passavam por baixo do "Sair" — que ficava por
+          cima e roubava o clique do "Mais". */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",width:"100%",scrollbarWidth:"none"}}>
+        {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v),view===v,()=>setView(v)))}
+        {extras.length>0&&botao("__mais","mais","Mais",avisoNoMais,maisAtivo||maisAberto,alternarMais,botaoMais)}
+      </div>
+      {botao("__sair","logout","Sair",0,false,sair)}
+    </aside>
+    {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,zIndex:30}}/>}
+    {maisAberto&&<div style={{position:"fixed",left:LARGURA+8,top:topo,zIndex:31,width:222,background:C.card,
+      border:`1px solid ${C.line}`,borderRadius:14,padding:"6px 12px",boxShadow:"0 12px 34px rgba(0,0,0,.18)"}}>
+      {extras.map(([v,n,label],i)=><ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
+        ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>)}
+    </div>}
+  </React.Fragment>;
+}
+
+// Barra inferior do celular.
 function NavCelular({nav,view,setView,aviso}){
   const [maisAberto,setMaisAberto]=useState(false);
   /* A folha do "Mais" abre colada no rodapé e a barra fica por cima dela — o
@@ -816,8 +895,7 @@ function NavCelular({nav,view,setView,aviso}){
     window.addEventListener("resize",medir);
     return()=>window.removeEventListener("resize",medir);
   },[]);
-  const cabem=nav.length<=5?nav:nav.slice(0,4);
-  const extras=nav.length<=5?[]:nav.slice(4);
+  const {cabem,extras}=dividirNav(nav);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
   const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
@@ -829,10 +907,8 @@ function NavCelular({nav,view,setView,aviso}){
     {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:20}}/>}
     {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",paddingLeft:14,paddingRight:14,paddingTop:14,paddingBottom:alturaBarra+14,boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
       <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto 12px"}}/>
-      {extras.map(([v,n,label])=><button key={v} onClick={()=>escolher(v)} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 10px",border:"none",borderBottom:`1px solid ${C.line}`,background:"transparent",cursor:"pointer",color:view===v?C.green:C.ink,fontSize:14.5,fontWeight:view===v?700:500}}>
-        <Icon n={n} size={19}/><span style={{flex:1,textAlign:"left"}}>{label}</span>
-        {aviso(v)>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aviso(v)}</span>}
-      </button>)}
+      {extras.map(([v,n,label],i)=><ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
+        ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>)}
     </div>}
     <nav ref={barra} style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
