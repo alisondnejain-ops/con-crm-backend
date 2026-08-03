@@ -400,6 +400,8 @@ function ConCRM(){
     importarLeads:(dados)=>api("/leads/import",{method:"POST",body:dados}),
     importacoes:()=>api("/leads/importacoes"),
     apagarImportacao:(id,tudo)=>api("/leads/importacoes/"+id+(tudo?"?tudo=1":""),{method:"DELETE"}),
+    gruposAntigos:()=>api("/leads/grupos-antigos"),
+    apagarGrupoAntigo:(origem,tudo)=>api("/leads/grupos-antigos?origem="+encodeURIComponent(origem)+(tudo?"&tudo=1":""),{method:"DELETE"}),
     // Simulação de financiamento e qualificação do lead.
     simulacoes:(leadId)=>api(`/leads/${leadId}/simulacoes`),
     lerPrint:(leadId,base64,mime)=>api(`/leads/${leadId}/simulacao/ler`,{method:"POST",body:{base64,mime}}),
@@ -2353,11 +2355,18 @@ function BaseLeads({acoes,isMobile,pessoas}){
   const [baixando,setBaixando]=useState(false);
   const [erro,setErro]=useState("");
   const [lotes,setLotes]=useState(null);
+  const [antigos,setAntigos]=useState(null);
+  const [limpeza,setLimpeza]=useState(false);   // seção dos leads sem lote aberta
 
   const recarregar=()=>acoes.buscar({finalizados:"1"}).then(setLista).catch(e=>setErro(e.message));
+  const releituraLotes=()=>{
+    acoes.importacoes().then(setLotes).catch(()=>setLotes([]));
+    acoes.gruposAntigos().then(setAntigos).catch(()=>setAntigos([]));
+  };
   useEffect(()=>{let vivo=true;
     acoes.buscar({finalizados:"1"}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
     acoes.importacoes().then(r=>vivo&&setLotes(r)).catch(()=>vivo&&setLotes([]));
+    acoes.gruposAntigos().then(r=>vivo&&setAntigos(r)).catch(()=>vivo&&setAntigos([]));
     return()=>{vivo=false;};},[]);
 
   const baixar=async()=>{ setErro(""); setBaixando(true);
@@ -2366,7 +2375,8 @@ function BaseLeads({acoes,isMobile,pessoas}){
   const arquivo=useRef(null);
   const [subindo,setSubindo]=useState(false);
   const [resultado,setResultado]=useState(null);
-  const [apagando,setApagando]=useState(null);   // lote em confirmação
+  const [apagando,setApagando]=useState(null);        // lista importada em confirmação
+  const [apagandoGrupo,setApagandoGrupo]=useState(null); // grupo antigo em confirmação
   /* Etapa de conferência antes de gravar. A importação anterior era um caminho
      só: escolher o arquivo já criava os leads. Com 3 mil linhas, um engano na
      coluna do corretor ou na origem virava trabalho manual de horas. */
@@ -2415,8 +2425,7 @@ function BaseLeads({acoes,isMobile,pessoas}){
         rotulo:pronto.rotulo, arquivo:pronto.arquivo,
       });
       setResultado(r); setPronto(null);
-      await recarregar();
-      setLotes(await acoes.importacoes().catch(()=>lotes));
+      await recarregar(); releituraLotes();
     }catch(err){ setErro(err.message); }
     finally{ setSubindo(false); }
   }
@@ -2426,8 +2435,18 @@ function BaseLeads({acoes,isMobile,pessoas}){
     try{
       const r=await acoes.apagarImportacao(lote.id,tudo);
       setApagando(null); setResultado(null);
-      await recarregar();
-      setLotes(await acoes.importacoes().catch(()=>[]));
+      await recarregar(); releituraLotes();
+      setErro(r.aviso||"");
+    }catch(err){ setErro(err.message); }
+    finally{ setSubindo(false); }
+  }
+
+  async function apagarAntigo(g,tudo){
+    setErro(""); setSubindo(true);
+    try{
+      const r=await acoes.apagarGrupoAntigo(g.origem,tudo);
+      setApagandoGrupo(null); setResultado(null);
+      await recarregar(); releituraLotes();
       setErro(r.aviso||"");
     }catch(err){ setErro(err.message); }
     finally{ setSubindo(false); }
@@ -2571,6 +2590,61 @@ function BaseLeads({acoes,isMobile,pessoas}){
             </div>}
           </div>)}
         </div>
+      </div>}
+
+      {/* ===== leads sem lote (entraram antes desta atualização) =====
+          Aqui mora a lista velha que o Ali quer apagar. Como lead da Meta e do
+          WhatsApp também não tem lote, o agrupamento é por origem: ele enxerga
+          o que é planilha e o que é operação, e escolhe. */}
+      {antigos&&antigos.length>0&&!pronto&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
+        <button onClick={()=>setLimpeza(v=>!v)}
+          style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left"}}>
+          <Icon n="undo" size={15} color={C.faint}/>
+          <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Leads que entraram antes do controle de listas</span>
+          <span style={{color:C.faint,fontSize:11}}>{limpeza?"ocultar":"ver"}</span>
+        </button>
+        {limpeza&&<React.Fragment>
+          <div style={{color:C.faint,fontSize:11,lineHeight:1.55,margin:"8px 0 10px"}}>
+            Estes não têm lista registrada, então estão agrupados pela origem.
+            <b style={{color:C.hot}}> Confira antes de apagar</b> — os leads que chegaram pelo WhatsApp
+            e pela Meta também aparecem aqui, e não são planilha.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {antigos.map(g=><div key={g.origem}>
+              <div style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.origem}</div>
+                  <div style={{color:C.faint,fontSize:10.5}}>
+                    {g.quantos} lead(s) · de {new Date(g.primeiro).toLocaleDateString("pt-BR")} a {new Date(g.ultimo).toLocaleDateString("pt-BR")}
+                    {g.com_conversa>0?` · ${g.com_conversa} com conversa`:""}
+                  </div>
+                </div>
+                <button onClick={()=>setApagandoGrupo(apagandoGrupo&&apagandoGrupo.origem===g.origem?null:g)} disabled={subindo}
+                  title="Apagar este grupo" style={{background:"transparent",border:"none",color:C.hot,cursor:"pointer",padding:4,display:"flex"}}>
+                  <Icon n="trash" size={15}/></button>
+              </div>
+              {apagandoGrupo&&apagandoGrupo.origem===g.origem&&<div style={{marginTop:6,background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:11}}>
+                <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Apagar os leads de origem "{g.origem}"?</div>
+                <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:9}}>
+                  Só os {g.quantos} desta origem. Leads de outras origens e tudo que foi importado com lista não são tocados.
+                  {g.com_conversa>0
+                    ?<React.Fragment><br/><b style={{color:C.hot}}>{g.com_conversa} já têm conversa.</b> Eles são mantidos, a não ser que você escolha apagar tudo.</React.Fragment>
+                    :null}
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={()=>apagarAntigo(g,false)} disabled={subindo}
+                    style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                    {subindo?"Apagando…":g.com_conversa>0?`Apagar ${g.quantos-g.com_conversa} sem conversa`:`Apagar os ${g.quantos}`}</button>
+                  {g.com_conversa>0&&<button onClick={()=>apagarAntigo(g,true)} disabled={subindo}
+                    style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                    Apagar todos os {g.quantos}</button>}
+                  <button onClick={()=>setApagandoGrupo(null)}
+                    style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+                </div>
+              </div>}
+            </div>)}
+          </div>
+        </React.Fragment>}
       </div>}
 
       {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>

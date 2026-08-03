@@ -220,6 +220,61 @@ r.get("/importacoes", roles("adm"), (req, res) => {
   res.json(linhas);
 });
 
+/* Leads que entraram ANTES de a importação passar a registrar lote.
+
+   Eles têm import_id nulo, e por isso não aparecem em /importacoes. Só que
+   import_id nulo também é o caso de todo lead que chega pela Meta e pelo
+   WhatsApp — apagar "tudo que não tem lote" levaria a operação junto.
+
+   Por isso o agrupamento é por ORIGEM, com o período e quantos já têm
+   conversa. Assim dá para enxergar "Importado de base-antiga" separado de
+   "Meta Lead Ads" e apagar só o que é planilha velha. Quem escolhe é o gestor;
+   o servidor não adivinha qual grupo é descartável. */
+r.get("/grupos-antigos", roles("adm"), (req, res) => {
+  const linhas = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(l.origem), ''), '(sem origem)') AS origem,
+           COUNT(*) AS quantos,
+           MIN(l.created_at) AS primeiro,
+           MAX(l.created_at) AS ultimo,
+           SUM(CASE WHEN EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id) THEN 1 ELSE 0 END) AS com_conversa
+    FROM leads l
+    WHERE l.org_id = ? AND l.import_id IS NULL
+    GROUP BY origem ORDER BY quantos DESC`).all(req.user.org_id);
+  res.json(linhas);
+});
+
+/* Apaga um grupo desses, pela origem exata. Mesmo cuidado do lote: por padrão
+   poupa quem já tem conversa, e ?tudo=1 leva todos. */
+r.delete("/grupos-antigos", roles("adm"), (req, res) => {
+  const origem = String(req.query.origem ?? "");
+  if (!origem) return res.status(400).json({ error: "Informe a origem do grupo." });
+  const tudo = req.query.tudo === "1";
+  // '(sem origem)' é rótulo da tela, não valor no banco: ali a origem é nula ou vazia.
+  const filtroOrigem = origem === "(sem origem)"
+    ? "(l.origem IS NULL OR TRIM(l.origem) = '')" : "TRIM(l.origem) = ?";
+  const args = origem === "(sem origem)" ? [req.user.org_id] : [req.user.org_id, origem.trim()];
+
+  const alvos = db.prepare(`SELECT l.id FROM leads l
+    WHERE l.org_id = ? AND l.import_id IS NULL AND ${filtroOrigem}
+    ${tudo ? "" : "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id)"}`).all(...args);
+
+  const apagar = db.transaction(() => {
+    for (const { id } of alvos) {
+      db.prepare("DELETE FROM messages WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM ligacoes WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM simulacoes WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM leads WHERE id = ?").run(id);
+    }
+  });
+  apagar();
+
+  const { n } = db.prepare(`SELECT COUNT(*) n FROM leads l
+    WHERE l.org_id = ? AND l.import_id IS NULL AND ${filtroOrigem}`).get(...args);
+
+  res.json({ ok: true, apagados: alvos.length, mantidos: n,
+    aviso: n ? `${n} lead(s) foram mantidos porque já têm conversa.` : null });
+});
+
 /* Desfaz uma importação.
 
    Por padrão POUPA quem já tem conversa: apagar um lead que o corretor já
