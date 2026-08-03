@@ -55,7 +55,7 @@ const RECURSOS = [
   "hub-de-contas",        // o master escolhe em qual imobiliaria vai trabalhar
   "expediente",           // prontidao cai no fim do dia + historico de disponibilidade
   "ponto-atendente",      // a chave da atendente vira registro de ponto, com relatorio
-  "crm-no-backend",       // /app serve o CRM pelo proprio servidor (rota de fuga)
+  "crm-no-backend",       // o proprio servidor entrega o CRM (raiz e /app)
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -64,6 +64,10 @@ app.get("/health", (_req, res) => res.json({
   no_ar_desde: new Date(NO_AR_DESDE).toISOString(),
   recursos: RECURSOS,
 }));
+
+// Onde ficam as páginas servidas pelo próprio backend: o CRM, o cadastro e a
+// página de definir senha. Declarado aqui porque tudo abaixo depende dele.
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 
 /* O CRM servido pelo próprio backend, em /app.
 
@@ -91,7 +95,7 @@ const semCache = { cacheControl: false, headers: { "Cache-Control": "no-store" }
    somavam 20 MB de lixo esperando o coletor. Sao poucos enderecos (o do
    Railway e, quando houver, o dominio proprio), entao o mapa nao cresce. */
 const paginaApp = new Map();
-app.get(["/app", "/app.html"], (req, res) => {
+function servirApp(req, res) {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   try {
     if (!paginaApp.has(base)) {
@@ -103,15 +107,20 @@ app.get(["/app", "/app.html"], (req, res) => {
   } catch (e) {
     res.status(404).send("O CRM ainda nao foi publicado neste servidor.");
   }
-});
+}
+app.get(["/app", "/app.html"], servirApp);
 // Qual versão do CRM este servidor está entregando.
 app.get("/versao.txt", (_req, res) =>
   res.type("text/plain").sendFile(path.join(publicDir, "versao.txt"), semCache));
 
-// Páginas públicas do cadastro (servidas pelo próprio backend, para o link ser um só).
-const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 app.use(express.static(publicDir, { extensions: ["html"] }));
-app.get("/", (_req, res) => res.redirect("/cadastro"));
+/* A raiz abre o CRM.
+
+   Antes ela redirecionava para o cadastro, o que fazia sentido quando este
+   servidor era só a API e o site morava em outro lugar. Com o domínio próprio
+   apontando para cá, a porta da frente tem que ser o sistema — quem vai se
+   cadastrar chega pelo link com o código (/cadastro?c=...), que continua igual. */
+app.get("/", (req, res) => servirApp(req, res));
 app.get("/cadastro", (_req, res) => res.sendFile(path.join(publicDir, "cadastro.html")));
 app.get("/definir-senha", (_req, res) => res.sendFile(path.join(publicDir, "definir-senha.html")));
 
