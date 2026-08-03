@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, roles, supervisiona } from "../auth.js";
+import { authRequired, roles, supervisiona, semMaster } from "../auth.js";
 import { STAGES, normalizePhone } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
@@ -139,7 +139,7 @@ r.post("/import", roles("adm"), (req, res) => {
   if (linhas.length > 5000)
     return res.status(413).json({ error: "Máximo de 5.000 leads por importação. Divida a planilha." });
 
-  const corretores = db.prepare("SELECT id,name FROM users WHERE org_id=? AND status='ativo'").all(req.user.org_id);
+  const corretores = db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.status='ativo'${semMaster("u")}`).all(req.user.org_id);
   const porNome = {};
   for (const u of corretores) porNome[u.name.trim().toLowerCase()] = u.id;
   const idsValidos = new Set(corretores.map(u => u.id));

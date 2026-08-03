@@ -48,6 +48,7 @@ const RECURSOS = [
   "pagamentos",           // histórico da mensalidade: apagar, corrigir, reorganizar
   "titular-assinatura",   // mensalidade só para o dono da conta
   "importacao-em-lote",   // conferir antes de subir e desfazer a lista inteira
+  "gestor-master",        // dono da plataforma, invisivel para a equipe da imobiliaria
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

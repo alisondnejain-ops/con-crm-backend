@@ -1,4 +1,5 @@
 import db from "../db.js";
+import { semMaster } from "../auth.js";
 
 /* Score de performance e recomendação de direcionamento.
 
@@ -132,7 +133,7 @@ export function ranking(orgId, dias = 90) {
   // Só CORRETOR entra no ranking. A atendente faz o primeiro contato e repassa
   // — a venda não é dela, e cobrá-la por conversão seria medir a pessoa errada.
   const equipe = db.prepare(
-    "SELECT id,name,role FROM users WHERE org_id=? AND role='corretor' AND status='ativo' ORDER BY name"
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`
   ).all(orgId);
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at >= ?").all(orgId, desde);
 
@@ -167,7 +168,7 @@ export function recomendar(orgId, lead) {
   // em vez de sugerir troca por trocar.
   const lista = ranking(orgId);
   const disponiveis = new Set(
-    db.prepare("SELECT id FROM users WHERE org_id=? AND role='corretor' AND status='ativo' AND available=1").all(orgId).map(u => u.id)
+    db.prepare(`SELECT u.id FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo' AND u.available=1${semMaster("u")}`).all(orgId).map(u => u.id)
   );
 
   const candidatos = lista

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired, roles } from "../auth.js";
+import { authRequired, roles, semMaster } from "../auth.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
@@ -161,7 +161,7 @@ r.post("/assinatura/dono", authRequired, soDono, (req, res) => {
 r.get("/assinatura/gestores", authRequired, soDono, (req, res) => {
   res.json({
     dono_user_id: donoDa(req.user.org_id),
-    gestores: db.prepare("SELECT id,name,email FROM users WHERE org_id = ? AND role = 'adm' AND status = 'ativo' ORDER BY name").all(req.user.org_id),
+    gestores: db.prepare(`SELECT u.id,u.name,u.email FROM users u WHERE u.org_id = ? AND u.role = 'adm' AND u.status = 'ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id),
   });
 });
 

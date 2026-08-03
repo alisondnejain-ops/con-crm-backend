@@ -50,5 +50,37 @@ export function bootstrap() {
       console.log(`Titular da mensalidade: ${primeiro.name}`);
     }
   }
+
+  /* Gestor MASTER — quem mantém o ConHub, não quem trabalha na imobiliária.
+
+     Definido por MASTER_EMAIL. Sem essa variável, promove o gestor mais antigo
+     (que é quem montou o sistema) na primeira vez, e nunca mais mexe: assim a
+     conta que já existe vira master sozinha, sem ninguém precisar configurar
+     nada no painel da hospedagem.
+
+     ATENÇÃO ao abrir para várias imobiliárias: este "gestor mais antigo" só
+     faz sentido enquanto existe uma org. Quando a segunda entrar, o master tem
+     que vir de MASTER_EMAIL — senão o gestor da imobiliária nova viraria
+     master dela. */
+  const masterEmail = String(process.env.MASTER_EMAIL || "").trim().toLowerCase();
+  if (masterEmail) {
+    const alvo = db.prepare("SELECT id,name,master FROM users WHERE email = ?").get(masterEmail);
+    if (alvo && !alvo.master) {
+      db.prepare("UPDATE users SET master = 1 WHERE id = ?").run(alvo.id);
+      console.log(`Gestor master: ${alvo.name} (${masterEmail})`);
+    } else if (!alvo) {
+      console.log(`Atenção: MASTER_EMAIL=${masterEmail} não corresponde a nenhuma conta.`);
+    }
+  } else {
+    const jaTem = db.prepare("SELECT COUNT(*) n FROM users WHERE org_id = ? AND master = 1").get(org.id).n;
+    if (!jaTem) {
+      const primeiro = db.prepare(
+        "SELECT id,name FROM users WHERE org_id = ? AND role = 'adm' ORDER BY created_at LIMIT 1").get(org.id);
+      if (primeiro) {
+        db.prepare("UPDATE users SET master = 1 WHERE id = ?").run(primeiro.id);
+        console.log(`Gestor master: ${primeiro.name} (defina MASTER_EMAIL para fixar).`);
+      }
+    }
+  }
   return org;
 }

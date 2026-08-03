@@ -222,12 +222,16 @@ function Metric({n,label,value,sub,accent=C.green}){
     {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4}}>{sub}</div>}
   </div>;
 }
-function Brand({size=44}){
+/* `noEscuro` inverte as cores do texto. Sem isso, o "Con" saía em tinta escura
+   sobre o verde profundo do painel de login — praticamente ilegível. */
+function Brand({size=44,noEscuro}){
   return <div style={{display:"flex",alignItems:"center",gap:10}}>
     <div style={{background:C.green,width:size,height:size,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={size*0.5}/></div>
     <div style={{fontFamily:DISPLAY,lineHeight:1}}>
-      <div style={{color:C.ink,fontSize:20,fontWeight:700}}>Con<span style={{color:C.green}}>Hub</span></div>
-      <div style={{color:C.faint,fontSize:10,fontWeight:500,letterSpacing:.5}}>CONECTA IMÓVEIS</div>
+      <div style={{color:noEscuro?"#fff":C.ink,fontSize:20,fontWeight:700}}>Con<span style={{color:noEscuro?"#8FE3C6":C.green}}>Hub</span></div>
+      {/* Era "CONECTA IMÓVEIS". A marca da tela de entrada é a da plataforma;
+          o nome da imobiliária aparece depois do login, dentro do sistema. */}
+      <div style={{color:noEscuro?"rgba(255,255,255,.55)":C.faint,fontSize:10,fontWeight:500,letterSpacing:.5}}>CRM IMOBILIÁRIO</div>
     </div>
   </div>;
 }
@@ -252,10 +256,13 @@ function Auth({onLogin}){
   return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center",padding:isMobile?0:24}}>
     <div style={{width:"100%",maxWidth:isMobile?"none":860,display:"grid",gridTemplateColumns:"1fr 1fr",borderRadius:isMobile?0:24,overflow:"hidden",boxShadow:isMobile?"none":"0 20px 60px rgba(0,0,0,.12)",border:isMobile?"none":`1px solid ${C.line}`}} className="authgrid">
       <div style={{background:C.greenDeep,padding:isMobile?"24px 22px":32,color:"#fff",display:"flex",flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,minHeight:isMobile?0:460}}>
-        <Brand size={isMobile?38:44}/>
-        <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:26,fontWeight:700,lineHeight:1.15,marginBottom:isMobile?8:12}}>Cada lead na mão certa, no tempo certo.</div>
-          {!isMobile&&<p style={{color:"rgba(255,255,255,.75)",fontSize:13,lineHeight:1.6}}>Todos atendem pelo número da Conecta, cada mensagem assinada com o nome do corretor. A SDR distribui na catraca, e o funil avança sozinho conforme a conversa evolui.</p>}</div>
-        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>Acesso restrito à equipe da Conecta</div>}
+        <Brand size={isMobile?38:44} noEscuro/>
+        {/* Nada de Conecta aqui: esta tela é a porta do ConHub, e a partir de
+            agora ela abre para qualquer imobiliária. O nome de quem opera
+            aparece depois de entrar, dentro do sistema. */}
+        <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:26,fontWeight:700,lineHeight:1.15,marginBottom:isMobile?8:12}}>Nenhum lead esquecido. Nenhuma venda no acaso.</div>
+          {!isMobile&&<p style={{color:"rgba(255,255,255,.75)",fontSize:13,lineHeight:1.6}}>O CRM de atendimento das imobiliárias: um só WhatsApp para a equipe inteira, cada mensagem assinada pelo corretor, distribuição automática e funil que anda sozinho conforme a conversa evolui.</p>}</div>
+        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>ConHub · plataforma de atendimento imobiliário</div>}
       </div>
       <div style={{background:C.card,padding:isMobile?"24px 22px 40px":32,display:"flex",flexDirection:"column",justifyContent:"center"}}>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:4}}>Entrar</div>
@@ -843,7 +850,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
 
-  const roleLabel=role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
+  /* O master enxerga tudo, mas não é da equipe da imobiliária — e nenhuma tela
+     diria isso a ele. Sem este aviso, é fácil esquecer de qual lado da conta
+     você está e estranhar não se achar na lista de pessoas. */
+  const ehMaster=!!session.master;
+  const roleLabel=ehMaster?"ConHub · master":role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso} sair={()=>setSession(null)}/>}

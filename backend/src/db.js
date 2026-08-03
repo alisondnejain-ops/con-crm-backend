@@ -190,6 +190,17 @@ addUserCol("invite_token", "TEXT");                     // token do link "defini
 addUserCol("invite_expires", "INTEGER");                // validade do token (ms)
 addUserCol("avatar_url", "TEXT");                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
+/* Gestor MASTER — dono da plataforma, não da imobiliária.
+
+   É uma coluna e não um papel novo porque o papel manda no que a pessoa PODE
+   fazer, e o master faz tudo que um gestor faz. O que muda é a VISIBILIDADE:
+   ele não aparece na equipe, na catraca, nos relatórios nem no ranking da
+   imobiliária. Papel novo exigiria mexer no CHECK da tabela (que o SQLite não
+   altera sem recriar) e revisar todo `roles("adm")` do sistema.
+
+   Com o ConHub virando SaaS, é o que separa "quem opera a Conecta" de "quem
+   mantém o sistema". Ver auth.js -> semMaster(). */
+addUserCol("master", "INTEGER DEFAULT 0");
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
 // Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos

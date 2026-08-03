@@ -1,4 +1,5 @@
 import db from "../db.js";
+import { semMaster } from "../auth.js";
 
 /* Catraca dos ATENDENTES.
 
@@ -16,7 +17,7 @@ import db from "../db.js";
    corretores — se fosse o mesmo, uma catraca embaralharia a ordem da outra. */
 export function proximoAtendente(orgId) {
   const fila = db.prepare(
-    "SELECT id FROM users WHERE org_id = ? AND role = 'sdr' AND status = 'ativo' ORDER BY created_at, name"
+    `SELECT u.id FROM users u WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo'${semMaster("u")} ORDER BY u.created_at, u.name`
   ).all(orgId);
   // Sem atendente cadastrado (ou todos ainda pendentes de aprovação), o lead
   // cai na fila sem dono, como era antes. Melhor do que sumir na conta errada.

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired, roles } from "../auth.js";
+import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar } from "../services/push.js";
 
 const r = Router();
@@ -9,7 +9,7 @@ r.use(authRequired);
 // Quem atende (corretores + SDR) com o status de disponibilidade de hoje.
 r.get("/attendants", roles("sdr", "adm"), (req, res) => {
   const rows = db.prepare(
-    "SELECT id,name,role,available FROM users WHERE org_id = ? AND role IN ('corretor','sdr') ORDER BY name"
+    `SELECT u.id,u.name,u.role,u.available FROM users u WHERE u.org_id = ? AND u.role IN ('corretor','sdr')${semMaster("u")} ORDER BY u.name`
   ).all(req.user.org_id);
   res.json(rows.map(u => ({ ...u, available: !!u.available })));
 });
@@ -19,7 +19,7 @@ r.get("/attendants", roles("sdr", "adm"), (req, res) => {
 // atendente só, a lista tem uma linha; a tela existe para quando entrar a segunda.
 r.get("/atendentes", roles("adm"), (req, res) => {
   const fila = db.prepare(
-    "SELECT id,name,available,status FROM users WHERE org_id = ? AND role = 'sdr' AND status = 'ativo' ORDER BY created_at, name"
+    `SELECT u.id,u.name,u.available,u.status FROM users u WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo'${semMaster("u")} ORDER BY u.created_at, u.name`
   ).all(req.user.org_id);
   const org = db.prepare("SELECT atendente_ptr FROM orgs WHERE id = ?").get(req.user.org_id);
   const ptr = (org && org.atendente_ptr) || 0;
@@ -64,7 +64,7 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
   const { lead_id } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
   const avl = db.prepare(
-    "SELECT id FROM users WHERE org_id = ? AND role IN ('corretor','sdr') AND available = 1 ORDER BY name"
+    `SELECT u.id FROM users u WHERE u.org_id = ? AND u.role IN ('corretor','sdr') AND u.available = 1${semMaster("u")} ORDER BY u.name`
   ).all(req.user.org_id);
   if (!avl.length) return res.status(409).json({ error: "Ninguém disponível na catraca" });
   const ptr = org.distribution_ptr % avl.length;
@@ -87,7 +87,7 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
     if (!u.available) return res.status(409).json({ error: "Corretor indisponível" });
   } else {
     const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
-    const corr = db.prepare("SELECT id FROM users WHERE org_id = ? AND role = 'corretor' AND available = 1 ORDER BY name").all(req.user.org_id);
+    const corr = db.prepare(`SELECT u.id FROM users u WHERE u.org_id = ? AND u.role = 'corretor' AND u.available = 1${semMaster("u")} ORDER BY u.name`).all(req.user.org_id);
     if (!corr.length) return res.status(409).json({ error: "Nenhum corretor disponível" });
     chosen = corr[org.distribution_ptr % corr.length].id;
     db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);

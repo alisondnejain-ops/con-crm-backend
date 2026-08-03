@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
-import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario } from "../auth.js";
+import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
@@ -35,7 +35,7 @@ r.post("/register", async (req, res) => {
   if (!role) return res.status(400).json({ error: "Escolha se você é corretor, atendente ou gestor." });
 
   const org = db.prepare("SELECT * FROM orgs WHERE adm_code = ?").get(String(adm_code).trim().toUpperCase());
-  if (!org) return res.status(403).json({ error: "Código da imobiliária inválido. Peça o código à ADM da Conecta." });
+  if (!org) return res.status(403).json({ error: "Código da imobiliária inválido. Peça o link de cadastro à gestão da sua imobiliária." });
 
   const mail = norm(email);
   const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
@@ -116,10 +116,10 @@ r.post("/login", (req, res) => {
   if (user.status !== "ativo") {
     const motivos = {
       aguardando_aprovacao: `Seu cadastro como ${PAPEIS[user.role].rotulo} está aguardando a aprovação da gestão. Você será avisado assim que for liberado.`,
-      recusado: "Seu acesso não foi liberado. Fale com a gestão da Conecta.",
-      removido: "Seu acesso foi encerrado. Fale com a gestão da Conecta.",
+      recusado: "Seu acesso não foi liberado. Fale com a gestão da sua imobiliária.",
+      removido: "Seu acesso foi encerrado. Fale com a gestão da sua imobiliária.",
     };
-    return res.status(403).json({ error: motivos[user.status] || "Sua conta não está ativa. Fale com a gestão da Conecta." });
+    return res.status(403).json({ error: motivos[user.status] || "Sua conta não está ativa. Fale com a gestão da sua imobiliária." });
   }
   res.json({ token: sign(user), user: publicUser(user) });
 });
@@ -208,7 +208,7 @@ r.get("/users", authRequired, roles("adm", "sdr"), (req, res) => {
     SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,u.avatar_url,
       (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id
         AND l.stage NOT IN ('Venda','Perdido')) AS leads_abertos
-    FROM users u WHERE u.org_id = ? ORDER BY u.created_at DESC`).all(req.user.org_id);
+    FROM users u WHERE u.org_id = ?${semMaster("u")} ORDER BY u.created_at DESC`).all(req.user.org_id);
   res.json(rows.map(u => ({ ...u, available: !!u.available, funcao: PAPEIS[u.role].rotulo })));
 });
 
@@ -294,13 +294,13 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
 
   // Nunca deixar a organização sem gestor ativo.
   if (u.role === "adm") {
-    const gestores = db.prepare("SELECT COUNT(*) n FROM users WHERE org_id=? AND role='adm' AND status='ativo'").get(req.user.org_id).n;
+    const gestores = db.prepare(`SELECT COUNT(*) n FROM users u WHERE u.org_id=? AND u.role='adm' AND u.status='ativo'${semMaster("u")}`).get(req.user.org_id).n;
     if (gestores <= 1) return res.status(409).json({ error: "Esse é o único gestor ativo. Promova ou aprove outro antes de remover." });
   }
 
   let destino = null;
   if (destino_leads) {
-    destino = db.prepare("SELECT * FROM users WHERE id=? AND org_id=? AND status='ativo' AND role IN ('corretor','sdr')").get(destino_leads, req.user.org_id);
+    destino = db.prepare(`SELECT * FROM users u WHERE u.id=? AND u.org_id=? AND u.status='ativo' AND u.role IN ('corretor','sdr')${semMaster("u")}`).get(destino_leads, req.user.org_id);
     if (!destino) return res.status(404).json({ error: "Escolha um atendente ativo para receber os leads." });
   }
 
@@ -316,7 +316,9 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
 function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role,
            funcao: PAPEIS[u.role].rotulo, org_id: u.org_id, status: u.status,
-           available: !!u.available, avatar_url: u.avatar_url || null };
+           available: !!u.available, avatar_url: u.avatar_url || null,
+           // A própria pessoa sabe que é master; a equipe nunca a vê na lista.
+           master: !!u.master };
 }
 
 export default r;
