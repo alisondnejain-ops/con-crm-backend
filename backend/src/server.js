@@ -15,6 +15,7 @@ import assinaturaRoutes from "./routes/assinatura.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
+import orgsRoutes from "./routes/orgs.routes.js";
 import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
 import { mailConfigured } from "./services/mail.js";
@@ -49,6 +50,7 @@ const RECURSOS = [
   "titular-assinatura",   // mensalidade só para o dono da conta
   "importacao-em-lote",   // conferir antes de subir e desfazer a lista inteira
   "gestor-master",        // dono da plataforma, invisivel para a equipe da imobiliaria
+  "hub-de-contas",        // o master escolhe em qual imobiliaria vai trabalhar
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -97,6 +99,7 @@ app.use("/leads", msgRoutes);         // POST /leads/:id/messages
 app.use("/webhooks", metaWebhook);    // GET/POST /webhooks/meta
 app.use("/webhooks", uazapiWebhook);  // POST /webhooks/uazapi
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
+app.use("/orgs", orgsRoutes);         // hub de contas (só o master)
 app.use("/", diagRoutes);             // GET /integracoes
 
 const PORT = process.env.PORT || 4000;

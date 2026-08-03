@@ -231,6 +231,8 @@ addOrgCol("dono_user_id", "TEXT");
    vence_base + (um mês por pagamento registrado), o que faz apagar pagamento
    voltar a data sozinho. Ver services/assinatura.js. */
 addOrgCol("vence_base", "INTEGER");
+// Quando a imobiliária entrou na plataforma — aparece no hub de contas.
+addOrgCol("created_at", "INTEGER");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };

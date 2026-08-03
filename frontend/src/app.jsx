@@ -29,6 +29,14 @@ let TOKEN=null;
 try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
 function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
 
+/* Marca de que o master JÁ escolheu uma imobiliária no hub.
+   Sem ela, recarregar a página levaria direto para a imobiliária do crachá —
+   que logo depois do login ainda é a de origem dele, e o hub nunca apareceria.
+   Com ela, recarregar mantém onde ele estava trabalhando. */
+const STORE_ORG="conhub_org";
+const orgEscolhida=()=>{ try{ return localStorage.getItem(STORE_ORG); }catch(e){ return null; } };
+const marcarOrg=(id)=>{ try{ id?localStorage.setItem(STORE_ORG,id):localStorage.removeItem(STORE_ORG); }catch(e){} };
+
 async function api(path,{method="GET",body}={}){
   let res;
   try{
@@ -294,6 +302,10 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
   return {id:u.id,name:u.name,email:u.email,phone:u.phone,role:u.role,funcao:u.funcao,
+          // Sem copiar `master` aqui, o backend marcava a conta certinho e o
+          // app continuava tratando o master como um gestor qualquer — o hub
+          // nunca aparecia.
+          master:!!u.master,
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
@@ -301,6 +313,10 @@ const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
 function ConCRM(){
   const [session,setSession]=useState(null);
+  // Em qual imobiliária o crachá está valendo agora. Para quem não é master é
+  // sempre a própria; para o master é a que ele escolheu no hub.
+  const [org,setOrg]=useState(null);
+  const isMobileRaiz=useIsMobile();
   const [carregando,setCarregando]=useState(!!TOKEN);
   const [leads,setLeads]=useState([]);
   const [fila,setFila]=useState([]);
@@ -327,7 +343,12 @@ function ConCRM(){
 
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
-    api("/auth/me").then(d=>setSession(toSession(d.user))).catch(()=>setToken(null)).finally(()=>setCarregando(false));
+    api("/auth/me").then(d=>{
+      setSession(toSession(d.user));
+      // O master só volta direto para uma imobiliária se já tinha escolhido uma;
+      // senão cai no hub. Para os demais, é sempre a casa deles.
+      if(d.org&&(!d.user.master||orgEscolhida()===d.org.id)) setOrg(d.org);
+    }).catch(()=>setToken(null)).finally(()=>setCarregando(false));
   },[]);
 
   // Mescla a lista nova preservando as conversas já baixadas, para não piscar a tela.
@@ -472,19 +493,169 @@ function ConCRM(){
     },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
+    // Hub de contas (só o master)
+    listarContas:()=>api("/orgs"),
+    entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
+    criarConta:(dados)=>api("/orgs",{method:"POST",body:dados}),
+    renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
+    apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     abrir,
   };
 
-  function sair(){ setToken(null); setSession(null); setLeads([]); setFila([]); }
+  function sair(){ setToken(null); marcarOrg(null); setSession(null); setOrg(null); setLeads([]); setFila([]); }
+
+  /* Entra numa imobiliária: o servidor devolve um crachá novo, valendo para
+     ela. Recarrega tudo do zero — leads, equipe e conversa aberta são de outra
+     casa e não podem sobrar na tela. */
+  async function entrarNaConta(id){
+    const d=await acoes.entrarNaConta(id);
+    setToken(d.token);
+    setLeads([]); setFila([]); setEquipe([]); setSelId(null); setAssinatura(null);
+    setOrg(d.org); marcarOrg(d.org.id);
+    setVersao(v=>v+1);
+  }
+  const voltarAoHub=()=>{ marcarOrg(null); setOrg(null); setLeads([]); setFila([]); setEquipe([]); setSelId(null); };
 
   if(carregando) return <Splash/>;
-  if(!session) return <Auth onLogin={(u)=>setSession(toSession(u))}/>;
+  if(!session) return <Auth onLogin={(u)=>{setSession(toSession(u));setOrg(null);}}/>;
+  /* O master entra pelo hub: ele atende várias imobiliárias e precisa dizer em
+     qual vai trabalhar antes de qualquer tela aparecer. Para todo mundo mais
+     esta camada não existe. */
+  if(session.master&&!org)
+    return <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>;
   // Bloqueado: o trabalho para, mas a saída (sair, exportar, pagar) continua.
   if(assinatura&&assinatura.status==="bloqueado")
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura}}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub}}/>;
+}
+
+/* ===== HUB DE CONTAS =====
+   A tela que abre quando o gestor master entra: em qual imobiliária ele vai
+   trabalhar agora. Ninguém mais chega aqui — o servidor recusa (403) e o
+   frontend nem desenha.
+
+   Cada cartão mostra o que decide a escolha em dois segundos: tamanho da
+   equipe, leads na fila, quem tem cadastro esperando aprovação e a situação da
+   mensalidade. */
+function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
+  const [contas,setContas]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const [criando,setCriando]=useState(false);
+  const [nova,setNova]=useState({nome:"",codigo:""});
+  const [copiado,setCopiado]=useState("");
+
+  const rever=()=>acoes.listarContas().then(d=>setContas(d.orgs||[])).catch(e=>{setErro(e.message);setContas([]);});
+  useEffect(()=>{rever();},[]);
+
+  const entrar=async(c)=>{ setErro(""); setOcupado(c.id);
+    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); } };
+
+  const criar=async()=>{ setErro(""); setOcupado("nova");
+    try{ await acoes.criarConta(nova); setNova({nome:"",codigo:""}); setCriando(false); await rever(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
+
+  const copiar=(c)=>{ try{ navigator.clipboard.writeText(c.link_cadastro);
+    setCopiado(c.id); setTimeout(()=>setCopiado(""),1800); }catch(e){} };
+
+  const CORES={ativo:C.greenMid,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot};
+  const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado"};
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+
+  return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",padding:isMobile?"18px 14px 40px":"32px 24px"}}>
+    <div style={{maxWidth:900,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:isMobile?18:26,flexWrap:"wrap"}}>
+        <Brand size={isMobile?38:44}/>
+        <div style={{flex:1}}/>
+        <div style={{textAlign:"right"}}>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div>
+          <div style={{color:C.faint,fontSize:10.5}}>ConHub · master</div>
+        </div>
+        <button onClick={aoSair} title="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon n="logout" size={16}/></button>
+      </div>
+
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?20:25,fontWeight:700,marginBottom:4}}>Suas imobiliárias</div>
+      <div style={{color:C.sub,fontSize:13,marginBottom:18,lineHeight:1.5}}>
+        Escolha em qual conta você vai trabalhar. A equipe de cada uma não enxerga esta tela — nem você dentro dela.
+      </div>
+
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
+
+      {contas===null
+        ?<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>
+        :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(270px,1fr))",gap:12}}>
+          {contas.map(c=><div key={c.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:15,display:"flex",flexDirection:"column",gap:11}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:9}}>
+              <div style={{background:C.greenSoft,width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <Icon n="pin" size={18} color={C.greenDeep}/></div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,lineHeight:1.2}}>{c.nome}</div>
+                <div style={{color:C.faint,fontSize:10.5,fontFamily:MONO,marginTop:2}}>{c.codigo}</div>
+              </div>
+              {c.assinatura.cobranca&&<span style={{background:CORES[c.assinatura.status]+"18",color:CORES[c.assinatura.status],
+                fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>
+                {ROTULOS[c.assinatura.status]}</span>}
+            </div>
+
+            <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+              {[["Equipe",c.equipe],["Leads",c.leads],["Na fila",c.na_fila]].map(([t,v])=>
+                <div key={t}><div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
+                  <div style={{color:C.faint,fontSize:10}}>{t}</div></div>)}
+            </div>
+
+            {/* Cadastro parado esperando aprovação é gente sem acesso ao
+                trabalho — é o que mais merece o clique agora. */}
+            {c.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
+              <Icon n="clock" size={12}/>{c.pendentes} cadastro(s) aguardando aprovação</div>}
+
+            <div style={{display:"flex",gap:7,marginTop:"auto"}}>
+              <button onClick={()=>entrar(c)} disabled={!!ocupado}
+                style={{flex:1,background:ocupado===c.id?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:11,padding:"12px",
+                  fontSize:13.5,fontWeight:600,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                {ocupado===c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={15}/></React.Fragment>}</button>
+              <button onClick={()=>copiar(c)} title="Copiar o link de cadastro da equipe"
+                style={{background:copiado===c.id?C.greenSoft:C.surface,color:copiado===c.id?C.greenDeep:C.sub,
+                  border:`1px solid ${copiado===c.id?C.green+"66":C.line}`,borderRadius:11,padding:"0 12px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                {copiado===c.id?"copiado!":<Icon n="link" size={15}/>}</button>
+            </div>
+          </div>)}
+
+          {/* Cadastrar cliente novo. É por aqui que a segunda imobiliária entra:
+              o código gerado vira o link que a equipe dela usa para se cadastrar. */}
+          {criando
+            ?<div style={{background:C.card,border:`1px dashed ${C.green}66`,borderRadius:16,padding:15,display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Nova imobiliária</div>
+              <div>
+                <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Nome</div>
+                <input value={nova.nome} onChange={e=>setNova({...nova,nome:e.target.value})} placeholder="Horizonte Imóveis" style={entrada}/>
+              </div>
+              <div>
+                <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Código (opcional)</div>
+                <input value={nova.codigo} onChange={e=>setNova({...nova,codigo:e.target.value})} placeholder="deixe em branco para gerar" style={entrada}/>
+                <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>É a trava do cadastro e vai embutida no link que a equipe recebe.</div>
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <button onClick={criar} disabled={ocupado==="nova"||nova.nome.trim().length<2}
+                  style={{flex:1,background:nova.nome.trim().length<2?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                  {ocupado==="nova"?"Criando…":"Criar"}</button>
+                <button onClick={()=>{setCriando(false);setErro("");}}
+                  style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+            :<button onClick={()=>setCriando(true)}
+              style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:16,padding:20,cursor:"pointer",
+                display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:7,color:C.sub,minHeight:130}}>
+              <Icon n="userplus" size={22}/>
+              <span style={{fontSize:13.5,fontWeight:600}}>Cadastrar imobiliária</span>
+              <span style={{fontSize:11,color:C.faint}}>um cliente novo na plataforma</span>
+            </button>}
+        </div>}
+    </div>
+  </div>;
 }
 
 /* ===== MENSALIDADE ===== */
@@ -749,7 +920,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -862,6 +1033,16 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:17,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1>
+          {/* Em qual imobiliária o master está agora, e o caminho de volta ao
+              hub. Trabalhando em várias contas parecidas, saber ONDE se está é
+              o que evita mandar mensagem pelo cliente errado. */}
+          {ehMaster&&org&&<button onClick={voltarAoHub} title="Trocar de imobiliária"
+            style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,maxWidth:isMobile?150:260,
+              border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:999,
+              padding:isMobile?"4px 9px":"4px 11px",fontSize:isMobile?11:11.5,fontWeight:700,cursor:"pointer"}}>
+            <Icon n="transfer" size={12}/>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org.nome}</span>
+          </button>}
           {!isMobile&&<span style={{color:conecta.connected?C.greenMid:C.hot,background:conecta.connected?C.greenSoft:C.hotSoft,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
             <Icon n={conecta.connected?"wifi":"wifioff"} size={11}/>{conecta.connected?"WhatsApp conectado":"WhatsApp desconectado"}
           </span>}

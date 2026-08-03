@@ -9,17 +9,32 @@ export function bootstrap() {
   const code = String(process.env.ADM_CODE || "CONECTA-JAZ-2026").trim().toUpperCase();
   const name = process.env.ORG_NAME || "Conecta Imóveis";
 
-  let org = db.prepare("SELECT * FROM orgs LIMIT 1").get();
+  /* Com o hub de contas, o servidor deixou de ter "a" imobiliária. O ADM_CODE
+     continua valendo, mas agora ele APONTA para uma: procura pelo código antes
+     de mexer em qualquer coisa.
+
+     A regra de renomear o código só vale enquanto existe uma imobiliária só —
+     era o comportamento de sempre e ele continua. Com várias, o servidor não
+     adivinha qual delas o ADM_CODE queria renomear: ele avisa e não toca em
+     nada, porque trocar o código da imobiliária errada derruba os links de
+     cadastro que já foram enviados para a equipe dela. */
+  let org = db.prepare("SELECT * FROM orgs WHERE adm_code = ?").get(code);
   if (!org) {
-    org = { id: "org_conecta", name, adm_code: code, wa_number: "", wa_connected: 0, distribution_ptr: 0 };
-    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr)
-      VALUES (@id,@name,@adm_code,@wa_number,@wa_connected,@distribution_ptr)`).run(org);
-    console.log(`Organização criada: ${org.name}`);
-  } else if (org.adm_code !== code) {
-    // Trocar ADM_CODE no painel da hospedagem passa a valer no próximo start.
-    db.prepare("UPDATE orgs SET adm_code = ? WHERE id = ?").run(code, org.id);
-    console.log(`Código da imobiliária atualizado para ${code} (links antigos param de valer).`);
-    org.adm_code = code;
+    const total = db.prepare("SELECT COUNT(*) n FROM orgs").get().n;
+    if (total === 0) {
+      org = { id: "org_conecta", name, adm_code: code, wa_number: "", wa_connected: 0, distribution_ptr: 0, created_at: Date.now() };
+      db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at)
+        VALUES (@id,@name,@adm_code,@wa_number,@wa_connected,@distribution_ptr,@created_at)`).run(org);
+      console.log(`Organização criada: ${org.name}`);
+    } else if (total === 1) {
+      org = db.prepare("SELECT * FROM orgs LIMIT 1").get();
+      db.prepare("UPDATE orgs SET adm_code = ? WHERE id = ?").run(code, org.id);
+      console.log(`Código da imobiliária atualizado para ${code} (links antigos param de valer).`);
+      org.adm_code = code;
+    } else {
+      org = db.prepare("SELECT * FROM orgs ORDER BY created_at, name LIMIT 1").get();
+      console.log(`Atenção: ADM_CODE=${code} não corresponde a nenhuma imobiliária. Nenhum código foi alterado.`);
+    }
   }
 
   // Conta da ADM, se informada no .env e ainda não existir. Sem isso, ninguém

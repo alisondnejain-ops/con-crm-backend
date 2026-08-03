@@ -1,10 +1,17 @@
 import jwt from "jsonwebtoken";
+import db from "./db.js";
 
 const SECRET = process.env.JWT_SECRET || "dev-secret";
 
-export function sign(user) {
-  return jwt.sign({ id: user.id, role: user.role, org_id: user.org_id, name: user.name, master: !!user.master },
-    SECRET, { expiresIn: "30d" });
+/* `orgId` existe para o gestor master trocar de imobiliária sem trocar de
+   conta: o token passa a valer para a imobiliária escolhida, e todas as rotas
+   continuam lendo req.user.org_id como sempre — nenhuma precisou mudar.
+
+   Só o master usa isso. Para qualquer outra pessoa o org_id é o da conta dela,
+   e quem emite o token é o login, não o usuário. */
+export function sign(user, { orgId } = {}) {
+  return jwt.sign({ id: user.id, role: user.role, org_id: orgId || user.org_id,
+    name: user.name, master: !!user.master }, SECRET, { expiresIn: "30d" });
 }
 
 export function authRequired(req, res, next) {
@@ -39,6 +46,17 @@ export function roles(...allowed) {
 
    Uso: `... WHERE u.org_id = ? ${semMaster("u")}` */
 export const semMaster = (alias = "u") => ` AND COALESCE(${alias}.master, 0) = 0`;
+
+/* Trava das rotas da plataforma (hub de contas, criar imobiliária).
+
+   Confere no BANCO, não só no token. O token é assinado por nós e é confiável,
+   mas dura 30 dias: se um master for despromovido hoje, o crachá antigo
+   continuaria abrindo a plataforma inteira até o mês que vem. */
+export function soMaster(req, res, next) {
+  const u = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
+  if (!u || !u.master) return res.status(403).json({ error: "Área restrita ao ConHub." });
+  next();
+}
 
 // Quem enxerga e comanda a operação inteira: gestor (adm) e atendente (sdr).
 // O atendente tem o mesmo alcance do gestor — por isso o cadastro dele precisa

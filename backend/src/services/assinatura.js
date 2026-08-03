@@ -38,7 +38,16 @@ export function donoDa(orgId) {
     "SELECT id FROM users WHERE org_id = ? AND role = 'adm' ORDER BY created_at LIMIT 1").get(orgId);
   return primeiro ? primeiro.id : null;
 }
-export const ehDono = (orgId, userId) => !!userId && donoDa(orgId) === userId;
+export function ehDono(orgId, userId) {
+  if (!userId) return false;
+  /* O master é quem cobra a mensalidade de todas as imobiliárias, então é
+     titular em qualquer uma — inclusive nas que ele nem pertence. Sem isto,
+     trocar de imobiliária no hub deixava a tela de cobrança fora do alcance
+     de quem emite a cobrança. */
+  const u = db.prepare("SELECT master FROM users WHERE id = ?").get(userId);
+  if (u && u.master) return true;
+  return donoDa(orgId) === userId;
+}
 
 const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
 

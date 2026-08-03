@@ -127,7 +127,12 @@ r.post("/login", (req, res) => {
 r.get("/me", authRequired, (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   if (!user) return res.status(404).json({ error: "Não encontrado" });
-  res.json({ user: publicUser(user) });
+  /* A imobiliária vem do TOKEN, não do cadastro da pessoa. Para quase todo
+     mundo dá no mesmo; para o master é a diferença entre "a casa dele" e "a
+     casa em que ele está trabalhando agora", escolhida no hub de contas. */
+  const org = db.prepare("SELECT id,name,adm_code FROM orgs WHERE id = ?").get(req.user.org_id);
+  res.json({ user: publicUser(user),
+    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code } : null });
 });
 
 // ── Minha conta ───────────────────────────────────────────────────────────────

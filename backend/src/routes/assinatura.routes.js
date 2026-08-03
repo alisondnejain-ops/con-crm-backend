@@ -31,8 +31,15 @@ r.post("/webhooks/asaas", (req, res) => {
     const org = assinatura
       ? db.prepare("SELECT * FROM orgs WHERE asaas_subscription_id = ?").get(assinatura)
       : null;
-    const alvo = org || db.prepare("SELECT * FROM orgs LIMIT 1").get();
-    if (!alvo) return;
+    /* Sem o id da assinatura, só dá para adivinhar quando existe UMA
+       imobiliária. Com várias, creditar o pagamento na primeira da lista
+       liberaria a conta errada e deixaria quem pagou bloqueado. */
+    const total = db.prepare("SELECT COUNT(*) n FROM orgs").get().n;
+    const alvo = org || (total === 1 ? db.prepare("SELECT * FROM orgs LIMIT 1").get() : null);
+    if (!alvo) {
+      console.warn("[asaas] evento sem assinatura reconhecida e mais de uma imobiliária — ignorado.");
+      return;
+    }
 
     if (acao === "pago") {
       const proximo = registrarPagamento(alvo.id, { link: null, valor: req.body?.payment?.value,
