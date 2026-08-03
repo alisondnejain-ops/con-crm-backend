@@ -45,6 +45,9 @@ const RECURSOS = [
   "simulacoes",           // simulação de financiamento na ficha do lead
   "assinatura",           // mensalidade e bloqueio por atraso (Asaas)
   "conferencia-r2",       // /integracoes aponta qual variável do R2 está errada
+  "pagamentos",           // histórico da mensalidade: apagar, corrigir, reorganizar
+  "titular-assinatura",   // mensalidade só para o dono da conta
+  "importacao-em-lote",   // conferir antes de subir e desfazer a lista inteira
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

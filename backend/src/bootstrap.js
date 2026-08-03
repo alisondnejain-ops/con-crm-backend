@@ -36,5 +36,19 @@ export function bootstrap() {
       console.log(`Conta ADM criada: ${admEmail}`);
     }
   }
+
+  /* Titular da conta — quem enxerga a mensalidade. Como o CRM pode ter mais de
+     um gestor, isso precisa ser uma pessoa, não o papel. Na falta de escolha,
+     o gestor mais antigo: é quem montou a operação. A troca é feita na tela,
+     por ele mesmo (POST /assinatura/dono). */
+  const semDono = db.prepare("SELECT dono_user_id FROM orgs WHERE id = ?").get(org.id);
+  if (!semDono || !semDono.dono_user_id) {
+    const primeiro = db.prepare(
+      "SELECT id,name FROM users WHERE org_id = ? AND role = 'adm' ORDER BY created_at LIMIT 1").get(org.id);
+    if (primeiro) {
+      db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(primeiro.id, org.id);
+      console.log(`Titular da mensalidade: ${primeiro.name}`);
+    }
+  }
   return org;
 }

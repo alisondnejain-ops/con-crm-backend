@@ -1,4 +1,5 @@
 import db from "../db.js";
+import { randomUUID } from "crypto";
 
 /* Assinatura mensal e bloqueio por atraso.
 
@@ -22,14 +23,60 @@ export const AVISO_ANTES = 3;
 // Meia-noite do dia, para a conta ser em dias inteiros e não em horas.
 const meiaNoite = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
-export function situacao(orgId) {
+/* Dono da conta — quem enxerga a mensalidade.
+
+   O CRM pode ter mais de um gestor (papel 'adm'), e faz sentido: quem cuida da
+   equipe não é necessariamente quem paga o sistema. Valor, histórico de
+   pagamentos e dados de cobrança são do dono, e só dele.
+
+   Sem dono definido (banco anterior a esta coluna), assume o gestor mais
+   antigo. Deixar sem dono faria a tela sumir para todo mundo. */
+export function donoDa(orgId) {
+  const org = db.prepare("SELECT dono_user_id FROM orgs WHERE id = ?").get(orgId);
+  if (org && org.dono_user_id) return org.dono_user_id;
+  const primeiro = db.prepare(
+    "SELECT id FROM users WHERE org_id = ? AND role = 'adm' ORDER BY created_at LIMIT 1").get(orgId);
+  return primeiro ? primeiro.id : null;
+}
+export const ehDono = (orgId, userId) => !!userId && donoDa(orgId) === userId;
+
+const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
+
+/* Recalcula o vencimento a partir da base e da quantidade de pagamentos.
+   Cada pagamento vale um mês. É por isso que apagar um pagamento traz a data
+   de volta sem nenhuma conta extra — e mexer em qualquer ordem dá no mesmo. */
+export function recalcularVencimento(orgId) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
-  if (!org) return { status: "ativo", cobranca: false };
+  if (!org) return null;
+  const base = org.vence_base || org.vence_em;
+  if (!base) return null;
+  const { n } = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId);
+  const ultimo = db.prepare("SELECT MAX(pago_em) m FROM pagamentos WHERE org_id = ?").get(orgId).m;
+  const vence = somaMeses(base, n);
+  db.prepare("UPDATE orgs SET vence_em = ?, vence_base = ?, ultimo_pagamento_em = ? WHERE id = ?")
+    .run(vence, base, ultimo || null, orgId);
+  return vence;
+}
+
+export const listarPagamentos = (orgId) =>
+  db.prepare("SELECT * FROM pagamentos WHERE org_id = ? ORDER BY pago_em DESC").all(orgId);
+
+export function situacao(orgId, { dono = true } = {}) {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+  if (!org) return { status: "ativo", cobranca: false, dono };
+
+  /* Para quem não é o dono, sai só o que a tela de bloqueio precisa: em que
+     estado está e desde quando. Valor, plano e link de pagamento não são
+     assunto do outro gestor nem do corretor. */
+  const conforme = (s) => dono ? { ...s, dono } : {
+    status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo,
+    dias: s.dias, atraso: s.atraso, restam: s.restam, carencia: s.carencia,
+  };
 
   if (org.assinatura_status === "cancelado")
-    return { status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento };
+    return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
 
-  if (!org.vence_em) return { status: "ativo", cobranca: false };
+  if (!org.vence_em) return conforme({ status: "ativo", cobranca: false });
 
   const dias = Math.round((meiaNoite(org.vence_em) - meiaNoite(Date.now())) / DIA);
   const carencia = org.dias_carencia == null ? 5 : org.dias_carencia;
@@ -39,27 +86,66 @@ export function situacao(orgId) {
     ultimo_pagamento_em: org.ultimo_pagamento_em,
   };
 
-  if (dias >= 0) return { ...base, status: dias <= AVISO_ANTES ? "vence_em_breve" : "ativo" };
+  if (dias >= 0) return conforme({ ...base, status: dias <= AVISO_ANTES ? "vence_em_breve" : "ativo" });
   const atraso = -dias;
   if (atraso <= carencia)
-    return { ...base, status: "atrasado", atraso, restam: carencia - atraso };
-  return { ...base, status: "bloqueado", atraso, motivo: `Mensalidade em atraso há ${atraso} dias.` };
+    return conforme({ ...base, status: "atrasado", atraso, restam: carencia - atraso });
+  return conforme({ ...base, status: "bloqueado", atraso, motivo: `Mensalidade em atraso há ${atraso} dias.` });
 }
 
 export const bloqueada = (orgId) => situacao(orgId).status === "bloqueado";
 
-/* Registra o pagamento e empurra o vencimento para o mês seguinte.
+/* Registra o pagamento: grava a linha no histórico e recalcula o vencimento.
+
    Usar a data do vencimento como base (e não "hoje") mantém o dia fixo: quem
-   vence dia 10 continua vencendo dia 10, mesmo pagando com atraso. */
-export function registrarPagamento(orgId, { quando = Date.now(), link = null } = {}) {
+   vence dia 10 continua vencendo dia 10, mesmo pagando com atraso.
+
+   Pagamento do Asaas traz o id da cobrança. Ele evita a linha repetida quando
+   o Asaas manda PAYMENT_CONFIRMED e PAYMENT_RECEIVED da mesma fatura — que
+   antes empurrava o vencimento dois meses de uma vez. */
+export function registrarPagamento(orgId, { quando = Date.now(), link = null, valor = null, origem = "manual", asaasId = null, obs = null } = {}) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return null;
-  const base = org.vence_em && org.vence_em > 0 ? new Date(org.vence_em) : new Date(quando);
-  const proximo = new Date(base);
-  proximo.setMonth(proximo.getMonth() + 1);
-  db.prepare(`UPDATE orgs SET vence_em = ?, assinatura_status = 'pago', ultimo_pagamento_em = ?, link_pagamento = ?
-              WHERE id = ?`).run(proximo.getTime(), quando, link, orgId);
-  return proximo.getTime();
+
+  if (asaasId) {
+    const jaTem = db.prepare("SELECT 1 FROM pagamentos WHERE org_id = ? AND asaas_payment_id = ?").get(orgId, asaasId);
+    if (jaTem) return org.vence_em;
+  }
+
+  // Primeira baixa num plano que ainda não tinha base: a base é o vencimento
+  // atual, ou hoje se nem isso foi configurado.
+  if (!org.vence_base)
+    db.prepare("UPDATE orgs SET vence_base = ? WHERE id = ?").run(org.vence_em || quando, orgId);
+
+  db.prepare(`INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,asaas_payment_id,obs,created_at)
+              VALUES (?,?,?,?,?,?,?,?)`).run("pg_" + randomUUID(), orgId,
+    valor != null ? Number(valor) : (org.valor_mensal ?? null), quando, origem, asaasId, obs, Date.now());
+
+  db.prepare("UPDATE orgs SET assinatura_status = 'pago', link_pagamento = ? WHERE id = ?").run(link, orgId);
+  return recalcularVencimento(orgId);
+}
+
+/* Apaga um pagamento lançado por engano. O vencimento volta um mês sozinho —
+   é o recálculo que cuida disso, não uma subtração feita aqui. */
+export function apagarPagamento(orgId, pagamentoId) {
+  const alvo = db.prepare("SELECT * FROM pagamentos WHERE id = ? AND org_id = ?").get(pagamentoId, orgId);
+  if (!alvo) return { ok: false, error: "Pagamento não encontrado." };
+  db.prepare("DELETE FROM pagamentos WHERE id = ?").run(pagamentoId);
+  // Sem pagamento nenhum sobrando, o estado 'pago' deixa de fazer sentido.
+  const { n } = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId);
+  if (!n) db.prepare("UPDATE orgs SET assinatura_status = NULL WHERE id = ?").run(orgId);
+  return { ok: true, vence_em: recalcularVencimento(orgId) };
+}
+
+// Corrige data ou valor de um pagamento já lançado.
+export function editarPagamento(orgId, pagamentoId, { pago_em, valor, obs }) {
+  const alvo = db.prepare("SELECT * FROM pagamentos WHERE id = ? AND org_id = ?").get(pagamentoId, orgId);
+  if (!alvo) return { ok: false, error: "Pagamento não encontrado." };
+  db.prepare("UPDATE pagamentos SET pago_em = ?, valor = ?, obs = ? WHERE id = ?").run(
+    pago_em != null && isFinite(pago_em) ? Number(pago_em) : alvo.pago_em,
+    valor != null && valor !== "" ? Number(valor) : alvo.valor,
+    obs !== undefined ? obs : alvo.obs, pagamentoId);
+  return { ok: true, vence_em: recalcularVencimento(orgId) };
 }
 
 export function marcarAtraso(orgId, link) {

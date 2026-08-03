@@ -133,7 +133,7 @@ function dataBR(valor) {
 }
 
 r.post("/import", roles("adm"), (req, res) => {
-  const { linhas } = req.body || {};
+  const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo } = req.body || {};
   if (!Array.isArray(linhas) || !linhas.length)
     return res.status(400).json({ error: "Nenhuma linha recebida." });
   if (linhas.length > 5000)
@@ -142,14 +142,29 @@ r.post("/import", roles("adm"), (req, res) => {
   const corretores = db.prepare("SELECT id,name FROM users WHERE org_id=? AND status='ativo'").all(req.user.org_id);
   const porNome = {};
   for (const u of corretores) porNome[u.name.trim().toLowerCase()] = u.id;
+  const idsValidos = new Set(corretores.map(u => u.id));
+
+  /* Mapa "nome na planilha" → id do corretor, montado na tela antes de subir.
+     Vale mais que o acerto automático por nome: a planilha do CRM antigo traz
+     "Ana C.", "ana costa", "ANA" — tudo a mesma pessoa, e nenhum bate exato.
+     Quem sabe quem é quem é o gestor, então quem decide é ele.
+
+     "" (vazio) é uma escolha legítima: manda para a fila da catraca. */
+  const mapa = {};
+  if (mapaEnviado && typeof mapaEnviado === "object")
+    for (const [nome, id] of Object.entries(mapaEnviado))
+      mapa[String(nome).trim().toLowerCase()] = idsValidos.has(id) ? id : null;
+
+  const origemFixa = String(origem_fixa || "").trim().slice(0, 80);
 
   const TEMPERATURAS = ["QUENTE", "MORNO", "FRIO"];
-  const resultado = { criados: 0, ignorados: 0, motivos: {} };
+  const importId = "imp_" + randomUUID();
+  const resultado = { criados: 0, ignorados: 0, motivos: {}, import_id: importId };
   const anota = (motivo) => { resultado.ignorados++; resultado.motivos[motivo] = (resultado.motivos[motivo] || 0) + 1; };
 
   const inserir = db.prepare(`INSERT INTO leads
-    (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at)
-    VALUES (?,?,?,?,?,?,?,'{}',?,?,?)`);
+    (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,import_id)
+    VALUES (?,?,?,?,?,?,?,'{}',?,?,?,?)`);
 
   const importar = db.transaction((lista) => {
     for (const l of lista) {
@@ -161,20 +176,82 @@ r.post("/import", roles("adm"), (req, res) => {
       const etapa = STAGES.includes(l.etapa) ? l.etapa : "Lead";
       const temperatura = TEMPERATURAS.includes(String(l.temperatura || "").toUpperCase())
         ? String(l.temperatura).toUpperCase() : "MORNO";
-      // Só aceita o corretor quando o nome bate exatamente com alguém da equipe.
-      const dono = l.corretor ? (porNome[String(l.corretor).trim().toLowerCase()] || null) : null;
+      /* Dono: primeiro o que o gestor decidiu na tela; se ele não decidiu
+         aquele nome, o acerto exato pelo nome da equipe; senão, fila. */
+      const chave = String(l.corretor || "").trim().toLowerCase();
+      const dono = chave
+        ? (Object.prototype.hasOwnProperty.call(mapa, chave) ? mapa[chave] : (porNome[chave] || null))
+        : null;
       const entrada = dataBR(l.entrou_em);
 
       inserir.run("l_" + randomUUID(), req.user.org_id,
         String(l.nome || "Sem nome").trim().slice(0, 120), phone,
         String(l.email || "").trim() || null,
-        String(l.origem || "").trim() || "Importado", temperatura, etapa, dono,
-        isFinite(entrada) ? entrada : Date.now());
+        // A origem digitada na tela manda em tudo: é ela que separa "Feirão de
+        // março" de "Base antiga do RD" na hora de medir o que deu resultado.
+        origemFixa || String(l.origem || "").trim() || "Importado",
+        temperatura, etapa, dono,
+        isFinite(entrada) ? entrada : Date.now(), importId);
       resultado.criados++;
     }
   });
   importar(linhas);
+
+  db.prepare(`INSERT INTO importacoes (id,org_id,rotulo,origem,arquivo,total,criados,criado_por,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?)`).run(importId, req.user.org_id,
+    String(rotulo || "").trim().slice(0, 80) || null, origemFixa || null,
+    String(arquivo || "").trim().slice(0, 120) || null,
+    linhas.length, resultado.criados, req.user.id, Date.now());
+
   res.json(resultado);
+});
+
+/* Importações feitas, com quantos leads de cada uma ainda estão na base.
+
+   `com_conversa` é o número que importa na hora de apagar: lead que já trocou
+   mensagem não é mais "linha de planilha", é atendimento em andamento. */
+r.get("/importacoes", roles("adm"), (req, res) => {
+  const linhas = db.prepare(`
+    SELECT i.*,
+      (SELECT COUNT(*) FROM leads l WHERE l.import_id = i.id) AS na_base,
+      (SELECT COUNT(*) FROM leads l WHERE l.import_id = i.id
+         AND EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id)) AS com_conversa
+    FROM importacoes i WHERE i.org_id = ? ORDER BY i.created_at DESC`).all(req.user.org_id);
+  res.json(linhas);
+});
+
+/* Desfaz uma importação.
+
+   Por padrão POUPA quem já tem conversa: apagar um lead que o corretor já
+   atendeu joga fora o trabalho dele, e isso não tem volta. Para levar tudo,
+   ?tudo=1 — a tela pergunta antes, mostrando quantos seriam.
+
+   Os leads saem de vez, junto com mensagens, ligações e simulações. Deixar
+   filho órfão no banco só cria contagem errada em relatório mais tarde. */
+r.delete("/importacoes/:id", roles("adm"), (req, res) => {
+  const imp = db.prepare("SELECT * FROM importacoes WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!imp) return res.status(404).json({ error: "Importação não encontrada." });
+  const tudo = req.query.tudo === "1";
+
+  const alvos = db.prepare(`SELECT l.id FROM leads l WHERE l.import_id = ?
+    ${tudo ? "" : "AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id)"}`).all(imp.id);
+
+  const apagar = db.transaction(() => {
+    for (const { id } of alvos) {
+      db.prepare("DELETE FROM messages WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM ligacoes WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM simulacoes WHERE lead_id = ?").run(id);
+      db.prepare("DELETE FROM leads WHERE id = ?").run(id);
+    }
+    // A importação some do histórico só quando não sobrou lead dela.
+    const { n } = db.prepare("SELECT COUNT(*) n FROM leads WHERE import_id = ?").get(imp.id);
+    if (!n) db.prepare("DELETE FROM importacoes WHERE id = ?").run(imp.id);
+    return n;
+  });
+  const sobraram = apagar();
+
+  res.json({ ok: true, apagados: alvos.length, mantidos: sobraram,
+    aviso: sobraram ? `${sobraram} lead(s) foram mantidos porque já têm conversa.` : null });
 });
 
 // Fila da catraca (leads sem dono). SDR e ADM.

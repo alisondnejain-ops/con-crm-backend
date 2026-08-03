@@ -136,6 +136,41 @@ CREATE TABLE IF NOT EXISTS simulacoes (
   created_at INTEGER NOT NULL
 );
 
+-- Cada mensalidade paga, uma linha. Antes o pagamento não deixava rastro: o
+-- sistema só empurrava o vencimento um mês para a frente, então errar o botão
+-- era irreversível e não havia como conferir o que foi pago quando.
+--
+-- Com o histórico, o vencimento passa a ser CALCULADO: vence_base + um mês por
+-- pagamento. Apagar um pagamento puxa a data de volta sozinho, e a ordem em que
+-- se mexe não importa — o resultado é sempre o mesmo.
+CREATE TABLE IF NOT EXISTS pagamentos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  valor REAL,
+  pago_em INTEGER NOT NULL,
+  origem TEXT,               -- 'manual' (baixa na tela) ou 'asaas' (webhook)
+  asaas_payment_id TEXT,
+  obs TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- Cada planilha importada, uma linha — é o que permite desfazer UMA importação
+-- sem varrer a base inteira. Sem isso, subir a lista errada com 3 mil leads não
+-- tinha volta a não ser apagando lead por lead.
+CREATE TABLE IF NOT EXISTS importacoes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  rotulo TEXT,               -- nome que o gestor deu à lista
+  origem TEXT,               -- origem aplicada aos leads desta lista
+  arquivo TEXT,              -- nome do arquivo enviado
+  total INTEGER,             -- linhas recebidas
+  criados INTEGER,           -- linhas que viraram lead
+  criado_por TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pagamentos_org ON pagamentos(org_id, pago_em);
+CREATE INDEX IF NOT EXISTS idx_importacoes_org ON importacoes(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_simulacoes_lead ON simulacoes(lead_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_ligacoes_user ON ligacoes(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
@@ -176,6 +211,15 @@ addOrgCol("ultimo_pagamento_em", "INTEGER");
 addOrgCol("link_pagamento", "TEXT");           // fatura em aberto, para o cliente pagar
 addOrgCol("asaas_customer_id", "TEXT");
 addOrgCol("asaas_subscription_id", "TEXT");
+/* Dono da conta. A mensalidade é assunto de quem paga: mesmo havendo outro
+   gestor com acesso total ao CRM, o valor, o histórico de pagamentos e os
+   dados de cobrança só aparecem para ele. Ficando nulo, o bootstrap adota o
+   gestor mais antigo — bancos criados antes desta coluna não ficam sem dono. */
+addOrgCol("dono_user_id", "TEXT");
+/* Data do vencimento ANTES de qualquer pagamento. O vencimento em vigor é
+   vence_base + (um mês por pagamento registrado), o que faz apagar pagamento
+   voltar a data sozinho. Ver services/assinatura.js. */
+addOrgCol("vence_base", "INTEGER");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
@@ -185,6 +229,8 @@ addLeadCol("sale_date", "INTEGER");      // data da venda
 addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
+addLeadCol("import_id", "TEXT");         // de qual planilha veio, para dar para desfazer a importação
+db.exec("CREATE INDEX IF NOT EXISTS idx_leads_import ON leads(import_id)");
 
 // Modalidade de financiamento do imóvel. Antes existia só a caixinha
 // "morar_bem" (sim/não), que não dava conta da realidade: a Conecta trabalha

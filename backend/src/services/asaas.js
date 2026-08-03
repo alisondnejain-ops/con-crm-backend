@@ -85,15 +85,23 @@ export function interpretarEvento(corpo) {
   const evento = corpo && corpo.event;
   const cobranca = (corpo && (corpo.payment || corpo.subscription)) || {};
   const link = cobranca.invoiceUrl || cobranca.bankSlipUrl || null;
+  /* O id da cobrança viaja junto porque o Asaas manda PAYMENT_CONFIRMED e
+     PAYMENT_RECEIVED da MESMA fatura. Sem ele, os dois viravam dois pagamentos
+     e o vencimento pulava dois meses de uma vez. */
+  const base = {
+    link, assinatura: cobranca.subscription || null,
+    pagamento: cobranca.id || null,
+    valor: cobranca.value != null ? Number(cobranca.value) : null,
+  };
 
   if (["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED_IN_CASH"].includes(evento))
-    return { acao: "pago", link, assinatura: cobranca.subscription || null, quando: Date.now() };
+    return { ...base, acao: "pago", quando: Date.now() };
 
   if (["PAYMENT_OVERDUE"].includes(evento))
-    return { acao: "atrasado", link, assinatura: cobranca.subscription || null };
+    return { ...base, acao: "atrasado" };
 
   if (["PAYMENT_DELETED", "PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED", "SUBSCRIPTION_DELETED"].includes(evento))
-    return { acao: "cancelado", link, assinatura: cobranca.subscription || null };
+    return { ...base, acao: "cancelado" };
 
   return { acao: "ignorar", evento };
 }

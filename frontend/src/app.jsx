@@ -197,6 +197,9 @@ const ICO={
   msg:<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,
   pin:<React.Fragment><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></React.Fragment>,
   link:<React.Fragment><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></React.Fragment>,
+  edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
+  trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
+  undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
 };
 function Icon({n,size=18,color,fill="none",spin}){
   return <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={spin?"spin":""} style={{display:"block"}}>{ICO[n]}</svg>;
@@ -386,9 +389,17 @@ function ConCRM(){
     recomendacoes:()=>api("/reports/recomendacoes"),
     assinatura:()=>api("/assinatura"),
     configurarAssinatura:(dados)=>api("/assinatura",{method:"PATCH",body:dados}),
-    marcarMensalidadePaga:()=>api("/assinatura/pagar",{method:"POST"}),
+    marcarMensalidadePaga:(dados)=>api("/assinatura/pagar",{method:"POST",body:dados||{}}),
     criarAssinaturaAsaas:(dados)=>api("/assinatura/asaas",{method:"POST",body:dados}),
-    importarLeads:(linhas)=>api("/leads/import",{method:"POST",body:{linhas}}),
+    pagamentos:()=>api("/assinatura/pagamentos"),
+    apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
+    editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
+    reorganizarCobrancas:()=>api("/assinatura/reorganizar",{method:"POST"}),
+    gestores:()=>api("/assinatura/gestores"),
+    trocarTitular:(user_id)=>api("/assinatura/dono",{method:"POST",body:{user_id}}),
+    importarLeads:(dados)=>api("/leads/import",{method:"POST",body:dados}),
+    importacoes:()=>api("/leads/importacoes"),
+    apagarImportacao:(id,tudo)=>api("/leads/importacoes/"+id+(tudo?"?tudo=1":""),{method:"DELETE"}),
     // Simulação de financiamento e qualificação do lead.
     simulacoes:(leadId)=>api(`/leads/${leadId}/simulacoes`),
     lerPrint:(leadId,base64,mime)=>api(`/leads/${leadId}/simulacao/ler`,{method:"POST",body:{base64,mime}}),
@@ -472,21 +483,36 @@ function ConCRM(){
    Existe para você não precisar mexer no banco nem no painel do Asaas para as
    coisas do dia a dia: ver como está, dar baixa num pagamento por fora e
    ajustar o vencimento. */
+/* Painel da mensalidade.
+
+   Só aparece para o TITULAR da conta. Pode haver outro gestor com acesso total
+   ao CRM — o que ele paga, quanto e quando não é assunto dele. O servidor
+   recusa do mesmo jeito (403); esconder aqui é só não mostrar porta trancada. */
 function PainelAssinatura({acoes,isMobile}){
   const [a,setA]=useState(null);
   const [f,setF]=useState({plano:"",valor_mensal:"",vence_em:"",dias_carencia:5});
   const [novo,setNovo]=useState({nome:"",cpfCnpj:"",email:"",telefone:"",valor:"",vencimento:""});
   const [ocupado,setOcupado]=useState("");
   const [aviso,setAviso]=useState(null);
+  const [pagos,setPagos]=useState(null);
+  const [lancar,setLancar]=useState(null);     // formulário de baixa manual aberto
+  const [editando,setEditando]=useState(null); // id do pagamento em edição
+  const [rascunho,setRascunho]=useState({pago_em:"",valor:""});
+  const [confirmar,setConfirmar]=useState(null);
+
+  const hoje=()=>new Date().toISOString().slice(0,10);
+  const paraInput=(ms)=>ms?new Date(ms-new Date(ms).getTimezoneOffset()*60000).toISOString().slice(0,10):"";
 
   const rever=()=>acoes.assinatura().then(d=>{
     setA(d);
+    if(!d.dono) return;
     setF({plano:d.plano||"",valor_mensal:d.valor||"",
-      vence_em:d.vence_em?new Date(d.vence_em).toISOString().slice(0,10):"",
+      vence_em:paraInput(d.vence_em),
       dias_carencia:d.carencia==null?5:d.carencia});
+    acoes.pagamentos().then(p=>setPagos(p.pagamentos||[])).catch(()=>setPagos([]));
   }).catch(()=>{});
   useEffect(()=>{rever();},[]);
-  if(!a) return null;
+  if(!a||!a.dono) return null;
 
   const CORES={ativo:C.green,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot};
   const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado"};
@@ -529,9 +555,84 @@ function PainelAssinatura({acoes,isMobile}){
       <button onClick={roda("salvar",()=>acoes.configurarAssinatura(f))} disabled={!!ocupado}
         style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
         {ocupado==="salvar"?"Salvando…":"Salvar"}</button>
-      <button onClick={roda("pagar",()=>acoes.marcarMensalidadePaga())} disabled={!!ocupado}
+      <button onClick={()=>{setAviso(null);setLancar(lancar?null:{pago_em:hoje(),valor:a.valor||"",obs:""});}} disabled={!!ocupado}
         style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-        {ocupado==="pagar"?"Registrando…":"Registrar pagamento"}</button>
+        {lancar?"Cancelar":"Registrar pagamento"}</button>
+    </div>
+
+    {/* Baixa manual com data: dá para lançar mês antigo que ficou para trás,
+        em vez de ter que corrigir o vencimento na unha depois. */}
+    {lancar&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>Lançar pagamento</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 140px"}}>{rot("Pago em")}<input type="date" value={lancar.pago_em} onChange={e=>setLancar({...lancar,pago_em:e.target.value})} style={entrada}/></div>
+        <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={lancar.valor} onChange={e=>setLancar({...lancar,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
+        <div style={{flex:"1 1 160px"}}>{rot("Observação")}<input value={lancar.obs} onChange={e=>setLancar({...lancar,obs:e.target.value})} placeholder="Pix, cortesia…" style={entrada}/></div>
+      </div>
+      <button onClick={roda("pagar",async()=>{ await acoes.marcarMensalidadePaga(lancar); setLancar(null); })} disabled={!!ocupado}
+        style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+        {ocupado==="pagar"?"Registrando…":"Confirmar pagamento"}</button>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Cada pagamento vale um mês. O vencimento é recalculado sozinho.</div>
+    </div>}
+
+    {/* Histórico. É o que faltava: sem ele, um clique errado no "Registrar
+        pagamento" empurrava o vencimento um mês e não havia como desfazer. */}
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Pagamentos registrados</span>
+        {pagos&&pagos.length>0&&<button onClick={roda("reorg",()=>acoes.reorganizarCobrancas().then(r=>{setPagos(r.pagamentos||[]);setAviso({ok:true,txt:"Cobranças reorganizadas — vencimento recalculado a partir dos pagamentos."});}))}
+          disabled={!!ocupado} title="Recalcula o vencimento a partir dos pagamentos registrados"
+          style={{background:"transparent",color:C.greenMid,border:`1px solid ${C.green}44`,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          {ocupado==="reorg"?"Reorganizando…":"Reorganizar"}</button>}
+      </div>
+
+      {pagos===null?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>
+      :pagos.length===0?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Nenhum pagamento registrado ainda.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {pagos.map(p=>editando===p.id
+          ?<div key={p.id} style={{background:C.surface,border:`1px solid ${C.green}55`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <div style={{flex:"1 1 130px"}}>{rot("Pago em")}<input type="date" value={rascunho.pago_em} onChange={e=>setRascunho({...rascunho,pago_em:e.target.value})} style={entrada}/></div>
+              <div style={{flex:"1 1 100px"}}>{rot("Valor (R$)")}<input value={rascunho.valor} onChange={e=>setRascunho({...rascunho,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={roda("edit",async()=>{ const r=await acoes.editarPagamento(p.id,rascunho); setPagos(r.pagamentos||[]); setEditando(null); })} disabled={!!ocupado}
+                style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+              <button onClick={()=>setEditando(null)}
+                style={{flex:1,background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            </div>
+          </div>
+          :<div key={p.id} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>
+                {fmtData(p.pago_em)}{p.valor!=null?` · ${fmtMoeda(p.valor)}`:""}</div>
+              <div style={{color:C.faint,fontSize:10.5}}>
+                {p.origem==="asaas"?"Confirmado pelo Asaas":"Lançado manualmente"}{p.obs?` · ${p.obs}`:""}</div>
+            </div>
+            <button onClick={()=>{setEditando(p.id);setRascunho({pago_em:paraInput(p.pago_em),valor:p.valor??""});}}
+              title="Corrigir data ou valor" style={{background:"transparent",border:"none",color:C.sub,cursor:"pointer",padding:4,display:"flex"}}>
+              <Icon n="edit" size={15}/></button>
+            <button onClick={()=>setConfirmar(p)} title="Apagar este pagamento"
+              style={{background:"transparent",border:"none",color:C.hot,cursor:"pointer",padding:4,display:"flex"}}>
+              <Icon n="trash" size={15}/></button>
+          </div>)}
+      </div>}
+
+      {/* Apagar mexe na data de vencimento. Confirmar dizendo o que vai
+          acontecer evita o susto de ver o sistema bloquear depois. */}
+      {confirmar&&<div style={{marginTop:9,background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:11}}>
+        <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Apagar o pagamento de {fmtData(confirmar.pago_em)}?</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+          O vencimento volta um mês — de {fmtData(a.vence_em)} para {fmtData(new Date(new Date(a.vence_em).setMonth(new Date(a.vence_em).getMonth()-1)).getTime())}.
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={roda("apagar",async()=>{ const r=await acoes.apagarPagamento(confirmar.id); setPagos(r.pagamentos||[]); setConfirmar(null); })} disabled={!!ocupado}
+            style={{flex:1,background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="apagar"?"Apagando…":"Apagar"}</button>
+          <button onClick={()=>setConfirmar(null)}
+            style={{flex:1,background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
     </div>
 
     {/* Cobrança automática. Sem a chave no servidor, o painel diz o que falta em
@@ -783,7 +884,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
-        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile}/>}
+        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
@@ -2246,14 +2347,17 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
    Todos os leads da imobiliária num lugar só, com quem está com cada um, e o
    botão para baixar a planilha. É a visão de dono: nem a caixa de atendimento
    nem o funil mostram a base inteira de uma vez. */
-function BaseLeads({acoes,isMobile}){
+function BaseLeads({acoes,isMobile,pessoas}){
   const [lista,setLista]=useState(null);
   const [busca,setBusca]=useState("");
   const [baixando,setBaixando]=useState(false);
   const [erro,setErro]=useState("");
+  const [lotes,setLotes]=useState(null);
 
+  const recarregar=()=>acoes.buscar({finalizados:"1"}).then(setLista).catch(e=>setErro(e.message));
   useEffect(()=>{let vivo=true;
     acoes.buscar({finalizados:"1"}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
+    acoes.importacoes().then(r=>vivo&&setLotes(r)).catch(()=>vivo&&setLotes([]));
     return()=>{vivo=false;};},[]);
 
   const baixar=async()=>{ setErro(""); setBaixando(true);
@@ -2262,10 +2366,15 @@ function BaseLeads({acoes,isMobile}){
   const arquivo=useRef(null);
   const [subindo,setSubindo]=useState(false);
   const [resultado,setResultado]=useState(null);
+  const [apagando,setApagando]=useState(null);   // lote em confirmação
+  /* Etapa de conferência antes de gravar. A importação anterior era um caminho
+     só: escolher o arquivo já criava os leads. Com 3 mil linhas, um engano na
+     coluna do corretor ou na origem virava trabalho manual de horas. */
+  const [pronto,setPronto]=useState(null);
 
-  async function importar(e){
+  async function escolherArquivo(e){
     const f=e.target.files[0]; e.target.value=""; if(!f) return;
-    setErro(""); setResultado(null); setSubindo(true);
+    setErro(""); setResultado(null);
     try{
       const texto=await f.text();
       const linhas=lerCSV(texto);
@@ -2276,14 +2385,50 @@ function BaseLeads({acoes,isMobile}){
       const pegar=(l,c)=>mapa[c]===undefined?"":l[mapa[c]];
       const dados=linhas.slice(1).map(l=>({
         nome:pegar(l,"nome"), telefone:pegar(l,"telefone"), email:pegar(l,"email"),
-        origem:pegar(l,"origem")||("Importado de "+f.name.replace(/\.[^.]+$/,"")),
+        origem:pegar(l,"origem"),
         temperatura:pegar(l,"temperatura"), etapa:pegar(l,"etapa"),
         corretor:pegar(l,"corretor"), entrou_em:pegar(l,"entrou_em"),
       }));
-      const r=await acoes.importarLeads(dados);
-      setResultado(r);
-      const atualizada=await acoes.buscar({finalizados:"1"});
-      setLista(atualizada);
+      // Nomes de corretor que aparecem na planilha, cada um uma vez. É esta
+      // lista que o gestor liga à equipe — "Ana C." e "ana costa" não se
+      // resolvem sozinhos, e errar aqui é lead na mão errada.
+      const nomes=[...new Set(dados.map(d=>String(d.corretor||"").trim()).filter(Boolean))].sort();
+      const casar={};
+      for(const n of nomes){
+        const igual=pessoas.find(p=>p.name.trim().toLowerCase()===n.toLowerCase());
+        casar[n]=igual?igual.id:"";
+      }
+      const semArquivo=f.name.replace(/\.[^.]+$/,"");
+      setPronto({dados,nomes,mapaCorretores:casar,arquivo:f.name,
+        rotulo:semArquivo, origem:"", padrao:"Importado de "+semArquivo});
+    }catch(err){ setErro(err.message); }
+  }
+
+  async function confirmarImportacao(){
+    if(!pronto) return;
+    setErro(""); setSubindo(true);
+    try{
+      const r=await acoes.importarLeads({
+        linhas:pronto.dados,
+        origem_fixa:pronto.origem.trim()||pronto.padrao,
+        corretores:pronto.mapaCorretores,
+        rotulo:pronto.rotulo, arquivo:pronto.arquivo,
+      });
+      setResultado(r); setPronto(null);
+      await recarregar();
+      setLotes(await acoes.importacoes().catch(()=>lotes));
+    }catch(err){ setErro(err.message); }
+    finally{ setSubindo(false); }
+  }
+
+  async function apagarLote(lote,tudo){
+    setErro(""); setSubindo(true);
+    try{
+      const r=await acoes.apagarImportacao(lote.id,tudo);
+      setApagando(null); setResultado(null);
+      await recarregar();
+      setLotes(await acoes.importacoes().catch(()=>[]));
+      setErro(r.aviso||"");
     }catch(err){ setErro(err.message); }
     finally{ setSubindo(false); }
   }
@@ -2305,7 +2450,7 @@ function BaseLeads({acoes,isMobile}){
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
         </div>
         <div style={{display:"flex",gap:8,flexShrink:0}}>
-          <input ref={arquivo} type="file" accept=".csv,text/csv" onChange={importar} style={{display:"none"}}/>
+          <input ref={arquivo} type="file" accept=".csv,text/csv" onChange={escolherArquivo} style={{display:"none"}}/>
           <button onClick={()=>arquivo.current.click()} disabled={subindo}
             style={{flex:isMobile?1:"none",background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",
               fontSize:13.5,fontWeight:600,cursor:subindo?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
@@ -2318,6 +2463,116 @@ function BaseLeads({acoes,isMobile}){
           </button>
         </div>
       </div>
+      {/* ===== conferência antes de gravar ===== */}
+      {pronto&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <Icon n="userplus" size={16} color={C.greenMid}/>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Conferir antes de importar</span>
+          <span style={{color:C.faint,fontSize:11.5}}>{pronto.arquivo}</span>
+        </div>
+        <div style={{color:C.sub,fontSize:12.5,marginBottom:12}}>
+          <b style={{color:C.ink}}>{pronto.dados.length}</b> linha(s) lidas. Nada foi gravado ainda.
+        </div>
+
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+          <div style={{flex:"1 1 200px"}}>
+            <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Nome desta lista</div>
+            <input value={pronto.rotulo} onChange={e=>setPronto({...pronto,rotulo:e.target.value})}
+              placeholder="Base antiga do RD"
+              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"}}/>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>Só para você achar a lista depois, se precisar apagar.</div>
+          </div>
+          <div style={{flex:"1 1 200px"}}>
+            <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Origem dos leads</div>
+            <input value={pronto.origem} onChange={e=>setPronto({...pronto,origem:e.target.value})}
+              placeholder={pronto.padrao}
+              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"}}/>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>Vale para a lista inteira e aparece no relatório. Em branco, usa "{pronto.padrao}".</div>
+          </div>
+        </div>
+
+        {/* Mapa dos corretores. O que a planilha chama de "Ana C." pode ser a
+            Ana Costa da equipe — só quem conhece a operação sabe. */}
+        {pronto.nomes.length>0
+          ?<div style={{marginBottom:12}}>
+            <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>Corretores da planilha</div>
+            <div style={{color:C.faint,fontSize:11,marginBottom:8,lineHeight:1.5}}>
+              Ligue cada nome ao corretor da equipe. Quem ficar em "deixar na fila" entra sem dono, para a catraca distribuir.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {pronto.nomes.map(n=>{
+                const quantos=pronto.dados.filter(d=>String(d.corretor||"").trim()===n).length;
+                return <div key={n} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"8px 11px",flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 130px",minWidth:0}}>
+                    <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</div>
+                    <div style={{color:C.faint,fontSize:10.5}}>{quantos} lead(s)</div>
+                  </div>
+                  <select value={pronto.mapaCorretores[n]||""}
+                    onChange={e=>setPronto({...pronto,mapaCorretores:{...pronto.mapaCorretores,[n]:e.target.value}})}
+                    style={{flex:"1 1 160px",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}>
+                    <option value="">— deixar na fila —</option>
+                    {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>;
+              })}
+            </div>
+          </div>
+          :<div style={{color:C.faint,fontSize:11.5,marginBottom:12,lineHeight:1.5}}>
+            A planilha não tem coluna de corretor — todos os leads entram na fila da catraca.
+          </div>}
+
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={confirmarImportacao} disabled={subindo}
+            style={{flex:1,minWidth:150,background:subindo?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:subindo?"default":"pointer"}}>
+            {subindo?"Importando…":`Importar ${pronto.dados.length} lead(s)`}</button>
+          <button onClick={()=>setPronto(null)} disabled={subindo}
+            style={{flex:"0 0 auto",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"12px 18px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+            Cancelar</button>
+        </div>
+      </div>}
+
+      {/* ===== listas já importadas ===== */}
+      {lotes&&lotes.length>0&&!pronto&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>Listas importadas</div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {lotes.map(l=><div key={l.id}>
+            <div style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {l.rotulo||l.arquivo||"Importação"}</div>
+                <div style={{color:C.faint,fontSize:10.5}}>
+                  {new Date(l.created_at).toLocaleDateString("pt-BR")} · {l.na_base} na base
+                  {l.origem?` · origem: ${l.origem}`:""}
+                  {l.com_conversa>0?` · ${l.com_conversa} com conversa`:""}
+                </div>
+              </div>
+              <button onClick={()=>setApagando(apagando&&apagando.id===l.id?null:l)} disabled={subindo}
+                title="Apagar esta lista" style={{background:"transparent",border:"none",color:C.hot,cursor:"pointer",padding:4,display:"flex"}}>
+                <Icon n="trash" size={15}/></button>
+            </div>
+            {apagando&&apagando.id===l.id&&<div style={{marginTop:6,background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:11}}>
+              <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Apagar "{l.rotulo||l.arquivo}"?</div>
+              <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:9}}>
+                Só os leads que vieram desta lista são apagados — o resto da base não é tocado.
+                {l.com_conversa>0
+                  ?<React.Fragment><br/><b style={{color:C.hot}}>{l.com_conversa} já têm conversa.</b> Eles são mantidos, a não ser que você escolha apagar tudo.</React.Fragment>
+                  :null}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>apagarLote(l,false)} disabled={subindo}
+                  style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                  {subindo?"Apagando…":l.com_conversa>0?`Apagar ${l.na_base-l.com_conversa} sem conversa`:"Apagar os leads"}</button>
+                {l.com_conversa>0&&<button onClick={()=>apagarLote(l,true)} disabled={subindo}
+                  style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                  Apagar todos os {l.na_base}</button>}
+                <button onClick={()=>setApagando(null)}
+                  style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>}
+          </div>)}
+        </div>
+      </div>}
+
       {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
         <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:4}}>
           {resultado.criados} lead(s) importado(s)</div>
