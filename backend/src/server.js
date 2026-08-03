@@ -3,6 +3,7 @@ import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
 import cors from "cors";
 import path from "path";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.routes.js";
 import leadsRoutes from "./routes/leads.routes.js";
@@ -54,6 +55,7 @@ const RECURSOS = [
   "hub-de-contas",        // o master escolhe em qual imobiliaria vai trabalhar
   "expediente",           // prontidao cai no fim do dia + historico de disponibilidade
   "ponto-atendente",      // a chave da atendente vira registro de ponto, com relatorio
+  "crm-no-backend",       // /app serve o CRM pelo proprio servidor (rota de fuga)
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -62,6 +64,42 @@ app.get("/health", (_req, res) => res.json({
   no_ar_desde: new Date(NO_AR_DESDE).toISOString(),
   recursos: RECURSOS,
 }));
+
+/* O CRM servido pelo próprio backend, em /app.
+
+   Rota de fuga: o site tem domínio e hospedagem próprios (Cloudflare), mas
+   quando aquela publicação falha a equipe fica com a tela antiga e o servidor
+   novo — e nada funciona. Aqui a tela vem do mesmo deploy que o servidor,
+   então as duas pontas nunca ficam em versões diferentes.
+
+   ANTES do express.static de propósito: o static responderia primeiro (ele
+   resolve /app -> app.html pela opção `extensions`) e aplicaria o cache dele.
+   E cache é exatamente o que esta rota existe para não ter — `cacheControl:
+   false` porque o sendFile sobrescreve o cabeçalho se a gente não desligar. */
+const semCache = { cacheControl: false, headers: { "Cache-Control": "no-store" } };
+
+/* Servido daqui, o CRM precisa falar com ESTE servidor.
+
+   O arquivo publicado no site aponta para o endereco fixo do backend, o que e
+   certo la (origens diferentes). Aqui a origem e a mesma, entao injetamos o
+   endereco na hora: sem isso a tela abria e o login dava "sem conexao com o
+   servidor", porque ela procurava a API do lado de fora.
+
+   Como bonus, some o CORS: mesma origem para tela e API. */
+let appBruto = null;
+app.get(["/app", "/app.html"], (req, res) => {
+  try {
+    if (appBruto === null) appBruto = readFileSync(path.join(publicDir, "app.html"), "utf8");
+    const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+    res.set("Cache-Control", "no-store").type("html")
+      .send(appBruto.replace("<script>", `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`));
+  } catch (e) {
+    res.status(404).send("O CRM ainda nao foi publicado neste servidor.");
+  }
+});
+// Qual versão do CRM este servidor está entregando.
+app.get("/versao.txt", (_req, res) =>
+  res.type("text/plain").sendFile(path.join(publicDir, "versao.txt"), semCache));
 
 // Páginas públicas do cadastro (servidas pelo próprio backend, para o link ser um só).
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");

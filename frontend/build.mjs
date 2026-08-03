@@ -65,6 +65,33 @@ console.log(`index.html atualizado — app: ${kb(out.code.length)} · total: ${k
 await writeFile(path.join(dir, "versao.txt"), build + "\n", "utf8");
 console.log("versao.txt gravado");
 
+/* CÓPIA DE SEGURANÇA DO CRM DENTRO DO BACKEND.
+
+   O site é publicado pelo Cloudflare, mas em 03/08 ele parou de publicar e a
+   equipe ficou dias com a versão antiga — o servidor já com a regra nova, a
+   tela ainda com a antiga, e ninguém conseguia trabalhar.
+
+   O backend (Railway) publica de forma confiável, então o CRM vai junto com
+   ele: SITE_DO_SERVIDOR/app abre a mesma tela, sempre na versão que acabou de
+   subir. Não substitui o domínio próprio — é a rota de fuga para quando a
+   publicação do site falhar, e serve de referência para comparar versões.
+
+   O service worker e o manifesto vão para a RAIZ de public/ de propósito: o
+   navegador só entrega push para um service worker no escopo da origem. */
+const paraOBackend = [
+  ["index.html", "app.html"],
+  ["sw.js", "sw.js"],
+  ["manifest.json", "manifest.json"],
+  ["icone-192.png", "icone-192.png"],
+  ["icone-512.png", "icone-512.png"],
+  ["versao.txt", "versao.txt"],
+];
+for (const [origem, destino] of paraOBackend) {
+  try { await copyFile(path.join(dir, origem), path.join(dir, "..", "backend", "public", destino)); }
+  catch (e) { console.warn(`aviso: não copiei ${origem} — ${e.message}`); }
+}
+console.log("CRM copiado para o backend (rota /app)");
+
 /* As páginas de cadastro e de definir senha moram no backend (é ele quem tem as
    rotas), mas também precisam ser servidas pelo SITE, para o link que a gestão
    manda no grupo sair no domínio da imobiliária em vez do endereço do servidor.
