@@ -4097,6 +4097,47 @@ function PontoDaEquipe({acoes,isMobile,ehGestor}){
   </div>;
 }
 
+/* ===== ATENDIMENTO (a atendente) =====
+
+   Bloco separado do funil dos corretores porque o trabalho é outro. Ela não
+   agenda visita nem fecha venda: ela pega o lead que acabou de entrar, fala
+   primeiro e repassa. Medir a atendente por conversão é cobrar dela uma coisa
+   que não está no papel dela.
+
+   Os números vêm do PRIMEIRO CONTATO de cada conversa, não de quem está com o
+   lead agora — senão tudo que ela repassou sumiria da conta dela. */
+function BlocoAtendimento({linhas,isMobile}){
+  if(!linhas||!linhas.length) return null;
+  const tempo=(min)=>min<60?`${Math.round(min)} min`:`${Math.floor(min/60)}h${String(Math.round(min%60)).padStart(2,"0")}`;
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="msg" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Primeiro atendimento</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      A função da atendente é falar primeiro e repassar — por isso aqui não tem visita nem venda.
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {linhas.map(a=><div key={a.id} style={{background:C.surface,borderRadius:12,padding:"12px 13px"}}>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9}}>{a.nome}</div>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(96px,1fr))",gap:10}}>
+          {[["Recebidos",a.recebidos,null],
+            ["Falou primeiro",a.primeiro_contato,null],
+            ["Tempo até falar",tempo(a.primeira_resposta_mediana_min),null],
+            ["Repassados",a.repassados,null],
+            ["Ainda com ela",a.com_ela,null],
+            // O único número que merece alarme: lead que entrou e ninguém falou.
+            ["Sem contato",a.sem_contato,a.sem_contato>0?C.hot:null]].map(([t,v,cor])=>
+            <div key={t}>
+              <div style={{fontFamily:MONO,color:cor||C.ink,fontSize:17,fontWeight:700,lineHeight:1.1}}>{v}</div>
+              <div style={{color:C.faint,fontSize:10.5}}>{t}</div>
+            </div>)}
+        </div>
+      </div>)}
+    </div>
+  </div>;
+}
+
 function Relatorios({acoes,session,pickable,isMobile}){
   const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
   const [dados,setDados]=useState(null);
@@ -4149,13 +4190,15 @@ function Relatorios({acoes,session,pickable,isMobile}){
       {/* Só quem supervisiona vê o ranking: é material de decisão sobre pessoas,
           não painel de auto-avaliação do corretor. */}
       {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile}/>}
+      <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
         {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
           <Avatar ini={initials(a.nome)} color={COLORS[[...a.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={26}/>
           <span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(a.nome)}</span></button>)}
       </div>}
 
-      {!linha?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum atendente cadastrado ainda.</div>
+      {!linha?((dados.atendimento||[]).length?null
+        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
       :<React.Fragment>
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <Avatar ini={initials(linha.nome)} color={COLORS[[...linha.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={46}/>

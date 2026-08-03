@@ -46,10 +46,14 @@ r.get("/", (req, res) => {
   const de = req.query.de ? inicioDoDia(req.query.de) : ate - 30 * 86400000;
   if (!isFinite(de) || !isFinite(ate)) return res.status(400).json({ error: "Período inválido." });
 
-  // Quem supervisiona vê a equipe toda; o corretor vê só a própria linha.
+  /* CORRETORES na tabela do funil. A atendente saía aqui junto, com colunas de
+     visitas agendadas, vendas e conversão — e nada disso é função dela: ela faz
+     o primeiro atendimento e repassa. Pior: como o lead deixa de ser dela no
+     repasse, o trabalho que ela fez sumia da conta. Ela tem um bloco próprio,
+     logo abaixo, medido pelo que ela de fato faz. */
   const equipe = supervisiona(req.user)
-    ? db.prepare(`SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role IN ('corretor','sdr') AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
-    : db.prepare("SELECT id,name,role FROM users WHERE id=?").all(req.user.id);
+    ? db.prepare(`SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
+    : db.prepare("SELECT id,name,role FROM users WHERE id=? AND role='corretor'").all(req.user.id);
 
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?")
     .all(req.user.org_id, de, ate);
@@ -91,7 +95,47 @@ r.get("/", (req, res) => {
     valor_vendido: leads.reduce((s, l) => s + (l.sale_value || 0), 0),
   } : null;
 
-  res.json({ periodo: { de, ate }, total, atendentes: linhas });
+  /* ===== ATENDIMENTO (a atendente) =====
+
+     Medido pelo PRIMEIRO CONTATO, não por quem está com o lead agora. É a
+     única forma correta: o lead que ela atendeu e repassou não está mais na
+     conta dela, então contar por `assigned_to` apagaria quase todo o trabalho
+     dela do relatório.
+
+     A primeira mensagem enviada de cada conversa diz quem fez esse contato e a
+     que horas — que é exatamente o indicador dela. */
+  const sdrs = supervisiona(req.user)
+    ? db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.role='sdr' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
+    : db.prepare("SELECT id,name FROM users WHERE id=? AND role='sdr'").all(req.user.id);
+
+  const primeiroContato = db.prepare(`
+    SELECT m.lead_id, m.from_user_id, MIN(m.created_at) AS quando
+    FROM messages m WHERE m.direction='out' AND m.from_user_id IS NOT NULL
+    GROUP BY m.lead_id`).all();
+  const porLead = new Map(primeiroContato.map(x => [x.lead_id, x]));
+
+  const atendimento = sdrs.map(u => {
+    const dela = leads.filter(l => { const c = porLead.get(l.id); return c && c.from_user_id === u.id; });
+    const esperas = dela.map(l => (porLead.get(l.id).quando - l.created_at) / 60000).filter(n => n >= 0);
+    // Repassado = ela abriu a conversa e hoje o lead está com outra pessoa.
+    const repassados = dela.filter(l => l.assigned_to && l.assigned_to !== u.id);
+    const naFila = leads.filter(l => !l.assigned_to);
+    return {
+      id: u.id, nome: u.name, papel: "sdr",
+      // Quantos chegaram para ela no período (inclui os que ela já repassou).
+      recebidos: leads.filter(l => l.assigned_to === u.id).length + repassados.length,
+      primeiro_contato: dela.length,
+      primeira_resposta_mediana_min: mediana(esperas) ?? 0,
+      // Sem resposta: entrou no período, ninguém falou, e ainda está na fila
+      // ou com ela. É o furo que a gestão precisa ver.
+      sem_contato: leads.filter(l => !porLead.get(l.id) && (!l.assigned_to || l.assigned_to === u.id)).length,
+      repassados: repassados.length,
+      com_ela: leads.filter(l => l.assigned_to === u.id).length,
+      na_fila: naFila.length,
+    };
+  });
+
+  res.json({ periodo: { de, ate }, total, atendentes: linhas, atendimento });
 });
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
