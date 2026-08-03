@@ -9,9 +9,14 @@ const r = Router();
 // Se `configurado` vier false, a tela nem oferece a opção.
 r.get("/push/chave", (_req, res) => res.json({ configurado: configurado(), chave: chavePublica() }));
 
-r.use(authRequired);
+/* CUIDADO: aqui havia um `r.use(authRequired)`. Como este roteador é montado
+   na raiz ("/"), ele não trancava só as rotas de push: trancava tudo que fosse
+   registrado DEPOIS dele no server.js — e /integracoes vem depois. O
+   diagnóstico das integrações respondia "Não autenticado" para o navegador, o
+   que fazia parecer erro de configuração do R2 quando o problema era este.
+   Mesma armadilha já documentada em assinatura.routes.js. Login rota a rota. */
 
-r.post("/push/inscrever", (req, res) => {
+r.post("/push/inscrever", authRequired, (req, res) => {
   if (!configurado()) return res.status(503).json({ error: "Notificações não configuradas no servidor." });
   try {
     inscrever(req.user.id, req.body && req.body.subscription);
@@ -21,7 +26,7 @@ r.post("/push/inscrever", (req, res) => {
   }
 });
 
-r.post("/push/cancelar", (req, res) => {
+r.post("/push/cancelar", authRequired, (req, res) => {
   const { endpoint } = req.body || {};
   if (endpoint) cancelar(endpoint);
   res.json({ ok: true, aparelhos: inscricoesDe(req.user.id) });
@@ -29,12 +34,12 @@ r.post("/push/cancelar", (req, res) => {
 
 // Quantos aparelhos deste usuário estão ativos — a tela usa para dizer
 // "ativado neste aparelho" em vez de deixar o corretor no escuro.
-r.get("/push/situacao", (req, res) =>
+r.get("/push/situacao", authRequired, (req, res) =>
   res.json({ configurado: configurado(), aparelhos: inscricoesDe(req.user.id) }));
 
 // Manda uma notificação de teste para o próprio usuário. Sem isto, a única
 // forma de saber se funcionou seria esperar um lead chegar de verdade.
-r.post("/push/teste", async (req, res) => {
+r.post("/push/teste", authRequired, async (req, res) => {
   const { enviados } = await avisar(req.user.id, {
     titulo: "ConHub", corpo: "Notificação de teste — está funcionando! 🎉",
   });

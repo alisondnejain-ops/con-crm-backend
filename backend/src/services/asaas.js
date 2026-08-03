@@ -12,12 +12,31 @@
    de produção só na de produção. Trocar uma e esquecer a outra dá 401, que é o
    erro mais comum de quem está ligando isso pela primeira vez. */
 
-const CHAVE = process.env.ASAAS_API_KEY || "";
-const SANDBOX = String(process.env.ASAAS_SANDBOX || "").toLowerCase() === "true";
-const BASE = (process.env.ASAAS_API_URL || (SANDBOX ? "https://api-sandbox.asaas.com/v3" : "https://api.asaas.com/v3")).replace(/\/$/, "");
+/* Mesma limpeza do storage.js: aspas, espaço e os sinais < > que sobram quando
+   a chave é colada no painel da hospedagem. Uma chave com `<` na frente dá 401,
+   e o 401 do Asaas não distingue "chave errada" de "chave suja". */
+const limpar = (v) => String(v ?? "").trim().replace(/^["'<]+|["'>]+$/g, "").trim();
+
+const CHAVE = limpar(process.env.ASAAS_API_KEY);
+// Só a primeira palavra: já veio "true    ← comece em teste" colado do passo a passo.
+const SANDBOX = /^true\b/i.test(limpar(process.env.ASAAS_SANDBOX));
+const BASE = (limpar(process.env.ASAAS_API_URL) || (SANDBOX ? "https://api-sandbox.asaas.com/v3" : "https://api.asaas.com/v3")).replace(/\/$/, "");
 // Token que o Asaas devolve no cabeçalho de cada webhook. É o que impede
 // qualquer um de chamar nossa rota dizendo "fulano pagou".
-export const TOKEN_WEBHOOK = process.env.ASAAS_WEBHOOK_TOKEN || "";
+export const TOKEN_WEBHOOK = limpar(process.env.ASAAS_WEBHOOK_TOKEN);
+
+/* Erro clássico: chave de produção ($aact_prod_) com ASAAS_SANDBOX=true, ou o
+   contrário. Dá 401 sem explicação. Avisa no log do start, uma vez. */
+export function ambienteConfere() {
+  if (!CHAVE) return null;
+  // Só os dois casos que dá para afirmar: o prefixo diz o ambiente. Chave em
+  // formato antigo não traz essa marca — nesses casos não inventamos aviso.
+  if (/aact_prod/i.test(CHAVE) && SANDBOX)
+    return "A chave do Asaas é de PRODUÇÃO mas ASAAS_SANDBOX está true. Coloque ASAAS_SANDBOX=false.";
+  if (/aact_hmlg/i.test(CHAVE) && !SANDBOX)
+    return "A chave do Asaas é de TESTE (sandbox) mas ASAAS_SANDBOX está false. Coloque ASAAS_SANDBOX=true.";
+  return null;
+}
 
 export const asaasConfigurado = () => !!CHAVE;
 export const ambienteAsaas = () => (SANDBOX ? "sandbox (teste)" : "produção");

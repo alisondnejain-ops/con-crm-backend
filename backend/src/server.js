@@ -15,7 +15,8 @@ import assinaturaRoutes from "./routes/assinatura.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
-import { pastaLocal, modoArmazenamento } from "./services/storage.js";
+import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
+import { ambienteConfere } from "./services/asaas.js";
 import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
@@ -43,6 +44,7 @@ const RECURSOS = [
   "base-leads",           // exportação e importação da base
   "simulacoes",           // simulação de financiamento na ficha do lead
   "assinatura",           // mensalidade e bloqueio por atraso (Asaas)
+  "conferencia-r2",       // /integracoes aponta qual variável do R2 está errada
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -102,5 +104,14 @@ app.listen(PORT, () => {
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
   console.log(`WhatsApp (Uazapi): ${uazapiConfigured() ? "configurado" : "NÃO configurado — defina UAZAPI_HOST e UAZAPI_TOKEN"}`);
   console.log(`Fotos e vídeos dos imóveis: ${modoArmazenamento()}`);
+  // Erro de digitação nas variáveis é o que mais trava a instalação, e o erro
+  // que Cloudflare e Asaas devolvem não diz qual campo está errado. Aqui diz.
+  const r2 = conferirR2();
+  // Só reclama de quem tentou ligar o R2. Quem roda no disco não preencheu
+  // nada de propósito, e não precisa ver cinco linhas de "está vazia".
+  if (Object.values(r2.campos).some(v => v === "preenchida"))
+    for (const p of r2.problemas) console.log(`Atenção (R2): ${p}`);
+  const asaas = ambienteConfere();
+  if (asaas) console.log(`Atenção (Asaas): ${asaas}`);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });

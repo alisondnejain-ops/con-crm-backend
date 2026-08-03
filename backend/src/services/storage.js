@@ -21,15 +21,82 @@ const PASTA = process.env.UPLOAD_DIR ||
   (process.env.DB_PATH ? path.join(path.dirname(process.env.DB_PATH), "uploads")
                        : path.join(raiz, "..", "..", "uploads"));
 
-const R2 = {
+/* Limpa o que quase sempre vem junto quando alguém cola a chave no painel da
+   hospedagem: espaço sobrando, aspas e os sinais < > que a gente usa em
+   instrução para dizer "coloque seu valor aqui". Uma chave com um `<` na
+   frente é recusada pela Cloudflare com um erro que não explica nada — melhor
+   aceitar e avisar (ver conferirR2) do que quebrar em silêncio. */
+const limpar = (v) => String(v ?? "").trim().replace(/^["'<]+|["'>]+$/g, "").trim();
+
+const CRU = {
   conta: process.env.R2_ACCOUNT_ID,
   chave: process.env.R2_ACCESS_KEY_ID,
   segredo: process.env.R2_SECRET_ACCESS_KEY,
   bucket: process.env.R2_BUCKET,
-  publico: (process.env.R2_PUBLIC_URL || "").replace(/\/$/, ""),
+  publico: process.env.R2_PUBLIC_URL,
+};
+const R2 = {
+  conta: limpar(CRU.conta),
+  chave: limpar(CRU.chave),
+  segredo: limpar(CRU.segredo),
+  bucket: limpar(CRU.bucket),
+  publico: limpar(CRU.publico).replace(/\/$/, ""),
 };
 export const usandoR2 = () => !!(R2.conta && R2.chave && R2.segredo && R2.bucket && R2.publico);
 export const modoArmazenamento = () => (usandoR2() ? "Cloudflare R2" : "disco da hospedagem");
+
+/* Conferência das variáveis do R2, para o painel de integrações.
+
+   Existe porque "não funciona" no R2 é sempre erro de digitação, e o erro que
+   a Cloudflare devolve não diz qual campo está errado. Aqui a gente diz.
+
+   NUNCA devolve o valor de nada — só o diagnóstico. Este endereço é público. */
+const VARS = [
+  { env: "R2_ACCOUNT_ID", campo: "conta", ajuda: "São 32 caracteres (números e letras de a-f). Está na página do R2, no quadro Account ID — ou no meio do endereço do navegador: dash.cloudflare.com/AQUI/r2/overview." },
+  { env: "R2_ACCESS_KEY_ID", campo: "chave", ajuda: "É o Access Key ID que a Cloudflare mostrou ao criar o token do R2." },
+  { env: "R2_SECRET_ACCESS_KEY", campo: "segredo", ajuda: "É o Secret Access Key, mostrado uma única vez ao criar o token. Se perdeu, crie outro token." },
+  { env: "R2_BUCKET", campo: "bucket", ajuda: "O nome exato do bucket, como aparece na lista do R2." },
+  { env: "R2_PUBLIC_URL", campo: "publico", ajuda: "O endereço público do bucket, começando com https://. Ou o domínio que você ligou em Settings > Custom Domains, ou o pub-xxxx.r2.dev de Public Development URL." },
+];
+
+export function conferirR2() {
+  const problemas = [];
+  const campos = {};
+
+  for (const { env, campo, ajuda } of VARS) {
+    const cru = CRU[campo];
+    // A barra no fim da URL pública é legítima — comparamos antes de tirá-la,
+    // senão ela vira falso alarme de "valor sujo".
+    const val = campo === "publico" ? limpar(cru) : R2[campo];
+    if (!val) {
+      campos[env] = "faltando";
+      problemas.push(`${env} está vazia. ${ajuda}`);
+      continue;
+    }
+    campos[env] = "preenchida";
+    if (String(cru).trim() !== val)
+      problemas.push(`${env} veio com aspas, espaço ou os sinais < > em volta. Eu limpei para funcionar, mas corrija no painel: o valor vai sozinho, sem nada em volta.`);
+  }
+
+  // Erros de campo trocado — os que mais custaram tempo na instalação.
+  if (R2.conta) {
+    if (/^cfat[_-]/i.test(R2.conta))
+      problemas.push("R2_ACCOUNT_ID está com o ID do TOKEN (começa com cfat_), não com o ID da CONTA. " + VARS[0].ajuda);
+    else if (!/^[0-9a-f]{32}$/i.test(R2.conta))
+      problemas.push("R2_ACCOUNT_ID não tem a cara de um Account ID. " + VARS[0].ajuda);
+  }
+  if (R2.publico && !/^https?:\/\//i.test(R2.publico))
+    problemas.push("R2_PUBLIC_URL precisa começar com https://.");
+  if (R2.bucket && /[^a-z0-9.-]/.test(R2.bucket))
+    problemas.push("R2_BUCKET tem caractere estranho (espaço, maiúscula ou acento). Copie o nome exato da lista de buckets.");
+
+  return {
+    ligado: usandoR2(),
+    campos,
+    problemas,
+    tudo_certo: usandoR2() && problemas.length === 0,
+  };
+}
 
 // Cadastro de imóveis: só foto e vídeo. É esta lista que `tipoPermitido` guarda.
 const EXTENSOES = {
