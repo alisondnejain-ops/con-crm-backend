@@ -3,9 +3,40 @@ import db from "../db.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { ranking, recomendar, recomendacoes, temposDeResposta, mediana } from "../services/score.js";
+import { ponto, aplicarCorte } from "../services/expediente.js";
 
 const r = Router();
 r.use(authRequired);
+
+/* Ponto das atendentes — diário, semanal e mensal.
+
+   Fica em Relatórios porque é material de gestão, não de operação: quem lê é
+   quem cobra presença. A atendente vê o próprio; a equipe inteira, só o gestor.
+
+   ?periodo=dia|semana|mes  (ou ?de= &ate= para um intervalo à mão) */
+r.get("/ponto", (req, res) => {
+  // O corte das 18:00 fecha o dia de quem esqueceu de sair. Aplicado antes de
+  // somar, senão o relatório mostraria o dia de ontem ainda aberto.
+  try { aplicarCorte(req.user.org_id); } catch (e) {}
+
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const janelas = {
+    dia: [hoje.getTime(), Date.now()],
+    semana: [hoje.getTime() - 6 * 86400000, Date.now()],
+    mes: [hoje.getTime() - 29 * 86400000, Date.now()],
+  };
+  const escolhida = janelas[req.query.periodo] || janelas.semana;
+  const de = req.query.de ? inicioDoDia(req.query.de) : escolhida[0];
+  const ate = req.query.ate ? fimDoDia(req.query.ate) : escolhida[1];
+  if (!isFinite(de) || !isFinite(ate)) return res.status(400).json({ error: "Período inválido." });
+
+  // Gestor vê a equipe; qualquer outro vê só a própria linha.
+  const soMinha = req.user.role !== "adm";
+  const linhas = ponto(req.user.org_id, {
+    de, ate, roles: ["sdr"], userId: soMinha ? req.user.id : null,
+  });
+  res.json({ de, ate, periodo: req.query.periodo || "semana", pessoas: linhas });
+});
 
 // Produtividade por atendente num período.
 //   ?de=2026-07-01&ate=2026-07-31   (sem parâmetros: últimos 30 dias)

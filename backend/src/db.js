@@ -223,6 +223,18 @@ addUserCol("master", "INTEGER DEFAULT 0");
 // Quando a pessoa se prontificou. É o que faz a disponibilidade expirar no fim
 // do expediente: vale só enquanto for da janela de hoje (ver services/expediente.js).
 addUserCol("available_desde", "INTEGER");
+
+/* Registro de ponto da atendente.
+
+   Para o corretor, ligar a chave é "estou de prontidão para receber lead".
+   Para a atendente é outra coisa: ela atende o dia inteiro por definição, e o
+   que interessa é a PRESENÇA — a que horas começou e de onde. Por isso a
+   marcação dela carrega o local e, quando ela não está na imobiliária, o
+   motivo. Sem esses dois campos o registro não serviria de ponto. */
+const dispCols = db.prepare("PRAGMA table_info(disponibilidade_log)").all().map(c => c.name);
+const addDispCol = (name, ddl) => { if (!dispCols.includes(name)) db.exec(`ALTER TABLE disponibilidade_log ADD COLUMN ${name} ${ddl}`); };
+addDispCol("local", "TEXT");        // 'imobiliaria' | 'fora'
+addDispCol("observacao", "TEXT");   // obrigatória quando o local é 'fora'
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
 // Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos

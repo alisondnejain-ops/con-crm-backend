@@ -3,7 +3,7 @@ import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar } from "../services/push.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
-  lerHorario, proximoCorte, PADRAO } from "../services/expediente.js";
+  lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
 
 const r = Router();
 r.use(authRequired);
@@ -15,9 +15,13 @@ r.use(authRequired);
 r.use((req, _res, next) => { try { aplicarCorte(req.user.org_id); } catch (e) {} next(); });
 
 // Quem atende (corretores + SDR) com o status de disponibilidade de hoje.
+/* Quem entra na catraca: só CORRETOR.
+   A atendente saía nesta lista como se fosse mais um de prontidão, e de lá
+   dava para ligar a chave dela com um clique — pulando o ponto. Ela não
+   disputa lead na catraca; o que ela marca é presença. */
 r.get("/attendants", roles("sdr", "adm"), (req, res) => {
   const rows = db.prepare(
-    `SELECT u.id,u.name,u.role,u.available FROM users u WHERE u.org_id = ? AND u.role IN ('corretor','sdr')${semMaster("u")} ORDER BY u.name`
+    `SELECT u.id,u.name,u.role,u.available FROM users u WHERE u.org_id = ? AND u.role = 'corretor'${semMaster("u")} ORDER BY u.name`
   ).all(req.user.org_id);
   res.json(rows.map(u => ({ ...u, available: !!u.available })));
 });
@@ -59,6 +63,14 @@ r.post("/availability", (req, res) => {
   if (!alvo) return res.status(404).json({ error: "Pessoa não encontrada" });
 
   const ligar = !!available;
+  /* Ponto da atendente: entrada só é aceita com o local declarado, e "fora da
+     imobiliária" exige o motivo. A conferência é aqui, no servidor — deixar
+     isso só no popup permitiria bater ponto em branco chamando a rota direto.
+     Vale inclusive quando é o gestor quem marca por ela. */
+  const impedimento = validarPonto({ role: alvo.role, ativo: ligar,
+    local: req.body?.local, observacao: req.body?.observacao });
+  if (impedimento) return res.status(400).json({ error: impedimento, precisa_local: true });
+
   // Clicar duas vezes no mesmo estado não vira duas linhas no histórico.
   if (!!alvo.available === ligar) return res.json({ ok: true, sem_mudanca: true, available: ligar });
 
@@ -66,10 +78,13 @@ r.post("/availability", (req, res) => {
     .run(ligar ? 1 : 0, ligar ? Date.now() : null, alvo.id);
   registrar({ orgId: req.user.org_id, userId: alvo.id, ativo: ligar,
     origem: target === req.user.id ? "proprio" : "gestor",
-    autor: target === req.user.id ? null : { id: req.user.id, name: req.user.name } });
+    autor: target === req.user.id ? null : { id: req.user.id, name: req.user.name },
+    local: ligar && ehPonto(alvo.role) ? req.body.local : null,
+    observacao: ligar && ehPonto(alvo.role) && req.body.local === "fora"
+      ? String(req.body.observacao).trim().slice(0, 400) : null });
 
   const horario = lerHorario(expedienteDa(req.user.org_id));
-  res.json({ ok: true, available: ligar,
+  res.json({ ok: true, available: ligar, ponto: ehPonto(alvo.role),
     vale_ate: ligar && horario ? proximoCorte(horario) : null });
 });
 

@@ -415,7 +415,18 @@ function ConCRM(){
     repassar:acao((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     assumir:acao((leadId)=>api("/distribution/assumir",{method:"POST",body:{lead_id:leadId}})),
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
-    disponibilidade:acao((userId,available)=>api("/distribution/availability",{method:"POST",body:{user_id:userId,available}})),
+    /* `extra` leva o ponto da atendente: local e, quando ela está fora, o motivo.
+
+       Não usa o `acao()` comum porque ele engole o erro, e aqui o erro é a
+       regra funcionando: se o servidor recusa o ponto sem local, a tela precisa
+       dizer isso em vez de fechar o popup como se tivesse dado certo. */
+    disponibilidade:async(userId,available,extra)=>{
+      try{
+        const r=await api("/distribution/availability",{method:"POST",body:{user_id:userId,available,...(extra||{})}});
+        await recarregar();
+        return r;
+      }catch(e){ setErro(e.message); throw e; }
+    },
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
@@ -501,6 +512,7 @@ function ConCRM(){
     expediente:()=>api("/distribution/expediente"),
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
+    ponto:(params)=>api("/reports/ponto?"+new URLSearchParams(params||{})),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -1014,7 +1026,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   }
   const setStatus=(id,status)=>acoes.mudarEtapa(id,status);
   const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
-  const toggleAvail=(id,estaDisponivel)=>acoes.disponibilidade(id,!estaDisponivel);
+  const toggleAvail=(id,estaDisponivel,extra)=>acoes.disponibilidade(id,!estaDisponivel,extra);
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
@@ -1076,7 +1088,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
-        {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={()=>toggleAvail(session.id,euDisponivel)} name={session.name} acoes={acoes} isMobile={isMobile}/>}
+        {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
         {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:false}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
@@ -1721,35 +1733,129 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
 }
 
 /* ===== DISPONIBILIDADE (corretor) ===== */
-function Disponibilidade({avail,toggle,name,acoes,isMobile}){
+function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
   const [exp,setExp]=useState(null);
   const [meu,setMeu]=useState(null);
+  const [perguntando,setPerguntando]=useState(false);
+  const [local,setLocal]=useState(null);
+  const [motivo,setMotivo]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [erro,setErro]=useState("");
   useEffect(()=>{
     acoes.expediente().then(setExp).catch(()=>{});
     acoes.historicoDisponibilidade({dias:7}).then(d=>setMeu(d.eventos||[])).catch(()=>setMeu([]));
   },[avail]);
 
   const hhmm=(ms)=>new Date(ms).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+
+  /* A atendente não escolhe se vai atender — ela atende o expediente inteiro.
+     O que a chave dela registra é PRESENÇA, então a entrada passa pelo ponto:
+     de onde está começando e, se está fora, por quê. */
+  const clicou=()=>{
+    setErro("");
+    if(ehPonto&&!avail){ setLocal(null); setMotivo(""); setPerguntando(true); return; }
+    toggle().catch(e=>setErro(e.message));
+  };
+  const baterPonto=async(escolha)=>{
+    if(escolha==="fora"&&motivo.trim().length<3){ setErro("Escreva o motivo para registrar."); return; }
+    setEnviando(true); setErro("");
+    try{ await toggle({local:escolha,observacao:escolha==="fora"?motivo.trim():undefined});
+      setPerguntando(false); }
+    catch(e){ setErro(e.message); }
+    finally{ setEnviando(false); }
+  };
+
+  const titulo=ehPonto?(avail?"Atendimento iniciado":"Atendimento não iniciado")
+    :(avail?"Você está disponível hoje":"Você está indisponível");
+  const rotuloBotao=ehPonto?(avail?"Encerrar meu atendimento":"Iniciar meu atendimento")
+    :(avail?"Ficar indisponível":"Me prontificar para atendimento");
+
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:16}}>
     <div style={{maxWidth:520,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
-        <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={avail?"toggleOn":"toggleOff"} size={30}/></div>
-        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{avail?"Você está disponível hoje":"Você está indisponível"}</div>
-        <div style={{color:C.sub,fontSize:13,marginTop:6,lineHeight:1.5}}>{avail?"A SDR pode te transferir novos leads da campanha na catraca de hoje.":"Enquanto indisponível, você não entra na catraca e não recebe leads novos. Fale com a SDR e ative aqui."}</div>
-        {/* Dizer a hora do corte ANTES de ele acontecer é o que evita o corretor
-            achar que o sistema o desligou por conta própria. */}
+        <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={ehPonto?"clock":(avail?"toggleOn":"toggleOff")} size={30}/></div>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{titulo}</div>
+        <div style={{color:C.sub,fontSize:13,marginTop:6,lineHeight:1.5}}>
+          {ehPonto
+            ?(avail?"Seu ponto de hoje está aberto. A gestão acompanha o registro nos relatórios."
+                   :"Marque o início do seu atendimento. O registro fica no relatório de ponto.")
+            :(avail?"A SDR pode te transferir novos leads da campanha na catraca de hoje."
+                   :"Enquanto indisponível, você não entra na catraca e não recebe leads novos. Fale com a SDR e ative aqui.")}
+        </div>
+        {/* Dizer a hora do corte ANTES de ele acontecer é o que evita achar que
+            o sistema desligou por conta própria. */}
         {exp&&exp.fim&&<div style={{color:avail?C.greenDeep:C.faint,background:avail?C.greenSoft:"transparent",
           fontSize:12,fontWeight:600,borderRadius:9,padding:avail?"7px 11px":0,marginTop:12,display:"inline-flex",alignItems:"center",gap:6}}>
           <Icon n="clock" size={13}/>
-          {avail?`Vale até as ${exp.fim} de hoje`:`A prontidão vale até as ${exp.fim} de cada dia`}</div>}
-        <div><button onClick={toggle} style={{marginTop:18,background:avail?C.coolSoft:C.green,color:avail?C.sub:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,padding:"10px 22px",borderRadius:12}}>{avail?"Ficar indisponível":"Me prontificar para atendimento"}</button></div>
+          {ehPonto
+            ?(avail?`Fecha sozinho às ${exp.fim} se você não encerrar`:`O ponto fecha às ${exp.fim} todos os dias`)
+            :(avail?`Vale até as ${exp.fim} de hoje`:`A prontidão vale até as ${exp.fim} de cada dia`)}</div>}
+        {erro&&!perguntando&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:9,padding:"9px 11px",marginTop:12,lineHeight:1.45}}>{erro}</div>}
+        <div><button onClick={clicou} style={{marginTop:18,background:avail?C.coolSoft:C.green,color:avail?C.sub:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,padding:"10px 22px",borderRadius:12}}>{rotuloBotao}</button></div>
       </div>
 
+      {/* Popup do ponto. Em fluxo fixo, sem portal: o ReactDOM embutido não tem
+          createPortal — foi o que causou a tela branca da simulação. */}
+      {perguntando&&<React.Fragment>
+        <div onClick={()=>!enviando&&setPerguntando(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:40}}/>
+        <div style={{position:"fixed",left:"50%",top:"50%",transform:"translate(-50%,-50%)",zIndex:41,
+          width:"min(420px, calc(100vw - 32px))",background:C.card,borderRadius:18,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,.28)"}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700,marginBottom:6}}>Você já está na imobiliária?</div>
+          <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:16}}>
+            Esta resposta fica registrada no seu ponto, com o horário.
+          </div>
+
+          <button onClick={()=>baterPonto("imobiliaria")} disabled={enviando}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left",
+              background:C.greenSoft,border:`1px solid ${C.green}55`,borderRadius:12,padding:"13px 14px",cursor:"pointer",marginBottom:9}}>
+            <Icon n="check" size={17} color={C.greenDeep}/>
+            <span style={{flex:1}}>
+              <span style={{display:"block",color:C.greenDeep,fontSize:13.5,fontWeight:700}}>Sim, iniciei o atendimento</span>
+              <span style={{display:"block",color:C.sub,fontSize:11.5}}>Estou na imobiliária agora</span>
+            </span>
+          </button>
+
+          <button onClick={()=>setLocal("fora")} disabled={enviando}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left",
+              background:local==="fora"?C.amberSoft:C.surface,border:`1px solid ${local==="fora"?C.amber+"66":C.line}`,
+              borderRadius:12,padding:"13px 14px",cursor:"pointer"}}>
+            <Icon n="pin" size={17} color={local==="fora"?"#8a6d1f":C.sub}/>
+            <span style={{flex:1}}>
+              <span style={{display:"block",color:local==="fora"?"#8a6d1f":C.ink,fontSize:13.5,fontWeight:700}}>Ainda estou fora da imobiliária</span>
+              <span style={{display:"block",color:C.sub,fontSize:11.5}}>Preciso explicar o motivo</span>
+            </span>
+          </button>
+
+          {local==="fora"&&<div style={{marginTop:12}}>
+            <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Motivo</div>
+            <textarea value={motivo} onChange={e=>setMotivo(e.target.value)} rows={3} autoFocus
+              placeholder="Ex.: a caminho, atendendo cliente na rua, consulta médica…"
+              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+                background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
+            <button onClick={()=>baterPonto("fora")} disabled={enviando||motivo.trim().length<3}
+              style={{width:"100%",marginTop:9,background:motivo.trim().length<3?C.faint:C.greenDeep,color:"#fff",border:"none",
+                borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:motivo.trim().length<3?"default":"pointer"}}>
+              {enviando?"Enviando…":"Enviar e iniciar atendimento"}</button>
+          </div>}
+
+          {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:9,padding:"9px 11px",marginTop:11,lineHeight:1.45}}>{erro}</div>}
+          <button onClick={()=>setPerguntando(false)} disabled={enviando}
+            style={{width:"100%",marginTop:10,background:"transparent",color:C.faint,border:"none",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </React.Fragment>}
+
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Icon n="transfer" size={15} color={C.green}/> Como funciona a catraca</div>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+          <Icon n={ehPonto?"clock":"transfer"} size={15} color={C.green}/> {ehPonto?"Como funciona o seu ponto":"Como funciona a catraca"}</div>
         <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
-          Só recebe lead quem se prontifica no dia. A SDR confirma a sua disponibilidade e transfere os leads manualmente, um a um, apenas para quem está ativo — mantendo a fila justa.
-          {exp&&exp.fim&&<React.Fragment><br/><br/>Todo dia às <b style={{color:C.ink}}>{exp.fim}</b> a prontidão de todo mundo é encerrada. No dia seguinte é preciso se prontificar de novo — o que vale é você dizer que está pronto, não o sistema lembrar por você.</React.Fragment>}
+          {ehPonto
+            ?<React.Fragment>Você atende o expediente inteiro, então aqui não é prontidão e sim <b style={{color:C.ink}}>registro de ponto</b>: a que horas começou, de onde, e a que horas encerrou. A gestão acompanha o diário, o semanal e o mensal nos relatórios.</React.Fragment>
+            :"Só recebe lead quem se prontifica no dia. A SDR confirma a sua disponibilidade e transfere os leads manualmente, um a um, apenas para quem está ativo — mantendo a fila justa."}
+          {exp&&exp.fim&&<React.Fragment><br/><br/>
+            {ehPonto
+              ?<React.Fragment>Se você esquecer de encerrar, o sistema fecha às <b style={{color:C.ink}}>{exp.fim}</b> — e o relatório mostra que foi fechamento automático, não saída marcada por você.</React.Fragment>
+              :<React.Fragment>Todo dia às <b style={{color:C.ink}}>{exp.fim}</b> a prontidão de todo mundo é encerrada. No dia seguinte é preciso se prontificar de novo — o que vale é você dizer que está pronto, não o sistema lembrar por você.</React.Fragment>}
+          </React.Fragment>}
         </div>
       </div>
 
@@ -1886,7 +1992,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {brokers.length===0&&<span style={{color:C.faint,fontSize:12}}>Ninguém cadastrado ainda — mande o link de cadastro para a equipe.</span>}
-          {brokers.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on)} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
+          {brokers.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on).catch(()=>{})} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
             <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span><Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
         </div>
         <div style={{color:C.faint,fontSize:11,marginTop:8}}>Clique para marcar quem falou com você e está pronto para atender. Só quem está verde entra na catraca.</div>
@@ -3892,6 +3998,93 @@ function Conexao({conecta}){
 const hojeISO=()=>new Date().toISOString().slice(0,10);
 const diasAtras=(n)=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 
+/* ===== PONTO DAS ATENDENTES =====
+   Diário, semanal e mensal. A atendente enxerga o próprio; a equipe inteira,
+   só o gestor (quem filtra é o servidor, não esta tela).
+
+   Duas colunas carregam o peso: "de onde" (imobiliária ou fora, com o motivo
+   que ela escreveu) e "fechado pelo sistema" — que é o dia em que ela não
+   marcou a saída e o corte das 18:00 fechou por ela. */
+function PontoDaEquipe({acoes,isMobile,ehGestor}){
+  const [d,setD]=useState(null);
+  const [periodo,setPeriodo]=useState("semana");
+  const [aberta,setAberta]=useState(null);   // pessoa com os dias expandidos
+  useEffect(()=>{ setD(null); acoes.ponto({periodo}).then(setD).catch(()=>setD({pessoas:[]})); },[periodo]);
+
+  const hhmm=(ms)=>ms?new Date(ms).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"—";
+  const dia=(ms)=>new Date(ms).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  const tempo=(min)=>min<60?`${min} min`:`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`;
+  const ROTULOS={dia:"Hoje",semana:"7 dias",mes:"30 dias"};
+
+  if(!d) return null;
+  if(!d.pessoas.length) return null;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="clock" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>{ehGestor?"Ponto das atendentes":"Meu ponto"}</span>
+      <div style={{display:"flex",gap:5}}>
+        {["dia","semana","mes"].map(k=><button key={k} onClick={()=>setPeriodo(k)}
+          style={{fontSize:11.5,fontWeight:600,padding:"5px 10px",borderRadius:999,border:"none",cursor:"pointer",
+            background:periodo===k?C.greenDeep:C.surface,color:periodo===k?"#fff":C.sub}}>{ROTULOS[k]}</button>)}
+      </div>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      Registro de presença: início, encerramento e de onde o atendimento começou.
+    </div>
+
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {d.pessoas.map(p=><div key={p.id} style={{background:C.surface,borderRadius:12,padding:"11px 12px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 130px",minWidth:0}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{p.nome}</div>
+            <div style={{color:C.faint,fontSize:10.5}}>
+              {p.dias_com_registro} dia(s) com registro
+              {p.dias_fora>0?` · ${p.dias_fora} começou fora`:""}
+              {p.dias_sem_saida>0?` · ${p.dias_sem_saida} sem marcar saída`:""}
+            </div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:15,fontWeight:700,lineHeight:1}}>{tempo(p.total_minutos)}</div>
+            <div style={{color:C.faint,fontSize:10}}>no período</div>
+          </div>
+          {p.dias.length>0&&<button onClick={()=>setAberta(a=>a===p.id?null:p.id)}
+            style={{background:"transparent",border:"none",cursor:"pointer",color:C.greenMid,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+            <span style={{display:"inline-flex",transform:aberta===p.id?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={12}/></span>
+            {aberta===p.id?"ocultar":"ver dias"}</button>}
+        </div>
+
+        {aberta===p.id&&<div style={{marginTop:10,borderTop:`1px solid ${C.line}`,paddingTop:8,overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:420}}>
+            <thead><tr>
+              {["Dia","Entrada","Saída","Total","De onde"].map(h=>
+                <th key={h} style={{textAlign:"left",color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",padding:"4px 6px",whiteSpace:"nowrap"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>{p.dias.map(x=><React.Fragment key={x.dia}>
+              <tr style={{borderTop:`1px solid ${C.line}`}}>
+                <td style={{padding:"6px",fontFamily:MONO,fontSize:11.5,color:C.sub,whiteSpace:"nowrap"}}>{dia(x.dia)}</td>
+                <td style={{padding:"6px",fontFamily:MONO,fontSize:11.5,color:C.ink}}>{hhmm(x.entrada)}</td>
+                <td style={{padding:"6px",fontFamily:MONO,fontSize:11.5,color:x.fechado_pelo_sistema?C.faint:C.ink,whiteSpace:"nowrap"}}>
+                  {hhmm(x.saida)}{x.fechado_pelo_sistema&&<span style={{fontFamily:FONT,fontSize:9.5,color:C.faint}}> auto</span>}</td>
+                <td style={{padding:"6px",fontFamily:MONO,fontSize:11.5,color:C.ink,fontWeight:700}}>{tempo(x.minutos)}</td>
+                <td style={{padding:"6px"}}>
+                  {x.local==="fora"
+                    ?<span style={{color:"#8a6d1f",background:C.amberSoft,fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:999,whiteSpace:"nowrap"}}>fora</span>
+                    :x.local==="imobiliaria"
+                    ?<span style={{color:C.greenDeep,background:C.greenSoft,fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:999,whiteSpace:"nowrap"}}>imobiliária</span>
+                    :<span style={{color:C.faint,fontSize:10.5}}>—</span>}
+                </td>
+              </tr>
+              {x.observacao&&<tr><td colSpan={5} style={{padding:"0 6px 7px 6px",color:C.sub,fontSize:11.5,lineHeight:1.45}}>
+                <Icon n="msg" size={10} color={C.faint}/> {x.observacao}</td></tr>}
+            </React.Fragment>)}</tbody>
+          </table>
+        </div>}
+      </div>)}
+    </div>
+  </div>;
+}
+
 function Relatorios({acoes,session,pickable,isMobile}){
   const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
   const [dados,setDados]=useState(null);
@@ -3916,6 +4109,9 @@ function Relatorios({acoes,session,pickable,isMobile}){
 
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:920,margin:"0 auto"}}>
+      {/* Ponto das atendentes. Fica no topo dos relatórios porque é a primeira
+          coisa que a gestão confere de manhã: quem abriu, a que horas e de onde. */}
+      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={session.role==="adm"}/>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:14,marginBottom:16}}>
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
           {atalho("7 dias",7)}{atalho("30 dias",30)}{atalho("90 dias",90)}

@@ -57,10 +57,33 @@ export function proximoCorte(horario, agora = Date.now()) {
   return agora < hoje ? hoje : emDia(agora + 86400000, horario);
 }
 
-export function registrar({ orgId, userId, ativo, origem, autor }) {
-  db.prepare(`INSERT INTO disponibilidade_log (id,org_id,user_id,ativo,origem,autor_id,autor_nome,created_at)
-              VALUES (?,?,?,?,?,?,?,?)`).run("dp_" + randomUUID(), orgId, userId,
-    ativo ? 1 : 0, origem, autor?.id || null, autor?.name || null, Date.now());
+export function registrar({ orgId, userId, ativo, origem, autor, local = null, observacao = null, quando = Date.now() }) {
+  db.prepare(`INSERT INTO disponibilidade_log (id,org_id,user_id,ativo,origem,autor_id,autor_nome,local,observacao,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?)`).run("dp_" + randomUUID(), orgId, userId,
+    ativo ? 1 : 0, origem, autor?.id || null, autor?.name || null, local, observacao, quando);
+}
+
+/* PONTO DA ATENDENTE
+
+   Para o corretor, a chave significa "estou de prontidão para receber lead" —
+   ele escolhe se quer entrar na fila do dia. Para a atendente não existe essa
+   escolha: ela atende o expediente inteiro por definição. O que a chave dela
+   registra é PRESENÇA, e por isso vira ponto.
+
+   A trava está aqui, no servidor, e não só na tela: a marcação de entrada só
+   é aceita com o local declarado, e "fora da imobiliária" exige o motivo
+   escrito. Deixar isso a cargo do popup seria deixar a porta aberta — bastaria
+   chamar a rota direto para bater um ponto em branco. */
+export const LOCAIS = ["imobiliaria", "fora"];
+export const ehPonto = (role) => role === "sdr";
+
+export function validarPonto({ role, ativo, local, observacao }) {
+  if (!ehPonto(role) || !ativo) return null;   // saída e corretor não pedem nada
+  if (!LOCAIS.includes(local))
+    return "Diga se você já está na imobiliária ou ainda está fora antes de iniciar o atendimento.";
+  if (local === "fora" && String(observacao || "").trim().length < 3)
+    return "Escreva o motivo de estar fora da imobiliária.";
+  return null;
 }
 
 /* Derruba quem ficou de ontem. Idempotente: rodar dez vezes seguidas não muda
@@ -112,6 +135,75 @@ export function aplicarCorteEmTodas(agora = Date.now()) {
 export function agendarCorte() {
   aplicarCorteEmTodas();
   return setInterval(() => aplicarCorteEmTodas(), 60000);
+}
+
+/* Ponto por pessoa e por dia, para o relatório do gestor.
+
+   Uma linha por DIA trabalhado: primeira entrada, última saída, total somado e
+   como a saída aconteceu. Se o dia terminou sem a pessoa marcar a saída, o
+   corte das 18:00 fecha por ela — e o relatório diz isso, porque "esqueceu de
+   sair" e "trabalhou até as 18:00" não são a mesma coisa. */
+export function ponto(orgId, { de, ate, userId = null, roles = ["sdr"] } = {}) {
+  const inicio = new Date(de); inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(ate); fim.setHours(23, 59, 59, 999);
+
+  const filtroPapel = roles.length ? ` AND u.role IN (${roles.map(() => "?").join(",")})` : "";
+  const args = [orgId, ...roles];
+  let filtroUser = "";
+  if (userId) { filtroUser = " AND u.id = ?"; args.push(userId); }
+
+  const pessoas = db.prepare(`SELECT u.id,u.name,u.role FROM users u
+    WHERE u.org_id = ?${filtroPapel}${filtroUser} AND u.status = 'ativo'${semMaster("u")}
+    ORDER BY u.name`).all(...args);
+
+  const eventos = db.prepare(`SELECT * FROM disponibilidade_log
+    WHERE org_id = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at`)
+    .all(orgId, inicio.getTime(), fim.getTime());
+
+  const diaDe = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const agora = Date.now();
+
+  return pessoas.map(p => {
+    const meus = eventos.filter(e => e.user_id === p.id);
+    const porDia = new Map();
+    for (const e of meus) {
+      const k = diaDe(e.created_at);
+      if (!porDia.has(k)) porDia.set(k, []);
+      porDia.get(k).push(e);
+    }
+
+    const dias = [...porDia.entries()].sort((a, b) => a[0] - b[0]).map(([dia, evs]) => {
+      let ligado = null, total = 0;
+      for (const e of evs) {
+        if (e.ativo && ligado === null) ligado = e.created_at;
+        else if (!e.ativo && ligado !== null) { total += e.created_at - ligado; ligado = null; }
+      }
+      // Ainda marcado no fim da janela do dia: conta até agora (se é hoje) ou
+      // até a meia-noite, para um dia esquecido não virar 40 horas.
+      if (ligado !== null) total += Math.min(agora, dia + 86399999) - ligado;
+
+      const entrada = evs.find(e => e.ativo);
+      const saida = [...evs].reverse().find(e => !e.ativo);
+      return {
+        dia,
+        entrada: entrada ? entrada.created_at : null,
+        saida: saida ? saida.created_at : null,
+        minutos: Math.round(total / 60000),
+        local: entrada ? entrada.local : null,
+        observacao: entrada ? entrada.observacao : null,
+        fechado_pelo_sistema: !!(saida && saida.origem === "sistema"),
+        marcacoes: evs.length,
+      };
+    });
+
+    return {
+      id: p.id, nome: p.name, role: p.role, dias,
+      total_minutos: dias.reduce((s, d) => s + d.minutos, 0),
+      dias_com_registro: dias.length,
+      dias_fora: dias.filter(d => d.local === "fora").length,
+      dias_sem_saida: dias.filter(d => d.fechado_pelo_sistema).length,
+    };
+  });
 }
 
 /* Histórico para a atendente e a gestão: quem ligou, quem desligou, a que

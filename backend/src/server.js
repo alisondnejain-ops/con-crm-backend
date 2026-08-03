@@ -53,6 +53,7 @@ const RECURSOS = [
   "gestor-master",        // dono da plataforma, invisivel para a equipe da imobiliaria
   "hub-de-contas",        // o master escolhe em qual imobiliaria vai trabalhar
   "expediente",           // prontidao cai no fim do dia + historico de disponibilidade
+  "ponto-atendente",      // a chave da atendente vira registro de ponto, com relatorio
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
