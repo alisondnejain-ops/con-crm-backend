@@ -55,9 +55,19 @@ await writeFile(htmlPath, rebuilt, "utf8");
 const kb = (n) => (n / 1024).toFixed(0) + " kB";
 console.log(`index.html atualizado — app: ${kb(out.code.length)} · total: ${kb(rebuilt.length)} · build ${build}`);
 
+/* Arquivo de texto puro com a versão publicada.
+
+   Existe para responder, sem abrir código nem menu, a pergunta que mais custou
+   tempo: "o site já atualizou?". Basta abrir SITE/versao.txt no celular. Se a
+   data for antiga, quem não publicou foi a hospedagem; se for a de hoje, o
+   problema está no cache do aparelho. Sem isso as duas causas são
+   indistinguíveis do lado de fora. */
+await writeFile(path.join(dir, "versao.txt"), build + "\n", "utf8");
+console.log("versao.txt gravado");
+
 /* As páginas de cadastro e de definir senha moram no backend (é ele quem tem as
    rotas), mas também precisam ser servidas pelo SITE, para o link que a gestão
-   manda no grupo sair no domínio da Conecta em vez do endereço da hospedagem.
+   manda no grupo sair no domínio da imobiliária em vez do endereço do servidor.
 
    Em vez de manter duas cópias que vão divergir, o build copia daqui. A fonte
    continua sendo backend/public — mexer lá é o certo. */

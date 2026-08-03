@@ -17,3 +17,8 @@
 
 /manifest.json
   Cache-Control: public, max-age=0, must-revalidate
+
+# O arquivo que diz qual versão está publicada. Cache aqui seria o próprio
+# problema que ele existe para diagnosticar.
+/versao.txt
+  Cache-Control: no-store

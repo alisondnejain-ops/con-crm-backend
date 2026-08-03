@@ -270,7 +270,13 @@ function Auth({onLogin}){
             aparece depois de entrar, dentro do sistema. */}
         <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:26,fontWeight:700,lineHeight:1.15,marginBottom:isMobile?8:12}}>Nenhum lead esquecido. Nenhuma venda no acaso.</div>
           {!isMobile&&<p style={{color:"rgba(255,255,255,.75)",fontSize:13,lineHeight:1.6}}>O CRM de atendimento das imobiliárias: um só WhatsApp para a equipe inteira, cada mensagem assinada pelo corretor, distribuição automática e funil que anda sozinho conforme a conversa evolui.</p>}</div>
-        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>ConHub · plataforma de atendimento imobiliário</div>}
+        {/* A versão fica visível ANTES do login de propósito: quando alguém
+            diz "aqui está diferente", este número responde na hora, sem
+            precisar entrar no sistema nem procurar menu. */}
+        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>
+          ConHub · plataforma de atendimento imobiliário
+          {typeof window!=="undefined"&&window.CONHUB_BUILD?<React.Fragment><br/>versão {window.CONHUB_BUILD}</React.Fragment>:null}
+        </div>}
       </div>
       <div style={{background:C.card,padding:isMobile?"24px 22px 40px":32,display:"flex",flexDirection:"column",justifyContent:"center"}}>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:4}}>Entrar</div>
