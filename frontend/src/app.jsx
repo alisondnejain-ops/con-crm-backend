@@ -1591,10 +1591,14 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   // geral fica a um clique. O gestor abre já na equipe inteira, como antes.
   const [escopo,setEscopo]=useState(session.role==="sdr"?"meus":"todos");
   const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
-  const [rapido,setRapido]=useState("Todos"); // atalhos que existiam na caixa de entrada
+  /* Só "Todos" e "Meus" ficam à vista. Temperatura e "aguardando" desceram para
+     a gaveta: cinco pastilhas numa coluna de 340px quebravam em duas linhas e
+     comiam o espaço da lista de conversas, que é o que interessa. */
+  const [rapido,setRapido]=useState("Todos");
+  const [esperando,setEsperando]=useState(false);   // só quem está sem resposta
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
-  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length;
+  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0);
   const [verFinalizados,setVerFinalizados]=useState(false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
@@ -1614,14 +1618,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact;
   const corretoresDisponiveis=pessoas.filter(p=>p.role==="corretor"&&p.available);
-  // Atalhos aplicados sobre o resultado já filtrado pelo servidor. "Aguardando"
-  // é o cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
-  const visiveis=useMemo(()=>lista.filter(l=>
-    rapido==="Meus"?l.assignedTo===session.id:
-    rapido==="Aguardando"?l.unread>0:
-    rapido==="Quente"?l.prio==="QUENTE":
-    rapido==="Morno"?l.prio==="MORNO":true
-  ).sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,session.id]);
+  // Aplicados sobre o resultado já filtrado pelo servidor. "Aguardando" é o
+  // cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
+  const visiveis=useMemo(()=>lista
+    .filter(l=>rapido==="Meus"?l.assignedTo===session.id:true)
+    .filter(l=>esperando?l.unread>0:true)
+    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id]);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
   const mostrarLista=!isMobile||pane==="lista";
@@ -1649,9 +1651,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
               background:escopo===v?C.card:"transparent",color:escopo===v?C.greenDeep:C.sub,
               boxShadow:escopo===v?"0 1px 2px rgba(0,0,0,.06)":"none"}}>{t}</button>)}
         </div>}
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {["Todos","Meus","Aguardando","Quente","Morno"].map(a=><button key={a} onClick={()=>setRapido(a)}
-            style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 13px":"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
+        <div style={{display:"flex",gap:6}}>
+          {["Todos","Meus"].map(a=><button key={a} onClick={()=>setRapido(a)}
+            style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:999,border:"none",cursor:"pointer",
               background:rapido===a?C.greenDeep:C.surface,color:rapido===a?"#fff":C.sub}}>{a}</button>)}
         </div>
         {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista de
@@ -1664,7 +1666,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
-          {filtrosAtivos>0&&<button onClick={()=>setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""})}
+          {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);}}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
           {/* Atendimento finalizado sai da lista; este é o caminho de volta,
               para consultar ou reabrir sem precisar caçar no funil. */}
@@ -1676,10 +1678,18 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         </div>
 
         {filtrosAbertos&&<React.Fragment>
+          {/* "Aguardando resposta" era pastilha lá em cima. Aqui embaixo ele
+              soma com os outros filtros em vez de substituí-los: dá para ver
+              quem está esperando DENTRO de uma etapa ou de um corretor. */}
+          <button onClick={()=>setEsperando(v=>!v)}
+            style={{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:6,
+              border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
+              color:esperando?C.hot:C.sub,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
             {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
-            {selo("Prioridade",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+            {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
