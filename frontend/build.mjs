@@ -11,6 +11,7 @@ import { readFile, writeFile, copyFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import path from "path";
 import esbuild from "esbuild";
+import { createHash } from "crypto";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const htmlPath = path.join(dir, "index.html");
@@ -28,17 +29,31 @@ const out = await esbuild.transform(jsx, {
 });
 if (out.warnings.length) out.warnings.forEach(w => console.warn("aviso:", w.text));
 
+/* O carimbo da build anterior sai antes de qualquer coisa: ele fica logo acima
+   do bloco do app e, sem tirar, cada publicação empilharia mais um. */
+const semCarimbo = html.replace(/<script>window\.CONHUB_BUILD=[^<]*<\/script>\s*/g, "");
+
 // O código do app é sempre o ÚLTIMO <script> do arquivo.
-const open = html.lastIndexOf("<script>");
-const close = html.lastIndexOf("</script>");
+const open = semCarimbo.lastIndexOf("<script>");
+const close = semCarimbo.lastIndexOf("</script>");
 if (open === -1 || close === -1 || close < open)
   throw new Error("Não encontrei o bloco <script> do app no index.html.");
 
-const rebuilt = html.slice(0, open) + "<script>\n" + out.code.trim() + "\n" + html.slice(close);
+/* Carimbo da versão publicada.
+
+   Serve para o app saber que está desatualizado: ele relê o próprio index.html
+   sem cache de tempos em tempos e compara este número. Quando muda, oferece
+   atualizar. Sem isso a equipe fica com a versão antiga na tela e o erro
+   aparece do lado do servidor, que já está novo — foi o que aconteceu com a
+   Vanessa em 03/08. */
+const build = new Date().toISOString().slice(0, 16).replace("T", " ") + " · " +
+  createHash("sha1").update(out.code).digest("hex").slice(0, 7);
+
+const rebuilt = semCarimbo.slice(0, open) + `<script>window.CONHUB_BUILD=${JSON.stringify(build)}</script>\n<script>\n` + out.code.trim() + "\n" + semCarimbo.slice(close);
 await writeFile(htmlPath, rebuilt, "utf8");
 
 const kb = (n) => (n / 1024).toFixed(0) + " kB";
-console.log(`index.html atualizado — app: ${kb(out.code.length)} · total: ${kb(rebuilt.length)}`);
+console.log(`index.html atualizado — app: ${kb(out.code.length)} · total: ${kb(rebuilt.length)} · build ${build}`);
 
 /* As páginas de cadastro e de definir senha moram no backend (é ele quem tem as
    rotas), mas também precisam ser servidas pelo SITE, para o link que a gestão

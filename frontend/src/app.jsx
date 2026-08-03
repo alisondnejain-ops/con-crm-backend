@@ -2426,6 +2426,12 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
       </div>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile}/>}
+      {/* Qual versão este aparelho está rodando. Quando alguém disser "aqui não
+          aparece", este número responde em dois segundos se é versão velha ou
+          erro de verdade. */}
+      {typeof window!=="undefined"&&window.CONHUB_BUILD&&
+        <div style={{color:C.faint,fontSize:11,textAlign:"center",marginTop:4}}>
+          ConHub · versão {window.CONHUB_BUILD}</div>}
     </div>
   </div>;
 }
@@ -4297,4 +4303,68 @@ class Rede extends React.Component{
   }
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<Rede><ConCRM/></Rede>);
+/* ===== AVISO DE VERSÃO NOVA =====
+
+   O que aconteceu em 03/08: o backend já estava atualizado e o navegador da
+   Vanessa ainda rodava o app antigo. O servidor recusava a ação com a regra
+   nova, ela via a mensagem de erro, e a tela não tinha nem o botão que a
+   mensagem pedia. Não havia como ela descobrir sozinha.
+
+   A conferência é direta: relê o próprio index.html sem passar pelo cache e
+   compara o carimbo gravado no build (window.CONHUB_BUILD). Se o servidor tem
+   um arquivo mais novo, oferece atualizar. Não depende de lista de recursos
+   nem de nada para manter em sincronia.
+
+   Atualizar limpa o service worker e os caches antes de recarregar: só dar
+   F5 muitas vezes devolve o mesmo arquivo guardado. */
+function AvisoVersao(){
+  const [nova,setNova]=useState(false);
+  const meu=typeof window!=="undefined"?window.CONHUB_BUILD:null;
+
+  useEffect(()=>{
+    if(!meu||location.protocol==="file:") return;
+    let vivo=true;
+    const conferir=async()=>{
+      try{
+        const r=await fetch("/index.html?v="+Date.now(),{cache:"no-store"});
+        const txt=await r.text();
+        const m=txt.match(/CONHUB_BUILD="([^"]+)"/);
+        if(vivo&&m&&m[1]&&m[1]!==meu) setNova(true);
+      }catch(e){}
+    };
+    conferir();
+    const t=setInterval(conferir,5*60*1000);
+    /* Confere também ao voltar para a aba. No celular o CRM passa o dia em
+       segundo plano: sem isto, a pessoa poderia ficar horas com a versão velha
+       entre uma conferência e outra. */
+    const aoVoltar=()=>{ if(document.visibilityState==="visible") conferir(); };
+    document.addEventListener("visibilitychange",aoVoltar);
+    window.addEventListener("focus",aoVoltar);
+    return()=>{vivo=false;clearInterval(t);
+      document.removeEventListener("visibilitychange",aoVoltar);
+      window.removeEventListener("focus",aoVoltar);};
+  },[]);
+
+  if(!nova) return null;
+  const atualizar=async()=>{
+    try{
+      if(navigator.serviceWorker){
+        const rs=await navigator.serviceWorker.getRegistrations();
+        await Promise.all(rs.map(r=>r.unregister()));
+      }
+      if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
+    }catch(e){}
+    location.replace(location.pathname+"?atualizado="+Date.now());
+  };
+
+  return <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:60,background:C.greenDeep,color:"#fff",
+    padding:"11px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+    paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 11px)",boxShadow:"0 -6px 24px rgba(0,0,0,.2)"}}>
+    <Icon n="zap" size={15}/>
+    <span style={{flex:1,fontSize:13,fontWeight:600,minWidth:140}}>Tem uma versão nova do ConHub.</span>
+    <button onClick={atualizar} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:9,
+      padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Atualizar agora</button>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Rede><ConCRM/><AvisoVersao/></Rede>);
