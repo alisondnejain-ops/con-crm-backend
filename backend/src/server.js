@@ -86,13 +86,20 @@ const semCache = { cacheControl: false, headers: { "Cache-Control": "no-store" }
    servidor", porque ela procurava a API do lado de fora.
 
    Como bonus, some o CORS: mesma origem para tela e API. */
-let appBruto = null;
+/* A pagina pronta fica guardada por endereco. Sem isto, cada abertura criava
+   uma copia de 400 KB do arquivo so para injetar uma linha — 1000 aberturas
+   somavam 20 MB de lixo esperando o coletor. Sao poucos enderecos (o do
+   Railway e, quando houver, o dominio proprio), entao o mapa nao cresce. */
+const paginaApp = new Map();
 app.get(["/app", "/app.html"], (req, res) => {
+  const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   try {
-    if (appBruto === null) appBruto = readFileSync(path.join(publicDir, "app.html"), "utf8");
-    const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
-    res.set("Cache-Control", "no-store").type("html")
-      .send(appBruto.replace("<script>", `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`));
+    if (!paginaApp.has(base)) {
+      const bruto = readFileSync(path.join(publicDir, "app.html"), "utf8");
+      paginaApp.set(base, bruto.replace("<script>",
+        `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`));
+    }
+    res.set("Cache-Control", "no-store").type("html").send(paginaApp.get(base));
   } catch (e) {
     res.status(404).send("O CRM ainda nao foi publicado neste servidor.");
   }
