@@ -59,6 +59,8 @@ const RECURSOS = [
   "ponto-atendente",      // a chave da atendente vira registro de ponto, com relatorio
   "crm-no-backend",       // o proprio servidor entrega o CRM (raiz e /app)
   "plantao",              // escala de plantao, lembrete no painel e aviso as 08:00
+  "escala-xlsx",          // sobe a escala direto da planilha do Excel (.xlsx)
+  "plantao-no-relatorio", // leads por dia + escala e prontidao no relatorio individual
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

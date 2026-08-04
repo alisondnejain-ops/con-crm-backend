@@ -253,6 +253,13 @@ const dispCols = db.prepare("PRAGMA table_info(disponibilidade_log)").all().map(
 const addDispCol = (name, ddl) => { if (!dispCols.includes(name)) db.exec(`ALTER TABLE disponibilidade_log ADD COLUMN ${name} ${ddl}`); };
 addDispCol("local", "TEXT");        // 'imobiliaria' | 'fora'
 addDispCol("observacao", "TEXT");   // obrigatória quando o local é 'fora'
+/* Turnos de plantão da pessoa NAQUELE dia, gravados junto com a marcação de
+   disponibilidade ("manha", "tarde" ou "manha,tarde").
+
+   Guardado no momento do clique, e não consultado depois: a escala pode ser
+   remontada meses adiante, e o registro precisa dizer o que valia no dia — do
+   contrário o histórico mudaria sozinho. */
+addDispCol("plantao", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
 
 // Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos

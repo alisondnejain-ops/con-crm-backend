@@ -4,6 +4,7 @@ import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar } from "../services/push.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
   lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
+import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
 
 const r = Router();
 r.use(authRequired);
@@ -76,7 +77,15 @@ r.post("/availability", (req, res) => {
 
   db.prepare("UPDATE users SET available = ?, available_desde = ? WHERE id = ?")
     .run(ligar ? 1 : 0, ligar ? Date.now() : null, alvo.id);
+  /* Se a pessoa está escalada hoje, isso entra no registro. É a mesma ideia
+     do ponto da atendente: a marcação passa a dizer em que condição ela foi
+     feita, e não só a hora. Depois dá para separar "se prontificou num dia
+     comum" de "se prontificou no dia do plantão dele". */
+  const escalaHoje = plantaoDoDia(req.user.org_id);
+  const meusTurnos = TURNOS_PLANTAO.filter(t => escalaHoje[t].some(x => x.user_id === alvo.id));
+
   registrar({ orgId: req.user.org_id, userId: alvo.id, ativo: ligar,
+    plantao: meusTurnos.length ? meusTurnos.join(",") : null,
     origem: target === req.user.id ? "proprio" : "gestor",
     autor: target === req.user.id ? null : { id: req.user.id, name: req.user.name },
     local: ligar && ehPonto(alvo.role) ? req.body.local : null,
@@ -85,7 +94,7 @@ r.post("/availability", (req, res) => {
 
   const horario = lerHorario(expedienteDa(req.user.org_id));
   res.json({ ok: true, available: ligar, ponto: ehPonto(alvo.role),
-    vale_ate: ligar && horario ? proximoCorte(horario) : null });
+    plantao: meusTurnos, vale_ate: ligar && horario ? proximoCorte(horario) : null });
 });
 
 /* Até quando a prontidão de hoje vale. A tela do corretor usa para dizer

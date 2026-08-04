@@ -4,6 +4,7 @@ import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { ranking, recomendar, recomendacoes, temposDeResposta, mediana } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
+import { escala as escalaPlantao, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 
 const r = Router();
 r.use(authRequired);
@@ -58,8 +59,39 @@ r.get("/", (req, res) => {
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?")
     .all(req.user.org_id, de, ate);
 
+  /* Escala do período, para cruzar com a produção. "Recebeu 8 leads" diz uma
+     coisa; "recebeu 8, sendo 5 em dias de plantão dele" diz outra. */
+  const plantoes = escalaPlantao(req.user.org_id, { de, ate });
+  // Em que dias cada pessoa esteve escalada — dias, não turnos: o lead entra
+  // no dia, não no turno.
+  const diasDePlantao = new Map();
+  for (const p of plantoes) {
+    if (!diasDePlantao.has(p.user_id)) diasDePlantao.set(p.user_id, new Set());
+    diasDePlantao.get(p.user_id).add(p.dia);
+  }
+  // Marcações de disponibilidade feitas em dia de plantão, no período.
+  const prontidaoEmPlantao = db.prepare(`
+    SELECT user_id, COUNT(DISTINCT date(created_at/1000,'unixepoch','localtime')) AS dias
+    FROM disponibilidade_log
+    WHERE org_id = ? AND ativo = 1 AND plantao IS NOT NULL AND created_at BETWEEN ? AND ?
+    GROUP BY user_id`).all(req.user.org_id, de, ate);
+  const cumpriu = new Map(prontidaoEmPlantao.map(x => [x.user_id, x.dias]));
+
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);
+    /* Leads recebidos DIA A DIA. É a pergunta direta do gestor: "no dia 4,
+       quantos exatamente ele recebeu?". Com o total do período só dá para
+       responder puxando um relatório por dia, um de cada vez. */
+    const porDiaMapa = new Map();
+    for (const l of meus) {
+      const k = meiaNoitePlantao(l.created_at);
+      porDiaMapa.set(k, (porDiaMapa.get(k) || 0) + 1);
+    }
+    const por_dia = [...porDiaMapa.entries()].sort((a, b) => a[0] - b[0])
+      .map(([dia, recebidos]) => ({ dia, recebidos }));
+
+    const escalados = diasDePlantao.get(u.id) || new Set();
+    const emPlantao = meus.filter(l => escalados.has(meiaNoitePlantao(l.created_at)));
     const atendidos = meus.filter(l => l.first_resp_at != null);
     const temposResposta = atendidos.map(l => (l.first_resp_at - l.created_at) / 60000);
     // Tempo de ATENDIMENTO: quanto o cliente espera a cada pergunta ao longo da
@@ -82,6 +114,12 @@ r.get("/", (req, res) => {
       conversao: pct(vendas.length, meus.length),
       valor_vendido: vendas.reduce((s, l) => s + (l.sale_value || 0), 0),
       por_etapa: porEtapa,
+      por_dia,
+      plantao: {
+        dias_escalado: escalados.size,
+        dias_que_se_prontificou: cumpriu.get(u.id) || 0,
+        leads_em_dia_de_plantao: emPlantao.length,
+      },
     };
   });
 

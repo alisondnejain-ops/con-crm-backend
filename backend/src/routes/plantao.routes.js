@@ -9,7 +9,8 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
-import { escala, doDia, definirTurno, limpar, importarEscala, meiaNoite, TURNOS } from "../services/plantao.js";
+import { escala, doDia, definirTurno, limpar, importarEscala, meiaNoite, lerDia, TURNOS } from "../services/plantao.js";
+import { lerXlsx } from "../services/xlsx.js";
 
 const r = Router();
 r.use(authRequired);
@@ -93,5 +94,88 @@ r.post("/importar", roles("adm", "sdr"), (req, res) => {
     return res.status(413).json({ error: "Máximo de 400 dias por importação." });
   res.json(importarEscala(req.user.org_id, linhas, req.user.id));
 });
+
+/* Sobe a escala a partir do arquivo, .xlsx ou .csv.
+
+   O arquivo inteiro vem em base64 e a leitura é AQUI, não no navegador. O
+   .xlsx é um ZIP: o Node descompacta com a zlib que já tem, enquanto no
+   navegador seria preciso embutir uma biblioteca no HTML — e o CRM é um
+   arquivo só, sem rede.
+
+   Aceitar o .xlsx direto importa mais do que parece: a gestão monta a escala
+   no Excel. Exigir "salve como CSV" antes é um passo a mais todo mês, e é onde
+   se perde acento, se troca o separador e a planilha chega quebrada. */
+r.post("/importar-arquivo", roles("adm", "sdr"), (req, res) => {
+  const { base64, nome } = req.body || {};
+  if (!base64) return res.status(400).json({ error: "Envie o arquivo." });
+
+  let matriz;
+  try {
+    const buf = Buffer.from(String(base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+    if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ error: "Arquivo muito grande." });
+    // PK\x03\x04 é a assinatura do ZIP, e todo .xlsx é um ZIP.
+    matriz = (buf[0] === 0x50 && buf[1] === 0x4b) ? lerXlsx(buf) : lerCSV(buf.toString("utf8"));
+  } catch (e) {
+    return res.status(400).json({ error: "Não consegui ler o arquivo: " + e.message });
+  }
+
+  const achado = acharCabecalho(matriz);
+  if (!achado) return res.status(400).json({
+    error: "Não achei a linha de cabeçalho com 'Data' e as colunas de Manhã/Tarde. Confira se é a aba da escala." });
+
+  const { linha: iCab, data: iData, manha, tarde } = achado;
+
+  /* A tabela da escala termina onde a data deixa de ser data.
+
+     A planilha da Conecta tem um resumo por corretor no rodapé, e a primeira
+     coluna dele traz NOME, não data. Sem este corte essas linhas entravam na
+     contagem do que foi "lido" — não viravam escala (data inválida é
+     descartada), mas o número na tela mentia sobre o tamanho da importação. */
+  const linhas = [];
+  for (const l of matriz.slice(iCab + 1)) {
+    const bruto = String(l[iData] || "").trim();
+    if (!bruto) continue;                       // linha em branco no meio: pula
+    if (!isFinite(lerDia(bruto))) { if (linhas.length) break; else continue; }
+    linhas.push({ data: bruto, manha: manha.map(i => l[i]), tarde: tarde.map(i => l[i]) });
+  }
+
+  if (!linhas.length) return res.status(400).json({ error: "Nenhuma linha com data abaixo do cabeçalho." });
+  res.json({ ...importarEscala(req.user.org_id, linhas, req.user.id), arquivo: nome || null, lidas: linhas.length });
+});
+
+/* Acha o cabeçalho em qualquer linha das primeiras 15.
+
+   A planilha da Conecta tem título e subtítulo antes: fixar "a primeira linha
+   é o cabeçalho" faria a importação falhar em toda planilha com enfeite em
+   cima — que é como planilha de verdade costuma vir. */
+function acharCabecalho(matriz) {
+  for (let i = 0; i < Math.min(15, matriz.length); i++) {
+    const cab = (matriz[i] || []).map(c => String(c || "").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+    const data = cab.findIndex(c => c === "data" || c.startsWith("data"));
+    const manha = cab.map((c, k) => c.includes("manha") ? k : -1).filter(k => k >= 0);
+    const tarde = cab.map((c, k) => c.includes("tarde") ? k : -1).filter(k => k >= 0);
+    if (data >= 0 && (manha.length || tarde.length)) return { linha: i, data, manha, tarde };
+  }
+  return null;
+}
+
+// CSV simples, para quem preferir mandar nesse formato. Aceita ; e , como
+// separador — o Excel em português usa ponto e vírgula.
+function lerCSV(texto) {
+  const limpo = texto.replace(/^\uFEFF/, "");
+  const sep = (limpo.split("\n")[0].match(/;/g) || []).length >= (limpo.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+  return limpo.split(/\r?\n/).filter(l => l.trim()).map(linha => {
+    const campos = []; let atual = "", aspas = false;
+    for (let i = 0; i < linha.length; i++) {
+      const c = linha[i];
+      if (c === '"') { if (aspas && linha[i + 1] === '"') { atual += '"'; i++; } else aspas = !aspas; }
+      else if (c === sep && !aspas) { campos.push(atual); atual = ""; }
+      else atual += c;
+    }
+    campos.push(atual);
+    return campos.map(c => c.trim());
+  });
+}
 
 export default r;

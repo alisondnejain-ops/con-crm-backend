@@ -530,6 +530,7 @@ function ConCRM(){
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
+    subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -621,25 +622,18 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
 
-  /* Importação da planilha que a Conecta já monta: Data | Dia | Manhã 1 |
-     Manhã 2 | Tarde 1 | Tarde 2. Exporte a aba como CSV e mande aqui. */
+  /* Sobe a planilha da escala — .xlsx direto, do jeito que a gestão monta.
+
+     O arquivo vai cru para o servidor, que sabe abrir os dois formatos. Ler
+     .xlsx aqui exigiria embutir uma biblioteca no HTML, e o CRM é um arquivo
+     só, sem rede; no servidor o Node já tem o descompactador. */
   async function importar(ev){
     const f=ev.target.files[0]; ev.target.value=""; if(!f) return;
     setErro(""); setResultado(null); setImportando(true);
     try{
-      const linhas=lerCSV(await f.text());
-      const cab=(linhas[0]||[]).map(c=>String(c||"").trim().toLowerCase());
-      const acha=(...alvos)=>cab.findIndex(c=>alvos.some(a=>c.includes(a)));
-      const iData=acha("data");
-      if(iData<0) throw new Error("Não achei a coluna 'Data'. Exporte a aba da escala como CSV.");
-      const cols=(pre)=>cab.map((c,i)=>c.includes(pre)?i:-1).filter(i=>i>=0);
-      const iM=cols("manh"), iT=cols("tarde");
-      if(!iM.length&&!iT.length) throw new Error("Não achei as colunas de Manhã e Tarde.");
-      const dados=linhas.slice(1)
-        .filter(l=>String(l[iData]||"").trim())
-        .map(l=>({data:l[iData], manha:iM.map(i=>l[i]), tarde:iT.map(i=>l[i])}));
-      if(!dados.length) throw new Error("A planilha não tem linhas com data.");
-      const r=await acoes.importarEscala(dados);
+      const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();
+        fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=falhou;fr.readAsDataURL(f);});
+      const r=await acoes.subirEscala(base64,f.name);
       setResultado(r); await rever();
     }catch(e){ setErro(e.message); }
     finally{ setImportando(false); }
@@ -714,7 +708,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
               background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
         {podeEditar&&<React.Fragment>
           <span style={{flex:1}}/>
-          <input ref={arquivo} type="file" accept=".csv,text/csv" onChange={importar} style={{display:"none"}}/>
+          <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={importar} style={{display:"none"}}/>
           <button onClick={()=>arquivo.current.click()} disabled={importando}
             style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
               borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
@@ -723,7 +717,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       </div>
 
       {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
-        <div style={{color:C.greenDeep,fontSize:13,fontWeight:700}}>{resultado.dias} dia(s) e {resultado.escalados} escala(s) importados</div>
+        <div style={{color:C.greenDeep,fontSize:13,fontWeight:700}}>{resultado.dias} dia(s) e {resultado.escalados} escala(s) importados{resultado.arquivo?` — ${resultado.arquivo}`:""}</div>
         {resultado.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:4,lineHeight:1.5}}>
           Não identifiquei na equipe: <b>{resultado.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
         </div>}
@@ -4239,6 +4233,51 @@ function Conexao({conecta}){
 const hojeISO=()=>new Date().toISOString().slice(0,10);
 const diasAtras=(n)=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 
+/* ===== LEADS RECEBIDOS, DIA A DIA =====
+
+   "Quantos leads o Rafael recebeu no dia 4?" era uma pergunta que só se
+   respondia puxando o relatório de um dia por vez. O total do período não
+   serve: 40 leads no mês pode ser 2 por dia ou 30 numa terça e nada no resto,
+   e as duas coisas pedem conversas bem diferentes com o corretor.
+
+   Junto vem o cruzamento com a escala: dia de plantão aparece marcado, e o
+   rodapé diz quantos leads caíram justamente nesses dias. */
+function LeadsPorDia({linha,isMobile}){
+  const dias=linha.por_dia||[];
+  const pl=linha.plantao||{};
+  const maior=Math.max(1,...dias.map(d=>d.recebidos));
+  const total=dias.reduce((s,d)=>s+d.recebidos,0);
+  const dd=(ms)=>new Date(ms).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  const semana=(ms)=>["dom","seg","ter","qua","qui","sex","sáb"][new Date(ms).getDay()];
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+      <Icon n="calendar" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Leads recebidos por dia</span>
+      <span style={{fontFamily:MONO,color:C.ink,fontSize:15,fontWeight:700}}>{total}</span>
+      <span style={{color:C.faint,fontSize:11}}>no período</span>
+    </div>
+
+    {pl.dias_escalado>0&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+      Esteve de plantão em <b style={{color:C.ink}}>{pl.dias_escalado}</b> dia(s), e
+      se prontificou em <b style={{color:pl.dias_que_se_prontificou<pl.dias_escalado?C.hot:C.greenMid}}>{pl.dias_que_se_prontificou}</b> deles ·
+      <b style={{color:C.ink}}> {pl.leads_em_dia_de_plantao}</b> lead(s) chegaram em dia de plantão dele.
+    </div>}
+
+    {dias.length===0
+      ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead recebido neste período.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:3}}>
+        {dias.map(d=><div key={d.dia} style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{fontFamily:MONO,color:C.sub,fontSize:11.5,width:64,flexShrink:0}}>{dd(d.dia)} <span style={{color:C.faint}}>{semana(d.dia)}</span></span>
+          <div style={{flex:1,height:16,background:C.surface,borderRadius:5,overflow:"hidden",minWidth:40}}>
+            <div style={{width:`${Math.max(6,(d.recebidos/maior)*100)}%`,height:"100%",background:C.green,borderRadius:5}}/>
+          </div>
+          <span style={{fontFamily:MONO,color:C.ink,fontSize:12.5,fontWeight:700,width:26,textAlign:"right"}}>{d.recebidos}</span>
+        </div>)}
+      </div>}
+  </div>;
+}
+
 /* ===== PONTO DAS ATENDENTES =====
    Diário, semanal e mensal. A atendente enxerga o próprio; a equipe inteira,
    só o gestor (quem filtra é o servidor, não esta tela).
@@ -4426,6 +4465,7 @@ function Relatorios({acoes,session,pickable,isMobile}){
           <span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(a.nome)}</span></button>)}
       </div>}
 
+      {linha&&<LeadsPorDia linha={linha} isMobile={isMobile}/>}
       {!linha?((dados.atendimento||[]).length?null
         :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
       :<React.Fragment>

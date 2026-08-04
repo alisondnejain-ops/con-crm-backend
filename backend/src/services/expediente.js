@@ -57,10 +57,10 @@ export function proximoCorte(horario, agora = Date.now()) {
   return agora < hoje ? hoje : emDia(agora + 86400000, horario);
 }
 
-export function registrar({ orgId, userId, ativo, origem, autor, local = null, observacao = null, quando = Date.now() }) {
-  db.prepare(`INSERT INTO disponibilidade_log (id,org_id,user_id,ativo,origem,autor_id,autor_nome,local,observacao,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?)`).run("dp_" + randomUUID(), orgId, userId,
-    ativo ? 1 : 0, origem, autor?.id || null, autor?.name || null, local, observacao, quando);
+export function registrar({ orgId, userId, ativo, origem, autor, local = null, observacao = null, plantao = null, quando = Date.now() }) {
+  db.prepare(`INSERT INTO disponibilidade_log (id,org_id,user_id,ativo,origem,autor_id,autor_nome,local,observacao,plantao,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run("dp_" + randomUUID(), orgId, userId,
+    ativo ? 1 : 0, origem, autor?.id || null, autor?.name || null, local, observacao, plantao, quando);
 }
 
 /* PONTO DA ATENDENTE
