@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona, semMaster } from "../auth.js";
-import { STAGES, normalizePhone } from "../services/stages.js";
+import { STAGES, LINEAR, normalizePhone, inferStage } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
 import { sendText } from "../services/uazapi.js";
@@ -314,6 +314,82 @@ r.get("/queue", roles("sdr", "adm"), (req, res) => {
   const rows = db.prepare(`${SELECT_LEAD} WHERE l.org_id = ? AND l.assigned_to IS NULL ORDER BY l.created_at DESC`).all(req.user.org_id);
   res.json(rows.map(parse));
 });
+
+/* ===== REANÁLISE DO FUNIL =====
+
+   A regra de avanço mudou (agora é por palavra-chave), mas os leads que já
+   estavam no sistema continuaram onde a regra ANTIGA os deixou — e a antiga
+   era frouxa: abrir a conversa virava "Atendimento", um "sábado" solto virava
+   "Agendamento". Sem passar a régua nova por cima, o funil ficaria metade
+   numa regra e metade na outra, e o relatório não valeria para nada.
+
+   Aqui a etapa é recalculada DO ZERO, a partir da etapa "Lead", lendo a
+   conversa inteira. Por isso lead pode DESCER: é o ponto — tirar da frente do
+   funil quem nunca deveria ter chegado lá.
+
+   Três grupos ficam de fora, e cada um por um motivo diferente:
+
+   - SEM CONVERSA. Se não há mensagem, não há palavra — a conversa não tem
+     nada a dizer sobre esse lead. E como a regra antiga também não movia lead
+     sem mensagem, uma etapa aí só pode ter sido posta por uma pessoa ou pela
+     importação. Recalcular jogaria a base importada inteira para "Lead".
+   - VENDA REGISTRADA. Tem valor e data lançados; é dinheiro, não palpite.
+   - ETAPA MANUAL (Perdido, Recaptação, Transferido por ligação). Mesma regra
+     de sempre: quem marcou sabe de algo que a conversa não mostra. */
+function reanalisar(orgId, aplicar) {
+  const vagas = LINEAR.map(() => "?").join(",");
+  const candidatos = db.prepare(`SELECT id,name,stage FROM leads
+    WHERE org_id=? AND sale_value IS NULL AND stage IN (${vagas})`).all(orgId, ...LINEAR);
+
+  const conta = (sql, ...args) => db.prepare(sql).get(orgId, ...args).n;
+  const fora = {
+    venda_registrada: conta("SELECT COUNT(*) n FROM leads WHERE org_id=? AND sale_value IS NOT NULL"),
+    etapa_manual: conta(`SELECT COUNT(*) n FROM leads WHERE org_id=? AND stage NOT IN (${vagas})`, ...LINEAR),
+    sem_conversa: 0,
+  };
+
+  const daConversa = db.prepare("SELECT direction,body FROM messages WHERE lead_id=? ORDER BY created_at ASC");
+  const mudancas = [];
+  let comConversa = 0;
+  for (const l of candidatos) {
+    const msgs = daConversa.all(l.id);
+    if (!msgs.length) { fora.sem_conversa++; continue; }
+    comConversa++;
+    const novo = inferStage("Lead", msgs);
+    if (novo !== l.stage) mudancas.push({ id: l.id, nome: l.name, de: l.stage, para: novo });
+  }
+
+  if (aplicar && mudancas.length) {
+    const gravar = db.transaction(() => {
+      const up = db.prepare("UPDATE leads SET stage=? WHERE id=?");
+      for (const m of mudancas) up.run(m.para, m.id);
+    });
+    gravar();
+  }
+
+  // Agrupado por "de → para": é assim que dá para conferir de bate-pronto se o
+  // resultado faz sentido antes de aplicar.
+  const mapa = new Map();
+  for (const m of mudancas) {
+    const k = `${m.de} ${m.para}`;
+    if (!mapa.has(k)) mapa.set(k, { de: m.de, para: m.para, quantos: 0 });
+    mapa.get(k).quantos++;
+  }
+  const ordem = (s) => LINEAR.indexOf(s);
+  return {
+    aplicado: !!aplicar,
+    com_conversa: comConversa,
+    fora,
+    mudam: mudancas.length,
+    resumo: [...mapa.values()].sort((a, b) => b.quantos - a.quantos || ordem(a.de) - ordem(b.de)),
+    exemplos: mudancas.slice(0, 15),
+  };
+}
+
+// Conferir antes (GET) e aplicar depois (POST). Mexer na etapa da base inteira
+// de uma vez não é coisa para acontecer por engano num clique.
+r.get("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.org_id, false)));
+r.post("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.org_id, true)));
 
 // Gestor e atendente abrem a conversa de qualquer um. O corretor fica nos leads dele.
 // Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.

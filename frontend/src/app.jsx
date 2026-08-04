@@ -554,6 +554,8 @@ function ConCRM(){
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
+    reanalise:()=>api("/leads/reanalise"),
+    aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -3127,6 +3129,92 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
    Todos os leads da imobiliária num lugar só, com quem está com cada um, e o
    botão para baixar a planilha. É a visão de dono: nem a caixa de atendimento
    nem o funil mostram a base inteira de uma vez. */
+/* Passa a régua nova nos leads que já existem.
+
+   A regra de etapa mudou, mas os leads antigos ficaram onde a regra velha os
+   deixou — e ela era frouxa. Sem isto, metade do funil segue uma regra e
+   metade segue outra, e nenhum relatório de etapa vale.
+
+   Dois passos de propósito: conferir e só então aplicar. É a base inteira
+   mudando de etapa de uma vez; a tela mostra "de → para, quantos" antes,
+   porque descer lead de etapa é certo aqui, mas assusta se aparecer sem
+   aviso. */
+function ReanalisarFunil({acoes,isMobile,aoAplicar}){
+  const [d,setD]=useState(null);
+  const [carregando,setCarregando]=useState(false);
+  const [aplicando,setAplicando]=useState(false);
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState(null);
+
+  const conferir=async()=>{ setErro(""); setFeito(null); setCarregando(true);
+    try{ setD(await acoes.reanalise()); }catch(e){ setErro(e.message); } finally{ setCarregando(false); } };
+  const aplicar=async()=>{ setErro(""); setAplicando(true);
+    try{ const r=await acoes.aplicarReanalise(); setFeito(r); setD(null); aoAplicar&&aoAplicar(); }
+    catch(e){ setErro(e.message); } finally{ setAplicando(false); } };
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:15,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+      <Icon n="target" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Reorganizar o funil pela regra nova</span>
+      <button onClick={conferir} disabled={carregando||aplicando}
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,
+          padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+        <Icon n={carregando?"loader":"search"} size={14} spin={carregando}/>{carregando?"Analisando…":"Analisar a base"}</button>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+      Relê a conversa de cada lead e recalcula a etapa pelas palavras-chave. Lead pode <b>descer</b> de etapa — é o objetivo:
+      tirar da frente do funil quem a regra antiga empurrou sozinha. Fica de fora quem não tem conversa, quem tem venda
+      registrada e quem está em etapa marcada na mão.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
+
+    {feito&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:11,padding:"10px 12px",marginTop:10,
+      color:C.greenDeep,fontSize:12.5,fontWeight:600}}>
+      Funil reorganizado: {feito.mudam} lead(s) mudaram de etapa.
+    </div>}
+
+    {d&&<div style={{marginTop:12}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+        {[["conversas lidas",d.com_conversa],["mudam de etapa",d.mudam],["sem conversa",d.fora.sem_conversa],
+          ["venda registrada",d.fora.venda_registrada],["etapa manual",d.fora.etapa_manual]].map(([t,v])=>
+          <div key={t} style={{background:C.surface,borderRadius:10,padding:"7px 11px",minWidth:96}}>
+            <div style={{fontFamily:MONO,color:t==="mudam de etapa"&&v?C.greenDeep:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{t}</div>
+          </div>)}
+      </div>
+
+      {d.mudam===0
+        ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead precisa mudar — o funil já está de acordo com a regra nova.</div>
+        :<React.Fragment>
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
+            {d.resumo.map(x=><div key={x.de+x.para} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:9,padding:"7px 10px",flexWrap:"wrap"}}>
+              <span style={{color:STAGE_C[x.de],fontSize:12,fontWeight:600}}>{x.de}</span>
+              <Icon n="chevron" size={12} color={C.faint}/>
+              <span style={{color:STAGE_C[x.para],fontSize:12,fontWeight:700}}>{x.para}</span>
+              <span style={{flex:1}}/>
+              <span style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{x.quantos}</span>
+            </div>)}
+          </div>
+          <div style={{color:C.faint,fontSize:11,marginBottom:6}}>Alguns exemplos:</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+            {d.exemplos.map(x=><span key={x.id} style={{background:C.surface,borderRadius:999,padding:"4px 10px",color:C.sub,fontSize:11}}>
+              {first(x.nome||"—")}: {x.de} → <b style={{color:STAGE_C[x.para]}}>{x.para}</b>
+            </span>)}
+          </div>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <button onClick={aplicar} disabled={aplicando}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+              {aplicando?"Aplicando…":`Aplicar nos ${d.mudam} leads`}</button>
+            <button onClick={()=>setD(null)} disabled={aplicando}
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+              Agora não</button>
+          </div>
+        </React.Fragment>}
+    </div>}
+  </div>;
+}
+
 function BaseLeads({acoes,isMobile,pessoas}){
   const [lista,setLista]=useState(null);
   const [busca,setBusca]=useState("");
@@ -3260,6 +3348,8 @@ function BaseLeads({acoes,isMobile,pessoas}){
           </button>
         </div>
       </div>
+      <ReanalisarFunil acoes={acoes} isMobile={isMobile} aoAplicar={recarregar}/>
+
       {/* ===== conferência antes de gravar ===== */}
       {pronto&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>

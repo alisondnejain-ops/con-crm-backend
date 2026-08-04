@@ -42,7 +42,9 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
   | fechar / proposta | Proposta |
   | contrato | Venda |
 
-  Regras: forward-only (nunca volta), não mexe nas etapas manuais (Perdido/Recaptação/Transferido), e vale a palavra **mais adiantada** que aparecer na conversa. Antes o funil andava sozinho (abrir a conversa já virava "Atendimento", "sábado" virava "Agendamento") — isso acabou. **"Contrato" agora fecha como Venda automaticamente**, a pedido do Ali; era proibido antes. A lógica vive só no backend; o frontend apenas mostra a palavra da próxima etapa na ficha (`PALAVRA_ETAPA` em `app.jsx`, espelho de `GATILHOS`).
+  Regras: forward-only (nunca volta), não mexe nas etapas manuais (Perdido/Recaptação/Transferido), e vale a palavra **mais adiantada** que aparecer na conversa.
+
+  **Reanálise da base** (`GET/POST /leads/reanalise`, só ADM; tela em "Base de leads"): recalcula a etapa dos leads antigos do zero pela regra nova, lendo a conversa inteira. Aqui o lead **pode descer** — é o objetivo, tirar da frente do funil quem a regra frouxa empurrou. Ficam de fora quem não tem conversa (a base importada inteira cairia para "Lead"), quem tem venda registrada (`sale_value`) e quem está em etapa manual. GET confere, POST aplica. Antes o funil andava sozinho (abrir a conversa já virava "Atendimento", "sábado" virava "Agendamento") — isso acabou. **"Contrato" agora fecha como Venda automaticamente**, a pedido do Ali; era proibido antes. A lógica vive só no backend; o frontend apenas mostra a palavra da próxima etapa na ficha (`PALAVRA_ETAPA` em `app.jsx`, espelho de `GATILHOS`).
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Identidade visual

@@ -64,6 +64,7 @@ const RECURSOS = [
   "escala-apagar",        // apagar a escala do mes inteiro pela tela
   "filtro-por-dia",       // leads por dia abre num dia so; historico conta dia de calendario
   "etapa-por-palavra",    // o funil so anda quando a palavra da etapa e dita na conversa
+  "reanalise-funil",      // passa a regra nova nos leads que ja existem (conferir e aplicar)
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
