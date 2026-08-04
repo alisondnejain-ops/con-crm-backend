@@ -94,12 +94,34 @@ const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita",
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
 const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprovação":"#2F80C4","Agendamento":"#7A5AD6","Visita":"#C8912B","Proposta":"#D97706","Venda":"#0A3D30","Perdido":"#B0463A","Recaptação":"#B07C1F","Transferido por ligação":"#5C6B7A"};
 
+/* A palavra que faz o lead subir para cada etapa. Só para MOSTRAR na tela —
+   quem decide é o backend (GATILHOS em services/stages.js). Mudou a palavra
+   lá, muda o texto aqui; é a mesma regra da inferStage de antes. */
+const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprovação":"aprovação",
+  "Agendamento":"visita","Visita":"o que achou do imóvel","Proposta":"fechar","Venda":"contrato"};
+
+/* A etapa só anda quando a palavra é dita na conversa. Se o corretor não sabe
+   qual é a palavra, a regra não existe na prática — então ela fica escrita
+   embaixo do seletor de etapa, na ficha do lead. */
+function DicaEtapa({etapa}){
+  const i=LINEAR.indexOf(etapa);
+  const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
+  return <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.5}}>
+    {prox
+      ?<React.Fragment>Para ir para <b style={{color:STAGE_C[prox]}}>{prox}</b>, diga <b style={{color:C.ink}}>“{PALAVRA_ETAPA[prox]}”</b> na conversa. Ou mude aqui na mão.</React.Fragment>
+      :i>=0?"Última etapa do funil. Dá para mudar aqui na mão."
+      :"Etapa marcada na mão — a conversa não mexe mais nela."}
+  </div>;
+}
+
 /* O avanço automático de etapa agora acontece no backend (services/stages.js).
    O frontend só exibe a etapa que o servidor devolve — uma fonte da verdade só. */
 
 
 const TEMPLATES=[
-  {t:"Primeiro contato (forte)",body:"Oi {nome}! Aqui é o time da Conecta Imóveis. Você se cadastrou pra realizar o sonho da casa própria no Jardim Amazonas e eu não quero que você perca as condições dessa fase. Posso te mostrar agora quanto ficaria a sua entrada e a parcela que cabe no seu bolso?"},
+  // "atendimento" aqui não é enfeite: é a palavra que tira o lead da etapa
+  // Lead. O primeiro contato é justamente o momento em que isso acontece.
+  {t:"Primeiro contato (forte)",body:"Oi {nome}! Aqui é o time da Conecta Imóveis e vou dar continuidade ao seu atendimento. Você se cadastrou pra realizar o sonho da casa própria no Jardim Amazonas e eu não quero que você perca as condições dessa fase. Posso te mostrar agora quanto ficaria a sua entrada e a parcela que cabe no seu bolso?"},
   {t:"Follow-up",body:"Oi {nome}, passando aqui rapidinho 🙂 As unidades dessa fase estão saindo. Quer que eu segure uma simulação no seu nome hoje?"},
   {t:"Agendar visita",body:"{nome}, que tal conhecer o imóvel de pertinho? Consigo te agendar essa semana. Prefere durante a semana ou no sábado?"},
   {t:"Pedir documentação",body:"{nome}, pra eu já adiantar a sua pasta e a simulação de crédito, consegue me enviar seus documentos (RG, CPF e comprovante de renda)?"},
@@ -1856,7 +1878,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
         <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
-        <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.4}}>A etapa avança sozinha conforme a conversa. Você pode ajustar manualmente aqui.</div>
+        <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {[["Renda familiar",sel.qual.renda,"target"],["Entrada",sel.qual.entrada,"check"],["Situação",sel.qual.situacao,"users"],["Restrição CPF",sel.qual.cpf,"award"],["Prazo p/ comprar",sel.qual.prazo,"calendar"]].map(([k,v,n])=><div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
         </div>
@@ -2529,7 +2551,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
         style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[lead.status],background:C.surface}}>
         {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
-      <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.4}}>A etapa avança sozinha conforme a conversa. Você pode ajustar aqui.</div>
+      <DicaEtapa etapa={lead.status}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {[["Renda familiar",lead.qual.renda,"target","renda"],["Entrada",lead.qual.entrada,"check","entrada"],["Situação",lead.qual.situacao,"users","situacao"],["Restrição CPF",lead.qual.cpf,"award","cpf"],["Prazo p/ comprar",lead.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>

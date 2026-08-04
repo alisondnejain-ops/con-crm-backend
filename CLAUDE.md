@@ -30,7 +30,19 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 - **Finalizar atendimento** (`POST /leads/:id/finalizar`): tira a conversa da caixa de entrada **sem mexer na etapa do funil** — encerra o atendimento, não o negócio. Se o cliente responder, reabre sozinho (webhook da Uazapi). `?finalizados=1` lista os encerrados.
 - **Repasse da SDR**: `POST /distribution/handoff` — passa o lead para o próximo CORRETOR disponível (rodízio), ou para um corretor específico. Nunca de volta pra SDR.
 - **Funil com 11 etapas** (nesta ordem): `Lead, Atendimento, Pasta, Aprovação, Agendamento, Visita, Proposta, Venda, Perdido, Recaptação, Transferido por ligação`.
-- **Avanço automático de etapa**: conforme a conversa evolui, o lead sobe sozinho no funil (ver `backend/src/services/stages.js` → `inferStage`). Regras: forward-only (nunca volta), nunca fecha como "Venda" automaticamente, e não mexe nas etapas manuais (Perdido/Recaptação/Transferido). Palavras-chave disparam etapas (ex.: "agendar" → Agendamento, "documento" → Pasta, "banco/crédito" → Aprovação). A mesma lógica existe no frontend e no backend — mantenha as duas em sincronia.
+- **Avanço de etapa por palavra-chave** (mudou em 04/08/2026 — ver `backend/src/services/stages.js` → `GATILHOS`): o lead **só** muda de etapa quando a palavra daquela etapa é dita na conversa, pelo corretor ou pelo cliente. Uma palavra por etapa:
+
+  | palavra na conversa | leva para |
+  |---|---|
+  | atendimento (ou "dar continuidade") | Atendimento |
+  | documentação / documentos | Pasta |
+  | aprovação | Aprovação |
+  | visita / agendar | Agendamento |
+  | "o que achou do imóvel" (a pergunta do pós-visita) | Visita |
+  | fechar / proposta | Proposta |
+  | contrato | Venda |
+
+  Regras: forward-only (nunca volta), não mexe nas etapas manuais (Perdido/Recaptação/Transferido), e vale a palavra **mais adiantada** que aparecer na conversa. Antes o funil andava sozinho (abrir a conversa já virava "Atendimento", "sábado" virava "Agendamento") — isso acabou. **"Contrato" agora fecha como Venda automaticamente**, a pedido do Ali; era proibido antes. A lógica vive só no backend; o frontend apenas mostra a palavra da próxima etapa na ficha (`PALAVRA_ETAPA` em `app.jsx`, espelho de `GATILHOS`).
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Identidade visual
@@ -124,5 +136,5 @@ exige Python + build tools. O npm 11+ também bloqueia os scripts de instalaçã
 ## Restrições / cuidados
 
 - Não introduzir `localStorage`/`sessionStorage` no frontend do artifact original; no site hospedado é permitido, mas o padrão atual é estado em memória.
-- Manter `inferStage` sincronizado entre `frontend/src/app.jsx` e `backend/src/services/stages.js`.
+- O avanço de etapa vive só em `backend/src/services/stages.js`. Ao mexer nas palavras (`GATILHOS`), atualizar também o `PALAVRA_ETAPA` de `frontend/src/app.jsx` — é o texto que o corretor lê na ficha, e regra que ninguém sabe não é regra.
 - O usuário (Ali) é de marketing/gestão, não é dev — explicar em passos claros, sem jargão, e nunca assumir que ele roda comandos avançados sem orientação.

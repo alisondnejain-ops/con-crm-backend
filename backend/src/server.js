@@ -63,6 +63,7 @@ const RECURSOS = [
   "plantao-no-relatorio", // leads por dia + escala e prontidao no relatorio individual
   "escala-apagar",        // apagar a escala do mes inteiro pela tela
   "filtro-por-dia",       // leads por dia abre num dia so; historico conta dia de calendario
+  "etapa-por-palavra",    // o funil so anda quando a palavra da etapa e dita na conversa
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
