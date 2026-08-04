@@ -17,6 +17,7 @@ import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import orgsRoutes from "./routes/orgs.routes.js";
+import plantaoRoutes from "./routes/plantao.routes.js";
 import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
 import { mailConfigured } from "./services/mail.js";
@@ -25,6 +26,7 @@ import { bootstrap } from "./bootstrap.js";
 import { authRequired } from "./auth.js";
 import { porteiro } from "./services/assinatura.js";
 import { agendarCorte } from "./services/expediente.js";
+import { avisarPlantaoEmTodas } from "./services/plantao.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
@@ -56,6 +58,7 @@ const RECURSOS = [
   "expediente",           // prontidao cai no fim do dia + historico de disponibilidade
   "ponto-atendente",      // a chave da atendente vira registro de ponto, com relatorio
   "crm-no-backend",       // o proprio servidor entrega o CRM (raiz e /app)
+  "plantao",              // escala de plantao, lembrete no painel e aviso as 08:00
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -145,6 +148,7 @@ app.use("/leads", (req, res, next) => (req.path === "/export" ? next() : cobrand
 app.use("/leads", leadsRoutes);
 app.use("/distribution", cobrando, distRoutes);
 app.use("/reports", cobrando, reportsRoutes);
+app.use("/plantoes", cobrando, plantaoRoutes);
 app.use("/produtos", cobrando, produtosRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
@@ -181,5 +185,11 @@ app.listen(PORT, () => {
      no start (cobre o servidor que estava fora do ar às 18:00) e a cada minuto
      (para o corte acontecer na hora certa com o sistema em uso). */
   agendarCorte();
+  /* Aviso das 08:00 de quem está de plantão. No mesmo minuto do corte de
+     expediente, e pelo mesmo motivo: o que garante o disparo é o registro de
+     "até quando já avisei", não o relógio — servidor que reiniciou às 07:59
+     ainda avisa, e servidor que reinicia três vezes não avisa três. */
+  avisarPlantaoEmTodas();
+  setInterval(() => avisarPlantaoEmTodas(), 60000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });

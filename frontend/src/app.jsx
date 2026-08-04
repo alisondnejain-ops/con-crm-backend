@@ -338,13 +338,20 @@ function ConCRM(){
      pagamento cair enquanto a equipe está trabalhando, o sistema destrava
      sozinho, sem ninguém precisar sair e entrar de novo. */
   const [assinatura,setAssinatura]=useState(null);
+  /* Plantão de hoje e o próximo da pessoa. Consultado no login e de hora em
+     hora: a escala do dia não muda de minuto em minuto, e é o que desenha o
+     lembrete no alto do sistema. */
+  const [plantao,setPlantao]=useState(null);
   useEffect(()=>{
     if(!session) return;
     let vivo=true;
     const ver=()=>acoes.assinatura().then(a=>vivo&&setAssinatura(a)).catch(()=>{});
     ver();
     const t=setInterval(ver,60*60*1000);
-    return()=>{vivo=false;clearInterval(t);};
+    const verPlantao=()=>acoes.plantaoDeHoje().then(p=>vivo&&setPlantao(p)).catch(()=>{});
+    verPlantao();
+    const t2=setInterval(verPlantao,60*60*1000);
+    return()=>{vivo=false;clearInterval(t);clearInterval(t2);};
   },[session]);
 
   useEffect(()=>{
@@ -519,6 +526,10 @@ function ConCRM(){
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
     ponto:(params)=>api("/reports/ponto?"+new URLSearchParams(params||{})),
+    plantoes:(params)=>api("/plantoes?"+new URLSearchParams(params||{})),
+    plantaoDeHoje:()=>api("/plantoes/hoje"),
+    definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
+    importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -554,7 +565,214 @@ function ConCRM(){
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub}}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub,plantao}}/>;
+}
+
+/* ===== PLANTÃO =====
+
+   Três leituras da mesma escala, porque são três perguntas diferentes:
+   HOJE (quem está de sobreaviso agora), SEMANA (o que vem pela frente) e MÊS
+   (a lista geral, que é a planilha que a gestão já monta).
+
+   Todo mundo VÊ. Só gestor e atendente MEXEM — montar escala é trabalho de
+   gestão, mas saber quem está de plantão amanhã é da operação inteira. */
+const TURNOS_ROT = { manha: "Manhã", tarde: "Tarde" };
+const DIA_SEMANA = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+
+function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const [mes,setMes]=useState(()=>({ano:hoje.getFullYear(),mes:hoje.getMonth()}));
+  const [aba,setAba]=useState("hoje");
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null);   // {dia, turno}
+  const [salvando,setSalvando]=useState(false);
+  const arquivo=useRef(null);
+  const [importando,setImportando]=useState(false);
+  const [resultado,setResultado]=useState(null);
+
+  const iso=(dt)=>new Date(dt-new Date(dt).getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const primeiro=new Date(mes.ano,mes.mes,1).getTime();
+  const ultimo=new Date(mes.ano,mes.mes+1,0).getTime();
+
+  const rever=()=>acoes.plantoes({de:iso(primeiro),ate:iso(ultimo)}).then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[mes.ano,mes.mes]);
+
+  if(!d) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando a escala…</div>;
+
+  /* A escala é indexada pela DATA (dia/mês/ano), não pelo carimbo de tempo.
+
+     O servidor manda a meia-noite no fuso da operação; o aparelho pode estar
+     em outro fuso, e aí os dois números nunca batem — a tela mostrava "ninguém
+     escalado" num dia que tinha gente. Comparando a data, o dia 04 é o dia 04
+     em qualquer relógio. */
+  const ymd=(ms)=>{const x=new Date(ms);return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;};
+  const porDia=new Map(d.dias.map(x=>[ymd(x.dia),x]));
+  const doDia=(ms)=>porDia.get(ymd(ms))||{dia:ms,manha:[],tarde:[]};
+  const nomeMes=new Date(mes.ano,mes.mes,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  const dd=(ms)=>String(new Date(ms).getDate()).padStart(2,"0");
+
+  // Os 7 dias a partir de hoje — a leitura "o que vem pela frente".
+  const semana=Array.from({length:7},(_,i)=>hoje.getTime()+i*86400000);
+
+  async function salvarTurno(dia,turno,ids){
+    setSalvando(true); setErro("");
+    try{ await acoes.definirPlantao({dia:iso(dia),turno,user_ids:ids}); await rever(); setEditando(null); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+
+  /* Importação da planilha que a Conecta já monta: Data | Dia | Manhã 1 |
+     Manhã 2 | Tarde 1 | Tarde 2. Exporte a aba como CSV e mande aqui. */
+  async function importar(ev){
+    const f=ev.target.files[0]; ev.target.value=""; if(!f) return;
+    setErro(""); setResultado(null); setImportando(true);
+    try{
+      const linhas=lerCSV(await f.text());
+      const cab=(linhas[0]||[]).map(c=>String(c||"").trim().toLowerCase());
+      const acha=(...alvos)=>cab.findIndex(c=>alvos.some(a=>c.includes(a)));
+      const iData=acha("data");
+      if(iData<0) throw new Error("Não achei a coluna 'Data'. Exporte a aba da escala como CSV.");
+      const cols=(pre)=>cab.map((c,i)=>c.includes(pre)?i:-1).filter(i=>i>=0);
+      const iM=cols("manh"), iT=cols("tarde");
+      if(!iM.length&&!iT.length) throw new Error("Não achei as colunas de Manhã e Tarde.");
+      const dados=linhas.slice(1)
+        .filter(l=>String(l[iData]||"").trim())
+        .map(l=>({data:l[iData], manha:iM.map(i=>l[i]), tarde:iT.map(i=>l[i])}));
+      if(!dados.length) throw new Error("A planilha não tem linhas com data.");
+      const r=await acoes.importarEscala(dados);
+      setResultado(r); await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setImportando(false); }
+  }
+
+  const cartaoTurno=(dia,turno,compacto)=>{
+    const lista=doDia(dia)[turno];
+    const editandoEste=editando&&editando.dia===dia&&editando.turno===turno;
+    return <div key={turno} style={{flex:1,minWidth:0,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+        <span style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,flex:1}}>{TURNOS_ROT[turno]}</span>
+        {podeEditar&&<button onClick={()=>setEditando(editandoEste?null:{dia,turno})}
+          style={{background:"transparent",border:"none",color:C.greenMid,cursor:"pointer",padding:0,display:"flex"}}>
+          <Icon n="edit" size={13}/></button>}
+      </div>
+      {editandoEste
+        ?<div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {pessoas.map(p=>{
+            const marcado=lista.some(x=>x.id===p.id);
+            return <button key={p.id} onClick={()=>{
+              const ids=marcado?lista.filter(x=>x.id!==p.id).map(x=>x.id):[...lista.map(x=>x.id),p.id];
+              salvarTurno(dia,turno,ids);
+            }} disabled={salvando}
+              style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${marcado?C.green:C.line}`,
+                background:marcado?C.greenSoft:C.card,borderRadius:8,padding:"6px 9px",cursor:"pointer",textAlign:"left"}}>
+              <Icon n={marcado?"check":"userplus"} size={12} color={marcado?C.greenDeep:C.faint}/>
+              <span style={{color:C.ink,fontSize:12,fontWeight:marcado?700:500}}>{first(p.name)}</span>
+            </button>;})}
+          <button onClick={()=>setEditando(null)} style={{background:"transparent",border:"none",color:C.faint,fontSize:11,cursor:"pointer",marginTop:2}}>fechar</button>
+        </div>
+        :lista.length
+        ?<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {lista.map(x=><span key={x.id} style={{display:"flex",alignItems:"center",gap:5,background:C.card,
+            border:`1px solid ${x.id===session.id?C.green:C.line}`,borderRadius:999,padding:"3px 9px 3px 3px"}}>
+            <Avatar ini={initials(x.nome||"?")} color={x.id===session.id?C.greenDeep:COLORS[[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]} size={18}/>
+            <span style={{color:C.ink,fontSize:11.5,fontWeight:x.id===session.id?700:500}}>{first(x.nome||"—")}</span>
+          </span>)}
+        </div>
+        :<span style={{color:C.faint,fontSize:11.5}}>{compacto?"—":"ninguém escalado"}</span>}
+    </div>;
+  };
+
+  const linhaDoDia=(ms,destaque)=>{
+    const ehHoje=ms===hoje.getTime();
+    const souEu=[...doDia(ms).manha,...doDia(ms).tarde].some(x=>x.id===session.id);
+    return <div key={ms} style={{background:C.card,border:`1px solid ${souEu?C.green+"66":C.line}`,borderRadius:14,
+      padding:isMobile?11:13,marginBottom:8,borderLeft:souEu?`3px solid ${C.green}`:undefined}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+        <span style={{fontFamily:MONO,color:C.ink,fontSize:14,fontWeight:700}}>{dd(ms)}/{String(new Date(ms).getMonth()+1).padStart(2,"0")}</span>
+        <span style={{color:C.sub,fontSize:12.5}}>{DIA_SEMANA[new Date(ms).getDay()]}</span>
+        {ehHoje&&<span style={{background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>HOJE</span>}
+        {souEu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>VOCÊ</span>}
+      </div>
+      <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
+        {cartaoTurno(ms,"manha",!destaque)}{cartaoTurno(ms,"tarde",!destaque)}
+      </div>
+    </div>;
+  };
+
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:860,margin:"0 auto"}}>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+      {/* O próprio plantão da pessoa, em primeiro lugar. É a informação que ela
+          abriu a tela para ver. */}
+      <AvisoPlantao meu={d.meu} isMobile={isMobile}/>
+
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"]].map(([k,t])=>
+          <button key={k} onClick={()=>setAba(k)}
+            style={{fontSize:12.5,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
+              background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+        {podeEditar&&<React.Fragment>
+          <span style={{flex:1}}/>
+          <input ref={arquivo} type="file" accept=".csv,text/csv" onChange={importar} style={{display:"none"}}/>
+          <button onClick={()=>arquivo.current.click()} disabled={importando}
+            style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
+              borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Importando…":"Subir escala"}</button>
+        </React.Fragment>}
+      </div>
+
+      {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{color:C.greenDeep,fontSize:13,fontWeight:700}}>{resultado.dias} dia(s) e {resultado.escalados} escala(s) importados</div>
+        {resultado.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:4,lineHeight:1.5}}>
+          Não identifiquei na equipe: <b>{resultado.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
+        </div>}
+      </div>}
+
+      {aba==="hoje"&&<React.Fragment>
+        {linhaDoDia(hoje.getTime(),true)}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+          Quem está escalado recebe um aviso no celular às 08:00 lembrando do plantão.
+        </div>
+      </React.Fragment>}
+
+      {aba==="semana"&&semana.map(ms=>linhaDoDia(ms,false))}
+
+      {aba==="mes"&&<React.Fragment>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
+          <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center",textTransform:"capitalize"}}>{nomeMes}</span>
+          <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
+        </div>
+        {Array.from({length:new Date(mes.ano,mes.mes+1,0).getDate()},(_,i)=>new Date(mes.ano,mes.mes,i+1).getTime())
+          .map(ms=>linhaDoDia(ms,false))}
+      </React.Fragment>}
+    </div>
+  </div>;
+}
+
+/* Lembrete do plantão. Vai no topo do painel de quem atende e também na
+   própria tela da escala: no dia, é a primeira coisa que a pessoa precisa
+   saber ao abrir o sistema. */
+function AvisoPlantao({meu,isMobile,compacto}){
+  if(!meu) return null;
+  const hoje=meu.hoje;
+  const turnos=meu.turnos.map(t=>TURNOS_ROT[t].toLowerCase()).join(" e ");
+  const quando=hoje?"Hoje é seu dia de plantão"
+    :meu.faltam===1?"Amanhã é seu dia de plantão"
+    :`Seu próximo plantão é em ${meu.faltam} dias`;
+  const data=new Date(meu.dia).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  return <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:compacto?12:14,
+    background:hoje?C.greenDeep:C.greenSoft,color:hoje?"#fff":C.greenDeep,
+    border:hoje?"none":`1px solid ${C.green}44`,borderRadius:13,padding:isMobile?"11px 13px":"12px 15px"}}>
+    <Icon n="calendar" size={17}/>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontSize:13.5,fontWeight:700}}>{quando}</div>
+      <div style={{fontSize:11.5,opacity:.85}}>{DIA_SEMANA[new Date(meu.dia).getDay()]}, {data} · turno da {turnos}</div>
+    </div>
+  </div>;
 }
 
 /* ===== HUB DE CONTAS =====
@@ -946,7 +1164,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub,plantao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -1036,13 +1254,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
-    corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
+    corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
@@ -1084,6 +1302,16 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         </div>
       </header>
       <TarjaMensalidade assinatura={assinatura} isMobile={isMobile}/>
+      {/* Lembrete do plantão no alto do sistema. Só aparece na véspera e no
+          dia — antes disso é informação, não lembrete, e vive na tela da
+          escala. Clicar leva para lá. */}
+      {/* Na própria tela da escala a faixa já aparece lá dentro — repetir as
+          duas seria dizer a mesma coisa duas vezes na mesma tela. */}
+      {view!=="plantao"&&plantao&&plantao.meu&&plantao.meu.faltam<=1&&
+        <button onClick={()=>setView("plantao")} style={{border:"none",padding:isMobile?"0 14px":"0 20px",
+          background:"transparent",cursor:"pointer",width:"100%",textAlign:"left",flexShrink:0,marginTop:10}}>
+          <AvisoPlantao meu={plantao.meu} isMobile={isMobile} compacto/>
+        </button>}
       {erro&&<div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}44`,color:C.hot,fontSize:12.5,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
         <Icon n="wifioff" size={14}/><span style={{flex:1}}>{erro}</span>
         <button onClick={()=>setErro("")} style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",fontWeight:700}}>×</button>
@@ -1102,6 +1330,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
+        {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}

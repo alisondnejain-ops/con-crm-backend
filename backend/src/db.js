@@ -186,6 +186,24 @@ CREATE TABLE IF NOT EXISTS disponibilidade_log (
   created_at INTEGER NOT NULL
 );
 
+-- Escala de plantão: quem fica de sobreaviso em cada turno, dia a dia.
+--
+-- Uma linha por PESSOA por turno (a Conecta usa dois corretores por turno),
+-- em vez de colunas "Manhã 1 / Manhã 2" como na planilha. Assim a escala não
+-- fica presa a dois: se um dia precisarem de três, é só mais uma linha.
+CREATE TABLE IF NOT EXISTS plantoes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  dia INTEGER NOT NULL,        -- meia-noite do dia, no fuso da operação
+  turno TEXT NOT NULL,         -- 'manha' | 'tarde'
+  user_id TEXT NOT NULL,
+  criado_por TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- Duas pessoas no mesmo turno é normal; a MESMA pessoa duas vezes, não.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plantao_unico ON plantoes(org_id, dia, turno, user_id);
+CREATE INDEX IF NOT EXISTS idx_plantao_dia ON plantoes(org_id, dia);
 CREATE INDEX IF NOT EXISTS idx_disp_org ON disponibilidade_log(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_disp_user ON disponibilidade_log(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_org ON pagamentos(org_id, pago_em);
@@ -272,6 +290,9 @@ addOrgCol("created_at", "INTEGER");
    regra — imobiliária com plantão à noite não pode ficar refém dela. */
 addOrgCol("expediente_fim", "TEXT DEFAULT '18:00'");
 addOrgCol("ultimo_corte", "INTEGER");   // até quando o corte já foi aplicado
+// Até quando o aviso das 08:00 do plantão já foi disparado. Mesma ideia do
+// corte: guardar o dia evita mandar duas vezes se o servidor reiniciar.
+addOrgCol("ultimo_aviso_plantao", "INTEGER");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
