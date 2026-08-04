@@ -531,6 +531,7 @@ function ConCRM(){
     definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
+    apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
     entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
@@ -591,6 +592,9 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const arquivo=useRef(null);
   const [importando,setImportando]=useState(false);
   const [resultado,setResultado]=useState(null);
+  const [confirmando,setConfirmando]=useState(false);
+  const [apagando,setApagando]=useState(false);
+  const [recado,setRecado]=useState("");
 
   const iso=(dt)=>new Date(dt-new Date(dt).getTimezoneOffset()*60000).toISOString().slice(0,10);
   const primeiro=new Date(mes.ano,mes.mes,1).getTime();
@@ -611,6 +615,8 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const porDia=new Map(d.dias.map(x=>[ymd(x.dia),x]));
   const doDia=(ms)=>porDia.get(ymd(ms))||{dia:ms,manha:[],tarde:[]};
   const nomeMes=new Date(mes.ano,mes.mes,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  // "agosto de 2026" -> "Agosto de 2026". O capitalize do CSS deixaria "De".
+  const nomeMesCap=nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1);
   const dd=(ms)=>String(new Date(ms).getDate()).padStart(2,"0");
 
   // Os 7 dias a partir de hoje — a leitura "o que vem pela frente".
@@ -637,6 +643,24 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       setResultado(r); await rever();
     }catch(e){ setErro(e.message); }
     finally{ setImportando(false); }
+  }
+
+  /* Apaga a escala do mês que está na tela.
+
+     Um mês inteiro de uma vez porque é assim que a escala entra — a planilha é
+     mensal. Apagar dia a dia para refazer o mês seria trinta cliques.
+
+     Sempre o mês, mesmo estando na aba Hoje ou Semana: o botão diz qual mês vai
+     apagar, e a confirmação repete o número de dias que serão perdidos. */
+  async function apagarMes(){
+    setApagando(true); setErro("");
+    try{
+      const r=await acoes.apagarEscala({de:iso(primeiro),ate:iso(ultimo)});
+      setResultado(null); setConfirmando(false);
+      setRecado(r.apagados?`Escala de ${nomeMes} apagada.`:`Não havia escala em ${nomeMes} para apagar.`);
+      await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setApagando(false); }
   }
 
   const cartaoTurno=(dia,turno,compacto)=>{
@@ -713,8 +737,38 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
             style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
               borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
             <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Importando…":"Subir escala"}</button>
+          <button onClick={()=>{setConfirmando(true);setRecado("");}} disabled={apagando}
+            style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,
+              borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            <Icon n="trash" size={14}/>Apagar escala</button>
         </React.Fragment>}
       </div>
+
+      {/* Apagar é a única ação da tela que não dá para desfazer clicando de
+          novo — daí a confirmação escrita, dizendo o mês e quantos dias vão
+          embora. Subir a planilha errada e não conseguir limpar era o jeito
+          mais fácil de deixar o mês inteiro bagunçado. */}
+      {confirmando&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{color:C.hot,fontSize:13,fontWeight:700,marginBottom:3}}>Apagar a escala de {nomeMes}?</div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>
+          {d.dias.length
+            ?<React.Fragment>São <b>{d.dias.length} dia(s)</b> escalados. Some para todo mundo, e só volta subindo a planilha de novo.</React.Fragment>
+            :"Este mês está sem nenhuma escala."}
+        </div>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <button onClick={apagarMes} disabled={apagando}
+            style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {apagando?"Apagando…":"Sim, apagar"}</button>
+          <button onClick={()=>setConfirmando(false)} disabled={apagando}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            Cancelar</button>
+        </div>
+      </div>}
+
+      {recado&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:12,
+        color:C.sub,fontSize:12.5,display:"flex",alignItems:"center",gap:8}}>
+        <Icon n="check" size={14} color={C.greenMid}/>{recado}
+      </div>}
 
       {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
         <div style={{color:C.greenDeep,fontSize:13,fontWeight:700}}>{resultado.dias} dia(s) e {resultado.escalados} escala(s) importados{resultado.arquivo?` — ${resultado.arquivo}`:""}</div>
@@ -736,7 +790,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
           <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
             style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
-          <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center",textTransform:"capitalize"}}>{nomeMes}</span>
+          <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center"}}>{nomeMesCap}</span>
           <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
             style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
         </div>
@@ -2131,6 +2185,7 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
   useEffect(()=>{ if(podeConfigurar) acoes.expediente().then(x=>{setExp(x);setRascunho(x.fim||"");}).catch(()=>{}); },[]);
 
   const hhmm=(ms)=>new Date(ms).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const dataCurta=(ms)=>new Date(ms).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
   const tempo=(min)=>min<60?`${min} min`:`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`;
   const salvarExp=async()=>{ setSalvando(true);
     try{ const x=await acoes.definirExpediente(rascunho.trim()); setExp(x); }catch(e){} finally{ setSalvando(false); } };
@@ -2187,6 +2242,13 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
           style={{fontSize:11.5,fontWeight:600,padding:"5px 11px",borderRadius:999,border:"none",cursor:"pointer",
             background:dias===n?C.greenDeep:C.surface,color:dias===n?"#fff":C.sub}}>
           {n===1?"hoje":`${n} dias`}</button>)}
+      </div>
+      {/* Diz em voz alta qual janela está valendo. O filtro conta dias de
+          calendário: "hoje" é da meia-noite para cá, não as últimas 24 horas —
+          antes o de hoje ainda trazia a tarde de ontem e parecia quebrado. */}
+      <div style={{color:C.faint,fontSize:11,marginBottom:6}}>
+        {dias===1?`mostrando só ${dataCurta(Date.now())}`
+          :`mostrando de ${dataCurta(Date.now()-(dias-1)*86400000)} até ${dataCurta(Date.now())}`}
       </div>
       <div style={{display:"flex",flexDirection:"column"}}>
         {d.eventos.map(e=><LinhaDisponibilidade key={e.id} e={e} hhmm={hhmm} mostrarNome/>)}
@@ -4250,6 +4312,28 @@ function LeadsPorDia({linha,isMobile}){
   const dd=(ms)=>new Date(ms).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
   const semana=(ms)=>["dom","seg","ter","qua","qui","sex","sáb"][new Date(ms).getDay()];
 
+  /* Um dia por vez, e não os trinta de uma vez.
+     O mês inteiro em barras empurrava o resto do relatório para fora da tela,
+     e a pergunta do gestor é quase sempre sobre UM dia. Então a tela abre no
+     dia escolhido; a lista completa continua a um clique, para quando ele
+     quiser procurar o buraco no mês. */
+  const chave=(ms)=>{const x=new Date(ms);
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`;};
+  const [tudo,setTudo]=useState(false);
+  const [escolhido,setEscolhido]=useState(()=>chave(Date.now()));
+
+  const porChave=new Map(dias.map(d=>[chave(d.dia),d.recebidos]));
+  const deuPlantao=new Set((pl.dias_plantao||[]).map(chave));
+  const recebidos=porChave.get(escolhido)||0;
+  const noPlantao=deuPlantao.has(escolhido);
+  const data=new Date(escolhido+"T12:00:00");
+  // Só a primeira letra: com o capitalize do CSS sairia "Terça-Feira, 04 De Agosto".
+  const porExtenso=isFinite(data.getTime())
+    ?data.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"}):"—";
+  const extenso=porExtenso.charAt(0).toUpperCase()+porExtenso.slice(1);
+  // Os dias com movimento, para ele saber onde procurar sem abrir a lista toda.
+  const comMovimento=dias.filter(d=>d.recebidos>0).length;
+
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
       <Icon n="calendar" size={15} color={C.greenMid}/>
@@ -4264,16 +4348,41 @@ function LeadsPorDia({linha,isMobile}){
       <b style={{color:C.ink}}> {pl.leads_em_dia_de_plantao}</b> lead(s) chegaram em dia de plantão dele.
     </div>}
 
-    {dias.length===0
-      ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead recebido neste período.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:3}}>
-        {dias.map(d=><div key={d.dia} style={{display:"flex",alignItems:"center",gap:9}}>
-          <span style={{fontFamily:MONO,color:C.sub,fontSize:11.5,width:64,flexShrink:0}}>{dd(d.dia)} <span style={{color:C.faint}}>{semana(d.dia)}</span></span>
-          <div style={{flex:1,height:16,background:C.surface,borderRadius:5,overflow:"hidden",minWidth:40}}>
-            <div style={{width:`${Math.max(6,(d.recebidos/maior)*100)}%`,height:"100%",background:C.green,borderRadius:5}}/>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
+      <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>Dia</span>
+      <input type="date" value={escolhido} onChange={e=>{setEscolhido(e.target.value);setTudo(false);}}
+        style={{fontSize:isMobile?16:12.5,fontFamily:MONO,border:`1px solid ${C.line}`,background:C.surface,
+          borderRadius:9,padding:"6px 9px",color:C.ink,outline:"none"}}/>
+      <button onClick={()=>setTudo(t=>!t)}
+        style={{background:"transparent",border:"none",padding:0,cursor:"pointer",color:C.greenMid,fontSize:11.5,fontWeight:600,marginLeft:"auto"}}>
+        {tudo?"ver só o dia escolhido":`ver o período todo (${comMovimento} dia(s) com lead)`}</button>
+    </div>
+
+    {tudo
+      ?(dias.length===0
+        ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead recebido neste período.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {dias.map(d=><button key={d.dia} onClick={()=>{setEscolhido(chave(d.dia));setTudo(false);}}
+            style={{display:"flex",alignItems:"center",gap:9,background:"transparent",border:"none",padding:0,cursor:"pointer",width:"100%"}}>
+            <span style={{fontFamily:MONO,color:C.sub,fontSize:11.5,width:64,flexShrink:0,textAlign:"left"}}>{dd(d.dia)} <span style={{color:C.faint}}>{semana(d.dia)}</span></span>
+            <div style={{flex:1,height:16,background:C.surface,borderRadius:5,overflow:"hidden",minWidth:40}}>
+              <div style={{width:`${Math.max(6,(d.recebidos/maior)*100)}%`,height:"100%",
+                background:deuPlantao.has(chave(d.dia))?C.greenDeep:C.green,borderRadius:5}}/>
+            </div>
+            <span style={{fontFamily:MONO,color:C.ink,fontSize:12.5,fontWeight:700,width:26,textAlign:"right"}}>{d.recebidos}</span>
+          </button>)}
+        </div>)
+      :<div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 140px",minWidth:0}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{extenso}</div>
+          <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+            {noPlantao?<span style={{color:C.greenDeep,fontWeight:700}}>estava de plantão neste dia</span>:"não estava escalado neste dia"}
           </div>
-          <span style={{fontFamily:MONO,color:C.ink,fontSize:12.5,fontWeight:700,width:26,textAlign:"right"}}>{d.recebidos}</span>
-        </div>)}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontFamily:MONO,color:recebidos?C.ink:C.faint,fontSize:26,fontWeight:700,lineHeight:1}}>{recebidos}</div>
+          <div style={{color:C.faint,fontSize:11,marginTop:3}}>lead(s) recebido(s)</div>
+        </div>
       </div>}
   </div>;
 }

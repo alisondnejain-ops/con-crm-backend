@@ -207,9 +207,16 @@ export function ponto(orgId, { de, ate, userId = null, roles = ["sdr"] } = {}) {
 }
 
 /* Histórico para a atendente e a gestão: quem ligou, quem desligou, a que
-   horas e por quem. `dias` limita a janela — a tela pede 7 por padrão. */
+   horas e por quem. `dias` limita a janela — a tela pede 7 por padrão.
+
+   A janela conta DIAS DE CALENDÁRIO, começando na meia-noite. Antes era
+   "as últimas 24 horas": às 15h do dia 04, o filtro "hoje" ainda trazia a
+   tarde do dia 03 junto, e parecia que o filtro não tinha sido aplicado.
+   Filtro de dia tem que casar com o dia do calendário — 1 = hoje, 7 = hoje e
+   os seis anteriores. */
 export function historico(orgId, { dias = 7, userId = null, limite = 400 } = {}) {
-  const desde = Date.now() - Math.max(1, Number(dias) || 7) * 86400000;
+  const zero = new Date(); zero.setHours(0, 0, 0, 0);
+  const desde = zero.getTime() - (Math.max(1, Number(dias) || 7) - 1) * 86400000;
   const args = [orgId, desde];
   let filtro = "";
   if (userId) { filtro = " AND d.user_id = ?"; args.push(userId); }

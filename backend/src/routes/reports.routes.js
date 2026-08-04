@@ -119,6 +119,9 @@ r.get("/", (req, res) => {
         dias_escalado: escalados.size,
         dias_que_se_prontificou: cumpriu.get(u.id) || 0,
         leads_em_dia_de_plantao: emPlantao.length,
+        // As datas em si, para a tela marcar "estava de plantão" no dia que o
+        // gestor abrir — o número sozinho não responde "e no dia 4?".
+        dias_plantao: [...escalados].sort((a, b) => a - b),
       },
     };
   });

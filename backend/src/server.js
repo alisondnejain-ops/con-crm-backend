@@ -61,6 +61,8 @@ const RECURSOS = [
   "plantao",              // escala de plantao, lembrete no painel e aviso as 08:00
   "escala-xlsx",          // sobe a escala direto da planilha do Excel (.xlsx)
   "plantao-no-relatorio", // leads por dia + escala e prontidao no relatorio individual
+  "escala-apagar",        // apagar a escala do mes inteiro pela tela
+  "filtro-por-dia",       // leads por dia abre num dia so; historico conta dia de calendario
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
