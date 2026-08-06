@@ -28,11 +28,26 @@ async function call(path, payload) {
   } catch (e) {
     throw new Error(`Não consegui falar com o WhatsApp (rede): ${e.message}`);
   }
-  const data = await res.json().catch(() => ({}));
+  /* Lê como TEXTO antes de tentar o JSON.
+     Com `res.json()` direto, uma resposta que não fosse JSON — página de erro
+     em HTML, texto solto — virava objeto vazio e o motivo real da falha
+     evaporava. Foi o que aconteceu no 500 do /send/media em 06/08/2026: a
+     tela dizia "Uazapi respondeu 500" e ninguém, nem o servidor, sabia o que
+     ela tinha dito de verdade. */
+  const bruto = await res.text().catch(() => "");
+  let data = {};
+  try { data = bruto ? JSON.parse(bruto) : {}; } catch { data = {}; }
+
   if (!res.ok) {
+    console.error(`[uazapi] ${path} respondeu ${res.status}:`, bruto.slice(0, 800) || "(corpo vazio)");
     if (res.status === 401) throw new Error("Token da Uazapi inválido ou ausente — confira UAZAPI_TOKEN.");
     // A Uazapi devolve mensagem em português quando o próprio WhatsApp recusa.
-    throw new Error(data.message_ptbr || data.message || `Uazapi respondeu ${res.status}.`);
+    const explicacao = data.message_ptbr || data.message || data.error;
+    if (explicacao) throw new Error(explicacao);
+    // Sem mensagem no corpo, vai o que veio — nem que seja "(sem resposta)".
+    // Um trecho do corpo cru diz mais do que o número do erro sozinho.
+    const trecho = bruto.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(`Uazapi respondeu ${res.status} em ${path}${trecho ? `: ${trecho}` : " sem dizer o motivo (resposta vazia)"}`);
   }
   return { ok: true, data };
 }
