@@ -9,7 +9,7 @@
 // A troca de um para o outro não muda nada no resto do código: quem chama
 // só conhece salvar() e apagar().
 
-import { mkdir, writeFile, unlink } from "fs/promises";
+import { mkdir, writeFile, unlink, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -200,6 +200,25 @@ export async function apagar(chave) {
     // Arquivo órfão não pode derrubar a exclusão do cadastro.
     console.warn("[storage] não consegui apagar", chave, e.message);
   }
+}
+
+/* Lê o arquivo de volta, do disco ou do R2.
+
+   Existe para o envio pelo WhatsApp não depender de a URL pública estar
+   alcançável de fora: quando a Uazapi não consegue baixar pelo link, o
+   arquivo vai embutido na requisição (ver sendMedia). Aqui o servidor lê o
+   próprio arquivo, o que funciona mesmo com o domínio fora do ar. */
+export async function bytesDoArquivo(chave) {
+  if (!chave) throw new Error("sem a chave do arquivo");
+  if (usandoR2()) {
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const cliente = await s3();
+    const saida = await cliente.send(new GetObjectCommand({ Bucket: R2.bucket, Key: chave }));
+    const pedacos = [];
+    for await (const p of saida.Body) pedacos.push(p);
+    return Buffer.concat(pedacos);
+  }
+  return readFile(path.join(PASTA, chave));
 }
 
 export const pastaLocal = () => PASTA;

@@ -3,7 +3,15 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
 import { sendText, sendMedia, sendLocation } from "../services/uazapi.js";
-import { salvar, limiteBytes } from "../services/storage.js";
+import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
+
+// O tipo do arquivo pela extensão da URL guardada. Só serve para rotular o
+// arquivo embutido no reenvio — o catálogo já limitou o que pode entrar.
+const MIME_POR_EXT = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  mp4: "video/mp4", mov: "video/quicktime",
+};
+const mimeDaUrl = (url) => MIME_POR_EXT[String(url || "").split(".").pop().toLowerCase()] || "application/octet-stream";
 import { inferStage } from "../services/stages.js";
 
 const r = Router();
@@ -90,7 +98,10 @@ r.post("/:id/anexo", async (req, res) => {
       const tipoUazapi = f === "audio" ? "ptt" : f;
       // A legenda vai só na primeira: repetida em 10 fotos, vira spam.
       const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
-      await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
+      // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
+      // conseguir baixar pela URL, ele vai embutido, sem reler nada.
+      await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
+        caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
       enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda });
     }
   } catch (e) {
@@ -174,16 +185,21 @@ r.post("/:id/produto", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Produto não encontrado" });
 
   const firstName = (req.user.name || "").split(" ")[0];
-  const midias = db.prepare("SELECT tipo,url FROM produto_midias WHERE produto_id=? ORDER BY ordem").all(p.id);
+  const midias = db.prepare("SELECT tipo,url,chave FROM produto_midias WHERE produto_id=? ORDER BY ordem").all(p.id);
   let texto = textoDoProduto(p);
   if (localizacao && p.maps_url) texto += `\n\n📍 Localização: ${p.maps_url}`;
 
   try {
     await sendText({ toPhone: lead.phone, text: texto, signedBy: firstName });
+    /* A foto do catálogo já está guardada, então aqui não temos o arquivo em
+       mãos. `bytes` é uma função: só lê do disco/R2 se a URL falhar — assim o
+       envio normal continua tão leve quanto era. */
     if (fotos) for (const m of midias.filter(m => m.tipo === "foto"))
-      await sendMedia({ toPhone: lead.phone, type: "image", file: m.url });
+      await sendMedia({ toPhone: lead.phone, type: "image", file: m.url,
+        bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
     if (video) for (const m of midias.filter(m => m.tipo === "video"))
-      await sendMedia({ toPhone: lead.phone, type: "video", file: m.url });
+      await sendMedia({ toPhone: lead.phone, type: "video", file: m.url,
+        bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }

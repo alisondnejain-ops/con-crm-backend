@@ -46,12 +46,42 @@ export function sendText({ toPhone, text, signedBy }) {
 }
 
 // type: image | video | audio | ptt | document. `file` aceita URL pública ou base64.
-export function sendMedia({ toPhone, type, file, caption, signedBy, docName }) {
-  return call("/send/media", {
-    number: toPhone, type, file,
+/* Manda mídia. `file` é uma URL pública OU o arquivo em base64.
+
+   A URL é o caminho normal e o mais barato: a Uazapi baixa o arquivo sozinha.
+   Só que isso põe o envio na dependência de a URL estar alcançável DE FORA —
+   e ela deixa de estar por motivos que nada têm a ver com o WhatsApp: domínio
+   fora do ar, APP_URL apontando para o endereço errado, bucket do R2 sem
+   acesso público. Foi o que aconteceu em 06/08/2026: texto saindo normal e
+   toda foto e vídeo falhando com "Falha ao enviar pelo WhatsApp".
+
+   Por isso o `bytes`: se a URL falhar, o arquivo vai embutido na requisição.
+   Fica mais pesado, mas não depende de ninguém conseguir abrir um endereço.
+   `bytes` pode ser o Buffer ou uma função que devolve o Buffer — assim o
+   arquivo só é lido do disco/R2 se a primeira tentativa falhar. */
+export async function sendMedia({ toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
+  const corpo = (arquivo) => ({
+    number: toPhone, type, file: arquivo,
     ...(caption ? { text: assinar(caption, signedBy) } : {}),
     ...(docName ? { docName } : {}),
   });
+
+  try {
+    return await call("/send/media", corpo(file));
+  } catch (e) {
+    if (!bytes) throw e;
+    let buffer;
+    try { buffer = typeof bytes === "function" ? await bytes() : bytes; }
+    catch (lendo) { throw new Error(`${e.message} (e não consegui reler o arquivo: ${lendo.message})`); }
+    if (!buffer || !buffer.length) throw e;
+
+    console.warn(`[uazapi] a URL falhou (${e.message}); reenviando o arquivo embutido.`);
+    try {
+      return await call("/send/media", corpo(`data:${mime || "application/octet-stream"};base64,${buffer.toString("base64")}`));
+    } catch (e2) {
+      throw new Error(`${e.message} — e o envio direto do arquivo também falhou: ${e2.message}`);
+    }
+  }
 }
 
 export function sendLocation({ toPhone, latitude, longitude, name, address }) {

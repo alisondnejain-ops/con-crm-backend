@@ -45,7 +45,11 @@ async function api(path,{method="GET",body}={}){
       body:body?JSON.stringify(body):undefined});
   }catch(e){ throw new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."); }
   const data=await res.json().catch(()=>({}));
-  if(!res.ok) throw new Error(data.error||`Erro ${res.status} ao falar com o servidor.`);
+  /* O `detail` junto, e não só o `error`.
+     "Falha ao enviar pelo WhatsApp" sozinho não diz nada a quem está na tela
+     nem a quem vai consertar — o motivo de verdade vinha no `detail` e era
+     jogado fora aqui. Um dia inteiro se perdeu por causa disso. */
+  if(!res.ok) throw new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
   return data;
 }
 
