@@ -69,6 +69,7 @@ const RECURSOS = [
   "catraca-do-gestor",    // o gestor enxerga a catraca, como a atendente
   "alerta-sem-resposta",  // avisa o corretor e deixa a gestao cutucar o atendimento parado
   "responder-mensagem",   // citar uma mensagem especifica, como o Responder do WhatsApp
+  "editar-mensagem",      // editar em ate 15 min, e so se a Uazapi editar de verdade
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

@@ -346,5 +346,12 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_id)");
    é ele que permite montar a citação na tela mesmo quando a mensagem citada
    é antiga e não tem `wa_id` — o do WhatsApp a gente busca na hora de enviar. */
 addMsgCol("reply_to", "TEXT");
+/* Edição da mensagem, nas regras do WhatsApp (15 minutos, só texto, só o que
+   saiu daqui). `body_original` guarda o que foi enviado da primeira vez: o CRM
+   é registro de atendimento, e registro que perde a versão original deixa de
+   servir para resolver discussão sobre o que foi combinado. */
+addMsgCol("edited_at", "INTEGER");
+addMsgCol("edited_by", "TEXT");
+addMsgCol("body_original", "TEXT");
 
 export default db;

@@ -75,6 +75,50 @@ function idDaMensagem(d) {
   return d?.messageid || d?.id || m.messageid || m.id || m.key?.id || d?.key?.id || null;
 }
 
+/* Editar uma mensagem já enviada.
+
+   Aqui o risco da citação NÃO se repete, e a diferença importa: campo
+   desconhecido a Uazapi engole calada, mas endereço que não existe devolve
+   404. Ou seja, se esta conta não souber editar, a gente FICA SABENDO — e é
+   por isso que a edição no CRM só acontece depois que esta função responde ok.
+
+   Cada provedor batiza o endereço de um jeito, então tentamos os conhecidos em
+   ordem, parando no primeiro que não for "não existe". São todos endereços de
+   EDIÇÃO: nenhum deles manda mensagem nova se estiver errado — no pior caso
+   responde 404 e seguimos para o próximo. */
+const CAMINHOS_EDICAO = ["/message/edit", "/send/edit", "/message/update"];
+
+let ultimaEdicao = null;
+export const edicaoDiagnostico = () => ultimaEdicao;
+
+export async function editMessage({ messageid, text }) {
+  if (!uazapiConfigured()) return { ok: false, simulated: true };
+  const tentativas = [];
+
+  for (const caminho of CAMINHOS_EDICAO) {
+    try {
+      // `id` e `text` são os nomes mais comuns; os apelidos vão junto porque
+      // campo a mais é ignorado, como esta conta já demonstrou.
+      const r = await call(caminho, { id: messageid, messageid, text, newText: text, message: text });
+      ultimaEdicao = { quando: new Date().toISOString(), caminho, status: "aceito", tentativas,
+        resposta: String(r.bruto || "").slice(0, 400) };
+      return { ok: true, caminho, data: r.data };
+    } catch (e) {
+      tentativas.push({ caminho, erro: e.message.slice(0, 160) });
+      // 404 = este endereço não existe nesta conta; tenta o próximo.
+      // Qualquer outro erro é resposta de verdade e vale parar: insistir só
+      // repetiria a mesma recusa em endereços diferentes.
+      if (!/\b404\b/.test(e.message)) {
+        ultimaEdicao = { quando: new Date().toISOString(), caminho, status: "recusado", tentativas, resposta: e.message.slice(0, 400) };
+        throw e;
+      }
+    }
+  }
+
+  ultimaEdicao = { quando: new Date().toISOString(), status: "sem endereço de edição", tentativas };
+  throw new Error("Esta conta da Uazapi não tem como editar mensagem enviada (nenhum dos endereços conhecidos existe).");
+}
+
 // Assina a mensagem com o nome do corretor: todos usam o mesmo número,
 // então o lead precisa saber com quem está falando.
 const assinar = (text, signedBy) => (signedBy ? `*${signedBy}:*\n${text}` : text);

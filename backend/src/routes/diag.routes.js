@@ -1,6 +1,6 @@
 import { Router } from "express";
 import db from "../db.js";
-import { instanceStatus, citacaoDiagnostico } from "../services/uazapi.js";
+import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
 import { mailConfigured } from "../services/mail.js";
 import { ultimosEventos } from "./uazapi.webhook.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
@@ -24,6 +24,7 @@ r.get("/integracoes", async (_req, res) => {
     // Última tentativa de citar uma mensagem: o que foi mandado e o que voltou.
     // A citação falha calada, então é aqui que se descobre o motivo.
     citacao: citacaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
+    edicao: edicaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
     banco: {
       caminho: process.env.DB_PATH ? "disco persistente" : "dentro do container (some no deploy)",
       usuarios: n("SELECT COUNT(*) n FROM users"),

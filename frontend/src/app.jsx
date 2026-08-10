@@ -90,6 +90,7 @@ const adaptMsg=(m)=>({
   // 08/08/2026 não têm — a citação delas vale só dentro do CRM, e a tela
   // avisa em vez de deixar o corretor achar que o cliente vai ver.
   citavel:!!m.wa_id,
+  editadaEm:m.edited_at||null, textoOriginal:m.body_original||null,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
@@ -470,6 +471,13 @@ function ConCRM(){
 
   const acoes={
     enviar:acao((leadId,text,replyTo)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text,reply_to:replyTo||undefined}})),
+    /* Editar NÃO passa pelo `acao()`: aquele envelope engole o erro e recarrega
+       como se tivesse dado certo. Aqui o erro é a informação mais importante —
+       é ele que diz que a mensagem do cliente continua a antiga. */
+    editarMensagem:async(leadId,msgId,text)=>{
+      await api(`/leads/${leadId}/messages/${msgId}`,{method:"PATCH",body:{text}});
+      await recarregar(); await abrir(leadId,true);
+    },
     mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
@@ -1658,6 +1666,57 @@ const lerArquivo=(f)=>new Promise((ok,erro)=>{
   r.readAsDataURL(f);
 });
 
+/* Editar a mensagem, nas regras do WhatsApp: 15 minutos, só texto, só o que
+   saiu daqui. O lápis some sozinho quando a janela fecha — melhor sumir do que
+   deixar o corretor tentar e levar recusa.
+
+   O aviso de erro é a parte séria: se a Uazapi não editar, o texto no CRM NÃO
+   muda, e a tela precisa dizer isso com todas as letras. Editar "só no CRM"
+   seria pior do que não editar — o corretor acharia que consertou e o cliente
+   continuaria com a mensagem errada no celular. */
+const JANELA_EDICAO_MS=15*60000;
+function BotaoEditar({m,podeEditar,aoEditar}){
+  if(!podeEditar||m.from!=="corretor"||m.midia||!m.citavel) return null;
+  if(Date.now()-m.at>JANELA_EDICAO_MS) return null;
+  return <button onClick={()=>aoEditar(m)} title="Editar (até 15 minutos)"
+    style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,padding:"4px",
+      display:"flex",alignItems:"center",flexShrink:0,opacity:.6}}>
+    <Icon n="edit" size={13}/>
+  </button>;
+}
+
+/* A caixa de edição, no lugar do balão. */
+function EditarMensagem({m,lead,acoes,isMobile,aoFechar}){
+  const [texto,setTexto]=useState(m.text||"");
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
+  const salvar=async()=>{
+    if(!texto.trim()||salvando) return;
+    setSalvando(true); setErro("");
+    try{ await acoes.editarMensagem(lead.id,m.id,texto.trim()); aoFechar(); }
+    catch(e){ setErro(e.message); }
+    finally{ setSalvando(false); }
+  };
+  return <div style={{alignSelf:"flex-end",maxWidth:isMobile?"92%":"78%",background:C.card,
+    border:`1px solid ${C.green}66`,borderRadius:14,padding:10,margin:"2px 0"}}>
+    <div style={{color:C.greenDeep,fontSize:11,fontWeight:700,marginBottom:6}}>Editando a mensagem</div>
+    <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={3} autoFocus
+      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();salvar();}if(e.key==="Escape")aoFechar();}}
+      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+        background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",resize:"none",fontFamily:FONT}}/>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:7,lineHeight:1.45}}>{erro}</div>}
+    <div style={{display:"flex",gap:7,marginTop:8,flexWrap:"wrap"}}>
+      <button onClick={salvar} disabled={salvando||!texto.trim()}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        {salvando?"Editando…":"Salvar"}</button>
+      <button onClick={aoFechar} disabled={salvando}
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        Cancelar</button>
+      <span style={{color:C.faint,fontSize:10.5,alignSelf:"center"}}>o cliente vê a mensagem trocada, como no WhatsApp</span>
+    </div>
+  </div>;
+}
+
 /* A setinha de responder, ao lado do balão.
 
    Fica sempre visível, e não só ao passar o mouse: a equipe trabalha no
@@ -1908,6 +1967,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // envio já é tratada pelo aviso geral do topo; aqui é o que acontece antes de sair.
   const [erroAnexo,setErroAnexo]=useState("");
   const [colando,setColando]=useState(false);
+  const [editando,setEditando]=useState(null);   // id da mensagem em edição
+  const podeSupervisionar=session.role==="adm"||session.role==="sdr";
   const colar=usarColar({lead:sel,acoes,aoAvisar:setErroAnexo,aoMudarEstado:setColando});
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
@@ -1961,16 +2022,20 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           const senderName=peloCelular?"Enviada pelo WhatsApp":`${m.byName} · Conecta`;
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {editando===m.id
+              ?<EditarMensagem m={m} lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEditando(null)}/>
+              :<div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {mine&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>setEditando(m.id)}/>}
             {mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
               <Citacao c={m.citada} claro={mine}/>
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
-              {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
+              {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+                {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            </div>
+            </div>}
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
@@ -2614,6 +2679,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [busca,setBusca]=useState("");
   // Mensagem citada, aqui no mesmo lugar em que os balões são desenhados.
   const [citando,setCitando]=useState(null);
+  const [editando,setEditando]=useState(null);
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{
@@ -2635,7 +2701,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     .filter(l=>esperando?l.unread>0:true)
     .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id]);
 
-  const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);};
+  const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
   const mostrarLista=!isMobile||pane==="lista";
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":true);
@@ -2740,16 +2806,20 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           const meu=m.from==="corretor";
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {editando===m.id
+              ?<EditarMensagem m={m} lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEditando(null)}/>
+              :<div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {meu&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando(m.id)}/>}
             {meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
               <Citacao c={m.citada} claro={meu}/>
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
-              {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
+              {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+                {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            </div>
+            </div>}
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}

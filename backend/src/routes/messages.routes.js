@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona } from "../auth.js";
-import { sendText, sendMedia, sendLocation } from "../services/uazapi.js";
+import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
 
 // O tipo do arquivo pela extensão da URL guardada. Só serve para rotular o
@@ -59,6 +59,57 @@ r.post("/:id/messages", async (req, res) => {
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
 
+  advanceStage(lead.id);
+  res.json({ ok: true });
+});
+
+/* Editar uma mensagem já enviada, nas regras do WhatsApp.
+
+   Três regras vêm de lá e não são nossas: só até 15 minutos, só texto, e só
+   mensagem que saiu daqui. A quarta é da casa: a mensagem é assinada com o
+   nome de quem a escreveu, então quem edita é o autor — ou a gestão, que
+   responde pelo que sai no número da imobiliária.
+
+   O ponto que sustenta tudo: o texto no CRM só muda DEPOIS que a Uazapi
+   confirma a edição. Se ela não editar, o CRM continua mostrando o que o
+   cliente tem no celular. Um CRM que mostra uma coisa e o cliente tem outra
+   deixa de servir de registro — que é metade do valor deste sistema. */
+const JANELA_EDICAO = 15 * 60000;
+
+r.patch("/:id/messages/:msgId", async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: "A mensagem não pode ficar vazia." });
+
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  const msg = db.prepare("SELECT * FROM messages WHERE id = ? AND lead_id = ?").get(req.params.msgId, lead.id);
+  if (!msg) return res.status(404).json({ error: "Mensagem não encontrada nesta conversa." });
+  if (msg.direction !== "out") return res.status(400).json({ error: "Só dá para editar mensagem enviada por vocês." });
+  if (msg.media_url) return res.status(400).json({ error: "O WhatsApp não deixa editar foto, áudio nem vídeo — apague e mande de novo." });
+  if (!msg.wa_id) return res.status(400).json({ error: "Esta mensagem é antiga demais: foi enviada antes de o CRM guardar o identificador do WhatsApp, então não dá para editá-la lá." });
+
+  const idade = Date.now() - msg.created_at;
+  if (idade > JANELA_EDICAO)
+    return res.status(400).json({ error: `O WhatsApp só deixa editar nos primeiros 15 minutos. Esta tem ${Math.floor(idade / 60000)} minutos.` });
+
+  if (msg.from_user_id && msg.from_user_id !== req.user.id && !supervisiona(req.user))
+    return res.status(403).json({ error: "Esta mensagem foi assinada por outra pessoa." });
+
+  try {
+    await editMessage({ messageid: msg.wa_id, text: text.trim() });
+  } catch (e) {
+    // De propósito: NADA muda no banco quando a edição não sai no WhatsApp.
+    return res.status(502).json({ error: "Não consegui editar no WhatsApp — a mensagem continua como está", detail: e.message });
+  }
+
+  db.prepare(`UPDATE messages SET body = ?, edited_at = ?, edited_by = ?,
+    body_original = COALESCE(body_original, ?) WHERE id = ?`)
+    .run(text.trim(), Date.now(), req.user.id, msg.body, msg.id);
+
+  // O texto mudou, e é o texto que move o funil.
   advanceStage(lead.id);
   res.json({ ok: true });
 });
