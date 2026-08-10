@@ -68,6 +68,7 @@ const RECURSOS = [
   "reanalise-funil",      // passa a regra nova nos leads que ja existem (conferir e aplicar)
   "catraca-do-gestor",    // o gestor enxerga a catraca, como a atendente
   "alerta-sem-resposta",  // avisa o corretor e deixa a gestao cutucar o atendimento parado
+  "responder-mensagem",   // citar uma mensagem especifica, como o Responder do WhatsApp
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

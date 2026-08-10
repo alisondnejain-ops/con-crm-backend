@@ -46,6 +46,11 @@ function extrair(p) {
     tipo,
     content,
     fromMe,
+    /* Quando o CLIENTE responde uma mensagem específica, o WhatsApp manda o id
+       da citada junto. O campo muda de nome conforme a versão, então tentamos
+       os conhecidos — não achando, a mensagem entra sem citação, como antes. */
+    citada: m.quotedMessageId || m.quoted?.messageid || m.quoted?.id
+      || m.contextInfo?.stanzaId || m.context?.id || m.replyid || "",
     messageid: m.messageid || m.id || m.key?.id || "",
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
   };
@@ -71,7 +76,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
@@ -130,9 +135,15 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
        único e o WhatsApp não diz qual corretor digitou. A tela mostra
        "enviada pelo WhatsApp" — melhor um autor honesto em branco do que
        assinar com o nome errado. */
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
-        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, Date.now());
+    // A citada chega pelo id do WhatsApp; aqui vira o id local, que é o que a
+    // tela usa para desenhar o trecho citado.
+    const citadaLocal = citada
+      ? (db.prepare("SELECT id FROM messages WHERE wa_id = ? AND lead_id = ?").get(citada, lead.id) || {}).id || null
+      : null;
+
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now());
 
     // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
     // relatório contaria como "nunca atendido" quem atendeu fora do CRM.

@@ -342,5 +342,9 @@ addMsgCol("media_name", "TEXT");  // nome original, quando é documento
    vezes — é o que permite aceitar as mensagens digitadas direto no celular. */
 addMsgCol("wa_id", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_id)");
+/* Qual mensagem esta responde. Guarda o id LOCAL (m_...), não o do WhatsApp:
+   é ele que permite montar a citação na tela mesmo quando a mensagem citada
+   é antiga e não tem `wa_id` — o do WhatsApp a gente busca na hora de enviar. */
+addMsgCol("reply_to", "TEXT");
 
 export default db;

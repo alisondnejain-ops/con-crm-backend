@@ -76,9 +76,16 @@ function adaptLead(l,anterior){
   };
 }
 const adaptMsg=(m)=>({
+  id:m.id,
   from:m.direction==="in"?"lead":"corretor",
   text:m.body, at:m.created_at, by:m.from_user_id, byName:m.from_name,
   midia:m.media_url?{url:m.media_url,mime:m.media_mime||"",nome:m.media_name||""}:null,
+  // A mensagem citada já vem resolvida do servidor: texto, de quem era e se
+  // era mídia. Basta desenhar.
+  citada:m.reply_to?{
+    texto:m.reply_body||"", deLead:m.reply_direction==="in",
+    autor:m.reply_from_name||"", midia:m.reply_media_mime||"",
+  }:null,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
@@ -230,6 +237,8 @@ const ICO={
   toggleOn:<React.Fragment><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3" fill="currentColor"/></React.Fragment>,
   toggleOff:<React.Fragment><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3" fill="currentColor"/></React.Fragment>,
   transfer:<React.Fragment><polyline points="17 3 21 7 17 11"/><line x1="21" y1="7" x2="9" y2="7"/><polyline points="7 21 3 17 7 13"/><line x1="3" y1="17" x2="15" y2="17"/></React.Fragment>,
+  // Seta de responder: a mesma forma que o WhatsApp usa, para não ter dúvida.
+  reply:<React.Fragment><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></React.Fragment>,
   msg:<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,
   pin:<React.Fragment><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></React.Fragment>,
   link:<React.Fragment><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></React.Fragment>,
@@ -456,7 +465,7 @@ function ConCRM(){
                                   catch(e){ setErro(e.message); } };
 
   const acoes={
-    enviar:acao((leadId,text)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text}})),
+    enviar:acao((leadId,text,replyTo)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text,reply_to:replyTo||undefined}})),
     mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
@@ -1263,6 +1272,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
+  // Mensagem que está sendo respondida. Fica no pai porque é o `send()` daqui
+  // que manda a citação junto — e some ao trocar de conversa, para a citação
+  // de um cliente nunca vazar para a conversa de outro.
+  const [citando,setCitando]=useState(null);
   const chatRef=useRef(null);
   const isMobile=useIsMobile();
 
@@ -1286,6 +1299,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const euDisponivel=(pessoas.find(p=>p.id===session.id)||{available:session.available}).available;
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),1000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{setCitando(null);},[selId]);
   /* Rolagem da conversa. Antes isto rodava a cada atualização da lista de leads
      — e a lista recarrega sozinha a cada 15 segundos. Resultado: quem estava
      lendo o histórico era jogado para o fim sem parar.
@@ -1335,8 +1349,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   async function send(){
     if(!draft.trim()||!sel||enviando)return;
     const text=draft.replace("{nome}",first(sel.nome));
-    setEnviando(true); setDraft("");
-    try{ await acoes.enviar(sel.id,text); }finally{ setEnviando(false); }
+    const citada=citando;
+    setEnviando(true); setDraft(""); setCitando(null);
+    try{ await acoes.enviar(sel.id,text,citada&&citada.id); }finally{ setEnviando(false); }
   }
   const setStatus=(id,status)=>acoes.mudarEtapa(id,status);
   const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
@@ -1412,7 +1427,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
             completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
-        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile}}/>}
+        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
@@ -1639,6 +1654,48 @@ const lerArquivo=(f)=>new Promise((ok,erro)=>{
   r.readAsDataURL(f);
 });
 
+/* A setinha de responder, ao lado do balão.
+
+   Fica sempre visível, e não só ao passar o mouse: a equipe trabalha no
+   celular, onde não existe passar o mouse. Discreta o bastante para não
+   competir com a conversa. */
+function BotaoResponder({m,aoResponder}){
+  if(!aoResponder) return null;
+  return <button onClick={()=>aoResponder({
+      id:m.id, texto:m.text||"", deLead:m.from==="lead",
+      autor:m.byName||"", midia:m.midia?m.midia.mime:"",
+    })} title="Responder esta mensagem"
+    style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,padding:"4px",
+      display:"flex",alignItems:"center",flexShrink:0,opacity:.6}}>
+    <Icon n="reply" size={14}/>
+  </button>;
+}
+
+/* O trecho citado dentro do balão, e a barra de citação acima do campo.
+
+   Mesma peça nos dois lugares para a citação ser reconhecível: barrinha
+   colorida à esquerda, autor em cima, um pedaço do texto embaixo. */
+function Citacao({c,claro,aoFechar}){
+  if(!c) return null;
+  const quem=c.deLead?"Cliente":(c.autor||"Você");
+  const rotulo=c.midia?(/^image\//.test(c.midia)?"Foto":/^video\//.test(c.midia)?"Vídeo":/^audio\//.test(c.midia)?"Áudio":"Arquivo"):"";
+  const texto=(c.texto||rotulo||"mensagem").replace(/\s+/g," ").trim();
+  return <div style={{display:"flex",alignItems:"center",gap:8,
+    background:claro?"rgba(255,255,255,.16)":C.surface,
+    borderLeft:`3px solid ${claro?"rgba(255,255,255,.75)":C.green}`,
+    borderRadius:6,padding:"5px 8px",marginBottom:5,maxWidth:"100%"}}>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontSize:10.5,fontWeight:700,color:claro?"rgba(255,255,255,.9)":C.greenDeep}}>{quem}</div>
+      <div style={{fontSize:11.5,color:claro?"rgba(255,255,255,.8)":C.sub,
+        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        {rotulo&&!c.texto?<React.Fragment>{rotulo}</React.Fragment>:texto}
+      </div>
+    </div>
+    {aoFechar&&<button onClick={aoFechar} title="Cancelar"
+      style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,fontSize:16,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>}
+  </div>;
+}
+
 /* Colar imagem no campo de mensagem (Ctrl+V), como no WhatsApp.
 
    Print de tela, foto copiada do WhatsApp Web, imagem do navegador: tudo que
@@ -1836,7 +1893,7 @@ function ControleConversa({lead,acoes,isMobile}){
 }
 
 /* ===== ATENDIMENTO ===== */
-function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile}){
+function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando}){
   const [filter,setFilter]=useState("Todos");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
@@ -1898,12 +1955,15 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           const senderName=peloCelular?"Enviada pelo WhatsApp":`${m.byName} · Conecta`;
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
+            <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
+              <Citacao c={m.citada} claro={mine}/>
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
+            {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
@@ -1915,6 +1975,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
         </div>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
+        {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
@@ -2545,6 +2606,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
   const [busca,setBusca]=useState("");
+  // Mensagem citada, aqui no mesmo lugar em que os balões são desenhados.
+  const [citando,setCitando]=useState(null);
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{
@@ -2566,7 +2629,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     .filter(l=>esperando?l.unread>0:true)
     .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id]);
 
-  const abrir=(id)=>{acoes.abrir(id);setPane("chat");};
+  const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);};
   const mostrarLista=!isMobile||pane==="lista";
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":true);
@@ -2671,18 +2734,21 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           const meu=m.from==="corretor";
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
+            <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start",alignItems:"center",gap:6}}>
+            {meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
+              <Citacao c={m.citada} claro={meu}/>
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
+            {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
-      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile}/>
+      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
@@ -2794,7 +2860,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 /* ===== CAMPO DE ENVIO DA ADM =====
    A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
    corretor — o cliente sempre sabe com quem está falando. */
-function ComporADM({lead,session,acoes,isMobile}){
+function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -2806,8 +2872,9 @@ function ComporADM({lead,session,acoes,isMobile}){
   async function enviar(){
     if(!draft.trim()||enviando) return;
     const texto=draft.replace("{nome}",first(lead.nome));
-    setEnviando(true); setDraft("");
-    try{ await acoes.enviar(lead.id,texto); } finally{ setEnviando(false); }
+    const citada=citando;
+    setEnviando(true); setDraft(""); setCitando(null);
+    try{ await acoes.enviar(lead.id,texto,citada&&citada.id); } finally{ setEnviando(false); }
   }
 
   return <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
@@ -2816,6 +2883,7 @@ function ComporADM({lead,session,acoes,isMobile}){
       {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
     </div>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
+    {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}

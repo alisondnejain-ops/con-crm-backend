@@ -67,8 +67,28 @@ function idDaMensagem(d) {
 // então o lead precisa saber com quem está falando.
 const assinar = (text, signedBy) => (signedBy ? `*${signedBy}:*\n${text}` : text);
 
-export function sendText({ toPhone, text, signedBy }) {
-  return call("/send/text", { number: toPhone, text: assinar(text, signedBy) });
+/* Texto, com citação opcional.
+
+   `replyTo` é o id da mensagem citada NO WHATSAPP. Quando ele vai junto, o
+   cliente vê a citação de verdade no aplicativo dele, igual ao Responder do
+   WhatsApp.
+
+   Se a conta não aceitar o campo, não travamos o envio: a mensagem sai com o
+   trecho citado escrito em cima. Fica mais feio, mas o cliente continua
+   sabendo do que se está falando — e o corretor não perde a mensagem por
+   causa de um recurso que a API não tem. */
+export async function sendText({ toPhone, text, signedBy, replyTo, quotedText }) {
+  const assinado = assinar(text, signedBy);
+  if (!replyTo) return call("/send/text", { number: toPhone, text: assinado });
+
+  try {
+    return await call("/send/text", { number: toPhone, text: assinado, replyid: replyTo });
+  } catch (e) {
+    console.warn(`[uazapi] citação recusada (${e.message}); reenviando com o trecho escrito.`);
+    const trecho = String(quotedText || "").replace(/\s+/g, " ").trim().slice(0, 160);
+    const citacao = trecho ? `> ${trecho}\n\n` : "";
+    return call("/send/text", { number: toPhone, text: citacao + assinado });
+  }
 }
 
 // type: image | video | audio | ptt | document. `file` aceita URL pública ou base64.

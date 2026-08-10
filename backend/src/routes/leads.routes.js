@@ -424,7 +424,16 @@ r.get("/:id", (req, res) => {
   const lead = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const messages = db.prepare("SELECT * FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  /* A mensagem citada vem junto, já resolvida. Montar isso no navegador daria
+     na mesma para uma conversa, mas o CRM recarrega a conversa aberta a cada
+     dez segundos — é conta repetida à toa em todo aparelho da equipe. */
+  const messages = db.prepare(`
+    SELECT m.*,
+      q.body AS reply_body, q.direction AS reply_direction,
+      q.from_name AS reply_from_name, q.media_mime AS reply_media_mime
+    FROM messages m
+    LEFT JOIN messages q ON q.id = m.reply_to
+    WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id);
   res.json({ ...parse(lead), messages });
 });
 
