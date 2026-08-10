@@ -225,6 +225,10 @@ addUserCol("phone", "TEXT");                            // WhatsApp do corretor 
 addUserCol("status", "TEXT DEFAULT 'ativo'");           // pendente = convidado, ainda sem senha
 addUserCol("invite_token", "TEXT");                     // token do link "definir senha"
 addUserCol("invite_expires", "INTEGER");                // validade do token (ms)
+/* Para que serve o token: "convite" (conta nova) ou "redefinicao" (esqueceu a
+   senha). O mesmo link e a mesma pagina servem os dois — o que muda e que a
+   redefinicao vale para conta JA ATIVA e nao mexe no status dela. */
+addUserCol("invite_tipo", "TEXT");
 addUserCol("avatar_url", "TEXT");                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 /* Gestor MASTER — dono da plataforma, não da imobiliária.

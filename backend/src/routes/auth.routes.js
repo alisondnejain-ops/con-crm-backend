@@ -48,11 +48,11 @@ r.post("/register", async (req, res) => {
   const cleanName = String(name).trim();
 
   if (existing) {
-    db.prepare("UPDATE users SET name=?, phone=?, role=?, invite_token=?, invite_expires=? WHERE id=?")
+    db.prepare("UPDATE users SET name=?, phone=?, role=?, invite_token=?, invite_expires=?, invite_tipo='convite' WHERE id=?")
       .run(cleanName, normalizePhone(phone), role, token, expires, existing.id);
   } else {
-    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_token,invite_expires)
-      VALUES (?,?,?,?,'',?,0,?,?,'pendente',?,?)`)
+    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_token,invite_expires,invite_tipo)
+      VALUES (?,?,?,?,'',?,0,?,?,'pendente',?,?,'convite')`)
       .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), normalizePhone(phone), token, expires);
   }
 
@@ -72,12 +72,18 @@ r.post("/register", async (req, res) => {
 
 // Valida o token do e-mail e devolve de quem é o convite (para a página mostrar o nome).
 r.get("/invite/:token", (req, res) => {
-  const u = db.prepare("SELECT name,email,role,invite_expires,status FROM users WHERE invite_token = ?").get(req.params.token);
+  const u = db.prepare("SELECT name,email,role,invite_expires,invite_tipo,status FROM users WHERE invite_token = ?").get(req.params.token);
   if (!u) return res.status(404).json({ error: "Link inválido. Peça um novo cadastro." });
-  if (u.status === "ativo") return res.status(409).json({ error: "Esse convite já foi usado. Faça login no CRM." });
+  const redefinicao = u.invite_tipo === "redefinicao";
+  // Redefinição vale JUSTAMENTE para conta ativa — é quem esqueceu a senha.
+  if (!redefinicao && u.status === "ativo")
+    return res.status(409).json({ error: "Esse convite já foi usado. Faça login no CRM." });
   if (!u.invite_expires || u.invite_expires < Date.now())
-    return res.status(410).json({ error: "Link expirado. Faça o cadastro de novo para receber um link novo." });
-  res.json({ name: u.name, email: u.email, funcao: PAPEIS[u.role].rotulo, precisaAprovacao: PAPEIS[u.role].precisaAprovacao });
+    return res.status(410).json({ error: redefinicao
+      ? "Este link de nova senha expirou. Peça outro à gestão."
+      : "Link expirado. Faça o cadastro de novo para receber um link novo." });
+  res.json({ name: u.name, email: u.email, funcao: PAPEIS[u.role].rotulo,
+    redefinicao, precisaAprovacao: redefinicao ? false : PAPEIS[u.role].precisaAprovacao });
 });
 
 // Define a senha e ativa a conta. Devolve o token de sessão já logado.
@@ -88,9 +94,23 @@ r.post("/set-password", (req, res) => {
 
   const u = db.prepare("SELECT * FROM users WHERE invite_token = ?").get(token);
   if (!u) return res.status(404).json({ error: "Link inválido." });
-  if (u.status === "ativo") return res.status(409).json({ error: "Esse convite já foi usado." });
+  const redefinicao = u.invite_tipo === "redefinicao";
+  if (!redefinicao && u.status === "ativo") return res.status(409).json({ error: "Esse convite já foi usado." });
   if (!u.invite_expires || u.invite_expires < Date.now())
-    return res.status(410).json({ error: "Link expirado. Faça o cadastro de novo." });
+    return res.status(410).json({ error: redefinicao
+      ? "Este link de nova senha expirou. Peça outro à gestão." : "Link expirado. Faça o cadastro de novo." });
+
+  /* Trocar a senha NÃO mexe no status nem no papel. Quem já era ativo entra
+     direto; quem estava aguardando aprovação continua aguardando — senão a
+     redefinição viraria um atalho para pular o aval da gestão. */
+  if (redefinicao) {
+    db.prepare("UPDATE users SET pass_hash=?, invite_token=NULL, invite_expires=NULL, invite_tipo=NULL WHERE id=?")
+      .run(bcrypt.hashSync(String(password), 10), u.id);
+    const atual = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
+    if (atual.status !== "ativo")
+      return res.json({ aguardandoAprovacao: true, funcao: PAPEIS[atual.role].rotulo, user: publicUser(atual) });
+    return res.json({ token: sign(atual), user: publicUser(atual), redefinicao: true });
+  }
 
   // Corretor entra direto. Atendente e gestor ficam aguardando o aval do gestor,
   // porque esses papéis enxergam a operação inteira.
@@ -241,6 +261,52 @@ r.post("/users/:id/aprovar", authRequired, roles("adm", "sdr"), (req, res) => {
   if (u.status === "pendente") return res.status(409).json({ error: "Essa pessoa ainda não confirmou o e-mail e criou a senha." });
   db.prepare("UPDATE users SET status = 'ativo' WHERE id = ?").run(u.id);
   res.json({ ok: true, nome: u.name, funcao: PAPEIS[u.role].rotulo });
+});
+
+/* Link de nova senha, gerado pela gestão.
+
+   Existe porque o e-mail ainda não está ligado e alguém sempre esquece a
+   senha. O gestor gera o link e manda no WhatsApp; a pessoa abre a MESMA
+   página de sempre e escolhe a senha nova.
+
+   Só o gestor: com este link se entra na conta de outra pessoa, então não é
+   coisa para a atendente nem para o corretor emitirem.
+
+   Vale 24 horas, e não 7 dias como o convite. Convite fica parado esperando
+   alguém se cadastrar; este aqui é para usar agora, e link de acesso que
+   sobra numa conversa de WhatsApp por uma semana é risco à toa.
+
+   Gerar um link novo INVALIDA o anterior — é o mesmo campo. Isso é proposital:
+   se o gestor gerou dois por engano, só o último funciona. */
+const REDEFINICAO_HORAS = 24;
+
+r.post("/users/:id/redefinir-senha", authRequired, roles("adm"), async (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
+  if (u.id === req.user.id)
+    return res.status(400).json({ error: "Para trocar a sua própria senha, use Minha conta." });
+  if (u.status === "removido" || u.status === "recusado")
+    return res.status(409).json({ error: "Essa pessoa não está mais na equipe. Aprove o cadastro antes." });
+
+  const token = newToken();
+  const expires = Date.now() + REDEFINICAO_HORAS * 3600000;
+  db.prepare("UPDATE users SET invite_token=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
+    .run(token, expires, u.id);
+
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  /* Manda por e-mail SE estiver configurado, e devolve o link de qualquer
+     jeito. Quando o Resend entrar, isto passa a funcionar sozinho sem trocar
+     uma linha; enquanto não entra, a gestão repassa na mão. */
+  let enviado = false;
+  if (mailConfigured()) {
+    try {
+      const { subject, html } = inviteEmail({ name: u.name, link, orgName: "sua imobiliária" });
+      const out = await sendMail({ to: u.email, subject: subject.replace(/convite/i, "nova senha"), html });
+      enviado = !!out.sent;
+    } catch (e) { console.error("[senha] não consegui enviar o e-mail:", e.message); }
+  }
+  console.log(`[senha] link de nova senha para ${u.email}: ${link}`);
+  res.json({ ok: true, nome: u.name, email: u.email, link, email_enviado: enviado, horas: REDEFINICAO_HORAS });
 });
 
 r.post("/users/:id/recusar", authRequired, roles("adm", "sdr"), (req, res) => {

@@ -110,6 +110,8 @@
   var token = new URLSearchParams(location.search).get("token");
   var loading = document.getElementById("loading");
   var msg = document.getElementById("msg"), btn = document.getElementById("go");
+  // Convite (conta nova) ou redefinição (esqueceu a senha). Muda só o texto.
+  var ehRedefinicao = false;
 
   function fail(text){
     loading.style.display = "none";
@@ -126,6 +128,15 @@
       if (!res.ok) return fail(res.d.error || "Link inválido.");
       loading.style.display = "none";
       document.getElementById("formView").style.display = "block";
+      // Redefinição não é convite: quem chega aqui já tem conta e só esqueceu
+      // a senha. Chamar de "ativar seu acesso" faria a pessoa achar que perdeu
+      // tudo o que já tinha.
+      ehRedefinicao = !!res.d.redefinicao;
+      if (res.d.redefinicao) {
+        document.querySelector("#formView h2").textContent = "Criar uma nova senha";
+        document.querySelector("#formView .lead").textContent = "Escolha a senha nova para voltar a entrar no ConHub.";
+        btn.textContent = "Salvar a nova senha";
+      }
       document.getElementById("who").innerHTML =
         "<b>" + res.d.name + "</b>" + res.d.email +
         (res.d.funcao ? '<div style="margin-top:6px;font-size:12px;color:#0C6B52">Função: <b>' + res.d.funcao + "</b></div>" : "") +
@@ -139,7 +150,7 @@
     if (p1.length < 6) { msg.className = "msg err"; msg.textContent = "A senha precisa ter pelo menos 6 caracteres."; return; }
     if (p1 !== p2) { msg.className = "msg err"; msg.textContent = "As duas senhas não são iguais."; return; }
 
-    btn.disabled = true; btn.textContent = "Ativando…";
+    btn.disabled = true; btn.textContent = ehRedefinicao ? "Salvando…" : "Ativando…";
     try {
       var r = await fetch(API + "/auth/set-password", {
         method: "POST", headers: {"Content-Type":"application/json"},
@@ -162,13 +173,16 @@
           "</b>, a gestão da sua imobiliária precisa aprovar seu acesso. Você será avisado assim que for liberado.";
         return;
       }
-      document.getElementById("okText").innerHTML =
-        "Pronto, " + primeiro + "! Sua conta está ativa. Entre no ConHub com <b>" +
-        d.user.email + "</b> e a senha que você acabou de criar.";
+      if (ehRedefinicao) ok.querySelector("h2").textContent = "Senha trocada";
+      document.getElementById("okText").innerHTML = ehRedefinicao
+        ? "Pronto, " + primeiro + "! Entre no ConHub com <b>" + d.user.email +
+          "</b> e a senha que você acabou de criar. O link que você usou não vale mais."
+        : "Pronto, " + primeiro + "! Sua conta está ativa. Entre no ConHub com <b>" +
+          d.user.email + "</b> e a senha que você acabou de criar.";
     } catch (e) {
       msg.className = "msg err"; msg.textContent = "Sem conexão com o servidor. Tente de novo.";
     } finally {
-      btn.disabled = false; btn.textContent = "Ativar meu acesso";
+      btn.disabled = false; btn.textContent = ehRedefinicao ? "Salvar a nova senha" : "Ativar meu acesso";
     }
   }
 

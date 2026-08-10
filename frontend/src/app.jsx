@@ -553,6 +553,9 @@ function ConCRM(){
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
     mudarFuncao:acao((userId,funcao)=>api(`/auth/users/${userId}/funcao`,{method:"POST",body:{funcao}})),
+    /* Fora do `acao()`: aqui a RESPOSTA é o produto — é o link que a gestão vai
+       mandar. O envelope descarta o retorno e só recarrega a tela. */
+    linkNovaSenha:(userId)=>api(`/auth/users/${userId}/redefinir-senha`,{method:"POST"}),
     produtos:(params)=>api("/produtos?"+new URLSearchParams(params||{})),
     produtoOpcoes:()=>api("/produtos/opcoes"),
     salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
@@ -4589,11 +4592,53 @@ function PainelRemocao({alvo,candidatos,onConfirmar,onCancelar,isMobile}){
   </div>;
 }
 
+/* O link de nova senha, pronto para copiar e mandar no WhatsApp.
+
+   Aparece uma vez só, logo depois de gerado. Não fica guardado em lugar
+   nenhum da tela: quem entra com este link entra na conta da pessoa, então
+   ele não pode ficar sobrando num painel que qualquer um abre depois. Se
+   perder, é só gerar outro — e gerar outro derruba o anterior. */
+function LinkNovaSenha({dados,isMobile,aoFechar}){
+  const [copiado,setCopiado]=useState(false);
+  const copiar=()=>{
+    const texto=`Oi, ${first(dados.nome)}! Para criar uma senha nova no ConHub, abra este link: ${dados.link}`;
+    const pronto=()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2500);};
+    // O clipboard moderno só existe em HTTPS; o método antigo cobre o resto.
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(texto).then(pronto).catch(()=>{});
+    else{ const a=document.createElement("textarea"); a.value=texto; document.body.appendChild(a); a.select();
+      try{document.execCommand("copy");pronto();}catch(e){} document.body.removeChild(a); }
+  };
+  return <div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginTop:10}}>
+    <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>
+      Link de nova senha para {first(dados.nome)}
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      {dados.email_enviado
+        ?<React.Fragment>Também foi por e-mail para <b>{dados.email}</b>. </React.Fragment>
+        :<React.Fragment>O e-mail ainda não está ligado, então <b>mande você mesmo</b> no WhatsApp. </React.Fragment>}
+      Vale por <b>{dados.horas} horas</b> e só pode ser usado uma vez.
+    </div>
+    <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
+      <div style={{flex:1,minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:9,
+        padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{dados.link}</div>
+      <div style={{display:"flex",gap:7,flexShrink:0}}>
+        <button onClick={copiar} style={{flex:isMobile?1:"none",background:copiado?C.card:C.greenDeep,
+          color:copiado?C.greenMid:"#fff",border:copiado?`1px solid ${C.green}55`:"none",borderRadius:9,
+          padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar recado"}</button>
+        <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,
+          borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Fechar</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function Equipe({acoes,session,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
   const [copiado,setCopiado]=useState(false);
   const [removendo,setRemovendo]=useState(null); // id de quem está no painel de saída
+  const [gerando,setGerando]=useState(null);     // id de quem está tendo o link gerado
+  const [senha,setSenha]=useState(null);         // {id, nome, link, ...} do link recém-criado
 
   useEffect(()=>{let vivo=true;
     acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
@@ -4608,6 +4653,10 @@ function Equipe({acoes,session,isMobile,versao}){
   const trocarFuncao=async(id,funcao)=>{ setErro("");
     try{ await acoes.mudarFuncao(id,funcao); setUsers(await acoes.equipe()); }
     catch(e){ setErro(e.message); } };
+  const novaSenha=async(u)=>{ setErro(""); setSenha(null); setGerando(u.id);
+    try{ const r=await acoes.linkNovaSenha(u.id); setSenha({...r,id:u.id}); }
+    catch(e){ setErro(e.message); }
+    finally{ setGerando(null); } };
   const apagar=async(u)=>{ setErro("");
     if(!window.confirm(`Apagar o cadastro de ${u.name} definitivamente?\n\nIsso não pode ser desfeito. As conversas antigas continuam guardadas, mas o cadastro some da plataforma.`)) return;
     try{ await acoes.apagarCadastro(u.id); setUsers(await acoes.equipe()); }
@@ -4652,6 +4701,12 @@ function Equipe({acoes,session,isMobile,versao}){
           <option value="atendente">Atendente</option>
           {session.role==="adm"&&<option value="gestor">Gestor(a)</option>}
         </select>}
+        {/* Esqueceu a senha: só o gestor gera, porque com este link se entra na
+            conta da pessoa. Enquanto o e-mail não está ligado, é a única saída. */}
+        {session.role==="adm"&&u.status!=="removido"&&u.status!=="recusado"&&u.id!==session.id&&
+          <button onClick={()=>novaSenha(u)} disabled={gerando===u.id} title="Gerar link para a pessoa criar uma senha nova"
+            style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            <Icon n={gerando===u.id?"loader":"link"} size={12} spin={gerando===u.id}/>{gerando===u.id?"Gerando…":"Nova senha"}</button>}
         {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
         {!comBotoes&&u.status==="removido"&&<React.Fragment>
           <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
@@ -4662,6 +4717,7 @@ function Equipe({acoes,session,isMobile,versao}){
     </div>
     {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}
       onConfirmar={(destino)=>remover(u.id,destino)} onCancelar={()=>setRemovendo(null)}/>}
+    {senha&&senha.id===u.id&&<LinkNovaSenha dados={senha} isMobile={isMobile} aoFechar={()=>setSenha(null)}/>}
   </div>;
 
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>

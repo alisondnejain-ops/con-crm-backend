@@ -70,6 +70,7 @@ const RECURSOS = [
   "alerta-sem-resposta",  // avisa o corretor e deixa a gestao cutucar o atendimento parado
   "responder-mensagem",   // citar uma mensagem especifica, como o Responder do WhatsApp
   "editar-mensagem",      // editar em ate 15 min, e so se a Uazapi editar de verdade
+  "link-nova-senha",      // gestor gera link de redefinicao, sem depender de e-mail
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -109,23 +110,39 @@ const semCache = { cacheControl: false, headers: { "Cache-Control": "no-store" }
    somavam 20 MB de lixo esperando o coletor. Sao poucos enderecos (o do
    Railway e, quando houver, o dominio proprio), entao o mapa nao cresce. */
 const paginaApp = new Map();
-function servirApp(req, res) {
+/* Vale para o CRM E para as páginas públicas (cadastro, definir senha).
+
+   Elas traziam o endereço do backend escrito no código, com o do Railway como
+   padrão. Enquanto a produção FOR o Railway isso funciona por coincidência —
+   mas o link de cadastro ou de nova senha aberto por qualquer outro endereço
+   (domínio próprio, teste local) ia falar com o servidor errado e dizer que o
+   link é inválido. Servidas daqui, elas passam a falar com quem as entregou. */
+function servirPagina(arquivo, req, res, erroSeFaltar) {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  const chave = `${arquivo}|${base}`;
   try {
-    if (!paginaApp.has(base)) {
-      const bruto = readFileSync(path.join(publicDir, "app.html"), "utf8");
-      paginaApp.set(base, bruto.replace("<script>",
+    if (!paginaApp.has(chave)) {
+      const bruto = readFileSync(path.join(publicDir, arquivo), "utf8");
+      paginaApp.set(chave, bruto.replace("<script>",
         `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`));
     }
-    res.set("Cache-Control", "no-store").type("html").send(paginaApp.get(base));
+    res.set("Cache-Control", "no-store").type("html").send(paginaApp.get(chave));
   } catch (e) {
-    res.status(404).send("O CRM ainda nao foi publicado neste servidor.");
+    res.status(404).send(erroSeFaltar);
   }
 }
+const servirApp = (req, res) => servirPagina("app.html", req, res, "O CRM ainda nao foi publicado neste servidor.");
 app.get(["/app", "/app.html"], servirApp);
 // Qual versão do CRM este servidor está entregando.
 app.get("/versao.txt", (_req, res) =>
   res.type("text/plain").sendFile(path.join(publicDir, "versao.txt"), semCache));
+
+/* ANTES do express.static, pelo mesmo motivo do /app: com `extensions:
+   ["html"]` o static resolve /definir-senha -> definir-senha.html e responde
+   primeiro, servindo o arquivo cru — sem o endereco do servidor injetado. Foi
+   o que fez o link de nova senha dizer "link invalido" fora da producao. */
+app.get("/cadastro", (req, res) => servirPagina("cadastro.html", req, res, "Pagina de cadastro nao encontrada."));
+app.get("/definir-senha", (req, res) => servirPagina("definir-senha.html", req, res, "Pagina de senha nao encontrada."));
 
 app.use(express.static(publicDir, { extensions: ["html"] }));
 /* A raiz abre o CRM.
@@ -135,8 +152,6 @@ app.use(express.static(publicDir, { extensions: ["html"] }));
    apontando para cá, a porta da frente tem que ser o sistema — quem vai se
    cadastrar chega pelo link com o código (/cadastro?c=...), que continua igual. */
 app.get("/", (req, res) => servirApp(req, res));
-app.get("/cadastro", (_req, res) => res.sendFile(path.join(publicDir, "cadastro.html")));
-app.get("/definir-senha", (_req, res) => res.sendFile(path.join(publicDir, "definir-senha.html")));
 
 /* Assinatura e webhook do Asaas entram ANTES do porteiro: é esta rota que
    desenha a tela de bloqueio e é por este webhook que o desbloqueio chega.
