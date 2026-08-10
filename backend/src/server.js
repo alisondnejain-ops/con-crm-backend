@@ -75,6 +75,7 @@ const RECURSOS = [
   "venda-por-data",       // KPI de venda conta pela data da venda, nao pela entrada do lead
   "sugestao-da-semana",   // recomendacao sai do desempenho da semana entre os 5 melhores
   "previa-da-colagem",    // imagem colada aparece antes de ir para o cliente
+  "resultado-da-ligacao", // popup depois de ligar: o que aconteceu na chamada
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

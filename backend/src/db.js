@@ -336,6 +336,16 @@ if (!prodCols.includes("modalidade")) {
 
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
+/* Resultado da ligação. A tabela nasceu guardando só a TENTATIVA — o navegador
+   não tem como saber se a pessoa atendeu. Só que "20 ligações" sem resultado
+   nenhum não é produtividade: é 20 toques no botão. Quem responde o que
+   aconteceu é o corretor, no popup logo depois da chamada. */
+const ligCols = db.prepare("PRAGMA table_info(ligacoes)").all().map(c => c.name);
+const addLigCol = (name, ddl) => { if (!ligCols.includes(name)) db.exec(`ALTER TABLE ligacoes ADD COLUMN ${name} ${ddl}`); };
+addLigCol("resultado", "TEXT");        // falou | nao_atendeu | caixa_postal | numero_errado
+addLigCol("obs", "TEXT");              // o que ficou combinado, em uma linha
+addLigCol("respondido_em", "INTEGER"); // quando o corretor respondeu o popup
+
 const msgCols = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name);
 const addMsgCol = (name, ddl) => { if (!msgCols.includes(name)) db.exec(`ALTER TABLE messages ADD COLUMN ${name} ${ddl}`); };
 addMsgCol("media_url", "TEXT");   // endereço público do arquivo guardado

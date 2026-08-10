@@ -435,7 +435,21 @@ r.get("/:id", (req, res) => {
     FROM messages m
     LEFT JOIN messages q ON q.id = m.reply_to
     WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id);
-  res.json({ ...parse(lead), messages });
+
+  /* As ligações entram na MESMA linha do tempo da conversa.
+
+     Ligação não é mensagem e não vai para a tabela de mensagens — mas para
+     quem lê o atendimento é o mesmo fio: "mandei foto, liguei, não atendeu,
+     mandei mensagem". Separadas em outro lugar, ninguém cruzaria as duas
+     coisas de cabeça. A junção é só na leitura. */
+  const ligacoes = db.prepare(`
+    SELECT g.id, g.created_at, g.resultado, g.obs, u.name AS quem
+    FROM ligacoes g LEFT JOIN users u ON u.id = g.user_id
+    WHERE g.lead_id = ? ORDER BY g.created_at ASC`).all(lead.id)
+    .map(g => ({ ...g, tipo: "ligacao", direction: "sys", body: "" }));
+
+  const linhaDoTempo = [...messages, ...ligacoes].sort((a, b) => a.created_at - b.created_at);
+  res.json({ ...parse(lead), messages: linhaDoTempo });
 });
 
 // Marca a conversa como lida até agora. A ADM supervisionando NÃO marca:
@@ -487,9 +501,45 @@ r.post("/:id/reabrir", (req, res) => {
 r.post("/:id/ligacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const id = "lig_" + randomUUID();
   db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
-    .run("lig_" + randomUUID(), lead.id, req.user.id, Date.now());
-  res.json({ ok: true });
+    .run(id, lead.id, req.user.id, Date.now());
+  // Devolve o id: é com ele que a tela grava, logo depois, o que aconteceu.
+  res.json({ ok: true, ligacao_id: id });
+});
+
+/* O que aconteceu na ligação, respondido no popup depois da chamada.
+
+   Sem isto o relatório contava toques no botão. "Fez 20 ligações" e "falou com
+   3 pessoas" são coisas muito diferentes na hora de cobrar, e só a segunda diz
+   alguma coisa sobre o atendimento.
+
+   Fica separado do registro da tentativa de propósito: a chamada é registrada
+   na hora do clique (senão o corretor sai para o discador e nunca volta), e o
+   resultado entra quando ele volta. Se não voltar, a tentativa continua lá,
+   como era antes. */
+const RESULTADOS = {
+  falou: "Falei com o cliente",
+  nao_atendeu: "Não atendeu",
+  caixa_postal: "Caiu na caixa postal",
+  numero_errado: "Número errado ou não existe",
+};
+
+r.patch("/:id/ligacao/:ligId", (req, res) => {
+  const { resultado, obs } = req.body || {};
+  if (!RESULTADOS[resultado]) return res.status(400).json({ error: "Resultado inválido." });
+
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+
+  const lig = db.prepare("SELECT * FROM ligacoes WHERE id = ? AND lead_id = ?").get(req.params.ligId, lead.id);
+  if (!lig) return res.status(404).json({ error: "Ligação não encontrada." });
+  // Quem ligou é quem diz o que aconteceu — a gestão não adivinha por ele.
+  if (lig.user_id !== req.user.id) return res.status(403).json({ error: "Essa ligação foi de outra pessoa." });
+
+  db.prepare("UPDATE ligacoes SET resultado=?, obs=?, respondido_em=? WHERE id=?")
+    .run(resultado, String(obs || "").trim().slice(0, 300) || null, Date.now(), lig.id);
+  res.json({ ok: true, rotulo: RESULTADOS[resultado] });
 });
 
 /* ── Simulação de financiamento ─────────────────────────────────────────────

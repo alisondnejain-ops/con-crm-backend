@@ -75,7 +75,15 @@ function adaptLead(l,anterior){
     carregado:!!l.messages||(anterior?anterior.carregado:false),
   };
 }
-const adaptMsg=(m)=>({
+const RESULTADO_LIGACAO={falou:"Falei com o cliente",nao_atendeu:"Não atendeu",
+  caixa_postal:"Caiu na caixa postal",numero_errado:"Número errado"};
+const adaptMsg=(m)=>m.tipo==="ligacao"?{
+  id:m.id, from:"system", at:m.created_at, ligacao:true,
+  // Sem resultado é a ligação que o corretor não voltou para responder. Dizer
+  // isso é melhor do que fingir que ela não existiu.
+  text:`📞 ${first(m.quem||"Alguém")} ligou — ${RESULTADO_LIGACAO[m.resultado]||"sem resposta registrada"}`
+    +(m.obs?`: ${m.obs}`:""),
+}:({
   id:m.id,
   from:m.direction==="in"?"lead":"corretor",
   text:m.body, at:m.created_at, by:m.from_user_id, byName:m.from_name,
@@ -197,13 +205,100 @@ function fmtTel(t){
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 // Abre o discador do celular com o número já preenchido.
-function BotaoLigar({tel,compacto,leadId,acoes}){
+/* Ligar para o lead e, na volta, dizer o que aconteceu.
+
+   O clique abre o discador do celular e a página fica para trás. Por isso a
+   tentativa é gravada NA HORA do clique: se o corretor não voltar, ela não se
+   perde. Quando ele volta, o popup está esperando com uma pergunta só.
+
+   Sem essa resposta o relatório contava toques no botão. "Fez 20 ligações" e
+   "falou com 3 pessoas" são conversas muito diferentes com o corretor, e só a
+   segunda diz alguma coisa sobre o atendimento. */
+const RESULTADOS_LIGACAO=[
+  ["falou","Falei com o cliente",C.green],
+  ["nao_atendeu","Não atendeu",C.amber],
+  ["caixa_postal","Caiu na caixa postal",C.cool],
+  ["numero_errado","Número errado",C.hot],
+];
+
+function BotaoLigar({tel,compacto,leadId,acoes,nome}){
+  const [pergunta,setPergunta]=useState(null);   // id da ligação em aberto
+  const [escolha,setEscolha]=useState("");
+  const [obs,setObs]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
   if(!tel) return null;
-  return <a href={"tel:+"+String(tel).replace(/\D/g,"")} title="Ligar para o lead" aria-label="Ligar"
-    onClick={()=>{ if(leadId&&acoes&&acoes.registrarLigacao) acoes.registrarLigacao(leadId); }}
-    style={{display:"flex",alignItems:"center",gap:6,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:12,fontWeight:600,padding:compacto?"8px":"7px 12px",borderRadius:10}}>
-    <Icon n="phone" size={14}/>{!compacto&&"Ligar"}
-  </a>;
+
+  async function aoLigar(){
+    if(!leadId||!acoes||!acoes.registrarLigacao) return;
+    const r=await acoes.registrarLigacao(leadId);
+    // Sem id (servidor antigo ou falha de rede) não abrimos o popup: melhor
+    // não perguntar do que perguntar e não conseguir gravar a resposta.
+    if(r&&r.ligacao_id){ setPergunta(r.ligacao_id); setEscolha(""); setObs(""); setErro(""); }
+  }
+  async function salvar(){
+    if(!escolha||salvando) return;
+    setSalvando(true); setErro("");
+    try{ await acoes.resultadoLigacao(leadId,pergunta,escolha,obs); setPergunta(null); }
+    catch(e){ setErro(e.message); }
+    finally{ setSalvando(false); }
+  }
+
+  return <React.Fragment>
+    <a href={"tel:+"+String(tel).replace(/\D/g,"")} title="Ligar para o lead" aria-label="Ligar"
+      onClick={aoLigar}
+      style={{display:"flex",alignItems:"center",gap:6,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:12,fontWeight:600,padding:compacto?"8px":"7px 12px",borderRadius:10}}>
+      <Icon n="phone" size={14}/>{!compacto&&"Ligar"}
+    </a>
+
+    {/* position:fixed em vez de portal: o React embutido aqui é a versão
+        enxuta e não tem createPortal — já derrubou a tela uma vez. */}
+    {pergunta&&<div style={{position:"fixed",inset:0,background:"rgba(10,61,48,.45)",zIndex:60,
+      display:"flex",alignItems:"flex-end",justifyContent:"center",padding:14}}>
+      <div style={{background:C.card,borderRadius:16,padding:16,width:"100%",maxWidth:420,
+        boxShadow:"0 12px 40px rgba(0,0,0,.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+          <Icon n="phone" size={15} color={C.greenMid}/>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Como foi a ligação?</span>
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:11}}>
+          {nome?<React.Fragment>Você ligou para <b style={{color:C.sub}}>{first(nome)}</b>. </React.Fragment>:null}
+          Isso fica no histórico do lead e no seu relatório.
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:11}}>
+          {RESULTADOS_LIGACAO.map(([k,rotulo,cor])=>
+            <button key={k} onClick={()=>setEscolha(k)}
+              style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${escolha===k?cor:C.line}`,
+                background:escolha===k?cor+"14":C.surface,borderRadius:10,padding:"10px 12px",
+                cursor:"pointer",textAlign:"left"}}>
+              <span style={{width:9,height:9,borderRadius:99,background:cor,flexShrink:0}}/>
+              <span style={{color:C.ink,fontSize:13,fontWeight:escolha===k?700:500}}>{rotulo}</span>
+            </button>)}
+        </div>
+
+        <input value={obs} onChange={e=>setObs(e.target.value)} maxLength={300}
+          placeholder="O que ficou combinado? (opcional)"
+          style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,
+            background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",marginBottom:10}}/>
+
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <button onClick={salvar} disabled={!escolha||salvando}
+            style={{flex:1,background:escolha?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
+              padding:"11px 16px",fontSize:13,fontWeight:700,cursor:escolha?"pointer":"default"}}>
+            {salvando?"Salvando…":"Salvar"}</button>
+          <button onClick={()=>setPergunta(null)} disabled={salvando}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+              padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Agora não</button>
+        </div>
+        <div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.4}}>
+          A ligação já foi registrada. Sem a resposta, ela fica no histórico como tentativa.
+        </div>
+      </div>
+    </div>}
+  </React.Fragment>;
 }
 
 /* ===== ícones (SVG inline) ===== */
@@ -536,7 +631,9 @@ function ConCRM(){
     recomendacao:(leadId)=>api(`/reports/recomendacao/${leadId}`),
     // Tentativa de ligação: o discador é do aparelho, então o CRM só consegue
     // registrar que o corretor tentou. Falhar aqui não pode impedir a ligação.
-    registrarLigacao:(leadId)=>api(`/leads/${leadId}/ligacao`,{method:"POST"}).catch(()=>{}),
+    registrarLigacao:(leadId)=>api(`/leads/${leadId}/ligacao`,{method:"POST"}).catch(()=>null),
+    resultadoLigacao:(leadId,ligId,resultado,obs)=>
+      api(`/leads/${leadId}/ligacao/${ligId}`,{method:"PATCH",body:{resultado,obs}}),
     pushChave:()=>api("/push/chave"),
     pushSituacao:()=>api("/push/situacao"),
     pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
@@ -2075,7 +2172,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes}/>
+          <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
           {fichaPorBotao
             ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>
             :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
@@ -2086,7 +2183,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
-          if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,margin:"2px 0"}}>{m.text}</div>;
+          /* Aviso central (hoje: as ligações). `maxWidth` e a quebra de palavra
+             não são enfeite: a observação da ligação vai até 300 caracteres e
+             sem isso ela estourava a largura da conversa. */
+          if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"4px 12px",borderRadius:14,margin:"2px 0",maxWidth:"92%",textAlign:"center",lineHeight:1.45,overflowWrap:"anywhere"}}>{m.text}</div>;
           const mine=m.from==="corretor";
           /* Sem assinatura significa que saiu do celular, e nao do CRM: o
              numero e compartilhado e o WhatsApp nao diz quem digitou. Dizer
@@ -2871,7 +2971,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
         </div>
-        <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes}/>
+        <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes} nome={sel.nome}/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
       </div>
       {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
@@ -2883,6 +2983,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
+          // Ligação entra na mesma linha do tempo, como aviso central.
+          if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"4px 12px",borderRadius:14,margin:"2px 0",maxWidth:"92%",textAlign:"center",lineHeight:1.45,overflowWrap:"anywhere"}}>{m.text}</div>;
           const meu=m.from==="corretor";
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
