@@ -1773,27 +1773,80 @@ function Citacao({c,claro,aoFechar}){
    No celular não existe Ctrl+V, mas o "Colar" do menu dispara o mesmo evento.
    Foto vinda da galeria não vem por aqui: o sistema do telefone não a coloca
    na área de transferência como arquivo. Para esse caso, o clipe continua. */
-function usarColar({lead,acoes,aoAvisar,aoMudarEstado}){
+function usarColar({lead,aoColar,aoAvisar,aoMudarEstado,quantasJa=0}){
   return async function colar(e){
     const itens=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file"&&/^image\//.test(i.type));
     if(!itens.length||!lead) return;               // colou texto: deixa passar
     e.preventDefault();
     const arqs=itens.map(i=>i.getAsFile()).filter(Boolean);
     if(!arqs.length) return;
-    if(arqs.length>LIMITE_FOTOS) return aoAvisar&&aoAvisar(`Dá para colar até ${LIMITE_FOTOS} imagens por vez.`);
+    if(quantasJa+arqs.length>LIMITE_FOTOS)
+      return aoAvisar&&aoAvisar(`Dá para mandar até ${LIMITE_FOTOS} imagens por vez.`);
     aoMudarEstado&&aoMudarEstado(true);
     try{
       // A imagem colada não tem nome de arquivo — o WhatsApp Web dá "image.png"
       // a tudo. Um nome com a hora ajuda a achar depois no armazenamento.
       const arquivos=await Promise.all(arqs.map(async(f,i)=>{
         const lido=await lerArquivo(f);
-        return {...lido,nome:lido.nome&&lido.nome!=="image.png"?lido.nome
-          :`colada-${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}${i?"-"+(i+1):""}.png`};
+        return {...lido,
+          nome:lido.nome&&lido.nome!=="image.png"?lido.nome
+            :`colada-${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}${i?"-"+(i+1):""}.png`,
+          // Para desenhar a prévia sem ler o arquivo de novo.
+          previa:`data:${lido.mime};base64,${lido.base64}`};
       }));
-      await acoes.anexar(lead.id,arquivos);
+      /* NÃO envia: entrega para a tela mostrar antes.
+         Colar mandava direto, e imagem errada no WhatsApp do cliente não tem
+         desfazer — o corretor descobria o engano depois de o cliente já ter
+         visto. Um clique a mais é barato perto disso. */
+      aoColar(arquivos);
     }catch(err){ aoAvisar&&aoAvisar(err.message); }
     finally{ aoMudarEstado&&aoMudarEstado(false); }
   };
+}
+
+/* A prévia do que foi colado, antes de sair.
+
+   Mostra as miniaturas, deixa tirar uma que veio sem querer, e usa o que
+   estiver escrito no campo como legenda — igual ao WhatsApp, onde a legenda
+   vai junto da foto. Só o botão Enviar dispara. */
+function PreviaColagem({arquivos,legenda,enviando,onRemover,onEnviar,onCancelar,isMobile}){
+  if(!arquivos.length) return null;
+  // Tamanho real do arquivo a partir do base64 (que é ~1/3 maior). Arredondar
+  // para baixo dava "0 KB" em print pequeno, o que parece defeito.
+  const tamanho=(b64)=>{const kb=(b64.length*3/4)/1024;
+    return kb>=1024?`${(kb/1024).toFixed(1)} MB`:kb<1?"menos de 1 KB":`${Math.round(kb)} KB`;};
+  return <div style={{background:C.surface,border:`1px solid ${C.green}55`,borderRadius:12,
+    padding:10,marginBottom:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,flexWrap:"wrap"}}>
+      <Icon n="link" size={13} color={C.greenDeep}/>
+      <span style={{color:C.greenDeep,fontSize:12,fontWeight:700,flex:1}}>
+        {arquivos.length===1?"1 imagem colada":`${arquivos.length} imagens coladas`} — confira antes de enviar
+      </span>
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+      {arquivos.map((a,i)=><div key={i} style={{position:"relative"}}>
+        <img src={a.previa} alt={a.nome} style={{width:isMobile?76:92,height:isMobile?76:92,
+          objectFit:"cover",borderRadius:9,border:`1px solid ${C.line}`,display:"block",background:C.card}}/>
+        <button onClick={()=>onRemover(i)} disabled={enviando} title="Tirar esta imagem"
+          style={{position:"absolute",top:-6,right:-6,width:22,height:22,borderRadius:99,border:"none",
+            background:C.hot,color:"#fff",fontSize:13,lineHeight:1,cursor:"pointer",fontWeight:700,
+            display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>×</button>
+        <div style={{color:C.faint,fontSize:9.5,textAlign:"center",marginTop:2}}>{tamanho(a.base64)}</div>
+      </div>)}
+    </div>
+    {legenda&&legenda.trim()&&<div style={{color:C.sub,fontSize:11.5,marginBottom:8,lineHeight:1.4}}>
+      Vai com a legenda: <b style={{color:C.ink}}>“{legenda.trim().slice(0,90)}{legenda.trim().length>90?"…":""}”</b>
+    </div>}
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      <button onClick={onEnviar} disabled={enviando}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",
+          fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+        <Icon n={enviando?"loader":"send"} size={13} spin={enviando}/>{enviando?"Enviando…":"Enviar"}</button>
+      <button onClick={onCancelar} disabled={enviando}
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",
+          fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+    </div>
+  </div>;
 }
 
 function Anexar({lead,acoes,isMobile,aoAvisar}){
@@ -1971,8 +2024,25 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [erroAnexo,setErroAnexo]=useState("");
   const [colando,setColando]=useState(false);
   const [editando,setEditando]=useState(null);   // id da mensagem em edição
+  // Imagens coladas esperando confirmação. Só saem no botão Enviar.
+  const [colados,setColados]=useState([]);
+  const [mandandoColados,setMandandoColados]=useState(false);
   const podeSupervisionar=session.role==="adm"||session.role==="sdr";
-  const colar=usarColar({lead:sel,acoes,aoAvisar:setErroAnexo,aoMudarEstado:setColando});
+  const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
+    quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
+  // Trocar de conversa descarta o que estava para enviar: imagem colada na
+  // conversa de um cliente não pode ir parar na de outro.
+  useEffect(()=>{setColados([]);},[sel&&sel.id]);
+  async function enviarColados(){
+    if(!colados.length||mandandoColados) return;
+    setMandandoColados(true); setErroAnexo("");
+    const legenda=draft.trim();
+    try{
+      await acoes.anexar(sel.id,colados.map(({previa,...a})=>a),legenda||undefined);
+      setColados([]); if(legenda) setDraft("");
+    }catch(e){ setErroAnexo(e.message); }
+    finally{ setMandandoColados(false); }
+  }
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
@@ -2049,12 +2119,19 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
         </div>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
+        <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
+          onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
+          onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
-          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
-          <button onClick={send} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();colados.length?enviarColados():send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+          {/* Com imagem colada esperando, o botão manda a imagem (com a legenda
+              digitada) em vez de mandar só o texto e deixar a foto para trás. */}
+          <button onClick={()=>colados.length?enviarColados():send()}
+            disabled={enviando||mandandoColados||(!draft.trim()&&!colados.length)}
+            style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||(!draft.trim()&&!colados.length)?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados?"loader":"send"} size={18} spin={enviando||mandandoColados}/></button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
@@ -2945,7 +3022,21 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
   const [enviandoImovel,setEnviandoImovel]=useState(false);
   const [erroAnexo,setErroAnexo]=useState("");
   const [colando,setColando]=useState(false);
-  const colar=usarColar({lead,acoes,aoAvisar:setErroAnexo,aoMudarEstado:setColando});
+  const [colados,setColados]=useState([]);
+  const [mandandoColados,setMandandoColados]=useState(false);
+  const colar=usarColar({lead,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
+    quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
+  useEffect(()=>{setColados([]);},[lead.id]);
+  async function enviarColados(){
+    if(!colados.length||mandandoColados) return;
+    setMandandoColados(true); setErroAnexo("");
+    const legenda=draft.trim();
+    try{
+      await acoes.anexar(lead.id,colados.map(({previa,...a})=>a),legenda||undefined);
+      setColados([]); if(legenda) setDraft("");
+    }catch(e){ setErroAnexo(e.message); }
+    finally{ setMandandoColados(false); }
+  }
   useEffect(()=>setDraft(""),[lead.id]);
 
   async function enviar(){
@@ -2962,14 +3053,19 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
       {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
     </div>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
+    <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
+      onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
+      onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
-        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();colados.length?enviarColados():enviar();}}}
         rows={2} placeholder={colando?"Colando a imagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
-      <button onClick={enviar} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
+      <button onClick={()=>colados.length?enviarColados():enviar()}
+        disabled={enviando||mandandoColados||(!draft.trim()&&!colados.length)}
+        style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||(!draft.trim()&&!colados.length)?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados?"loader":"send"} size={18} spin={enviando||mandandoColados}/></button>
     </div>
     {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
