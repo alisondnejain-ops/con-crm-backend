@@ -430,7 +430,8 @@ r.get("/:id", (req, res) => {
   const messages = db.prepare(`
     SELECT m.*,
       q.body AS reply_body, q.direction AS reply_direction,
-      q.from_name AS reply_from_name, q.media_mime AS reply_media_mime
+      q.from_name AS reply_from_name, q.media_mime AS reply_media_mime,
+      q.wa_id AS reply_wa_id
     FROM messages m
     LEFT JOIN messages q ON q.id = m.reply_to
     WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id);

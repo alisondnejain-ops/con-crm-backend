@@ -86,6 +86,10 @@ const adaptMsg=(m)=>({
     texto:m.reply_body||"", deLead:m.reply_direction==="in",
     autor:m.reply_from_name||"", midia:m.reply_media_mime||"",
   }:null,
+  // Só dá para citar no WhatsApp mensagem que tem id de lá. As anteriores a
+  // 08/08/2026 não têm — a citação delas vale só dentro do CRM, e a tela
+  // avisa em vez de deixar o corretor achar que o cliente vai ver.
+  citavel:!!m.wa_id,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
@@ -1663,7 +1667,7 @@ function BotaoResponder({m,aoResponder}){
   if(!aoResponder) return null;
   return <button onClick={()=>aoResponder({
       id:m.id, texto:m.text||"", deLead:m.from==="lead",
-      autor:m.byName||"", midia:m.midia?m.midia.mime:"",
+      autor:m.byName||"", midia:m.midia?m.midia.mime:"", citavel:m.citavel,
     })} title="Responder esta mensagem"
     style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,padding:"4px",
       display:"flex",alignItems:"center",flexShrink:0,opacity:.6}}>
@@ -1691,6 +1695,8 @@ function Citacao({c,claro,aoFechar}){
         {rotulo&&!c.texto?<React.Fragment>{rotulo}</React.Fragment>:texto}
       </div>
     </div>
+    {aoFechar&&c.citavel===false&&<span style={{color:C.amber,fontSize:10,fontWeight:600,flexShrink:0,maxWidth:110,lineHeight:1.2}}>
+      só aqui no CRM (mensagem antiga)</span>}
     {aoFechar&&<button onClick={aoFechar} title="Cancelar"
       style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,fontSize:16,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>}
   </div>;

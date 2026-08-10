@@ -52,8 +52,20 @@ async function call(path, payload) {
   // O id que o WhatsApp deu à mensagem. É com ele que o webhook de volta é
   // reconhecido como eco do próprio CRM — sem isso, toda mensagem enviada
   // apareceria duas vezes na conversa.
-  return { ok: true, data, messageid: idDaMensagem(data) };
+  return { ok: true, data, bruto, messageid: idDaMensagem(data) };
 }
+
+/* Registro da última tentativa de citação, para o diagnóstico.
+
+   A citação falha CALADA: a Uazapi responde 200 e simplesmente ignora o campo
+   que ela não conhece. Sem guardar o que foi enviado e o que voltou, não há
+   como descobrir qual é o nome certo do campo nem qual formato de id ela
+   espera — e foi exatamente aí que a primeira tentativa parou.
+
+   Guarda só dado técnico: nomes de campo, o id da mensagem e a resposta da
+   API. Nada do conteúdo da conversa. */
+let ultimaCitacao = null;
+export const citacaoDiagnostico = () => ultimaCitacao;
 
 /* Onde vem o id na resposta muda conforme a versão e o tipo de mensagem, e
    nenhum dos caminhos é garantido — por isso a lista, e por isso o resto do
@@ -81,10 +93,44 @@ export async function sendText({ toPhone, text, signedBy, replyTo, quotedText })
   const assinado = assinar(text, signedBy);
   if (!replyTo) return call("/send/text", { number: toPhone, text: assinado });
 
+  /* Vários nomes para o mesmo campo, na mesma requisição.
+
+     Cada provedor batiza a citação de um jeito, e esta conta aceitou o envio
+     com `replyid` sem reclamar — mas sem citar nada, o que prova que ela
+     ignora campo que não conhece em vez de recusar. Como ignora, mandar os
+     apelidos conhecidos juntos não quebra nada: o que ela entender, ela usa.
+
+     Não é elegante, e o certo é ler a documentação da conta. É o melhor que
+     dá para fazer sem ela, e o diagnóstico abaixo mostra o que voltou. */
+  const apelidos = {
+    replyid: replyTo,
+    quotedMessageId: replyTo,
+    quotedMsgId: replyTo,
+    replyMessageId: replyTo,
+    reply_to: replyTo,
+  };
+
   try {
-    return await call("/send/text", { number: toPhone, text: assinado, replyid: replyTo });
+    const r = await call("/send/text", { number: toPhone, text: assinado, ...apelidos });
+    ultimaCitacao = {
+      quando: new Date().toISOString(),
+      id_citado: replyTo,
+      campos_enviados: Object.keys(apelidos),
+      status: "aceito (200)",
+      resposta: String(r.bruto || "").slice(0, 500),
+      atencao: "Se a citação não apareceu no WhatsApp, a Uazapi aceitou e ignorou os campos — o nome certo está na documentação da conta.",
+    };
+    return r;
   } catch (e) {
     console.warn(`[uazapi] citação recusada (${e.message}); reenviando com o trecho escrito.`);
+    ultimaCitacao = {
+      quando: new Date().toISOString(),
+      id_citado: replyTo,
+      campos_enviados: Object.keys(apelidos),
+      status: "recusado",
+      resposta: e.message.slice(0, 500),
+      atencao: "A mensagem foi reenviada com o trecho citado escrito no texto.",
+    };
     const trecho = String(quotedText || "").replace(/\s+/g, " ").trim().slice(0, 160);
     const citacao = trecho ? `> ${trecho}\n\n` : "";
     return call("/send/text", { number: toPhone, text: citacao + assinado });
