@@ -300,6 +300,8 @@ addOrgCol("ultimo_corte", "INTEGER");   // até quando o corte já foi aplicado
 // Até quando o aviso das 08:00 do plantão já foi disparado. Mesma ideia do
 // corte: guardar o dia evita mandar duas vezes se o servidor reiniciar.
 addOrgCol("ultimo_aviso_plantao", "INTEGER");
+// Minutos de espera do cliente até o corretor ser avisado. 0 desliga.
+addOrgCol("alerta_resposta_min", "INTEGER DEFAULT 30");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
@@ -310,6 +312,12 @@ addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
 addLeadCol("import_id", "TEXT");         // de qual planilha veio, para dar para desfazer a importação
+// Aviso de cliente sem resposta. `alerta_em` guarda a mensagem do cliente que
+// já gerou aviso — é o que impede a mesma espera de cobrar de minuto em minuto.
+addLeadCol("alerta_em", "INTEGER");
+addLeadCol("cutucado_em", "INTEGER");    // a gestão pediu atenção neste atendimento
+addLeadCol("cutucado_por", "TEXT");
+addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou junto
 db.exec("CREATE INDEX IF NOT EXISTS idx_leads_import ON leads(import_id)");
 
 // Modalidade de financiamento do imóvel. Antes existia só a caixinha
@@ -329,5 +337,10 @@ const addMsgCol = (name, ddl) => { if (!msgCols.includes(name)) db.exec(`ALTER T
 addMsgCol("media_url", "TEXT");   // endereço público do arquivo guardado
 addMsgCol("media_mime", "TEXT");  // image/jpeg, audio/ogg, application/pdf...
 addMsgCol("media_name", "TEXT");  // nome original, quando é documento
+/* Identificador da mensagem no WhatsApp. Guardado no que o CRM envia para
+   reconhecer o webhook de volta como eco e não gravar a mesma mensagem duas
+   vezes — é o que permite aceitar as mensagens digitadas direto no celular. */
+addMsgCol("wa_id", "TEXT");
+db.exec("CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_id)");
 
 export default db;

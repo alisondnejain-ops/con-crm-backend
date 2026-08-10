@@ -5,6 +5,7 @@ import { avisar } from "../services/push.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
   lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
 import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
+import { esperando, minutosDaOrg, definirMinutos } from "../services/alerta.js";
 
 const r = Router();
 r.use(authRequired);
@@ -107,6 +108,16 @@ r.get("/expediente", (req, res) => {
 });
 
 // Só o gestor muda o horário. Vazio desliga o corte automático.
+/* Clientes esperando resposta, e o tempo combinado para o aviso.
+   Aberto a quem supervisiona: é material de cobrança. */
+r.get("/sem-resposta", roles("adm", "sdr"), (req, res) => {
+  const minutos = minutosDaOrg(req.user.org_id);
+  res.json({ minutos, leads: esperando(req.user.org_id, { minutos }) });
+});
+
+r.patch("/sem-resposta", roles("adm"), (req, res) =>
+  res.json({ minutos: definirMinutos(req.user.org_id, req.body && req.body.minutos) }));
+
 r.patch("/expediente", roles("adm"), (req, res) => {
   const bruto = req.body?.fim == null ? PADRAO : String(req.body.fim).trim();
   if (bruto && !lerHorario(bruto))

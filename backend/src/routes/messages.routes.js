@@ -32,15 +32,18 @@ r.post("/:id/messages", async (req, res) => {
 
   const firstName = (req.user.name || "").split(" ")[0];
 
+  let envio;
   try {
-    await sendText({ toPhone: lead.phone, text: text.trim(), signedBy: firstName });
+    envio = await sendText({ toPhone: lead.phone, text: text.trim(), signedBy: firstName });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
 
   const now = Date.now();
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
-    VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(), now);
+  // `wa_id`: o webhook devolve esta mesma mensagem daqui a instantes, e e por
+  // ele que ela e reconhecida como eco em vez de virar uma copia na conversa.
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(), envio?.messageid || null, now);
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
@@ -100,9 +103,9 @@ r.post("/:id/anexo", async (req, res) => {
       const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
       // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
       // conseguir baixar pela URL, ele vai embutido, sem reler nada.
-      await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
+      const envio = await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
         caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
-      enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda });
+      enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda, wa_id: envio?.messageid || null });
     }
   } catch (e) {
     // Parte pode ter ido. Registramos o que saiu para a conversa não mentir.
@@ -146,9 +149,9 @@ r.post("/:id/localizacao", async (req, res) => {
 
 function gravarSaida(lead, user, firstName, m) {
   const rotulo = /^image\//.test(m.mime) ? "Foto" : /^video\//.test(m.mime) ? "Vídeo" : /^audio\//.test(m.mime) ? "Áudio" : (m.nome || "Arquivo");
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
-      m.legenda || rotulo, m.url, m.mime, m.nome || null, Date.now());
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
+      m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now());
 }
 
 // Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial

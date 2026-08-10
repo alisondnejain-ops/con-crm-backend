@@ -67,6 +67,8 @@ function adaptLead(l,anterior){
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
     finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
+    // Pedido de atenção da gestão. Fica na ficha até o corretor dar o "vi".
+    cutucadoEm:l.cutucado_em||null, cutucadoRecado:l.cutucado_recado||null,
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
@@ -421,11 +423,19 @@ function ConCRM(){
     }catch(e){ setErro(e.message); }
   }
 
+  /* Recarrega ao entrar E ao trocar de imobiliária.
+
+     Faltava o `org`: o master escolhia a imobiliária no hub, o crachá era
+     trocado, mas esta busca não rodava de novo — a sessão não tinha mudado.
+     Resultado: por dez segundos a catraca dele aparecia vazia ("ninguém
+     cadastrado"), porque a equipe tinha sido buscada antes de existir
+     imobiliária escolhida. Passava sozinho no ciclo seguinte, o que é pior:
+     dava para achar que a equipe tinha sumido. */
   useEffect(()=>{ if(!session) return; recarregar();
     api("/integracoes").then(d=>setConecta({connected:!!(d.whatsapp&&d.whatsapp.ok),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
     const t=setInterval(()=>{ recarregar(); if(selRef.current) abrir(selRef.current,true); },INTERVALO_ATUALIZACAO);
     return ()=>clearInterval(t);
-  },[session]);
+  },[session,org&&org.id]);
 
   // Abre a conversa: baixa as mensagens e marca como lida (o backend ignora a marcação
   // quando é a ADM supervisionando lead de outra pessoa).
@@ -558,6 +568,10 @@ function ConCRM(){
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
+    semResposta:()=>api("/distribution/sem-resposta"),
+    definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
+    cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}),
+    viCutucada:(id)=>api(`/leads/${id}/cutucar/vi`,{method:"POST"}),
     reanalise:()=>api("/leads/reanalise"),
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
@@ -1330,7 +1344,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O atendente tem o mesmo alcance do gestor, somado ao que já era dele.
   const NAV={
-    adm:[["atendimento","msg","Atender"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
+       atendente, então o dono da operação não conseguia ver a fila nem ligar e
+       desligar a prontidão de ninguém — justo ele, que é quem cobra. */
+    adm:[["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
@@ -1400,7 +1417,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
-        {role==="sdr"&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:false}}/>}
+        {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
+            prontidão — é regra da casa, não da operação do dia. */}
+        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:role==="adm"}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
@@ -1620,6 +1639,38 @@ const lerArquivo=(f)=>new Promise((ok,erro)=>{
   r.readAsDataURL(f);
 });
 
+/* Colar imagem no campo de mensagem (Ctrl+V), como no WhatsApp.
+
+   Print de tela, foto copiada do WhatsApp Web, imagem do navegador: tudo que
+   está na área de transferência entra direto, sem passar pelo clipe. Texto
+   colado segue o caminho de sempre — só as imagens são interceptadas.
+
+   No celular não existe Ctrl+V, mas o "Colar" do menu dispara o mesmo evento.
+   Foto vinda da galeria não vem por aqui: o sistema do telefone não a coloca
+   na área de transferência como arquivo. Para esse caso, o clipe continua. */
+function usarColar({lead,acoes,aoAvisar,aoMudarEstado}){
+  return async function colar(e){
+    const itens=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file"&&/^image\//.test(i.type));
+    if(!itens.length||!lead) return;               // colou texto: deixa passar
+    e.preventDefault();
+    const arqs=itens.map(i=>i.getAsFile()).filter(Boolean);
+    if(!arqs.length) return;
+    if(arqs.length>LIMITE_FOTOS) return aoAvisar&&aoAvisar(`Dá para colar até ${LIMITE_FOTOS} imagens por vez.`);
+    aoMudarEstado&&aoMudarEstado(true);
+    try{
+      // A imagem colada não tem nome de arquivo — o WhatsApp Web dá "image.png"
+      // a tudo. Um nome com a hora ajuda a achar depois no armazenamento.
+      const arquivos=await Promise.all(arqs.map(async(f,i)=>{
+        const lido=await lerArquivo(f);
+        return {...lido,nome:lido.nome&&lido.nome!=="image.png"?lido.nome
+          :`colada-${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}${i?"-"+(i+1):""}.png`};
+      }));
+      await acoes.anexar(lead.id,arquivos);
+    }catch(err){ aoAvisar&&aoAvisar(err.message); }
+    finally{ aoMudarEstado&&aoMudarEstado(false); }
+  };
+}
+
 function Anexar({lead,acoes,isMobile,aoAvisar}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
@@ -1793,6 +1844,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Avisos do anexo (limite de fotos, microfone negado, GPS bloqueado). Falha de
   // envio já é tratada pelo aviso geral do topo; aqui é o que acontece antes de sair.
   const [erroAnexo,setErroAnexo]=useState("");
+  const [colando,setColando]=useState(false);
+  const colar=usarColar({lead:sel,acoes,aoAvisar:setErroAnexo,aoMudarEstado:setColando});
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
@@ -1837,17 +1890,23 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:999,margin:"2px 0"}}>{m.text}</div>;
-          const mine=m.from==="corretor";const senderName=m.byName||first(session.name);
+          const mine=m.from==="corretor";
+          /* Sem assinatura significa que saiu do celular, e nao do CRM: o
+             numero e compartilhado e o WhatsApp nao diz quem digitou. Dizer
+             isso e melhor do que assinar com o nome de quem esta olhando. */
+          const peloCelular=mine&&!m.byName;
+          const senderName=peloCelular?"Enviada pelo WhatsApp":`${m.byName} · Conecta`;
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
             <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
-              {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{senderName} · Conecta</div>}
+              {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
             </div>
           </React.Fragment>;})}
+        {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
@@ -1859,7 +1918,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
-          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={isMobile?"Escreva a mensagem…":"Escreva a mensagem…  ({nome} vira o primeiro nome do lead)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
           <button onClick={send} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
@@ -2298,6 +2357,117 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
   </div>;
 }
 
+/* O pedido da gestão dentro da conversa.
+
+   Fica aqui, e não só na notificação, porque metade da equipe não recebe push
+   — todo iPhone que não adicionou o site à tela de início. Sem isto, "chamar o
+   corretor" não chegaria a essas pessoas e o gestor não teria como saber.
+
+   O "vi" é do corretor: some da conversa dele e some da tela da gestão. */
+function AvisoCutucada({lead,acoes}){
+  const [sumindo,setSumindo]=useState(false);
+  if(sumindo) return null;
+  const quando=new Date(lead.cutucadoEm).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  return <div style={{alignSelf:"center",maxWidth:"92%",background:C.hotSoft,border:`1px solid ${C.hot}44`,
+    borderRadius:12,padding:"9px 12px",margin:"4px 0",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+    <Icon n="zap" size={14} color={C.hot}/>
+    <div style={{flex:"1 1 160px",minWidth:0}}>
+      <div style={{color:C.hot,fontSize:12,fontWeight:700}}>A gestão pediu atenção neste atendimento · {quando}</div>
+      {lead.cutucadoRecado&&<div style={{color:C.sub,fontSize:12,marginTop:2,lineHeight:1.4}}>“{lead.cutucadoRecado}”</div>}
+    </div>
+    <button onClick={()=>{setSumindo(true);acoes.viCutucada(lead.id).catch(()=>setSumindo(false));}}
+      style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      Vi</button>
+  </div>;
+}
+
+/* Clientes esperando resposta — a lista que a gestão cobra.
+
+   O CRM já mostrava o tempo de espera dentro de cada conversa, mas ninguém
+   fica abrindo trinta conversas para descobrir quais pararam. Aqui vêm todos
+   de uma vez, do mais parado para o menos, com o botão de chamar o corretor.
+
+   O aviso automático já saiu antes desta tela abrir (o servidor dispara
+   sozinho); este botão é para quando a gestão quer insistir com nome, hora e
+   recado. */
+function SemResposta({acoes,isMobile,podeConfigurar}){
+  const [d,setD]=useState(null);
+  const [enviando,setEnviando]=useState("");
+  const [feito,setFeito]=useState({});
+  const [erro,setErro]=useState("");
+  const [abrindoRecado,setAbrindoRecado]=useState("");
+  const [recado,setRecado]=useState("");
+  const [rascunho,setRascunho]=useState("");
+
+  const rever=()=>acoes.semResposta().then(x=>{setD(x);setRascunho(String(x.minutos));}).catch(()=>setD({leads:[],minutos:0}));
+  useEffect(()=>{rever();const t=setInterval(rever,60000);return()=>clearInterval(t);},[]);
+
+  async function chamar(l){
+    setEnviando(l.id); setErro("");
+    try{
+      const r=await acoes.cutucar(l.id,recado);
+      setFeito(f=>({...f,[l.id]:r.push?"avisado no celular":"marcado no CRM (o corretor não tem notificação ligada)"}));
+      setAbrindoRecado(""); setRecado("");
+    }catch(e){ setErro(e.message); }
+    finally{ setEnviando(""); }
+  }
+  const salvarMin=async()=>{ try{ const r=await acoes.definirEspera(rascunho); setD(x=>({...x,minutos:r.minutos})); }catch(e){ setErro(e.message); } };
+
+  if(!d) return null;
+  const tempo=(min)=>min<60?`${min} min`:`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="timer" size={15} color={d.leads.length?C.hot:C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Clientes esperando resposta</span>
+      {d.minutos>0&&<span style={{color:C.faint,fontSize:11}}>aviso automático em {d.minutos} min</span>}
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+
+    {d.leads.length===0
+      ?<div style={{color:C.faint,fontSize:12.5,marginBottom:4}}>
+        {d.minutos?"Ninguém esperando além do tempo combinado.":"Aviso automático desligado."}
+      </div>
+      :<div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:6}}>
+        {d.leads.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"9px 11px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 130px",minWidth:0}}>
+              <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.name}</div>
+              <div style={{color:C.faint,fontSize:10.5}}>
+                {l.alerta_em?"corretor já avisado":"aguardando"} · <span style={{color:ageColor(l.esperando_min*60000),fontWeight:700,fontFamily:MONO}}>{tempo(l.esperando_min)}</span>
+              </div>
+            </div>
+            {feito[l.id]
+              ?<span style={{color:C.greenMid,fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}><Icon n="check" size={12}/>{feito[l.id]}</span>
+              :<button onClick={()=>{setAbrindoRecado(abrindoRecado===l.id?"":l.id);setRecado("");}} disabled={enviando===l.id}
+                style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"6px 12px",
+                  fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
+                <Icon n={enviando===l.id?"loader":"zap"} size={12} spin={enviando===l.id}/>Chamar o corretor</button>}
+          </div>
+          {abrindoRecado===l.id&&<div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+            <input value={recado} onChange={e=>setRecado(e.target.value)} placeholder="Recado (opcional)" maxLength={200}
+              style={{flex:"1 1 150px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"7px 10px",color:C.ink,outline:"none"}}/>
+            <button onClick={()=>chamar(l)} disabled={enviando===l.id}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+              {enviando===l.id?"Enviando…":"Enviar"}</button>
+          </div>}
+        </div>)}
+      </div>}
+
+    {podeConfigurar&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:10,paddingTop:10}}>
+      <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Avisar o corretor depois de quantos minutos sem resposta</div>
+      <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+        <input value={rascunho} onChange={e=>setRascunho(e.target.value.replace(/\D/g,""))} placeholder="30" inputMode="numeric"
+          style={{width:80,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",fontFamily:MONO}}/>
+        <button onClick={salvarMin}
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+        <span style={{color:C.faint,fontSize:11}}>0 desliga o aviso automático</span>
+      </div>
+    </div>}
+  </div>;
+}
+
 /* ===== CATRACA (SDR) ===== */
 function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente}){
   const novos=[...fila].sort((a,b)=>({QUENTE:0,MORNO:1,FRIO:2}[a.prio]-{QUENTE:0,MORNO:1,FRIO:2}[b.prio]));
@@ -2306,6 +2476,9 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
   const catracaNext=(leadId)=>acoes.proximo(leadId);
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
+      {/* Antes da fila e do roster: cliente parado é o que custa venda, e é a
+          primeira coisa que a gestão precisa ver ao abrir esta tela. */}
+      <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
       {/* roster de disponibilidade */}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
@@ -2500,12 +2673,13 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             {abreDia&&<SeparadorDia ts={m.at}/>}
             <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start"}}>
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
-              {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2}}>{m.byName||"Conecta"}</div>}
+              {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
               {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>{fmtClock(m.at)}</div>
             </div>
             </div>
           </React.Fragment>;})}
+        {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile}/>
@@ -2625,6 +2799,8 @@ function ComporADM({lead,session,acoes,isMobile}){
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
   const [erroAnexo,setErroAnexo]=useState("");
+  const [colando,setColando]=useState(false);
+  const colar=usarColar({lead,acoes,aoAvisar:setErroAnexo,aoMudarEstado:setColando});
   useEffect(()=>setDraft(""),[lead.id]);
 
   async function enviar(){
@@ -2642,9 +2818,9 @@ function ComporADM({lead,session,acoes,isMobile}){
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
-      <textarea value={draft} onChange={e=>setDraft(e.target.value)}
+      <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
         onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
-        rows={2} placeholder="Responder como direção…"
+        rows={2} placeholder={colando?"Colando a imagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
       <button onClick={enviar} disabled={enviando||!draft.trim()} style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||!draft.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
     </div>

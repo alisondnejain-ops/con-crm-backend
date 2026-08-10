@@ -27,6 +27,7 @@ import { authRequired } from "./auth.js";
 import { porteiro } from "./services/assinatura.js";
 import { agendarCorte } from "./services/expediente.js";
 import { avisarPlantaoEmTodas } from "./services/plantao.js";
+import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
@@ -65,6 +66,8 @@ const RECURSOS = [
   "filtro-por-dia",       // leads por dia abre num dia so; historico conta dia de calendario
   "etapa-por-palavra",    // o funil so anda quando a palavra da etapa e dita na conversa
   "reanalise-funil",      // passa a regra nova nos leads que ja existem (conferir e aplicar)
+  "catraca-do-gestor",    // o gestor enxerga a catraca, como a atendente
+  "alerta-sem-resposta",  // avisa o corretor e deixa a gestao cutucar o atendimento parado
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -196,6 +199,9 @@ app.listen(PORT, () => {
      "até quando já avisei", não o relógio — servidor que reiniciou às 07:59
      ainda avisa, e servidor que reinicia três vezes não avisa três. */
   avisarPlantaoEmTodas();
-  setInterval(() => avisarPlantaoEmTodas(), 60000);
+  /* Cliente esperando resposta. Mesmo batimento e mesmo princípio: quem
+     controla a repetição é o carimbo no lead, não o relógio. */
+  avisarSemRespostaEmTodas();
+  setInterval(() => { avisarPlantaoEmTodas(); avisarSemRespostaEmTodas(); }, 60000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });

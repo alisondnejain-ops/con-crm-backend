@@ -49,7 +49,18 @@ async function call(path, payload) {
     const trecho = bruto.replace(/\s+/g, " ").trim().slice(0, 180);
     throw new Error(`Uazapi respondeu ${res.status} em ${path}${trecho ? `: ${trecho}` : " sem dizer o motivo (resposta vazia)"}`);
   }
-  return { ok: true, data };
+  // O id que o WhatsApp deu à mensagem. É com ele que o webhook de volta é
+  // reconhecido como eco do próprio CRM — sem isso, toda mensagem enviada
+  // apareceria duas vezes na conversa.
+  return { ok: true, data, messageid: idDaMensagem(data) };
+}
+
+/* Onde vem o id na resposta muda conforme a versão e o tipo de mensagem, e
+   nenhum dos caminhos é garantido — por isso a lista, e por isso o resto do
+   sistema trata o id como opcional. */
+function idDaMensagem(d) {
+  const m = (d && (d.message || d.data)) || d || {};
+  return d?.messageid || d?.id || m.messageid || m.id || m.key?.id || d?.key?.id || null;
 }
 
 // Assina a mensagem com o nome do corretor: todos usam o mesmo número,

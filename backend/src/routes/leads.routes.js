@@ -8,6 +8,7 @@ import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
+import { cutucar, limparCutucada } from "../services/alerta.js";
 
 const r = Router();
 r.use(authRequired);
@@ -385,6 +386,26 @@ function reanalisar(orgId, aplicar) {
     exemplos: mudancas.slice(0, 15),
   };
 }
+
+/* A gestão cutuca um atendimento parado: o corretor recebe o aviso no celular
+   e o pedido fica marcado no lead. `POST /leads/:id/cutucar` */
+r.post("/:id/cutucar", roles("adm", "sdr"), async (req, res) => {
+  const out = await cutucar({ orgId: req.user.org_id, leadId: req.params.id,
+    autor: req.user, recado: req.body && req.body.recado });
+  if (!out.ok) return res.status(400).json(out);
+  res.json(out);
+});
+
+// O corretor dá o "vi". Só quem está com o lead — e a supervisão, para poder
+// limpar um pedido feito por engano.
+r.post("/:id/cutucar/vi", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Este lead não está com você" });
+  limparCutucada(lead.id);
+  res.json({ ok: true });
+});
 
 // Conferir antes (GET) e aplicar depois (POST). Mexer na etapa da base inteira
 // de uma vez não é coisa para acontecer por engano num clique.

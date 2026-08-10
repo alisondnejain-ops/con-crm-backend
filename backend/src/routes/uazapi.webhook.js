@@ -24,7 +24,16 @@ function extrair(p) {
   // Grupos e canais não são atendimento de lead — ignorar.
   if (chat.includes("@g.us") || chat.includes("@newsletter") || chat.includes("@broadcast"))
     return { ignorar: "grupo/canal" };
-  if (m.fromMe ?? m.key?.fromMe) return { ignorar: "eco da própria mensagem" };
+  /* Mensagem que SAIU do número da Conecta.
+
+     Antes era descartada aqui, para a mensagem enviada pelo próprio CRM não
+     aparecer duas vezes. Só que junto ia embora o que o corretor digita direto
+     no celular ou no WhatsApp Web — e o histórico do CRM ficava pela metade,
+     que foi a reclamação da equipe.
+
+     Agora ela segue adiante e quem separa é o `messageid`: se for uma que o
+     CRM mandou, já está gravada e é descartada lá na frente. */
+  const fromMe = !!(m.fromMe ?? m.key?.fromMe);
 
   const texto = m.text || m.body || m.caption || m.content?.text || m.conversation || "";
   const tipo = m.messageType || m.type || "";
@@ -36,6 +45,7 @@ function extrair(p) {
     texto: String(texto).trim(),
     tipo,
     content,
+    fromMe,
     messageid: m.messageid || m.id || m.key?.id || "",
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
   };
@@ -61,9 +71,15 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
+
+    /* Mensagem que o CRM mandou volta como webhook. Ela já está na conversa —
+       gravar de novo seria a mesma mensagem duas vezes. O `wa_id` é o que
+       diferencia isso do corretor digitando no celular. */
+    if (fromMe && messageid && db.prepare("SELECT 1 FROM messages WHERE wa_id = ?").get(messageid))
+      return lembrar({ em: Date.now(), evento, resultado: "ignorado: eco da mensagem enviada pelo próprio CRM" });
 
     // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
     // mensagem, para a conversa já nascer com a mídia. Se não der, `midia` volta
@@ -88,6 +104,14 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
     const ehNovo = !lead;
 
+    /* Saiu do celular para um número que ainda não é lead: não cria lead.
+       O número da Conecta também fala com colega, fornecedor e parente — e
+       cada uma dessas conversas viraria um lead na fila da atendente. Quando
+       for cliente de verdade, ele responde, e aí o lead nasce pelo caminho
+       normal, na regra da catraca. */
+    if (!lead && fromMe)
+      return lembrar({ em: Date.now(), evento, resultado: "ignorado: enviada para um número que ainda não é lead" });
+
     // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
     // atendente da vez, exatamente como um lead vindo da Meta.
     if (!lead) {
@@ -102,9 +126,18 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }
 
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "in", null, null, corpo,
-        midia?.url || null, midia?.mime || null, midia?.nome || null, Date.now());
+    /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
+       único e o WhatsApp não diz qual corretor digitou. A tela mostra
+       "enviada pelo WhatsApp" — melhor um autor honesto em branco do que
+       assinar com o nome errado. */
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, Date.now());
+
+    // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
+    // relatório contaria como "nunca atendido" quem atendeu fora do CRM.
+    if (fromMe && !lead.first_resp_at)
+      db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
 
     // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
     // mensagem cairia numa conversa escondida e ninguém responderia.
@@ -117,15 +150,15 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
 
     // Aviso no celular de quem está com o lead. Lead que acabou de entrar e
     // cliente que respondeu são situações diferentes — e a pressa também.
-    if (lead.assigned_to) {
+    if (lead.assigned_to && !fromMe) {
       const resumo = corpo.length > 90 ? corpo.slice(0, 90) + "…" : corpo;
       avisar(lead.assigned_to, ehNovo
         ? { titulo: "Novo lead no WhatsApp", corpo: `${lead.name} acabou de chamar. Responda agora — os primeiros minutos decidem.`, leadId: lead.id }
         : { titulo: `${lead.name} respondeu`, corpo: resumo, leadId: lead.id });
     }
 
-    lembrar({ em: Date.now(), evento, resultado: "ok", lead: lead.name, tipo });
-    console.log(`[uazapi] mensagem recebida de ${lead.name}`);
+    lembrar({ em: Date.now(), evento, resultado: fromMe ? "ok (enviada pelo celular)" : "ok", lead: lead.name, tipo });
+    console.log(`[uazapi] mensagem ${fromMe ? "enviada pelo celular para" : "recebida de"} ${lead.name}`);
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);
