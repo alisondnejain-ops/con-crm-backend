@@ -71,6 +71,9 @@ const RECURSOS = [
   "responder-mensagem",   // citar uma mensagem especifica, como o Responder do WhatsApp
   "editar-mensagem",      // editar em ate 15 min, e so se a Uazapi editar de verdade
   "link-nova-senha",      // gestor gera link de redefinicao, sem depender de e-mail
+  "lead-clicavel",        // base de leads e relatorio abrem a conversa no clique
+  "venda-por-data",       // KPI de venda conta pela data da venda, nao pela entrada do lead
+  "sugestao-da-semana",   // recomendacao sai do desempenho da semana entre os 5 melhores
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,

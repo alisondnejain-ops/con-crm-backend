@@ -1446,21 +1446,21 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
-        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile}/>}
+        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:role==="adm"}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
-        {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}/>}
+        {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
-        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas}/>}
+        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
@@ -3542,7 +3542,7 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
   </div>;
 }
 
-function BaseLeads({acoes,isMobile,pessoas}){
+function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const [lista,setLista]=useState(null);
   const [busca,setBusca]=useState("");
   const [baixando,setBaixando]=useState(false);
@@ -3860,7 +3860,12 @@ function BaseLeads({acoes,isMobile,pessoas}){
             {["Lead","Telefone","Origem","Temp.","Etapa","Corretor","Entrou em"].map(h=>
               <th key={h} style={{...cel,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:"left"}}>{h}</th>)}
           </tr></thead>
-          <tbody>{filtrados.map(l=><tr key={l.id} style={{borderBottom:`1px solid ${C.line}`}}>
+          {/* A linha inteira abre a conversa. Era a pergunta natural de quem
+              olha a base ("e esse aí, como está?") e não tinha resposta: só
+              dava para procurar o nome de novo na tela de atendimento. */}
+          <tbody>{filtrados.map(l=><tr key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
+            title="Abrir a conversa deste lead"
+            style={{borderBottom:`1px solid ${C.line}`,cursor:abrirConversa?"pointer":"default"}}>
             <td style={{...cel,color:C.ink,fontWeight:600}}>{l.nome}</td>
             <td style={{...cel,fontFamily:MONO}}>{fmtTel(l.tel)}</td>
             <td style={cel}>{l.origem}</td>
@@ -5007,11 +5012,45 @@ function BlocoAtendimento({linhas,isMobile}){
   </div>;
 }
 
-function Relatorios({acoes,session,pickable,isMobile}){
+/* Quem está numa etapa, dentro do relatório — e cada nome abre a conversa.
+
+   Busca no servidor com os MESMOS filtros do relatório (corretor, etapa,
+   período). Assim a lista não pode discordar do número que está do lado: é a
+   mesma pergunta, feita ao mesmo lugar. */
+function LeadsDaEtapa({acoes,etapa,atendente,periodo,isMobile,abrirConversa}){
+  const [lista,setLista]=useState(null);
+  useEffect(()=>{let vivo=true; setLista(null);
+    acoes.buscar({etapa,atendente,de:periodo.de,ate:periodo.ate,finalizados:"1"})
+      .then(r=>vivo&&setLista(r)).catch(()=>vivo&&setLista([]));
+    return()=>{vivo=false;};},[etapa,atendente,periodo.de,periodo.ate]);
+
+  return <div style={{background:C.surface,borderRadius:10,padding:"8px 10px",margin:"-2px 0 10px",
+    marginLeft:isMobile?0:12}}>
+    {lista===null
+      ?<div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="loader" size={12} spin/> carregando…</div>
+      :lista.length===0
+      ?<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead nesta etapa no período.</div>
+      :<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {lista.map(l=><button key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
+          title="Abrir a conversa"
+          style={{display:"flex",alignItems:"center",gap:5,background:C.card,border:`1px solid ${C.line}`,
+            borderRadius:999,padding:"4px 11px",cursor:abrirConversa?"pointer":"default",fontSize:11.5,color:C.ink}}>
+          <span style={{width:6,height:6,borderRadius:99,background:PRIO[l.prio].c,flexShrink:0}}/>
+          {first(l.nome)}
+        </button>)}
+      </div>}
+  </div>;
+}
+
+function Relatorios({acoes,session,pickable,isMobile,abrirConversa}){
   const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
   const [dados,setDados]=useState(null);
   const [carregando,setCarregando]=useState(true);
   const [sel,setSel]=useState(null);
+  // Etapa aberta para ver QUEM está nela. Número sozinho não resolve: o gestor
+  // vê "3 em Aprovação" e a pergunta seguinte é sempre "quais três?".
+  const [etapaAberta,setEtapaAberta]=useState(null);
+  useEffect(()=>{setEtapaAberta(null);},[sel,periodo.de,periodo.ate]);
 
   useEffect(()=>{
     let vivo=true; setCarregando(true);
@@ -5087,20 +5126,35 @@ function Relatorios({acoes,session,pickable,isMobile}){
         </div>
 
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool}/>
+          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="entraram no período"/>
           <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
-          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos} accent="#3B7BC4"/>
+          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos} sub="onde estão hoje" accent="#3B7BC4"/>
           <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
+        </div>
+        {/* Cada número responde a uma pergunta diferente, e misturar as duas foi
+            o que fez o relatório parecer errado. Dizer isso na tela custa uma
+            linha e evita a conta de cabeça que ninguém faz igual. */}
+        <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:-8,marginBottom:16}}>
+          <b>Vendas</b> são as fechadas dentro do período, venha o lead de quando vier.
+          <b> Recebidos</b> e as etapas do funil falam de quem entrou no período.
         </div>
 
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
           {STAGES.map(st=>{const v=linha.por_etapa[st]||0,pct=linha.recebidos?v/linha.recebidos*100:0;
-            return <div key={st} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{color:C.sub,fontSize:11.5,width:isMobile?104:150,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span>
-              <div style={{height:10,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}><div style={{width:Math.max(pct,v?6:0)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
-              <span style={{color:C.ink,fontFamily:MONO,fontSize:12,fontWeight:600,width:20,textAlign:"right"}}>{v}</span>
-            </div>;})}
+            const aberta=etapaAberta===st;
+            return <React.Fragment key={st}>
+              <button onClick={()=>v&&setEtapaAberta(aberta?null:st)} disabled={!v}
+                title={v?"Ver quem está nesta etapa":undefined}
+                style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,width:"100%",background:"transparent",
+                  border:"none",padding:0,cursor:v?"pointer":"default",textAlign:"left"}}>
+                <span style={{color:aberta?C.ink:C.sub,fontSize:11.5,fontWeight:aberta?700:400,width:isMobile?104:150,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span>
+                <div style={{height:10,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}><div style={{width:Math.max(pct,v?6:0)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
+                <span style={{color:C.ink,fontFamily:MONO,fontSize:12,fontWeight:600,width:20,textAlign:"right"}}>{v}</span>
+              </button>
+              {aberta&&<LeadsDaEtapa acoes={acoes} etapa={st} atendente={linha.id} periodo={periodo}
+                isMobile={isMobile} abrirConversa={abrirConversa}/>}
+            </React.Fragment>;})}
         </div>
       </React.Fragment>}
     </div>

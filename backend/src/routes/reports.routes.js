@@ -59,6 +59,19 @@ r.get("/", (req, res) => {
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?")
     .all(req.user.org_id, de, ate);
 
+  /* VENDA é medida pela DATA DA VENDA, não pela data em que o lead entrou.
+
+     Era o furo que fazia o relatório parecer desatualizado: a venda fechada
+     hoje, de um lead que chegou em junho, não aparecia em "esta semana" —
+     porque a busca acima pega só quem ENTROU no período. O gestor registrava
+     a venda e o número não mexia.
+
+     Lead que entrou no período continua sendo "recebidos": as duas perguntas
+     são diferentes e agora cada uma é medida pelo que lhe cabe. */
+  const vendasDoPeriodo = db.prepare(
+    "SELECT * FROM leads WHERE org_id=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?")
+    .all(req.user.org_id, de, ate);
+
   /* Escala do período, para cruzar com a produção. "Recebeu 8 leads" diz uma
      coisa; "recebeu 8, sendo 5 em dias de plantão dele" diz outra. */
   const plantoes = escalaPlantao(req.user.org_id, { de, ate });
@@ -97,7 +110,8 @@ r.get("/", (req, res) => {
     // Tempo de ATENDIMENTO: quanto o cliente espera a cada pergunta ao longo da
     // conversa, não só na primeira. É o que ele sente do começo ao fim — o
     // primeiro contato pode ser rápido e o resto do atendimento arrastado.
-    const vendas = meus.filter(l => l.stage === "Venda");
+    // Fechadas por ele DENTRO do período, venham de quando vierem.
+    const vendas = vendasDoPeriodo.filter(l => l.assigned_to === u.id);
     const porEtapa = STAGES.reduce((o, s) => (o[s] = meus.filter(l => l.stage === s).length, o), {});
 
     return {
@@ -109,9 +123,16 @@ r.get("/", (req, res) => {
       // distorce a média e faz o corretor parecer pior do que é.
       primeira_resposta_mediana_min: mediana(temposResposta) ?? 0,
       atendimento_mediana_min: mediana(temposDeResposta(meus.map(l => l.id))),
+      // Onde os leads DO PERÍODO estão hoje no funil. É uma foto do momento,
+      // não "quantos avançaram nesta semana" — o sistema não guarda a data de
+      // cada mudança de etapa, então prometer isso seria inventar número.
       agendamentos: porEtapa["Agendamento"] + porEtapa["Visita"],
       vendas: vendas.length,
-      conversao: pct(vendas.length, meus.length),
+      // Conversão é de COORTE: dos leads que entraram no período, quantos já
+      // viraram venda. Dividir as vendas do período pelos leads do período
+      // misturaria gente de meses diferentes e daria percentual sem sentido.
+      conversao: pct(meus.filter(l => l.stage === "Venda").length, meus.length),
+      vendas_da_coorte: meus.filter(l => l.stage === "Venda").length,
       valor_vendido: vendas.reduce((s, l) => s + (l.sale_value || 0), 0),
       por_etapa: porEtapa,
       por_dia,
@@ -132,8 +153,8 @@ r.get("/", (req, res) => {
   const total = supervisiona(req.user) ? {
     leads: leads.length,
     na_fila: leads.filter(l => !l.assigned_to).length,
-    vendas: leads.filter(l => l.stage === "Venda").length,
-    valor_vendido: leads.reduce((s, l) => s + (l.sale_value || 0), 0),
+    vendas: vendasDoPeriodo.length,
+    valor_vendido: vendasDoPeriodo.reduce((s, l) => s + (l.sale_value || 0), 0),
   } : null;
 
   /* ===== ATENDIMENTO (a atendente) =====

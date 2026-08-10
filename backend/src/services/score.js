@@ -179,12 +179,37 @@ export function recomendar(orgId, lead) {
 
   const comHistorico = candidatos.filter(c => c.perfil.confiavel);
   if (comHistorico.length < 2) {
+    /* Sem 5 atendimentos concluídos por temperatura, a comparação por conversão
+       não se sustenta — e ESPERAR por ela travava a sugestão por semanas, que
+       foi a reclamação do Ali: na prática a atendente nunca via recomendação
+       nenhuma, só o aviso de "histórico insuficiente".
+
+       O critério passa a ser o desempenho da SEMANA entre os 5 melhores.
+       Semana porque é o que descreve a equipe agora — quem está atendendo
+       rápido nesta semana, e não quem converteu bem há três meses. Cinco
+       porque comparar o time inteiro traz para a conta quem mal recebeu lead
+       no período e só faz barulho.
+
+       Não é a mesma pergunta que "quem converte mais leads mornos", e a tela
+       diz isso: é sugestão por desempenho recente, não por conversão. */
+    const daSemana = ranking(orgId, 7).filter(m => !m.sem_dados);
+    const top5 = daSemana.slice(0, 5);
+    const disponivelNoTop = top5.filter(m => disponiveis.has(m.id));
+    const escolhido = disponivelNoTop[0]
+      || candidatos.slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1))[0];
+    const media = top5.length
+      ? Math.round(top5.reduce((soma, m) => soma + (m.score || 0), 0) / top5.length)
+      : null;
+
     return {
       temperatura,
-      situacao: "historico_insuficiente",
-      // Sem base para comparar, o critério honesto é o score geral.
-      sugerido: { id: candidatos[0].id, nome: candidatos[0].nome, score: candidatos[0].score },
-      explicacao: `Ainda não há ${AMOSTRA_MINIMA} atendimentos concluídos de leads ${temperatura.toLowerCase()}s por corretor para comparar conversão. Sugestão pelo desempenho geral.`,
+      situacao: "por_desempenho_da_semana",
+      sugerido: { id: escolhido.id, nome: escolhido.nome, score: escolhido.score },
+      base: { dias: 7, considerados: top5.length, media_score: media },
+      explicacao: top5.length
+        ? `Pelo desempenho da última semana: ${escolhido.nome} está entre os ${top5.length} melhores` +
+          (media != null ? ` (média do grupo: ${media} de 100` + (escolhido.score != null ? `, ele está em ${escolhido.score}` : "") + ")" : "") + "."
+        : `Ainda não houve movimento na última semana para comparar. Sugestão pelo desempenho geral.`,
     };
   }
 
