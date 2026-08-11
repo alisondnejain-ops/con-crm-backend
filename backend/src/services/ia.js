@@ -30,6 +30,52 @@ const MODELO = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
 
 export const iaConfigurada = () => !!CHAVE;
 
+/* Uma chamada ao modelo, sem SDK — do mesmo jeito que o e-mail fala com o
+   Resend. Fica separada porque agora tem mais de um uso (ler o print da
+   simulação e resumir a conversa), e conversa com API tem sempre os mesmos
+   três tropeços: rede caída, chave errada e resposta que não é o que se
+   esperava. Um lugar só para tratar os três.
+
+   Nunca lança: quem chama sempre tem um caminho manual, e recurso automático
+   que derruba o manual é pior do que não existir. */
+async function perguntar({ content, max_tokens = 600, system }) {
+  if (!iaConfigurada()) return { ok: false, erro: "IA não configurada." };
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": CHAVE,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: MODELO,
+        max_tokens,
+        ...(system ? { system } : {}),
+        messages: [{ role: "user", content }],
+      }),
+    });
+  } catch (e) {
+    return { ok: false, erro: "Não consegui falar com o serviço de IA: " + e.message };
+  }
+
+  const corpo = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = corpo?.error?.message || `HTTP ${res.status}`;
+    console.warn("[ia] chamada falhou:", msg);
+    return { ok: false, erro: res.status === 401 ? "Chave da IA inválida." : "A IA falhou: " + msg };
+  }
+  const texto = (corpo.content || []).filter(c => c.type === "text").map(c => c.text).join("").trim();
+  // Quanto custou. Vai para o log e para o diagnóstico: gasto de IA que
+  // ninguém mede vira surpresa na fatura.
+  const uso = corpo.usage ? { entrada: corpo.usage.input_tokens, saida: corpo.usage.output_tokens } : null;
+  return { ok: true, texto, uso };
+}
+
+// O modelo às vezes envolve o JSON em ```json apesar da instrução.
+const limparCercas = (t) => String(t || "").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+
 const INSTRUCAO = `Você recebe a captura de tela do resultado de uma simulação de
 financiamento habitacional da Caixa Econômica Federal, em português do Brasil.
 
@@ -58,43 +104,17 @@ export async function lerPrintSimulacao({ base64, mime }) {
   if (!/^image\/(jpeg|png|webp|gif)$/.test(mime || ""))
     return { ok: false, erro: "Mande o print como imagem (JPG ou PNG)." };
 
-  let res;
-  try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": CHAVE,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: MODELO,
-        max_tokens: 600,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: mime, data: base64 } },
-            { type: "text", text: INSTRUCAO },
-          ],
-        }],
-      }),
-    });
-  } catch (e) {
-    return { ok: false, erro: "Não consegui falar com o serviço de leitura: " + e.message };
-  }
+  const r = await perguntar({
+    max_tokens: 600,
+    content: [
+      { type: "image", source: { type: "base64", media_type: mime, data: base64 } },
+      { type: "text", text: INSTRUCAO },
+    ],
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
 
-  const corpo = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = corpo?.error?.message || `HTTP ${res.status}`;
-    console.warn("[ia] leitura falhou:", msg);
-    return { ok: false, erro: res.status === 401 ? "Chave da IA inválida." : "A leitura falhou: " + msg };
-  }
-
-  const texto = (corpo.content || []).filter(c => c.type === "text").map(c => c.text).join("").trim();
-  // O modelo às vezes envolve em ```json apesar da instrução; tiramos antes de ler.
-  const limpo = texto.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
   let dados;
-  try { dados = JSON.parse(limpo); }
+  try { dados = JSON.parse(limparCercas(r.texto)); }
   catch { return { ok: false, erro: "Não consegui ler os valores desse print. Digite na mão." }; }
 
   const num = (v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : null);
@@ -111,6 +131,89 @@ export async function lerPrintSimulacao({ base64, mime }) {
       renda: num(dados.renda),
       modalidade: typeof dados.modalidade === "string" ? dados.modalidade.slice(0, 60) : null,
       confianca: ["alta", "media", "baixa"].includes(dados.confianca) ? dados.confianca : "media",
+    },
+  };
+}
+
+/* ===== RESUMO DA CONVERSA =====
+
+   Para que serve: a atendente repassa um lead com 40 mensagens e o corretor
+   precisa saber, em dez segundos, o que já foi conversado. Hoje ele rola a
+   tela inteira — ou, o que acontece de verdade, não rola e pergunta de novo
+   coisas que o cliente já respondeu.
+
+   Três decisões que valem estar escritas:
+
+   1) É LEITURA, não escrita. O resumo aparece na ficha, para o corretor.
+      Nada daqui vai para o cliente, então um erro do modelo custa um
+      desentendimento interno, não uma promessa falsa feita à Conecta.
+
+   2) O modelo responde JSON com campos curtos, e não um texto corrido. Texto
+      corrido convida o modelo a floreio e o corretor a não ler. Campo curto
+      obriga os dois a serem objetivos — e deixa a tela mostrar "não disse"
+      quando o cliente não disse, que é uma informação e tanto.
+
+   3) O que o cliente NÃO disse é tão útil quanto o que disse. Por isso o
+      campo `faltando`: é a lista do que o corretor ainda precisa perguntar. */
+
+const INSTRUCAO_RESUMO = `Você é assistente de uma imobiliária brasileira e vai ler a
+conversa de WhatsApp entre a equipe e um cliente que quer comprar imóvel.
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+
+{"situacao":texto,"quer":texto|null,"pode_pagar":texto|null,"combinado":texto|null,
+"proximo_passo":texto,"faltando":[texto],"atencao":texto|null}
+
+Regras:
+- Escreva em português do Brasil, direto, como um colega passando o caso para outro
+- "situacao": 1 ou 2 frases sobre em que pé está o atendimento
+- "quer": que tipo de imóvel o cliente procura (bairro, quartos, finalidade). null se não deu para saber
+- "pode_pagar": renda, entrada, parcela ou financiamento que o cliente mencionou, com os números que ele falou. null se não falou
+- "combinado": o que ficou acertado (visita marcada, documento pedido, retorno prometido). null se nada
+- "proximo_passo": a ação mais útil AGORA, começando com um verbo
+- "faltando": até 4 informações importantes que o cliente ainda não disse
+- "atencao": só preencha se houver risco real — cliente irritado, falando com outra
+  imobiliária, prazo apertado, negócio esfriando. Caso contrário, null
+- NÃO invente nada. Se a conversa não disser, use null ou deixe fora
+- Nunca repita dados sensíveis como CPF ou documento`;
+
+/* Devolve { ok, resumo, uso } ou { ok:false, erro }.
+
+   `mensagens` chega na ordem da conversa, cada uma { de, texto, quando }.
+   Mandamos as últimas 120: conversa de imobiliária raramente passa disso, e o
+   começo de uma muito longa quase nunca muda o que fazer agora. */
+export async function resumirConversa({ mensagens, nome }) {
+  if (!iaConfigurada()) return { ok: false, erro: "Resumo automático não configurado." };
+  const uteis = (mensagens || []).filter(m => (m.texto || "").trim());
+  if (uteis.length < 2) return { ok: false, erro: "Conversa curta demais para resumir." };
+
+  const linhas = uteis.slice(-120)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "IMOBILIÁRIA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+
+  const r = await perguntar({
+    max_tokens: 700,
+    content: [{ type: "text", text: `${INSTRUCAO_RESUMO}\n\nCliente: ${nome || "sem nome"}\n\nCONVERSA:\n${linhas}` }],
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato. Tente de novo." }; }
+
+  const txt = (v, max = 400) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  return {
+    ok: true,
+    uso: r.uso,
+    resumo: {
+      situacao: txt(d.situacao) || "Sem leitura clara da conversa.",
+      quer: txt(d.quer, 200),
+      pode_pagar: txt(d.pode_pagar, 200),
+      combinado: txt(d.combinado, 300),
+      proximo_passo: txt(d.proximo_passo, 200),
+      faltando: Array.isArray(d.faltando) ? d.faltando.map(f => txt(f, 90)).filter(Boolean).slice(0, 4) : [],
+      atencao: txt(d.atencao, 200),
+      mensagens_lidas: Math.min(uteis.length, 120),
     },
   };
 }

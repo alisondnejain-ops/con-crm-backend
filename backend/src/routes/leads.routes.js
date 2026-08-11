@@ -4,7 +4,7 @@ import db from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { STAGES, LINEAR, normalizePhone, inferStage } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
-import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
+import { lerPrintSimulacao, iaConfigurada, resumirConversa } from "../services/ia.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
@@ -447,7 +447,46 @@ r.get("/:id", (req, res) => {
     .map(g => ({ ...g, tipo: "ligacao", direction: "sys", body: "" }));
 
   const linhaDoTempo = [...messages, ...ligacoes].sort((a, b) => a.created_at - b.created_at);
-  res.json({ ...parse(lead), messages: linhaDoTempo });
+  res.json({ ...parse(lead), messages: linhaDoTempo, resumo: resumoGuardado(lead, messages.length) });
+});
+
+/* O resumo que já está no banco, com a informação que muda tudo: quantas
+   mensagens entraram DEPOIS dele. Resumo de ontem mostrado como se fosse de
+   agora é pior do que resumo nenhum — o corretor age com base em algo que já
+   mudou. */
+function resumoGuardado(lead, quantasMensagens) {
+  if (!lead.resumo_json) return { disponivel: iaConfigurada(), gerado: null };
+  let dados = null;
+  try { dados = JSON.parse(lead.resumo_json); } catch { return { disponivel: iaConfigurada(), gerado: null }; }
+  return {
+    disponivel: iaConfigurada(),
+    gerado: { ...dados, em: lead.resumo_em || null },
+    novas: Math.max(0, quantasMensagens - (lead.resumo_msgs || 0)),
+  };
+}
+
+/* Resumir a conversa (IA).
+
+   Só quem já pode abrir a conversa pode pedir o resumo — é o mesmo conteúdo,
+   lido de outro jeito. O texto sai do servidor e vai para o provedor de IA:
+   por isso a chamada é sob demanda, num clique consciente, e nunca automática
+   em toda conversa aberta. */
+r.post("/:id/resumo", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  if (!iaConfigurada()) return res.status(503).json({ error: "O resumo automático não está ligado nesta instalação." });
+
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const r2 = await resumirConversa({
+    nome: lead.name,
+    mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
+  });
+  if (!r2.ok) return res.status(422).json({ error: r2.erro });
+
+  db.prepare("UPDATE leads SET resumo_json = ?, resumo_em = ?, resumo_msgs = ? WHERE id = ?")
+    .run(JSON.stringify(r2.resumo), Date.now(), msgs.length, lead.id);
+  if (r2.uso) console.log(`[ia] resumo de ${lead.name}: ${r2.uso.entrada} tokens de entrada, ${r2.uso.saida} de saída`);
+  res.json({ ok: true, resumo: { ...r2.resumo, em: Date.now() }, novas: 0 });
 });
 
 // Marca a conversa como lida até agora. A ADM supervisionando NÃO marca:

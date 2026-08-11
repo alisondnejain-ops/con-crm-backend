@@ -347,6 +347,13 @@ addLeadCol("import_id", "TEXT");         // de qual planilha veio, para dar para
 addLeadCol("alerta_em", "INTEGER");
 addLeadCol("cutucado_em", "INTEGER");    // a gestão pediu atenção neste atendimento
 addLeadCol("cutucado_por", "TEXT");
+/* Resumo da conversa feito pela IA, guardado para não pagar de novo a cada
+   clique. `resumo_msgs` diz com quantas mensagens ele foi feito: é assim que a
+   tela sabe avisar "há 6 mensagens novas desde este resumo" em vez de mostrar
+   um retrato velho como se fosse atual. */
+addLeadCol("resumo_json", "TEXT");
+addLeadCol("resumo_em", "INTEGER");
+addLeadCol("resumo_msgs", "INTEGER");
 addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou junto
 db.exec("CREATE INDEX IF NOT EXISTS idx_leads_import ON leads(import_id)");
 

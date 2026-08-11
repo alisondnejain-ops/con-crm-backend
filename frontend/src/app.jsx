@@ -77,6 +77,8 @@ function adaptLead(l,anterior){
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
     carregado:!!l.messages||(anterior?anterior.carregado:false),
+    // Resumo da conversa feito pela IA (vem só ao abrir a conversa).
+    resumo:l.resumo||(anterior?anterior.resumo:null),
   };
 }
 const RESULTADO_LIGACAO={falou:"Falei com o cliente",nao_atendeu:"Não atendeu",
@@ -316,6 +318,7 @@ const ICO={
   check:<React.Fragment><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></React.Fragment>,
   calendar:<React.Fragment><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></React.Fragment>,
   zap:<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  sparkles:<React.Fragment><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></React.Fragment>,
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
@@ -722,6 +725,7 @@ function ConCRM(){
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
+    resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     abrir,
   };
 
@@ -2371,6 +2375,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
           <Icon n="star" size={14} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/><span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
         </div>
+
+        {/* O corretor que acabou de receber o lead é quem mais precisa do
+            resumo — foi ele que não acompanhou a conversa até aqui. */}
+        <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
@@ -3148,6 +3156,111 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
 /* ===== FICHA DO LEAD (supervisão) =====
    A mesma ficha que o corretor vê no Atendimento: qualificação, etapa, venda —
    mais o direcionamento para um corretor, como a SDR faz na catraca. */
+
+/* ===== RESUMO DA CONVERSA (IA) =====
+
+   Para o corretor que acabou de receber um lead com 40 mensagens. Em vez de
+   rolar a conversa inteira — o que na prática ninguém faz, e por isso se
+   pergunta de novo o que o cliente já respondeu —, ele lê seis linhas.
+
+   Três cuidados que aparecem na tela, não só no código:
+
+   - o resumo é ASSINADO como automático. Quem lê precisa saber que aquilo foi
+     escrito por máquina lendo a conversa, e que a conversa continua ali do
+     lado para conferir;
+   - resumo velho se anuncia: entrando mensagem nova depois dele, a tela diz
+     quantas e oferece atualizar. Retrato antigo passando por atual faz o
+     corretor agir sobre algo que já mudou;
+   - só sai no clique. O texto da conversa vai para o provedor de IA, e isso
+     não pode acontecer sozinho em toda conversa que alguém abre. */
+function ResumoIA({lead,acoes,isMobile}){
+  const [dados,setDados]=useState(lead.resumo&&lead.resumo.gerado||null);
+  const [novas,setNovas]=useState(lead.resumo?lead.resumo.novas||0:0);
+  const [carregando,setCarregando]=useState(false);
+  const [erro,setErro]=useState("");
+  const [aberto,setAberto]=useState(false);
+
+  // Trocar de lead troca o resumo: o da conversa anterior não diz nada sobre esta.
+  useEffect(()=>{
+    setDados(lead.resumo&&lead.resumo.gerado||null);
+    setNovas(lead.resumo?lead.resumo.novas||0:0);
+    setErro(""); setAberto(false);
+  },[lead.id,lead.resumo]);
+
+  if(!lead.resumo||!lead.resumo.disponivel) return null;
+
+  async function gerar(){
+    setCarregando(true); setErro("");
+    try{ const r=await acoes.resumirConversa(lead.id); setDados(r.resumo); setNovas(0); setAberto(true); }
+    catch(e){ setErro(e.message); }
+    finally{ setCarregando(false); }
+  }
+
+  const linha=(rotulo,valor)=>valor?<div style={{marginTop:7}}>
+    <div style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>{rotulo}</div>
+    <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginTop:1}}>{valor}</div>
+  </div>:null;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+      <Icon n="sparkles" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>Resumo da conversa</span>
+      {dados&&<button onClick={()=>setAberto(a=>!a)}
+        style={{background:"transparent",border:"none",color:C.sub,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:2}}>
+        {aberto?"ocultar":"ver"}</button>}
+    </div>
+
+    {!dados&&<React.Fragment>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,margin:"5px 0 9px"}}>
+        A IA lê a conversa e conta em poucas linhas o que o cliente quer, quanto pode pagar e o que ficou combinado.
+      </div>
+      <button onClick={gerar} disabled={carregando}
+        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+          padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+        {carregando?<React.Fragment><Icon n="loader" size={14} spin/> Lendo a conversa…</React.Fragment>
+          :<React.Fragment><Icon n="sparkles" size={14}/> Resumir a conversa</React.Fragment>}
+      </button>
+    </React.Fragment>}
+
+    {dados&&<React.Fragment>
+      <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginTop:6}}>{dados.situacao}</div>
+      {dados.atencao&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,fontWeight:600,lineHeight:1.45,
+        borderRadius:9,padding:"8px 10px",marginTop:8,display:"flex",gap:6}}>
+        <Icon n="flame" size={13}/><span>{dados.atencao}</span></div>}
+      {dados.proximo_passo&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,fontWeight:600,
+        lineHeight:1.45,borderRadius:9,padding:"8px 10px",marginTop:8}}>Próximo passo: {dados.proximo_passo}</div>}
+
+      {aberto&&<React.Fragment>
+        {linha("O que procura",dados.quer)}
+        {linha("Quanto pode pagar",dados.pode_pagar)}
+        {linha("Já combinado",dados.combinado)}
+        {dados.faltando&&dados.faltando.length>0&&<div style={{marginTop:7}}>
+          <div style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>Falta perguntar</div>
+          <ul style={{margin:"3px 0 0",paddingLeft:16,color:C.ink,fontSize:12.5,lineHeight:1.6}}>
+            {dados.faltando.map((f,i)=><li key={i}>{f}</li>)}
+          </ul>
+        </div>}
+      </React.Fragment>}
+
+      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:9,lineHeight:1.45}}>
+        {novas} mensagem(ns) nova(s) depois deste resumo.</div>}
+
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,flexWrap:"wrap"}}>
+        <button onClick={gerar} disabled={carregando}
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,
+            padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:carregando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
+          {carregando?<React.Fragment><Icon n="loader" size={12} spin/> lendo…</React.Fragment>:"Atualizar"}</button>
+        <span style={{color:C.faint,fontSize:10.5,lineHeight:1.4,flex:1,minWidth:120}}>
+          Escrito por IA lendo {dados.mensagens_lidas||0} mensagem(ns){dados.em?` · ${fmtClock(dados.em)}`:""}. Confira na conversa antes de agir.
+        </span>
+      </div>
+    </React.Fragment>}
+
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
+  </div>;
+}
+
 function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
   const [simulando,setSimulando]=useState(false);
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
@@ -3162,6 +3275,8 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
         <Icon n="star" size={14} color={PRIO[lead.prio].c} fill={PRIO[lead.prio].c}/>
         <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
       </div>
+
+      <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
