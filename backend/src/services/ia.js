@@ -29,6 +29,8 @@ const CHAVE = process.env.ANTHROPIC_API_KEY || "";
 const MODELO = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
 
 export const iaConfigurada = () => !!CHAVE;
+// Qual modelo está atendendo. Só para o diagnóstico — a chave nunca sai daqui.
+export const modeloIA = () => MODELO;
 
 /* Uma chamada ao modelo, sem SDK — do mesmo jeito que o e-mail fala com o
    Resend. Fica separada porque agora tem mais de um uso (ler o print da

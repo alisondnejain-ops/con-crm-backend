@@ -2,6 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
 import { mailConfigured } from "../services/mail.js";
+import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "./uazapi.webhook.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
 
@@ -25,6 +26,11 @@ r.get("/integracoes", async (_req, res) => {
     whatsapp: await instanceStatus(org?.id),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
     email: { configurado: mailConfigured() },
+    /* IA: liga a leitura do print da Caixa e o resumo da conversa. A chave
+       nunca aparece aqui — só se ela chegou e qual modelo está em uso, que é
+       o bastante para saber se falta configurar ou se o problema é outro. */
+    ia: { configurada: iaConfigurada(), modelo: iaConfigurada() ? modeloIA() : null,
+      recursos: iaConfigurada() ? ["resumo da conversa", "leitura do print da Caixa"] : [] },
     arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2() },
     // Última tentativa de citar uma mensagem: o que foi mandado e o que voltou.
     // A citação falha calada, então é aqui que se descobre o motivo.
