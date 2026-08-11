@@ -1798,35 +1798,28 @@ function BotaoEditar({m,podeEditar,aoEditar}){
   </button>;
 }
 
-/* A caixa de edição, no lugar do balão. */
-function EditarMensagem({m,lead,acoes,isMobile,aoFechar}){
-  const [texto,setTexto]=useState(m.text||"");
-  const [salvando,setSalvando]=useState(false);
-  const [erro,setErro]=useState("");
-  const salvar=async()=>{
-    if(!texto.trim()||salvando) return;
-    setSalvando(true); setErro("");
-    try{ await acoes.editarMensagem(lead.id,m.id,texto.trim()); aoFechar(); }
-    catch(e){ setErro(e.message); }
-    finally{ setSalvando(false); }
-  };
-  return <div style={{alignSelf:"flex-end",maxWidth:isMobile?"92%":"78%",background:C.card,
-    border:`1px solid ${C.green}66`,borderRadius:14,padding:10,margin:"2px 0"}}>
-    <div style={{color:C.greenDeep,fontSize:11,fontWeight:700,marginBottom:6}}>Editando a mensagem</div>
-    <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={3} autoFocus
-      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();salvar();}if(e.key==="Escape")aoFechar();}}
-      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
-        background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",resize:"none",fontFamily:FONT}}/>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:7,lineHeight:1.45}}>{erro}</div>}
-    <div style={{display:"flex",gap:7,marginTop:8,flexWrap:"wrap"}}>
-      <button onClick={salvar} disabled={salvando||!texto.trim()}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-        {salvando?"Editando…":"Salvar"}</button>
-      <button onClick={aoFechar} disabled={salvando}
-        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-        Cancelar</button>
-      <span style={{color:C.faint,fontSize:10.5,alignSelf:"center"}}>o cliente vê a mensagem trocada, como no WhatsApp</span>
+/* A barra de "editando", logo acima do campo de mensagem.
+
+   Antes a caixa de edição abria NO LUGAR do balão. Parecia natural, mas a
+   mensagem a editar quase sempre está no meio da conversa: o corretor clicava
+   no lápis e precisava rolar a tela para achar onde digitar — e no celular,
+   com o teclado aberto, a caixa ficava escondida atrás dele.
+
+   Agora é como o WhatsApp faz: o texto vai para o campo de baixo, que é onde
+   o dedo já está e onde o teclado abre. A barra diz o que está sendo editado
+   e some com o ×. */
+function BarraEdicao({texto,erro,isMobile,aoCancelar}){
+  return <div style={{background:C.surface,borderLeft:`3px solid ${C.green}`,borderRadius:8,
+    padding:"7px 10px",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{color:C.greenDeep,fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",gap:5}}>
+        <Icon n="edit" size={11}/> Editando a mensagem
+      </div>
+      <div style={{color:C.sub,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{texto}</div>
+      {erro&&<div style={{color:C.hot,fontSize:11,marginTop:4,lineHeight:1.4,whiteSpace:"normal"}}>{erro}</div>}
     </div>
+    <button onClick={aoCancelar} title="Cancelar a edição"
+      style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,fontSize:17,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
   </div>;
 }
 
@@ -2146,7 +2139,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // envio já é tratada pelo aviso geral do topo; aqui é o que acontece antes de sair.
   const [erroAnexo,setErroAnexo]=useState("");
   const [colando,setColando]=useState(false);
-  const [editando,setEditando]=useState(null);   // id da mensagem em edição
+  /* Mensagem em edição: {id, texto}. O texto vai para o campo de baixo, então
+     guardamos o rascunho de antes para devolver se a pessoa desistir. */
+  const [editando,setEditando]=useState(null);
+  const [erroEdicao,setErroEdicao]=useState("");
+  const [salvandoEdicao,setSalvandoEdicao]=useState(false);
+  const rascunhoAntes=useRef("");
   // Imagens coladas esperando confirmação. Só saem no botão Enviar.
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
@@ -2167,6 +2165,25 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     }catch(e){ setErroAnexo(e.message); }
     finally{ setMandandoColados(false); }
   }
+
+  function abrirEdicao(m){
+    rascunhoAntes.current=draft;
+    setEditando({id:m.id,texto:m.text||""});
+    setDraft(m.text||"");
+    // Editar, citar e colar disputam o mesmo campo: entrar em um cancela os
+    // outros, senão o botão de enviar teria três significados ao mesmo tempo.
+    setCitando(null); setColados([]); setErroEdicao("");
+  }
+  function cancelarEdicao(){ setDraft(rascunhoAntes.current); setEditando(null); setErroEdicao(""); }
+  async function salvarEdicao(){
+    if(!draft.trim()||salvandoEdicao) return;
+    setSalvandoEdicao(true); setErroEdicao("");
+    try{ await acoes.editarMensagem(sel.id,editando.id,draft.trim()); setDraft(rascunhoAntes.current); setEditando(null); }
+    catch(e){ setErroEdicao(e.message); }
+    finally{ setSalvandoEdicao(false); }
+  }
+  // Trocar de conversa cancela a edição em aberto.
+  useEffect(()=>{setEditando(null);setErroEdicao("");},[sel&&sel.id]);
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
@@ -2222,10 +2239,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           const senderName=peloCelular?"Enviada pelo WhatsApp":`${m.byName} · Conecta`;
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            {editando===m.id
-              ?<EditarMensagem m={m} lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEditando(null)}/>
-              :<div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6}}>
-            {mine&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>setEditando(m.id)}/>}
+            <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6,
+              opacity:editando&&editando.id===m.id?.45:1}}>
+            {mine&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
             {mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
@@ -2235,7 +2251,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            </div>}
+            </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
@@ -2249,16 +2265,22 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
           onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
           onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
+        {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
-          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();colados.length?enviarColados():send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+          <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{
+            if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
+            if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
           {/* Com imagem colada esperando, o botão manda a imagem (com a legenda
               digitada) em vez de mandar só o texto e deixar a foto para trás. */}
-          <button onClick={()=>colados.length?enviarColados():send()}
-            disabled={enviando||mandandoColados||(!draft.trim()&&!colados.length)}
-            style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||(!draft.trim()&&!colados.length)?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados?"loader":"send"} size={18} spin={enviando||mandandoColados}/></button>
+          {/* Durante a edição o mesmo botão SALVA — dois botões de ação no mesmo
+              canto seria o jeito mais fácil de mandar a mensagem sem querer. */}
+          <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():send()}
+            title={editando?"Salvar a edição":"Enviar"}
+            disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
+            style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
@@ -3015,10 +3037,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           const meu=m.from==="corretor";
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
-            {editando===m.id
-              ?<EditarMensagem m={m} lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEditando(null)}/>
-              :<div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start",alignItems:"center",gap:6}}>
-            {meu&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando(m.id)}/>}
+            <div style={{display:"flex",justifyContent:meu?"flex-end":"flex-start",alignItems:"center",gap:6,
+              /* apagada enquanto está sendo editada lá embaixo, para a pessoa
+                 saber qual balão vai mudar */
+              opacity:editando&&editando.id===m.id?.45:1}}>
+            {meu&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
             {meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
@@ -3028,12 +3051,13 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            </div>}
+            </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
-      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando} versaoMsgs={versao}/>
+      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}
+        editando={editando} setEditando={setEditando} versaoMsgs={versao}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
@@ -3145,7 +3169,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 /* ===== CAMPO DE ENVIO DA ADM =====
    A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
    corretor — o cliente sempre sabe com quem está falando. */
-function ComporADM({lead,session,acoes,isMobile,citando,setCitando,versaoMsgs}){
+function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setEditando,versaoMsgs}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -3153,10 +3177,34 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,versaoMsgs}){
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
+  const [erroEdicao,setErroEdicao]=useState("");
+  const [salvandoEdicao,setSalvandoEdicao]=useState(false);
+  const rascunhoAntes=useRef("");
   const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
   const colar=usarColar({lead,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   useEffect(()=>{setColados([]);},[lead.id]);
+
+  /* O lápis fica lá em cima, junto do balão, mas quem digita é este campo:
+     ao abrir a edição o texto desce para cá, e o rascunho que estava escrito
+     fica guardado para voltar se a pessoa desistir. */
+  const emEdicao=editando&&editando.id;
+  useEffect(()=>{
+    if(!emEdicao) return;
+    rascunhoAntes.current=draft;
+    setDraft(editando.texto||"");
+    setCitando(null); setColados([]); setErroEdicao("");
+  },[emEdicao]);
+  function cancelarEdicao(){ setDraft(rascunhoAntes.current); setEditando(null); setErroEdicao(""); }
+  async function salvarEdicao(){
+    if(!draft.trim()||salvandoEdicao) return;
+    setSalvandoEdicao(true); setErroEdicao("");
+    try{ await acoes.editarMensagem(lead.id,editando.id,draft.trim()); setDraft(rascunhoAntes.current); setEditando(null); }
+    catch(e){ setErroEdicao(e.message); }
+    finally{ setSalvandoEdicao(false); }
+  }
+  // Trocar de conversa cancela a edição em aberto.
+  useEffect(()=>{setEditando(null);setErroEdicao("");},[lead.id]);
   async function enviarColados(){
     if(!colados.length||mandandoColados) return;
     setMandandoColados(true); setErroAnexo("");
@@ -3186,16 +3234,20 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,versaoMsgs}){
     <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
       onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
       onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
+    {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
-        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();colados.length?enviarColados():enviar();}}}
+        onKeyDown={e=>{
+          if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
+          if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():enviar();}}}
         rows={2} placeholder={colando?"Colando a imagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
-      <button onClick={()=>colados.length?enviarColados():enviar()}
-        disabled={enviando||mandandoColados||(!draft.trim()&&!colados.length)}
-        style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||(!draft.trim()&&!colados.length)?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados?"loader":"send"} size={18} spin={enviando||mandandoColados}/></button>
+      <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():enviar()}
+        title={editando?"Salvar a edição":"Enviar"}
+        disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
+        style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
     </div>
     {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
