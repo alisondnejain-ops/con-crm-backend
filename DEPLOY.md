@@ -150,6 +150,40 @@ e consulte `GET /auth/users` (ou me peça para montar essa tela no CRM).
 
 ---
 
+## Domínio próprio — o que ficou decidido
+
+O endereço oficial do CRM é **`https://www.conhubcrm.com.br`**, com o `www`.
+
+No painel do domínio existe um registro **CNAME** em `www` apontando para o
+endereço que o Railway gerou (`8x2da35r.up.railway.app`). É esse o caminho.
+
+**Por que não funciona sem o `www`.** O Railway não entrega um IP fixo: para
+apontar a raiz do domínio (`conhubcrm.com.br`, sem nada na frente) seria preciso
+um recurso chamado *CNAME flattening* / *ALIAS*, que o DNS do Registro.br não
+tem. Só trocando os servidores de DNS para quem tenha (a Cloudflare, por
+exemplo, de graça).
+
+**Por que não fizemos essa troca.** O domínio está com **DNSSEC ligado** no
+Registro.br. Trocar os servidores de DNS sem desligar o DNSSEC antes derruba o
+domínio inteiro — site e e-mail — até desfazer. O ganho seria só poupar quem
+digita o endereço na mão, e ninguém digita: o acesso é por link. Decidido em
+11/08/2026: fica no `www`. Se um dia for feito, é em horário de baixo
+movimento e nesta ordem: desligar o DNSSEC → esperar propagar → recriar os
+registros na Cloudflare → só então trocar os servidores de DNS.
+
+**Ao trocar de endereço, três coisas precisam acompanhar:**
+
+1. `APP_URL` e `SITE_URL` nas variáveis do Railway. O `APP_URL` monta o
+   endereço público das fotos e vídeos que vão para o WhatsApp — endereço
+   errado aqui é envio de mídia quebrado, e o erro não diz isso.
+2. O webhook da Uazapi (a URL pronta aparece em *Configurações → Conexão*).
+   Sem trocar, o CRM envia mas para de receber.
+3. Quem já instalou o CRM na tela de início precisa **remover e adicionar de
+   novo** pelo endereço novo — para o navegador é outro site, e a autorização
+   de notificação não vai junto.
+
+---
+
 ## Passo 5 — Ligar o e-mail automático (Resend)
 
 Enquanto isso não estiver feito, o link de confirmação aparece na tela e no log.

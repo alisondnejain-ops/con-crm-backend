@@ -127,7 +127,7 @@ exige Python + build tools. O npm 11+ também bloqueia os scripts de instalaçã
 
 ## Próximos passos (nesta ordem)
 
-1. **Hospedar o backend** — guia pronto em `DEPLOY.md` (Railway; `render.yaml` como alternativa). Precisa de plano sempre-ligado (o free hiberna e atrasa os webhooks) e de disco persistente com `DB_PATH=/data/concrm.db`. Objetivo: obter a URL HTTPS pública e liberar o link de cadastro.
+1. **Hospedar o backend** — guia pronto em `DEPLOY.md` (Railway; `render.yaml` como alternativa). Precisa de plano sempre-ligado (o free hiberna e atrasa os webhooks) e de disco persistente com `DB_PATH=/data/concrm.db`. Objetivo: obter a URL HTTPS pública e liberar o link de cadastro. **Domínio (11/08/2026): o endereço oficial é `https://www.conhubcrm.com.br`, COM `www`** — a raiz sem `www` não aponta e não vai apontar tão cedo (o Railway não dá IP fixo e o domínio está com DNSSEC no Registro.br; o porquê está em `DEPLOY.md → Domínio próprio`). Ao trocar o endereço, acompanham: `APP_URL`/`SITE_URL` no Railway (é o `APP_URL` que monta a URL pública das mídias enviadas ao WhatsApp), o webhook da Uazapi e a reinstalação do atalho na tela de início.
 2. **Ligar o e-mail** (Resend): verificar o domínio da Conecta, preencher `RESEND_API_KEY` e `MAIL_FROM`. Enquanto isso não é feito, o link de confirmação aparece na tela e no log.
 3. **Ligar o frontend ao backend**: trocar os dados de exemplo (lista fixa de login, leads em memória) por chamadas HTTP às rotas. Precisa da URL do passo 1. Aí os corretores fictícios saem e entram as contas reais, e a tela de login vira e-mail + senha.
 4. **PWA**: manifest + service worker + ícone para instalar na tela de início. O layout responsivo já está pronto.
