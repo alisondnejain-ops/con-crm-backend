@@ -9,7 +9,8 @@
     "dev": "node --watch src/server.js",
     "seed": "node src/seed.js",
     "migrar-r2": "node src/migrar-r2.js",
-    "teste:imobiliarias": "node testes/imobiliarias.mjs"
+    "teste:imobiliarias": "node testes/imobiliarias.mjs",
+    "teste:dono": "node testes/dono-imobiliaria.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",

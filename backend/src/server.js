@@ -150,6 +150,13 @@ app.get("/versao.txt", (_req, res) =>
    o que fez o link de nova senha dizer "link invalido" fora da producao. */
 app.get("/cadastro", (req, res) => servirPagina("cadastro.html", req, res, "Pagina de cadastro nao encontrada."));
 app.get("/definir-senha", (req, res) => servirPagina("definir-senha.html", req, res, "Pagina de senha nao encontrada."));
+/* A porta do DONO de imobiliária. O corretor entra pelo /cadastro com o código
+   da casa dele no link; quem ainda não tem casa vem por aqui e sai com o
+   código na mão. Dois endereços porque são duas pessoas diferentes. */
+const paginaImobiliaria = (req, res) => servirPagina("criar-imobiliaria.html", req, res, "Pagina de cadastro da imobiliaria nao encontrada.");
+app.get("/criar-imobiliaria", paginaImobiliaria);
+// Apelido curto: é o que cabe num card de anúncio e o que as pessoas chutam.
+app.get("/nova-imobiliaria", paginaImobiliaria);
 
 app.use(express.static(publicDir, { extensions: ["html"] }));
 /* A raiz abre o CRM.

@@ -7,6 +7,7 @@ import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
+import { codigoLivre } from "../services/codigo.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -20,6 +21,107 @@ const appUrl = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("ho
 const siteUrl = (req) => (process.env.SITE_URL || process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 const newToken = () => randomBytes(24).toString("hex");
 const norm = (e) => String(e || "").trim().toLowerCase();
+
+// A imobiliária de alguém, no formato que as telas usam.
+function orgDoUsuario(user) {
+  const o = db.prepare("SELECT id,name,adm_code FROM orgs WHERE id = ?").get(user.org_id);
+  return o ? { id: o.id, nome: o.name, codigo: o.adm_code } : null;
+}
+// O link que o gestor manda para os corretores dele.
+function linkDaEquipe(req, user) {
+  const o = orgDoUsuario(user);
+  return o ? `${siteUrl(req)}/cadastro?c=${o.codigo}` : null;
+}
+
+/* ── Cadastro do DONO da imobiliária (link público) ──────────────────────────
+
+   Duas portas diferentes, de propósito:
+
+   - O corretor entra por `/cadastro?c=CODIGO`. Ele não escolhe imobiliária:
+     o código do link já diz de qual casa ele é.
+   - O dono entra por aqui. Ele ainda não tem casa — ele CRIA a casa, e é no
+     fim deste cadastro que nasce o código exclusivo dela, que ele vai mandar
+     para a equipe.
+
+   Antes existia só a primeira porta, e a tela de entrada sugeria o código da
+   Conecta para qualquer visitante: quem quisesse abrir a própria imobiliária
+   acabava virando corretor da Conecta.
+
+   O dono NÃO passa por aprovação — não há quem aprove numa imobiliária que
+   acabou de nascer. Ele é marcado como fundador no convite, e é o que dá a
+   ele o acesso direto lá no set-password. */
+r.post("/criar-imobiliaria", async (req, res) => {
+  const { imobiliaria, name, email, phone } = req.body || {};
+  const nomeOrg = String(imobiliaria || "").trim();
+  const cleanName = String(name || "").trim();
+
+  if (!nomeOrg || !cleanName || !email || !phone)
+    return res.status(400).json({ error: "Preencha o nome da imobiliária, seu nome, e-mail e telefone." });
+  if (nomeOrg.length < 2) return res.status(400).json({ error: "Informe o nome da imobiliária." });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(norm(email)))
+    return res.status(400).json({ error: "E-mail inválido." });
+
+  const mail = norm(email);
+  const existente = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
+  /* Quem já tem conta ativa não abre imobiliária por aqui — entraria em duas
+     casas com o mesmo e-mail, e o login não saberia qual abrir. */
+  if (existente && existente.status === "ativo")
+    return res.status(409).json({ error: "Esse e-mail já tem conta ativa. Entre no CRM com ele — ou use outro e-mail para a imobiliária nova." });
+
+  /* Cadastro repetido (fechou a aba, errou o e-mail, tentou de novo) reaproveita
+     a imobiliária que ficou pela metade em vez de criar outra. Sem isto, cada
+     tentativa deixaria uma imobiliária fantasma na plataforma. */
+  const orgPendente = existente
+    ? db.prepare("SELECT * FROM orgs WHERE dono_user_id = ?").get(existente.id)
+    : null;
+
+  const token = newToken();
+  const expires = Date.now() + INVITE_DAYS * 86400000;
+  let org = orgPendente;
+
+  const gravar = db.transaction(() => {
+    if (org) {
+      db.prepare("UPDATE orgs SET name = ? WHERE id = ?").run(nomeOrg, org.id);
+      db.prepare(`UPDATE users SET name=?, phone=?, role='adm', invite_token=?, invite_expires=?,
+        invite_tipo='fundador' WHERE id=?`).run(cleanName, normalizePhone(phone), token, expires, existente.id);
+      org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id);
+      return;
+    }
+    const orgId = "org_" + randomUUID().slice(0, 8);
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at)
+                VALUES (?,?,?,'',0,0,?)`).run(orgId, nomeOrg, codigoLivre(nomeOrg), Date.now());
+
+    const userId = existente ? existente.id : "u_" + randomUUID();
+    if (existente) {
+      db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', status='pendente',
+        invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
+        .run(orgId, cleanName, normalizePhone(phone), token, expires, userId);
+    } else {
+      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_token,invite_expires,invite_tipo)
+        VALUES (?,?,?,?,'','adm',0,?,?,'pendente',?,?,'fundador')`)
+        .run(userId, orgId, cleanName, mail, Date.now(), normalizePhone(phone), token, expires);
+    }
+    // Dono da conta: é quem responde pela mensalidade e quem vê a cobrança.
+    db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
+    org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+  });
+  gravar();
+
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  const { subject, html } = inviteEmail({ name: cleanName, link, orgName: org.name });
+  const out = await sendMail({ to: mail, subject, html });
+  if (!out.sent) console.log(`[imobiliária nova] ${org.name} (${org.adm_code}) — link de senha para ${mail}: ${link}`);
+
+  res.json({
+    ok: true,
+    emailSent: out.sent,
+    imobiliaria: org.name,
+    codigo: org.adm_code,
+    link_equipe: `${siteUrl(req)}/cadastro?c=${org.adm_code}`,
+    // Sem provedor de e-mail, o link volta na tela — é o modo manual de sempre.
+    link: mailConfigured() ? undefined : link,
+  });
+});
 
 // ── Cadastro do corretor (link público) ───────────────────────────────────────
 // Cria a conta como PENDENTE e dispara o e-mail com o link para definir a senha.
@@ -82,8 +184,11 @@ r.get("/invite/:token", (req, res) => {
     return res.status(410).json({ error: redefinicao
       ? "Este link de nova senha expirou. Peça outro à gestão."
       : "Link expirado. Faça o cadastro de novo para receber um link novo." });
-  res.json({ name: u.name, email: u.email, funcao: PAPEIS[u.role].rotulo,
-    redefinicao, precisaAprovacao: redefinicao ? false : PAPEIS[u.role].precisaAprovacao });
+  /* O fundador não passa por aprovação, e a página precisa saber disso para
+     não prometer uma espera que não existe. */
+  const fundador = u.invite_tipo === "fundador";
+  res.json({ name: u.name, email: u.email, funcao: PAPEIS[u.role].rotulo, redefinicao, fundador,
+    precisaAprovacao: redefinicao || fundador ? false : PAPEIS[u.role].precisaAprovacao });
 });
 
 // Define a senha e ativa a conta. Devolve o token de sessão já logado.
@@ -112,16 +217,25 @@ r.post("/set-password", (req, res) => {
     return res.json({ token: sign(atual), user: publicUser(atual), redefinicao: true });
   }
 
-  // Corretor entra direto. Atendente e gestor ficam aguardando o aval do gestor,
-  // porque esses papéis enxergam a operação inteira.
-  const novoStatus = PAPEIS[u.role].precisaAprovacao ? "aguardando_aprovacao" : "ativo";
+  /* Corretor entra direto. Atendente e gestor ficam aguardando o aval do gestor,
+     porque esses papéis enxergam a operação inteira.
+
+     O fundador é a exceção óbvia: ele é o gestor da imobiliária que ele mesmo
+     acabou de criar, e não existe ninguém do outro lado para aprovar. Mandá-lo
+     para a fila de aprovação seria trancar a porta com a chave dentro. */
+  const fundador = u.invite_tipo === "fundador";
+  const novoStatus = fundador || !PAPEIS[u.role].precisaAprovacao ? "ativo" : "aguardando_aprovacao";
   db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_expires=NULL WHERE id=?")
     .run(bcrypt.hashSync(String(password), 10), novoStatus, u.id);
 
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
   if (novoStatus === "aguardando_aprovacao")
     return res.json({ aguardandoAprovacao: true, funcao: PAPEIS[u.role].rotulo, user: publicUser(user) });
-  res.json({ token: sign(user), user: publicUser(user) });
+  /* Para o fundador, a resposta carrega o código da imobiliária e o link da
+     equipe: é o momento em que ele precisa disso na mão, e é o que ele veio
+     buscar aqui. */
+  res.json({ token: sign(user), user: publicUser(user), org: orgDoUsuario(user),
+    fundador, link_equipe: fundador ? linkDaEquipe(req, user) : undefined });
 });
 
 r.post("/login", (req, res) => {
@@ -142,7 +256,7 @@ r.post("/login", (req, res) => {
     };
     return res.status(403).json({ error: motivos[user.status] || "Sua conta não está ativa. Fale com a gestão da sua imobiliária." });
   }
-  res.json({ token: sign(user), user: publicUser(user) });
+  res.json({ token: sign(user), user: publicUser(user), org: orgDoUsuario(user) });
 });
 
 r.get("/me", authRequired, (req, res) => {

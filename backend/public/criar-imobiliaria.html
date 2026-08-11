@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0A3D30"/>
+<title>Cadastrar minha imobiliária — ConHub</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#F4F6F5;font-family:'Inter',sans-serif;color:#14181F;
+       display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:900px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;overflow:hidden;
+        box-shadow:0 20px 60px rgba(0,0,0,.10);display:grid;grid-template-columns:1fr 1fr}
+  .side{background:#0A3D30;color:#fff;padding:36px;display:flex;flex-direction:column;justify-content:space-between;gap:28px}
+  .logo{display:flex;align-items:center;gap:10px}
+  .mark{width:42px;height:42px;border-radius:12px;background:#0E8F6E;display:flex;align-items:center;justify-content:center}
+  .mark span{width:14px;height:14px;border-radius:50%;background:#fff;display:block}
+  .wordmark{font-family:'Sora',sans-serif;font-size:20px;font-weight:700;line-height:1}
+  .wordmark em{color:#7FD8BC;font-style:normal}
+  .tag{font-size:10px;letter-spacing:.6px;color:rgba(255,255,255,.55);margin-top:2px}
+  .side h1{font-family:'Sora',sans-serif;font-size:25px;line-height:1.15;margin:0 0 12px}
+  .side p{color:rgba(255,255,255,.72);font-size:13.5px;line-height:1.65;margin:0}
+  .steps{list-style:none;padding:0;margin:16px 0 0;display:flex;flex-direction:column;gap:9px}
+  .steps li{color:rgba(255,255,255,.72);font-size:12.5px;display:flex;gap:9px;align-items:flex-start}
+  .steps b{color:#7FD8BC;font-weight:600;flex-shrink:0}
+  .form{padding:36px}
+  .form h2{font-family:'Sora',sans-serif;font-size:20px;margin:0 0 4px}
+  .form .lead{color:#5A6472;font-size:13px;margin:0 0 22px;line-height:1.55}
+  label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
+  input{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 14px;outline:none}
+  input:focus{border-color:#0E8F6E;background:#fff}
+  .field{margin-bottom:15px}
+  .hint{font-size:11.5px;color:#8A93A0;margin-top:5px;line-height:1.45}
+  button{width:100%;font-family:inherit;font-size:15px;font-weight:600;color:#fff;background:#0E8F6E;
+         border:none;border-radius:12px;padding:14px;cursor:pointer;margin-top:6px}
+  button:disabled{background:#A9BDB6;cursor:default}
+  button.ghost{background:#fff;color:#0C6B52;border:1px solid #CFE3DA;margin-top:9px}
+  .msg{font-size:13px;border-radius:12px;padding:12px 14px;margin-bottom:16px;line-height:1.5;display:none}
+  .msg.err{display:block;color:#B0463A;background:#FBE7E1}
+  .rodape{margin-top:20px;padding-top:16px;border-top:1px solid #E6E9E7;font-size:12px;color:#8A93A0;line-height:1.6}
+  .rodape a{color:#0C6B52;font-weight:600;text-decoration:none}
+  /* ----- tela do fim: o código da imobiliária ----- */
+  .done .ico{width:66px;height:66px;border-radius:20px;background:#E5F2EC;display:flex;align-items:center;
+             justify-content:center;margin:0 auto 18px}
+  .done h2{text-align:center;margin-bottom:8px}
+  .done .lead{text-align:center}
+  .codigo{background:#0A3D30;border-radius:16px;padding:18px;text-align:center;margin:0 0 8px}
+  .codigo .rot{color:rgba(255,255,255,.55);font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;margin-bottom:7px}
+  .codigo .val{font-family:'IBM Plex Mono',monospace;font-weight:600;color:#7FD8BC;font-size:20px;word-break:break-all;line-height:1.25}
+  .linkbox{background:#F4F6F5;border:1px dashed #0E8F6E;border-radius:12px;padding:12px;
+           font-size:12px;word-break:break-all;color:#0C6B52;text-align:left;margin-bottom:8px}
+  .passos{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:11px}
+  .passos li{display:flex;gap:10px;font-size:13px;color:#5A6472;line-height:1.5;align-items:flex-start}
+  .passos .n{flex-shrink:0;width:21px;height:21px;border-radius:50%;background:#E5F2EC;color:#0C6B52;
+             font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  @media(max-width:780px){
+    body{padding:0;align-items:stretch}
+    .card{grid-template-columns:1fr;border:none;border-radius:0;box-shadow:none;min-height:100vh}
+    .side{padding:26px 22px;gap:18px}
+    .side h1{font-size:21px}
+    .steps{display:none}
+    .form{padding:26px 22px 40px}
+  }
+</style>
+<script>
+  // Mesmo motivo da página de cadastro: estas páginas são servidas do backend e
+  // do domínio próprio, então o endereço da API não pode ser relativo.
+  var API = (window.CON_CRM_API || "https://con-crm-backend-production.up.railway.app").replace(/\/$/, "");
+</script>
+</head>
+<body>
+<div class="card">
+  <div class="side">
+    <div class="logo">
+      <div class="mark"><span></span></div>
+      <div>
+        <div class="wordmark">Con<em>Hub</em></div>
+        <div class="tag">CRM IMOBILIÁRIO</div>
+      </div>
+    </div>
+    <div>
+      <h1>Sua imobiliária, com cada lead na mão certa.</h1>
+      <p>Um número de WhatsApp para a equipe toda, cada mensagem assinada pelo corretor, distribuição automática e funil que anda sozinho conforme a conversa evolui.</p>
+      <ul class="steps">
+        <li><b>1.</b> Cadastre a imobiliária aqui ao lado.</li>
+        <li><b>2.</b> Receba o código exclusivo dela.</li>
+        <li><b>3.</b> Mande o link para os corretores e comece a atender.</li>
+      </ul>
+    </div>
+    <div style="color:rgba(255,255,255,.45);font-size:11px">ConHub · plataforma de atendimento imobiliário</div>
+  </div>
+
+  <div class="form">
+    <div id="formView">
+      <h2>Cadastrar minha imobiliária</h2>
+      <p class="lead">Esta tela é para <b>dono ou gestor</b>. Ao terminar, você recebe o código exclusivo da sua imobiliária — é ele que libera o cadastro dos seus corretores.</p>
+      <div class="msg" id="msg"></div>
+      <div class="field">
+        <label for="imob">Nome da imobiliária</label>
+        <input id="imob" autocomplete="organization" placeholder="Ex.: Conecta Imóveis"/>
+        <div class="hint">É o nome que a sua equipe vai ver dentro do sistema.</div>
+      </div>
+      <div class="field">
+        <label for="name">Seu nome completo</label>
+        <input id="name" autocomplete="name" placeholder="Ex.: Alison de Jesus"/>
+      </div>
+      <div class="field">
+        <label for="email">Seu e-mail</label>
+        <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="voce@email.com"/>
+        <div class="hint">É por ele que você entra no sistema e recebe o link para criar a senha.</div>
+      </div>
+      <div class="field">
+        <label for="phone">Seu WhatsApp (com DDD)</label>
+        <input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999"/>
+      </div>
+      <button id="go">Criar minha imobiliária</button>
+      <div class="rodape">
+        <b>É corretor?</b> Esta não é a sua tela. Peça à gestão da sua imobiliária o
+        <b>link de cadastro</b> — ele já vem com o código da casa e leva você direto para o lugar certo.
+        <br/><br/>Já tem conta? <a href="/app">Entrar no ConHub</a>
+      </div>
+    </div>
+
+    <div id="doneView" style="display:none" class="done">
+      <div class="ico">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E8F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+      </div>
+      <h2 id="doneTitulo">Imobiliária criada</h2>
+      <p class="lead" id="doneSub"></p>
+
+      <div class="codigo">
+        <div class="rot">Código exclusivo da sua imobiliária</div>
+        <div class="val" id="codigoVal">—</div>
+      </div>
+      <button class="ghost" id="copiarCodigo">Copiar o código</button>
+
+      <ol class="passos">
+        <li><span class="n">1</span><span id="passoSenha">Abra o e-mail que enviamos e <b>crie sua senha</b> para entrar.</span></li>
+        <li><span class="n">2</span><span>Mande o link abaixo para os seus corretores. Ele já leva o código embutido — eles não precisam digitar nada.</span></li>
+        <li><span class="n">3</span><span>Corretor entra direto na sua equipe; atendente e outro gestor aparecem para <b>você aprovar</b>.</span></li>
+      </ol>
+
+      <div style="margin-top:14px">
+        <label>Link de cadastro da sua equipe</label>
+        <div class="linkbox" id="linkEquipe"></div>
+        <button class="ghost" id="copiarLink">Copiar o link da equipe</button>
+      </div>
+
+      <div id="manual" style="display:none;margin-top:18px">
+        <label>Seu link para criar a senha</label>
+        <div class="hint" style="margin:0 0 6px">O envio automático de e-mail ainda não está ligado nesta conta. Guarde este link — é por ele que você define sua senha e entra pela primeira vez.</div>
+        <div class="linkbox"><a id="manualLink" href="#" style="color:#0C6B52"></a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var msg = document.getElementById("msg"), btn = document.getElementById("go");
+  function erro(texto){ msg.className = "msg err"; msg.textContent = texto; msg.scrollIntoView({block:"nearest"}); }
+
+  var phone = document.getElementById("phone");
+  phone.addEventListener("input", function(){
+    var d = phone.value.replace(/\D/g, "").slice(0, 11);
+    var out = d;
+    if (d.length > 2) out = "(" + d.slice(0,2) + ") " + d.slice(2);
+    if (d.length > 7) out = "(" + d.slice(0,2) + ") " + d.slice(2,3) + " " + d.slice(3,7) + "-" + d.slice(7);
+    else if (d.length > 6) out = "(" + d.slice(0,2) + ") " + d.slice(2,7);
+    phone.value = out;
+  });
+
+  // Copiar sem depender da permissão de área de transferência: se o navegador
+  // recusar, o texto continua na tela para selecionar na mão.
+  function copiador(botao, pegarTexto, rotulo){
+    botao.addEventListener("click", function(){
+      var texto = pegarTexto();
+      var voltar = function(){ botao.textContent = "Copiado!"; setTimeout(function(){ botao.textContent = rotulo; }, 2200); };
+      if (navigator.clipboard) navigator.clipboard.writeText(texto).then(voltar).catch(function(){});
+      else voltar();
+    });
+  }
+
+  async function enviar(){
+    var body = {
+      imobiliaria: document.getElementById("imob").value.trim(),
+      name: document.getElementById("name").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      phone: phone.value.trim()
+    };
+    if (!body.imobiliaria || !body.name || !body.email || !body.phone)
+      return erro("Preencha todos os campos para continuar.");
+    if (body.phone.replace(/\D/g,"").length < 10)
+      return erro("Confira o WhatsApp: informe DDD + número.");
+
+    btn.disabled = true; btn.textContent = "Criando…";
+    try {
+      var res = await fetch(API + "/auth/criar-imobiliaria", {
+        method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
+      });
+      var data = await res.json();
+      if (!res.ok) return erro(data.error || "Não foi possível criar a imobiliária agora.");
+
+      document.getElementById("formView").style.display = "none";
+      document.getElementById("doneView").style.display = "block";
+      document.getElementById("doneTitulo").textContent = data.imobiliaria + " está criada";
+      document.getElementById("doneSub").innerHTML =
+        "Guarde o código abaixo: é ele que liga cada corretor à <b>sua</b> imobiliária.";
+      document.getElementById("codigoVal").textContent = data.codigo;
+      document.getElementById("linkEquipe").textContent = data.link_equipe;
+
+      if (data.link) {
+        document.getElementById("passoSenha").innerHTML = "Abra o <b>link para criar a senha</b>, aqui embaixo, e entre pela primeira vez.";
+        document.getElementById("manual").style.display = "block";
+        var a = document.getElementById("manualLink");
+        a.href = data.link; a.textContent = data.link;
+      }
+      copiador(document.getElementById("copiarCodigo"), function(){ return data.codigo; }, "Copiar o código");
+      copiador(document.getElementById("copiarLink"), function(){ return data.link_equipe; }, "Copiar o link da equipe");
+    } catch (e) {
+      erro("Sem conexão com o servidor. Tente de novo em instantes.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Criar minha imobiliária";
+    }
+  }
+
+  btn.addEventListener("click", enviar);
+  document.addEventListener("keydown", function(e){ if (e.key === "Enter") enviar(); });
+})();
+</script>
+</body>
+</html>

@@ -7,7 +7,6 @@ const C = {
   hot:"#E1553A", hotSoft:"#FBE7E1", amber:"#C8912B", amberSoft:"#F7EFD9", cool:"#5C6B7A", coolSoft:"#ECEFF2", white:"#FFF",
 };
 const DISPLAY="'Sora',sans-serif", FONT="'Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
-const ADM_CODE="CONECTA-JAZ-2026";
 
 /* ===== API (backend hospedado) =====
    Para apontar para outro servidor sem recompilar, defina window.CON_CRM_API no index.html. */
@@ -20,8 +19,13 @@ const API=(typeof window!=="undefined"&&window.CON_CRM_API||"https://con-crm-bac
 /* O link de cadastro sai no endereço do PRÓPRIO SITE, não no da hospedagem:
    é ele que a gestão manda no grupo, e "con-crm-backend-production.up.railway.app"
    não passa confiança para o corretor que vai digitar os dados dele.
-   As páginas são copiadas para cá no build (ver build.mjs). */
-const CADASTRO_URL=(typeof window!=="undefined"?window.location.origin:"")+`/cadastro?c=${ADM_CODE}`;
+   As páginas são copiadas para cá no build (ver build.mjs).
+
+   O código vem da imobiliária de quem está logado — nunca fixo no código-fonte.
+   Enquanto foi fixo, a plataforma tinha uma imobiliária só; com duas, o gestor
+   da segunda mandaria para a equipe dele o código da PRIMEIRA, e os corretores
+   dele cairiam na casa errada. */
+const linkDeCadastro=(codigo)=>(typeof window!=="undefined"?window.location.origin:"")+`/cadastro?c=${codigo||""}`;
 
 // Token guardado no navegador para o corretor não ter que logar toda vez (importante no celular).
 const STORE="concrm_token";
@@ -393,7 +397,7 @@ function Auth({onLogin}){
     setErr(""); setBusy(true);
     try{
       const d=await api("/auth/login",{method:"POST",body:{email:f.email.trim(),password:f.pass}});
-      setToken(d.token); onLogin(d.user);
+      setToken(d.token); onLogin(d.user,d.org);
     }catch(e){ setErr(e.message); }
     finally{ setBusy(false); }
   }
@@ -426,12 +430,20 @@ function Auth({onLogin}){
             {busy?<React.Fragment><Icon n="loader" size={16} spin/> Entrando…</React.Fragment>:<React.Fragment>Entrar <Icon n="arrow" size={16}/></React.Fragment>}
           </button>
         </div>
+        {/* Duas portas, e a diferença importa: o corretor SEMPRE entra pelo link
+            da imobiliária dele, que já traz o código embutido. Antes este botão
+            levava para o cadastro com o código da Conecta escrito no link —
+            quem quisesse abrir a própria imobiliária virava corretor da
+            Conecta sem perceber. */}
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:22,paddingTop:18,textAlign:"center"}}>
           <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Ainda não tem conta?</div>
-          <a href={CADASTRO_URL} style={{display:"inline-flex",alignItems:"center",gap:7,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:13.5,fontWeight:600,padding:"11px 18px",borderRadius:12}}>
-            <Icon n="userplus" size={15}/> Criar minha conta
+          <a href="/criar-imobiliaria" style={{display:"inline-flex",alignItems:"center",gap:7,textDecoration:"none",border:`1px solid ${C.line}`,background:C.surface,color:C.greenMid,fontSize:13.5,fontWeight:600,padding:"11px 18px",borderRadius:12}}>
+            <Icon n="userplus" size={15}/> Cadastrar minha imobiliária
           </a>
-          <div style={{color:C.faint,fontSize:11,marginTop:10,lineHeight:1.5}}>Você vai receber um e-mail para confirmar e definir sua senha.</div>
+          <div style={{color:C.faint,fontSize:11,marginTop:10,lineHeight:1.5}}>
+            É <b style={{color:C.sub}}>corretor(a)</b>? Peça o link de cadastro à gestão da sua imobiliária —
+            ele já vem com o código da casa.
+          </div>
         </div>
       </div>
     </div>
@@ -726,7 +738,10 @@ function ConCRM(){
   const voltarAoHub=()=>{ marcarOrg(null); setOrg(null); setLeads([]); setFila([]); setEquipe([]); setSelId(null); };
 
   if(carregando) return <Splash/>;
-  if(!session) return <Auth onLogin={(u)=>{setSession(toSession(u));setOrg(null);}}/>;
+  /* A imobiliária vem junto do login: é dela que sai o código do link de
+     cadastro na tela Equipe. O master é a exceção — ele escolhe a casa no hub,
+     então continua entrando sem nenhuma. */
+  if(!session) return <Auth onLogin={(u,o)=>{setSession(toSession(u));setOrg(u.master?null:(o||null));}}/>;
   /* O master entra pelo hub: ele atende várias imobiliárias e precisa dizer em
      qual vai trabalhar antes de qualquer tela aparecer. Para todo mundo mais
      esta camada não existe. */
@@ -1570,7 +1585,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
-        {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
+        {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,org,isMobile,versao}}/>}
         {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
         {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile}
           aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
@@ -4924,7 +4939,7 @@ function LinkNovaSenha({dados,isMobile,aoFechar}){
   </div>;
 }
 
-function Equipe({acoes,session,isMobile,versao}){
+function Equipe({acoes,session,org,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
   const [copiado,setCopiado]=useState(false);
@@ -4953,6 +4968,8 @@ function Equipe({acoes,session,isMobile,versao}){
     if(!window.confirm(`Apagar o cadastro de ${u.name} definitivamente?\n\nIsso não pode ser desfeito. As conversas antigas continuam guardadas, mas o cadastro some da plataforma.`)) return;
     try{ await acoes.apagarCadastro(u.id); setUsers(await acoes.equipe()); }
     catch(e){ setErro(e.message); } };
+  const codigo=org&&org.codigo;
+  const CADASTRO_URL=linkDeCadastro(codigo);
   const copiar=()=>{ navigator.clipboard.writeText(CADASTRO_URL).then(()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);}).catch(()=>{}); };
 
   if(!users) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando a equipe…</div>;
