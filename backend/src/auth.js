@@ -63,6 +63,20 @@ export function soMaster(req, res, next) {
 // de aprovação, diferente do corretor, que entra direto pelo link.
 export const supervisiona = (user) => user.role === "adm" || user.role === "sdr";
 
+/* Quem pode mexer NESTE lead.
+
+   A conta é multi-imobiliária: cada uma é uma organização, e a supervisão de
+   uma NÃO pode alcançar o lead da outra. Por isso a comparação de org_id vive
+   aqui, num lugar só — antes cada rota escrevia a sua checagem, e as rotas de
+   mensagem tinham esquecido a parte da organização: a gestão de uma
+   imobiliária conseguia escrever na conversa de outra se soubesse o id do
+   lead. O corretor sempre esteve preso ao que é dele. */
+export const podeVerLead = (user, lead) => {
+  if (!lead) return false;
+  if (supervisiona(user)) return lead.org_id === user.org_id;
+  return lead.assigned_to === user.id;
+};
+
 // Nomes que aparecem para o usuário. Internamente os papéis continuam
 // adm/sdr/corretor para não quebrar o banco e as rotas existentes.
 // Todo cadastro passa pela gestão — inclusive corretor. Quem entra vê conversa

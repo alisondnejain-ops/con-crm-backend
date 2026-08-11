@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, roles, supervisiona, semMaster } from "../auth.js";
+import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { STAGES, LINEAR, normalizePhone, inferStage } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada } from "../services/ia.js";
@@ -412,13 +412,11 @@ r.post("/:id/cutucar/vi", (req, res) => {
 r.get("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.org_id, false)));
 r.post("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.org_id, true)));
 
-// Gestor e atendente abrem a conversa de qualquer um. O corretor fica nos leads dele.
-// Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.
-function podeVer(user, lead) {
-  if (!lead) return false;
-  if (supervisiona(user)) return lead.org_id === user.org_id;
-  return lead.assigned_to === user.id;
-}
+// Gestor e atendente abrem a conversa de qualquer um da PRÓPRIA imobiliária; o
+// corretor fica nos leads dele. A regra mora em auth.js para valer igual aqui e
+// nas rotas de mensagem — duas cópias da mesma regra é como uma delas fica para
+// trás. Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.
+const podeVer = podeVerLead;
 
 r.get("/:id", (req, res) => {
   const lead = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(req.params.id);

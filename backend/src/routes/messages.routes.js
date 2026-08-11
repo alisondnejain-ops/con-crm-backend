@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, supervisiona } from "../auth.js";
+import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
 
@@ -27,7 +27,7 @@ r.post("/:id/messages", async (req, res) => {
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
 
   // O corretor só fala com o próprio lead; gestor e atendente falam em qualquer um.
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
 
   /* A mensagem citada tem que ser DESTA conversa. Sem esta checagem, dava para
@@ -82,7 +82,7 @@ r.patch("/:id/messages/:msgId", async (req, res) => {
 
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
 
   const msg = db.prepare("SELECT * FROM messages WHERE id = ? AND lead_id = ?").get(req.params.msgId, lead.id);
@@ -133,7 +133,7 @@ r.post("/:id/anexo", async (req, res) => {
 
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
 
   // Confere os limites antes de gravar qualquer coisa: melhor recusar tudo do
@@ -191,7 +191,7 @@ r.post("/:id/localizacao", async (req, res) => {
 
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
 
   const firstName = (req.user.name || "").split(" ")[0];
@@ -243,7 +243,7 @@ r.post("/:id/produto", async (req, res) => {
   const { produto_id, fotos = true, video = false, localizacao = false } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
 
   const p = db.prepare("SELECT * FROM produtos WHERE id = ? AND org_id = ?").get(produto_id, req.user.org_id);
@@ -286,7 +286,7 @@ r.patch("/:id/interesse", (req, res) => {
   const { produto_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
-  if (!supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
   db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(produto_id || null, lead.id);
   res.json({ ok: true });
