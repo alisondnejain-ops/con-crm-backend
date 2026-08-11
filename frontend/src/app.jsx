@@ -689,6 +689,13 @@ function ConCRM(){
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
+    mensagensRapidas:(todas)=>api("/config/mensagens"+(todas?"?todas=1":"")),
+    criarMensagem:(dados)=>api("/config/mensagens",{method:"POST",body:dados}),
+    editarMensagem2:(id,dados)=>api(`/config/mensagens/${id}`,{method:"PATCH",body:dados}),
+    apagarMensagem:(id)=>api(`/config/mensagens/${id}`,{method:"DELETE"}),
+    moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
+    conexao:()=>api("/config/conexao"),
+    desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
     cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}),
@@ -1388,6 +1395,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // que manda a citação junto — e some ao trocar de conversa, para a citação
   // de um cliente nunca vazar para a conversa de outro.
   const [citando,setCitando]=useState(null);
+  // Sobe quando a configuração salva uma mensagem pronta: é o sinal para as
+  // conversas abertas buscarem a lista nova sem recarregar a página.
+  const [versaoMsgs,setVersaoMsgs]=useState(0);
   const chatRef=useRef(null);
   const isMobile=useIsMobile();
 
@@ -1474,13 +1484,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["conexao","phone2","Conexão"]],
+    adm:[["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"]],
+    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
@@ -1539,7 +1549,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
             completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
-        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando}}/>}
+        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
@@ -1557,6 +1567,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,isMobile,versao}}/>}
+        {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
+        {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile}
+          aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
         {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
@@ -1870,6 +1883,19 @@ function Citacao({c,claro,aoFechar}){
    No celular não existe Ctrl+V, mas o "Colar" do menu dispara o mesmo evento.
    Foto vinda da galeria não vem por aqui: o sistema do telefone não a coloca
    na área de transferência como arquivo. Para esse caso, o clipe continua. */
+/* As mensagens prontas vêm da imobiliária, não do código.
+
+   Antes eram uma lista fixa aqui dentro: mudar o texto de abordagem exigia um
+   deploy — e o texto de abordagem é justamente o que a gestão ajusta toda
+   semana conforme o que está convertendo. */
+function usarMensagensRapidas(acoes,versao){
+  const [lista,setLista]=useState(null);
+  useEffect(()=>{let vivo=true;
+    acoes.mensagensRapidas().then(r=>vivo&&setLista(r.mensagens||[])).catch(()=>vivo&&setLista([]));
+    return()=>{vivo=false;};},[versao]);
+  return lista||[];
+}
+
 function usarColar({lead,aoColar,aoAvisar,aoMudarEstado,quantasJa=0}){
   return async function colar(e){
     const itens=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file"&&/^image\//.test(i.type));
@@ -2111,7 +2137,7 @@ function ControleConversa({lead,acoes,isMobile}){
 }
 
 /* ===== ATENDIMENTO ===== */
-function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando}){
+function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs}){
   const [filter,setFilter]=useState("Todos");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
@@ -2124,6 +2150,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Imagens coladas esperando confirmação. Só saem no botão Enviar.
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
+  const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
   const podeSupervisionar=session.role==="adm"||session.role==="sdr";
   const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
@@ -2216,7 +2243,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
         <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
           <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
-          {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
+          {mensagensProntas.map(tp=><button key={tp.id} onClick={()=>setDraft(tp.corpo)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.titulo}</button>)}
         </div>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
         <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
@@ -3006,7 +3033,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
-      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}/>
+      <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando} versaoMsgs={versao}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
@@ -3118,7 +3145,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 /* ===== CAMPO DE ENVIO DA ADM =====
    A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
    corretor — o cliente sempre sabe com quem está falando. */
-function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
+function ComporADM({lead,session,acoes,isMobile,citando,setCitando,versaoMsgs}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -3126,6 +3153,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
+  const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
   const colar=usarColar({lead,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   useEffect(()=>{setColados([]);},[lead.id]);
@@ -3152,7 +3180,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando}){
   return <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
     <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
       <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
-      {TEMPLATES.map(tp=><button key={tp.t} onClick={()=>setDraft(tp.body)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.t}</button>)}
+      {mensagensProntas.map(tp=><button key={tp.id} onClick={()=>setDraft(tp.corpo)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.titulo}</button>)}
     </div>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
     <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
@@ -4956,6 +4984,284 @@ function Equipe({acoes,session,isMobile,versao}){
         {resto.map(u=>cartao(u,false))}
       </div>
     </div>
+  </div>;
+}
+
+/* ===== CONFIGURAÇÕES =====
+
+   Duas seções, com donos diferentes de propósito:
+
+   - MENSAGENS AUTOMÁTICAS: gestor E atendente. É texto de abordagem, muda toda
+     semana conforme o que converte, e quem sabe isso é quem atende.
+   - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
+     derruba o WhatsApp da imobiliária inteira. */
+function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
+  const [aba,setAba]=useState("mensagens");
+  const abas=[["mensagens","Mensagens automáticas"],["conexao","Conexão"]];
+  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+    <div style={{maxWidth:760,margin:"0 auto"}}>
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+        {abas.map(([k,t])=><button key={k} onClick={()=>setAba(k)}
+          style={{fontSize:12.5,fontWeight:600,padding:"8px 15px",borderRadius:999,border:"none",cursor:"pointer",
+            background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+      </div>
+      {aba==="mensagens"
+        ?<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>
+        :<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
+    </div>
+  </div>;
+}
+
+function MensagensAutomaticas({acoes,isMobile,aoMudar}){
+  const [lista,setLista]=useState(null);
+  const [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null);   // id ou "nova"
+  const [titulo,setTitulo]=useState("");
+  const [corpo,setCorpo]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  const [apagando,setApagando]=useState(null);
+
+  const aplicar=(r)=>{ setLista(r.mensagens); aoMudar&&aoMudar(); };
+  useEffect(()=>{acoes.mensagensRapidas(true).then(r=>setLista(r.mensagens)).catch(e=>setErro(e.message));},[]);
+
+  const abrir=(m)=>{ setEditando(m?m.id:"nova"); setTitulo(m?m.titulo:""); setCorpo(m?m.corpo:""); setErro(""); };
+  async function salvar(){
+    if(!titulo.trim()||!corpo.trim()||salvando) return;
+    setSalvando(true); setErro("");
+    try{
+      const r=editando==="nova"
+        ? await acoes.criarMensagem({titulo,corpo})
+        : await acoes.editarMensagem2(editando,{titulo,corpo});
+      aplicar(r); setEditando(null);
+    }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const acao=async(fn)=>{ setErro(""); try{ aplicar(await fn()); }catch(e){ setErro(e.message); } };
+
+  if(!lista) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
+
+  return <React.Fragment>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+        <Icon n="zap" size={15} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensagens automáticas</span>
+        <button onClick={()=>abrir(null)}
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          + Nova mensagem</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55}}>
+        São os botões que aparecem acima do campo de conversa. Escreva <b style={{color:C.sub}}>{"{nome}"}</b> onde
+        o primeiro nome do cliente deve entrar. Desligar guarda o texto sem mostrar na conversa.
+      </div>
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+    {editando&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
+      <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:9}}>
+        {editando==="nova"?"Nova mensagem":"Editando a mensagem"}</div>
+      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Nome do botão</label>
+      <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={40} placeholder="Ex.: Follow-up"
+        style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:10,fontSize:isMobile?16:13,
+          border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Texto da mensagem</label>
+      <textarea value={corpo} onChange={e=>setCorpo(e.target.value)} rows={5} maxLength={1200}
+        placeholder="Oi {nome}, tudo bem?"
+        style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:4,fontSize:isMobile?16:13,
+          border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
+      <div style={{color:C.faint,fontSize:10.5,marginBottom:10}}>{corpo.length}/1200</div>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        <button onClick={salvar} disabled={salvando||!titulo.trim()||!corpo.trim()}
+          style={{background:titulo.trim()&&corpo.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
+            padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+        <button onClick={()=>setEditando(null)} disabled={salvando}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:9}}>
+      {lista.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:20}}>Nenhuma mensagem cadastrada.</div>}
+      {lista.map((m,i)=><div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
+        padding:isMobile?12:14,opacity:m.ativo?1:.6}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+          <Icon n="zap" size={12} color={m.ativo?C.greenMid:C.faint}/>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0}}>{m.titulo}</span>
+          {!m.ativo&&<span style={{background:C.coolSoft,color:C.cool,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>desligada</span>}
+        </div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9,whiteSpace:"pre-wrap"}}>{m.corpo}</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
+          <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+            {m.ativo?"Desligar":"Ligar"}</button>
+          <button onClick={()=>acao(()=>acoes.moverMensagem(m.id,"cima"))} disabled={i===0} title="Subir"
+            style={{background:C.card,color:i===0?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===0?"default":"pointer"}}>↑</button>
+          <button onClick={()=>acao(()=>acoes.moverMensagem(m.id,"baixo"))} disabled={i===lista.length-1} title="Descer"
+            style={{background:C.card,color:i===lista.length-1?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===lista.length-1?"default":"pointer"}}>↓</button>
+          <span style={{flex:1}}/>
+          {apagando===m.id
+            ?<React.Fragment>
+              <span style={{color:C.hot,fontSize:11.5,alignSelf:"center"}}>apagar de vez?</span>
+              <button onClick={()=>{setApagando(null);acao(()=>acoes.apagarMensagem(m.id));}}
+                style={{background:C.hot,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>Sim</button>
+              <button onClick={()=>setApagando(null)}
+                style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Não</button>
+            </React.Fragment>
+            :<button onClick={()=>setApagando(m.id)}
+              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}33`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
+        </div>
+      </div>)}
+    </div>
+  </React.Fragment>;
+}
+
+/* Conexão do WhatsApp: qual provedor, como está, e como contratar.
+
+   O tutorial fica DENTRO da ferramenta de propósito. Quem assina o ConHub não
+   tem obrigação de saber o que é Uazapi — e mandar o cliente "procurar no
+   site deles" é onde a instalação para. */
+function ConexaoConfig({acoes,session,isMobile}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [tutorial,setTutorial]=useState(false);
+  const [confirmando,setConfirmando]=useState(false);
+  const [palavra,setPalavra]=useState("");
+  const [saindo,setSaindo]=useState(false);
+  const [copiado,setCopiado]=useState(false);
+  const ehGestor=session.role==="adm";
+
+  const rever=()=>acoes.conexao().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+
+  const copiar=(t)=>{
+    const pronto=()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);};
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(pronto).catch(()=>{});
+    else{const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();
+      try{document.execCommand("copy");pronto();}catch(e){}document.body.removeChild(a);}
+  };
+  async function desconectar(){
+    setSaindo(true); setErro("");
+    try{ await acoes.desconectarWhats(palavra); setConfirmando(false); setPalavra(""); await rever(); }
+    catch(e){ setErro(e.message); } finally{ setSaindo(false); }
+  }
+
+  if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
+  const w=d.whatsapp||{};
+  const ligado=w.configurado&&w.ok;
+
+  return <React.Fragment>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>{erro}</div>}
+
+    {/* Estado atual */}
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:18,marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <div style={{background:ligado?C.greenSoft:C.hotSoft,width:44,height:44,borderRadius:12,display:"flex",
+          alignItems:"center",justifyContent:"center",color:ligado?C.green:C.hot,flexShrink:0}}>
+          <Icon n={ligado?"wifi":"wifioff"} size={20}/></div>
+        <div style={{flex:"1 1 180px",minWidth:0}}>
+          <div style={{color:C.ink,fontSize:14,fontWeight:700}}>
+            {ligado?"WhatsApp conectado":w.configurado?"WhatsApp desconectado":"Nenhum WhatsApp conectado"}</div>
+          <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+            {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via Uazapi</React.Fragment>
+              :w.configurado?(w.erro||w.status||"a instância não respondeu")
+              :"Contrate a Uazapi e conecte para a equipe atender pelo CRM."}
+          </div>
+        </div>
+        {ehGestor&&w.configurado&&<button onClick={()=>{setConfirmando(c=>!c);setPalavra("");}}
+          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"8px 14px",
+            fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Desconectar</button>}
+      </div>
+
+      {confirmando&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:12}}>
+        <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:3}}>Desconectar o WhatsApp da imobiliária?</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+          <b>A equipe inteira</b> para de enviar e de receber até alguém parear o número de novo lendo o QR Code.
+          As conversas ficam guardadas. Escreva <b>DESCONECTAR</b> para confirmar.
+        </div>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <input value={palavra} onChange={e=>setPalavra(e.target.value.toUpperCase())} placeholder="DESCONECTAR"
+            style={{flex:"1 1 140px",minWidth:0,fontSize:isMobile?16:13,fontFamily:MONO,border:`1px solid ${C.line}`,
+              background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+          <button onClick={desconectar} disabled={saindo||palavra!=="DESCONECTAR"}
+            style={{background:palavra==="DESCONECTAR"?C.hot:C.faint,color:"#fff",border:"none",borderRadius:9,
+              padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{saindo?"Desconectando…":"Desconectar"}</button>
+        </div>
+      </div>}
+    </div>
+
+    {/* Provedores */}
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9}}>Como conectar o WhatsApp</div>
+    {d.provedores.map(p=><div key={p.id} style={{background:C.card,border:`1px solid ${d.ativo===p.id?C.green+"66":C.line}`,
+      borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>{p.nome}</span>
+        <span style={{background:p.oficial?C.greenSoft:C.amberSoft,color:p.oficial?C.greenMid:"#8a6d1f",
+          fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>
+          {p.oficial?"API oficial":"API não oficial"}</span>
+        {d.ativo===p.id&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>em uso</span>}
+      </div>
+      <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:8}}>{p.descricao}</div>
+      {/* O risco vem antes do botão, não em letra miúda no rodapé. */}
+      <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>
+        <b>Atenção:</b> {p.risco}
+      </div>
+      <button onClick={()=>setTutorial(t=>t===p.id?false:p.id)}
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
+          padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+        <span style={{display:"inline-flex",transform:tutorial===p.id?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+        Como contratar e conectar a {p.nome}</button>
+
+      {tutorial===p.id&&<TutorialUazapi webhook={d.webhook} site={p.site} copiar={copiar} copiado={copiado} isMobile={isMobile}/>}
+    </div>)}
+
+    {/* Webhook */}
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+        <Icon n="link" size={14} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Webhook — para o CRM RECEBER as mensagens</span>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:10}}>{d.webhook.observacao}</div>
+      <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
+        <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,
+          padding:"10px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{d.webhook.url}</div>
+        <button onClick={()=>copiar(d.webhook.url)}
+          style={{background:copiado?C.card:C.greenDeep,color:copiado?C.greenMid:"#fff",
+            border:copiado?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"10px 16px",
+            fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
+        Na Uazapi, marque o evento <b style={{color:C.sub}}>{d.webhook.eventos.join(", ")}</b>.
+        Sem o webhook o CRM envia, mas as respostas do cliente não aparecem na conversa.
+      </div>
+    </div>
+  </React.Fragment>;
+}
+
+/* O passo a passo escrito para quem nunca ouviu falar de API. */
+function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
+  const passos=[
+    ["Crie a conta na Uazapi",<React.Fragment>Acesse <b>{site.replace("https://","")}</b> e cadastre-se. É um serviço pago por instância (cada número conectado é uma instância), contratado pela imobiliária direto com eles — o ConHub não revende nem cobra por isso.</React.Fragment>],
+    ["Crie uma instância",<React.Fragment>No painel da Uazapi, crie uma instância para o número da imobiliária. Use um <b>número dedicado</b>, nunca o WhatsApp pessoal de alguém.</React.Fragment>],
+    ["Conecte o WhatsApp",<React.Fragment>A Uazapi mostra um <b>QR Code</b>. No celular do número da imobiliária, abra o WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> e leia o código, igual ao WhatsApp Web.</React.Fragment>],
+    ["Copie o endereço e o token",<React.Fragment>No painel, copie o <b>host</b> (algo como suaempresa.uazapi.com) e o <b>token da instância</b> — não o token de administrador. São essas duas informações que o ConHub precisa.</React.Fragment>],
+    ["Cole o webhook",<React.Fragment>Ainda na instância, procure o campo <b>Webhook</b> e cole o endereço abaixo. É por ele que a resposta do cliente chega no CRM.</React.Fragment>],
+    ["Mande o host e o token para o suporte do ConHub",<React.Fragment>Hoje quem liga as duas pontas é o suporte. <b>Nunca mande o token em grupo</b> — ele dá acesso ao WhatsApp da imobiliária.</React.Fragment>],
+  ];
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:11}}>
+    {passos.map(([titulo,texto],i)=><div key={i} style={{display:"flex",gap:10,marginBottom:i===passos.length-1?0:12}}>
+      <div style={{width:22,height:22,borderRadius:99,background:C.greenDeep,color:"#fff",fontSize:11,fontWeight:700,
+        display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>{titulo}</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
+        {i===4&&<div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+            padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
+          <button onClick={()=>copiar(webhook.url)}
+            style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+              fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar"}</button>
+        </div>}
+      </div>
+    </div>)}
   </div>;
 }
 

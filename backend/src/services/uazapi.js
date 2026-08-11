@@ -12,6 +12,48 @@ const TOKEN = process.env.UAZAPI_TOKEN || "";
 
 export const uazapiConfigured = () => !!(HOST && TOKEN);
 
+/* Provedores de conexão do WhatsApp.
+
+   Uma lista, e não um valor fixo, porque a Conecta vai testar outros. O campo
+   `oficial: false` não é detalhe: API não oficial fere os termos do WhatsApp e
+   o número pode ser banido. Quem assina a conta tem que ler isso na tela — não
+   descobrir depois que o número da imobiliária caiu. */
+export const PROVEDORES = [
+  {
+    id: "uazapi",
+    nome: "Uazapi",
+    oficial: false,
+    descricao: "Conecta o WhatsApp comum lendo um QR Code, como o WhatsApp Web.",
+    risco: "API não oficial: fere os termos do WhatsApp e o número pode ser bloqueado. Use um número dedicado da imobiliária, nunca o pessoal, e não dispare mensagem em massa igual.",
+    site: "https://uazapi.com",
+    disponivel: true,
+  },
+];
+
+/* Desconecta a instância — o WhatsApp da imobiliária inteira sai do ar.
+
+   Mesma estratégia da edição de mensagem: os endereços variam por versão, e
+   endereço que não existe devolve 404, então dá para tentar em ordem sem
+   estrago. O que NÃO se faz aqui é fingir sucesso: se nenhum existir, a tela
+   diz que não conseguiu, e o gestor desconecta pelo painel da Uazapi. */
+const CAMINHOS_DESCONECTAR = ["/instance/disconnect", "/instance/logout", "/instance/close"];
+
+export async function desconectarInstancia() {
+  if (!uazapiConfigured()) throw new Error("A Uazapi não está configurada neste servidor.");
+  const tentativas = [];
+  for (const caminho of CAMINHOS_DESCONECTAR) {
+    try {
+      const r = await call(caminho, {});
+      return { caminho, resposta: String(r.bruto || "").slice(0, 300) };
+    } catch (e) {
+      tentativas.push({ caminho, erro: e.message.slice(0, 140) });
+      if (!/\b404\b/.test(e.message)) throw e;
+    }
+  }
+  throw new Error("Esta conta da Uazapi não tem endereço de desconexão (tentei "
+    + CAMINHOS_DESCONECTAR.join(", ") + "). Desconecte pelo painel da Uazapi.");
+}
+
 async function call(path, payload) {
   if (!uazapiConfigured()) {
     console.warn(`[uazapi] HOST/TOKEN não configurados — ${path} não foi enviado de verdade.`);

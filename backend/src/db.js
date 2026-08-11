@@ -186,6 +186,23 @@ CREATE TABLE IF NOT EXISTS disponibilidade_log (
   created_at INTEGER NOT NULL
 );
 
+-- Mensagens prontas que aparecem acima do campo de conversa.
+--
+-- Eram uma lista fixa dentro do código do CRM: mudar o texto de abordagem
+-- exigia um deploy, e o texto de abordagem é justamente o que a gestão ajusta
+-- toda semana conforme o que está convertendo. Agora é da imobiliária.
+CREATE TABLE IF NOT EXISTS mensagens_rapidas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  titulo TEXT NOT NULL,       -- o rótulo do botão
+  corpo TEXT NOT NULL,        -- {nome} vira o primeiro nome do lead
+  ordem INTEGER DEFAULT 0,
+  ativo INTEGER DEFAULT 1,    -- desligar sem perder o texto
+  criado_por TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_msgrapidas_org ON mensagens_rapidas(org_id, ordem);
+
 -- Escala de plantão: quem fica de sobreaviso em cada turno, dia a dia.
 --
 -- Uma linha por PESSOA por turno (a Conecta usa dois corretores por turno),

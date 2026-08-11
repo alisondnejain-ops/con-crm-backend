@@ -18,6 +18,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import orgsRoutes from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
+import configRoutes from "./routes/config.routes.js";
 import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
 import { mailConfigured } from "./services/mail.js";
@@ -76,6 +77,7 @@ const RECURSOS = [
   "sugestao-da-semana",   // recomendacao sai do desempenho da semana entre os 5 melhores
   "previa-da-colagem",    // imagem colada aparece antes de ir para o cliente
   "resultado-da-ligacao", // popup depois de ligar: o que aconteceu na chamada
+  "configuracoes",        // aba Configuracoes: mensagens automaticas + conexao
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -180,6 +182,7 @@ app.use("/leads", leadsRoutes);
 app.use("/distribution", cobrando, distRoutes);
 app.use("/reports", cobrando, reportsRoutes);
 app.use("/plantoes", cobrando, plantaoRoutes);
+app.use("/config", cobrando, configRoutes);
 app.use("/produtos", cobrando, produtosRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
