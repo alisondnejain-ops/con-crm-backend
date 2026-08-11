@@ -16,6 +16,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster } from "../auth.js";
 import { situacao } from "../services/assinatura.js";
+import { apagar as apagarArquivo } from "../services/storage.js";
 
 const r = Router();
 r.use(authRequired, soMaster);
@@ -117,13 +118,49 @@ r.patch("/:id", (req, res) => {
    É a única ação do sistema que destrói dados de uma operação inteira, e sem
    volta. A confirmação por digitação existe porque um clique errado no lugar
    errado apagaria a base de um cliente pagante. */
-r.delete("/:id", (req, res) => {
+r.get("/:id/apagar", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
+  const n = (sql) => db.prepare(sql).get(org.id)?.n ?? 0;
+  res.json({
+    nome: org.name,
+    unica: db.prepare("SELECT COUNT(*) n FROM orgs").get().n <= 1,
+    /* O que exatamente vai sumir. A tela mostra estes números ANTES de pedir a
+       confirmação: "apagar tudo" é abstrato, "apagar 127 leads e 2.753
+       mensagens" é uma decisão. */
+    equipe: n(`SELECT COUNT(*) n FROM users u WHERE u.org_id = ?${semMaster("u")}`),
+    leads: n("SELECT COUNT(*) n FROM leads WHERE org_id = ?"),
+    mensagens: n("SELECT COUNT(*) n FROM messages m JOIN leads l ON l.id = m.lead_id WHERE l.org_id = ?"),
+    imoveis: n("SELECT COUNT(*) n FROM produtos WHERE org_id = ?"),
+    pagamentos: n("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?"),
+  });
+});
+
+r.delete("/:id", async (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
   if (String(req.body?.confirmar || "").trim() !== org.name)
     return res.status(400).json({ error: `Para apagar, digite o nome exato: ${org.name}` });
   if (db.prepare("SELECT COUNT(*) n FROM orgs").get().n <= 1)
     return res.status(409).json({ error: "Esta é a única imobiliária cadastrada." });
+
+  /* As fotos e vídeos ficam fora do banco (R2 ou disco), então saem por fora —
+     e ANTES, porque depois de apagar as linhas ninguém mais sabe quais arquivos
+     eram desta imobiliária. Falha aqui não impede a exclusão: arquivo órfão se
+     limpa depois, cliente que pediu para sair não pode ficar preso. */
+  const arquivos = db.prepare(`SELECT m.chave FROM produto_midias m
+    JOIN produtos p ON p.id = m.produto_id WHERE p.org_id = ? AND m.chave IS NOT NULL`).all(org.id);
+  let arquivosApagados = 0;
+  for (const { chave } of arquivos) {
+    try { await apagarArquivo(chave); arquivosApagados++; }
+    catch (e) { console.warn(`[orgs] não consegui apagar o arquivo ${chave}: ${e.message}`); }
+  }
+
+  const contagem = {
+    equipe: db.prepare(`SELECT COUNT(*) n FROM users u WHERE u.org_id = ?${semMaster("u")}`).get(org.id).n,
+    leads: db.prepare("SELECT COUNT(*) n FROM leads WHERE org_id = ?").get(org.id).n,
+    arquivos: arquivosApagados,
+  };
 
   const apagar = db.transaction(() => {
     const leads = db.prepare("SELECT id FROM leads WHERE org_id = ?").all(org.id);
@@ -135,6 +172,13 @@ r.delete("/:id", (req, res) => {
     db.prepare("DELETE FROM leads WHERE org_id = ?").run(org.id);
     db.prepare("DELETE FROM importacoes WHERE org_id = ?").run(org.id);
     db.prepare("DELETE FROM pagamentos WHERE org_id = ?").run(org.id);
+    /* Tabelas que nasceram depois desta rota e ficavam para trás: a escala de
+       plantão, o histórico de disponibilidade e os textos prontos da conversa.
+       Não davam erro — só deixavam o dado de um cliente que pediu para sair
+       morando no banco. */
+    db.prepare("DELETE FROM plantoes WHERE org_id = ?").run(org.id);
+    db.prepare("DELETE FROM disponibilidade_log WHERE org_id = ?").run(org.id);
+    db.prepare("DELETE FROM mensagens_rapidas WHERE org_id = ?").run(org.id);
     const prods = db.prepare("SELECT id FROM produtos WHERE org_id = ?").all(org.id);
     for (const { id } of prods) db.prepare("DELETE FROM produto_midias WHERE produto_id = ?").run(id);
     db.prepare("DELETE FROM produtos WHERE org_id = ?").run(org.id);
@@ -146,7 +190,8 @@ r.delete("/:id", (req, res) => {
     db.prepare("DELETE FROM orgs WHERE id = ?").run(org.id);
   });
   apagar();
-  res.json({ ok: true, apagada: org.name });
+  console.log(`[orgs] imobiliária APAGADA: ${org.name} (${contagem.leads} leads, ${contagem.equipe} pessoas, ${contagem.arquivos} arquivos)`);
+  res.json({ ok: true, apagada: org.name, ...contagem });
 });
 
 export default r;

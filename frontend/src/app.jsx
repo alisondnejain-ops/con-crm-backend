@@ -721,6 +721,7 @@ function ConCRM(){
     criarConta:(dados)=>api("/orgs",{method:"POST",body:dados}),
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
+    resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
     abrir,
   };
 
@@ -1024,8 +1025,31 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   const [criando,setCriando]=useState(false);
   const [nova,setNova]=useState({nome:"",codigo:""});
   const [copiado,setCopiado]=useState("");
+  /* Apagar um cliente da plataforma. Fica atrás de um clique a mais, mostra o
+     que vai sumir e exige o nome digitado: é a única ação daqui que destrói a
+     operação inteira de alguém, e não tem desfazer. */
+  const [apagando,setApagando]=useState(null);   // {id, resumo}
+  const [nomeDigitado,setNomeDigitado]=useState("");
+  const [apagada,setApagada]=useState("");
 
   const rever=()=>acoes.listarContas().then(d=>setContas(d.orgs||[])).catch(e=>{setErro(e.message);setContas([]);});
+
+  async function abrirExclusao(c){
+    setErro(""); setNomeDigitado(""); setApagada("");
+    if(apagando&&apagando.id===c.id) return setApagando(null);
+    try{ setApagando({id:c.id,resumo:await acoes.resumoParaApagar(c.id)}); }
+    catch(e){ setErro(e.message); }
+  }
+  async function apagarDeVez(c){
+    setOcupado("apagar"); setErro("");
+    try{
+      const r=await acoes.apagarConta(c.id,nomeDigitado.trim());
+      setApagando(null); setNomeDigitado("");
+      setApagada(`${r.apagada} foi apagada — ${r.leads} lead(s), ${r.equipe} pessoa(s) e ${r.arquivos} arquivo(s).`);
+      await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
   useEffect(()=>{rever();},[]);
 
   const entrar=async(c)=>{ setErro(""); setOcupado(c.id);
@@ -1062,6 +1086,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
       </div>
 
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
+      {apagada&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{apagada}</div>}
 
       {contas===null
         ?<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>
@@ -1099,7 +1124,35 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
                 style={{background:copiado===c.id?C.greenSoft:C.surface,color:copiado===c.id?C.greenDeep:C.sub,
                   border:`1px solid ${copiado===c.id?C.green+"66":C.line}`,borderRadius:11,padding:"0 12px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
                 {copiado===c.id?"copiado!":<Icon n="link" size={15}/>}</button>
+              <button onClick={()=>abrirExclusao(c)} title="Apagar esta imobiliária da plataforma"
+                style={{background:apagando&&apagando.id===c.id?C.hotSoft:C.surface,color:C.hot,
+                  border:`1px solid ${apagando&&apagando.id===c.id?C.hot+"66":C.line}`,borderRadius:11,
+                  padding:"0 12px",cursor:"pointer",display:"flex",alignItems:"center"}}>
+                <Icon n="trash" size={15}/></button>
             </div>
+
+            {apagando&&apagando.id===c.id&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:12,padding:12}}>
+              <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:5}}>Apagar {c.nome} da plataforma?</div>
+              <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:8}}>
+                Some para sempre, sem desfazer:
+                <b> {apagando.resumo.leads} lead(s)</b>, <b>{apagando.resumo.mensagens} mensagem(ns)</b>,
+                <b> {apagando.resumo.equipe} pessoa(s)</b>, <b>{apagando.resumo.imoveis} imóvel(is)</b> com as fotos
+                e <b>{apagando.resumo.pagamentos} pagamento(s)</b> do histórico.
+                {apagando.resumo.unica&&<div style={{marginTop:6,fontWeight:600}}>Esta é a única imobiliária cadastrada — o sistema não deixa apagar.</div>}
+              </div>
+              <div style={{color:C.sub,fontSize:11.5,marginBottom:5}}>Digite <b>{c.nome}</b> para confirmar:</div>
+              <input value={nomeDigitado} onChange={e=>setNomeDigitado(e.target.value)} placeholder={c.nome}
+                disabled={apagando.resumo.unica}
+                style={{...entrada,marginBottom:8}}/>
+              <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                <button onClick={()=>apagarDeVez(c)} disabled={ocupado==="apagar"||apagando.resumo.unica||nomeDigitado.trim()!==c.nome}
+                  style={{background:nomeDigitado.trim()===c.nome&&!apagando.resumo.unica?C.hot:C.faint,color:"#fff",border:"none",
+                    borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+                  {ocupado==="apagar"?"Apagando…":"Apagar definitivamente"}</button>
+                <button onClick={()=>{setApagando(null);setNomeDigitado("");}} disabled={ocupado==="apagar"}
+                  style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>}
           </div>)}
 
           {/* Cadastrar cliente novo. É por aqui que a segunda imobiliária entra:

@@ -11,7 +11,9 @@
     "migrar-r2": "node src/migrar-r2.js",
     "teste:imobiliarias": "node testes/imobiliarias.mjs",
     "teste:dono": "node testes/dono-imobiliaria.mjs",
-    "teste:whatsapp": "node testes/whatsapp-por-imobiliaria.mjs"
+    "teste:whatsapp": "node testes/whatsapp-por-imobiliaria.mjs",
+    "teste:apagar": "node testes/apagar-imobiliaria.mjs",
+    "teste": "npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",
