@@ -1484,10 +1484,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["dashboard","grid","Painel"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
+    adm:[["dashboard","grid","Painel"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["catraca","transfer","Catraca"],["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["dashboard","grid","Painel"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
+    sdr:[["dashboard","grid","Painel"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
     corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
   const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
@@ -1504,7 +1504,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const roleLabel=ehMaster?"ConHub · master":role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
-    {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso} sair={()=>setSession(null)}/>}
+    {/* A marca leva para a tela inicial de cada papel — Painel para quem
+        supervisiona, Atender para o corretor. É o primeiro item do menu, o
+        mesmo lugar para onde o CRM abre. */}
+    {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso}
+      irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
@@ -1609,7 +1613,7 @@ function ItemMais({n,label,ativo,badge,onClick,ultimo}){
    Sobre o esquadro: altura fixa por botão e rótulo em uma linha só. Antes a
    altura vinha do texto, então "Base de leads" empurrava o vizinho e a coluna
    ficava desalinhada. Com quatro itens os rótulos são curtos e nada corta. */
-function BarraLateral({nav,view,setView,aviso,sair}){
+function BarraLateral({nav,view,setView,aviso,irParaCasa,sair}){
   const [maisAberto,setMaisAberto]=useState(false);
   const botaoMais=useRef(null);
   const [topo,setTopo]=useState(0);
@@ -1648,8 +1652,13 @@ function BarraLateral({nav,view,setView,aviso,sair}){
 
   return <React.Fragment>
     <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0 14px",gap:4}}>
-      <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={20}/></div>
-      <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,margin:"4px 0 16px"}}>Con<br/>Hub</div>
+      {/* Marca clicável: em qualquer tela, um clique aqui volta para o começo —
+          é o que todo mundo já tenta fazer por hábito de site. */}
+      <button onClick={irParaCasa} title="Ir para o início" style={{border:"none",background:"transparent",padding:0,cursor:"pointer",
+        display:"flex",flexDirection:"column",alignItems:"center",margin:"0 0 16px"}}>
+        <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={20}/></div>
+        <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginTop:4}}>Con<br/>Hub</div>
+      </button>
       {/* rolagem: em janela baixa (notebook com a tela dividida) os botões não
           cabem, e sem isto eles passavam por baixo do "Sair" — que ficava por
           cima e roubava o clique do "Mais". */}
@@ -5064,6 +5073,43 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
   </div>;
 }
 
+/* O formulário de uma mensagem rápida.
+
+   Ele é um componente à parte porque aparece em dois lugares: no alto da tela
+   quando é uma mensagem NOVA, e dentro do próprio cartão quando é uma edição.
+   Antes o formulário abria sempre no alto — clicar em "Editar" na quarta
+   mensagem obrigava a rolar a tela para cima para achar o campo, e ninguém
+   sabia qual das quatro estava sendo editada. */
+function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile,aoSalvar,aoCancelar}){
+  /* O formulário é mais alto que o cartão que ele substitui: se ele abre no pé
+     da tela, o botão Salvar nasce fora dela. Este empurrãozinho é o mínimo
+     para o formulário inteiro caber — quem já estava vendo tudo não sente. */
+  const fim=useRef(null);
+  useEffect(()=>{ fim.current&&fim.current.scrollIntoView({block:"nearest",behavior:"smooth"}); },[]);
+  const rotulo={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5};
+  const campo={width:"100%",boxSizing:"border-box",marginTop:4,fontSize:isMobile?16:13,
+    border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+  return <React.Fragment>
+    <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:9}}>
+      {novo?"Nova mensagem":"Editando a mensagem"}</div>
+    <label style={rotulo}>Nome do botão</label>
+    <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={40} placeholder="Ex.: Follow-up"
+      autoFocus style={{...campo,marginBottom:10}}/>
+    <label style={rotulo}>Texto da mensagem</label>
+    <textarea value={corpo} onChange={e=>setCorpo(e.target.value)} rows={5} maxLength={1200}
+      placeholder="Oi {nome}, tudo bem?" style={{...campo,marginBottom:4,resize:"vertical",fontFamily:FONT}}/>
+    <div style={{color:C.faint,fontSize:10.5,marginBottom:10}}>{corpo.length}/1200</div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:10}}>{erro}</div>}
+    <div ref={fim} style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      <button onClick={aoSalvar} disabled={salvando||!titulo.trim()||!corpo.trim()}
+        style={{background:titulo.trim()&&corpo.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
+          padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+      <button onClick={aoCancelar} disabled={salvando}
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+    </div>
+  </React.Fragment>;
+}
+
 function MensagensAutomaticas({acoes,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);
   const [erro,setErro]=useState("");
@@ -5106,33 +5152,26 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
       </div>
     </div>
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    {/* Erro que não é de formulário (ligar/desligar, mover, apagar). O erro de
+        quem está editando aparece dentro do próprio formulário. */}
+    {erro&&!editando&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
-    {editando&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
-      <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:9}}>
-        {editando==="nova"?"Nova mensagem":"Editando a mensagem"}</div>
-      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Nome do botão</label>
-      <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={40} placeholder="Ex.: Follow-up"
-        style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:10,fontSize:isMobile?16:13,
-          border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
-      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Texto da mensagem</label>
-      <textarea value={corpo} onChange={e=>setCorpo(e.target.value)} rows={5} maxLength={1200}
-        placeholder="Oi {nome}, tudo bem?"
-        style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:4,fontSize:isMobile?16:13,
-          border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
-      <div style={{color:C.faint,fontSize:10.5,marginBottom:10}}>{corpo.length}/1200</div>
-      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-        <button onClick={salvar} disabled={salvando||!titulo.trim()||!corpo.trim()}
-          style={{background:titulo.trim()&&corpo.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
-            padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
-        <button onClick={()=>setEditando(null)} disabled={salvando}
-          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-      </div>
+    {/* Mensagem nova não tem cartão ainda, então nasce aqui em cima. */}
+    {editando==="nova"&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
+      <FormMensagem novo {...{titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile}}
+        aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
     </div>}
 
     <div style={{display:"flex",flexDirection:"column",gap:9}}>
       {lista.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:20}}>Nenhuma mensagem cadastrada.</div>}
-      {lista.map((m,i)=><div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
+      {lista.map((m,i)=>editando===m.id
+        /* Editar abre AQUI, no lugar do cartão: o campo nasce onde o dedo
+           clicou, sem rolar a tela e sem dúvida sobre qual texto está mudando. */
+        ?<div key={m.id} style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:isMobile?12:14}}>
+          <FormMensagem {...{titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile}}
+            aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
+        </div>
+        :<div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
         padding:isMobile?12:14,opacity:m.ativo?1:.6}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
           <Icon n="zap" size={12} color={m.ativo?C.greenMid:C.faint}/>
