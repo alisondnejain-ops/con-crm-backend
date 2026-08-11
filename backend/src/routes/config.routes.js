@@ -12,7 +12,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
-import { instanceStatus, desconectarInstancia, uazapiConfigured, PROVEDORES } from "../services/uazapi.js";
+import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
 
 const r = Router();
 r.use(authRequired);
@@ -112,8 +112,8 @@ r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   res.json({
     provedores: PROVEDORES,
-    ativo: uazapiConfigured() ? "uazapi" : null,
-    whatsapp: await instanceStatus(),
+    ativo: uazapiConfigured(req.user.org_id) ? "uazapi" : null,
+    whatsapp: await instanceStatus(req.user.org_id),
     webhook: {
       url: `${base}/webhooks/uazapi`,
       // O que precisa estar ligado do lado da Uazapi para a conversa chegar.
@@ -123,6 +123,38 @@ r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
   });
 });
 
+/* Conectar o WhatsApp DESTA imobiliária.
+
+   O endereço e o token vêm da instância que a própria imobiliária contratou na
+   Uazapi (o tutorial da tela ensina onde achar). Ficam guardados na linha dela
+   — nunca em variável do servidor, que era o que fazia uma imobiliária enxergar
+   o WhatsApp da outra.
+
+   Só o gestor: é ele quem assina a conta da Uazapi e quem responde se o número
+   for bloqueado. */
+r.post("/conexao/credenciais", roles("adm"), async (req, res) => {
+  const host = String(req.body?.host || "").trim();
+  const token = String(req.body?.token || "").trim();
+  if (!host || !token)
+    return res.status(400).json({ error: "Informe o endereço (host) e o token da instância." });
+  if (!/^https?:\/\//i.test(host))
+    return res.status(400).json({ error: "O endereço precisa começar com https:// (é o que a Uazapi mostra no painel)." });
+
+  /* Token repetido é quase sempre o mesmo da imobiliária vizinha, copiado por
+     engano. Deixar passar recria o problema que esta mudança veio corrigir:
+     duas casas mandando pelo mesmo número. */
+  const jaUsado = db.prepare("SELECT id,name FROM orgs WHERE uazapi_token = ? AND id <> ?")
+    .get(token, req.user.org_id);
+  if (jaUsado)
+    return res.status(409).json({ error: `Esse token já é usado por outra imobiliária (${jaUsado.name}). Cada uma precisa da sua própria instância na Uazapi.` });
+
+  salvarCredenciais(req.user.org_id, { host, token });
+  const whatsapp = await instanceStatus(req.user.org_id);
+  // Token errado só aparece na hora de perguntar o estado — e é melhor dizer
+  // agora do que na primeira mensagem que não sair.
+  res.json({ ok: true, whatsapp, aviso: whatsapp.ok ? null : "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da instância." });
+});
+
 /* Desconectar derruba o WhatsApp da imobiliária inteira: ninguém envia nem
    recebe até parear de novo. Por isso é só do gestor e pede confirmação
    escrita na tela. */
@@ -130,7 +162,7 @@ r.post("/conexao/desconectar", roles("adm"), async (req, res) => {
   if (String(req.body?.confirmar || "").toUpperCase() !== "DESCONECTAR")
     return res.status(400).json({ error: "Escreva DESCONECTAR para confirmar." });
   try {
-    const out = await desconectarInstancia();
+    const out = await desconectarInstancia(req.user.org_id);
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(502).json({ error: "Não consegui desconectar", detail: e.message });

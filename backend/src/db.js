@@ -307,6 +307,15 @@ addOrgCol("asaas_subscription_id", "TEXT");
    dados de cobrança só aparecem para ele. Ficando nulo, o bootstrap adota o
    gestor mais antigo — bancos criados antes desta coluna não ficam sem dono. */
 addOrgCol("dono_user_id", "TEXT");
+/* A conexão do WhatsApp é DE CADA IMOBILIÁRIA, e é por isso que mora aqui.
+
+   Antes vinha de UAZAPI_HOST/UAZAPI_TOKEN do servidor, valendo para todas.
+   Com mais de uma imobiliária, a segunda enxergava o WhatsApp da primeira
+   como se fosse dela — enviava pelo número dos outros e podia desconectá-lo.
+   O bootstrap copia as variáveis antigas para a imobiliária dona delas, então
+   quem já estava conectado continua conectado. */
+addOrgCol("uazapi_host", "TEXT");
+addOrgCol("uazapi_token", "TEXT");
 /* Data do vencimento ANTES de qualquer pagamento. O vencimento em vigor é
    vence_base + (um mês por pagamento registrado), o que faz apagar pagamento
    voltar a data sozinho. Ver services/assinatura.js. */

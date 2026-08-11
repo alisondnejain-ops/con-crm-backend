@@ -6,6 +6,7 @@ import { proximoAtendente } from "../services/catraca.js";
 import { guardarMidiaRecebida } from "../services/midia.js";
 import { avisar } from "../services/push.js";
 import { advanceStage } from "./messages.routes.js";
+import { orgDoWhatsapp } from "../services/uazapi.js";
 
 const r = Router();
 
@@ -80,10 +81,31 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
+    /* DE QUAL imobiliária é esta mensagem?
+
+       Com mais de uma imobiliária na plataforma, cada uma tem o seu WhatsApp, e
+       este endereço é o mesmo para todas. Sem esta pergunta, a mensagem do
+       cliente de uma casa entraria na conversa da outra — e um cliente que já
+       existisse como lead na primeira sequestraria a conversa da segunda.
+
+       O reconhecimento é pelo token da instância que a Uazapi manda junto (ou
+       pelo número dono dela). Não dando para saber, a mensagem NÃO entra: lead
+       na casa errada é pior do que lead perdido, e o diagnóstico mostra o que
+       chegou para acertar a configuração. */
+    const orgId = orgDoWhatsapp({
+      token: p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token,
+      numero: p.owner || p.instance?.owner || p.instanceOwner || p.me || "",
+    });
+    if (!orgId) return lembrar({ em: Date.now(), evento,
+      resultado: "ignorado: não identifiquei de qual imobiliária é este WhatsApp",
+      dica: "Conecte a instância em Configurações → Conexão da imobiliária dona deste número.",
+      campos: Object.keys(p) });
+
     /* Mensagem que o CRM mandou volta como webhook. Ela já está na conversa —
        gravar de novo seria a mesma mensagem duas vezes. O `wa_id` é o que
        diferencia isso do corretor digitando no celular. */
-    if (fromMe && messageid && db.prepare("SELECT 1 FROM messages WHERE wa_id = ?").get(messageid))
+    if (fromMe && messageid && db.prepare(`SELECT 1 FROM messages m JOIN leads l ON l.id = m.lead_id
+      WHERE m.wa_id = ? AND l.org_id = ?`).get(messageid, orgId))
       return lembrar({ em: Date.now(), evento, resultado: "ignorado: eco da mensagem enviada pelo próprio CRM" });
 
     // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
@@ -106,7 +128,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
 
     if (temMidia) lembrar({ em: Date.now(), evento, tipo, resultado: midia ? "mídia guardada" : "MÍDIA NÃO BAIXOU — ver log do servidor" });
 
-    let lead = db.prepare("SELECT * FROM leads WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(phone);
+    let lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId);
     const ehNovo = !lead;
 
     /* Saiu do celular para um número que ainda não é lead: não cria lead.
@@ -120,13 +142,11 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
     // atendente da vez, exatamente como um lead vindo da Meta.
     if (!lead) {
-      const org = db.prepare("SELECT id FROM orgs LIMIT 1").get();
-      if (!org) return lembrar({ em: Date.now(), resultado: "sem organização configurada" });
       const id = "l_" + randomUUID();
-      const dono = proximoAtendente(org.id);
+      const dono = proximoAtendente(orgId);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at)
         VALUES (?,?,?,?,'WhatsApp','MORNO','{}','Lead',?,?)`)
-        .run(id, org.id, nome || "Contato do WhatsApp", phone, dono, Date.now());
+        .run(id, orgId, nome || "Contato do WhatsApp", phone, dono, Date.now());
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
       console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }

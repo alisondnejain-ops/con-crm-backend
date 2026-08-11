@@ -10,14 +10,19 @@ const r = Router();
 // Painel de instalação: diz o que já está ligado, SEM devolver nenhum segredo.
 // Tokens e senhas nunca aparecem aqui — só "configurado: true/false" e o estado da conexão.
 r.get("/integracoes", async (_req, res) => {
-  const org = db.prepare("SELECT name FROM orgs LIMIT 1").get();
+  /* Painel da INSTALAÇÃO: mostra a imobiliária mais antiga, que é a dona deste
+     servidor. Com várias na plataforma, cada uma vê a sua conexão na própria
+     tela de Configurações — aqui não daria para escolher, porque esta página
+     não pede login. */
+  const org = db.prepare("SELECT id,name FROM orgs ORDER BY created_at, name LIMIT 1").get();
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
 
   const base = (process.env.APP_URL || "").replace(/\/$/, "");
   res.json({
     org: org?.name || null,
+    imobiliarias: db.prepare("SELECT COUNT(*) n FROM orgs").get().n,
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
-    whatsapp: await instanceStatus(),
+    whatsapp: await instanceStatus(org?.id),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
     email: { configurado: mailConfigured() },
     arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2() },

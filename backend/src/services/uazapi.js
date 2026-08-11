@@ -7,10 +7,59 @@
 //   - localização:  POST /send/location  { number, latitude, longitude, ... }
 // Sem token válido a API responde 401 {"message":"Invalid token."}.
 
-const HOST = (process.env.UAZAPI_HOST || "").replace(/\/$/, "");
-const TOKEN = process.env.UAZAPI_TOKEN || "";
+/* A conexão é POR IMOBILIÁRIA, não do servidor.
 
-export const uazapiConfigured = () => !!(HOST && TOKEN);
+   Isto era global: um HOST e um TOKEN em variável de ambiente, valendo para
+   todo mundo que rodasse aqui. Enquanto existia uma imobiliária só, funcionou.
+   Com duas virou defeito grave — a segunda imobiliária via o WhatsApp da
+   primeira como se fosse dela: mandava mensagem pelo número dos outros e o
+   botão Desconectar derrubava o atendimento da casa vizinha.
+
+   Agora as credenciais moram na linha da imobiliária (orgs.uazapi_host /
+   orgs.uazapi_token) e TODA função aqui exige saber de qual imobiliária se
+   está falando. Sem org, não há envio — de propósito: um envio sem dono é
+   exatamente o erro que se está corrigindo.
+
+   As variáveis de ambiente continuam valendo para a instalação que já existia:
+   o bootstrap copia UAZAPI_HOST/UAZAPI_TOKEN para a imobiliária dona delas na
+   primeira subida (ver bootstrap.js). Ninguém precisa reconectar nada. */
+import db from "../db.js";
+
+export function credenciais(orgId) {
+  if (!orgId) return { host: "", token: "" };
+  const o = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id = ?").get(orgId) || {};
+  return { host: String(o.uazapi_host || "").replace(/\/$/, ""), token: String(o.uazapi_token || "") };
+}
+
+export function uazapiConfigured(orgId) {
+  const { host, token } = credenciais(orgId);
+  return !!(host && token);
+}
+
+/* Guarda (ou apaga) a conexão de uma imobiliária. Token vazio desliga. */
+export function salvarCredenciais(orgId, { host, token }) {
+  db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ? WHERE id = ?")
+    .run(String(host || "").trim().replace(/\/$/, "") || null, String(token || "").trim() || null, orgId);
+}
+
+/* De quem é este WhatsApp? Usado pelo webhook: a mensagem chega com o token da
+   instância (ou o número dono dela) e precisa entrar na imobiliária CERTA. */
+export function orgDoWhatsapp({ token, numero }) {
+  if (token) {
+    const por = db.prepare("SELECT id FROM orgs WHERE uazapi_token = ?").get(String(token).trim());
+    if (por) return por.id;
+  }
+  if (numero) {
+    const so = String(numero).replace(/\D/g, "");
+    if (so) {
+      const por = db.prepare("SELECT id FROM orgs WHERE REPLACE(REPLACE(REPLACE(REPLACE(wa_number,'+',''),'-',''),' ',''),'(','') LIKE ?").get(`%${so.slice(-8)}%`);
+      if (por) return por.id;
+    }
+  }
+  // Uma só imobiliária conectada: não há como errar o destino.
+  const conectadas = db.prepare("SELECT id FROM orgs WHERE uazapi_token IS NOT NULL AND uazapi_token <> ''").all();
+  return conectadas.length === 1 ? conectadas[0].id : null;
+}
 
 /* Provedores de conexão do WhatsApp.
 
@@ -38,12 +87,12 @@ export const PROVEDORES = [
    diz que não conseguiu, e o gestor desconecta pelo painel da Uazapi. */
 const CAMINHOS_DESCONECTAR = ["/instance/disconnect", "/instance/logout", "/instance/close"];
 
-export async function desconectarInstancia() {
-  if (!uazapiConfigured()) throw new Error("A Uazapi não está configurada neste servidor.");
+export async function desconectarInstancia(orgId) {
+  if (!uazapiConfigured(orgId)) throw new Error("Esta imobiliária não tem WhatsApp conectado.");
   const tentativas = [];
   for (const caminho of CAMINHOS_DESCONECTAR) {
     try {
-      const r = await call(caminho, {});
+      const r = await call(orgId, caminho, {});
       return { caminho, resposta: String(r.bruto || "").slice(0, 300) };
     } catch (e) {
       tentativas.push({ caminho, erro: e.message.slice(0, 140) });
@@ -54,16 +103,17 @@ export async function desconectarInstancia() {
     + CAMINHOS_DESCONECTAR.join(", ") + "). Desconecte pelo painel da Uazapi.");
 }
 
-async function call(path, payload) {
-  if (!uazapiConfigured()) {
-    console.warn(`[uazapi] HOST/TOKEN não configurados — ${path} não foi enviado de verdade.`);
+async function call(orgId, path, payload) {
+  const { host, token } = credenciais(orgId);
+  if (!host || !token) {
+    console.warn(`[uazapi] imobiliária sem WhatsApp conectado — ${path} não foi enviado de verdade.`);
     return { ok: false, simulated: true };
   }
   let res;
   try {
-    res = await fetch(`${HOST}${path}`, {
+    res = await fetch(`${host}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", token: TOKEN },
+      headers: { "Content-Type": "application/json", token },
       // track_source identifica no painel da Uazapi o que saiu pelo CRM.
       body: JSON.stringify({ track_source: "con-crm", ...payload }),
     });
@@ -82,7 +132,7 @@ async function call(path, payload) {
 
   if (!res.ok) {
     console.error(`[uazapi] ${path} respondeu ${res.status}:`, bruto.slice(0, 800) || "(corpo vazio)");
-    if (res.status === 401) throw new Error("Token da Uazapi inválido ou ausente — confira UAZAPI_TOKEN.");
+    if (res.status === 401) throw new Error("Token da Uazapi inválido ou vencido. Refaça a conexão em Configurações → Conexão.");
     // A Uazapi devolve mensagem em português quando o próprio WhatsApp recusa.
     const explicacao = data.message_ptbr || data.message || data.error;
     if (explicacao) throw new Error(explicacao);
@@ -133,15 +183,15 @@ const CAMINHOS_EDICAO = ["/message/edit", "/send/edit", "/message/update"];
 let ultimaEdicao = null;
 export const edicaoDiagnostico = () => ultimaEdicao;
 
-export async function editMessage({ messageid, text }) {
-  if (!uazapiConfigured()) return { ok: false, simulated: true };
+export async function editMessage({ orgId, messageid, text }) {
+  if (!uazapiConfigured(orgId)) return { ok: false, simulated: true };
   const tentativas = [];
 
   for (const caminho of CAMINHOS_EDICAO) {
     try {
       // `id` e `text` são os nomes mais comuns; os apelidos vão junto porque
       // campo a mais é ignorado, como esta conta já demonstrou.
-      const r = await call(caminho, { id: messageid, messageid, text, newText: text, message: text });
+      const r = await call(orgId, caminho, { id: messageid, messageid, text, newText: text, message: text });
       ultimaEdicao = { quando: new Date().toISOString(), caminho, status: "aceito", tentativas,
         resposta: String(r.bruto || "").slice(0, 400) };
       return { ok: true, caminho, data: r.data };
@@ -175,9 +225,9 @@ const assinar = (text, signedBy) => (signedBy ? `*${signedBy}:*\n${text}` : text
    trecho citado escrito em cima. Fica mais feio, mas o cliente continua
    sabendo do que se está falando — e o corretor não perde a mensagem por
    causa de um recurso que a API não tem. */
-export async function sendText({ toPhone, text, signedBy, replyTo, quotedText }) {
+export async function sendText({ orgId, toPhone, text, signedBy, replyTo, quotedText }) {
   const assinado = assinar(text, signedBy);
-  if (!replyTo) return call("/send/text", { number: toPhone, text: assinado });
+  if (!replyTo) return call(orgId, "/send/text", { number: toPhone, text: assinado });
 
   /* Vários nomes para o mesmo campo, na mesma requisição.
 
@@ -197,7 +247,7 @@ export async function sendText({ toPhone, text, signedBy, replyTo, quotedText })
   };
 
   try {
-    const r = await call("/send/text", { number: toPhone, text: assinado, ...apelidos });
+    const r = await call(orgId, "/send/text", { number: toPhone, text: assinado, ...apelidos });
     ultimaCitacao = {
       quando: new Date().toISOString(),
       id_citado: replyTo,
@@ -219,7 +269,7 @@ export async function sendText({ toPhone, text, signedBy, replyTo, quotedText })
     };
     const trecho = String(quotedText || "").replace(/\s+/g, " ").trim().slice(0, 160);
     const citacao = trecho ? `> ${trecho}\n\n` : "";
-    return call("/send/text", { number: toPhone, text: citacao + assinado });
+    return call(orgId, "/send/text", { number: toPhone, text: citacao + assinado });
   }
 }
 
@@ -237,7 +287,7 @@ export async function sendText({ toPhone, text, signedBy, replyTo, quotedText })
    Fica mais pesado, mas não depende de ninguém conseguir abrir um endereço.
    `bytes` pode ser o Buffer ou uma função que devolve o Buffer — assim o
    arquivo só é lido do disco/R2 se a primeira tentativa falhar. */
-export async function sendMedia({ toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
+export async function sendMedia({ orgId, toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
   const corpo = (arquivo) => ({
     number: toPhone, type, file: arquivo,
     ...(caption ? { text: assinar(caption, signedBy) } : {}),
@@ -245,7 +295,7 @@ export async function sendMedia({ toPhone, type, file, caption, signedBy, docNam
   });
 
   try {
-    return await call("/send/media", corpo(file));
+    return await call(orgId, "/send/media", corpo(file));
   } catch (e) {
     if (!bytes) throw e;
     let buffer;
@@ -255,32 +305,31 @@ export async function sendMedia({ toPhone, type, file, caption, signedBy, docNam
 
     console.warn(`[uazapi] a URL falhou (${e.message}); reenviando o arquivo embutido.`);
     try {
-      return await call("/send/media", corpo(`data:${mime || "application/octet-stream"};base64,${buffer.toString("base64")}`));
+      return await call(orgId, "/send/media", corpo(`data:${mime || "application/octet-stream"};base64,${buffer.toString("base64")}`));
     } catch (e2) {
       throw new Error(`${e.message} — e o envio direto do arquivo também falhou: ${e2.message}`);
     }
   }
 }
 
-export function sendLocation({ toPhone, latitude, longitude, name, address }) {
-  return call("/send/location", { number: toPhone, latitude, longitude, name, address });
+export function sendLocation({ orgId, toPhone, latitude, longitude, name, address }) {
+  return call(orgId, "/send/location", { number: toPhone, latitude, longitude, name, address });
 }
 
 // Estado da instância — usado pelo diagnóstico, para conferir a conexão sem expor o token.
-// Reporta HOST e TOKEN separadamente: "não configurado" sozinho não diz qual faltou.
-export async function instanceStatus() {
-  if (!uazapiConfigured()) {
+// Reporta endereço e token separadamente: "não configurado" sozinho não diz qual faltou.
+export async function instanceStatus(orgId) {
+  const { host, token } = credenciais(orgId);
+  if (!host || !token) {
     return {
       configurado: false,
-      UAZAPI_HOST: HOST ? `definido (${HOST})` : "FALTANDO",
-      UAZAPI_TOKEN: TOKEN ? `definido (${TOKEN.length} caracteres)` : "FALTANDO",
-      dica: !HOST && !TOKEN
-        ? "Nenhuma das duas chegou. No Railway, salvar as variáveis não basta — é preciso clicar em Deploy para aplicar."
-        : "Falta a que está marcada como FALTANDO. Confira também se o nome está escrito exatamente assim, em maiúsculas.",
+      endereco: host ? `definido (${host})` : "FALTANDO",
+      token: token ? `definido (${token.length} caracteres)` : "FALTANDO",
+      dica: "Esta imobiliária ainda não conectou um WhatsApp. Siga o tutorial da Uazapi aqui na tela e cole o endereço e o token da instância DELA — nunca os de outra imobiliária.",
     };
   }
   try {
-    const res = await fetch(`${HOST}/instance/status`, { headers: { token: TOKEN } });
+    const res = await fetch(`${host}/instance/status`, { headers: { token } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { configurado: true, ok: false, erro: data.message || `HTTP ${res.status}` };
     const inst = data.instance || data;

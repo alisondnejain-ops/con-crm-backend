@@ -708,6 +708,7 @@ function ConCRM(){
     moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
     conexao:()=>api("/config/conexao"),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
+    conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
     cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}),
@@ -5235,6 +5236,13 @@ function ConexaoConfig({acoes,session,isMobile}){
   const [palavra,setPalavra]=useState("");
   const [saindo,setSaindo]=useState(false);
   const [copiado,setCopiado]=useState(false);
+  /* Ligar a instância DESTA imobiliária. Antes o endereço e o token viviam no
+     servidor e valiam para todas — a imobiliária nova abria esta tela e via o
+     WhatsApp da vizinha como se fosse dela. */
+  const [ligando,setLigando]=useState(false);
+  const [cred,setCred]=useState({host:"",token:""});
+  const [salvandoCred,setSalvandoCred]=useState(false);
+  const [avisoCred,setAvisoCred]=useState("");
   const ehGestor=session.role==="adm";
 
   const rever=()=>acoes.conexao().then(setD).catch(e=>setErro(e.message));
@@ -5246,6 +5254,17 @@ function ConexaoConfig({acoes,session,isMobile}){
     else{const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();
       try{document.execCommand("copy");pronto();}catch(e){}document.body.removeChild(a);}
   };
+  async function conectar(){
+    if(!cred.host.trim()||!cred.token.trim()||salvandoCred) return;
+    setSalvandoCred(true); setErro(""); setAvisoCred("");
+    try{
+      const r=await acoes.conectarWhats(cred.host.trim(),cred.token.trim());
+      setCred({host:"",token:""}); setLigando(false);
+      if(r.aviso) setAvisoCred(r.aviso);
+      await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setSalvandoCred(false); }
+  }
   async function desconectar(){
     setSaindo(true); setErro("");
     try{ await acoes.desconectarWhats(palavra); setConfirmando(false); setPalavra(""); await rever(); }
@@ -5277,7 +5296,38 @@ function ConexaoConfig({acoes,session,isMobile}){
         {ehGestor&&w.configurado&&<button onClick={()=>{setConfirmando(c=>!c);setPalavra("");}}
           style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"8px 14px",
             fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Desconectar</button>}
+        {ehGestor&&<button onClick={()=>{setLigando(l=>!l);setAvisoCred("");}}
+          style={{background:w.configurado?C.card:C.greenDeep,color:w.configurado?C.greenDeep:"#fff",
+            border:w.configurado?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"8px 14px",
+            fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{w.configurado?"Trocar a instância":"Conectar"}</button>}
       </div>
+
+      {avisoCred&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginTop:10}}>{avisoCred}</div>}
+
+      {ligando&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,marginTop:12}}>
+        <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Conectar a instância da sua imobiliária</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+          Os dois campos estão no painel da Uazapi, na <b>sua</b> instância — o tutorial aqui embaixo mostra onde.
+          Use o <b>token da instância</b>, nunca o de administrador. Cada imobiliária precisa da própria instância:
+          duas contas no mesmo número misturam as conversas.
+        </div>
+        <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Endereço (host)</label>
+        <input value={cred.host} onChange={e=>setCred({...cred,host:e.target.value})} placeholder="https://suaempresa.uazapi.com"
+          style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:9,fontSize:isMobile?16:13,fontFamily:MONO,
+            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+        <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Token da instância</label>
+        <input value={cred.token} onChange={e=>setCred({...cred,token:e.target.value})} placeholder="cole aqui" type="password"
+          style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:10,fontSize:isMobile?16:13,fontFamily:MONO,
+            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <button onClick={conectar} disabled={salvandoCred||!cred.host.trim()||!cred.token.trim()}
+            style={{background:cred.host.trim()&&cred.token.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",
+              borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
+          <button onClick={()=>{setLigando(false);setCred({host:"",token:""});}} disabled={salvandoCred}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
 
       {confirmando&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:12}}>
         <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:3}}>Desconectar o WhatsApp da imobiliária?</div>

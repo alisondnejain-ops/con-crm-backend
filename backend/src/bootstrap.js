@@ -37,6 +37,26 @@ export function bootstrap() {
     }
   }
 
+  /* WhatsApp da imobiliária apontada pelo ADM_CODE.
+
+     A conexão saiu das variáveis de ambiente e passou a ser de cada
+     imobiliária (ver services/uazapi.js). Esta cópia existe para que a
+     instalação que já rodava não perca o WhatsApp na atualização: as
+     variáveis antigas viram a conexão DESTA imobiliária, uma vez só.
+
+     Depois disso as variáveis viram só herança — quem conecta é a tela. */
+  const uHost = String(process.env.UAZAPI_HOST || "").trim();
+  const uToken = String(process.env.UAZAPI_TOKEN || "").trim();
+  if (uHost && uToken) {
+    const atual = db.prepare("SELECT uazapi_token FROM orgs WHERE id = ?").get(org.id);
+    const jaUsado = db.prepare("SELECT id FROM orgs WHERE uazapi_token = ?").get(uToken);
+    if (!atual?.uazapi_token && !jaUsado) {
+      db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ? WHERE id = ?")
+        .run(uHost.replace(/\/$/, ""), uToken, org.id);
+      console.log(`WhatsApp de ${org.name} migrado das variáveis do servidor para a conta da imobiliária.`);
+    }
+  }
+
   // Conta da ADM, se informada no .env e ainda não existir. Sem isso, ninguém
   // consegue entrar como administração num banco novo.
   const admEmail = String(process.env.ADM_EMAIL || "").trim().toLowerCase();

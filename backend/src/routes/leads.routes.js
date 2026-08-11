@@ -639,7 +639,7 @@ r.post("/:id/simulacao/:simId/enviar", async (req, res) => {
   const texto = textoDaSimulacao(sim, produto?.titulo);
   const firstName = (req.user.name || "").split(" ")[0];
   try {
-    await sendText({ toPhone: lead.phone, text: texto, signedBy: firstName });
+    await sendText({ orgId: lead.org_id, toPhone: lead.phone, text: texto, signedBy: firstName });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }

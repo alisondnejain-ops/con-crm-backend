@@ -211,7 +211,7 @@ app.listen(PORT, () => {
   console.log(`Con CRM backend rodando — org: ${org.name}`);
   console.log(`Link de cadastro dos corretores: ${base}/cadastro?c=${org.adm_code}`);
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
-  console.log(`WhatsApp (Uazapi): ${uazapiConfigured() ? "configurado" : "NÃO configurado — defina UAZAPI_HOST e UAZAPI_TOKEN"}`);
+  console.log(`WhatsApp (Uazapi) de ${org.name}: ${uazapiConfigured(org.id) ? "conectado" : "NÃO conectado — ligue em Configurações → Conexão"}`);
   console.log(`Fotos e vídeos dos imóveis: ${modoArmazenamento()}`);
   // Erro de digitação nas variáveis é o que mais trava a instalação, e o erro
   // que Cloudflare e Asaas devolvem não diz qual campo está errado. Aqui diz.

@@ -41,7 +41,7 @@ r.post("/:id/messages", async (req, res) => {
 
   let envio;
   try {
-    envio = await sendText({ toPhone: lead.phone, text: text.trim(), signedBy: firstName,
+    envio = await sendText({ orgId: lead.org_id, toPhone: lead.phone, text: text.trim(), signedBy: firstName,
       // Sem `wa_id` (mensagem anterior a 09/08/2026) não dá para citar no
       // WhatsApp — mas a citação continua valendo dentro do CRM.
       replyTo: citada && citada.wa_id ? citada.wa_id : null, quotedText: citada ? citada.body : null });
@@ -99,7 +99,7 @@ r.patch("/:id/messages/:msgId", async (req, res) => {
     return res.status(403).json({ error: "Esta mensagem foi assinada por outra pessoa." });
 
   try {
-    await editMessage({ messageid: msg.wa_id, text: text.trim() });
+    await editMessage({ orgId: lead.org_id, messageid: msg.wa_id, text: text.trim() });
   } catch (e) {
     // De propósito: NADA muda no banco quando a edição não sai no WhatsApp.
     return res.status(502).json({ error: "Não consegui editar no WhatsApp — a mensagem continua como está", detail: e.message });
@@ -165,7 +165,7 @@ r.post("/:id/anexo", async (req, res) => {
       const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
       // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
       // conseguir baixar pela URL, ele vai embutido, sem reler nada.
-      const envio = await sendMedia({ toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
+      const envio = await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
         caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
       enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda, wa_id: envio?.messageid || null });
     }
@@ -196,7 +196,7 @@ r.post("/:id/localizacao", async (req, res) => {
 
   const firstName = (req.user.name || "").split(" ")[0];
   try {
-    await sendLocation({ toPhone: lead.phone, latitude: lat, longitude: lon, name: `${firstName} — Conecta Imóveis` });
+    await sendLocation({ orgId: lead.org_id, toPhone: lead.phone, latitude: lat, longitude: lon, name: `${firstName} — Conecta Imóveis` });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
@@ -255,15 +255,15 @@ r.post("/:id/produto", async (req, res) => {
   if (localizacao && p.maps_url) texto += `\n\n📍 Localização: ${p.maps_url}`;
 
   try {
-    await sendText({ toPhone: lead.phone, text: texto, signedBy: firstName });
+    await sendText({ orgId: lead.org_id, toPhone: lead.phone, text: texto, signedBy: firstName });
     /* A foto do catálogo já está guardada, então aqui não temos o arquivo em
        mãos. `bytes` é uma função: só lê do disco/R2 se a URL falhar — assim o
        envio normal continua tão leve quanto era. */
     if (fotos) for (const m of midias.filter(m => m.tipo === "foto"))
-      await sendMedia({ toPhone: lead.phone, type: "image", file: m.url,
+      await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: "image", file: m.url,
         bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
     if (video) for (const m of midias.filter(m => m.tipo === "video"))
-      await sendMedia({ toPhone: lead.phone, type: "video", file: m.url,
+      await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: "video", file: m.url,
         bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
