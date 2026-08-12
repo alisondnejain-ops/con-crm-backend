@@ -184,6 +184,29 @@ function useMedia(query){
 }
 const useIsMobile=()=>useMedia(`(max-width:${MOBILE_BP}px)`);
 const useIsCompact=()=>useMedia(`(max-width:${COMPACT_BP}px)`);
+
+/* ===== ESCOLHA QUE NÃO SE PERDE =====
+
+   Igual ao useState, só que a escolha volta se a tela for montada de novo.
+
+   O CRM vive instalado na tela de início do celular, e o sistema do telefone
+   descarta a página quando ela passa um tempo em segundo plano. Ao voltar, o
+   React remonta tudo do zero: o filtro que a pessoa tinha ligado aparecia
+   desligado, sem ninguém ter tocado nele. Do lado de quem usa isso é bug, não
+   importa de quem seja a culpa.
+
+   Fica em sessionStorage, não em localStorage, e a diferença é de propósito: a
+   escolha sobrevive ao recarregamento e à volta do segundo plano, e some quando
+   o app é fechado de verdade — que é quando começar limpo faz sentido. */
+function usarEscolha(chave,inicial){
+  const nome="conhub:"+chave;
+  const [v,setV]=useState(()=>{
+    try{ const s=sessionStorage.getItem(nome); return s===null?inicial:JSON.parse(s); }
+    catch(e){ return inicial; }
+  });
+  useEffect(()=>{ try{ sessionStorage.setItem(nome,JSON.stringify(v)); }catch(e){} },[nome,v]);
+  return [v,setV];
+}
 /* Tempo de resposta nos relatórios. O backend devolve minutos crus; passando de
    uma hora, "95 min" não diz nada a ninguém — vira "1h 35min". */
 const fmtMin=(min)=>{
@@ -1461,7 +1484,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
   const supervisor=role==="adm"||role==="sdr";
-  const [view,setView]=useState(role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
+  /* A aba aberta também é escolha da pessoa. Sem guardar, voltar do segundo
+     plano no celular jogava todo mundo de volta na tela inicial do papel dele,
+     no meio do atendimento. */
+  const [view,setView]=usarEscolha("view",role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
@@ -2214,7 +2240,7 @@ function ControleConversa({lead,acoes,isMobile}){
 
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs}){
-  const [filter,setFilter]=useState("Todos");
+  const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -2847,7 +2873,17 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
   const [recado,setRecado]=useState("");
   const [rascunho,setRascunho]=useState("");
 
-  const rever=()=>acoes.semResposta().then(x=>{setD(x);setRascunho(String(x.minutos));}).catch(()=>setD({leads:[],minutos:0}));
+  /* O campo dos minutos é preenchido UMA vez, na primeira leitura. Depois disso
+     ele é de quem está digitando.
+
+     Esta lista se relê sozinha de minuto em minuto, e a releitura reescrevia o
+     campo com o valor que está gravado no servidor: quem estivesse trocando 30
+     por 45 via o número apagado e voltar ao antigo no meio da digitação. */
+  const jaPreencheu=useRef(false);
+  const rever=()=>acoes.semResposta().then(x=>{
+    setD(x);
+    if(!jaPreencheu.current){ jaPreencheu.current=true; setRascunho(String(x.minutos)); }
+  }).catch(()=>setD({leads:[],minutos:0}));
   useEffect(()=>{rever();const t=setInterval(rever,60000);return()=>clearInterval(t);},[]);
 
   async function chamar(l){
@@ -2978,21 +3014,23 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   // atende, e ver a imobiliária inteira misturava o trabalho dela com a
   // supervisão — o lead repassado ao corretor continuava aparecendo. A visão
   // geral fica a um clique. O gestor abre já na equipe inteira, como antes.
-  const [escopo,setEscopo]=useState(session.role==="sdr"?"meus":"todos");
-  const [f,setF]=useState({atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
+  const [escopo,setEscopo]=usarEscolha("conversas.escopo",session.role==="sdr"?"meus":"todos");
+  const [f,setF]=usarEscolha("conversas.filtros",{atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
   /* Só "Todos" e "Meus" ficam à vista. Temperatura e "aguardando" desceram para
      a gaveta: cinco pastilhas numa coluna de 340px quebravam em duas linhas e
      comiam o espaço da lista de conversas, que é o que interessa. */
-  const [rapido,setRapido]=useState("Todos");
-  const [esperando,setEsperando]=useState(false);   // só quem está sem resposta
-  const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  const [rapido,setRapido]=usarEscolha("conversas.rapido","Todos");
+  const [esperando,setEsperando]=usarEscolha("conversas.esperando",false);   // só quem está sem resposta
+  const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("conversas.gaveta",false);
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
   const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0);
-  const [verFinalizados,setVerFinalizados]=useState(false);
+  const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState("lista");
-  const [busca,setBusca]=useState("");
+  // Guardada junto com os filtros: restaurar um sem o outro deixaria a lista
+  // filtrada por um texto que não aparece em lugar nenhum da tela.
+  const [busca,setBusca]=usarEscolha("conversas.busca","");
   // Mensagem citada, aqui no mesmo lugar em que os balões são desenhados.
   const [citando,setCitando]=useState(null);
   const [editando,setEditando]=useState(null);
@@ -3058,8 +3096,6 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
-          {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);}}
-            style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
           {/* Atendimento finalizado sai da lista; este é o caminho de volta,
               para consultar ou reabrir sem precisar caçar no funil. */}
           <button onClick={()=>setVerFinalizados(v=>!v)} title="Mostrar também os atendimentos finalizados"
@@ -3073,11 +3109,20 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           {/* "Aguardando resposta" era pastilha lá em cima. Aqui embaixo ele
               soma com os outros filtros em vez de substituí-los: dá para ver
               quem está esperando DENTRO de uma etapa ou de um corretor. */}
-          <button onClick={()=>setEsperando(v=>!v)}
-            style={{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:6,
-              border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
-              color:esperando?C.hot:C.sub,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
+          {/* O "limpar" morava lá em cima, colado no botão Filtros — dois alvos
+              a poucos pixels um do outro no celular. Errar o dedo apagava tudo
+              de uma vez, e do lado de quem usa isso é o filtro se desmarcando
+              sozinho. Aqui embaixo ele só existe com a gaveta aberta, longe do
+              botão que se aperta o tempo todo. */}
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <button onClick={()=>setEsperando(v=>!v)}
+              style={{display:"flex",alignItems:"center",gap:6,
+                border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
+                color:esperando?C.hot:C.sub,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
+            {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);}}
+              style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
+          </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
             {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
@@ -3181,12 +3226,29 @@ function ResumoIA({lead,acoes,isMobile}){
   const [erro,setErro]=useState("");
   const [aberto,setAberto]=useState(false);
 
-  // Trocar de lead troca o resumo: o da conversa anterior não diz nada sobre esta.
+  /* Duas coisas diferentes, que estavam no mesmo lugar e por isso brigavam.
+
+     1) Trocar de lead fecha e limpa: o resumo da conversa anterior não diz nada
+        sobre esta.
+     2) O conteúdo se atualiza sozinho quando o servidor traz resumo mais novo
+        (outra pessoa gerou o dela) — mas ATUALIZAR NÃO PODE FECHAR.
+
+     Estava tudo num efeito só, e a lista de dependências olhava o objeto
+     `lead.resumo`. A conversa aberta é rebuscada a cada 10 segundos, e cada
+     resposta do servidor devolve um objeto NOVO — igual por dentro, diferente
+     por fora. Para o React isso é mudança: o efeito rodava, o `aberto` voltava
+     para falso e o resumo se fechava sozinho poucos segundos depois do clique.
+
+     Agora o que dispara a sincronia é a HORA do resumo e o número de mensagens
+     novas — dois números. Objeto novo com o mesmo conteúdo não mexe em nada. */
+  const carimbo=lead.resumo&&lead.resumo.gerado&&lead.resumo.gerado.em||0;
+  const novasDoServidor=lead.resumo&&lead.resumo.novas||0;
+
+  useEffect(()=>{ setAberto(false); setErro(""); },[lead.id]);
   useEffect(()=>{
     setDados(lead.resumo&&lead.resumo.gerado||null);
-    setNovas(lead.resumo?lead.resumo.novas||0:0);
-    setErro(""); setAberto(false);
-  },[lead.id,lead.resumo]);
+    setNovas(novasDoServidor);
+  },[lead.id,carimbo,novasDoServidor]);
 
   if(!lead.resumo||!lead.resumo.disponivel) return null;
 
@@ -4571,15 +4633,17 @@ const SITUACAO_PRODUTO={
 const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
 
 function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
-  const [f,setF]=useState({q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
-  const [busca,setBusca]=useState("");
+  // Mesmo caso das conversas: filtro escolhido é trabalho da pessoa, e voltar
+  // do segundo plano não pode desfazê-lo.
+  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
+  const [busca,setBusca]=usarEscolha("imoveis.busca","");
   const [lista,setLista]=useState(null);
   const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
   const [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null); // objeto do produto, ou "novo"
   const [aberto,setAberto]=useState(null);     // produto em detalhe
   const [recarga,setRecarga]=useState(0);
-  const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
   const filtrosAtivos=[f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
 
