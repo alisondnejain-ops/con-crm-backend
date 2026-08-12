@@ -126,6 +126,32 @@ exige Python + build tools. O npm 11+ também bloqueia os scripts de instalaçã
 - **Uazapi (WhatsApp não-oficial)**: envio em `services/uazapi.js` (`/send/text`), recebimento em `POST /webhooks/uazapi`. Precisa `UAZAPI_HOST`/`UAZAPI_TOKEN`. ATENÇÃO: API não-oficial fere os termos do WhatsApp e tem risco de ban — usar número dedicado, sem disparo em massa idêntico. Os campos exatos de payload variam por provedor; ajustar conforme a conta.
 - **E-mail (implementado, falta a conta)**: `services/mail.js` chama a API do Resend por HTTP puro (sem SDK). Precisa de `RESEND_API_KEY` e `MAIL_FROM` com domínio verificado da Conecta. Sem isso, `sendMail` devolve `{sent:false}` e o cadastro cai no modo manual (link na tela + no log) — de propósito, para não travar a operação.
 
+## Pauta combinada com o Ali (12/08/2026) — relatórios e etapa por IA
+
+Pedido dele, para atacar em bloco na próxima sessão. Nada disso foi investigado
+ainda; o que está escrito aqui é o pedido, não diagnóstico.
+
+1. **Avanço de etapa por palavra-chave não está funcionando.** Regra atual em
+   `backend/src/services/stages.js` → `GATILHOS`. Antes de mexer, medir: o
+   `GET /leads/reanalise` (só ADM, tela em "Base de leads") recalcula a etapa da
+   base inteira pela regra e mostra o que mudaria **sem aplicar** — é o jeito
+   barato de ver se o problema é a palavra que ninguém escreve, o gatilho que
+   não casa, ou o ponto do código que deixou de ser chamado.
+2. **Avaliar a IA fazendo esse avanço** no lugar (ou em cima) da palavra-chave:
+   ela lê a conversa e diz em que etapa o lead está. Avaliar viabilidade, custo
+   por conversa e o risco de mexer no funil sozinha — hoje a IA no CRM é
+   **leitura, nunca escrita** (regra do resumo), e mudar etapa é escrita.
+   Decidir se entra como sugestão para o corretor confirmar ou como automático.
+3. **Score do corretor.** Revisar o cálculo para o número bater com o que a tela
+   mostra. Lembrar do que já foi corrigido em 10/08: venda conta pela
+   `sale_date`; `recebidos`/`por_etapa`/`conversao` são de coorte;
+   `agendamentos` é foto do momento. Falta histórico de etapas para medir
+   "avançou no período" — provavelmente vira pré-requisito aqui.
+4. **Relatório de corretor para apresentar em reunião.** Saída apresentável
+   (PDF/impressão), e a exigência dele: **fiel ao que o CRM mostra** — mesmo
+   período, mesma definição de cada número, sem métrica que só existe no
+   relatório.
+
 ## Próximos passos (nesta ordem)
 
 1. **Hospedar o backend** — guia pronto em `DEPLOY.md` (Railway; `render.yaml` como alternativa). Precisa de plano sempre-ligado (o free hiberna e atrasa os webhooks) e de disco persistente com `DB_PATH=/data/concrm.db`. Objetivo: obter a URL HTTPS pública e liberar o link de cadastro. **Domínio (11/08/2026): o endereço oficial é `https://www.conhubcrm.com.br`, COM `www`** — a raiz sem `www` não aponta e não vai apontar tão cedo (o Railway não dá IP fixo e o domínio está com DNSSEC no Registro.br; o porquê está em `DEPLOY.md → Domínio próprio`). Ao trocar o endereço, acompanham: `APP_URL`/`SITE_URL` no Railway (é o `APP_URL` que monta a URL pública das mídias enviadas ao WhatsApp), o webhook da Uazapi e a reinstalação do atalho na tela de início.
