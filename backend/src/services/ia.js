@@ -122,6 +122,7 @@ export async function lerPrintSimulacao({ base64, mime }) {
   const num = (v) => (typeof v === "number" && isFinite(v) && v >= 0 ? v : null);
   return {
     ok: true,
+    uso: r.uso,
     dados: {
       valor_imovel: num(dados.valor_imovel),
       entrada: num(dados.entrada),

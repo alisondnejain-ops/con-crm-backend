@@ -5,6 +5,7 @@ import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../au
 import { STAGES, LINEAR, normalizePhone, inferStage } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa } from "../services/ia.js";
+import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
@@ -485,6 +486,9 @@ r.post("/:id/resumo", async (req, res) => {
 
   db.prepare("UPDATE leads SET resumo_json = ?, resumo_em = ?, resumo_msgs = ? WHERE id = ?")
     .run(JSON.stringify(r2.resumo), Date.now(), msgs.length, lead.id);
+  /* Fica registrado quem clicou: é dinheiro saindo, e a gestão precisa poder
+     responder "quanto já usamos e quem usou" sem caçar linha de log. */
+  registrarUsoIA({ orgId: lead.org_id, userId: req.user.id, leadId: lead.id, recurso: "resumo", uso: r2.uso });
   if (r2.uso) console.log(`[ia] resumo de ${lead.name}: ${r2.uso.entrada} tokens de entrada, ${r2.uso.saida} de saída`);
   res.json({ ok: true, resumo: { ...r2.resumo, em: Date.now() }, novas: 0 });
 });
@@ -604,6 +608,7 @@ r.post("/:id/simulacao/ler", async (req, res) => {
   const { base64, mime } = req.body || {};
   const r1 = await lerPrintSimulacao({ base64, mime });
   if (!r1.ok) return res.status(422).json({ error: r1.erro });
+  registrarUsoIA({ orgId: lead.org_id, userId: req.user.id, leadId: lead.id, recurso: "print_simulacao", uso: r1.uso });
   res.json({ rascunho: r1.dados });
 });
 

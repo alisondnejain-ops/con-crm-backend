@@ -13,6 +13,8 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
 import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
+import { iaConfigurada, modeloIA } from "../services/ia.js";
+import { resumoDeUso } from "../services/iauso.js";
 
 const r = Router();
 r.use(authRequired);
@@ -100,6 +102,23 @@ r.post("/mensagens/:id/mover", roles("adm", "sdr"), (req, res) => {
   });
   trocar();
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
+});
+
+/* ===== CONSUMO DA IA =====
+
+   Quem paga a conta pergunta duas coisas: quanto já usamos, e quem usou. A
+   segunda não é fiscalização — é a única forma de saber se o recurso pegou na
+   equipe ou está parado. Por isso a lista vem por pessoa, com o gasto de cada
+   uma ao lado.
+
+   O SALDO da conta não sai daqui: ele mora no painel do provedor de IA, e o
+   CRM não tem como consultá-lo. A tela diz isso em vez de inventar um número.
+   O que temos é o gasto: o que este CRM consumiu. */
+r.get("/ia", roles("adm", "sdr"), (req, res) => {
+  if (!iaConfigurada())
+    return res.json({ configurada: false, modelo: null });
+  const dias = Math.min(Math.max(Number(req.query.dias) || 30, 1), 365);
+  res.json({ configurada: true, ...resumoDeUso(req.user.org_id, dias) });
 });
 
 /* ===== CONEXÃO =====

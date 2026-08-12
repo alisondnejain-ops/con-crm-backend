@@ -710,6 +710,7 @@ function ConCRM(){
     apagarMensagem:(id)=>api(`/config/mensagens/${id}`,{method:"DELETE"}),
     moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
     conexao:()=>api("/config/conexao"),
+    usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
     semResposta:()=>api("/distribution/sem-resposta"),
@@ -5244,7 +5245,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
   const [aba,setAba]=useState("mensagens");
-  const abas=[["mensagens","Mensagens automáticas"],["conexao","Conexão"]];
+  const abas=[["mensagens","Mensagens automáticas"],["conexao","Conexão"],["ia","Uso da IA"]];
   return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -5252,9 +5253,9 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
           style={{fontSize:12.5,fontWeight:600,padding:"8px 15px",borderRadius:999,border:"none",cursor:"pointer",
             background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
       </div>
-      {aba==="mensagens"
-        ?<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>
-        :<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
+      {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
+      {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
+      {aba==="ia"&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
     </div>
   </div>;
 }
@@ -5396,6 +5397,107 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
    O tutorial fica DENTRO da ferramenta de propósito. Quem assina o ConHub não
    tem obrigação de saber o que é Uazapi — e mandar o cliente "procurar no
    site deles" é onde a instalação para. */
+
+/* ===== USO DA IA =====
+
+   A pergunta de quem paga a conta é dupla: "quanto já gastamos" e "quem usou".
+   A segunda não é vigilância — é como se descobre que o recurso está parado
+   (ninguém clicou) ou que uma pessoa carrega o time sozinha.
+
+   Uma coisa esta tela NÃO mostra: o saldo da conta de IA. Ele vive no painel
+   do provedor e o CRM não tem como consultá-lo. Dizer isso é melhor do que
+   exibir um número que não é o saldo e deixar a gestão achar que é. */
+function UsoDaIA({acoes,isMobile}){
+  const [d,setD]=useState(null);
+  const [dias,setDias]=useState(30);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{let vivo=true; setD(null);
+    acoes.usoDaIA(dias).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[dias]);
+
+  // Dólar aproximado só para dar noção de grandeza; o número exato é o de lá.
+  const emReais=(usd)=>`R$ ${(usd*5.4).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+
+  if(erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{erro}</div>;
+  if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
+
+  if(!d.configurada) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:18}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+      <Icon n="sparkles" size={15} color={C.faint}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>IA não configurada</span>
+    </div>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.55}}>
+      Sem a chave da IA, o resumo da conversa e a leitura do print da Caixa ficam escondidos e nada é gasto.
+    </div>
+  </div>;
+
+  const cartao=(rot,valor,sub)=><div style={{flex:"1 1 150px",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{rot}</div>
+    <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1.2,marginTop:3}}>{valor}</div>
+    {sub&&<div style={{color:C.faint,fontSize:10.5,marginTop:2}}>{sub}</div>}
+  </div>;
+
+  return <React.Fragment>
+    {/* O saldo não é nosso para mostrar — dizemos onde ele está. */}
+    <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,borderRadius:11,padding:"10px 12px",marginBottom:14}}>
+      <b>O saldo da conta não fica aqui.</b> Este painel mostra o que o CRM <b>gastou</b>. O crédito que resta
+      aparece no painel do provedor de IA (console.anthropic.com → Billing) — o CRM não consegue consultá-lo.
+    </div>
+
+    <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+      {[[7,"7 dias"],[30,"30 dias"],[90,"90 dias"]].map(([n,t])=>
+        <button key={n} onClick={()=>setDias(n)}
+          style={{fontSize:11.5,fontWeight:600,padding:"6px 12px",borderRadius:999,cursor:"pointer",
+            border:dias===n?"none":`1px solid ${C.line}`,background:dias===n?C.greenDeep:C.card,color:dias===n?"#fff":C.sub}}>{t}</button>)}
+    </div>
+
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+      {cartao("Usos no período",d.total.usos,`${d.total.entrada+d.total.saida} tokens`)}
+      {cartao("Gasto no período",emReais(d.total.custo),`US$ ${d.total.custo.toFixed(4)}`)}
+      {cartao("Hoje",d.hoje.usos,emReais(d.hoje.custo))}
+      {cartao("Desde o início",d.sempre.usos,emReais(d.sempre.custo))}
+    </div>
+
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9,display:"flex",alignItems:"center",gap:7}}>
+        <Icon n="users" size={14} color={C.greenMid}/> Quem usou</div>
+      {d.por_pessoa.length===0
+        ?<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Ninguém usou a IA neste período. Se o recurso é útil, vale lembrar a equipe de que ele existe.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {d.por_pessoa.map((p,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+            <Avatar ini={initials(p.nome)} color={COLORS[i%COLORS.length]} size={26}/>
+            <div style={{flex:1,minWidth:100}}>
+              <div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{p.nome}</div>
+              <div style={{color:C.faint,fontSize:10.5}}>{roleParaTexto(p.papel)} · último uso {fmtData(p.ultimo)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{p.usos}</div>
+              <div style={{color:C.faint,fontSize:10.5}}>{emReais(p.custo)}</div>
+            </div>
+          </div>)}
+        </div>}
+    </div>
+
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9,display:"flex",alignItems:"center",gap:7}}>
+        <Icon n="chart" size={14} color={C.greenMid}/> Em que foi usado</div>
+      {d.por_recurso.length===0
+        ?<div style={{color:C.faint,fontSize:12.5}}>Nada ainda.</div>
+        :d.por_recurso.map((x,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:i?`1px solid ${C.line}`:"none"}}>
+          <span style={{color:C.ink,fontSize:12.5,flex:1}}>{x.rotulo}</span>
+          <span style={{fontFamily:MONO,color:C.sub,fontSize:12}}>{x.usos}</span>
+          <span style={{color:C.faint,fontSize:11,minWidth:70,textAlign:"right"}}>{emReais(x.custo)}</span>
+        </div>)}
+      <div style={{color:C.faint,fontSize:10.5,marginTop:10,lineHeight:1.5}}>
+        Modelo em uso: <b style={{color:C.sub}}>{d.modelo}</b>.
+        {d.preco_conhecido
+          ?" Os valores são calculados pelo preço de tabela no momento de cada uso, convertidos por um dólar aproximado."
+          :" O preço deste modelo não está na tabela do CRM, então o gasto aparece como zero — os tokens continuam certos."}
+      </div>
+    </div>
+  </React.Fragment>;
+}
+
 function ConexaoConfig({acoes,session,isMobile}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");

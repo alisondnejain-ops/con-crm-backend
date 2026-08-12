@@ -355,6 +355,29 @@ addLeadCol("resumo_json", "TEXT");
 addLeadCol("resumo_em", "INTEGER");
 addLeadCol("resumo_msgs", "INTEGER");
 addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou junto
+/* Consumo da IA, por pessoa.
+
+   Recurso que gasta dinheiro precisa ter dono registrado. O log do servidor
+   dizia quantos tokens foram gastos, mas não quem clicou — então ninguém
+   conseguia responder "quanto já usamos e quem usou", que é a primeira
+   pergunta de quem paga a conta.
+
+   Guardamos os tokens, não o texto: nem a conversa nem o resumo passam por
+   aqui. O custo fica gravado no momento do uso, porque preço de tabela muda
+   e um relatório que recalcula o passado com o preço de hoje mente. */
+db.exec(`CREATE TABLE IF NOT EXISTS ia_uso (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT,
+  lead_id TEXT,
+  recurso TEXT NOT NULL,          -- 'resumo' | 'print_simulacao'
+  modelo TEXT,
+  tokens_entrada INTEGER DEFAULT 0,
+  tokens_saida INTEGER DEFAULT 0,
+  custo_usd REAL DEFAULT 0,
+  created_at INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_iauso_org ON ia_uso(org_id, created_at)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_leads_import ON leads(import_id)");
 
 // Modalidade de financiamento do imóvel. Antes existia só a caixinha
