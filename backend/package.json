@@ -13,7 +13,7 @@
     "teste:dono": "node testes/dono-imobiliaria.mjs",
     "teste:whatsapp": "node testes/whatsapp-por-imobiliaria.mjs",
     "teste:apagar": "node testes/apagar-imobiliaria.mjs",
-    "teste": "npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse",
+    "teste": "npm run teste:webhook && npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse",
     "teste:resumo": "node testes/resumo-ia.mjs",
     "teste:iauso": "node testes/uso-ia.mjs",
     "teste:funil": "node testes/diagnostico-funil.mjs",
@@ -22,7 +22,8 @@
     "teste:nome": "node testes/nome-do-lead.mjs",
     "teste:funil-card": "node testes/funil-card.mjs",
     "teste:fotos": "node testes/fotos-do-imovel.mjs",
-    "teste:repasse": "node testes/repasse-avisa.mjs"
+    "teste:repasse": "node testes/repasse-avisa.mjs",
+    "teste:webhook": "node testes/webhook-aberto.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",

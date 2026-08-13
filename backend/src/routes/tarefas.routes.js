@@ -19,8 +19,21 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, podeVerLead } from "../auth.js";
 
-const r = Router();
+/* DOIS routers, com caminhos EXPLÍCITOS na hora de montar.
+
+   Este arquivo já foi montado como `app.use(cobrando, tarefasRoutes)` — sem
+   caminho. Sem caminho, o middleware de login passa a valer para TODA rota
+   registrada depois dele no server.js, e as que vinham depois eram os webhooks
+   da Meta e da Uazapi. Resultado: todo lead que chegava pelo WhatsApp levava
+   401 e era descartado.
+
+   O comentário logo acima daquela linha no server.js avisava exatamente isso.
+   Por isso agora são dois routers com prefixo próprio: montar errado deixa de
+   ser possível sem mudar o prefixo de propósito. */
+const r = Router();          // montado em /leads
 r.use(authRequired);
+const rt = Router();         // montado em /tarefas
+rt.use(authRequired);
 
 const doLead = (id) => db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 
@@ -29,13 +42,13 @@ export const listar = (leadId) => db.prepare(`
   FROM tarefas t LEFT JOIN users u ON u.id = t.user_id
   WHERE t.lead_id = ? ORDER BY t.feito_em IS NOT NULL, t.quando ASC`).all(leadId);
 
-r.get("/leads/:id/tarefas", (req, res) => {
+r.get("/:id/tarefas", (req, res) => {
   const lead = doLead(req.params.id);
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   res.json({ tarefas: listar(lead.id) });
 });
 
-r.post("/leads/:id/tarefas", (req, res) => {
+r.post("/:id/tarefas", (req, res) => {
   const lead = doLead(req.params.id);
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
 
@@ -58,7 +71,7 @@ r.post("/leads/:id/tarefas", (req, res) => {
 });
 
 // Marcar como feita, desmarcar, ou mudar o texto e a data.
-r.patch("/tarefas/:id", (req, res) => {
+rt.patch("/:id", (req, res) => {
   const t = db.prepare("SELECT * FROM tarefas WHERE id = ?").get(req.params.id);
   if (!t) return res.status(404).json({ error: "Tarefa não encontrada." });
   const lead = doLead(t.lead_id);
@@ -82,7 +95,7 @@ r.patch("/tarefas/:id", (req, res) => {
   res.json({ ok: true, tarefas: listar(t.lead_id) });
 });
 
-r.delete("/tarefas/:id", (req, res) => {
+rt.delete("/:id", (req, res) => {
   const t = db.prepare("SELECT * FROM tarefas WHERE id = ?").get(req.params.id);
   if (!t) return res.status(404).json({ error: "Tarefa não encontrada." });
   const lead = doLead(t.lead_id);
@@ -113,3 +126,4 @@ export function tarefasAbertasPorLead(orgId) {
 }
 
 export default r;
+export { rt as tarefasPorId };

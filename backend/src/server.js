@@ -9,7 +9,7 @@ import authRoutes from "./routes/auth.routes.js";
 import leadsRoutes from "./routes/leads.routes.js";
 import distRoutes from "./routes/distribution.routes.js";
 import msgRoutes from "./routes/messages.routes.js";
-import tarefasRoutes from "./routes/tarefas.routes.js";
+import tarefasRoutes, { tarefasPorId } from "./routes/tarefas.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
 import pushRoutes from "./routes/push.routes.js";
@@ -199,8 +199,14 @@ app.use("/arquivos", express.static(pastaLocal(), { maxAge: "7d" }));
 // Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
 // Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages
-// Tarefas: as rotas trazem o caminho inteiro (/leads/:id/tarefas e /tarefas/:id).
-app.use(cobrando, tarefasRoutes);
+/* Tarefas, com CAMINHO EXPLÍCITO nos dois casos.
+
+   Estava como `app.use(cobrando, tarefasRoutes)` — sem caminho. Sem caminho, o
+   `cobrando` vale para toda rota registrada DEPOIS, e as que vinham depois eram
+   os webhooks da Meta e da Uazapi: todo lead que chegava pelo WhatsApp levava
+   401 e ia para o lixo. É o mesmo tropeço que o comentário acima já descreve. */
+app.use("/leads", cobrando, tarefasRoutes);      // /leads/:id/tarefas
+app.use("/tarefas", cobrando, tarefasPorId);     // /tarefas/:id
 app.use("/webhooks", metaWebhook);    // GET/POST /webhooks/meta
 app.use("/webhooks", uazapiWebhook);  // POST /webhooks/uazapi
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever

@@ -7,6 +7,8 @@ import { ultimosEventos } from "./uazapi.webhook.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
 
 const r = Router();
+// Quando este processo subiu — a lista de webhooks abaixo só vale a partir daqui.
+const inicio = Date.now();
 
 // Painel de instalação: diz o que já está ligado, SEM devolver nenhum segredo.
 // Tokens e senhas nunca aparecem aqui — só "configurado: true/false" e o estado da conexão.
@@ -36,6 +38,26 @@ r.get("/integracoes", async (_req, res) => {
     // A citação falha calada, então é aqui que se descobre o motivo.
     citacao: citacaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
     edicao: edicaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
+    /* QUANDO foi a última vez que entrou alguma coisa.
+
+       É a pergunta que se faz quando alguém diz "parou de chegar lead", e o
+       painel não respondia: dava para ver quantos leads existem, não quando o
+       último chegou. Sem isso, "parou agora" e "parou há três dias" são
+       indistinguíveis — e são problemas completamente diferentes.
+
+       A mensagem RECEBIDA é o sinal mais sensível: ela chega pelo mesmo
+       webhook do lead novo. Se as mensagens continuam entrando e leads não,
+       o WhatsApp está de pé e o problema é outro. Se as duas pararam na mesma
+       hora, o caminho até aqui é que caiu. */
+    ultima_entrada: (() => {
+      const q = (sql) => db.prepare(sql).get()?.q || null;
+      const desde = (ms) => ms ? { em: new Date(ms).toISOString(), ha_minutos: Math.round((Date.now() - ms) / 60000) } : null;
+      return {
+        lead: desde(q("SELECT MAX(created_at) q FROM leads")),
+        mensagem_recebida: desde(q("SELECT MAX(created_at) q FROM messages WHERE direction='in'")),
+        mensagem_enviada: desde(q("SELECT MAX(created_at) q FROM messages WHERE direction='out'")),
+      };
+    })(),
     banco: {
       caminho: process.env.DB_PATH ? "disco persistente" : "dentro do container (some no deploy)",
       usuarios: n("SELECT COUNT(*) n FROM users"),
@@ -49,7 +71,17 @@ r.get("/integracoes", async (_req, res) => {
 
 // Últimos webhooks recebidos da Uazapi — para conferir a instalação.
 // Mostra só o resultado do processamento, nunca o conteúdo das conversas.
-r.get("/integracoes/webhooks", (_req, res) => res.json({ recebidos: ultimosEventos.length, eventos: ultimosEventos }));
+r.get("/integracoes/webhooks", (_req, res) => res.json({
+  /* A lista vive na memória e zera a cada publicação. Dizer isso junto evita a
+     leitura errada mais provável: lista vazia logo depois de um deploy não
+     significa que a Uazapi parou de chamar — significa que ainda não chamou
+     DESDE o deploy. */
+  no_ar_desde: new Date(inicio).toISOString(),
+  ha_minutos: Math.round((Date.now() - inicio) / 60000),
+  observacao: "Esta lista zera a cada publicação. Vazia logo após um deploy não quer dizer que a Uazapi parou — quer dizer que ela ainda não chamou desde então.",
+  recebidos: ultimosEventos.length,
+  eventos: ultimosEventos,
+}));
 
 /* Teste do armazenamento: grava um arquivo de verdade, confere que ele abre
    pela URL pública e apaga. Vale mais que "as variáveis estão preenchidas" —

@@ -97,6 +97,36 @@ con-crm/
     └── src/services/      # stages, uazapi, meta, mail (Resend)
 ```
 
+## Ordem de montagem no server.js — a armadilha que já custou caro
+
+`app.use(middleware, router)` **sem caminho** aplica o middleware a TODA rota
+registrada depois dele. Em 13/08/2026 as tarefas entraram como
+`app.use(cobrando, tarefasRoutes)`, e as rotas seguintes eram os webhooks da
+Meta e da Uazapi: **todo lead que chegava pelo WhatsApp levou 401 e foi
+descartado**. O CRM continuou de pé, a tela abria, nenhum erro aparecia — só
+parou de entrar lead.
+
+Regra: **todo `app.use` com middleware leva caminho explícito.** Rota nova nunca
+entra depois dos webhooks sem prefixo próprio.
+
+`npm run teste:webhook` sobe o servidor inteiro e confere de fora: os webhooks e
+o painel `/integracoes` respondem SEM login, e `/leads`, `/reports`, `/config`,
+`/tarefas` e `/distribution` respondem 401. É o primeiro teste da suíte — se o
+webhook está fechado, nada mais importa. Nenhum teste de unidade pega isso:
+cada rota isolada funciona; o que quebra é a ordem.
+
+## "Parou de chegar lead" — por onde começar
+
+1. **`SITE/integracoes`** → `ultima_entrada` diz há quantos minutos entrou o
+   último lead, a última mensagem recebida e a última enviada. Mensagem
+   recebida é o sinal mais sensível: ela chega pelo mesmo webhook do lead novo.
+   Se as mensagens continuam entrando e leads não, o WhatsApp está de pé.
+   Confira também `whatsapp.ok` (instância pareada?) e `banco.caminho`.
+2. **`SITE/integracoes/webhooks`** → o que a Uazapi mandou desde que o servidor
+   subiu, com o resultado de cada evento. A lista **zera a cada publicação** — e
+   a própria resposta avisa isso, para lista vazia logo após um deploy não ser
+   lida como "a Uazapi parou".
+
 ## Aviso de versão nova (conserto de 13/08/2026)
 
 O `AvisoVersao` relia o `/index.html` para descobrir se havia versão nova. Isso

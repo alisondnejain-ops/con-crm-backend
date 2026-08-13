@@ -55,9 +55,12 @@ console.log("3. Lead sem histórico devolve null — nunca a data de criação")
 const { default: express } = await import("express");
 const jwt = (await import("jsonwebtoken")).default;
 const { default: leadsRoutes } = await import("../src/routes/leads.routes.js");
-const { default: tarefasRoutes } = await import("../src/routes/tarefas.routes.js");
+const { default: tarefasRoutes, tarefasPorId } = await import("../src/routes/tarefas.routes.js");
 const token = jwt.sign({ id: ali, role: "adm", org_id: org, name: "Ali" }, "teste", { expiresIn: "1h" });
-const app = express(); app.use(express.json()); app.use("/leads", leadsRoutes); app.use(tarefasRoutes);
+const app = express(); app.use(express.json()); /* Montagem com CAMINHO EXPLÍCITO, igual à do server.js. Montar o router de
+   tarefas em "/" foi o que pôs o login na frente dos webhooks e derrubou a
+   entrada de leads — o teste tem que refletir a montagem de verdade. */
+app.use("/leads", leadsRoutes); app.use("/leads", tarefasRoutes); app.use("/tarefas", tarefasPorId);
 const srv = app.listen(0); const porta = srv.address().port;
 const chamar = (p, m, body) => fetch(`http://127.0.0.1:${porta}${p}`, {
   method: m || "GET", headers: { authorization: "Bearer " + token, "content-type": "application/json" },
