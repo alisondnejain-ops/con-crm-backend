@@ -241,7 +241,7 @@ export function textoDoProduto(p) {
 // A localização é opcional DE PROPÓSITO — mandar endereço sem querer é o tipo de
 // erro que não dá para desfazer no WhatsApp.
 r.post("/:id/produto", async (req, res) => {
-  const { produto_id, fotos = true, video = false, localizacao = false } = req.body || {};
+  const { produto_id, fotos = true, video = false, localizacao = false, fotos_ids } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVerLead(req.user, lead))
@@ -251,7 +251,21 @@ r.post("/:id/produto", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Produto não encontrado" });
 
   const firstName = (req.user.name || "").split(" ")[0];
-  const midias = db.prepare("SELECT tipo,url,chave FROM produto_midias WHERE produto_id=? ORDER BY ordem").all(p.id);
+  const midias = db.prepare("SELECT id,tipo,url,chave FROM produto_midias WHERE produto_id=? ORDER BY ordem").all(p.id);
+
+  /* Quais fotos vão. Sem `fotos_ids` continua indo o anúncio inteiro, que é o
+     que já acontecia e o que o corretor faz na maior parte das vezes.
+
+     Com a lista, vão só as escolhidas — o captador sobe dez fotos do
+     empreendimento e o corretor quer mandar as três do apartamento que
+     interessa àquele cliente. Mandar as dez é o jeito rápido de o cliente
+     parar de olhar.
+
+     A ordem é sempre a do anúncio, não a da escolha: a primeira foto é a capa
+     que o captador definiu, e é ela que leva a legenda. */
+  const escolhidas = Array.isArray(fotos_ids) ? new Set(fotos_ids.map(String)) : null;
+  const fotosParaEnviar = midias.filter(m => m.tipo === "foto" &&
+    (!escolhidas || escolhidas.has(String(m.id))));
   let texto = textoDoProduto(p);
   if (localizacao && p.maps_url) texto += `\n\n📍 Localização: ${p.maps_url}`;
 
@@ -260,7 +274,7 @@ r.post("/:id/produto", async (req, res) => {
     /* A foto do catálogo já está guardada, então aqui não temos o arquivo em
        mãos. `bytes` é uma função: só lê do disco/R2 se a URL falhar — assim o
        envio normal continua tão leve quanto era. */
-    if (fotos) for (const m of midias.filter(m => m.tipo === "foto"))
+    if (fotos) for (const m of fotosParaEnviar)
       await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: "image", file: m.url,
         bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
     if (video) for (const m of midias.filter(m => m.tipo === "video"))
@@ -271,7 +285,15 @@ r.post("/:id/produto", async (req, res) => {
   }
 
   const now = Date.now();
-  const registro = `[Imóvel enviado] ${p.titulo}` + (localizacao && p.maps_url ? " (com localização)" : "");
+  /* O registro na conversa diz QUANTAS fotos foram quando não foram todas.
+     Sem isso, olhando o histórico dois dias depois, ninguém sabe se o cliente
+     viu o anúncio inteiro ou três fotos escolhidas — e é essa a diferença que
+     explica por que ele não se animou. */
+  const todasAsFotos = midias.filter(m => m.tipo === "foto").length;
+  const parcial = fotos && fotosParaEnviar.length > 0 && fotosParaEnviar.length < todasAsFotos;
+  const registro = `[Imóvel enviado] ${p.titulo}`
+    + (parcial ? ` (${fotosParaEnviar.length} de ${todasAsFotos} fotos)` : "")
+    + (localizacao && p.maps_url ? " (com localização)" : "");
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
     VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
@@ -279,7 +301,7 @@ r.post("/:id/produto", async (req, res) => {
   if (!lead.produto_id) db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(p.id, lead.id);
 
   advanceStage(lead.id);
-  res.json({ ok: true, enviadas: (fotos ? midias.filter(m => m.tipo === "foto").length : 0) + (video ? midias.filter(m => m.tipo === "video").length : 0) });
+  res.json({ ok: true, enviadas: (fotos ? fotosParaEnviar.length : 0) + (video ? midias.filter(m => m.tipo === "video").length : 0) });
 });
 
 // Imóvel de interesse do lead (opcional, marcado pelo corretor na ficha).

@@ -1628,11 +1628,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
+    adm:[["dashboard","grid","Painel"],["funil","columns","Funil"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["dashboard","grid","Painel"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["funil","columns","Funil"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
-    corretor:[["atendimento","msg","Atender"],["imoveis","pin","Imóveis"],["funil","columns","Funil"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
+    sdr:[["dashboard","grid","Painel"],["funil","columns","Funil"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
+    corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
   }[role].concat([["conta","users","Minha conta"]]);
   const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
@@ -1735,10 +1735,25 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
    Ter a mesma divisão nos dois é o ponto: o que está em "Mais" no celular está
    em "Mais" no computador, então quem usa os dois não precisa reaprender. */
-const LIMITE_NAV=5;
-function dividirNav(nav){
-  if(nav.length<=LIMITE_NAV) return {cabem:nav,extras:[]};
-  return {cabem:nav.slice(0,LIMITE_NAV-1),extras:nav.slice(LIMITE_NAV-1)};
+/* Quantos itens ficam à vista antes de o resto ir para o "Mais".
+
+   Eram 5 nos dois, com a mesma divisão de propósito: o que estava em "Mais" no
+   celular estava em "Mais" no PC, e quem usa os dois não reaprendia.
+
+   Só que os dois lugares não têm o mesmo espaço, e insistir no empate custava
+   caro do lado do PC: a barra é uma COLUNA, com a tela inteira de altura
+   sobrando, e mesmo assim o funil e o plantão viviam escondidos atrás de um
+   clique. No celular a barra é uma LINHA de 375px — sete ícones ali viram
+   alvos que o dedo não acerta.
+
+   A ORDEM continua a mesma nos dois. O que muda é só onde a lista é cortada,
+   então o que está à vista no celular está à vista no PC também: ninguém
+   precisa procurar em dois lugares diferentes. */
+const LIMITE_NAV=5;      // celular: 4 + o "Mais"
+const LIMITE_NAV_PC=7;   // computador: 6 + o "Mais"
+function dividirNav(nav,limite=LIMITE_NAV){
+  if(nav.length<=limite) return {cabem:nav,extras:[]};
+  return {cabem:nav.slice(0,limite-1),extras:nav.slice(limite-1)};
 }
 
 // Linha do menu "Mais" — mesma aparência na folha do celular e na do PC.
@@ -1761,7 +1776,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair}){
   const [maisAberto,setMaisAberto]=useState(false);
   const botaoMais=useRef(null);
   const [topo,setTopo]=useState(0);
-  const {cabem,extras}=dividirNav(nav);
+  const {cabem,extras}=dividirNav(nav,LIMITE_NAV_PC);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const maisAtivo=extras.some(([v])=>v===view);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
@@ -2525,6 +2540,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
@@ -2731,8 +2747,12 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"12px 15px":"14px 18px",minHeight:0}}>
         {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
           <Icon n="loader" size={14} spin/> Buscando a conversa…</div>}
+        {/* A etapa lida pela IA NÃO entra aqui, a pedido do Ali: ela mora na
+            ficha do lead. Aqui o popup responde "o que está acontecendo com
+            este cliente"; mudar a etapa dele é decisão de quem está atendendo,
+            no lugar onde se atende. Duas telas oferecendo a mesma decisão é
+            como o mesmo lead acaba movido duas vezes. */}
         <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
-        <EtapaIA lead={l} acoes={acoes} isMobile={isMobile}/>
         <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
       </div>
 
@@ -3864,6 +3884,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       <NomeDoLead lead={lead} acoes={acoes}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
@@ -5191,6 +5212,13 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
   const [opc,setOpc]=useState({fotos:true,video:false,localizacao:false});
   const [enviando,setEnviando]=useState(false);
   const [erro,setErro]=useState("");
+  /* Quais fotos vão. `null` = todas, que é o padrão e o caso mais comum.
+     Vira lista só quando o corretor abre a escolha. */
+  const [escolhidas,setEscolhidas]=useState(null);
+  const [escolhendo,setEscolhendo]=useState(false);
+  // Trocar de imóvel zera a escolha: foto do apartamento anterior não tem nada
+  // a ver com este, e mandar a errada não tem desfazer no WhatsApp.
+  useEffect(()=>{ setEscolhidas(null); setEscolhendo(false); },[sel&&sel.id]);
 
   useEffect(()=>{let vivo=true;
     const t=setTimeout(()=>acoes.produtos({status:"ativo",q:busca}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message)),300);
@@ -5199,7 +5227,11 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
   async function enviar(){
     if(!sel||enviando) return;
     setEnviando(true); setErro("");
-    try{ await acoes.enviarProduto(lead.id,{produto_id:sel.id,...opc}); aoFechar(); }
+    try{
+      await acoes.enviarProduto(lead.id,{produto_id:sel.id,...opc,
+        ...(opc.fotos&&escolhidas?{fotos_ids:escolhidas}:{})});
+      aoFechar();
+    }
     catch(e){ setErro(e.message); setEnviando(false); }
   }
   const marca=(chave,texto,aviso)=><label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",padding:"9px 10px",borderRadius:9,background:opc[chave]?C.greenSoft:C.surface,border:`1px solid ${opc[chave]?C.green+"55":C.line}`}}>
@@ -5244,7 +5276,57 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
       </div>
 
       {sel&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:7}}>
-        {marca("fotos",`Enviar as ${(sel.midias||[]).filter(m=>m.tipo==="foto").length} foto(s)`)}
+        {(()=>{const fotosDoAnuncio=(sel.midias||[]).filter(m=>m.tipo==="foto");
+          const quantas=escolhidas?escolhidas.length:fotosDoAnuncio.length;
+          return <React.Fragment>
+            {marca("fotos",escolhidas
+              ? `Enviar ${quantas} de ${fotosDoAnuncio.length} foto(s)`
+              : `Enviar as ${fotosDoAnuncio.length} foto(s)`)}
+
+            {/* ESCOLHER ALGUMAS. O captador sobe dez fotos do empreendimento e
+                o corretor quer mandar as três do apartamento que interessa
+                àquele cliente — mandar as dez é o jeito rápido de o cliente
+                parar de olhar. Fica fechado por padrão: quem quer o anúncio
+                inteiro (a maioria) não ganha um passo a mais. */}
+            {opc.fotos&&fotosDoAnuncio.length>1&&<React.Fragment>
+              {!escolhendo
+                ?<button onClick={()=>{setEscolhendo(true);if(!escolhidas)setEscolhidas(fotosDoAnuncio.map(m=>m.id));}}
+                  style={{alignSelf:"flex-start",border:"none",background:"transparent",color:C.greenDeep,
+                    fontSize:11.5,fontWeight:700,cursor:"pointer",padding:"2px 0",textDecoration:"underline",textUnderlineOffset:3}}>
+                  escolher quais fotos</button>
+                :<div style={{background:C.surface,borderRadius:10,padding:9}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
+                    <span style={{color:C.sub,fontSize:11.5,fontWeight:700,flex:1}}>
+                      {quantas} de {fotosDoAnuncio.length} selecionada(s)</span>
+                    <button onClick={()=>setEscolhidas(fotosDoAnuncio.map(m=>m.id))}
+                      style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11,fontWeight:700,cursor:"pointer"}}>todas</button>
+                    <button onClick={()=>setEscolhidas([])}
+                      style={{border:"none",background:"transparent",color:C.faint,fontSize:11,cursor:"pointer"}}>nenhuma</button>
+                    <button onClick={()=>{setEscolhendo(false);setEscolhidas(null);}}
+                      style={{border:"none",background:"transparent",color:C.faint,fontSize:11,cursor:"pointer"}}>mandar todas</button>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {fotosDoAnuncio.map((m,i)=>{const marcada=!escolhidas||escolhidas.includes(m.id);
+                      return <button key={m.id} onClick={()=>setEscolhidas(a=>{
+                          const base=a||fotosDoAnuncio.map(x=>x.id);
+                          return base.includes(m.id)?base.filter(x=>x!==m.id):[...base,m.id];})}
+                        title={marcada?"Tirar esta foto do envio":"Incluir esta foto"}
+                        style={{position:"relative",width:58,height:58,borderRadius:9,overflow:"hidden",padding:0,cursor:"pointer",
+                          border:`2px solid ${marcada?C.green:C.line}`,background:C.card,opacity:marcada?1:.45}}>
+                        <img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        {/* A capa leva a legenda no WhatsApp — quem escolhe
+                            precisa saber qual é. */}
+                        {i===0&&<span style={{position:"absolute",left:0,bottom:0,right:0,background:"rgba(10,20,16,.65)",
+                          color:"#fff",fontSize:8,fontWeight:700,padding:"1px 0"}}>capa</span>}
+                        {marcada&&<span style={{position:"absolute",top:2,right:2,width:15,height:15,borderRadius:99,
+                          background:C.green,color:"#fff",fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</span>}
+                      </button>;})}
+                  </div>
+                  {quantas===0&&<div style={{color:C.hot,fontSize:11,marginTop:7}}>
+                    Nenhuma foto selecionada — o cliente vai receber só o texto do imóvel.</div>}
+                </div>}
+            </React.Fragment>}
+          </React.Fragment>;})()}
         {(sel.midias||[]).some(m=>m.tipo==="video")&&marca("video","Enviar o vídeo")}
         {sel.maps_url&&marca("localizacao","Enviar a localização","Fica desmarcado de propósito — mandar endereço sem querer não tem desfazer.")}
         {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:8,padding:"8px 10px"}}>{erro}</div>}
