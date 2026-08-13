@@ -80,6 +80,13 @@ function adaptLead(l,anterior){
     // Resumo da conversa feito pela IA (vem só ao abrir a conversa).
     resumo:l.resumo||(anterior?anterior.resumo:null),
     etapaIA:l.etapa_ia||(anterior?anterior.etapaIA:null),
+    // Desde quando está nesta etapa. null = nunca mudou desde que o histórico
+    // existe; a tela mostra "—" em vez de inventar uma data.
+    etapaDesde:l.etapa_desde!==undefined?l.etapa_desde:(anterior?anterior.etapaDesde:null),
+    // Resumo das tarefas em aberto, para o card do funil: {abertas, proxima, titulo, atrasada}.
+    tarefas:l.tarefas!==undefined?l.tarefas:(anterior?anterior.tarefas:null),
+    // A lista inteira, que só vem ao abrir a ficha.
+    listaTarefas:l.lista_tarefas||(anterior?anterior.listaTarefas:null),
   };
 }
 const RESULTADO_LIGACAO={falou:"Falei com o cliente",nao_atendeu:"Não atendeu",
@@ -351,6 +358,12 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 
 /* ===== ícones (SVG inline) ===== */
 const ICO={
+  /* WhatsApp: o balão com o fone dentro, desenhado com traço como os outros
+     ícones da casa. Não é a logo oficial (que é sólida e tem cor própria) —
+     é a forma que a equipe reconhece, no mesmo traço do resto da tela. */
+  whatsapp:<React.Fragment><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 20.5l1.5-4.9A8.4 8.4 0 0 1 3.6 11 8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/><path d="M9.2 8.4c.2-.4.4-.4.6-.4h.5c.2 0 .4 0 .6.5l.7 1.7c.1.2 0 .4-.1.5l-.4.5c-.1.2-.3.3-.1.6a7 7 0 0 0 3 2.6c.3.1.5.1.6 0l.6-.7c.2-.2.3-.2.5-.1l1.6.8c.2.1.4.2.4.4s0 .9-.3 1.2c-.3.4-1 .8-1.5.8a7 7 0 0 1-3.2-1 11 11 0 0 1-3.7-3.9 4 4 0 0 1-.8-2.2c0-.8.4-1.2.6-1.4z"/></React.Fragment>,
+  // Sino: a atendente cutuca o corretor sem sair da lista de conversas.
+  bell:<React.Fragment><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></React.Fragment>,
   send:<React.Fragment><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></React.Fragment>,
   search:<React.Fragment><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></React.Fragment>,
   phone:<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.7 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.74a2 2 0 0 1 2.11-.45c.74.34 1.53.57 2.34.7A2 2 0 0 1 22 16.92z"/>,
@@ -632,6 +645,12 @@ function ConCRM(){
     },
     mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
+    /* Tarefas: NÃO passam pelo `acao()`. Aquele envelope engole o erro e
+       recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
+       precisa chegar ao popup para dizer o que faltou preencher. */
+    criarTarefa:(leadId,dados)=>api(`/leads/${leadId}/tarefas`,{method:"POST",body:dados}).then(r=>{recarregar();return r;}),
+    marcarTarefa:(id,feito)=>api(`/tarefas/${id}`,{method:"PATCH",body:{feito}}).then(r=>{recarregar();return r;}),
+    apagarTarefa:(id)=>api(`/tarefas/${id}`,{method:"DELETE"}).then(r=>{recarregar();return r;}),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:acao((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
@@ -759,7 +778,10 @@ function ConCRM(){
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
-    cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}),
+    // Não passa pelo `acao()`: quem chama precisa da RESPOSTA (se o push saiu
+    // ou se ficou só marcado no CRM). Mas recarrega assim mesmo, senão o
+    // pedido só apareceria na tela no ciclo seguinte.
+    cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}).then(r=>{recarregar();return r;}),
     viCutucada:(id)=>api(`/leads/${id}/cutucar/vi`,{method:"POST"}),
     reanalise:()=>api("/leads/reanalise"),
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
@@ -1677,7 +1699,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
         {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
-        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
+        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
@@ -1857,13 +1879,69 @@ function Badge({n,top,right}){
    contador de não lidas desceu para o canto de baixo, onde ele está no
    WhatsApp. Antes não havia hora nenhuma: dava para saber que o cliente estava
    esperando, mas não desde quando, a não ser abrindo a conversa. */
-function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
+/* ===== O SININHO: chamar o corretor sem abrir a conversa =====
+
+   A atendente varre a lista e vê o cliente parado esperando. Antes, para
+   cutucar o corretor, ela precisava abrir o lead, achar o botão e voltar — três
+   passos para um aviso de um segundo, repetido dez vezes por dia.
+
+   Fica dentro do item da lista, então o clique não pode abrir a conversa
+   junto: `stopPropagation` segura isso.
+
+   Depois de chamado o sino fica verde e diz a hora, para ela não cutucar duas
+   vezes o mesmo corretor pelo mesmo motivo — que é como um aviso útil vira
+   barulho que a equipe aprende a ignorar. */
+function SinoCutucar({lead,cutucar}){
+  const [enviando,setEnviando]=useState(false);
+  const [erro,setErro]=useState(false);
+  /* O sino muda NA HORA do clique bem-sucedido, sem esperar a lista recarregar.
+     A busca automática roda a cada 10 segundos: nesse intervalo o sino ficava
+     igual, e quem clicou clicava de novo achando que não tinha pegado — que é
+     exatamente como o corretor acaba recebendo três avisos do mesmo lead. */
+  const [agora,setAgora]=useState(null);
+  useEffect(()=>{ setAgora(null); setErro(false); },[lead.id]);
+  const chamadoEm=lead.cutucadoEm||agora;
+  const jaChamado=!!chamadoEm;
+
+  async function chamar(e){
+    e.stopPropagation(); e.preventDefault();
+    if(enviando) return;
+    setEnviando(true); setErro(false);
+    try{ await cutucar(lead.id); setAgora(Date.now()); }catch(x){ setErro(true); }
+    finally{ setEnviando(false); }
+  }
+  // Sem corretor não há quem chamar — o lead está na fila, e o caminho é
+  // distribuir, não cutucar.
+  if(!lead.assignedTo) return null;
+
+  const cor=erro?C.hot:jaChamado?C.greenMid:C.faint;
+  return <span onClick={chamar} role="button" tabIndex={0}
+    onKeyDown={e=>{ if(e.key==="Enter"||e.key===" ") chamar(e); }}
+    title={erro?"Não consegui chamar — tente de novo"
+      :jaChamado?`${first(lead.assignedName)||"O corretor"} já foi chamado às ${fmtClock(chamadoEm)}`
+      :`Chamar ${first(lead.assignedName)||"o corretor"} para este atendimento`}
+    aria-label={jaChamado?"Corretor já chamado":"Chamar o corretor"}
+    style={{display:"flex",alignItems:"center",padding:3,borderRadius:7,cursor:"pointer",
+      background:jaChamado?C.greenSoft:"transparent",color:cor,flexShrink:0}}>
+    <Icon n={enviando?"loader":"bell"} size={13} color={cor} spin={enviando}/>
+  </span>;
+}
+
+function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar}){
   const naoLida=l.unread>0, quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-        <Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill>
+        {/* A temperatura saiu daqui a pedido do Ali: ela já aparece no card do
+            funil e na ficha, e nesta lista competia com a informação que muda
+            a decisão de quem supervisiona — quem está esperando, desde quando,
+            e se o corretor já foi chamado.
+
+            No lugar dela, o SININHO: a atendente vê a conversa parada e chama
+            o corretor dali mesmo, sem abrir o lead. Só aparece para quem
+            supervisiona, e só quando há um corretor para chamar. */}
+        {cutucar&&<SinoCutucar lead={l} cutucar={cutucar}/>}
         {/* Cliente esperando tem a hora em coral, como o WhatsApp destaca a
             conversa não lida — o olho pega a linha antes de ler o nome. */}
         <span style={{color:naoLida?C.hot:C.faint,fontSize:10.5,fontWeight:naoLida?700:500,whiteSpace:"nowrap"}}
@@ -2527,7 +2605,11 @@ function FichaVenda({lead,onSalvar}){
    No celular precisa SEGURAR um instante antes de arrastar (250ms). Sem essa
    espera, qualquer rolagem lateral entre as colunas viraria um arrasto sem
    querer, e o lead mudava de etapa sozinho. */
-function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
+function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
+  // Lead aberto no popup. Fica aqui, e não dentro do card, porque só um abre
+  // por vez e o fundo escuro é da tela inteira.
+  const [aberto,setAberto]=useState(null);
+  const abrirCard=(l)=>setAberto(l.id);
   const colW=isMobile?"82vw":164;
   const [arrasto,setArrasto]=useState(null);   // {id,nome,de,x,y}
   const [alvo,setAlvo]=useState(null);         // etapa sob o dedo
@@ -2588,19 +2670,11 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?STAGE_C[st]:C.line}`,
               background:destacada?STAGE_C[st]+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
-            {items.map(l=>{const waiting=l.firstRespAt==null,age=Date.now()-l.createdAt;
+            {items.map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
-              return <div key={l.id}
-                onPointerDown={(e)=>aoPressionar(e,l)}
-                onContextMenu={(e)=>e.preventDefault()}   /* segurar no celular abriria o menu do sistema */
-                style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:8,
-                  opacity:sendoArrastado?.35:1,cursor:arrasto?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
-                <button onClick={()=>{ if(!moveu.current) openLead(l.id); }} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:0}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}><span style={{color:C.ink,fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span><span style={{background:PRIO[l.prio].c,width:6,height:6,borderRadius:"50%",flexShrink:0}}/></div>
-                  {mostrarDono&&<div style={{color:C.faint,fontSize:10,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
-                  {waiting&&<div style={{display:"flex",alignItems:"center",gap:4,marginTop:4}}><Icon n="timer" size={10} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:10,fontWeight:600}}>{fmtAge(age)}</span></div>}
-                </button>
-              </div>;})}
+              return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
+                opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu}
+                aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
           </div>
         </div>;})}
@@ -2614,6 +2688,225 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono}){
       <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
         {alvo&&alvo!==arrasto.de?"soltar em "+alvo:"arraste até uma etapa"}</div>
     </div>}
+    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile}
+      abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
+  </div>;
+}
+
+/* ===== O QUE A IA DIZ SOBRE ESTE LEAD, SEM SAIR DO FUNIL =====
+
+   Clicar num card jogava direto na conversa. Para decidir o que fazer com um
+   lead parado, porém, ler 40 mensagens não ajuda — o que ajuda é o resumo e a
+   etapa que a IA leu. Eram os dois cartões da ficha, e ficavam a dois cliques
+   e uma troca de tela de distância.
+
+   Agora o card abre este popup: as mesmas leituras da ficha, mais as tarefas
+   marcadas, e um botão do WhatsApp para ir à conversa quando a decisão for
+   falar com o cliente. Sem sair do quadro é possível olhar dez leads parados
+   em sequência — que é justamente o que se faz no funil. */
+function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
+  const l=leads.find(x=>x.id===leadId);
+  useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); },[leadId]);
+  if(!l) return null;
+
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,zIndex:70,background:"rgba(10,20,16,.5)",
+    display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,
+      width:"100%",maxWidth:520,maxHeight:isMobile?"90vh":"88vh",display:"flex",flexDirection:"column",minHeight:0}}>
+
+      <div style={{padding:isMobile?"14px 15px 10px":"16px 18px 12px",borderBottom:`1px solid ${C.line}`,
+        display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <Avatar ini={initials(l.nome)} color={PRIO[l.prio].c} size={38}/>
+        <div style={{minWidth:0,flex:1}}>
+          <div style={{color:C.ink,fontSize:14.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>
+            <span style={{color:STAGE_C[l.status],fontWeight:600}}>{l.status}</span>
+            {l.etapaDesde?` há ${fmtCurto(Date.now()-l.etapaDesde)}`:""} · {fmtTel(l.tel)}
+          </div>
+        </div>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
+          width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"12px 15px":"14px 18px",minHeight:0}}>
+        {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
+          <Icon n="loader" size={14} spin/> Buscando a conversa…</div>}
+        <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
+        <EtapaIA lead={l} acoes={acoes} isMobile={isMobile}/>
+        <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
+      </div>
+
+      {/* O botão do WhatsApp é a saída para a ação: li o que a IA disse, agora
+          vou falar com o cliente. Fica fixo no rodapé para não depender de
+          rolar até o fim do popup. */}
+      <div style={{padding:isMobile?"10px 15px calc(env(safe-area-inset-bottom, 0px) + 12px)":"12px 18px",
+        borderTop:`1px solid ${C.line}`,flexShrink:0}}>
+        <button onClick={()=>{aoFechar();abrirConversa(l.id);}}
+          style={{width:"100%",background:"#25D366",color:"#fff",border:"none",borderRadius:11,padding:"12px",
+            fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          <Icon n="whatsapp" size={17}/> Abrir a conversa
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* Tarefas marcadas com este cliente. Pequeno de propósito: o que precisa ser
+   feito, quando, e um risco para dizer que já foi. Tarefa vencida fica em
+   coral — é a única que muda alguma coisa em quem está olhando. */
+function TarefasDoLead({lead,acoes,isMobile}){
+  const [lista,setLista]=useState(lead.listaTarefas||[]);
+  const [titulo,setTitulo]=useState("");
+  const [quando,setQuando]=useState("");
+  const [abrindo,setAbrindo]=useState(false);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+
+  useEffect(()=>{ setLista(lead.listaTarefas||[]); },[lead.id,lead.listaTarefas]);
+  useEffect(()=>{ setAbrindo(false); setTitulo(""); setQuando(""); setErro(""); },[lead.id]);
+
+  const roda=async(nome,fn)=>{ setOcupado(nome); setErro("");
+    try{ const r=await fn(); if(r&&r.tarefas) setLista(r.tarefas); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
+
+  async function criar(){
+    if(!titulo.trim()) return setErro("Escreva o que precisa ser feito.");
+    if(!quando) return setErro("Escolha o dia e a hora.");
+    await roda("nova",()=>acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString()}));
+    setTitulo(""); setQuando(""); setAbrindo(false);
+  }
+
+  const abertas=lista.filter(t=>!t.feito_em), feitas=lista.filter(t=>t.feito_em);
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:abertas.length?8:5}}>
+      <Icon n="calendar" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Tarefas com este cliente</span>
+      {!abrindo&&<button onClick={()=>setAbrindo(true)}
+        style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2}}>
+        + marcar</button>}
+    </div>
+
+    {abertas.length===0&&!abrindo&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+      Nada marcado. Ligar terça, levar a pasta na Caixa, confirmar a visita — o que ficar combinado some se não for anotado.
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      {abertas.map(t=>{const atrasada=t.quando<Date.now();
+        return <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:9,padding:"7px 9px"}}>
+          <button onClick={()=>roda(t.id,()=>acoes.marcarTarefa(t.id,true))} disabled={!!ocupado}
+            aria-label="Marcar como feita" title="Marcar como feita"
+            style={{width:19,height:19,borderRadius:6,border:`1.5px solid ${atrasada?C.hot:C.faint}`,background:"transparent",
+              cursor:"pointer",flexShrink:0}}/>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{color:C.ink,fontSize:12,lineHeight:1.35}}>{t.titulo}</div>
+            <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
+              {atrasada?"venceu ":""}{fmtQuando(t.quando)} · {fmtClock(t.quando)}
+              {t.de_quem?` · ${first(t.de_quem)}`:""}
+            </div>
+          </div>
+          <button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
+            aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>
+        </div>;})}
+    </div>
+
+    {abrindo&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+      <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={120} autoFocus
+        placeholder="O que precisa ser feito?"
+        style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <input type="datetime-local" value={quando} onChange={e=>setQuando(e.target.value)}
+          style={{flex:"1 1 160px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        <button onClick={criar} disabled={ocupado==="nova"}
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {ocupado==="nova"?"…":"Marcar"}</button>
+        <button onClick={()=>{setAbrindo(false);setErro("");}}
+          style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",padding:4}}>cancelar</button>
+      </div>
+    </div>}
+
+    {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
+      {feitas.length} tarefa(s) já feita(s){feitas[0]?`, a última: ${feitas[feitas.length-1].titulo}`:""}
+    </div>}
+
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{erro}</div>}
+  </div>;
+}
+
+/* ===== O CARD DO FUNIL =====
+
+   O funil é a tela que a gestão deixa aberta o dia todo, e o card estava mudo:
+   nome, uma bolinha de temperatura e nada mais. Para saber se um lead estava
+   parado era preciso abrir um por um.
+
+   Agora o card responde, sem clique, às perguntas que se faz olhando o quadro:
+
+   - qual a temperatura                      → pastilha com o nome escrito
+   - desde quando está NESTA etapa           → "nesta etapa há 3d"
+   - quando foi a última conversa            → "falou 14:32" / "falou 09/07"
+   - está demorando?                         → a barra de cima esquenta
+   - tem algo marcado com esse cliente?      → linha da tarefa, vermelha se venceu
+
+   A COR DE URGÊNCIA olha a última interação, não a idade do lead: lead que
+   entrou há um mês e conversou hoje está saudável, e lead que entrou hoje e
+   ninguém respondeu está em chamas. Verde some de propósito — quadro cheio de
+   verde vira enfeite e o olho para de ver a cor. Só aparece âmbar (esfriando)
+   e vermelho (parado), que são os dois estados que pedem ação. */
+const URGENCIA_AMBAR=24*3600000;    // um dia sem falar: esfriando
+const URGENCIA_VERMELHA=72*3600000; // três dias: parado
+
+function corDeUrgencia(l){
+  if(l.finalizado||l.status==="Venda"||l.status==="Perdido") return null;
+  const desde=Date.now()-(l.lastAt||l.createdAt);
+  if(desde>=URGENCIA_VERMELHA) return C.hot;
+  if(desde>=URGENCIA_AMBAR) return C.amber;
+  return null;
+}
+
+// "3d", "5h", "12min" — o mais curto que ainda diz a verdade, para caber no card.
+function fmtCurto(ms){
+  const min=Math.max(0,Math.round(ms/60000));
+  if(min<60) return min+"min";
+  const h=Math.round(min/60);
+  if(h<48) return h+"h";
+  return Math.round(h/24)+"d";
+}
+
+function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
+  const urgencia=corDeUrgencia(l);
+  const tar=l.tarefas;
+  const linha=(icone,texto,cor)=><div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
+    <Icon n={icone} size={9} color={cor||C.faint}/>
+    <span style={{color:cor||C.faint,fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>
+  </div>;
+
+  return <div
+    onPointerDown={(e)=>aoPressionar(e,l)}
+    onContextMenu={(e)=>e.preventDefault()}   /* segurar no celular abriria o menu do sistema */
+    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",
+      opacity:opaco?.35:1,cursor:arrastando?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
+    {/* A faixa de urgência no topo: some quando está tudo bem. */}
+    {urgencia&&<div style={{height:3,background:urgencia}}/>}
+    <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+        <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
+        <span style={{background:PRIO[l.prio].bg,color:PRIO[l.prio].c,fontSize:8.5,fontWeight:700,
+          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{PRIO[l.prio].label}</span>
+      </div>
+
+      {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
+          usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
+      {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
+
+      {linha("msg", l.lastAt?`falou ${fmtQuando(l.lastAt)}`:"sem conversa", urgencia)}
+
+      {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
+        `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
+        tar.atrasada?C.hot:C.greenMid)}
+
+      {mostrarDono&&<div style={{color:C.faint,fontSize:9.5,marginTop:4,paddingTop:4,borderTop:`1px solid ${C.line}`,
+        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
+    </button>
   </div>;
 }
 
@@ -3181,7 +3474,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
-        {visiveis.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono/>)}
+        {visiveis.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}/>)}
       </div>
     </div>}
 

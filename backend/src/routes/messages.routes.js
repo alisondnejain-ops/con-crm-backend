@@ -13,6 +13,7 @@ const MIME_POR_EXT = {
 };
 const mimeDaUrl = (url) => MIME_POR_EXT[String(url || "").split(".").pop().toLowerCase()] || "application/octet-stream";
 import { inferStage } from "../services/stages.js";
+import { moverEtapa } from "../services/etapas.js";
 
 const r = Router();
 r.use(authRequired);
@@ -298,7 +299,8 @@ export function advanceStage(leadId) {
   if (!lead) return;
   const msgs = db.prepare("SELECT direction,body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
   const next = inferStage(lead.stage, msgs);
-  if (next !== lead.stage) db.prepare("UPDATE leads SET stage = ? WHERE id = ?").run(next, leadId);
+  // Passa pelo histórico: é assim que o funil sabe dizer "nesta etapa desde".
+  if (next !== lead.stage) moverEtapa({ leadId, para: next, motivo: "palavra" });
 }
 
 export default r;

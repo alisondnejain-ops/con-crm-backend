@@ -10,6 +10,8 @@ import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
+import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
+import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 const r = Router();
 r.use(authRequired);
@@ -65,7 +67,21 @@ r.get("/", (req, res) => {
   if (req.query.finalizados !== "1") where.push("l.closed_at IS NULL");
 
   const rows = db.prepare(`${SELECT_LEAD} WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC`).all(...args);
-  res.json(rows.map(parse));
+
+  /* Duas informações que o FUNIL precisa em todo card: desde quando o lead está
+     na etapa, e se tem tarefa marcada. Buscadas de uma vez para a imobiliária
+     inteira — uma consulta por card deixaria o funil lento com a base
+     crescendo, e é o funil que a gestão deixa aberto o dia todo. */
+  const desde = etapaDesdePorLead(org_id);
+  const tarefas = tarefasAbertasPorLead(org_id);
+  res.json(rows.map(l => ({
+    ...parse(l),
+    // null quando o lead nunca mudou de etapa desde que o histórico existe. A
+    // tela mostra "—": inventar a data de criação seria dizer que ele está ali
+    // desde que entrou, o que muitas vezes é falso.
+    etapa_desde: desde.get(l.id) || null,
+    tarefas: tarefas.get(l.id) || null,
+  })));
 });
 
 /* Exportação da base de leads, para o gestor abrir no Excel.
@@ -408,8 +424,7 @@ function reanalisar(orgId, aplicar) {
 
   if (aplicar && mudancas.length) {
     const gravar = db.transaction(() => {
-      const up = db.prepare("UPDATE leads SET stage=? WHERE id=?");
-      for (const m of mudancas) up.run(m.para, m.id);
+      for (const m of mudancas) moverEtapa({ leadId: m.id, para: m.para, motivo: "reanalise", userId: req.user.id, de: m.de });
     });
     gravar();
   }
@@ -500,8 +515,16 @@ r.get("/:id", (req, res) => {
     .map(g => ({ ...g, tipo: "ligacao", direction: "sys", body: "" }));
 
   const linhaDoTempo = [...messages, ...ligacoes].sort((a, b) => a.created_at - b.created_at);
+  const etapas = historicoDoLead(lead.id);
   res.json({ ...parse(lead), messages: linhaDoTempo, resumo: resumoGuardado(lead, messages.length),
-    etapa_ia: etapaIaGuardada(lead, messages.length) });
+    etapa_ia: etapaIaGuardada(lead, messages.length),
+    // Nome diferente do resumo que a LISTA manda (`tarefas`): um é a lista
+    // inteira, o outro é "quantas em aberto e qual a próxima". Mesmo nome para
+    // formatos diferentes é armadilha para quem vier depois.
+    lista_tarefas: listarTarefas(lead.id),
+    historico_etapas: etapas,
+    // Desde quando está na etapa atual — a última entrada que aponta para ela.
+    etapa_desde: [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null });
 });
 
 /* O resumo que já está no banco, com a informação que muda tudo: quantas
@@ -828,7 +851,11 @@ r.patch("/:id/stage", (req, res) => {
   if (!STAGES.includes(stage)) return res.status(400).json({ error: "Etapa inválida" });
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  db.prepare("UPDATE leads SET stage = ? WHERE id = ?").run(stage, lead.id);
+  /* `motivo` separa a mudança feita na mão da que veio da leitura da IA. As
+     duas são cliques de gente — mas saber que a segunda partiu de uma sugestão
+     é o que permite, depois, medir se a IA está acertando. */
+  const motivo = req.body?.origem === "ia" ? "ia" : "mao";
+  moverEtapa({ leadId: lead.id, para: stage, motivo, userId: req.user.id });
   res.json({ ok: true, stage });
 });
 
@@ -874,8 +901,11 @@ r.patch("/:id/venda", (req, res) => {
   const quando = data ? new Date(data).getTime() : Date.now();
   if (!isFinite(quando)) return res.status(400).json({ error: "Data da venda inválida." });
 
-  db.prepare("UPDATE leads SET sale_value=?, sale_date=?, sale_property=?, stage='Venda' WHERE id=?")
+  db.prepare("UPDATE leads SET sale_value=?, sale_date=?, sale_property=? WHERE id=?")
     .run(v, quando, (imovel || "").trim() || null, lead.id);
+  // A etapa vai junto, mas pelo caminho que deixa rastro — registrar venda é a
+  // mudança de etapa que mais importa no histórico.
+  moverEtapa({ leadId: lead.id, para: "Venda", motivo: "venda", userId: req.user.id });
   res.json({ ok: true, stage: "Venda" });
 });
 

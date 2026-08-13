@@ -105,6 +105,44 @@ CREATE TABLE IF NOT EXISTS push_subs (
 -- Tentativas de ligação. O botão "Ligar" abre o discador do celular e o
 -- navegador não tem como saber se a pessoa atendeu — então registramos a
 -- TENTATIVA, que já diz quem está correndo atrás do lead e quem não está.
+-- Histórico de etapas: quando o lead entrou em cada uma, e por quê.
+--
+-- O CRM guardava só ONDE o lead está, nunca DESDE QUANDO. Sem isso o card do
+-- funil não distingue um lead que chegou em "Aprovação" ontem de um parado ali
+-- há um mês — que é justamente a diferença que a gestão precisa ver — e o
+-- relatório não consegue medir "quantos avançaram para X no período".
+--
+-- A coluna motivo diz de onde veio a mudança: mao, palavra, ia, venda, reanalise.
+CREATE TABLE IF NOT EXISTS lead_etapas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  de TEXT,
+  para TEXT NOT NULL,
+  motivo TEXT,
+  user_id TEXT,
+  created_at INTEGER NOT NULL
+);
+
+-- Tarefas agendadas de um lead: ligar amanhã, levar documento na Caixa,
+-- confirmar a visita de sábado.
+--
+-- Sem isto o compromisso vivia na cabeça do corretor ou num papel na mesa, e a
+-- gestão não tinha como ver o que estava combinado sem perguntar. O que
+-- importa no card do funil é uma coisa só: tem tarefa marcada, e ela já
+-- venceu?
+CREATE TABLE IF NOT EXISTS tarefas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  user_id TEXT,            -- de quem é a tarefa
+  criado_por TEXT,
+  titulo TEXT NOT NULL,
+  quando INTEGER NOT NULL, -- data e hora combinadas
+  feito_em INTEGER,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ligacoes (
   id TEXT PRIMARY KEY,
   lead_id TEXT NOT NULL,
@@ -201,6 +239,11 @@ CREATE TABLE IF NOT EXISTS mensagens_rapidas (
   criado_por TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_etapas_lead ON lead_etapas(lead_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_etapas_org ON lead_etapas(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tarefas_lead ON tarefas(lead_id, quando);
+-- A busca que mais roda: as tarefas em aberto da imobiliária, para o funil.
+CREATE INDEX IF NOT EXISTS idx_tarefas_abertas ON tarefas(org_id, feito_em, quando);
 CREATE INDEX IF NOT EXISTS idx_msgrapidas_org ON mensagens_rapidas(org_id, ordem);
 
 -- Escala de plantão: quem fica de sobreaviso em cada turno, dia a dia.
