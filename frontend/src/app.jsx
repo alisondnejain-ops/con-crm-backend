@@ -2883,7 +2883,17 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
   return <div
     onPointerDown={(e)=>aoPressionar(e,l)}
     onContextMenu={(e)=>e.preventDefault()}   /* segurar no celular abriria o menu do sistema */
-    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",
+    /* `flexShrink:0` NÃO é ajuste fino — sem ele o funil quebra.
+
+       A coluna é um flex em coluna. Normalmente um item de flex não encolhe
+       abaixo do tamanho do próprio conteúdo (`min-height:auto`), e a coluna
+       rola. Mas a regra do CSS tem uma exceção: quando o item tem `overflow`
+       diferente de `visible`, esse mínimo automático passa a ser ZERO.
+
+       O `overflow:hidden` entrou aqui só para a faixa de urgência respeitar o
+       canto arredondado — e levou junto a proteção contra encolher. Com 96
+       leads numa etapa, os 96 cards viraram tiras de 3px empilhadas. */
+    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",flexShrink:0,
       opacity:opaco?.35:1,cursor:arrastando?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
     {/* A faixa de urgência no topo: some quando está tudo bem. */}
     {urgencia&&<div style={{height:3,background:urgencia}}/>}
