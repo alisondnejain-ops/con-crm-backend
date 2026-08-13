@@ -73,6 +73,9 @@ function adaptLead(l,anterior){
     finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
     // Pedido de atenção da gestão. Fica na ficha até o corretor dar o "vi".
     cutucadoEm:l.cutucado_em||null, cutucadoRecado:l.cutucado_recado||null,
+    // Quando este lead caiu na mão de quem está com ele. Diferente da data de
+    // entrada: o lead pode ter chegado em junho e ter sido repassado hoje.
+    assignedAt:l.assigned_at!==undefined?l.assigned_at:(anterior?anterior.assignedAt:null),
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
@@ -229,6 +232,11 @@ const fmtMin=(min)=>{
 };
 const fmtAge=(ms)=>{const s=Math.max(0,Math.floor(ms/1000));if(s<60)return s+"s";const m=Math.floor(s/60);if(m<60)return m+" min";return Math.floor(m/60)+"h "+(m%60)+"min";};
 const ageColor=(ms)=>{const m=ms/60000;return m<2?C.green:m<10?C.amber:C.hot;};
+/* "Acabou de cair na minha mão". Um dia, e não uma hora: o lead repassado no
+   fim da tarde tem que continuar em destaque na manhã seguinte, que é quando o
+   corretor senta para atender. */
+const NOVO_NA_MAO=24*3600000;
+const chegouAgora=(l)=>!!l.assignedAt&&(Date.now()-l.assignedAt)<NOVO_NA_MAO;
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
 const first=(n)=>String(n||"").split(" ")[0];
@@ -536,6 +544,8 @@ function ConCRM(){
   const [equipe,setEquipe]=useState([]);
   const [conecta,setConecta]=useState({connected:false,number:""});
   const [erro,setErro]=useState("");
+  // Recado âmbar: aconteceu, mas tem um porém que a pessoa precisa saber.
+  const [recado,setRecado]=useState("");
   const [selId,setSelId]=useState(null);
   // Sobe a cada recarga. Telas que fazem a própria busca (Conversas) observam este
   // número para se atualizarem depois de uma ação, em vez de mostrar dado velho.
@@ -634,6 +644,28 @@ function ConCRM(){
   const acao=(fn)=>async(...a)=>{ try{ await fn(...a); await recarregar(); if(selRef.current) await abrir(selRef.current,true); }
                                   catch(e){ setErro(e.message); } };
 
+  /* Repasse: igual ao `acao()`, mas olhando a resposta.
+
+     Antes o repasse dizia "ok" tanto para o corretor que recebe aviso no
+     celular quanto para o que não recebe nada, e a atendente passava o lead
+     achando que alguém tinha sido chamado. Lead entregue a quem não sabe que
+     recebeu fica parado exatamente como se não tivesse sido entregue.
+
+     Não é erro — a transferência aconteceu —, então vai numa tarja âmbar, não
+     vermelha: é um aviso de que falta combinar por outro canal. */
+  const atribuir=(fn)=>async(...a)=>{
+    try{
+      const r=await fn(...a);
+      await recarregar(); if(selRef.current) await abrir(selRef.current,true);
+      if(r&&r.aviso&&r.aviso.push===false){
+        const quem=(equipe.find(u=>u.id===r.assigned_to)||{}).name;
+        setRecado(r.aviso.motivo==="sem_push_no_servidor"
+          ?`Lead repassado${quem?" para "+first(quem):""}. O aviso no celular não está ligado nesta instalação — avise por outro canal.`
+          :`Lead repassado${quem?" para "+first(quem):""}, mas ${quem?first(quem):"o corretor"} não tem notificação ligada no celular. Ele só vai ver ao abrir o CRM.`);
+      } else setRecado("");
+    }catch(e){ setErro(e.message); }
+  };
+
   const acoes={
     enviar:acao((leadId,text,replyTo)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text,reply_to:replyTo||undefined}})),
     /* Editar NÃO passa pelo `acao()`: aquele envelope engole o erro e recarrega
@@ -652,9 +684,9 @@ function ConCRM(){
     marcarTarefa:(id,feito)=>api(`/tarefas/${id}`,{method:"PATCH",body:{feito}}).then(r=>{recarregar();return r;}),
     apagarTarefa:(id)=>api(`/tarefas/${id}`,{method:"DELETE"}).then(r=>{recarregar();return r;}),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
-    transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
-    proximo:acao((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
-    repassar:acao((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
+    transferir:atribuir((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
+    proximo:atribuir((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
+    repassar:atribuir((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     assumir:acao((leadId)=>api("/distribution/assumir",{method:"POST",body:{lead_id:leadId}})),
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     /* `extra` leva o ponto da atendente: local e, quando ela está fora, o motivo.
@@ -826,7 +858,7 @@ function ConCRM(){
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub,plantao}}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,versao,assinatura,org,voltarAoHub,plantao}}/>;
 }
 
 /* ===== PLANTÃO =====
@@ -1523,7 +1555,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,versao,assinatura,org,voltarAoHub,plantao}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,versao,assinatura,org,voltarAoHub,plantao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -1606,10 +1638,26 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     ancora.current.qtd=qtd;
   },[selId,leads]);
 
+  /* Ordem da caixa do corretor.
+
+     Antes era: não lidos, temperatura, mais novo primeiro. O furo estava no
+     "mais novo": ele olhava a data de ENTRADA do lead. Um lead de junho
+     repassado agora afundava no fim da lista — atrás de leads antigos, só por
+     ser antigo — e o corretor não via justamente o que a atendente acabou de
+     passar para a mão dele.
+
+     Agora sobe para o topo o que acabou de chegar na mão dele, junto com quem
+     está esperando resposta. As duas coisas somam: lead recém-recebido COM
+     mensagem do cliente sem resposta é o primeiro de todos. */
   const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
     .sort((a,b)=>{const o={QUENTE:0,MORNO:1,FRIO:2};
-      // Quem está esperando resposta sobe na lista, independente da temperatura.
-      return (b.unread>0)-(a.unread>0)||o[a.prio]-o[b.prio]||b.createdAt-a.createdAt;}),[leads,session,tick]);
+      const topo=(l)=>(chegouAgora(l)?2:0)+(l.unread>0?1:0);
+      return topo(b)-topo(a)
+        // Entre os recém-chegados, o mais recente primeiro.
+        ||(chegouAgora(a)&&chegouAgora(b)?b.assignedAt-a.assignedAt:0)
+        ||o[a.prio]-o[b.prio]
+        // E, no resto, a conversa mais recente — não a entrada mais recente.
+        ||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt);}),[leads,session,tick]);
   const sel=leads.find(l=>l.id===selId);
 
   async function send(){
@@ -1693,6 +1741,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       {erro&&<div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}44`,color:C.hot,fontSize:12.5,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
         <Icon n="wifioff" size={14}/><span style={{flex:1}}>{erro}</span>
         <button onClick={()=>setErro("")} style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",fontWeight:700}}>×</button>
+      </div>}
+      {recado&&<div style={{background:C.amberSoft,borderBottom:`1px solid ${C.amber}44`,color:"#8a6d1f",fontSize:12.5,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexShrink:0,lineHeight:1.4}}>
+        <Icon n="bell" size={14}/><span style={{flex:1}}>{recado}</span>
+        <button onClick={()=>setRecado("")} style={{border:"none",background:"transparent",color:"#8a6d1f",cursor:"pointer",fontWeight:700}}>×</button>
       </div>}
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
@@ -1967,6 +2019,11 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar}){
       {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:"Novo lead — sem contato"}
     </span>
     <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+      {/* Lead que acabou de ser repassado tem que se anunciar. Sem isto ele
+          entra na lista igual a todos os outros, e o corretor só descobre que
+          recebeu quando abre um por um. */}
+      {chegouAgora(l)&&<span style={{background:C.greenDeep,color:"#fff",fontSize:9,fontWeight:700,
+        padding:"2px 7px",borderRadius:999,textTransform:"uppercase",letterSpacing:.3,flexShrink:0}}>novo com você</span>}
       {naoLida
         ?<span style={{display:"flex",alignItems:"center",gap:4,color:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600}}><Icon n="timer" size={12} color={ageColor(espera)}/>aguardando há {fmtAge(espera)}</span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}

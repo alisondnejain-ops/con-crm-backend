@@ -1,7 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
-import { avisar } from "../services/push.js";
+import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
   lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
 import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
@@ -148,10 +148,9 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(user_id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Atendente não encontrado" });
   if (!u.available) return res.status(409).json({ error: "Atendente indisponível — não entra na catraca" });
-  const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(user_id, lead_id, req.user.org_id);
+  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(user_id, Date.now(), lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
-  avisarNovoLead(user_id, lead_id);
-  res.json({ ok: true, assigned_to: user_id });
+  res.json({ ok: true, assigned_to: user_id, aviso: avisarNovoLead(user_id, lead_id) });
 });
 
 // Catraca automática (rodízio): entrega ao próximo atendente disponível.
@@ -164,11 +163,10 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
   if (!avl.length) return res.status(409).json({ error: "Ninguém disponível na catraca" });
   const ptr = org.distribution_ptr % avl.length;
   const chosen = avl[ptr].id;
-  const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(chosen, lead_id, req.user.org_id);
+  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
   db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);
-  avisarNovoLead(chosen, lead_id);
-  res.json({ ok: true, assigned_to: chosen });
+  res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // Repasse da SDR: ela faz o 1º atendimento e passa o lead para o CORRETOR da vez
@@ -187,10 +185,9 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
     chosen = corr[org.distribution_ptr % corr.length].id;
     db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);
   }
-  const info = db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ? AND org_id = ?").run(chosen, lead_id, req.user.org_id);
+  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
-  avisarNovoLead(chosen, lead_id);
-  res.json({ ok: true, assigned_to: chosen });
+  res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // A ADM assume a negociação: o lead passa a ser dela e sai da lista do corretor.
@@ -205,7 +202,7 @@ r.post("/assumir", roles("adm", "sdr"), (req, res) => {
   const anterior = lead.assigned_to
     ? db.prepare("SELECT name FROM users WHERE id = ?").get(lead.assigned_to)
     : null;
-  db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(req.user.id, lead.id);
+  db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ?").run(req.user.id, Date.now(), lead.id);
   res.json({ ok: true, tirado_de: anterior ? anterior.name : "fila" });
 });
 
@@ -217,17 +214,29 @@ r.post("/devolver", roles("adm", "sdr"), (req, res) => {
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
 
   if (!user_id) {
-    db.prepare("UPDATE leads SET assigned_to = NULL WHERE id = ?").run(lead.id);
+    db.prepare("UPDATE leads SET assigned_to = NULL, assigned_at = NULL WHERE id = ?").run(lead.id);
     return res.json({ ok: true, destino: "fila" });
   }
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ? AND role IN ('corretor','sdr')").get(user_id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Atendente não encontrado" });
-  db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(u.id, lead.id);
+  db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ?").run(u.id, Date.now(), lead.id);
   res.json({ ok: true, destino: u.name });
 });
 
-// Aviso de lead novo na mão do corretor. Fora do fluxo da resposta de
-// propósito: se o push demorar ou falhar, a transferência já aconteceu.
+/* Aviso de lead novo na mão do corretor.
+
+   O DISPARO fica fora do fluxo da resposta de propósito: se o push demorar ou
+   falhar, a transferência já aconteceu e não pode ser desfeita por causa disso.
+
+   Mas a RESPOSTA agora diz se ele vai mesmo ser avisado, e isso é outra coisa.
+   Antes o repasse respondia "ok" tanto para o corretor que recebe push no
+   celular quanto para o que não recebe nada — e a atendente passava o lead
+   achando que alguém tinha sido chamado. Lead entregue para quem não sabe que
+   recebeu fica parado exatamente como se não tivesse sido entregue.
+
+   A conferência é barata e imediata: o servidor tem chave VAPID? e este
+   corretor cadastrou algum aparelho? Não é promessa de entrega — o celular
+   pode estar sem sinal —, é a resposta honesta para "ele vai ser avisado?". */
 function avisarNovoLead(userId, leadId) {
   const lead = db.prepare("SELECT name FROM leads WHERE id = ?").get(leadId);
   avisar(userId, {
@@ -235,6 +244,9 @@ function avisarNovoLead(userId, leadId) {
     corpo: `${lead?.name || "Um lead"} acabou de entrar na sua lista. Fale agora — os primeiros minutos decidem.`,
     leadId,
   });
+  if (!pushConfigurado()) return { push: false, motivo: "sem_push_no_servidor" };
+  if (!inscricoesDe(userId)) return { push: false, motivo: "corretor_sem_notificacao" };
+  return { push: true };
 }
 
 export default r;

@@ -403,6 +403,13 @@ addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou ju
    Fica em coluna separada de propósito: `stage` continua sendo só o que uma
    pessoa marcou ou o que a palavra-chave moveu. Enquanto ninguém confirmar, a
    leitura da IA é opinião guardada, e o funil e os relatórios não mudam. */
+/* Quando o lead caiu na mão de quem está com ele agora.
+
+   Diferente de created_at: o lead pode ter entrado em junho e ter sido
+   repassado hoje. Sem esta data, o lead recem-transferido afundava na lista do
+   corretor — atras de leads antigos, so porque era antigo — e ele nao via
+   justamente o que acabou de receber. */
+addLeadCol("assigned_at", "INTEGER");
 addLeadCol("etapa_ia_json", "TEXT");
 addLeadCol("etapa_ia_em", "INTEGER");
 addLeadCol("etapa_ia_msgs", "INTEGER");
