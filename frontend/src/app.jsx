@@ -79,6 +79,7 @@ function adaptLead(l,anterior){
     carregado:!!l.messages||(anterior?anterior.carregado:false),
     // Resumo da conversa feito pela IA (vem só ao abrir a conversa).
     resumo:l.resumo||(anterior?anterior.resumo:null),
+    etapaIA:l.etapa_ia||(anterior?anterior.etapaIA:null),
   };
 }
 const RESULTADO_LIGACAO={falou:"Falei com o cliente",nao_atendeu:"Não atendeu",
@@ -750,6 +751,7 @@ function ConCRM(){
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
+    lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
   };
 
@@ -2406,6 +2408,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
@@ -3324,6 +3327,124 @@ function ResumoIA({lead,acoes,isMobile}){
   </div>;
 }
 
+/* ===== A IA LÊ A CONVERSA E DIZ A ETAPA (SUGESTÃO) =====
+
+   A palavra-chave só pega quando a palavra é dita. "Me manda seus
+   comprovantes" é Pasta e nenhum gatilho alcança. Aqui a IA lê a conversa
+   inteira e diz onde o atendimento está.
+
+   Sugestão, nunca decisão. O botão que muda a etapa é o mesmo de sempre e
+   quem aperta é o corretor — a IA no CRM lê, não escreve. E a sugestão vem
+   sempre com o MOTIVO e o TRECHO da conversa: sem a frase que sustenta, é
+   palpite, e ninguém confirma palpite sobre o próprio trabalho.
+
+   Não aparece quando a IA concorda com a etapa atual: confirmar o que já está
+   feito é ruído. */
+function EtapaIA({lead,acoes,isMobile}){
+  const [sug,setSug]=useState(lead.etapaIA&&lead.etapaIA.sugestao||null);
+  const [novas,setNovas]=useState(lead.etapaIA&&lead.etapaIA.novas||0);
+  const [carregando,setCarregando]=useState(false);
+  const [aplicando,setAplicando]=useState(false);
+  const [erro,setErro]=useState("");
+
+  // Mesmo cuidado do resumo: a conversa aberta é rebuscada de 10 em 10
+  // segundos e cada resposta traz um objeto novo. Quem manda aqui são os
+  // números, não a identidade do objeto — senão o cartão se refaz sozinho.
+  const carimbo=lead.etapaIA&&lead.etapaIA.sugestao&&lead.etapaIA.sugestao.em||0;
+  const novasDoServidor=lead.etapaIA&&lead.etapaIA.novas||0;
+  useEffect(()=>{ setErro(""); },[lead.id]);
+  useEffect(()=>{
+    setSug(lead.etapaIA&&lead.etapaIA.sugestao||null);
+    setNovas(novasDoServidor);
+  },[lead.id,carimbo,novasDoServidor]);
+
+  if(!lead.etapaIA||!lead.etapaIA.disponivel) return null;
+
+  async function ler(){
+    setCarregando(true); setErro("");
+    try{ const r=await acoes.lerEtapaIA(lead.id); setSug(r.sugestao); setNovas(0); }
+    catch(e){ setErro(e.message); }
+    finally{ setCarregando(false); }
+  }
+  async function aplicar(){
+    setAplicando(true); setErro("");
+    try{ await acoes.mudarEtapa(lead.id,sug.etapa); }
+    catch(e){ setErro(e.message); }
+    finally{ setAplicando(false); }
+  }
+
+  const concorda=sug&&sug.etapa===lead.status;
+  const CONF={alta:{t:"confiança alta",c:C.greenDeep,bg:C.greenSoft},
+              media:{t:"confiança média",c:"#8a6d1f",bg:C.amberSoft},
+              baixa:{t:"confiança baixa",c:C.hot,bg:C.hotSoft}};
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:sug?7:5}}>
+      <Icon n="target" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>Etapa lida pela IA</span>
+      {sug&&<button onClick={ler} disabled={carregando}
+        style={{background:"transparent",border:"none",color:C.sub,fontSize:11.5,fontWeight:600,cursor:carregando?"default":"pointer",padding:2}}>
+        {carregando?"lendo…":"reler"}</button>}
+    </div>
+
+    {!sug&&<React.Fragment>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+        A palavra-chave só move o funil quando a palavra é dita. A IA lê a conversa toda e sugere a etapa — você confirma.
+      </div>
+      <button onClick={ler} disabled={carregando}
+        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+          padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+        {carregando?<React.Fragment><Icon n="loader" size={14} spin/> Lendo a conversa…</React.Fragment>
+          :<React.Fragment><Icon n="sparkles" size={14}/> Ler a etapa na conversa</React.Fragment>}
+      </button>
+    </React.Fragment>}
+
+    {sug&&<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:7}}>
+        <span style={{color:C.faint,fontSize:11.5}}>está em</span>
+        <span style={{color:STAGE_C[lead.status]||C.ink,fontSize:12.5,fontWeight:700}}>{lead.status}</span>
+        {!concorda&&<React.Fragment>
+          <Icon n="chevron" size={12} color={C.faint}/>
+          <span style={{color:STAGE_C[sug.etapa]||C.ink,fontSize:13,fontWeight:800}}>{sug.etapa}</span>
+        </React.Fragment>}
+        <span style={{marginLeft:"auto",background:CONF[sug.confianca].bg,color:CONF[sug.confianca].c,
+          fontSize:10,fontWeight:700,borderRadius:999,padding:"2px 8px"}}>{CONF[sug.confianca].t}</span>
+      </div>
+
+      {concorda
+        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,fontWeight:600,lineHeight:1.45,borderRadius:9,padding:"8px 10px"}}>
+          A IA concorda com a etapa atual. Nada a mudar.</div>
+        :<div style={{color:C.ink,fontSize:12,lineHeight:1.5}}>{sug.porque}</div>}
+
+      {/* O trecho é o que transforma sugestão em conferível: dá para bater o
+          olho e ver se a IA leu a conversa certa. */}
+      {sug.trecho&&<div style={{background:C.surface,borderLeft:`3px solid ${C.green}66`,borderRadius:"0 9px 9px 0",
+        padding:"7px 10px",marginTop:8,color:C.sub,fontSize:11.5,lineHeight:1.45,fontStyle:"italic"}}>
+        “{sug.trecho}”</div>}
+
+      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
+        {novas} mensagem(ns) nova(s) depois desta leitura.</div>}
+
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
+
+      {!concorda&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,flexWrap:"wrap"}}>
+        <button onClick={aplicar} disabled={aplicando}
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",
+            fontSize:12.5,fontWeight:700,cursor:aplicando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
+          {aplicando?<React.Fragment><Icon n="loader" size={12} spin/> movendo…</React.Fragment>
+            :<React.Fragment><Icon n="check" size={13}/> Mover para {sug.etapa}</React.Fragment>}</button>
+        <span style={{color:C.faint,fontSize:10.5,lineHeight:1.4,flex:1,minWidth:120}}>
+          Só muda se você confirmar. A IA não mexe no funil sozinha.</span>
+      </div>}
+
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4,marginTop:8}}>
+        Lido por IA em {sug.mensagens_lidas||0} mensagem(ns){sug.em?` · ${fmtClock(sug.em)}`:""}.
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
 function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
   const [simulando,setSimulando]=useState(false);
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
@@ -3340,6 +3461,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
@@ -4000,6 +4122,61 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
    mudando de etapa de uma vez; a tela mostra "de → para, quantos" antes,
    porque descer lead de etapa é certo aqui, mas assusta se aparecer sem
    aviso. */
+/* ===== POR QUE O FUNIL NÃO ANDA =====
+
+   "O avanço por palavra-chave não está funcionando" é um sintoma com três
+   doenças possíveis, e cada uma tem outro remédio: a palavra que ninguém diz
+   (treino), a conversa que acontece por áudio (nenhuma regra de palavra
+   alcança) e o gatilho que não casa com o jeito da equipe escrever (código).
+
+   Esta tela não conserta nada — ela diz qual das três é, para a gente parar de
+   chutar regex. O veredito sai escrito, porque número solto quem lê é dev. */
+function DiagnosticoFunil({g,comConversa,isMobile}){
+  const pct=(n)=>comConversa?Math.round(n*100/comConversa):0;
+  const semGatilho=pct(g.sem_gatilho), soMidia=pct(g.so_midia);
+  const semTexto=g.mensagens?Math.round(g.mensagens_sem_texto*100/g.mensagens):0;
+
+  /* O veredito é uma frase só, e a ordem importa: áudio primeiro, porque se a
+     conversa não tem texto nenhuma palavra-chave resolve — e mexer no regex
+     seria trabalho jogado fora. */
+  const veredito=
+    soMidia>=25?{cor:C.hot,fundo:C.hotSoft,t:`${soMidia}% das conversas são só áudio, foto ou documento — sem uma linha de texto. Em conversa por áudio nenhuma palavra-chave funciona, hoje ou depois de qualquer ajuste. É o caso de a IA ouvir/ler a conversa, ou de combinar com a equipe de escrever a palavra.`}
+    :semGatilho>=50?{cor:C.hot,fundo:C.hotSoft,t:`${semGatilho}% das conversas não têm NENHUMA das palavras. Ou a equipe não usa esses termos, ou os gatilhos não casam com o jeito que ela escreve — o quadro abaixo mostra quais palavras aparecem e quais nunca aparecem.`}
+    :semGatilho>=20?{cor:"#8a6d1f",fundo:C.amberSoft,t:`${semGatilho}% das conversas não batem em palavra nenhuma. A regra está pegando na maioria, mas esse pedaço fica parado no começo do funil.`}
+    :{cor:C.greenDeep,fundo:C.greenSoft,t:`A regra está pegando: ${100-semGatilho}% das conversas batem em pelo menos uma palavra. Se o funil ainda parece errado, o problema está em QUAL palavra dispara, não em disparar.`};
+
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?11:13,marginBottom:12}}>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+      <Icon n="search" size={13} color={C.faint}/>Por que o funil não anda</div>
+
+    <div style={{background:veredito.fundo,color:veredito.cor,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>
+      {veredito.t}</div>
+
+    <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+      {[["sem palavra nenhuma",`${g.sem_gatilho}`,`${semGatilho}% das conversas`],
+        ["só áudio/foto",`${g.so_midia}`,`${soMidia}% das conversas`],
+        ["mensagens sem texto",`${semTexto}%`,`${g.mensagens_sem_texto} de ${g.mensagens}`]].map(([t,v,sub])=>
+        <div key={t} style={{background:C.card,borderRadius:10,padding:"7px 11px",minWidth:112,flex:"1 1 112px"}}>
+          <div style={{fontFamily:MONO,color:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
+          <div style={{color:C.sub,fontSize:10.5,marginTop:3,fontWeight:600}}>{t}</div>
+          <div style={{color:C.faint,fontSize:10,marginTop:1}}>{sub}</div>
+        </div>)}
+    </div>
+
+    {/* Palavra que nunca aparece é gatilho morto: ou ninguém escreve aquilo, ou
+        o padrão está errado. Nos dois casos, o funil trava naquela etapa. */}
+    <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Em quantas conversas cada palavra aparece</div>
+    <div style={{display:"flex",flexDirection:"column",gap:3}}>
+      {g.gatilhos.map(x=><div key={x.etapa} style={{display:"flex",alignItems:"center",gap:8,background:C.card,borderRadius:8,padding:"6px 10px",flexWrap:"wrap"}}>
+        <span style={{color:x.leads?C.ink:C.faint,fontSize:11.5,fontWeight:600,minWidth:0,flex:"1 1 120px"}}>
+          “{x.palavra}”<span style={{color:C.faint,fontWeight:400}}> → {x.etapa}</span></span>
+        {!x.leads&&<span style={{color:C.hot,background:C.hotSoft,fontSize:10,fontWeight:700,borderRadius:999,padding:"2px 8px"}}>nunca aparece</span>}
+        <span style={{fontFamily:MONO,color:x.leads?C.ink:C.faint,fontSize:12.5,fontWeight:700,minWidth:34,textAlign:"right"}}>{x.leads}</span>
+      </div>)}
+    </div>
+  </div>;
+}
+
 function ReanalisarFunil({acoes,isMobile,aoAplicar}){
   const [d,setD]=useState(null);
   const [carregando,setCarregando]=useState(false);
@@ -4038,12 +4215,17 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
     {d&&<div style={{marginTop:12}}>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
         {[["conversas lidas",d.com_conversa],["mudam de etapa",d.mudam],["sem conversa",d.fora.sem_conversa],
-          ["venda registrada",d.fora.venda_registrada],["etapa manual",d.fora.etapa_manual]].map(([t,v])=>
+          ["venda registrada",d.fora.venda_registrada],["etapa manual",d.fora.etapa_manual],
+          // Etapa que alguém confirmou depois da leitura da IA fica de fora: a
+          // reanálise por palavra desfaria a decisão da pessoa em silêncio.
+          ["confirmada na mão",d.fora.confirmado_na_mao||0]].map(([t,v])=>
           <div key={t} style={{background:C.surface,borderRadius:10,padding:"7px 11px",minWidth:96}}>
             <div style={{fontFamily:MONO,color:t==="mudam de etapa"&&v?C.greenDeep:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
             <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{t}</div>
           </div>)}
       </div>
+
+      {d.diagnostico&&<DiagnosticoFunil g={d.diagnostico} comConversa={d.com_conversa} isMobile={isMobile}/>}
 
       {d.mudam===0
         ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead precisa mudar — o funil já está de acordo com a regra nova.</div>

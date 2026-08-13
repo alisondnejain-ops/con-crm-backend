@@ -220,3 +220,93 @@ export async function resumirConversa({ mensagens, nome }) {
     },
   };
 }
+
+/* ===== EM QUE ETAPA DO FUNIL ESTE LEAD ESTÁ =====
+
+   A regra por palavra-chave (services/stages.js) é boa quando a palavra é
+   dita. Ela não tem como acertar quando a equipe fala "vou precisar dos seus
+   comprovantes" em vez de "documentação", ou quando o cliente já visitou e
+   ninguém escreveu "visita". A IA lê a conversa inteira e diz onde o
+   atendimento está de verdade.
+
+   A REGRA DA CASA CONTINUA VALENDO: isto é LEITURA. O que sai daqui é uma
+   SUGESTÃO, mostrada ao corretor com o motivo. Quem grava a etapa é o clique
+   dele, pela mesma rota manual de sempre. Etapa move relatório, relatório vira
+   cobrança em reunião — não é lugar para o sistema decidir sozinho e a pessoa
+   descobrir depois.
+
+   Por isso a resposta traz `porque` e `trecho`: sugestão sem a frase que a
+   sustenta é palpite, e ninguém confirma palpite sobre o próprio trabalho. */
+const INSTRUCAO_ETAPA = `Você é assistente de uma imobiliária brasileira. Leia a conversa
+de WhatsApp entre a equipe e um cliente e diga em que ETAPA do funil o atendimento está.
+
+As etapas, em ordem, e o que cada uma significa DE FATO:
+- "Lead": só chegou. Nenhum contato de verdade ainda, ou só saudação
+- "Atendimento": a equipe iniciou a conversa e o cliente respondeu; estão conversando
+- "Pasta": documentos foram pedidos ou enviados (RG, CPF, comprovante de renda, extrato)
+- "Aprovação": a análise de crédito está em andamento, saiu aprovada ou reprovada
+- "Agendamento": ficou combinado conhecer o imóvel — dia, hora ou "vou levar você lá"
+- "Visita": o cliente JÁ VISITOU o imóvel; falam do que ele achou depois de ver
+- "Proposta": há negociação de valor, oferta, contraproposta ou pedido de desconto
+- "Venda": negócio fechado — contrato, assinatura, pagamento de sinal
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+
+{"etapa":"<uma das etapas acima>","confianca":"alta"|"media"|"baixa","porque":texto,"trecho":texto|null}
+
+Regras:
+- Escolha a etapa MAIS ADIANTADA que a conversa comprove ter acontecido
+- Comprovar é diferente de mencionar: "depois a gente vê a documentação" NÃO é Pasta;
+  "me manda o RG" ou "segue meu comprovante" é Pasta
+- Falar em conhecer o imóvel é "Agendamento". Só é "Visita" se o cliente JÁ FOI
+- "porque": uma frase curta em português dizendo o que na conversa comprova a etapa
+- "trecho": a frase da conversa que mais sustenta a escolha, copiada tal como está
+  (até 160 caracteres). null se não houver uma frase clara
+- "confianca": "baixa" quando a conversa é curta, confusa ou quase toda por áudio/foto
+- Na dúvida entre duas etapas, escolha a MENOS adiantada. Empurrar o funil para
+  frente sem prova é o erro caro aqui
+- NÃO invente. Se a conversa não mostrar nada além de saudação, responda "Lead"`;
+
+const ETAPAS_IA = ["Lead", "Atendimento", "Pasta", "Aprovação", "Agendamento", "Visita", "Proposta", "Venda"];
+
+/* Devolve { ok, sugestao:{etapa,confianca,porque,trecho,mensagens_lidas}, uso }.
+
+   `mensagens` chega na ordem da conversa, cada uma { de, texto }. Mesma janela
+   do resumo: as últimas 120. */
+export async function etapaDaConversa({ mensagens, nome }) {
+  if (!iaConfigurada()) return { ok: false, erro: "Leitura da etapa por IA não configurada." };
+  const uteis = (mensagens || []).filter(m => (m.texto || "").trim());
+  if (uteis.length < 2) return { ok: false, erro: "Conversa curta demais para saber a etapa." };
+
+  const linhas = uteis.slice(-120)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "IMOBILIÁRIA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+
+  const r = await perguntar({
+    max_tokens: 400,
+    content: [{ type: "text", text: `${INSTRUCAO_ETAPA}\n\nCliente: ${nome || "sem nome"}\n\nCONVERSA:\n${linhas}` }],
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato. Tente de novo." }; }
+
+  // Etapa fora da lista é resposta inútil: melhor falhar do que gravar um nome
+  // que o funil não conhece.
+  const etapa = ETAPAS_IA.find(e => e.toLowerCase() === String(d.etapa || "").trim().toLowerCase());
+  if (!etapa) return { ok: false, erro: "A IA respondeu uma etapa que não existe no funil." };
+
+  const txt = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  return {
+    ok: true,
+    uso: r.uso,
+    sugestao: {
+      etapa,
+      confianca: ["alta", "media", "baixa"].includes(d.confianca) ? d.confianca : "baixa",
+      porque: txt(d.porque, 300) || "A IA não explicou a escolha.",
+      trecho: txt(d.trecho, 160),
+      mensagens_lidas: Math.min(uteis.length, 120),
+    },
+  };
+}

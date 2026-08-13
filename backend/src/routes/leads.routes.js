@@ -2,9 +2,9 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
-import { STAGES, LINEAR, normalizePhone, inferStage } from "../services/stages.js";
+import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
-import { lerPrintSimulacao, iaConfigurada, resumirConversa } from "../services/ia.js";
+import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
@@ -340,7 +340,7 @@ r.get("/queue", roles("sdr", "adm"), (req, res) => {
      de sempre: quem marcou sabe de algo que a conversa não mostra. */
 function reanalisar(orgId, aplicar) {
   const vagas = LINEAR.map(() => "?").join(",");
-  const candidatos = db.prepare(`SELECT id,name,stage FROM leads
+  const candidatos = db.prepare(`SELECT id,name,stage,etapa_ia_json FROM leads
     WHERE org_id=? AND sale_value IS NULL AND stage IN (${vagas})`).all(orgId, ...LINEAR);
 
   const conta = (sql, ...args) => db.prepare(sql).get(orgId, ...args).n;
@@ -348,15 +348,60 @@ function reanalisar(orgId, aplicar) {
     venda_registrada: conta("SELECT COUNT(*) n FROM leads WHERE org_id=? AND sale_value IS NOT NULL"),
     etapa_manual: conta(`SELECT COUNT(*) n FROM leads WHERE org_id=? AND stage NOT IN (${vagas})`, ...LINEAR),
     sem_conversa: 0,
+    confirmado_na_mao: 0,
   };
 
-  const daConversa = db.prepare("SELECT direction,body FROM messages WHERE lead_id=? ORDER BY created_at ASC");
+  /* Etapa que uma PESSOA confirmou depois da leitura da IA não é recalculada
+     aqui — seria o sistema desfazendo o que alguém decidiu.
+
+     O caso é real e apareceu na primeira tela: a IA lê "me manda o RG /
+     mandei os dois", o corretor confirma Pasta, e a palavra "documentação"
+     nunca foi escrita. Na reanálise seguinte o lead voltava para Atendimento,
+     em silêncio. Duas regras brigando no mesmo campo, e quem perde é sempre a
+     pessoa que clicou. */
+  const confirmadoNaMao = (l) => {
+    if (!l.etapa_ia_json) return false;
+    try { return JSON.parse(l.etapa_ia_json).etapa === l.stage; } catch { return false; }
+  };
+
+  const daConversa = db.prepare("SELECT direction,body,media_url FROM messages WHERE lead_id=? ORDER BY created_at ASC");
   const mudancas = [];
   let comConversa = 0;
+
+  /* ===== POR QUE O FUNIL NÃO ANDA =====
+
+     "O avanço por palavra-chave não está funcionando" pode ser três coisas bem
+     diferentes, e o conserto de cada uma é outro:
+
+     - a palavra nunca é dita na conversa (é treino de equipe, não é código);
+     - a conversa acontece por ÁUDIO, e áudio não tem texto para procurar
+       (aí nenhuma regra de palavra vai funcionar, hoje ou nunca);
+     - o gatilho existe mas não casa com o jeito que a equipe escreve
+       (aí é código, e dá para consertar aqui).
+
+     Sem separar as três, a gente mexeria no regex torcendo para acertar. Estes
+     contadores dizem qual das três é, antes de mexer em qualquer coisa. */
+  const diag = { sem_gatilho: 0, so_midia: 0, mensagens: 0, mensagens_sem_texto: 0 };
+  const porGatilho = new Map(GATILHOS.map(g => [g.etapa, { etapa: g.etapa, palavra: g.palavra, leads: 0 }]));
+  // Rótulo que o próprio CRM grava quando a mensagem é só mídia: não é conversa,
+  // é o nome do anexo. Contar isso como texto inflaria o diagnóstico.
+  const soRotulo = /^(foto|video|vídeo|audio|áudio|documento|\[.*\])$/i;
+
   for (const l of candidatos) {
+    if (confirmadoNaMao(l)) { fora.confirmado_na_mao++; continue; }
     const msgs = daConversa.all(l.id);
     if (!msgs.length) { fora.sem_conversa++; continue; }
     comConversa++;
+
+    diag.mensagens += msgs.length;
+    const semTexto = msgs.filter(m => !String(m.body || "").trim() || soRotulo.test(String(m.body).trim()));
+    diag.mensagens_sem_texto += semTexto.length;
+    if (semTexto.length === msgs.length) diag.so_midia++;
+
+    const bateram = gatilhosNaConversa(msgs);
+    if (!bateram.length) diag.sem_gatilho++;
+    for (const g of bateram) porGatilho.get(g.etapa).leads++;
+
     const novo = inferStage("Lead", msgs);
     if (novo !== l.stage) mudancas.push({ id: l.id, nome: l.name, de: l.stage, para: novo });
   }
@@ -385,6 +430,13 @@ function reanalisar(orgId, aplicar) {
     mudam: mudancas.length,
     resumo: [...mapa.values()].sort((a, b) => b.quantos - a.quantos || ordem(a.de) - ordem(b.de)),
     exemplos: mudancas.slice(0, 15),
+    diagnostico: {
+      ...diag,
+      // "Nenhuma palavra apareceu" só quer dizer alguma coisa comparado com o
+      // total: 40 de 45 é problema de regra; 40 de 900 é ruído.
+      com_gatilho: comConversa - diag.sem_gatilho,
+      gatilhos: [...porGatilho.values()],
+    },
   };
 }
 
@@ -448,7 +500,8 @@ r.get("/:id", (req, res) => {
     .map(g => ({ ...g, tipo: "ligacao", direction: "sys", body: "" }));
 
   const linhaDoTempo = [...messages, ...ligacoes].sort((a, b) => a.created_at - b.created_at);
-  res.json({ ...parse(lead), messages: linhaDoTempo, resumo: resumoGuardado(lead, messages.length) });
+  res.json({ ...parse(lead), messages: linhaDoTempo, resumo: resumoGuardado(lead, messages.length),
+    etapa_ia: etapaIaGuardada(lead, messages.length) });
 });
 
 /* O resumo que já está no banco, com a informação que muda tudo: quantas
@@ -492,6 +545,54 @@ r.post("/:id/resumo", async (req, res) => {
   if (r2.uso) console.log(`[ia] resumo de ${lead.name}: ${r2.uso.entrada} tokens de entrada, ${r2.uso.saida} de saída`);
   res.json({ ok: true, resumo: { ...r2.resumo, em: Date.now() }, novas: 0 });
 });
+
+/* ===== A IA LÊ A CONVERSA E DIZ EM QUE ETAPA O LEAD ESTÁ =====
+
+   A palavra-chave só acerta quando a palavra é dita. "Me manda seus
+   comprovantes" é Pasta e nenhum gatilho pega; "já fui lá ver ontem" é Visita
+   e nenhum gatilho pega. Quem lê a conversa inteira entende.
+
+   O QUE ESTA ROTA NÃO FAZ: gravar a etapa. Ela devolve a sugestão com o motivo
+   e o trecho que a sustenta, e para por aí. Quem muda o funil é o corretor,
+   no botão, pela rota manual de sempre — a mesma que registra que foi ele.
+
+   Não é preciosismo: a etapa alimenta o relatório que vira cobrança em
+   reunião. Se o número mudar sozinho, o corretor descobre na reunião que o
+   sistema disse uma coisa que ele não fez, e aí ninguém confia em nada. */
+r.post("/:id/etapa-ia", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  if (!iaConfigurada()) return res.status(503).json({ error: "A leitura de etapa por IA não está ligada nesta instalação." });
+
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const r2 = await etapaDaConversa({
+    nome: lead.name,
+    mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
+  });
+  if (!r2.ok) return res.status(422).json({ error: r2.erro });
+
+  db.prepare("UPDATE leads SET etapa_ia_json = ?, etapa_ia_em = ?, etapa_ia_msgs = ? WHERE id = ?")
+    .run(JSON.stringify(r2.sugestao), Date.now(), msgs.length, lead.id);
+  registrarUsoIA({ orgId: lead.org_id, userId: req.user.id, leadId: lead.id, recurso: "etapa", uso: r2.uso });
+  if (r2.uso) console.log(`[ia] etapa de ${lead.name}: ${r2.sugestao.etapa} (${r2.sugestao.confianca}) — ${r2.uso.entrada} tokens de entrada, ${r2.uso.saida} de saída`);
+  res.json({ ok: true, sugestao: { ...r2.sugestao, em: Date.now() }, atual: lead.stage, novas: 0 });
+});
+
+/* A sugestão guardada, com a informação que decide se ela ainda vale: quantas
+   mensagens entraram depois dela, e se o lead já se mexeu desde então. */
+function etapaIaGuardada(lead, quantasMensagens) {
+  if (!lead.etapa_ia_json) return { disponivel: iaConfigurada(), sugestao: null };
+  let dados = null;
+  try { dados = JSON.parse(lead.etapa_ia_json); } catch { return { disponivel: iaConfigurada(), sugestao: null }; }
+  return {
+    disponivel: iaConfigurada(),
+    sugestao: { ...dados, em: lead.etapa_ia_em || null },
+    novas: Math.max(0, quantasMensagens - (lead.etapa_ia_msgs || 0)),
+    // Sugestão que aponta para onde o lead já está não é sugestão: a tela some
+    // com ela em vez de pedir para confirmar o que já está feito.
+    igual_a_atual: dados.etapa === lead.stage,
+  };
+}
 
 // Marca a conversa como lida até agora. A ADM supervisionando NÃO marca:
 // senão ela apagaria o aviso de "cliente aguardando" do corretor.

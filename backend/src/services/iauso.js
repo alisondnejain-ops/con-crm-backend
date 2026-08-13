@@ -49,7 +49,7 @@ export function registrar({ orgId, userId, leadId, recurso, uso }) {
   }
 }
 
-const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa" };
+const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa", etapa: "Leitura da etapa do funil" };
 
 /* O painel de consumo: total da imobiliária, por pessoa e por recurso.
 

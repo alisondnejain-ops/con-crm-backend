@@ -64,13 +64,23 @@ export function proximoGatilho(etapa) {
   return GATILHOS.find(g => g.etapa === LINEAR[i + 1]) || null;
 }
 
+// O texto da conversa como a regra o enxerga: tudo junto, minúsculo, sem acento.
+export const textoDaConversa = (messages) =>
+  semAcento(messages.filter(m => m.direction).map(m => m.body || "").join("\n"));
+
+/* Quais palavras apareceram nesta conversa. Separado do `inferStage` porque
+   responder "por que este lead não andou" exige ver o que bateu e o que não
+   bateu — e não só a etapa final. É o que alimenta o diagnóstico do funil. */
+export function gatilhosNaConversa(messages) {
+  const texto = textoDaConversa(messages);
+  return GATILHOS.filter(g => g.padroes.some(p => p.test(texto)));
+}
+
 export function inferStage(current, messages) {
   const i = LINEAR.indexOf(current);
   if (i < 0) return current;
-  const texto = semAcento(messages.filter(m => m.direction).map(m => m.body || "").join("\n"));
   let t = i;
-  for (const g of GATILHOS)
-    if (g.padroes.some(p => p.test(texto))) t = Math.max(t, LINEAR.indexOf(g.etapa));
+  for (const g of gatilhosNaConversa(messages)) t = Math.max(t, LINEAR.indexOf(g.etapa));
   return LINEAR[t];
 }
 

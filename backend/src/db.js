@@ -355,6 +355,14 @@ addLeadCol("resumo_json", "TEXT");
 addLeadCol("resumo_em", "INTEGER");
 addLeadCol("resumo_msgs", "INTEGER");
 addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou junto
+/* Etapa que a IA leu na conversa — SUGESTÃO, não a etapa do lead.
+
+   Fica em coluna separada de propósito: `stage` continua sendo só o que uma
+   pessoa marcou ou o que a palavra-chave moveu. Enquanto ninguém confirmar, a
+   leitura da IA é opinião guardada, e o funil e os relatórios não mudam. */
+addLeadCol("etapa_ia_json", "TEXT");
+addLeadCol("etapa_ia_em", "INTEGER");
+addLeadCol("etapa_ia_msgs", "INTEGER");
 /* Consumo da IA, por pessoa.
 
    Recurso que gasta dinheiro precisa ter dono registrado. O log do servidor
