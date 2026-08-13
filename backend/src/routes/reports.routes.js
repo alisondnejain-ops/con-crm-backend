@@ -2,7 +2,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, recomendar, recomendacoes, temposDeResposta, mediana } from "../services/score.js";
+import { ranking, recomendar, recomendacoes, temposDeResposta, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 
@@ -202,13 +202,36 @@ r.get("/", (req, res) => {
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
 const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
-const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+// `pct` vem do score.js: uma conta só, para os dois não divergirem de novo.
 // Score de performance da equipe. Só gestão: é material de decisão sobre
 // pessoas, não painel de auto-avaliação do corretor.
 r.get("/score", (req, res) => {
   if (!supervisiona(req.user)) return res.status(403).json({ error: "Sem permissão" });
+
+  /* Aceita o MESMO intervalo da tela de Relatórios (?de=&ate=). É o que faz o
+     score bater com a tabela logo acima dele: antes o score olhava "últimos 90
+     dias" enquanto a tela olhava o mês escolhido, e os dois números certos
+     descreviam pedaços diferentes do tempo.
+
+     ?dias= continua valendo para quem já chamava assim. */
+  const temIntervalo = req.query.de || req.query.ate;
+  const ate = req.query.ate ? fimDoDia(req.query.ate) : Date.now();
+  const de = req.query.de ? inicioDoDia(req.query.de) : null;
+  if (temIntervalo && (!isFinite(de) || !isFinite(ate)))
+    return res.status(400).json({ error: "Período inválido." });
+
   const dias = Math.min(365, Math.max(7, Number(req.query.dias) || 90));
-  res.json({ dias, equipe: ranking(req.user.org_id, dias) });
+  const periodo = temIntervalo ? { de: de ?? (ate - dias * 86400000), ate } : dias;
+  const equipe = ranking(req.user.org_id, periodo);
+
+  res.json({
+    dias,
+    periodo: typeof periodo === "object" ? periodo : { de: Date.now() - dias * 86400000, ate: Date.now() },
+    // A régua vai junto: relatório de reunião sem a definição de cada número
+    // não se sustenta na primeira pergunta.
+    componentes: COMPONENTES_DO_SCORE,
+    equipe,
+  });
 });
 
 // Para quem mandar este lead. Vale só enquanto ele não está com um corretor —

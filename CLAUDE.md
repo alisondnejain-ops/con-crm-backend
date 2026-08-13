@@ -126,31 +126,51 @@ exige Python + build tools. O npm 11+ também bloqueia os scripts de instalaçã
 - **Uazapi (WhatsApp não-oficial)**: envio em `services/uazapi.js` (`/send/text`), recebimento em `POST /webhooks/uazapi`. Precisa `UAZAPI_HOST`/`UAZAPI_TOKEN`. ATENÇÃO: API não-oficial fere os termos do WhatsApp e tem risco de ban — usar número dedicado, sem disparo em massa idêntico. Os campos exatos de payload variam por provedor; ajustar conforme a conta.
 - **E-mail (implementado, falta a conta)**: `services/mail.js` chama a API do Resend por HTTP puro (sem SDK). Precisa de `RESEND_API_KEY` e `MAIL_FROM` com domínio verificado da Conecta. Sem isso, `sendMail` devolve `{sent:false}` e o cadastro cai no modo manual (link na tela + no log) — de propósito, para não travar a operação.
 
-## Pauta combinada com o Ali (12/08/2026) — relatórios e etapa por IA
+## Relatórios e etapa por IA (feito em 13/08/2026)
 
-Pedido dele, para atacar em bloco na próxima sessão. Nada disso foi investigado
-ainda; o que está escrito aqui é o pedido, não diagnóstico.
+Os quatro pontos da pauta do Ali, entregues. O que ficou:
 
-1. **Avanço de etapa por palavra-chave não está funcionando.** Regra atual em
-   `backend/src/services/stages.js` → `GATILHOS`. Antes de mexer, medir: o
-   `GET /leads/reanalise` (só ADM, tela em "Base de leads") recalcula a etapa da
-   base inteira pela regra e mostra o que mudaria **sem aplicar** — é o jeito
-   barato de ver se o problema é a palavra que ninguém escreve, o gatilho que
-   não casa, ou o ponto do código que deixou de ser chamado.
-2. **Avaliar a IA fazendo esse avanço** no lugar (ou em cima) da palavra-chave:
-   ela lê a conversa e diz em que etapa o lead está. Avaliar viabilidade, custo
-   por conversa e o risco de mexer no funil sozinha — hoje a IA no CRM é
-   **leitura, nunca escrita** (regra do resumo), e mudar etapa é escrita.
-   Decidir se entra como sugestão para o corretor confirmar ou como automático.
-3. **Score do corretor.** Revisar o cálculo para o número bater com o que a tela
-   mostra. Lembrar do que já foi corrigido em 10/08: venda conta pela
-   `sale_date`; `recebidos`/`por_etapa`/`conversao` são de coorte;
-   `agendamentos` é foto do momento. Falta histórico de etapas para medir
-   "avançou no período" — provavelmente vira pré-requisito aqui.
-4. **Relatório de corretor para apresentar em reunião.** Saída apresentável
-   (PDF/impressão), e a exigência dele: **fiel ao que o CRM mostra** — mesmo
-   período, mesma definição de cada número, sem métrica que só existe no
-   relatório.
+- **Diagnóstico do funil** (`GET /leads/reanalise` → campo `diagnostico`; tela em
+  "Base de leads" → Analisar a base). "A palavra-chave não funciona" são três
+  doenças com remédios diferentes, e o painel separa: quantas conversas não têm
+  NENHUMA das palavras, quantas são só áudio/foto (onde regra de palavra nunca
+  vai alcançar) e em quantas conversas cada palavra aparece — marcando a que
+  **nunca apareceu**. Sai um veredito escrito, em uma frase. Medir antes de
+  mexer no regex é a regra aqui.
+- **Etapa lida pela IA** (`POST /leads/:id/etapa-ia`, `services/ia.js` →
+  `etapaDaConversa`; cartão na ficha do lead). A IA lê a conversa e diz a
+  etapa, com confiança, motivo e o **trecho** que sustenta. **É SUGESTÃO**: quem
+  grava é o corretor no botão, pela rota manual de sempre — a regra "a IA lê,
+  nunca escreve" continua de pé, e etapa vira relatório que vira cobrança em
+  reunião. Guardada em `leads.etapa_ia_json/_em/_msgs` para não pagar duas vezes;
+  entra no Uso da IA como recurso `etapa`. Etapa fora do funil ou resposta fora
+  do formato viram erro na tela, nunca lead movido.
+- **Etapa confirmada por pessoa fica FORA da reanálise** por palavra-chave
+  (`fora.confirmado_na_mao`). Sem isso as duas regras brigavam e o lead voltava
+  para trás em silêncio.
+- **Score fiel à tela**. Eram três descasamentos, todos corrigidos em
+  `services/score.js`: venda agora conta pela `sale_date` (era etapa da coorte),
+  conversão divide pelos **recebidos** (era pelos resolvidos) e o período é o
+  **mesmo** que o gestor escolheu na tela (era 90 dias fixos). A função `pct`
+  virou uma só, exportada do `score.js` e usada também pelo `reports.routes.js`
+  — eram duas, uma arredondando para inteiro e outra com uma casa decimal
+  (33% x 33,3%). O teste `npm run teste:score` compara as duas rotas número a
+  número e quebra se voltarem a divergir.
+- **A nota vem aberta**: cada parte com valor, régua, peso e quantos pontos
+  contribuiu (`COMPONENTES_DO_SCORE`). Clicar no nome na tabela do score abre o
+  detalhe. Vendas e ligações são notas **comparativas** (100 = o melhor da
+  equipe no período) e a tela avisa isso.
+- **Relatório para reunião** (botão na ficha do corretor em Relatórios). Abre em
+  tela cheia e sai pela impressão do navegador → Salvar como PDF. Não calcula
+  nada: busca as MESMAS duas rotas da tela, com o mesmo período. Traz o bloco
+  "Como cada número é medido". O corretor imprime o próprio (sem o bloco da
+  nota — ranking continua só da gestão). O CSS de impressão está no
+  `index.html`; a folha usa a classe `folha`, e o que não vai ao papel usa
+  `nao-imprimir`.
+
+Ainda não existe **histórico de etapas**, então "quantos avançaram para X no
+período" continua impossível — `agendamentos` é foto do momento, e o relatório
+diz isso por escrito.
 
 ## Próximos passos (nesta ordem)
 

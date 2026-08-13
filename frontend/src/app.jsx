@@ -633,7 +633,8 @@ function ConCRM(){
     },
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
-    score:(dias)=>api("/reports/score"+(dias?`?dias=${dias}`:"")),
+    // Aceita {de,ate} — o MESMO intervalo da tela — ou um número de dias.
+    score:(p)=>api("/reports/score"+(p&&p.de?`?${new URLSearchParams(p)}`:p?`?dias=${p}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
     assinatura:()=>api("/assinatura"),
     configurarAssinatura:(dados)=>api("/assinatura",{method:"PATCH",body:dados}),
@@ -1659,14 +1660,14 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
-        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:role==="adm"}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
-        {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead}/>}
+        {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
@@ -4651,12 +4652,17 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
    Ranking da equipe para gestor e atendente. Quem não recebeu lead no período
    aparece como "sem dados" e não como nota baixa: não avaliar é diferente de
    avaliar mal, e a diferença importa quando o número vira conversa de gestão. */
-function ScoreEquipe({acoes,isMobile}){
+/* O score usa o MESMO período escolhido lá em cima, e não uma janela própria.
+
+   Antes ele tinha o próprio seletor de "últimos 90 dias" enquanto a tabela
+   logo abaixo mostrava o mês que o gestor escolheu. Os dois números estavam
+   certos e descreviam pedaços diferentes do tempo — que é a pior forma de
+   errar, porque ninguém desconfia. */
+function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
   const [d,setD]=useState(null);
-  const [dias,setDias]=useState(90);
   useEffect(()=>{let vivo=true; setD(null);
-    acoes.score(dias).then(x=>vivo&&setD(x)).catch(()=>{});
-    return()=>{vivo=false;};},[dias]);
+    acoes.score(periodo).then(x=>vivo&&setD(x)).catch(()=>{});
+    return()=>{vivo=false;};},[periodo.de,periodo.ate]);
 
   const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
   const celula={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
@@ -4665,13 +4671,11 @@ function ScoreEquipe({acoes,isMobile}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="award" size={16} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Score de performance</span>
-      <select value={dias} onChange={e=>setDias(Number(e.target.value))}
-        style={{marginLeft:"auto",fontSize:12,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 8px",outline:"none"}}>
-        {[30,60,90,180].map(x=><option key={x} value={x}>últimos {x} dias</option>)}
-      </select>
+      <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>mesmo período do relatório</span>
     </div>
     <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
       Conversão, tempo de resposta, visitas, perdas, vendas e ligações — pesados nessa ordem.
+      Clique no nome para ver de onde saiu cada ponto.
     </div>
     {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
     {d&&<div style={{overflowX:"auto"}}>
@@ -4682,7 +4686,13 @@ function ScoreEquipe({acoes,isMobile}){
         </tr></thead>
         <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
           <td style={{...celula,fontFamily:MONO,color:C.faint}}>{m.sem_dados?"–":i+1}</td>
-          <td style={{...celula,color:C.ink,fontWeight:600}}>{m.nome}{m.papel==="sdr"&&<span style={{color:C.faint,fontWeight:400}}> · atendente</span>}</td>
+          <td style={{...celula,color:C.ink,fontWeight:600}}>
+            <button onClick={()=>aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)} disabled={m.sem_dados}
+              title={m.sem_dados?undefined:"Ver de onde saiu cada ponto"}
+              style={{border:"none",background:"transparent",padding:0,color:C.ink,fontWeight:600,fontSize:12,
+                cursor:m.sem_dados?"default":"pointer",textDecoration:m.sem_dados?"none":"underline",textUnderlineOffset:3}}>
+              {m.nome}</button>
+            {m.papel==="sdr"&&<span style={{color:C.faint,fontWeight:400}}> · atendente</span>}</td>
           <td style={{...celula,textAlign:"right"}}>
             {m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
               :<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}</td>
@@ -6220,7 +6230,233 @@ function LeadsDaEtapa({acoes,etapa,atendente,periodo,isMobile,abrirConversa}){
   </div>;
 }
 
-function Relatorios({acoes,session,pickable,isMobile,abrirConversa}){
+/* ===== RELATÓRIO DO CORRETOR, PARA LEVAR À REUNIÃO =====
+
+   A exigência do Ali, e ela manda em tudo aqui: FIEL AO QUE O CRM MOSTRA.
+   Mesmo período, mesma definição de cada número, nenhuma métrica que só exista
+   no papel. Por isso esta tela NÃO calcula nada: ela busca exatamente as duas
+   mesmas rotas que a tela de Relatórios já usa, com o mesmo intervalo, e
+   desenha o resultado. Se o número mudar aqui e não lá, é bug — não é "outro
+   critério".
+
+   Sai pela impressão do navegador, que é como se faz PDF sem instalar nada:
+   Imprimir → Salvar como PDF. O CSS de impressão vive no index.html (regra da
+   casa: JS em app.jsx, CSS global no index.html).
+
+   O bloco "Como cada número é medido" não é rodapé decorativo. É o que faz o
+   relatório sobreviver à primeira pessoa que perguntar "de onde saiu isso". */
+function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar}){
+  /* `score` fica `false` quando a nota não está disponível para quem abriu.
+
+     O corretor não tem acesso ao ranking — é decisão antiga da casa: a nota é
+     material de decisão sobre pessoas, não painel de auto-avaliação. Mas o
+     relatório dele tem que sair assim mesmo, com os números que são dele.
+     Recusar a folha inteira por causa do bloco da nota seria trocar uma regra
+     por um impedimento. */
+  const [score,setScore]=useState(null);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{let vivo=true; setScore(null); setErro("");
+    acoes.score({de:periodo.de,ate:periodo.ate})
+      .then(x=>vivo&&setScore(x))
+      .catch(e=>{ if(!vivo) return;
+        setScore(false);
+        if(!/permiss/i.test(e.message||"")) setErro(e.message); });
+    return()=>{vivo=false;};},[periodo.de,periodo.ate]);
+
+  const meu=score&&score.equipe.find(x=>x.id===linha.id);
+  const pronto=score!==null;   // veio a nota, ou veio a recusa: nos dois a folha existe
+  const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
+  const hoje=new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+
+  const titulo=(t)=><div style={{color:C.ink,fontFamily:DISPLAY,fontSize:13.5,fontWeight:700,
+    borderBottom:`1px solid ${C.line}`,paddingBottom:6,margin:"22px 0 12px"}}>{t}</div>;
+
+  const numero=(rot,val,sub)=><div style={{flex:"1 1 128px",minWidth:112}}>
+    <div style={{fontFamily:MONO,color:C.ink,fontSize:22,fontWeight:700,lineHeight:1.05}}>{val}</div>
+    <div style={{color:C.sub,fontSize:11,fontWeight:600,marginTop:3}}>{rot}</div>
+    {sub&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>{sub}</div>}
+  </div>;
+
+  return <div className="folha" style={{position:"fixed",inset:0,zIndex:80,background:C.bg,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div className="nao-imprimir" style={{position:"sticky",top:0,zIndex:2,background:C.card,borderBottom:`1px solid ${C.line}`,
+      padding:isMobile?"10px 14px":"10px 20px",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+      <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,
+        padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Voltar</button>
+      <span style={{color:C.faint,fontSize:11.5,flex:1,minWidth:120}}>
+        Imprimir → <b style={{color:C.sub}}>Salvar como PDF</b> para levar à reunião.
+      </span>
+      <button onClick={()=>window.print()} disabled={!pronto}
+        style={{background:pronto?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",
+          fontSize:12.5,fontWeight:700,cursor:pronto?"pointer":"default",display:"flex",alignItems:"center",gap:6}}>
+        <Icon n="download" size={13}/>Imprimir / PDF</button>
+    </div>
+
+    <div style={{maxWidth:800,margin:"0 auto",padding:isMobile?"16px 14px 40px":"24px 26px 48px"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap",borderBottom:`2px solid ${C.greenDeep}`,paddingBottom:12}}>
+        <div style={{flex:1,minWidth:180}}>
+          <div style={{color:C.greenDeep,fontFamily:DISPLAY,fontSize:isMobile?18:21,fontWeight:700,lineHeight:1.15}}>
+            {linha.nome}</div>
+          <div style={{color:C.sub,fontSize:12.5,marginTop:3}}>
+            {linha.papel==="sdr"?"Atendente (SDR)":"Corretor(a)"} · {org&&org.nome?org.nome:"Conecta Imóveis"}</div>
+          <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+            Período: <b style={{color:C.sub}}>{fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</b></div>
+        </div>
+        {meu&&!meu.sem_dados&&<div style={{textAlign:"right"}}>
+          <div style={{fontFamily:MONO,fontSize:38,fontWeight:700,lineHeight:1,color:cor(meu.score)}}>{meu.score}</div>
+          <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>score de 100</div>
+        </div>}
+      </div>
+
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:12}}>{erro}</div>}
+      {!pronto&&!erro&&<div style={{color:C.faint,fontSize:12.5,padding:"18px 0"}}>Montando o relatório…</div>}
+
+      {titulo("Números do período")}
+      <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+        {numero("Leads recebidos",linha.recebidos,"entraram no período")}
+        {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
+        {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
+        {numero("Agendados / visitas",linha.agendamentos,"onde estão hoje")}
+        {numero("Vendas",linha.vendas,"fechadas no período")}
+        {numero("Valor vendido",fmtMoeda(linha.valor_vendido),null)}
+      </div>
+
+      {meu&&!meu.sem_dados&&<React.Fragment>
+        {titulo("Como a nota foi formada")}
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
+            {["Item","Resultado","Nota","Peso","Pontos"].map((h,i)=>
+              <th key={h} style={{padding:"6px 6px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
+                textAlign:i?"right":"left"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{meu.partes.map(p=><tr key={p.chave} style={{borderBottom:`1px solid ${C.line}`}}>
+            <td style={{padding:"7px 6px",fontSize:11.5,color:C.ink}}>
+              {p.rotulo}
+              <div style={{color:C.faint,fontSize:10,lineHeight:1.4,marginTop:2}}>{p.regua}</div>
+            </td>
+            <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:C.ink,textAlign:"right",whiteSpace:"nowrap"}}>{p.valor_texto}</td>
+            <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:cor(p.nota),fontWeight:700,textAlign:"right"}}>{p.nota}</td>
+            <td style={{padding:"7px 6px",fontSize:11.5,fontFamily:MONO,color:C.faint,textAlign:"right"}}>{p.peso}%</td>
+            <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:C.sub,fontWeight:700,textAlign:"right"}}>{p.contribuiu}</td>
+          </tr>)}</tbody>
+          <tfoot><tr>
+            <td colSpan={4} style={{padding:"8px 6px",fontSize:11.5,color:C.sub,fontWeight:700,textAlign:"right"}}>Nota final</td>
+            <td style={{padding:"8px 6px",fontFamily:MONO,fontSize:14,fontWeight:700,color:cor(meu.score),textAlign:"right"}}>{meu.score}</td>
+          </tr></tfoot>
+        </table>
+      </React.Fragment>}
+
+      {titulo("Onde estão os leads do período")}
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {STAGES.filter(st=>(linha.por_etapa[st]||0)>0).map(st=>{
+          const v=linha.por_etapa[st]||0, p=linha.recebidos?v/linha.recebidos*100:0;
+          return <div key={st} style={{display:"flex",alignItems:"center",gap:9}}>
+            <span style={{color:C.sub,fontSize:11.5,width:isMobile?106:160,flexShrink:0}}>{st}</span>
+            <div style={{height:9,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}>
+              <div style={{width:Math.max(p,3)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
+            <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,width:34,textAlign:"right"}}>{v}</span>
+          </div>;})}
+        {linha.recebidos===0&&<div style={{color:C.faint,fontSize:12}}>Nenhum lead entrou para esta pessoa no período.</div>}
+      </div>
+
+      {linha.por_dia&&linha.por_dia.length>0&&<React.Fragment>
+        {titulo("Leads recebidos, dia a dia")}
+        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {linha.por_dia.map(d=><span key={d.dia} style={{background:C.surface,borderRadius:8,padding:"5px 10px",
+            fontSize:11,color:C.sub}}>{fmtData(d.dia)} · <b style={{fontFamily:MONO,color:C.ink}}>{d.recebidos}</b></span>)}
+        </div>
+      </React.Fragment>}
+
+      {linha.plantao&&linha.plantao.dias_escalado>0&&<React.Fragment>
+        {titulo("Plantão")}
+        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+          {numero("Dias escalado",linha.plantao.dias_escalado,null)}
+          {numero("Dias que se prontificou",linha.plantao.dias_que_se_prontificou,null)}
+          {numero("Leads em dia de plantão",linha.plantao.leads_em_dia_de_plantao,null)}
+        </div>
+      </React.Fragment>}
+
+      {titulo("Como cada número é medido")}
+      <div style={{color:C.sub,fontSize:11,lineHeight:1.65}}>
+        <div><b>Leads recebidos</b> — entraram no período e estão com esta pessoa.</div>
+        <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
+        <div><b>Conversão</b> — dos leads que <b>entraram</b> no período, quantos já viraram venda.</div>
+        <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
+        <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. É foto do momento: o sistema não guarda a data de cada mudança de etapa, então "quantos avançaram nesta semana" ainda não existe.</div>
+        {(score&&score.componentes||[]).some(c=>c.comparativo)&&
+          <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
+      </div>
+
+      <div style={{borderTop:`1px solid ${C.line}`,marginTop:20,paddingTop:10,color:C.faint,fontSize:10.5,lineHeight:1.5}}>
+        Gerado pelo ConHub em {hoje}. Os números são os mesmos da tela de Relatórios, no mesmo período —
+        qualquer diferença entre este papel e o sistema é erro, não critério diferente.
+      </div>
+    </div>
+  </div>;
+}
+
+/* ===== DE ONDE SAIU CADA PONTO DA NOTA =====
+
+   Nota fechada é palavra contra palavra. Numa reunião, "você tirou 62" só se
+   sustenta se der para abrir e ver que 62 é a soma de seis contas, cada uma
+   com o valor, a régua e o peso à vista. */
+function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
+  const cor=(n)=>n>=70?C.green:n>=45?C.amber:C.hot;
+  return <div style={{position:"fixed",inset:0,zIndex:70,background:"rgba(10,20,16,.5)",
+    display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:"100%",maxWidth:560,
+      maxHeight:isMobile?"88vh":"86vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      <div style={{padding:isMobile?15:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:17,fontWeight:700}}>{m.nome}</div>
+            <div style={{color:C.faint,fontSize:11.5}}>{fmtData(periodo.de)} a {fmtData(periodo.ate)}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontFamily:MONO,fontSize:30,fontWeight:700,lineHeight:1,color:cor(m.score)}}>{m.score}</div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>de 100</div>
+          </div>
+          <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
+            width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
+        </div>
+
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,margin:"10px 0 12px"}}>
+          A nota é a média das seis partes abaixo, pesada. Cada valor é o mesmo que aparece na tabela do relatório — não existe número aqui que não exista lá.
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {(m.partes||[]).map(p=><div key={p.chave} style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+              <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{p.rotulo}</span>
+              <span style={{fontFamily:MONO,color:C.ink,fontSize:14,fontWeight:700}}>{p.valor_texto}</span>
+              <span style={{fontFamily:MONO,color:cor(p.nota),fontSize:12,fontWeight:700,minWidth:52,textAlign:"right"}}>{p.nota}/100</span>
+            </div>
+            <div style={{height:7,borderRadius:999,background:C.card,overflow:"hidden",margin:"7px 0 6px"}}>
+              <div style={{width:Math.max(p.nota,2)+"%",height:"100%",borderRadius:999,background:cor(p.nota)}}/>
+            </div>
+            <div style={{color:C.sub,fontSize:11,lineHeight:1.45}}>{p.como}</div>
+            <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45,marginTop:3}}>
+              {p.regua} · peso {p.peso}% · entrou com <b style={{fontFamily:MONO,color:C.sub}}>{p.contribuiu}</b> ponto(s) na nota
+            </div>
+          </div>)}
+        </div>
+
+        {/* Régua comparativa muda de significado quando a equipe muda. Quem vai
+            usar isso numa reunião precisa saber disso antes de alguém apontar. */}
+        {(componentes||[]).some(c=>c.comparativo)&&
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginTop:12}}>
+            Vendas e ligações são notas <b>comparativas</b>: valem 100 para quem mais fez na equipe no período.
+            Quer dizer que essas duas mudam quando a equipe muda, mesmo sem o corretor mudar nada.
+          </div>}
+      </div>
+    </div>
+  </div>;
+}
+
+function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
+  // Nota aberta de alguém da equipe: {m, componentes}.
+  const [nota,setNota]=useState(null);
+  // Relatório de reunião do corretor selecionado, aberto em tela cheia.
+  const [paraReuniao,setParaReuniao]=useState(false);
   const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
   const [dados,setDados]=useState(null);
   const [carregando,setCarregando]=useState(true);
@@ -6275,7 +6511,10 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa}){
 
       {/* Só quem supervisiona vê o ranking: é material de decisão sobre pessoas,
           não painel de auto-avaliação do corretor. */}
-      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile}/>}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
+      {nota&&<DetalheDaNota m={nota.m} componentes={nota.componentes} periodo={dados.periodo} isMobile={isMobile} aoFechar={()=>setNota(null)}/>}
+      {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
+        org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
         {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
@@ -6293,6 +6532,13 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa}){
             <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700}}>{linha.nome}</div>
             <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
           </div>
+          {/* O relatório de reunião sai daqui, do lado do nome de quem ele
+              descreve — e não num menu geral, onde daria para imprimir sem
+              reparar de quem é. */}
+          <button className="nao-imprimir" onClick={()=>setParaReuniao(true)}
+            style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
+              padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <Icon n="download" size={13}/>Relatório para reunião</button>
           <div style={{marginLeft:"auto",textAlign:"right"}}>
             <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{fmtMin(linha.primeira_resposta_mediana_min)}</div>
             <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
