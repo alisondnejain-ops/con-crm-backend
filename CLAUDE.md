@@ -92,6 +92,24 @@ con-crm/
     └── src/services/      # stages, uazapi, meta, mail (Resend)
 ```
 
+## Aviso de versão nova (conserto de 13/08/2026)
+
+O `AvisoVersao` relia o `/index.html` para descobrir se havia versão nova. Isso
+funcionava no Netlify — era o próprio arquivo do site. Depois que o CRM passou
+a ser servido pelo backend, a página virou `/app` e o `index.html` **não existe
+em `backend/public/`**: o pedido voltava 401, o erro era engolido pelo `catch` e
+**a faixa de versão nova nunca apareceu na produção**. Cada publicação dependia
+de alguém desconfiar sozinho e apertar Ctrl+Shift+R.
+
+Agora confere pelo **`/versao.txt`**, que o build grava e o servidor entrega com
+`no-store`. E em **Minha conta** aparecem as DUAS versões — a do aparelho e a
+publicada no servidor — com botão de atualizar quando diferem. É o que separa
+"não foi publicado" de "está no cache do aparelho": sem as duas lado a lado,
+"consertei" e "aqui continua igual" são duas frases verdadeiras que ninguém
+consegue reconciliar.
+
+Diagnóstico rápido, sem abrir o CRM: **`https://www.conhubcrm.com.br/versao.txt`**.
+
 ## Build do frontend
 
 ```bash

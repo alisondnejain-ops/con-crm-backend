@@ -4038,6 +4038,54 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
 
 /* ===== MINHA CONTA =====
    Igual para corretor, atendente e gestor. Cada um cuida dos próprios dados. */
+/* ===== QUAL VERSÃO ESTE APARELHO ESTÁ RODANDO =====
+
+   Mostrava só a versão do aparelho. Faltava a metade que resolve a discussão:
+   qual está PUBLICADA no servidor. Sem as duas lado a lado, "consertei" e
+   "aqui continua igual" são duas afirmações verdadeiras que ninguém consegue
+   reconciliar — e foi exatamente o que aconteceu com o card do funil.
+
+   Iguais: o aparelho está em dia, e o problema é outro.
+   Diferentes: é versão velha, e o botão resolve na hora. */
+function VersaoDoApp(){
+  const meu=typeof window!=="undefined"?window.CONHUB_BUILD:null;
+  const [publicada,setPublicada]=useState(null);
+  useEffect(()=>{ let vivo=true;
+    fetch("/versao.txt?v="+Date.now(),{cache:"no-store"})
+      .then(r=>r.ok?r.text():null)
+      .then(t=>vivo&&setPublicada(t?t.trim():false)).catch(()=>vivo&&setPublicada(false));
+    return()=>{vivo=false;};},[]);
+  if(!meu) return null;
+
+  const velha=publicada&&publicada!==meu;
+  return <div style={{textAlign:"center",marginTop:6,lineHeight:1.6}}>
+    <div style={{color:C.faint,fontSize:11}}>ConHub · versão {meu}</div>
+    {publicada===false&&<div style={{color:C.faint,fontSize:10.5}}>não consegui conferir a versão do servidor</div>}
+    {publicada&&!velha&&<div style={{color:C.greenMid,fontSize:10.5,fontWeight:600}}>este aparelho está na última versão</div>}
+    {velha&&<React.Fragment>
+      <div style={{color:C.hot,fontSize:11,fontWeight:600}}>o servidor já está na {publicada}</div>
+      <button onClick={atualizarConHub}
+        style={{marginTop:7,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+          padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Atualizar este aparelho</button>
+    </React.Fragment>}
+  </div>;
+}
+
+/* Recarrega de verdade: derruba o service worker e os caches antes.
+
+   Só apertar F5 muitas vezes devolve o mesmo arquivo guardado — e a pessoa
+   conclui que o conserto não foi feito. */
+async function atualizarConHub(){
+  try{
+    if(navigator.serviceWorker){
+      const rs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(rs.map(r=>r.unregister()));
+    }
+    if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
+  }catch(e){}
+  location.replace(location.pathname+"?atualizado="+Date.now());
+}
+
 function MinhaConta({session,acoes,isMobile,aoAtualizar}){
   const [f,setF]=useState({name:session.name,email:session.email,phone:session.phone||""});
   const [senha,setSenha]=useState({atual:"",nova:"",repetir:""});
@@ -4126,12 +4174,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
       </div>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile}/>}
-      {/* Qual versão este aparelho está rodando. Quando alguém disser "aqui não
-          aparece", este número responde em dois segundos se é versão velha ou
-          erro de verdade. */}
-      {typeof window!=="undefined"&&window.CONHUB_BUILD&&
-        <div style={{color:C.faint,fontSize:11,textAlign:"center",marginTop:4}}>
-          ConHub · versão {window.CONHUB_BUILD}</div>}
+      <VersaoDoApp/>
     </div>
   </div>;
 }
@@ -7122,12 +7165,24 @@ function AvisoVersao(){
   useEffect(()=>{
     if(!meu||location.protocol==="file:") return;
     let vivo=true;
+    /* Confere pelo /versao.txt, que o build grava e o servidor entrega sem
+       cache.
+
+       Antes isto relia o /index.html. No Netlify funcionava — era o próprio
+       arquivo do site. Depois que o CRM passou a ser servido pelo backend a
+       página virou /app (o index.html nem existe mais lá dentro), e o pedido
+       passou a voltar 401. O erro era engolido pelo catch e o aviso de versão
+       nova NUNCA aparecia: cada publicação dependia da pessoa desconfiar
+       sozinha e apertar Ctrl+Shift+R.
+
+       Falhar calado foi o pior desta história — um aviso que não avisa é
+       indistinguível de "não há nada de novo". */
     const conferir=async()=>{
       try{
-        const r=await fetch("/index.html?v="+Date.now(),{cache:"no-store"});
-        const txt=await r.text();
-        const m=txt.match(/CONHUB_BUILD="([^"]+)"/);
-        if(vivo&&m&&m[1]&&m[1]!==meu) setNova(true);
+        const r=await fetch("/versao.txt?v="+Date.now(),{cache:"no-store"});
+        if(!r.ok) return;
+        const publicada=(await r.text()).trim();
+        if(vivo&&publicada&&publicada!==meu) setNova(true);
       }catch(e){}
     };
     conferir();
@@ -7144,23 +7199,13 @@ function AvisoVersao(){
   },[]);
 
   if(!nova) return null;
-  const atualizar=async()=>{
-    try{
-      if(navigator.serviceWorker){
-        const rs=await navigator.serviceWorker.getRegistrations();
-        await Promise.all(rs.map(r=>r.unregister()));
-      }
-      if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
-    }catch(e){}
-    location.replace(location.pathname+"?atualizado="+Date.now());
-  };
 
   return <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:60,background:C.greenDeep,color:"#fff",
     padding:"11px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
     paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 11px)",boxShadow:"0 -6px 24px rgba(0,0,0,.2)"}}>
     <Icon n="zap" size={15}/>
     <span style={{flex:1,fontSize:13,fontWeight:600,minWidth:140}}>Tem uma versão nova do ConHub.</span>
-    <button onClick={atualizar} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:9,
+    <button onClick={atualizarConHub} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:9,
       padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Atualizar agora</button>
   </div>;
 }
