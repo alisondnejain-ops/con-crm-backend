@@ -832,6 +832,29 @@ r.patch("/:id/stage", (req, res) => {
   res.json({ ok: true, stage });
 });
 
+/* Corrigir o nome do lead.
+
+   O nome que entra pelo WhatsApp é o que a PESSOA escolheu no aparelho dela:
+   às vezes é "Jr 🏡", às vezes é o número puro, às vezes é o nome do marido. O
+   CRM guardava aquilo e não havia como arrumar — e é esse nome que aparece na
+   lista de conversas, no relatório e na assinatura da mensagem.
+
+   Quem atende corrige, e a supervisão também. Não precisa ser só do gestor:
+   quem descobre o nome verdadeiro é justamente quem está conversando.
+
+   O nome só é gravado quando o lead nasce (ver uazapi.webhook.js), nunca
+   atualizado depois — então a correção feita aqui não corre risco de ser
+   desfeita pela próxima mensagem que chegar. */
+r.patch("/:id/nome", (req, res) => {
+  const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!nome) return res.status(400).json({ error: "Escreva o nome do cliente." });
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("UPDATE leads SET name = ? WHERE id = ?").run(nome, lead.id);
+  console.log(`[lead] ${req.user.name} renomeou "${lead.name}" para "${nome}"`);
+  res.json({ ok: true, nome });
+});
+
 // Registro da venda: valor do imóvel, data e qual unidade. Registrar a venda
 // também move o lead para a etapa "Venda" — as duas coisas andam juntas.
 r.patch("/:id/venda", (req, res) => {

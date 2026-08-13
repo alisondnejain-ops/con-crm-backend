@@ -234,6 +234,24 @@ function fmtTel(t){
 }
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
+const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
+/* Data/hora da última mensagem na LISTA de conversas, na régua do WhatsApp:
+   hoje mostra a hora, ontem diz "Ontem", dentro da semana o dia da semana e,
+   passando disso, a data.
+
+   É a régua certa porque responde à pergunta que se faz olhando a lista —
+   "isso é de agora ou de quando?" — com o mínimo de leitura. "14/08/2026
+   15:06" obriga a comparar com a data de hoje toda vez. */
+function fmtQuando(ts){
+  if(!ts) return "";
+  const d=new Date(ts);
+  const dias=Math.round((new Date().setHours(0,0,0,0)-new Date(ts).setHours(0,0,0,0))/86400000);
+  if(dias<=0) return d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  if(dias===1) return "Ontem";
+  if(dias<7) return SEMANA[d.getDay()];
+  return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",
+    ...(d.getFullYear()!==new Date().getFullYear()?{year:"2-digit"}:{})});
+}
 // Abre o discador do celular com o número já preenchido.
 /* Ligar para o lead e, na volta, dizer o que aconteceu.
 
@@ -613,6 +631,7 @@ function ConCRM(){
       await recarregar(); await abrir(leadId,true);
     },
     mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
+    renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:acao((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:acao((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
@@ -1826,24 +1845,41 @@ function Badge({n,top,right}){
 /* ===== item da lista de leads =====
    Não lida em destaque: nome em negrito, fundo levemente verde e contador.
    É o sinal de "o cliente está esperando" que o Ali pediu. */
+/* Cada conversa na lista, no arranjo do WhatsApp — que é o que a equipe já sabe
+   ler sem aprender nada:
+
+   nome ................................ quando foi a última mensagem
+   última mensagem
+   etapa · corretor ..................... quantas não lidas
+
+   A HORA subiu para a primeira linha porque é a informação que se procura
+   varrendo a lista de cima a baixo ("isso é de agora ou de quando?"), e o
+   contador de não lidas desceu para o canto de baixo, onde ele está no
+   WhatsApp. Antes não havia hora nenhuma: dava para saber que o cliente estava
+   esperando, mas não desde quando, a não ser abrindo a conversa. */
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
-  const naoLida=l.unread>0, espera=Date.now()-(l.lastAt||l.createdAt);
+  const naoLida=l.unread>0, quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
-      <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
-        {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{l.unread}</span>}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
         <Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill>
+        {/* Cliente esperando tem a hora em coral, como o WhatsApp destaca a
+            conversa não lida — o olho pega a linha antes de ler o nome. */}
+        <span style={{color:naoLida?C.hot:C.faint,fontSize:10.5,fontWeight:naoLida?700:500,whiteSpace:"nowrap"}}
+          title={quando?new Date(quando).toLocaleString("pt-BR"):undefined}>{fmtQuando(quando)}</span>
       </div>
     </div>
     <span style={{color:naoLida?C.ink:C.faint,fontWeight:naoLida?500:400,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
       {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:"Novo lead — sem contato"}
     </span>
-    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
       {naoLida
         ?<span style={{display:"flex",alignItems:"center",gap:4,color:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600}}><Icon n="timer" size={12} color={ageColor(espera)}/>aguardando há {fmtAge(espera)}</span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
-      {mostrarDono&&<span style={{color:C.faint,fontSize:10.5}}>{l.assignedName||"na fila"}</span>}
+      {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
+      <span style={{flex:1}}/>
+      {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread}</span>}
     </div>
   </button>;
 }
@@ -1852,7 +1888,6 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono}){
    A faixa "Hoje / Ontem / 12 de julho" que separa os dias, como no WhatsApp.
    Sem ela a conversa vira um bloco só e não dá para saber o que foi falado hoje
    e o que é de semanas atrás. */
-const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
 const soDia=(ts)=>{const d=new Date(ts);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();};
 const mesmoDia=(a,b)=>soDia(a)===soDia(b);
 function rotuloDia(ts){
@@ -2405,6 +2440,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
           <Icon n="star" size={14} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/><span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
         </div>
+
+        <NomeDoLead lead={sel} acoes={acoes}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
@@ -3328,6 +3365,66 @@ function ResumoIA({lead,acoes,isMobile}){
   </div>;
 }
 
+/* ===== O NOME DO CLIENTE, CORRIGÍVEL =====
+
+   O nome que entra pelo WhatsApp é o que a PESSOA escolheu no aparelho dela:
+   às vezes é "Jr 🏡", às vezes é o número puro, às vezes é o nome do marido.
+   O CRM guardava aquilo e não havia como arrumar — e é esse nome que aparece
+   na lista de conversas, no relatório e na hora de chamar o cliente pelo nome.
+
+   Quem atende corrige, porque é quem descobre o nome verdadeiro na conversa.
+   Some do jeito que apareceu: um lápis discreto, e o campo abre no lugar — sem
+   popup e sem rolar a tela até outro canto. */
+function NomeDoLead({lead,acoes}){
+  const [editando,setEditando]=useState(false);
+  const [nome,setNome]=useState(lead.nome||"");
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
+  const campo=useRef(null);
+
+  // Trocar de lead fecha a edição — e a atualização de 10 em 10 segundos não
+  // pode apagar o que está sendo digitado, então quem manda aqui é o id.
+  useEffect(()=>{ setEditando(false); setErro(""); setNome(lead.nome||""); },[lead.id]);
+  useEffect(()=>{ if(editando&&campo.current){ campo.current.focus(); campo.current.select(); } },[editando]);
+
+  async function salvar(){
+    const novo=nome.replace(/\s+/g," ").trim();
+    if(!novo) return setErro("Escreva o nome do cliente.");
+    if(novo===lead.nome) return setEditando(false);
+    setSalvando(true); setErro("");
+    try{ await acoes.renomearLead(lead.id,novo); setEditando(false); }
+    catch(e){ setErro(e.message); }
+    finally{ setSalvando(false); }
+  }
+
+  if(!editando) return <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+    <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,minWidth:0,
+      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lead.nome}</span>
+    <button onClick={()=>{setNome(lead.nome||"");setEditando(true);}} title="Corrigir o nome do cliente"
+      aria-label="Corrigir o nome do cliente"
+      style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
+      <Icon n="edit" size={13}/></button>
+  </div>;
+
+  return <div style={{marginBottom:12}}>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <input ref={campo} value={nome} onChange={e=>setNome(e.target.value)} maxLength={80}
+        onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
+        placeholder="Nome do cliente"
+        style={{flex:1,minWidth:0,fontSize:16,fontWeight:600,border:`1px solid ${C.green}66`,background:C.surface,
+          borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+      <button onClick={salvar} disabled={salvando}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+          fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
+        {salvando?"…":"Salvar"}</button>
+      <button onClick={()=>setEditando(false)} disabled={salvando}
+        style={{background:"transparent",border:"none",color:C.faint,fontSize:12.5,cursor:"pointer",padding:4,flexShrink:0}}>
+        cancelar</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{erro}</div>}
+  </div>;
+}
+
 /* ===== A IA LÊ A CONVERSA E DIZ A ETAPA (SUGESTÃO) =====
 
    A palavra-chave só pega quando a palavra é dita. "Me manda seus
@@ -3461,6 +3558,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
         <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
       </div>
 
+      <NomeDoLead lead={lead} acoes={acoes}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
