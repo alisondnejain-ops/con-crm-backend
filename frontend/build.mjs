@@ -20,6 +20,27 @@ const jsxPath = path.join(dir, "src", "app.jsx");
 const jsx = await readFile(jsxPath, "utf8");
 const html = await readFile(htmlPath, "utf8");
 
+/* ===== COR QUE NÃO EXISTE NÃO PASSA =====
+
+   Escrever `C.bg` quando a paleta tem `C.surface` não quebra nada: o React
+   monta, o navegador recebe `background: undefined` e simplesmente ignora. O
+   resultado foi um relatório de tela cheia com fundo TRANSPARENTE, com o CRM
+   aparecendo por baixo — bug que só existe depois de publicado, e que nenhum
+   teste de "a tela abriu?" pega, porque a tela abre.
+
+   Erro de digitação em nome de cor é barato de cometer e caro de descobrir.
+   Aqui ele para o build, com o nome errado e a linha na mensagem. */
+const paleta = jsx.match(/const C = \{([\s\S]*?)\n\};/);
+if (!paleta) throw new Error("Não encontrei a paleta `const C = {` em app.jsx.");
+const cores = new Set([...paleta[1].matchAll(/(\w+)\s*:/g)].map(m => m[1]));
+const erradas = [];
+jsx.split("\n").forEach((linha, i) => {
+  for (const m of linha.matchAll(/\bC\.(\w+)/g))
+    if (!cores.has(m[1])) erradas.push(`  linha ${i + 1}: C.${m[1]}`);
+});
+if (erradas.length)
+  throw new Error(`Cor inexistente na paleta (o navegador ignora e o elemento fica sem cor):\n${erradas.join("\n")}\n\nA paleta tem: ${[...cores].join(", ")}`);
+
 const out = await esbuild.transform(jsx, {
   loader: "jsx",
   format: "iife",

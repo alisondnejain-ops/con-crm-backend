@@ -6277,7 +6277,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
     {sub&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>{sub}</div>}
   </div>;
 
-  return <div className="folha" style={{position:"fixed",inset:0,zIndex:80,background:C.bg,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+  return <div className="folha" style={{position:"fixed",inset:0,zIndex:80,background:C.surface,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
     <div className="nao-imprimir" style={{position:"sticky",top:0,zIndex:2,background:C.card,borderBottom:`1px solid ${C.line}`,
       padding:isMobile?"10px 14px":"10px 20px",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
       <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,
