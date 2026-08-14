@@ -196,6 +196,25 @@ function useMedia(query){
 const useIsMobile=()=>useMedia(`(max-width:${MOBILE_BP}px)`);
 const useIsCompact=()=>useMedia(`(max-width:${COMPACT_BP}px)`);
 
+/* Altura da barra de navegação de baixo, medida de verdade.
+
+   Ela muda de tamanho no iPhone por causa da faixa do indicador de início
+   (`env(safe-area-inset-bottom)`), então chutar um número erra em metade dos
+   aparelhos. Serve para as folhas que abrem por cima não encostarem o botão
+   principal na barra — botão colado na barra é botão que o dedo erra, e no
+   iPhone chega a ficar por baixo dela. */
+function usarAlturaDaBarra(){
+  const [h,setH]=useState(0);
+  useEffect(()=>{
+    const medir=()=>{ const n=document.querySelector("nav"); setH(n?Math.round(n.getBoundingClientRect().height):0); };
+    medir();
+    window.addEventListener("resize",medir);
+    const t=setInterval(medir,1000);   // a barra some e volta conforme o papel de quem entrou
+    return()=>{window.removeEventListener("resize",medir);clearInterval(t);};
+  },[]);
+  return h;
+}
+
 /* ===== ESCOLHA QUE NÃO SE PERDE =====
 
    Igual ao useState, só que a escolha volta se a tela for montada de novo.
@@ -1019,7 +1038,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     </div>;
   };
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
@@ -2511,7 +2530,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div style={{padding:12,borderBottom:`1px solid ${C.line}`}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Quente","Morno","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
       </div>
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      <div style={{flex:1,overflowY:"auto"}}>
         {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
         {list.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
       </div>
@@ -2531,7 +2550,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
-      <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
+      <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
@@ -2595,7 +2614,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
-    {showFicha&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",WebkitOverflowScrolling:"touch",minHeight:0}}>
+    {showFicha&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
       <div style={{padding:16}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
@@ -2742,7 +2761,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
     setArrasto(null); setAlvo(null);
   };
   return <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
-    style={{height:"100%",overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch",padding:isMobile?12:16,
+    style={{height:"100%",overflowX:"auto",overflowY:"hidden",padding:isMobile?12:16,
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
     <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":STAGES.length*172}}>
@@ -2789,14 +2808,25 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
    falar com o cliente. Sem sair do quadro é possível olhar dez leads parados
    em sequência — que é justamente o que se faz no funil. */
 function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
+  const alturaBarra=usarAlturaDaBarra();
   const l=leads.find(x=>x.id===leadId);
   useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); },[leadId]);
   if(!l) return null;
 
-  return <div onClick={aoFechar} style={{position:"fixed",inset:0,zIndex:70,background:"rgba(10,20,16,.5)",
-    display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+  /* `maxHeight:100%` em vez de 90vh: a caixa de fora JÁ tem a altura certa da
+     tela (classe `tela-cheia`), então o rodapé com o botão do WhatsApp fica no
+     fim do que se vê — e não no fim de uma tela imaginária maior que a real. */
+  return <div onClick={aoFechar} className="tela-cheia" style={{zIndex:70,background:"rgba(10,20,16,.5)",
+    display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",
+    padding:isMobile?0:20,
+    /* A folha para ACIMA da barra de navegação. Ela cobriria a barra sem
+       problema — é um popup —, mas o botão do WhatsApp ficava exatamente na
+       faixa dela, e no iPhone acabava por baixo. Parando antes, o botão fica
+       no lugar certo em qualquer aparelho, sem depender de quem desenha por
+       cima de quem. */
+    paddingBottom:isMobile?alturaBarra:20}}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,
-      width:"100%",maxWidth:520,maxHeight:isMobile?"90vh":"88vh",display:"flex",flexDirection:"column",minHeight:0}}>
+      width:"100%",maxWidth:520,maxHeight:"100%",display:"flex",flexDirection:"column",minHeight:0}}>
 
       <div style={{padding:isMobile?"14px 15px 10px":"16px 18px 12px",borderBottom:`1px solid ${C.line}`,
         display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -2812,7 +2842,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
           width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
       </div>
 
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"12px 15px":"14px 18px",minHeight:0}}>
+      <div style={{flex:1,overflowY:"auto",padding:isMobile?"12px 15px":"14px 18px",minHeight:0}}>
         {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
           <Icon n="loader" size={14} spin/> Buscando a conversa…</div>}
         {/* A etapa lida pela IA NÃO entra aqui, a pedido do Ali: ela mora na
@@ -3046,7 +3076,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
   const rotuloBotao=ehPonto?(avail?"Encerrar meu atendimento":"Iniciar meu atendimento")
     :(avail?"Ficar indisponível":"Me prontificar para atendimento");
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:16}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:16}}>
     <div style={{maxWidth:520,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
         <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={ehPonto?"clock":(avail?"toggleOn":"toggleOff")} size={30}/></div>
@@ -3390,7 +3420,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
   const brokers=pessoas, disp=disponiveis;
   const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
   const catracaNext=(leadId)=>acoes.proximo(leadId);
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
       {/* Antes da fila e do roster: cliente parado é o que custa venda, e é a
           primeira coisa que a gestão precisa ver ao abrir esta tela. */}
@@ -3570,7 +3600,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           </div>
         </React.Fragment>}
       </div>
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      <div style={{flex:1,overflowY:"auto"}}>
         {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
         {visiveis.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}/>)}
       </div>
@@ -3592,7 +3622,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           de corretor para apagar, e alguém precisa poder encerrar. */}
       {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
-      <div ref={chatRef} style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
+      <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
@@ -3941,7 +3971,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
   if(simulando) return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:"100%"}}>
     <Simulacao lead={lead} acoes={acoes} isMobile={largura==="100%"} aoFechar={()=>setSimulando(false)}/>
   </div>;
-  return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",WebkitOverflowScrolling:"touch",minHeight:0}}>
+  return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
     <div style={{padding:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
         {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
@@ -4216,7 +4246,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
   const recado=(a)=>a&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",lineHeight:1.45,
     color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -4551,7 +4581,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
      essa função: dava "createPortal is not a function" e tela branca.
      Este formato é o mesmo do cadastro de imóveis, que já funciona há semanas —
      ocupa a tela inteira, então não existe barra para ficar por cima. */
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",background:C.card,
+  return <div style={{height:"100%",overflowY:"auto",background:C.card,
     padding:16,paddingBottom:"calc(28px + env(safe-area-inset-bottom))"}}>
     <div style={{maxWidth:520,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
@@ -4901,7 +4931,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   });
   const cel={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:1100,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14,
@@ -5347,8 +5377,8 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
     <span style={{fontSize:13,color:C.ink}}>{texto}{aviso&&<span style={{display:"block",color:C.faint,fontSize:11,marginTop:2}}>{aviso}</span>}</span>
   </label>;
 
-  return <div style={{position:"fixed",inset:0,zIndex:40,background:"rgba(0,0,0,.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
-    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:520,maxHeight:isMobile?"88vh":"84vh",borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+  return <div className="tela-cheia" style={{zIndex:40,background:"rgba(0,0,0,.4)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"100%",borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1}}>
           <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Enviar imóvel para {first(lead.nome)}</div>
@@ -5501,7 +5531,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     {opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
@@ -5726,7 +5756,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
   }
   const comissao=numeroBR(f.valor)&&numeroBR(f.comissao_pct)?(numeroBR(f.valor)*numeroBR(f.comissao_pct))/100:null;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:640,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
         <button onClick={()=>aoFechar(false)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
@@ -5853,7 +5883,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
   const linha=(k,v)=>v?<div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"8px 0",borderBottom:`1px solid ${C.line}`}}>
     <span style={{color:C.faint,fontSize:12}}>{k}</span><span style={{color:C.ink,fontSize:13,fontWeight:600,textAlign:"right"}}>{v}</span></div>:null;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:640,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
         <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
@@ -6089,7 +6119,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
     {senha&&senha.id===u.id&&<LinkNovaSenha dados={senha} isMobile={isMobile} aoFechar={()=>setSenha(null)}/>}
   </div>;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
 
@@ -6136,7 +6166,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
 function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
   const [aba,setAba]=useState("mensagens");
   const abas=[["mensagens","Mensagens automáticas"],["conexao","Conexão"],["ia","Uso da IA"]];
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
         {abas.map(([k,t])=><button key={k} onClick={()=>setAba(k)}
@@ -6586,7 +6616,7 @@ function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
 /* ===== CONEXÃO (ADM, número único) ===== */
 function Conexao({conecta}){
   const isMobile=useIsMobile();
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:24}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:24}}>
     <div style={{maxWidth:560,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
         <div style={{background:conecta.connected?C.greenSoft:C.hotSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:conecta.connected?C.green:C.hot}}><Icon n={conecta.connected?"wifi":"wifioff"} size={28}/></div>
@@ -6880,6 +6910,7 @@ function LeadsDaEtapa({acoes,etapa,atendente,periodo,isMobile,abrirConversa}){
    O bloco "Como cada número é medido" não é rodapé decorativo. É o que faz o
    relatório sobreviver à primeira pessoa que perguntar "de onde saiu isso". */
 function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar}){
+  const alturaBarra=usarAlturaDaBarra();
   /* `score` fica `false` quando a nota não está disponível para quem abriu.
 
      O corretor não tem acesso ao ranking — é decisão antiga da casa: a nota é
@@ -6911,7 +6942,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
     {sub&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>{sub}</div>}
   </div>;
 
-  return <div className="folha" style={{position:"fixed",inset:0,zIndex:80,background:C.surface,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+  return <div className="folha tela-cheia" style={{zIndex:80,background:C.surface,overflowY:"auto"}}>
     <div className="nao-imprimir" style={{position:"sticky",top:0,zIndex:2,background:C.card,borderBottom:`1px solid ${C.line}`,
       padding:isMobile?"10px 14px":"10px 20px",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
       <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,
@@ -6925,7 +6956,10 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         <Icon n="download" size={13}/>Imprimir / PDF</button>
     </div>
 
-    <div style={{maxWidth:800,margin:"0 auto",padding:isMobile?"16px 14px 40px":"24px 26px 48px"}}>
+    {/* O fim do documento livra a barra de baixo: sem isto o último botão fica
+        encostado nela, que é onde o dedo erra. */}
+    <div style={{maxWidth:800,margin:"0 auto",
+      padding:isMobile?`16px 14px ${alturaBarra+32}px`:"24px 26px 48px"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap",borderBottom:`2px solid ${C.greenDeep}`,paddingBottom:12}}>
         <div style={{flex:1,minWidth:180}}>
           <div style={{color:C.greenDeep,fontFamily:DISPLAY,fontSize:isMobile?18:21,fontWeight:700,lineHeight:1.15}}>
@@ -7020,6 +7054,19 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
           <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
       </div>
 
+      {/* O MESMO botão outra vez, no fim do documento.
+
+          Não é repetição por desatenção: no celular a folha é longa, e quem
+          rolou até aqui teria que voltar ao topo para imprimir. E se a barra de
+          cima ficar inalcançável por qualquer motivo — foi o que aconteceu no
+          iPhone —, este continua ao alcance. Ação importante com um caminho só
+          é ação que some quando esse caminho falha. */}
+      <button className="nao-imprimir" onClick={()=>window.print()} disabled={!pronto}
+        style={{width:"100%",marginTop:22,background:pronto?C.greenDeep:C.faint,color:"#fff",border:"none",
+          borderRadius:11,padding:"14px",fontSize:14,fontWeight:700,cursor:pronto?"pointer":"default",
+          display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+        <Icon n="download" size={15}/>Imprimir / salvar em PDF</button>
+
       <div style={{borderTop:`1px solid ${C.line}`,marginTop:20,paddingTop:10,color:C.faint,fontSize:10.5,lineHeight:1.5}}>
         Gerado pelo ConHub em {hoje}. Os números são os mesmos da tela de Relatórios, no mesmo período —
         qualquer diferença entre este papel e o sistema é erro, não critério diferente.
@@ -7035,10 +7082,10 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
    com o valor, a régua e o peso à vista. */
 function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
   const cor=(n)=>n>=70?C.green:n>=45?C.amber:C.hot;
-  return <div style={{position:"fixed",inset:0,zIndex:70,background:"rgba(10,20,16,.5)",
+  return <div className="tela-cheia" style={{zIndex:70,background:"rgba(10,20,16,.5)",
     display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
     <div style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:"100%",maxWidth:560,
-      maxHeight:isMobile?"88vh":"86vh",overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+      maxHeight:"100%",overflowY:"auto"}}>
       <div style={{padding:isMobile?15:18}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
           <div style={{minWidth:0,flex:1}}>
@@ -7118,7 +7165,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
 
   const linha=dados.atendentes.find(a=>a.id===sel)||dados.atendentes[0];
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:920,margin:"0 auto"}}>
       {/* Ponto das atendentes. Fica no topo dos relatórios porque é a primeira
           coisa que a gestão confere de manhã: quem abriu, a que horas e de onde. */}
@@ -7260,7 +7307,7 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
   const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
   const disponivel=(id)=>(pessoas.find(p=>p.id===id)||{}).available;
 
-  return <div style={{height:"100%",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
       {/* Primeiro do painel: o que precisa de decisão hoje. O resto é retrato,
           isto é pauta. */}
