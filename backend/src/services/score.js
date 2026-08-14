@@ -47,15 +47,36 @@ const nota = (valor, bom, ruim) => {
   return Math.max(0, Math.min(100, Math.round(t * 100)));
 };
 
-/* Tempo de resposta ao longo da conversa, não só o primeiro.
-   Para cada mensagem do cliente sem resposta anterior pendente, mede quanto
-   levou até a próxima mensagem do atendente. É o "tempo de atendimento" que
-   o gestor sente na prática: o cliente pergunta, quanto demora a resposta. */
-export function temposDeResposta(leadIds) {
+/* ===== OS DOIS TEMPOS, E POR QUE ELES SÃO DE PESSOAS DIFERENTES =====
+
+   O CRM tem dois relógios, e eles respondem a perguntas diferentes:
+
+   - 1ª RESPOSTA: quanto o cliente esperou pela PRIMEIRA palavra depois que o
+     lead caiu na mão de alguém. Mede a largada.
+   - ATENDIMENTO: quanto o cliente espera a CADA pergunta ao longo da conversa.
+     Mede o ritmo. A largada pode ser rápida e o resto arrastado.
+
+   O ERRO QUE ESTAVA AQUI: os dois eram medidos por lead, sem olhar QUEM
+   respondeu nem QUANDO o lead virou daquela pessoa.
+
+   Na Conecta a atendente faz o primeiro contato e repassa. Então o campo
+   `first_resp_at` do lead guarda a hora da mensagem DELA — e era esse número
+   que aparecia como "1ª resposta do corretor". O corretor que recebeu o lead
+   repassado carregava o tempo de outra pessoa, para o bem e para o mal, e a
+   própria agilidade dele não aparecia em lugar nenhum. Um ranking montado
+   assim não descreve o trabalho de ninguém.
+
+   Agora as duas contas são POR PESSOA: contam do momento em que o lead ficou
+   com ela (`assigned_at`) e só olham as mensagens que ela mesma escreveu. */
+
+/* Espera do cliente a cada pergunta. Com `userId`, conta só as esperas que
+   ESSA pessoa fez o cliente esperar — mas a resposta de um colega encerra a
+   espera do mesmo jeito, porque do lado do cliente ele foi atendido. */
+export function temposDeResposta(leadIds, userId = null) {
   if (!leadIds.length) return [];
   const marcas = "?,".repeat(leadIds.length).slice(0, -1);
   const msgs = db.prepare(
-    `SELECT lead_id,direction,created_at FROM messages WHERE lead_id IN (${marcas}) ORDER BY lead_id, created_at`
+    `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) ORDER BY lead_id, created_at`
   ).all(...leadIds);
 
   const esperas = [];
@@ -63,10 +84,40 @@ export function temposDeResposta(leadIds) {
   for (const m of msgs) {
     if (m.lead_id !== leadAtual) { leadAtual = m.lead_id; perguntaEm = null; }
     if (m.direction === "in") { if (perguntaEm == null) perguntaEm = m.created_at; }
-    else if (perguntaEm != null) { esperas.push((m.created_at - perguntaEm) / 60000); perguntaEm = null; }
+    else if (perguntaEm != null) {
+      if (!userId || m.from_user_id === userId) esperas.push((m.created_at - perguntaEm) / 60000);
+      perguntaEm = null;
+    }
   }
   return esperas;
 }
+
+/* Tempo até a primeira palavra DESTA pessoa, contado de quando o lead ficou
+   com ela.
+
+   Sem `assigned_at` (lead que nunca foi repassado, ou anterior ao carimbo),
+   vale a data de entrada — que nesse caso é a mesma coisa. */
+export function primeirasRespostas(leads, userId) {
+  if (!leads.length) return [];
+  const marcas = "?,".repeat(leads.length).slice(0, -1);
+  const linhas = db.prepare(
+    `SELECT lead_id, MIN(created_at) q FROM messages
+     WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id = ?
+     GROUP BY lead_id`).all(...leads.map(l => l.id), userId);
+  const primeira = new Map(linhas.map(l => [l.lead_id, l.q]));
+
+  const esperas = [];
+  for (const l of leads) {
+    const desde = l.assigned_at || l.created_at;
+    const q = primeira.get(l.id);
+    // Resposta anterior à entrega não é resposta a esta entrega.
+    if (q != null && q >= desde) esperas.push((q - desde) / 60000);
+  }
+  return esperas;
+}
+
+// Quantos destes leads esta pessoa de fato respondeu.
+export const quantosRespondeu = (leads, userId) => primeirasRespostas(leads, userId).length;
 
 /* Números de um atendente no período.
 
@@ -95,7 +146,30 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
   const vendasDaCoorte = meus.filter(l => l.stage === VENDIDO);
   const perdidos = meus.filter(l => l.stage === PERDIDO);
   const visitas = meus.filter(l => l.stage === "Agendamento" || l.stage === "Visita");
-  const primeiras = meus.filter(l => l.first_resp_at).map(l => (l.first_resp_at - l.created_at) / 60000);
+  /* VISITA CONFIRMADA POR GENTE.
+
+     "Agendamento" e "Visita" são etapas que o funil move sozinho, pela palavra
+     na conversa. Enquanto a equipe não usa as palavras, esse número descreve o
+     palpite da regra, não o trabalho feito — e foi exatamente a queixa do Ali:
+     corretor aparecendo com três visitas que não existiram.
+
+     `confirmadas` conta só os leads cuja etapa atual foi posta ali por uma
+     PESSOA: mudança na mão, ou sugestão da IA que alguém confirmou no botão
+     (`lead_etapas.motivo` em 'mao'/'ia'). Isso não é medido, é registrado.
+
+     O histórico começou em 13/08/2026: antes disso não há linha para nenhum
+     lead, e o número nasce zero para todo mundo. Zero honesto é melhor que um
+     número que ninguém reconhece. */
+  const confirmadas = ids.length ? db.prepare(`
+    SELECT COUNT(*) n FROM leads l
+    WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})
+      AND l.stage IN ('Agendamento','Visita')
+      AND EXISTS (SELECT 1 FROM lead_etapas e
+                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia'))`)
+    .get(...ids).n : 0;
+
+  // Os dois tempos, medidos por pessoa (ver o bloco lá em cima).
+  const primeiras = primeirasRespostas(meus, u.id);
 
   // Conversão por temperatura: a base da recomendação.
   const porTemperatura = {};
@@ -116,7 +190,10 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
     id: u.id, nome: u.name, papel: u.role,
     recebidos: meus.length,
     resposta_min: mediana(primeiras),
-    atendimento_min: mediana(temposDeResposta(ids)),
+    // Quantos leads ele de fato respondeu — sem isso, "mediana de 4 min" com
+    // dois leads respondidos parece o mesmo que com trinta.
+    respondidos: primeiras.length,
+    atendimento_min: mediana(temposDeResposta(ids, u.id)),
     // Nome idêntico ao da tela, e conta idêntica: dos leads que entraram no
     // período, quantos já viraram venda.
     conversao: pct(vendasDaCoorte.length, meus.length),
@@ -127,7 +204,11 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
     perdidos: perdidos.length,
     perda: pct(perdidos.length, fechados.length),
     visitas: visitas.length,
-    visitas_pct: pct(visitas.length, meus.length),
+    // Só as que uma pessoa colocou ali. É esta que entra na nota.
+    visitas_confirmadas: confirmadas,
+    visitas_pct: pct(confirmadas, meus.length),
+    // Quantas vieram da regra automática, para a tela poder dizer isso.
+    visitas_automaticas: visitas.length - confirmadas,
     ligacoes: ligacoesPorUsuario[u.id] || 0,
     por_temperatura: porTemperatura,
   };
@@ -157,8 +238,8 @@ const COMPONENTES = [
     como: "Mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não pode definir o mês inteiro.",
     regua: "Até 5 min = 100. 60 min ou mais = 0." },
   { chave: "visitas", rotulo: "Leads que chegaram à visita", peso: 15, unidade: "%", bom: 40, ruim: 0,
-    como: "Quantos dos leads recebidos estão hoje em Agendamento ou Visita. É foto do momento — o sistema não guarda a data de cada mudança de etapa.",
-    regua: "40% ou mais = 100. 0% = 0." },
+    como: "Quantos dos leads recebidos estão em Agendamento ou Visita POR DECISÃO DE UMA PESSOA — mudança na mão, ou sugestão da IA confirmada no botão. O que a regra da palavra-chave moveu sozinha não conta aqui: enquanto a equipe não usa as palavras, esse número descreveria o palpite do sistema e não o atendimento.",
+    regua: "40% ou mais = 100. 0% = 0. O histórico de etapas começou em 13/08/2026 — antes disso não há confirmação registrada de ninguém." },
   { chave: "perda", rotulo: "Perda", peso: 15, unidade: "%", bom: 0, ruim: 60,
     como: "Dos atendimentos já encerrados (venda ou perdido), quantos foram perdidos.",
     regua: "0% = 100. 60% ou mais = 0." },

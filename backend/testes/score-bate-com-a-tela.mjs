@@ -82,6 +82,8 @@ for (const linha of tela.atendentes) {
   assert.equal(s.valor_vendido, linha.valor_vendido, `${linha.nome}: valor vendido`);
   assert.equal(s.resposta_min ?? 0, linha.primeira_resposta_mediana_min, `${linha.nome}: 1ª resposta`);
   assert.equal(s.visitas, linha.agendamentos, `${linha.nome}: visitas/agendamentos`);
+  assert.equal(s.visitas_confirmadas, linha.agendamentos_confirmados, `${linha.nome}: confirmados por pessoa`);
+  assert.equal(s.respondidos, linha.atendidos, `${linha.nome}: quantos ele respondeu`);
 }
 
 console.log("2. A venda de um lead ANTIGO fechada no período conta para os dois");

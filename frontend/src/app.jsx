@@ -5238,7 +5238,8 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
     </div>
     <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
       Conversão, tempo de resposta, visitas, perdas, vendas e ligações — pesados nessa ordem.
-      Clique no nome para ver de onde saiu cada ponto.
+      Clique no nome para ver de onde saiu cada ponto. <b>Visitas</b> conta só o que uma pessoa confirmou;
+      <b> 1ª resposta</b> conta da hora em que o lead ficou com ela, e só o que ela mesma escreveu.
     </div>
     {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
 
@@ -5269,7 +5270,8 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
             {[["Conversão",m.conversao+"%"],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
               ["Atendimento",m.atendimento_min==null?"—":fmtMin(m.atendimento_min)],
-              ["Visitas",m.visitas],["Perdas",m.perdidos],["Vendas",m.vendas],
+              ["Respondeu",`${m.respondidos||0}/${m.recebidos}`],
+              ["Visitas",`${m.visitas_confirmadas||0}/${m.visitas}`],["Perdas",m.perdidos],["Vendas",m.vendas],
               ["Ligações",m.ligacoes]].map(([r,v])=>
               <div key={r}>
                 <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700,lineHeight:1.1}}>{v}</div>
@@ -5284,7 +5286,7 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
     {d&&!isMobile&&<div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
         <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Visitas","Perdas","Vendas","Ligações"].map((h,i)=>
+          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Visitas conf.","Perdas","Vendas","Ligações"].map((h,i)=>
             <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
         </tr></thead>
         <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
@@ -5303,7 +5305,8 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
           <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
           {/* Espera média a cada pergunta do cliente, não só a primeira. */}
           <td style={{...celula,textAlign:"right"}}>{m.atendimento_min==null?"—":fmtMin(m.atendimento_min)}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.visitas}</td>
+          <td style={{...celula,textAlign:"right"}} title="confirmadas por uma pessoa / total no funil">
+            {m.sem_dados?"—":<React.Fragment><b>{m.visitas_confirmadas||0}</b><span style={{color:C.faint}}>/{m.visitas}</span></React.Fragment>}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.perdidos}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.vendas}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.ligacoes}</td>
@@ -6983,7 +6986,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         {numero("Leads recebidos",linha.recebidos,"entraram no período")}
         {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
-        {numero("Agendados / visitas",linha.agendamentos,"onde estão hoje")}
+        {numero("Agendados / visitas",linha.agendamentos,`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`)}
         {numero("Vendas",linha.vendas,"fechadas no período")}
         {numero("Valor vendido",fmtMoeda(linha.valor_vendido),null)}
       </div>
@@ -7049,7 +7052,8 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
         <div><b>Conversão</b> — dos leads que <b>entraram</b> no período, quantos já viraram venda.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
-        <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. É foto do momento: o sistema não guarda a data de cada mudança de etapa, então "quantos avançaram nesta semana" ainda não existe.</div>
+        <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
+        <div><b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
         {(score&&score.componentes||[]).some(c=>c.comparativo)&&
           <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
       </div>
@@ -7253,7 +7257,8 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
           <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="entraram no período"/>
           <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
-          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos} sub="onde estão hoje" accent="#3B7BC4"/>
+          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos}
+            sub={`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`} accent="#3B7BC4"/>
           <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
         </div>
         {/* Cada número responde a uma pergunta diferente, e misturar as duas foi
@@ -7262,7 +7267,20 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:-8,marginBottom:16}}>
           <b>Vendas</b> são as fechadas dentro do período, venha o lead de quando vier.
           <b> Recebidos</b> e as etapas do funil falam de quem entrou no período.
+          <b> Atendidos</b> e <b>1ª resposta</b> contam a partir da hora em que o lead ficou com esta pessoa,
+          e só as mensagens que ela mesma escreveu — o primeiro contato da atendente não entra aqui.
         </div>
+        {/* A diferença entre o que está no funil e o que alguém confirmou É a
+            informação. Enquanto a equipe não usa as palavras-chave, a etapa
+            descreve o palpite da regra, e um ranking montado em cima disso não
+            descreve o trabalho de ninguém. */}
+        {linha.agendamentos>(linha.agendamentos_confirmados||0)&&
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,
+            padding:"9px 11px",marginTop:-8,marginBottom:16}}>
+            Dos <b>{linha.agendamentos}</b> em Agendamento/Visita, <b>{linha.agendamentos_confirmados||0}</b> foram
+            colocados ali por uma pessoa. Os outros <b>{linha.agendamentos-(linha.agendamentos_confirmados||0)}</b> vieram
+            da regra automática de palavra-chave — e é por isso que a nota conta só os confirmados.
+          </div>}
 
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
