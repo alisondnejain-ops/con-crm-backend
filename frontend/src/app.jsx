@@ -427,14 +427,25 @@ function Avatar({ini,color,size=34,foto}){
   return <div style={{...base,background:color,color:"#fff",fontFamily:DISPLAY,fontWeight:600,fontSize:size*0.4,display:"flex",alignItems:"center",justifyContent:"center"}}>{ini}</div>;
 }
 function Pill({children,c,bg}){return <span style={{color:c,background:bg,fontSize:11,fontWeight:600,padding:"3px 8px",borderRadius:999,whiteSpace:"nowrap"}}>{children}</span>;}
+/* Cartão de número. O valor É o conteúdo — cortá-lo esvazia o cartão.
+
+   "R$ 400.000" em 26px ocupa 157px, e no celular a caixa tem 134: o número
+   aparecia como "R$ 400.00" com o zero comido. Pior que ilegível, é errado —
+   quem bate o olho lê quatrocentos mil como quarenta mil.
+
+   A régua encolhe conforme o texto: valor curto continua grande, valor longo
+   diminui até caber. Melhor um número menor e inteiro do que um número grande
+   pela metade. */
 function Metric({n,label,value,sub,accent=C.green}){
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,flex:1,minWidth:150}}>
+  const txt=String(value ?? "");
+  const tamanho=txt.length<=6?26:txt.length<=9?22:txt.length<=12?18:16;
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,flex:"1 1 150px",minWidth:0}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-      <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={n} size={16}/></div>
-      <span style={{color:C.sub,fontSize:12,fontWeight:500}}>{label}</span>
+      <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
+      <span style={{color:C.sub,fontSize:12,fontWeight:500,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
     </div>
-    <div style={{color:C.ink,fontFamily:MONO,fontSize:26,fontWeight:600,lineHeight:1}}>{value}</div>
-    {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4}}>{sub}</div>}
+    <div style={{color:C.ink,fontFamily:MONO,fontSize:tamanho,fontWeight:600,lineHeight:1.1,overflowWrap:"anywhere"}}>{txt}</div>
+    {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4,overflowWrap:"anywhere"}}>{sub}</div>}
   </div>;
 }
 /* `noEscuro` inverte as cores do texto. Sem isso, o "Con" saía em tinta escura
@@ -3512,7 +3523,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             botão avisa quando algum está ativo, para ninguém esquecer ligado. */}
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={()=>setFiltrosAbertos(a=>!a)}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
             <Icon n="columns" size={13}/>Filtros
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
@@ -3521,7 +3532,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
               para consultar ou reabrir sem precisar caçar no funil. */}
           <button onClick={()=>setVerFinalizados(v=>!v)} title="Mostrar também os atendimentos finalizados"
             style={{border:`1px solid ${verFinalizados?C.green+"66":C.line}`,background:verFinalizados?C.greenSoft:C.surface,
-              color:verFinalizados?C.greenDeep:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+              color:verFinalizados?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 10px",fontSize:isMobile?13:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
             Finalizados</button>
           <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</span>
         </div>
@@ -3539,7 +3550,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
             <button onClick={()=>setEsperando(v=>!v)}
               style={{display:"flex",alignItems:"center",gap:6,
                 border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
-                color:esperando?C.hot:C.sub,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                color:esperando?C.hot:C.sub,borderRadius:9,padding:isMobile?"11px 13px":"7px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
               <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
             {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);}}
               style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
@@ -5200,7 +5211,47 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
       Clique no nome para ver de onde saiu cada ponto.
     </div>
     {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
-    {d&&<div style={{overflowX:"auto"}}>
+
+    {/* NO CELULAR A TABELA VIRA CARTÃO.
+
+        A tabela tem dez colunas e 696px de largura. Numa tela de 375 cabiam
+        quatro — as outras seis (1ª resposta, atendimento, visitas, perdas,
+        vendas, ligações) ficavam fora da tela, sem nada indicando que dava
+        para arrastar. Ou seja: no celular, a metade do relatório que mais
+        interessa simplesmente não existia.
+
+        Rolagem lateral dentro de uma tela que já rola para baixo é o gesto que
+        ninguém descobre sozinho. Um cartão por corretor mostra tudo. */}
+    {d&&isMobile&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {d.equipe.map((m,i)=><div key={m.id} style={{background:C.surface,borderRadius:12,padding:"11px 12px"}}>
+        <button onClick={()=>!m.sem_dados&&aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)}
+          disabled={m.sem_dados}
+          style={{width:"100%",border:"none",background:"transparent",padding:"6px 0",textAlign:"left",
+            display:"flex",alignItems:"center",gap:9,cursor:m.sem_dados?"default":"pointer"}}>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,minWidth:16}}>{m.sem_dados?"–":i+1}</span>
+          <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1,minWidth:0,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nome}</span>
+          {m.sem_dados
+            ?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
+            :<span style={{fontFamily:MONO,fontSize:19,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}
+        </button>
+        {!m.sem_dados&&<React.Fragment>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
+            {[["Conversão",m.conversao+"%"],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
+              ["Atendimento",m.atendimento_min==null?"—":fmtMin(m.atendimento_min)],
+              ["Visitas",m.visitas],["Perdas",m.perdidos],["Vendas",m.vendas],
+              ["Ligações",m.ligacoes]].map(([r,v])=>
+              <div key={r}>
+                <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700,lineHeight:1.1}}>{v}</div>
+                <div style={{color:C.faint,fontSize:9.5,marginTop:1}}>{r}</div>
+              </div>)}
+          </div>
+          <div style={{color:C.greenDeep,fontSize:11,fontWeight:600,marginTop:8}}>toque no nome para abrir a nota</div>
+        </React.Fragment>}
+      </div>)}
+    </div>}
+
+    {d&&!isMobile&&<div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
         <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
           {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Visitas","Perdas","Vendas","Ligações"].map((h,i)=>
@@ -6682,7 +6733,7 @@ function PontoDaEquipe({acoes,isMobile,ehGestor}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>{ehGestor?"Ponto das atendentes":"Meu ponto"}</span>
       <div style={{display:"flex",gap:5}}>
         {["dia","semana","mes"].map(k=><button key={k} onClick={()=>setPeriodo(k)}
-          style={{fontSize:11.5,fontWeight:600,padding:"5px 10px",borderRadius:999,border:"none",cursor:"pointer",
+          style={{fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"9px 14px":"5px 10px",borderRadius:999,border:"none",cursor:"pointer",
             background:periodo===k?C.greenDeep:C.surface,color:periodo===k?"#fff":C.sub}}>{ROTULOS[k]}</button>)}
       </div>
     </div>
@@ -7056,8 +7107,10 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
     return()=>{vivo=false;};
   },[periodo.de,periodo.ate]);
 
+  /* 6px de altura de padding dá um alvo de 26px. O dedo erra abaixo de ~32,
+     e estes três são os botões mais apertados da tela de relatórios. */
   const atalho=(label,dias)=><button key={label} onClick={()=>setPeriodo({de:diasAtras(dias),ate:hojeISO()})}
-    style={{fontSize:12,fontWeight:600,padding:"6px 11px",borderRadius:999,border:"none",cursor:"pointer",
+    style={{fontSize:isMobile?13:12,fontWeight:600,padding:isMobile?"10px 16px":"6px 11px",borderRadius:999,border:"none",cursor:"pointer",
       background:periodo.de===diasAtras(dias)?C.greenDeep:C.surface,color:periodo.de===diasAtras(dias)?"#fff":C.sub}}>{label}</button>;
 
   if(carregando&&!dados) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Calculando…</div>;
@@ -7074,11 +7127,17 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
           {atalho("7 dias",7)}{atalho("30 dias",30)}{atalho("90 dias",90)}
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>De</span>
-          <input type="date" value={periodo.de} onChange={e=>setPeriodo({...periodo,de:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",background:C.surface,color:C.ink,outline:"none"}}/>
-          <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>até</span>
-          <input type="date" value={periodo.ate} onChange={e=>setPeriodo({...periodo,ate:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",background:C.surface,color:C.ink,outline:"none"}}/>
+        {/* Cada data com o rótulo colado nela. Numa linha só, o celular quebrava
+            como "De [data] até" / "[data]" — o "até" órfão no fim da primeira
+            linha, longe da data que ele apresenta. */}
+        <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+          {[["De","de"],["até","ate"]].map(([rot,campo])=>
+            <div key={campo} style={{display:"flex",flexDirection:"column",gap:3,flex:isMobile?"1 1 140px":"0 0 auto",minWidth:0}}>
+              <span style={{color:C.faint,fontSize:11,fontWeight:600}}>{rot}</span>
+              <input type="date" value={periodo[campo]} onChange={e=>setPeriodo({...periodo,[campo]:e.target.value})}
+                style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,
+                  padding:isMobile?"10px 8px":"6px 8px",background:C.surface,color:C.ink,outline:"none",minWidth:0,width:"100%"}}/>
+            </div>)}
         </div>
       </div>
 
@@ -7099,7 +7158,11 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
       {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
-      {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,overflowX:"auto",paddingBottom:4}}>
+      {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. Rolando,
+          o último corretor aparecia cortado ao meio e nada indicava que havia
+          mais — quem não conhece a lista não descobre que falta gente. */}
+      {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
+        ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
         {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
           <Avatar ini={initials(a.nome)} color={COLORS[[...a.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={26}/>
           <span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(a.nome)}</span></button>)}
@@ -7109,20 +7172,28 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
       {!linha?((dados.atendimento||[]).length?null
         :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
       :<React.Fragment>
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        {/* No celular isto empilha: nome em cima, o tempo de resposta embaixo e o
+            botão do relatório em largura inteira. Numa linha só, os três se
+            espremiam — o botão ficava minúsculo entre o nome e o número, que é
+            justamente o botão que a gestão procura. */}
+        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",
+          alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:12,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <Avatar ini={initials(linha.nome)} color={COLORS[[...linha.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={46}/>
           <div style={{minWidth:0}}>
             <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700}}>{linha.nome}</div>
             <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
+          </div>
           </div>
           {/* O relatório de reunião sai daqui, do lado do nome de quem ele
               descreve — e não num menu geral, onde daria para imprimir sem
               reparar de quem é. */}
           <button className="nao-imprimir" onClick={()=>setParaReuniao(true)}
             style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
-              padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              padding:isMobile?"12px 13px":"7px 13px",fontSize:isMobile?13.5:12,fontWeight:700,cursor:"pointer",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:6,order:isMobile?2:0,width:isMobile?"100%":"auto"}}>
             <Icon n="download" size={13}/>Relatório para reunião</button>
-          <div style={{marginLeft:"auto",textAlign:"right"}}>
+          <div style={{marginLeft:isMobile?0:"auto",textAlign:isMobile?"left":"right"}}>
             <div style={{color:linha.primeira_resposta_mediana_min<=10?C.green:linha.primeira_resposta_mediana_min<=30?C.amber:C.hot,fontFamily:MONO,fontSize:isMobile?26:30,fontWeight:600,lineHeight:1}}>{fmtMin(linha.primeira_resposta_mediana_min)}</div>
             <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
             {linha.atendimento_mediana_min!=null&&<div style={{color:C.sub,fontSize:11.5,marginTop:7,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
