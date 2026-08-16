@@ -135,6 +135,11 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
 const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"},
   SEM:{c:C.faint,bg:C.surface,label:"Sem temperatura"}};
 const prioDe=(p)=>PRIO[p]||PRIO.SEM;
+/* Ordem quando a lista é ordenada por temperatura. Sem temperatura vai por
+   último — e vai por último de propósito, não por acidente: com `null` no
+   mapa a conta dava NaN, o comparador devolvia NaN e a ordenação inteira
+   parava de valer, sem erro nenhum na tela. */
+const ordemTemp=(p)=>{const o={QUENTE:0,MORNO:1,FRIO:2}[p];return o==null?3:o;};
 // As três modalidades de financiamento com que a Conecta trabalha.
 const MODALIDADES=["Morar Bem PE","Minha Casa Minha Vida","SBPE"];
 
@@ -864,6 +869,9 @@ function ConCRM(){
     limparTemperatura:(t)=>api("/leads/lote/temperatura",{method:"POST",body:{temperatura:t}}),
     previaEtapaIA:()=>api("/leads/lote/etapa-ia"),
     rodarEtapaIA:(limite)=>api("/leads/lote/etapa-ia",{method:"POST",body:{limite}}),
+    corretoresTemperatura:()=>api("/leads/lote/temperatura-ia"),
+    previaTemperaturaIA:(id)=>api("/leads/lote/temperatura-ia/"+id),
+    rodarTemperaturaIA:(id,limite)=>api("/leads/lote/temperatura-ia/"+id,{method:"POST",body:{limite}}),
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
@@ -1698,12 +1706,12 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      está esperando resposta. As duas coisas somam: lead recém-recebido COM
      mensagem do cliente sem resposta é o primeiro de todos. */
   const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
-    .sort((a,b)=>{const o={QUENTE:0,MORNO:1,FRIO:2};
+    .sort((a,b)=>{
       const topo=(l)=>(chegouAgora(l)?2:0)+(l.unread>0?1:0);
       return topo(b)-topo(a)
         // Entre os recém-chegados, o mais recente primeiro.
         ||(chegouAgora(a)&&chegouAgora(b)?b.assignedAt-a.assignedAt:0)
-        ||o[a.prio]-o[b.prio]
+        ||ordemTemp(a.prio)-ordemTemp(b.prio)
         // E, no resto, a conversa mais recente — não a entrada mais recente.
         ||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt);}),[leads,session,tick]);
   const sel=leads.find(l=>l.id===selId);
@@ -3036,8 +3044,12 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
     <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:8}}>
       <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
         <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
-        <span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
-          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>
+        {/* Sem temperatura, sem pastilha. Escrever "sem temperatura" num card
+            de 160px é gastar a linha mais visível para dizer que não se sabe —
+            e no funil inteiro vira um carimbo repetido que o olho aprende a
+            pular. A ausência já comunica. */}
+        {l.prio&&<span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
+          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>}
       </div>
 
       {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
@@ -3434,7 +3446,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 
 /* ===== CATRACA (SDR) ===== */
 function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente}){
-  const novos=[...fila].sort((a,b)=>({QUENTE:0,MORNO:1,FRIO:2}[a.prio]-{QUENTE:0,MORNO:1,FRIO:2}[b.prio]));
+  const novos=[...fila].sort((a,b)=>ordemTemp(a.prio)-ordemTemp(b.prio));
   const brokers=pessoas, disp=disponiveis;
   const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
   const catracaNext=(leadId)=>acoes.proximo(leadId);
@@ -3469,7 +3481,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
           return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
-              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span><Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill></div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
+              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span>{l.prio&&<Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill>}</div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:4,marginRight:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
               {/* no celular o botão desce para a linha de baixo, em largura total */}
               {!isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:12,fontWeight:600,padding:"8px 12px",borderRadius:10,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><Icon n="transfer" size={14}/> Próximo</button>}
@@ -4710,9 +4722,16 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
    antes — quantos leads, de quem, e (na da IA) quanto vai custar. Botão que
    mexe na base inteira sem dizer o tamanho do estrago é botão que ninguém
    aperta, ou que se aperta uma vez só e por engano. */
+/* Preço miúdo não pode virar "0.00". Uma leitura de 3 conversas custa menos
+   de um centavo de dólar — mostrar "US$ 0.00" é dizer que é de graça. */
+const dinheirinho=(v)=>v>=0.01?v.toFixed(2):v.toFixed(4);
 function ArrumarBase({acoes,isMobile,aoAplicar}){
   const [t,setT]=useState(null);          // prévia da temperatura
   const [ia,setIa]=useState(null);        // prévia da IA
+  const [temp,setTemp]=useState(null);    // corretores que podem ser analisados
+  const [quem,setQuem]=useState("");      // corretor escolhido
+  const [previaQuem,setPreviaQuem]=useState(null);
+  const [leitura,setLeitura]=useState(null);  // andamento da leitura de temperatura
   const [rodando,setRodando]=useState("");
   const [andamento,setAndamento]=useState(null);  // {feitos, restam, mudaram}
   const [erro,setErro]=useState("");
@@ -4720,7 +4739,14 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
   const parar=useRef(false);
 
   useEffect(()=>{ acoes.previaTemperatura("MORNO").then(setT).catch(()=>{});
-    acoes.previaEtapaIA().then(setIa).catch(()=>{}); },[]);
+    acoes.previaEtapaIA().then(setIa).catch(()=>{});
+    acoes.corretoresTemperatura().then(setTemp).catch(()=>{}); },[]);
+
+  // Trocar de corretor busca a prévia dele: quantos seriam lidos e quanto custa.
+  useEffect(()=>{ if(!quem){ setPreviaQuem(null); return; }
+    let vivo=true; setPreviaQuem(null); setLeitura(null);
+    acoes.previaTemperaturaIA(quem).then(d=>vivo&&setPreviaQuem(d)).catch(()=>{});
+    return()=>{vivo=false;}; },[quem]);
 
   async function limparMornos(){
     setErro(""); setRodando("temp");
@@ -4736,16 +4762,58 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
      mostrar o avanço e parar no meio sem perder o que já foi feito. */
   async function rodarIA(){
     setErro(""); setRodando("ia"); parar.current=false;
-    let feitos=0, mudaram=0;
+    let feitos=0, tentados=0, mudaram=0, falhas=[];
     try{
       for(;;){
         const r=await acoes.rodarEtapaIA(20);
-        feitos+=r.analisados; mudaram+=r.mudaram;
-        setAndamento({feitos,mudaram,restam:r.restam,exemplos:r.mudancas||[]});
-        if(parar.current||r.restam<=0||r.analisados===0) break;
+        feitos+=r.lidos; tentados+=r.analisados; mudaram+=r.mudaram;
+        falhas=(r.erros||[]).slice(0,4);
+        setAndamento({feitos,tentados,mudaram,restam:r.restam,falhas,exemplos:r.mudancas||[]});
+        // Mesma trava da temperatura: bloco inteiro sem leitura, para.
+        if(parar.current||r.restam<=0||r.analisados===0||r.lidos===0) break;
       }
-      setFeito(`A IA leu ${feitos} conversa(s) e reposicionou ${mudaram} lead(s) no funil.`);
+      if(!feitos){
+        setErro(`A IA não conseguiu ler nenhuma das ${tentados} conversa(s). `+
+          (falhas.length?falhas[0].erro:"Confira se a IA está ligada nas Configurações."));
+        return;
+      }
+      setFeito(`A IA leu ${feitos} conversa(s) e reposicionou ${mudaram} lead(s) no funil.`+
+        (tentados>feitos?` ${tentados-feitos} não deram para ler.`:""));
       setIa(await acoes.previaEtapaIA());
+      aoAplicar&&aoAplicar();
+    }catch(e){ setErro(e.message); } finally{ setRodando(""); }
+  }
+
+  /* Lê a temperatura dos leads de UM corretor. Em pedaços, como a etapa: a
+     tela mostra o avanço e dá para parar no meio sem perder o que já foi
+     lido. */
+  async function rodarTemperatura(){
+    if(!quem) return;
+    setErro(""); setRodando("temp-ia"); parar.current=false;
+    let marcados=0, tentados=0; const soma={QUENTE:0,MORNO:0,FRIO:0}; let amostras=[], falhas=[];
+    try{
+      for(;;){
+        const r=await acoes.rodarTemperaturaIA(quem,20);
+        marcados+=r.marcados; tentados+=r.analisados;
+        for(const k of Object.keys(soma)) soma[k]+=(r.contagem&&r.contagem[k])||0;
+        amostras=[...(r.leituras||[]),...amostras].slice(0,8);
+        falhas=(r.erros||[]).slice(0,4);
+        setLeitura({marcados,tentados,soma,restam:r.restam,amostras,falhas,corretor:r.corretor});
+        /* Bloco inteiro sem nenhuma leitura = a IA não está respondendo.
+           Parar aqui é o que impede o laço de tentar a base toda contra um
+           provedor fora do ar — e o que faz o erro aparecer na tela em vez de
+           virar uma barra que enche e uma mensagem de sucesso mentirosa. */
+        if(parar.current||r.restam<=0||r.analisados===0||r.marcados===0) break;
+      }
+      if(!marcados){
+        setErro(`A IA não conseguiu ler nenhum dos ${tentados} atendimento(s). `+
+          (falhas.length?falhas[0].erro:"Confira se a IA está ligada nas Configurações."));
+        return;
+      }
+      setFeito(`A IA marcou a temperatura de ${marcados} atendimento(s)`+
+        (tentados>marcados?` — ${tentados-marcados} não deram para ler.`:"."));
+      setPreviaQuem(await acoes.previaTemperaturaIA(quem));
+      setTemp(await acoes.corretoresTemperatura());
       aoAplicar&&aoAplicar();
     }catch(e){ setErro(e.message); } finally{ setRodando(""); }
   }
@@ -4758,7 +4826,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Arrumar a base</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-      Duas correções que valem para a base inteira. As duas mostram o tamanho antes de aplicar.
+      Três correções para a base. Todas mostram o tamanho — e o custo, quando gasta — antes de aplicar.
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
@@ -4810,8 +4878,8 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
             dizer quanto é o tipo de coisa que quebra a confiança de uma vez. */}
         {ia.leads>0&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",marginBottom:9,
           color:C.sub,fontSize:11.5,lineHeight:1.5}}>
-          Custo estimado: <b style={{fontFamily:MONO,color:C.ink}}>US$ {ia.custo.total_usd.toFixed(2)}</b>
-          {" "}(≈ R$ {(ia.custo.total_usd*5.4).toFixed(2)}) para as {ia.leads} conversas — {ia.custo.base}.
+          Custo estimado: <b style={{fontFamily:MONO,color:C.ink}}>US$ {dinheirinho(ia.custo.total_usd)}</b>
+          {" "}(≈ R$ {dinheirinho(ia.custo.total_usd*5.4)}) para as {ia.leads} conversas — {ia.custo.base}.
         </div>}
         {ia.por_corretor.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
           {ia.por_corretor.map(x=><span key={x.nome} style={{background:C.card,borderRadius:999,padding:"4px 10px",color:C.sub,fontSize:11}}>
@@ -4820,11 +4888,14 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
 
         {andamento&&<div style={{background:C.card,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
           <div style={{color:C.ink,fontSize:12,fontWeight:700}}>
-            {andamento.feitos} lida(s) · {andamento.mudaram} reposicionado(s) · {andamento.restam} na fila</div>
+            {andamento.feitos} lida(s) de {andamento.tentados} · {andamento.mudaram} reposicionado(s) · {andamento.restam} na fila</div>
           <div style={{height:7,borderRadius:999,background:C.surface,overflow:"hidden",margin:"7px 0"}}>
             <div style={{width:Math.round(andamento.feitos*100/Math.max(1,andamento.feitos+andamento.restam))+"%",
               height:"100%",background:C.green,transition:"width .3s"}}/>
           </div>
+          {andamento.falhas&&andamento.falhas.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",
+            fontSize:11,borderRadius:9,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
+            {andamento.tentados-andamento.feitos} não deram para ler: {andamento.falhas[0].erro}</div>}
           {andamento.exemplos.slice(0,6).map((x,i)=><div key={i} style={{color:C.sub,fontSize:11,lineHeight:1.5}}>
             {first(x.nome)}: <span style={{color:STAGE_C[x.de]}}>{x.de}</span> → <b style={{color:STAGE_C[x.para]}}>{x.para}</b>
             <span style={{color:C.faint}}> ({x.confianca})</span></div>)}
@@ -4845,6 +4916,98 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
         <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:8}}>
           Roda em blocos e mostra o avanço. Dá para parar no meio — o que já foi lido fica gravado,
           e continuar depois não paga de novo pelas mesmas conversas.
+        </div>
+      </React.Fragment>}
+    </React.Fragment>)}
+
+    {/* ===== 3. TEMPERATURA PELA IA, UM CORRETOR POR VEZ =====
+
+        A temperatura voltou por outro caminho. Antes ela nascia sozinha e
+        ninguém sabia de onde vinha; agora ela só existe quando o gestor pede,
+        e a pergunta é sobre UMA pessoa: "como este corretor está atendendo".
+        Por isso escolhe-se o nome antes — a leitura fica ao lado de quem
+        atendeu, custa pouco de cada vez e pode parar no meio. */}
+    {cartao(<React.Fragment>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Analisar a temperatura, corretor por corretor</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+        A IA lê cada atendimento <b>de um corretor</b> e diz se aquele lead está <b>quente</b>,
+        <b> morno</b> ou <b>frio</b> — olhando o que o cliente fez, não o que a equipe escreveu.
+        Enquanto você não pedir, o lead fica <b>sem temperatura</b>. Ficam de fora os mesmos
+        de sempre: quem está com a atendente, sem conversa, com venda ou em etapa marcada na mão.
+      </div>
+
+      {temp&&!temp.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px"}}>
+        A IA não está ligada nesta instalação.</div>}
+
+      {temp&&temp.configurada&&<React.Fragment>
+        {!temp.corretores.length&&<div style={{color:C.faint,fontSize:11.5}}>
+          Nenhum corretor com atendimento para analisar.</div>}
+
+        {/* Um nome por vez, e o número ao lado: escolher às cegas é escolher
+            sem saber se vai ler 4 conversas ou 400. */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {temp.corretores.map(c=><button key={c.id} onClick={()=>setQuem(quem===c.id?"":c.id)} disabled={!!rodando}
+            style={{border:`1px solid ${quem===c.id?C.green:C.line}`,background:quem===c.id?C.greenSoft:C.card,
+              color:quem===c.id?C.greenDeep:C.sub,borderRadius:999,padding:isMobile?"9px 13px":"7px 12px",
+              fontSize:11.5,fontWeight:600,cursor:rodando?"default":"pointer"}}>
+            {first(c.nome)} <b style={{fontFamily:MONO}}>{c.leads}</b>
+            {c.lidos>0&&<span style={{color:C.faint,fontWeight:500}}> · {c.lidos} lido(s)</span>}</button>)}
+        </div>
+
+        {previaQuem&&<React.Fragment>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+            {[["atendimentos a ler",previaQuem.a_ler],["já lidos",previaQuem.ja_lidos],
+              ["na mão dele",previaQuem.leads]].map(([r,v])=>
+              <div key={r} style={{background:C.card,borderRadius:10,padding:"7px 11px",minWidth:92}}>
+                <div style={{fontFamily:MONO,color:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
+                <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{r}</div>
+              </div>)}
+          </div>
+          {previaQuem.a_ler>0&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",marginBottom:9,
+            color:C.sub,fontSize:11.5,lineHeight:1.5}}>
+            Custo estimado: <b style={{fontFamily:MONO,color:C.ink}}>US$ {dinheirinho(previaQuem.custo.total_usd)}</b>
+            {" "}(≈ R$ {dinheirinho(previaQuem.custo.total_usd*5.4)}) para os {previaQuem.a_ler} atendimentos de {first(previaQuem.corretor.nome)}.
+          </div>}
+        </React.Fragment>}
+
+        {leitura&&<div style={{background:C.card,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+          <div style={{color:C.ink,fontSize:12,fontWeight:700}}>
+            {leitura.marcados} marcado(s) de {leitura.tentados} · {leitura.restam} na fila</div>
+          <div style={{height:7,borderRadius:999,background:C.surface,overflow:"hidden",margin:"7px 0"}}>
+            <div style={{width:Math.round(leitura.marcados*100/Math.max(1,leitura.marcados+leitura.restam))+"%",
+              height:"100%",background:C.green,transition:"width .3s"}}/>
+          </div>
+          {/* Conversa que a IA não leu aparece com o motivo. Sem isso, "4 de 4"
+              e "0 de 4" tinham a mesma cara. */}
+          {leitura.falhas&&leitura.falhas.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",
+            fontSize:11,borderRadius:9,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
+            {leitura.tentados-leitura.marcados} não deram para ler: {leitura.falhas[0].erro}</div>}
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"7px 0"}}>
+            {["QUENTE","MORNO","FRIO"].map(k=><span key={k} style={{background:prioDe(k).bg,color:prioDe(k).c,
+              borderRadius:999,padding:"3px 9px",fontSize:11,fontWeight:700}}>
+              {prioDe(k).label}: <span style={{fontFamily:MONO}}>{leitura.soma[k]}</span></span>)}
+          </div>
+          {leitura.amostras.slice(0,6).map((x,i)=><div key={i} style={{color:C.sub,fontSize:11,lineHeight:1.5}}>
+            {first(x.nome)}: <b style={{color:prioDe(x.temperatura).c}}>{prioDe(x.temperatura).label}</b>
+            <span style={{color:C.faint}}> — {x.porque}</span></div>)}
+        </div>}
+
+        {!!temp.corretores.length&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={rodarTemperatura} disabled={!!rodando||!previaQuem||!previaQuem.a_ler}
+            style={{background:previaQuem&&previaQuem.a_ler?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
+              padding:isMobile?"12px 16px":"9px 16px",fontSize:12.5,fontWeight:700,
+              cursor:previaQuem&&previaQuem.a_ler?"pointer":"default",display:"flex",alignItems:"center",gap:7}}>
+            {rodando==="temp-ia"?<React.Fragment><Icon n="loader" size={13} spin/> Lendo os atendimentos…</React.Fragment>
+              :!quem?"Escolha um corretor acima"
+              :previaQuem&&previaQuem.a_ler?<React.Fragment><Icon n="sparkles" size={13}/> Analisar {previaQuem.a_ler} atendimento(s) de {first(previaQuem.corretor.nome)}</React.Fragment>
+              :"Nada novo para analisar deste corretor"}</button>
+          {rodando==="temp-ia"&&<button onClick={()=>{parar.current=true;}}
+            style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
+              padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Parar</button>}
+        </div>}
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:8}}>
+          A temperatura fica marcada como leitura da IA e o corretor pode corrigir na ficha do lead.
+          Rodar de novo no mesmo dia não paga duas vezes pelas mesmas conversas.
         </div>
       </React.Fragment>}
     </React.Fragment>)}
@@ -5495,7 +5658,8 @@ function Recomendacao({leadId,acoes,onDirecionar,isMobile}){
     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
       <Icon n="spark" size={14} color={forte?"#2F80C4":C.faint}/>
       <span style={{color:forte?"#2F80C4":C.sub,fontSize:12,fontWeight:700}}>Recomendação da IA</span>
-      <span style={{marginLeft:"auto",color:C.faint,fontSize:10}}>lead {String(r.temperatura||"").toLowerCase()}</span>
+      {/* Sem temperatura, sem etiqueta. "lead " sozinho não diz nada. */}
+      {r.temperatura&&<span style={{marginLeft:"auto",color:C.faint,fontSize:10}}>lead {String(r.temperatura).toLowerCase()}</span>}
     </div>
     <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5}}>{r.explicacao}</div>
     {r.sugerido&&<button onClick={()=>onDirecionar&&onDirecionar(r.sugerido.id)}

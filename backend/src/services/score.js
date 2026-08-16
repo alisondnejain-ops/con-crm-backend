@@ -20,6 +20,16 @@ import { semMaster } from "../auth.js";
 export const AMOSTRA_MINIMA = 5;   // leads já resolvidos, por temperatura
 const PRIORIDADES = ["QUENTE", "MORNO", "FRIO"];
 
+/* "SEM" é o quarto grupo, e é a maioria da base desde 14/08/2026: a
+   temperatura só existe quando alguém a colocou — o corretor na ficha ou a IA
+   na análise por corretor que o gestor pediu. Antes o lead sem temperatura era
+   contado como MORNO, e isso enchia o grupo do meio com centenas de leads que
+   ninguém avaliou; a conversão "dos mornos" era, na prática, a conversão da
+   base inteira com outro nome. */
+const SEM_TEMPERATURA = "SEM";
+const GRUPOS = [...PRIORIDADES, SEM_TEMPERATURA];
+const grupoDe = (lead) => (lead.priority || SEM_TEMPERATURA).toUpperCase();
+
 // Etapas que encerram o ciclo: o lead virou venda ou virou perda. Só elas
 // contam para conversão — lead em andamento ainda não é acerto nem erro.
 const VENDIDO = "Venda";
@@ -177,8 +187,8 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
 
   // Conversão por temperatura: a base da recomendação.
   const porTemperatura = {};
-  for (const p of PRIORIDADES) {
-    const doPerfil = meus.filter(l => (l.priority || "MORNO") === p);
+  for (const p of GRUPOS) {
+    const doPerfil = meus.filter(l => grupoDe(l) === p);
     const fechadosPerfil = doPerfil.filter(resolvido);
     const vendasPerfil = doPerfil.filter(l => l.stage === VENDIDO);
     porTemperatura[p] = {
@@ -358,7 +368,13 @@ export function ranking(orgId, periodo = 90) {
    recomenda quando os dois lados têm amostra — comparar 40% (2 de 5) com 8%
    (1 de 12) seria enganoso. */
 export function recomendar(orgId, lead) {
-  const temperatura = (lead.priority || "MORNO").toUpperCase();
+  /* Lead sem temperatura não vira "morno" para caber na conta. Ele é comparado
+     no grupo SEM — e, como esse grupo quase nunca tem 5 atendimentos
+     resolvidos, a sugestão cai no desempenho da semana, que é a resposta
+     honesta: "não sei como este perfil converte, mas sei quem está atendendo
+     bem agora". */
+  const temperatura = (lead.priority || "").toUpperCase() || null;
+  const grupo = temperatura || SEM_TEMPERATURA;
   // O dono atual entra na comparação: a recomendação vale para lead novo e para
   // lead já em andamento. Se quem está com ele já é o melhor, o retorno diz isso
   // em vez de sugerir troca por trocar.
@@ -369,7 +385,7 @@ export function recomendar(orgId, lead) {
 
   const candidatos = lista
     .filter(m => disponiveis.has(m.id))
-    .map(m => ({ ...m, perfil: m.por_temperatura[temperatura] }));
+    .map(m => ({ ...m, perfil: m.por_temperatura[grupo] }));
 
   if (!candidatos.length) return { temperatura, situacao: "sem_corretor_disponivel" };
 
@@ -409,6 +425,9 @@ export function recomendar(orgId, lead) {
     };
   }
 
+  /* Como o grupo aparece na frase. Sem isso, lead sem temperatura viraria
+     "converte 20% dos leads nulls" — ou quebraria no toLowerCase(). */
+  const rotulo = temperatura ? `leads ${temperatura.toLowerCase()}s` : "leads sem temperatura";
   const ordenados = [...comHistorico].sort((a, b) => b.perfil.conversao - a.perfil.conversao);
   const melhor = ordenados[0], pior = ordenados[ordenados.length - 1];
 
@@ -417,7 +436,7 @@ export function recomendar(orgId, lead) {
     return {
       temperatura, situacao: "ja_com_o_melhor",
       sugerido: { id: melhor.id, nome: melhor.nome, conversao: melhor.perfil.conversao, score: melhor.score },
-      explicacao: `${melhor.nome} é quem mais converte leads ${temperatura.toLowerCase()}s (${melhor.perfil.conversao}%). O lead já está com a pessoa certa.`,
+      explicacao: `${melhor.nome} é quem mais converte ${rotulo} (${melhor.perfil.conversao}%). O lead já está com a pessoa certa.`,
     };
 
   // Lead já direcionado a outro corretor: compara com quem está, não com o pior
@@ -430,7 +449,7 @@ export function recomendar(orgId, lead) {
       sugerido: { id: melhor.id, nome: melhor.nome, conversao: melhor.perfil.conversao, amostra: melhor.perfil.resolvidos, score: melhor.score },
       comparado: { id: atual.id, nome: atual.nome, conversao: atual.perfil.conversao, amostra: atual.perfil.resolvidos },
       ganho,
-      explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos leads ${temperatura.toLowerCase()}s (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${atual.nome} converte ${atual.perfil.conversao}%. Passar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${ganho} pontos.`,
+      explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos ${rotulo} (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${atual.nome} converte ${atual.perfil.conversao}%. Passar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${ganho} pontos.`,
     };
   }
   return {
@@ -439,7 +458,7 @@ export function recomendar(orgId, lead) {
     sugerido: { id: melhor.id, nome: melhor.nome, conversao: melhor.perfil.conversao, amostra: melhor.perfil.resolvidos, score: melhor.score },
     comparado: { id: pior.id, nome: pior.nome, conversao: pior.perfil.conversao, amostra: pior.perfil.resolvidos },
     ganho: Math.round((melhor.perfil.conversao - pior.perfil.conversao) * 10) / 10,
-    explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos leads ${temperatura.toLowerCase()}s (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${pior.nome} converte ${pior.perfil.conversao}%. Direcionar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${Math.round((melhor.perfil.conversao - pior.perfil.conversao) * 10) / 10} pontos.`,
+    explicacao: `${melhor.nome} converte ${melhor.perfil.conversao}% dos ${rotulo} (${melhor.perfil.vendas} de ${melhor.perfil.resolvidos}). ${pior.nome} converte ${pior.perfil.conversao}%. Direcionar para ${melhor.nome.split(" ")[0]} aumenta a chance estimada em ${Math.round((melhor.perfil.conversao - pior.perfil.conversao) * 10) / 10} pontos.`,
   };
 }
 
@@ -474,7 +493,7 @@ export function recomendacoes(orgId, limite = 8) {
       if (espera >= ESPERA_ALERTA)
         itens.push({
           tipo: "sem_resposta", urgencia: 3, lead_id: lead.id, lead: lead.name,
-          temperatura: lead.priority || "MORNO",
+          temperatura: lead.priority || null,
           texto: `${lead.name} está há ${espera >= 120 ? Math.round(espera / 60) + "h" : espera + " min"} sem primeira resposta${lead.assigned_to ? ` (com ${nomes[lead.assigned_to] || "alguém"})` : " e sem dono"}.`,
         });
     }

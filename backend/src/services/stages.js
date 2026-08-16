@@ -94,17 +94,13 @@ export function normalizePhone(raw) {
   return d;
 }
 
-// Prioridade a partir das respostas de qualificação (mesma régua do MCMV usada no frontend).
-export function scorePriority(q = {}) {
-  const low = (v) => String(v || "").toLowerCase();
-  let s = 0;
-  const rd = low(q.renda);
-  s += rd.includes("acima") ? 3 : rd.includes("3.501") ? 2 : rd.includes("2.001") ? 1 : 0;
-  const en = low(q.entrada);
-  s += (en.includes("15 mil") && en.includes("acima")) ? 3 : en.includes("entre") ? 2 : en.includes("até r$ 5") ? 1 : 0;
-  const cp = low(q.cpf);
-  s += (cp.includes("regular") && cp.includes("não")) ? 2 : cp.includes("regularizado") ? 1 : 0;
-  const pz = low(q.prazo);
-  s += pz.includes("rápido") || pz.includes("rapido") ? 3 : pz.includes("próximos 3") || pz.includes("proximos 3") ? 2 : pz.includes("3 e 6") ? 1 : 0;
-  return s >= 8 ? "QUENTE" : s >= 5 ? "MORNO" : "FRIO";
-}
+/* A nota de corte que virava temperatura saiu daqui em 14/08/2026.
+
+   Ela lia as respostas do formulário da Meta (renda, entrada, CPF, prazo) e
+   devolvia QUENTE / MORNO / FRIO. O problema não era a conta: era a faixa do
+   meio, que caía em "MORNO" para quase todo lead e enchia o funil de uma
+   temperatura que ninguém tinha avaliado.
+
+   As respostas continuam gravadas em `leads.qual_json` e aparecem na ficha.
+   Temperatura, agora, tem uma origem só: alguém a colocou — o corretor na
+   ficha ou a IA na análise por corretor (`services/lote.js`). */

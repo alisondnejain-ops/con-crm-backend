@@ -49,7 +49,8 @@ export function registrar({ orgId, userId, leadId, recurso, uso }) {
   }
 }
 
-const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa", etapa: "Leitura da etapa do funil" };
+const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa",
+  etapa: "Leitura da etapa do funil", temperatura: "Leitura da temperatura do lead" };
 
 /* O painel de consumo: total da imobiliária, por pessoa e por recurso.
 
@@ -103,6 +104,10 @@ export function resumoDeUso(orgId, dias = 30) {
 export function custoEstimado(quantas) {
   const m = db.prepare("SELECT AVG(custo_usd) media, COUNT(*) n FROM ia_uso WHERE custo_usd > 0").get();
   const porChamada = m && m.n >= 3 ? m.media : custoDe({ entrada: 985, saida: 257 }, modeloIA()) || 0.0023;
-  return { por_chamada_usd: +porChamada.toFixed(5), total_usd: +(porChamada * quantas).toFixed(2),
+  /* Quatro casas, não duas. Com duas, uma leitura de 3 conversas custava
+     "US$ 0.00" — que a tela mostra como de graça, e não é. Arredondar para
+     baixo o preço de algo que o gestor vai autorizar é o pior lado para o
+     qual errar. */
+  return { por_chamada_usd: +porChamada.toFixed(5), total_usd: +(porChamada * quantas).toFixed(4),
     base: m && m.n >= 3 ? `média de ${m.n} chamadas já feitas` : "estimativa do primeiro resumo medido" };
 }

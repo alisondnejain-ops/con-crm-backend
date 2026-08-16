@@ -410,6 +410,14 @@ addLeadCol("cutucado_recado", "TEXT");   // recado curto que a gestão deixou ju
    corretor — atras de leads antigos, so porque era antigo — e ele nao via
    justamente o que acabou de receber. */
 addLeadCol("assigned_at", "INTEGER");
+/* De onde veio a temperatura do lead.
+
+   A marcação "MORNO" era o padrão da coluna e ninguém sabia disso — a tela a
+   mostrava como se fosse avaliação de gente. Guardar a origem impede a mesma
+   história: `mao` (alguém marcou), `ia` (leitura da conversa) ou nulo (nunca
+   foi marcada). */
+addLeadCol("priority_por", "TEXT");
+addLeadCol("priority_em", "INTEGER");
 addLeadCol("etapa_ia_json", "TEXT");
 addLeadCol("etapa_ia_em", "INTEGER");
 addLeadCol("etapa_ia_msgs", "INTEGER");

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { fetchLead } from "../services/meta.js";
-import { normalizePhone, scorePriority } from "../services/stages.js";
+import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
 
 const r = Router();
@@ -32,10 +32,21 @@ r.post("/meta", async (req, res) => {
           const dup = db.prepare("SELECT 1 FROM leads WHERE org_id = ? AND (meta_lead_id = ? OR phone = ?)").get(org.id, info.meta_lead_id, phone);
           if (dup) continue;
           const dono = proximoAtendente(org.id);
+          /* Nasce SEM temperatura, como o lead do WhatsApp (14/08/2026).
+
+             Aqui havia uma nota de corte sobre as respostas do formulário
+             (renda, entrada, prazo) que devolvia QUENTE / MORNO / FRIO. As
+             respostas são reais e continuam na ficha, em `qual_json` — o que
+             saiu foi transformá-las em temperatura sozinha. A régua do meio
+             devolvia "MORNO" para quase todo mundo, e era esse morno de
+             ninguém que enchia o funil e que o Ali mandou tirar.
+
+             Temperatura agora tem uma origem só: alguém a colocou — o corretor
+             na ficha, ou a IA na análise por corretor que o gestor pediu. */
           db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at)
-            VALUES (?,?,?,?,?,?,?,?, 'Lead', ?, ?)`).run(
+            VALUES (?,?,?,?,?,?,NULL,?, 'Lead', ?, ?)`).run(
             "l_" + randomUUID(), org.id, info.name, phone, info.email, "Meta Ads",
-            scorePriority(info.qual), JSON.stringify(info.qual), dono, Date.now()
+            JSON.stringify(info.qual), dono, Date.now()
           );
           console.log("[meta] novo lead:", info.name, phone, dono ? "— para a atendente da vez" : "— sem atendente, foi para a fila");
         } catch (e) {

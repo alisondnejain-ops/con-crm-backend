@@ -310,3 +310,69 @@ export async function etapaDaConversa({ mensagens, nome }) {
     },
   };
 }
+
+/* ===== A TEMPERATURA DO LEAD, LIDA NA CONVERSA =====
+
+   Temperatura é a pergunta "quão perto de comprar este cliente está?". Ela
+   vinha de um chute: todo lead do WhatsApp nascia "morno", e a tela mostrava
+   isso como se alguém tivesse avaliado.
+
+   Aqui a IA lê o que o cliente disse e responde. Como o resto, ela devolve o
+   MOTIVO — temperatura sem justificativa é a mesma marcação sem dono que já
+   existia, só que mais cara. */
+const INSTRUCAO_TEMPERATURA = `Você é assistente de uma imobiliária brasileira. Leia a
+conversa de WhatsApp entre a equipe e um cliente e diga o quanto ele está PERTO DE COMPRAR.
+
+- "QUENTE": demonstra intenção clara e prazo curto. Pede visita, manda documento, fala em
+  valor de entrada, pergunta como fechar, responde rápido e puxa a conversa
+- "MORNO": tem interesse real mas sem urgência. Faz perguntas, pede informação, some e volta,
+  diz que "está pesquisando" ou "mais pra frente"
+- "FRIO": não avança. Só cumprimentou, sumiu depois da primeira resposta, disse que não tem
+  interesse, não tem condição agora, ou o número não é de um comprador
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+
+{"temperatura":"QUENTE"|"MORNO"|"FRIO","confianca":"alta"|"media"|"baixa","porque":texto}
+
+Regras:
+- "porque": uma frase curta em português dizendo o que na conversa levou a essa leitura
+- Olhe o que o CLIENTE fez, não o que a imobiliária escreveu. Corretor animado não
+  esquenta lead
+- Cliente que parou de responder há muitas mensagens é FRIO, por mais que o começo
+  tenha sido bom
+- "confianca": "baixa" quando a conversa é curta, confusa ou quase toda por áudio e foto
+- Na dúvida entre dois, escolha o MENOS quente. Lead superestimado tira o corretor de
+  quem estava pronto para comprar`;
+
+const TEMPERATURAS_IA = ["QUENTE", "MORNO", "FRIO"];
+
+export async function temperaturaDaConversa({ mensagens, nome }) {
+  if (!iaConfigurada()) return { ok: false, erro: "Leitura de temperatura por IA não configurada." };
+  const uteis = (mensagens || []).filter(m => (m.texto || "").trim());
+  if (uteis.length < 2) return { ok: false, erro: "Conversa curta demais para avaliar." };
+
+  const linhas = uteis.slice(-120)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "IMOBILIÁRIA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+
+  const r = await perguntar({
+    max_tokens: 300,
+    content: [{ type: "text", text: `${INSTRUCAO_TEMPERATURA}\n\nCliente: ${nome || "sem nome"}\n\nCONVERSA:\n${linhas}` }],
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato." }; }
+
+  const t = TEMPERATURAS_IA.find(x => x === String(d.temperatura || "").trim().toUpperCase());
+  if (!t) return { ok: false, erro: "A IA respondeu uma temperatura que não existe." };
+
+  const txt = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  return { ok: true, uso: r.uso, leitura: {
+    temperatura: t,
+    confianca: ["alta", "media", "baixa"].includes(d.confianca) ? d.confianca : "baixa",
+    porque: txt(d.porque, 240) || "A IA não explicou a leitura.",
+    mensagens_lidas: Math.min(uteis.length, 120),
+  } };
+}

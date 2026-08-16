@@ -11,7 +11,8 @@ import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
-import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA } from "../services/lote.js";
+import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
+  corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 const r = Router();
@@ -483,6 +484,28 @@ r.post("/lote/etapa-ia", roles("adm"), async (req, res) => {
   const limite = Math.min(Math.max(Number(req.body?.limite) || 20, 1), 40);
   const out = await rodarEtapaIA(req.user.org_id, { limite, userId: req.user.id });
   if (out.erro) return res.status(503).json({ error: out.erro });
+  res.json(out);
+});
+
+/* ===== TEMPERATURA LIDA PELA IA, UM CORRETOR POR VEZ =====
+
+   A lista de quem pode ser analisado, com quantos leads cada um tem na mão. */
+r.get("/lote/temperatura-ia", roles("adm"), (req, res) =>
+  res.json(corretoresParaTemperatura(req.user.org_id)));
+
+// Prévia de UM corretor: quantos seriam lidos, quantos já foram, e o preço.
+r.get("/lote/temperatura-ia/:corretorId", roles("adm"), (req, res) => {
+  const out = previaTemperaturaIA(req.user.org_id, req.params.corretorId);
+  if (out.erro) return res.status(400).json({ error: out.erro });
+  res.json(out);
+});
+
+// Roda um pedaço. A tela chama de novo enquanto `restam > 0`.
+r.post("/lote/temperatura-ia/:corretorId", roles("adm"), async (req, res) => {
+  const limite = Math.min(Math.max(Number(req.body?.limite) || 20, 1), 40);
+  const out = await rodarTemperaturaIA(req.user.org_id,
+    { corretorId: req.params.corretorId, limite, userId: req.user.id });
+  if (out.erro) return res.status(400).json({ error: out.erro });
   res.json(out);
 });
 

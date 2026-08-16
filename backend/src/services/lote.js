@@ -20,7 +20,7 @@
 import db from "../db.js";
 import { LINEAR } from "./stages.js";
 import { moverEtapa } from "./etapas.js";
-import { etapaDaConversa, iaConfigurada } from "./ia.js";
+import { etapaDaConversa, temperaturaDaConversa, iaConfigurada } from "./ia.js";
 import { registrar as registrarUsoIA, custoEstimado } from "./iauso.js";
 
 /* ===== TEMPERATURA ===== */
@@ -42,6 +42,125 @@ export function limparTemperatura(orgId, temperatura) {
   console.log(`[lote] temperatura "${temperatura}" removida de ${info.changes} lead(s)`);
   return { limpos: info.changes };
 }
+
+/* ===== TEMPERATURA LIDA PELA IA, UM CORRETOR POR VEZ =====
+
+   A temperatura voltou, mas por outro caminho. Antes ela nascia sozinha
+   ("MORNO" era o padrão da coluna) e ninguém sabia de onde tinha vindo. Agora
+   ela só existe quando o gestor PEDE, corretor por corretor, e cada marcação
+   guarda quem a colocou (`priority_por`) e quando (`priority_em`).
+
+   Por que um corretor por vez, e não a base inteira: a pergunta do Ali não é
+   "como está a base", é "como este corretor está atendendo". Rodar por corretor
+   deixa a leitura ao lado do nome de quem atendeu, custa pouco de cada vez e
+   pode parar no meio sem estragar o resto. */
+
+/* Os leads de UM corretor que podem ser lidos. Mesmas exclusões da etapa —
+   sem dono/com a atendente, sem conversa, vendido, etapa marcada na mão. */
+function elegiveisDoCorretor(orgId, corretorId) {
+  return elegiveis(orgId).filter(l => l.assigned_to === corretorId);
+}
+
+/* Quem pode ser analisado, com quanto cada um tem na mão e o que já foi lido.
+   É a lista que a tela mostra: o gestor escolhe um nome e vê o preço antes. */
+export function corretoresParaTemperatura(orgId) {
+  const lista = elegiveis(orgId);
+  const por = new Map();
+  for (const l of lista) {
+    const a = por.get(l.assigned_to) || { id: l.assigned_to, nome: l.corretor, leads: 0, lidos: 0 };
+    a.leads++;
+    if (temperaturaDaIA(l.id)) a.lidos++;
+    por.set(l.assigned_to, a);
+  }
+  return {
+    configurada: iaConfigurada(),
+    corretores: [...por.values()].sort((a, b) => b.leads - a.leads || a.nome.localeCompare(b.nome)),
+  };
+}
+
+export function previaTemperaturaIA(orgId, corretorId) {
+  const u = db.prepare("SELECT id, name, role FROM users WHERE id=? AND org_id=?").get(corretorId, orgId);
+  if (!u) return { erro: "Corretor não encontrado nesta imobiliária." };
+  if (u.role !== "corretor") return { erro: "A leitura é do atendimento do corretor. A atendente faz o primeiro contato e repassa — os leads dela não são atendimento de corretor nenhum." };
+
+  const lista = elegiveisDoCorretor(orgId, corretorId);
+  const faltam = lista.filter(l => !jaTemperado(l.id));
+  return {
+    configurada: iaConfigurada(),
+    corretor: { id: u.id, nome: u.name },
+    leads: lista.length,
+    a_ler: faltam.length,
+    ja_lidos: lista.length - faltam.length,
+    custo: custoEstimado(faltam.length),
+  };
+}
+
+/* Roda a IA num pedaço da fila deste corretor. Mesmo desenho da etapa: em
+   pedaços, com o que já foi feito gravado, e devolvendo quantos faltam.
+
+   A leitura grava direto em `leads.priority` — aqui a IA ESCREVE, e é a única
+   coisa em que ela escreve. É temperatura, não etapa: temperatura não vira
+   relatório de cobrança, é uma ordenação de quem chamar primeiro, e o corretor
+   corrige na ficha com um clique. Etapa continua sendo sugestão. */
+export async function rodarTemperaturaIA(orgId, { corretorId, limite = 20, userId = null } = {}) {
+  if (!iaConfigurada()) return { erro: "A IA não está ligada nesta instalação." };
+  const previa = previaTemperaturaIA(orgId, corretorId);
+  if (previa.erro) return { erro: previa.erro };
+
+  const fila = elegiveisDoCorretor(orgId, corretorId).filter(l => !jaTemperado(l.id));
+  const lote = fila.slice(0, limite);
+  const leituras = [], erros = [];
+  const contagem = { QUENTE: 0, MORNO: 0, FRIO: 0 };
+
+  for (const l of lote) {
+    const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id=? ORDER BY created_at ASC").all(l.id);
+    const r = await temperaturaDaConversa({
+      nome: l.name,
+      mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
+    });
+
+    if (!r.ok) { erros.push({ lead: l.name, erro: r.erro }); continue; }
+    registrarUsoIA({ orgId, userId, leadId: l.id, recurso: "temperatura", uso: r.uso });
+
+    db.prepare("UPDATE leads SET priority=?, priority_por='ia', priority_em=? WHERE id=?")
+      .run(r.leitura.temperatura, Date.now(), l.id);
+    contagem[r.leitura.temperatura]++;
+    leituras.push({ nome: l.name, temperatura: r.leitura.temperatura,
+      confianca: r.leitura.confianca, porque: r.leitura.porque });
+  }
+
+  /* `marcados` é diferente de `analisados`, e a diferença é o ponto: conversa
+     que a IA não conseguiu ler foi tentada e NÃO foi marcada. Com um número
+     só, uma rodada em que tudo falhou aparecia na tela como "4 lidos" — o
+     mesmo texto de quando tudo deu certo. */
+  const restam = fila.length - lote.length;
+  console.log(`[lote] IA leu a temperatura de ${leituras.length} de ${lote.length} conversa(s) de ${previa.corretor.nome}, faltam ${restam}`);
+  return {
+    corretor: previa.corretor, analisados: lote.length, marcados: leituras.length,
+    restam, contagem, leituras: leituras.slice(0, 20), erros,
+  };
+}
+
+/* Já foi lida por IA, e há pouco tempo? Mesma janela da etapa: parar no meio e
+   continuar depois não paga duas vezes pela mesma conversa. Temperatura posta
+   na mão pelo corretor NÃO conta como lida — a IA reescreve por cima só quando
+   o gestor manda rodar, e a leitura mais nova é a que vale. */
+const temperaturaDaIA = (id) => {
+  const l = db.prepare("SELECT priority, priority_por FROM leads WHERE id=?").get(id);
+  return !!(l && l.priority && l.priority_por === "ia");
+};
+const jaTemperado = (id) => {
+  const l = db.prepare("SELECT priority_por, priority_em FROM leads WHERE id=?").get(id);
+  return !!(l && l.priority_por === "ia" && l.priority_em && Date.now() - l.priority_em < JANELA);
+};
+/* Conversa que a IA não conseguiu ler NÃO fica marcada.
+
+   A primeira versão marcava, para não repetir a tentativa. Só que o motivo da
+   falha costuma ser a instalação (chave errada, provedor fora do ar), não a
+   conversa: o gestor consertava a chave, mandava rodar de novo e não
+   acontecia nada por 12 horas, sem explicação. Quem impede o laço de repetir
+   para sempre é o lado de lá — a tela para quando um bloco inteiro falha e
+   mostra o erro. */
 
 /* ===== ETAPA DO FUNIL, LIDA PELA IA ===== */
 
@@ -111,7 +230,9 @@ export async function rodarEtapaIA(orgId, { limite = 20, userId = null } = {}) {
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
 
-    if (!r.ok) { erros.push({ lead: l.name, erro: r.erro }); marcarAnalisado(l.id, null); continue; }
+    // Falhou: não marca. Ver a nota em `rodarTemperaturaIA` — marcar a falha
+    // deixava o lead 12h fora da fila por um problema que era da instalação.
+    if (!r.ok) { erros.push({ lead: l.name, erro: r.erro }); continue; }
     registrarUsoIA({ orgId, userId, leadId: l.id, recurso: "etapa", uso: r.uso });
     db.prepare("UPDATE leads SET etapa_ia_json=?, etapa_ia_em=?, etapa_ia_msgs=? WHERE id=?")
       .run(JSON.stringify(r.sugestao), Date.now(), msgs.length, l.id);
@@ -123,8 +244,9 @@ export async function rodarEtapaIA(orgId, { limite = 20, userId = null } = {}) {
   }
 
   const restam = fila.length - lote.length;
-  console.log(`[lote] IA leu ${lote.length} conversa(s), ${mudancas.length} mudaram de etapa, faltam ${restam}`);
-  return { analisados: lote.length, mudaram: mudancas.length, restam, mudancas: mudancas.slice(0, 20), erros };
+  const lidos = lote.length - erros.length;
+  console.log(`[lote] IA leu ${lidos} de ${lote.length} conversa(s), ${mudancas.length} mudaram de etapa, faltam ${restam}`);
+  return { analisados: lote.length, lidos, mudaram: mudancas.length, restam, mudancas: mudancas.slice(0, 20), erros };
 }
 
 /* Já foi lido nesta rodada? Marcamos pela data da leitura: lead com
@@ -135,4 +257,4 @@ const jaAnalisado = (id) => {
   const l = db.prepare("SELECT etapa_ia_em FROM leads WHERE id=?").get(id);
   return !!(l && l.etapa_ia_em && Date.now() - l.etapa_ia_em < JANELA);
 };
-const marcarAnalisado = (id) => db.prepare("UPDATE leads SET etapa_ia_em=? WHERE id=?").run(Date.now(), id);
+
