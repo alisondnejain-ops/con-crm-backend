@@ -69,7 +69,7 @@ db.prepare("UPDATE orgs SET robo_ativo=1, robo_inicio='18:00', robo_fim='09:00',
 const user = (nome, role) => { const id = "u_" + randomUUID();
   db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
     VALUES (?,?,?,?,'x',?,1,?,'ativo')`).run(id, org, nome, nome + "@x.com", role, Date.now()); return id; };
-const vanessa = user("Vanessa", "sdr"), marina = user("Marina", "corretor");
+const vanessa = user("Vanessa", "sdr"), marina = user("Marina", "corretor"), ali = user("Ali", "adm");
 
 let n = 0;
 function lead({ nome, dono = null }) {
@@ -107,6 +107,13 @@ assert.equal(podeAtender(org, naFila, NOITE).pode, true);
 const daVanessa = lead({ nome: "Com a Vanessa", dono: vanessa });
 doCliente(daVanessa, "boa noite, tenho interesse");
 assert.equal(podeAtender(org, daVanessa, NOITE).pode, true);
+
+console.log("2b. Lead que o GESTOR assumiu: o robô atende também");
+const doAli = lead({ nome: "O Ali assumiu", dono: ali });
+doCliente(doAli, "oi, quero saber dos imóveis");
+const t2b = podeAtender(org, doAli, NOITE);
+console.log(`   ${t2b.pode ? "atende" : "não atende: " + t2b.motivo}`);
+assert.equal(t2b.pode, true, "supervisão não é corretor: quem está com o gestor ainda não tem dono de verdade");
 
 console.log("3. Lead que já está com CORRETOR: nunca");
 const doCorretor = lead({ nome: "Com a Marina", dono: marina });

@@ -118,6 +118,10 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
     LEFT JOIN users u ON u.id = l.assigned_to WHERE l.id = ? AND l.org_id = ?`).get(leadId, orgId);
   if (!lead) return { pode: false, motivo: "lead_nao_encontrado" };
   if (lead.robo_parado) return { pode: false, motivo: "gente_assumiu" };
+  /* A trava é o CORRETOR, e só ele. Lead na fila, com a atendente OU com o
+     gestor é tudo a mesma situação: ainda não tem dono de verdade, ninguém
+     tem esse atendimento no nome para ser cobrado por ele. Lead repassado a
+     corretor é o contrário disso, e é o único caso em que o robô se cala. */
   if (lead.dono_papel === "corretor") return { pode: false, motivo: "ja_com_corretor" };
   if ((lead.robo_msgs || 0) >= cfg.teto) return { pode: false, motivo: "teto_de_mensagens" };
 
