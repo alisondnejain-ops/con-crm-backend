@@ -6791,10 +6791,14 @@ function RoboConfig({acoes,session,isMobile}){
           <span style={{background:l.completos===l.total_campos?C.greenSoft:C.card,
             color:l.completos===l.total_campos?C.greenDeep:C.sub,borderRadius:999,padding:"2px 9px",
             fontSize:10.5,fontWeight:700,fontFamily:MONO}}>{l.completos}/{l.total_campos} campos</span>
+          {/* Comprar ou alugar é a primeira coisa que muda o atendimento de
+              segunda-feira — por isso vem como etiqueta, não no meio do texto. */}
+          {l.finalidade&&<span style={{background:C.greenSoft,color:C.greenDeep,borderRadius:999,
+            padding:"2px 9px",fontSize:10.5,fontWeight:700}}>{l.finalidade==="alugar"?"aluguel":"compra"}</span>}
           <span style={{color:C.faint,fontSize:10.5}}>{l.respostas_do_robo} resposta(s) · {fmtQuando(l.quando)}</span>
         </div>
         {l.completos>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginTop:5}}>
-          {Object.entries(l.coletado).map(([k,v])=>
+          {Object.entries(l.coletado).filter(([k])=>k!=="finalidade").map(([k,v])=>
             <div key={k}><b style={{color:C.ink}}>{ROTULO_SIMULACAO[k]||k}:</b> {v}</div>)}
         </div>}
         <button onClick={()=>conferido(l.id)}
@@ -6807,7 +6811,11 @@ function RoboConfig({acoes,session,isMobile}){
 }
 
 // Como cada campo da simulação aparece escrito na tela.
-const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cpf:"Restrição no CPF",prazo:"Prazo"};
+/* Os campos mudam se a pessoa quer comprar ou alugar: entrada vira orçamento
+   de aluguel, e restrição no CPF vira a garantia. `finalidade` não entra aqui
+   porque aparece como etiqueta, em cima. */
+const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cpf:"Restrição no CPF",
+  prazo:"Prazo",orcamento:"Orçamento de aluguel",garantia:"Garantia"};
 
 function MensagensAutomaticas({acoes,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);

@@ -30,7 +30,7 @@
 
 import db from "../db.js";
 import { randomUUID } from "crypto";
-import { atenderPrimeiroContato, iaConfigurada, CAMPOS_SIMULACAO } from "./ia.js";
+import { atenderPrimeiroContato, iaConfigurada, camposDa } from "./ia.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { sendText } from "./uazapi.js";
 import { lerHorario } from "./expediente.js";
@@ -338,10 +338,12 @@ export function paraConferir(orgId) {
       id: l.id, nome: l.name, telefone: l.phone, dono: l.dono || null,
       mensagens: l.mensagens, respostas_do_robo: l.robo_msgs, quando: l.robo_em,
       coletado,
-      // Quantos dos cinco campos ele conseguiu. É a leitura de um olhar: "3 de
-      // 5" diz na hora se a atendente precisa ligar ou só conferir.
-      completos: CAMPOS_SIMULACAO.filter(c => coletado[c]).length,
-      total_campos: CAMPOS_SIMULACAO.length,
+      /* Compra e aluguel têm cinco campos cada, mas não os mesmos. Contar pela
+         lista da compra num lead de aluguel daria "1 de 5" numa conversa
+         completa — e a atendente ligaria à toa. */
+      finalidade: coletado.finalidade || null,
+      completos: camposDa(coletado.finalidade).filter(c => coletado[c]).length,
+      total_campos: camposDa(coletado.finalidade).length,
     };
   });
 }
@@ -356,6 +358,23 @@ export function conferir(orgId, leadId, { gravarNaFicha = true, userId = null } 
   if (gravarNaFicha) {
     let atual = {}; try { atual = JSON.parse(lead.qual_json || "{}") || {}; } catch {}
     let doRobo = {}; try { doRobo = JSON.parse(lead.robo_json || "{}") || {}; } catch {}
+
+    /* A ficha do lead tem os campos da COMPRA — são os do formulário do Meta.
+       Num lead de aluguel, "orçamento" e "garantia" não têm onde caber, e
+       jogá-los em "entrada" e "cpf" seria escrever mentira num campo com nome.
+       Então eles entram na SITUAÇÃO, que é texto livre e é o primeiro campo
+       que o corretor lê. Sem isto, o que o robô apurou no aluguel sumiria
+       exatamente na hora de virar atendimento de gente. */
+    const alugando = String(doRobo.finalidade || "").toLowerCase().startsWith("alug");
+    if (alugando) {
+      const extras = [
+        "ALUGUEL",
+        doRobo.orcamento ? `orçamento ${doRobo.orcamento}` : null,
+        doRobo.garantia ? `garantia: ${doRobo.garantia}` : null,
+        doRobo.situacao || null,
+      ].filter(Boolean);
+      doRobo = { renda: doRobo.renda, prazo: doRobo.prazo, situacao: extras.join(" · ") };
+    }
     // O que já estava na ficha ganha: alguém digitou aquilo olhando o cliente.
     const junto = { ...doRobo, ...atual };
     db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(junto), leadId);

@@ -335,4 +335,27 @@ console.log("22. E dá para desligar a IA só neste lead");
 ligarNoLead(org, religado, false);
 assert.equal(estadoNoLead(org, religado, NOITE).motivo, "gente_assumiu");
 
+console.log("23. Lead de ALUGUEL: os campos são outros, e a conta também");
+db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
+const alugar = lead({ nome: "Quer alugar", dono: vanessa });
+doCliente(alugar, "oi, procuro uma casa pra alugar no Antônio Cassimiro");
+respostaDaIA = { texto: "Oi! Casa pra alugar por lá, anotei 😊 Quantas pessoas vão morar?",
+  coletado: { finalidade: "alugar", situacao: "casa para alugar no Antônio Cassimiro",
+    orcamento: "até 1.200", garantia: "não sabe ainda" }, encerrar: false };
+await atender(org, alugar, { agora: NOITE, atraso: 0 });
+
+const naLista = paraConferir(org).find(l => l.id === alugar);
+console.log(`   finalidade: ${naLista.finalidade} · ${naLista.completos}/${naLista.total_campos} campos`);
+assert.equal(naLista.finalidade, "alugar");
+assert.equal(naLista.completos, 3, "situação, orçamento e garantia — contados pela lista do ALUGUEL");
+assert.equal(naLista.total_campos, 5);
+
+console.log("24. Conferir leva os dados de aluguel para a ficha, na situação");
+conferir(org, alugar, { userId: vanessa });
+const fichaAluguel = JSON.parse(db.prepare("SELECT qual_json FROM leads WHERE id=?").get(alugar).qual_json);
+console.log(`   situação: ${fichaAluguel.situacao}`);
+assert.ok(/ALUGUEL/.test(fichaAluguel.situacao), "o corretor precisa ver na hora que não é compra");
+assert.ok(/1\.200/.test(fichaAluguel.situacao), "o orçamento não pode sumir");
+assert.ok(!fichaAluguel.entrada, "e não pode virar 'entrada', que seria mentira num campo com nome");
+
 console.log("\nTudo certo ✅");
