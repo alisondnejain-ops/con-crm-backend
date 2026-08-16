@@ -214,11 +214,18 @@ r.post("/robo", roles("adm"), (req, res) => {
   if (inicio === fim) return res.status(400).json({ error: "O início e o fim da janela não podem ser o mesmo horário." });
 
   const teto = Math.min(Math.max(Number(b.teto) || atual.teto, 2), 30);
-  db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=? WHERE id=?")
-    .run(b.ativo ? 1 : 0, inicio, fim, teto, req.user.org_id);
+  /* Dias de expediente. Lista vazia é escolha válida ("não temos expediente
+     fixo"), e aí o robô atende o dia inteiro, todo dia — por isso a string
+     vazia é gravada de propósito em vez de virar nulo, que cairia no padrão. */
+  const dias = Array.isArray(b.dias)
+    ? [...new Set(b.dias.map(Number).filter(x => Number.isInteger(x) && x >= 0 && x <= 6))].sort()
+    : atual.dias;
+
+  db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=?, robo_dias=? WHERE id=?")
+    .run(b.ativo ? 1 : 0, inicio, fim, teto, dias.join(","), req.user.org_id);
 
   const cfg = configDoRobo(req.user.org_id);
-  console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — janela ${cfg.inicio}→${cfg.fim}, teto ${cfg.teto}`);
+  console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}], teto ${cfg.teto}`);
   res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
 

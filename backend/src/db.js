@@ -389,6 +389,10 @@ addOrgCol("robo_ativo", "INTEGER DEFAULT 0");
 addOrgCol("robo_inicio", "TEXT DEFAULT '18:00'");   // hora em que o robô assume
 addOrgCol("robo_fim", "TEXT DEFAULT '09:00'");      // hora em que a atendente assume
 addOrgCol("robo_teto", "INTEGER DEFAULT 12");       // máximo de mensagens por lead
+/* Dias em que a EQUIPE trabalha (0=domingo … 6=sábado, como o JavaScript
+   conta). Nos dias que NÃO estão aqui o robô atende o dia inteiro: no fim de
+   semana não existe "fora do expediente", existe "não tem expediente". */
+addOrgCol("robo_dias", "TEXT DEFAULT '1,2,3,4,5'");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };

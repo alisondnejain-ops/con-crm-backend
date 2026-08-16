@@ -89,15 +89,34 @@ const daGente = (leadId, quem, texto) => db.prepare(
 const NOITE = new Date("2026-08-15T21:00:00-03:00").getTime();
 const MANHA = new Date("2026-08-17T10:00:00-03:00").getTime();
 
-console.log("1. A janela 18:00→09:00 atravessa a meia-noite");
+console.log("1. Em dia de expediente, a janela 18:00→09:00 atravessa a meia-noite");
 const cfg = configDoRobo(org);
-for (const [q, esperado] of [["2026-08-15T21:00:00-03:00", true], ["2026-08-16T03:00:00-03:00", true],
-  ["2026-08-16T08:59:00-03:00", true], ["2026-08-16T09:00:00-03:00", false],
-  ["2026-08-16T13:00:00-03:00", false], ["2026-08-16T17:59:00-03:00", false],
-  ["2026-08-16T18:00:00-03:00", true]]) {
+for (const [q, esperado] of [["2026-08-18T21:00:00-03:00", true], ["2026-08-19T03:00:00-03:00", true],
+  ["2026-08-19T08:59:00-03:00", true], ["2026-08-19T09:00:00-03:00", false],
+  ["2026-08-19T13:00:00-03:00", false], ["2026-08-19T17:59:00-03:00", false],
+  ["2026-08-19T18:00:00-03:00", true]]) {
   const dentro = dentroDaJanela(cfg, new Date(q).getTime());
   console.log(`   ${q.slice(11, 16)} → ${dentro ? "robô atende" : "atendente assume"}`);
   assert.equal(dentro, esperado, `janela errada às ${q}`);
+}
+
+console.log("1b. Sábado e domingo ele atende O DIA INTEIRO");
+/* No fim de semana não existe "fora do expediente" — existe "não tem
+   expediente". A hora não é olhada; o dia é. Sexta 18h até segunda 9h vira um
+   bloco contínuo sem nenhum caso especial no código. */
+for (const [q, esperado, porque] of [
+  ["2026-08-14T14:00:00-03:00", false, "sexta 14h, expediente"],
+  ["2026-08-14T18:30:00-03:00", true,  "sexta à noite"],
+  ["2026-08-15T10:00:00-03:00", true,  "SÁBADO de manhã"],
+  ["2026-08-15T14:00:00-03:00", true,  "SÁBADO à tarde"],
+  ["2026-08-16T12:00:00-03:00", true,  "DOMINGO ao meio-dia"],
+  ["2026-08-16T23:30:00-03:00", true,  "domingo à noite"],
+  ["2026-08-17T08:00:00-03:00", true,  "segunda antes das 9"],
+  ["2026-08-17T09:30:00-03:00", false, "segunda, a Vanessa assumiu"],
+]) {
+  const dentro = dentroDaJanela(cfg, new Date(q).getTime());
+  console.log(`   ${porque}: ${dentro ? "robô atende" : "equipe assume"}`);
+  assert.equal(dentro, esperado, `errou em ${porque}`);
 }
 
 console.log("2. Fila e lead da atendente: o robô atende");

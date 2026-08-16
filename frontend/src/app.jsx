@@ -3949,7 +3949,7 @@ function RoboNoLead({lead,acoes,isMobile}){
         que responde "por que ele não respondeu?" sem abrir o log do servidor. */}
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>
       {e.responderia
-        ?<span>Se o cliente escrever agora, a IA responde. Janela: <b>{e.janela}</b>.</span>
+        ?<span>Se o cliente escrever agora, a IA responde.</span>
         :<span>{MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
     </div>
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
@@ -6644,6 +6644,9 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobi
    Por isso a tela é escrita como um contrato, e não como uma configuração:
    antes do interruptor, o que ele faz e o que ele NUNCA faz. Quem liga tem
    que saber o que soltou. */
+// Domingo = 0, como o JavaScript conta. A ordem na tela começa na segunda,
+// que é como quem trabalha lê a semana.
+const DIAS_SEMANA=[[1,"seg"],[2,"ter"],[3,"qua"],[4,"qui"],[5,"sex"],[6,"sáb"],[0,"dom"]];
 function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
   const [fila,setFila]=useState(null);
@@ -6724,9 +6727,29 @@ function RoboConfig({acoes,session,isMobile}){
             style={{...campo,width:70}}/>
         </div>
       </div>
-      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:7}}>
-        A janela atravessa a meia-noite. Das {cfg.inicio} às {cfg.fim} é dele; no resto do dia
-        ele fica calado, para o tempo de resposta da equipe continuar sendo o da equipe.
+      {/* Dias em que a EQUIPE trabalha — não os dias do robô. É a inversão
+          que evita a pergunta "marco sábado se quero que ele atenda no
+          sábado?". Nos dias desmarcados não existe "fora do expediente":
+          não tem expediente, e ele atende o dia inteiro. */}
+      <div style={{marginTop:11}}>
+        <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>DIAS EM QUE A EQUIPE TRABALHA</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {DIAS_SEMANA.map(([n,rot])=>{
+            const tem=(cfg.dias||[]).includes(n);
+            return <button key={n} disabled={!ehAdm}
+              onClick={()=>setCfg({...cfg,dias:tem?cfg.dias.filter(x=>x!==n):[...cfg.dias,n].sort()})}
+              style={{border:`1px solid ${tem?C.green:C.line}`,background:tem?C.greenSoft:C.card,
+                color:tem?C.greenDeep:C.faint,borderRadius:999,minWidth:isMobile?44:40,
+                padding:isMobile?"10px 6px":"7px 6px",fontSize:11.5,fontWeight:700,
+                cursor:ehAdm?"pointer":"default"}}>{rot}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:8}}>
+        Nos dias marcados ele atende das <b>{cfg.inicio}</b> às <b>{cfg.fim}</b> — a janela
+        atravessa a meia-noite, e no resto do dia ele fica calado para o tempo de resposta da
+        equipe continuar sendo o da equipe. Nos dias <b>desmarcados</b> ele atende o dia inteiro,
+        porque ali não tem expediente para estar fora.
       </div>
 
       {ehAdm?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>

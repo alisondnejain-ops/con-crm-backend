@@ -56,25 +56,52 @@ const esperar = (ms) => new Promise(r => setTimeout(r, ms));
    quinze segundos seria mais peça para dar errado do que proteção. */
 const atendendoAgora = new Set();
 
+// 0=domingo … 6=sábado, como o JavaScript conta em `getDay()`.
+export const DIAS_PADRAO = [1, 2, 3, 4, 5];
+export const lerDias = (txt) => {
+  if (txt === null || txt === undefined) return DIAS_PADRAO;
+  const d = String(txt).split(",").map(x => Number(x.trim()))
+    .filter(x => Number.isInteger(x) && x >= 0 && x <= 6);
+  // Texto vazio é escolha de dizer "não tem expediente nenhum dia" — e isso é
+  // diferente de coluna nunca preenchida, que cai no padrão.
+  return String(txt).trim() === "" ? [] : (d.length ? [...new Set(d)].sort() : DIAS_PADRAO);
+};
+
 export function configDoRobo(orgId) {
   const o = db.prepare(
-    "SELECT robo_ativo, robo_inicio, robo_fim, robo_teto FROM orgs WHERE id = ?").get(orgId) || {};
+    "SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias FROM orgs WHERE id = ?").get(orgId) || {};
   return {
     ativo: !!o.robo_ativo,
     inicio: o.robo_inicio || "18:00",
     fim: o.robo_fim || "09:00",
     teto: Number(o.robo_teto) > 0 ? Number(o.robo_teto) : TETO_PADRAO,
+    dias: lerDias(o.robo_dias),
     configurada: iaConfigurada(),
   };
 }
 
-/* A janela atravessa a meia-noite: 18:00 → 09:00 é "depois das 18 OU antes
-   das 9", não "entre 18 e 9", que nunca seria verdade. Errar isto deixa o
-   robô mudo a noite inteira sem nenhum erro aparecer em lugar nenhum. */
+/* O robô fala AGORA?
+
+   Duas perguntas, nesta ordem, e a primeira é a que o Ali pediu em 16/08/2026:
+
+   1) HOJE TEM EXPEDIENTE? No sábado e no domingo não tem — e aí não existe
+      "fora do expediente", existe "não tem expediente". Ele atende o dia
+      inteiro, sem olhar a hora.
+
+   2) SE TEM, ESTAMOS FORA DELE? A janela 18:00 → 09:00 atravessa a
+      meia-noite: é "depois das 18 OU antes das 9", não "entre 18 e 9", que
+      nunca seria verdade. Errar isto deixa o robô mudo a noite inteira sem
+      nenhum erro aparecer em lugar nenhum.
+
+   Sexta 18h até segunda 9h vira um bloco contínuo sem nenhum caso especial:
+   sexta cai na regra 2, sábado e domingo na regra 1, segunda de novo na 2. */
 export function dentroDaJanela(cfg, agora = Date.now()) {
+  const d = new Date(agora);
+  const dias = cfg.dias || DIAS_PADRAO;
+  if (!dias.includes(d.getDay())) return true;
+
   const ini = lerHorario(cfg.inicio), fim = lerHorario(cfg.fim);
   if (!ini || !fim) return false;
-  const d = new Date(agora);
   const min = d.getHours() * 60 + d.getMinutes();
   const a = ini.h * 60 + ini.m, b = fim.h * 60 + fim.m;
   return a === b ? true : a < b ? (min >= a && min < b) : (min >= a || min < b);
@@ -268,6 +295,7 @@ export function estadoNoLead(orgId, leadId, agora = Date.now()) {
     org_ativo: cfg.ativo,
     configurada: cfg.configurada,
     janela: `${cfg.inicio} às ${cfg.fim}`,
+    dias: cfg.dias,
     dentro_da_janela: dentroDaJanela(cfg),
     // O que aconteceria se o cliente escrevesse AGORA, e por quê.
     responderia: t.pode,
