@@ -86,6 +86,8 @@ function adaptLead(l,anterior){
     // Resumo da conversa feito pela IA (vem só ao abrir a conversa).
     resumo:l.resumo||(anterior?anterior.resumo:null),
     etapaIA:l.etapa_ia||(anterior?anterior.etapaIA:null),
+    // Estado do robô do fora-do-expediente neste lead. Só a supervisão recebe.
+    robo:l.robo!==undefined?l.robo:(anterior?anterior.robo:null),
     // Desde quando está nesta etapa. null = nunca mudou desde que o histórico
     // existe; a tela mostra "—" em vez de inventar uma data.
     etapaDesde:l.etapa_desde!==undefined?l.etapa_desde:(anterior?anterior.etapaDesde:null),
@@ -861,6 +863,7 @@ function ConCRM(){
     salvarRobo:(dados)=>api("/config/robo",{method:"POST",body:dados}),
     roboConferir:()=>api("/config/robo/conferir"),
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
+    roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
     // Não passa pelo `acao()`: quem chama precisa da RESPOSTA (se o push saiu
@@ -2657,6 +2660,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        <RoboNoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
         <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
@@ -3893,6 +3897,81 @@ function NomeDoLead({lead,acoes}){
 
    Não aparece quando a IA concorda com a etapa atual: confirmar o que já está
    feito é ruído. */
+/* ===== O ROBÔ NESTE LEAD =====
+
+   O robô sai de uma conversa em três situações: gente respondeu, ele se
+   despediu, ou a atendente conferiu. Não tinha volta — e precisa ter. A
+   Vanessa responde às 19h, vai jantar, e o cliente continua escrevendo.
+
+   O cartão só aparece para quem supervisiona: o servidor devolve `robo: null`
+   para o corretor, e sem o objeto não há cartão. A permissão mora num lugar
+   só, no servidor, em vez de ser conferida de novo na tela.
+
+   E ele diz o ESTADO, não só o botão. Religar num lead que já está com
+   corretor é um clique que não faz nada — as regras gerais continuam valendo
+   depois de religar. Botão que não faz nada e não explica por quê é pior do
+   que botão nenhum. */
+const MOTIVO_ROBO={
+  desligado:"O atendimento automático está desligado na imobiliária inteira (Configurações → Fora do expediente).",
+  ia_nao_configurada:"A IA não está ligada nesta instalação.",
+  dentro_do_expediente:"Agora é horário de expediente — quem atende é a equipe.",
+  ja_com_corretor:"Este lead já está com um corretor. O robô nunca fala em atendimento de corretor.",
+  gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
+  ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
+  teto_de_mensagens:"Ele já mandou o máximo de mensagens combinado para um lead.",
+  nao_esta_esperando:"A última mensagem da conversa não é do cliente — não há o que responder agora.",
+  lead_nao_encontrado:"Lead não encontrado.",
+};
+function RoboNoLead({lead,acoes,isMobile}){
+  const r=lead.robo;
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
+  const [estado,setEstado]=useState(null);
+  useEffect(()=>{setEstado(null);setErro("");},[lead.id]);
+  if(!r) return null;
+  const e=estado||r;
+
+  async function alternar(ativo){
+    setErro(""); setSalvando(true);
+    try{ const out=await acoes.roboNoLead(lead.id,ativo); setEstado(out.estado); }
+    catch(ex){ setErro(ex.message); } finally{ setSalvando(false); }
+  }
+
+  return <div style={{background:C.surface,borderRadius:12,padding:12,marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+      <Icon n="spark" size={13} color={e.ligado?C.greenMid:C.faint}/>
+      <span style={{color:C.ink,fontSize:12,fontWeight:700,flex:1}}>Atendimento da IA neste lead</span>
+      <span style={{background:e.ligado?C.greenSoft:C.card,color:e.ligado?C.greenDeep:C.faint,
+        borderRadius:999,padding:"2px 9px",fontSize:10.5,fontWeight:700}}>{e.ligado?"ligado":"desligado"}</span>
+    </div>
+
+    {/* O que aconteceria se o cliente escrevesse AGORA. É a única informação
+        que responde "por que ele não respondeu?" sem abrir o log do servidor. */}
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>
+      {e.responderia
+        ?<span>Se o cliente escrever agora, a IA responde. Janela: <b>{e.janela}</b>.</span>
+        :<span>{MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
+    </div>
+    {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
+      Já respondeu {e.mensagens} vez(es) neste lead, de no máximo {e.teto}.</div>}
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8}}>{erro}</div>}
+
+    <button onClick={()=>alternar(!e.ligado)} disabled={salvando}
+      style={{marginTop:9,width:"100%",background:e.ligado?C.card:C.greenDeep,
+        color:e.ligado?C.sub:"#fff",border:e.ligado?`1px solid ${C.line}`:"none",borderRadius:9,
+        padding:isMobile?"11px":"9px",fontSize:12.5,fontWeight:600,cursor:"pointer",
+        display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+      <Icon n={e.ligado?"x":"spark"} size={13} color={e.ligado?C.sub:"#fff"}/>
+      {salvando?"…":e.ligado?"Desligar a IA neste lead":"Ativar a IA neste lead"}</button>
+
+    {!e.ligado&&<div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
+      Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente
+      dentro do horário. As regras continuam valendo: ela não fala em lead de corretor
+      nem durante o expediente.</div>}
+  </div>;
+}
+
 function EtapaIA({lead,acoes,isMobile}){
   const [sug,setSug]=useState(lead.etapaIA&&lead.etapaIA.sugestao||null);
   const [novas,setNovas]=useState(lead.etapaIA&&lead.etapaIA.novas||0);
@@ -4016,6 +4095,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       <NomeDoLead lead={lead} acoes={acoes}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>

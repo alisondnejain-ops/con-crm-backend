@@ -59,7 +59,7 @@ globalThis.fetch = async (url, opts) => {
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, conferir,
-  palavraProibida, configDoRobo } = await import("../src/services/robo.js");
+  palavraProibida, configDoRobo, estadoNoLead, ligarNoLead } = await import("../src/services/robo.js");
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Conecta", "A-1", Date.now());
@@ -280,5 +280,40 @@ const r19 = await vaiResponder;
 console.log(`   resultado: ${r19.motivo} · mensagens novas: ${enviadas.length - antes19}`);
 assert.equal(r19.atendeu, false, "quem estava trabalhando não pode ser atropelado por um robô");
 assert.equal(enviadas.length, antes19);
+
+console.log("20. A supervisão religa a IA num lead específico");
+db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
+const religado = lead({ nome: "A Vanessa respondeu e saiu", dono: vanessa });
+doCliente(religado, "boa noite");
+await atender(org, religado, { agora: NOITE, atraso: 0 });
+daGente(religado, vanessa, "oi! já te ajudo");
+pararPorGente(religado);
+doCliente(religado, "ainda tá aí?");
+
+const parado = estadoNoLead(org, religado, NOITE);
+console.log(`   antes: ${parado.ligado ? "ligado" : "desligado"} · responderia? ${parado.responderia} (${parado.motivo})`);
+assert.equal(parado.ligado, false);
+assert.equal(parado.motivo, "gente_assumiu");
+
+ligarNoLead(org, religado, true);
+const out20 = { estado: estadoNoLead(org, religado, NOITE) };
+console.log(`   depois: ${out20.estado.ligado ? "ligado" : "desligado"} · mensagens zeradas: ${out20.estado.mensagens}`);
+assert.equal(out20.estado.ligado, true);
+assert.equal(out20.estado.mensagens, 0, "religar tem que devolver a conversa, não um robô mudo no teto");
+assert.equal(podeAtender(org, religado, NOITE).pode, true, "e agora ele volta a responder");
+
+console.log("21. Religar não fura as regras gerais");
+const doCorretorReligado = lead({ nome: "Religado mas é do corretor", dono: marina });
+doCliente(doCorretorReligado, "oi");
+ligarNoLead(org, doCorretorReligado, true);
+const e21 = estadoNoLead(org, doCorretorReligado, NOITE);
+console.log(`   ligado no lead: ${e21.ligado} · mas responderia? ${e21.responderia} (${e21.motivo})`);
+assert.equal(e21.ligado, true, "o botão fez o que prometeu");
+assert.equal(e21.responderia, false, "e mesmo assim ele não fala em lead de corretor");
+assert.equal(e21.motivo, "ja_com_corretor", "a tela precisa dizer isso, senão o clique parece quebrado");
+
+console.log("22. E dá para desligar a IA só neste lead");
+ligarNoLead(org, religado, false);
+assert.equal(estadoNoLead(org, religado, NOITE).motivo, "gente_assumiu");
 
 console.log("\nTudo certo ✅");

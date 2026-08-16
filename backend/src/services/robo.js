@@ -233,6 +233,62 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
   }
 }
 
+/* ===== LIGAR E DESLIGAR NUM LEAD ESPECÍFICO =====
+
+   O robô sai de uma conversa em três situações: gente respondeu, ele mesmo se
+   despediu, ou a atendente conferiu. Até aqui isso não tinha volta — e tem que
+   ter: a Vanessa responde às 19h, vai jantar, e o cliente continua escrevendo.
+   Quem decide se vale a pena o robô assumir de novo é ela, olhando a conversa.
+
+   Devolver o estado JUNTO com o botão não é enfeite. As regras gerais
+   continuam valendo depois de religar (a janela de horário, o dono do lead, o
+   interruptor da imobiliária), então religar num lead que já está com corretor
+   é um clique que não faz nada. Um botão que não faz nada e não diz por quê é
+   pior do que botão nenhum. */
+export function estadoNoLead(orgId, leadId, agora = Date.now()) {
+  const cfg = configDoRobo(orgId);
+  const lead = db.prepare("SELECT robo_msgs, robo_parado, robo_conferido_em FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
+  if (!lead) return null;
+  const t = podeAtender(orgId, leadId, agora);
+
+  /* O motivo MOSTRADO prefere a causa deste lead à causa do relógio.
+
+     `podeAtender` confere o horário primeiro, porque é a conta mais barata. Só
+     que, para quem está olhando a ficha às duas da tarde, "agora é horário de
+     expediente" é uma resposta que muda sozinha às 18h — e esconde a que
+     interessa e não muda: alguém já respondeu, ou o lead é de um corretor. É
+     essa que o botão resolve. */
+  const doLead = !lead.robo_parado ? null
+    : lead.robo_conferido_em ? "ja_conferido" : "gente_assumiu";
+  return {
+    // Ligado NESTE lead. Diferente de `cfg.ativo`, que é da imobiliária toda.
+    ligado: !lead.robo_parado,
+    mensagens: lead.robo_msgs || 0,
+    teto: cfg.teto,
+    org_ativo: cfg.ativo,
+    configurada: cfg.configurada,
+    janela: `${cfg.inicio} às ${cfg.fim}`,
+    dentro_da_janela: dentroDaJanela(cfg),
+    // O que aconteceria se o cliente escrevesse AGORA, e por quê.
+    responderia: t.pode,
+    motivo: t.pode ? null : (doLead || t.motivo),
+  };
+}
+
+/* Religa (ou desliga) o robô neste lead.
+
+   Religar ZERA a contagem de mensagens. "Ativar de novo" tem que significar
+   que ele volta a poder conversar — religar um lead que já bateu o teto e
+   deixá-lo mudo seria o mesmo botão que não faz nada, com outra roupa. */
+export function ligarNoLead(orgId, leadId, ativo) {
+  const lead = db.prepare("SELECT id, name FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
+  if (!lead) return { erro: "Lead não encontrado." };
+  if (ativo) db.prepare("UPDATE leads SET robo_parado = 0, robo_msgs = 0, robo_conferido_em = NULL WHERE id = ?").run(leadId);
+  else db.prepare("UPDATE leads SET robo_parado = 1 WHERE id = ?").run(leadId);
+  console.log(`[robo] ${ativo ? "religado" : "desligado"} no lead ${lead.name}`);
+  return { ok: true, estado: estadoNoLead(orgId, leadId) };
+}
+
 /* A lista de segunda-feira: quem o robô atendeu e ninguém conferiu ainda.
 
    Este é o par obrigatório do robô, não um extra. Sem ela, a conversa do

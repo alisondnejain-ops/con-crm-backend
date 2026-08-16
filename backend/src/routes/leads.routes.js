@@ -11,6 +11,7 @@ import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
+import { estadoNoLead, ligarNoLead } from "../services/robo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
@@ -509,6 +510,17 @@ r.post("/lote/temperatura-ia/:corretorId", roles("adm"), async (req, res) => {
   res.json(out);
 });
 
+/* Religar o robô num lead específico. `POST /leads/:id/robo`
+
+   Só a supervisão: é a mesma decisão de ligar o robô, tomada num atendimento
+   só. O corretor não entra porque, se o lead está com ele, o robô não fala de
+   qualquer jeito — a trava do dono continua valendo depois de religar. */
+r.post("/:id/robo", roles("adm", "sdr"), (req, res) => {
+  const out = ligarNoLead(req.user.org_id, req.params.id, req.body?.ativo !== false);
+  if (out.erro) return res.status(404).json({ error: out.erro });
+  res.json(out);
+});
+
 /* A gestão cutuca um atendimento parado: o corretor recebe o aviso no celular
    e o pedido fica marcado no lead. `POST /leads/:id/cutucar` */
 r.post("/:id/cutucar", roles("adm", "sdr"), async (req, res) => {
@@ -578,7 +590,10 @@ r.get("/:id", (req, res) => {
     lista_tarefas: listarTarefas(lead.id),
     historico_etapas: etapas,
     // Desde quando está na etapa atual — a última entrada que aponta para ela.
-    etapa_desde: [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null });
+    etapa_desde: [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null,
+    // O robô do fora-do-expediente, neste lead. Só a supervisão liga e desliga,
+    // então só ela recebe o cartão.
+    robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null });
 });
 
 /* O resumo que já está no banco, com a informação que muda tudo: quantas
