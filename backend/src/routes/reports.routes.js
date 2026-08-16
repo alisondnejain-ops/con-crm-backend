@@ -223,7 +223,7 @@ function confirmadosPorPessoa(leads) {
     WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})
       AND l.stage IN ('Agendamento','Visita')
       AND EXISTS (SELECT 1 FROM lead_etapas e
-                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia'))`).get(...ids).n;
+                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`).get(...ids).n;
 }
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();

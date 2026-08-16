@@ -154,8 +154,12 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
      corretor aparecendo com três visitas que não existiram.
 
      `confirmadas` conta só os leads cuja etapa atual foi posta ali por uma
-     PESSOA: mudança na mão, ou sugestão da IA que alguém confirmou no botão
-     (`lead_etapas.motivo` em 'mao'/'ia'). Isso não é medido, é registrado.
+     DECISÃO DE GENTE: mudança na mão, sugestão da IA confirmada no botão, ou a
+     reanálise em lote que o gestor mandou rodar (`lead_etapas.motivo` em
+     'mao'/'ia'/'ia_lote'). O que fica de fora é a palavra-chave, que é chute.
+
+     O lote entra porque alguém autorizou aquela leitura sabendo o que ela
+     faria — é decisão humana no atacado, não regra correndo sozinha.
 
      O histórico começou em 13/08/2026: antes disso não há linha para nenhum
      lead, e o número nasce zero para todo mundo. Zero honesto é melhor que um
@@ -165,7 +169,7 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
     WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})
       AND l.stage IN ('Agendamento','Visita')
       AND EXISTS (SELECT 1 FROM lead_etapas e
-                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia'))`)
+                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`)
     .get(...ids).n : 0;
 
   // Os dois tempos, medidos por pessoa (ver o bloco lá em cima).

@@ -64,7 +64,10 @@ const QUAL_VAZIA={renda:"—",entrada:"—",situacao:"—",cpf:"—",prazo:"—"
 function adaptLead(l,anterior){
   return {
     id:l.id, nome:l.name||"Sem nome", tel:l.phone||"", email:l.email||"",
-    prio:l.priority||"MORNO", origem:l.origem||"WhatsApp",
+    // Sem temperatura fica SEM. Antes o app preenchia "MORNO" por conta própria
+    // quando o campo vinha vazio — e aí a tela mostrava uma marcação que
+    // ninguém tinha feito.
+    prio:l.priority||null, origem:l.origem||"WhatsApp",
     createdAt:l.created_at, firstRespAt:l.first_resp_at,
     assignedTo:l.assigned_to, assignedName:l.assigned_name,
     status:l.stage||"Lead",
@@ -120,7 +123,18 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
 });
-const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"}};
+/* Temperatura do lead. `SEM` é um estado de verdade, não um erro.
+
+   A marcação vinha de um chute do sistema — todo lead do WhatsApp nascia
+   "MORNO" — e não descrevia nada. Lead sem temperatura é mais honesto do que
+   lead com temperatura inventada, e é o que permite a gestão marcar de verdade
+   o que importa.
+
+   `prioDe(l.prio)` era acesso direto: com `prio` nulo o app quebrava a tela
+   inteira. `prioDe()` sempre devolve algo. */
+const PRIO={QUENTE:{c:C.hot,bg:C.hotSoft,label:"Quente"},MORNO:{c:C.amber,bg:C.amberSoft,label:"Morno"},FRIO:{c:C.cool,bg:C.coolSoft,label:"Frio"},
+  SEM:{c:C.faint,bg:C.surface,label:"Sem temperatura"}};
+const prioDe=(p)=>PRIO[p]||PRIO.SEM;
 // As três modalidades de financiamento com que a Conecta trabalha.
 const MODALIDADES=["Morar Bem PE","Minha Casa Minha Vida","SBPE"];
 
@@ -846,6 +860,10 @@ function ConCRM(){
     cutucar:(id,recado)=>api(`/leads/${id}/cutucar`,{method:"POST",body:{recado}}).then(r=>{recarregar();return r;}),
     viCutucada:(id)=>api(`/leads/${id}/cutucar/vi`,{method:"POST"}),
     reanalise:()=>api("/leads/reanalise"),
+    previaTemperatura:(t)=>api("/leads/lote/temperatura?t="+t),
+    limparTemperatura:(t)=>api("/leads/lote/temperatura",{method:"POST",body:{temperatura:t}}),
+    previaEtapaIA:()=>api("/leads/lote/etapa-ia"),
+    rodarEtapaIA:(limite)=>api("/leads/lote/etapa-ia",{method:"POST",body:{limite}}),
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
@@ -2539,13 +2557,13 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:56,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 10px":"0 16px",gap:8,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:12,minWidth:0}}>
           {isMobile&&backBtn(()=>setPane("lista"),"Voltar para a lista")}
-          <Avatar ini={initials(sel.nome)} color={PRIO[sel.prio].c} size={36}/>
+          <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
           <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
           <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
           {fichaPorBotao
-            ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>
+            ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>
             :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
         </div>
       </div>
@@ -2618,7 +2636,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div style={{padding:16}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
-          <Icon n="star" size={14} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/><span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
+          <Icon n="star" size={14} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/><span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
         </div>
 
         <NomeDoLead lead={sel} acoes={acoes}/>
@@ -2830,7 +2848,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
 
       <div style={{padding:isMobile?"14px 15px 10px":"16px 18px 12px",borderBottom:`1px solid ${C.line}`,
         display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-        <Avatar ini={initials(l.nome)} color={PRIO[l.prio].c} size={38}/>
+        <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:14.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>
@@ -3018,8 +3036,8 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
     <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:8}}>
       <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
         <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
-        <span style={{background:PRIO[l.prio].bg,color:PRIO[l.prio].c,fontSize:8.5,fontWeight:700,
-          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{PRIO[l.prio].label}</span>
+        <span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
+          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>
       </div>
 
       {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
@@ -3450,8 +3468,8 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
         {novos.map(l=>{const age=Date.now()-l.createdAt;
           return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <Avatar ini={initials(l.nome)} color={PRIO[l.prio].c} size={38}/>
-              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span><Pill c={PRIO[l.prio].c} bg={PRIO[l.prio].bg}>{PRIO[l.prio].label}</Pill></div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
+              <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
+              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span><Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill></div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:4,marginRight:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
               {/* no celular o botão desce para a linha de baixo, em largura total */}
               {!isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:12,fontWeight:600,padding:"8px 12px",borderRadius:10,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><Icon n="transfer" size={14}/> Próximo</button>}
@@ -3609,13 +3627,13 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     {mostrarChat?<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={()=>setPane("lista")} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
-        <Avatar ini={initials(sel.nome)} color={PRIO[sel.prio].c} size={36}/>
+        <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
         </div>
         <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes} nome={sel.nome}/>
-        {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={PRIO[sel.prio].c} fill={PRIO[sel.prio].c}/> Ficha</button>}
+        {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>}
       </div>
       {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
@@ -3975,7 +3993,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
     <div style={{padding:16}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
         {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
-        <Icon n="star" size={14} color={PRIO[lead.prio].c} fill={PRIO[lead.prio].c}/>
+        <Icon n="star" size={14} color={prioDe(lead.prio).c} fill={prioDe(lead.prio).c}/>
         <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
       </div>
 
@@ -4686,6 +4704,153 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
    mudando de etapa de uma vez; a tela mostra "de → para, quantos" antes,
    porque descer lead de etapa é certo aqui, mas assusta se aparecer sem
    aviso. */
+/* ===== ARRUMAR A BASE: TEMPERATURA E ETAPA =====
+
+   Duas operações que mexem em centenas de leads. As duas mostram a PRÉVIA
+   antes — quantos leads, de quem, e (na da IA) quanto vai custar. Botão que
+   mexe na base inteira sem dizer o tamanho do estrago é botão que ninguém
+   aperta, ou que se aperta uma vez só e por engano. */
+function ArrumarBase({acoes,isMobile,aoAplicar}){
+  const [t,setT]=useState(null);          // prévia da temperatura
+  const [ia,setIa]=useState(null);        // prévia da IA
+  const [rodando,setRodando]=useState("");
+  const [andamento,setAndamento]=useState(null);  // {feitos, restam, mudaram}
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState("");
+  const parar=useRef(false);
+
+  useEffect(()=>{ acoes.previaTemperatura("MORNO").then(setT).catch(()=>{});
+    acoes.previaEtapaIA().then(setIa).catch(()=>{}); },[]);
+
+  async function limparMornos(){
+    setErro(""); setRodando("temp");
+    try{
+      const r=await acoes.limparTemperatura("MORNO");
+      setFeito(`Temperatura removida de ${r.limpos} lead(s). Eles agora aparecem sem temperatura.`);
+      setT(await acoes.previaTemperatura("MORNO"));
+      aoAplicar&&aoAplicar();
+    }catch(e){ setErro(e.message); } finally{ setRodando(""); }
+  }
+
+  /* Roda em pedaços e volta a chamar enquanto sobrar fila. É o que permite
+     mostrar o avanço e parar no meio sem perder o que já foi feito. */
+  async function rodarIA(){
+    setErro(""); setRodando("ia"); parar.current=false;
+    let feitos=0, mudaram=0;
+    try{
+      for(;;){
+        const r=await acoes.rodarEtapaIA(20);
+        feitos+=r.analisados; mudaram+=r.mudaram;
+        setAndamento({feitos,mudaram,restam:r.restam,exemplos:r.mudancas||[]});
+        if(parar.current||r.restam<=0||r.analisados===0) break;
+      }
+      setFeito(`A IA leu ${feitos} conversa(s) e reposicionou ${mudaram} lead(s) no funil.`);
+      setIa(await acoes.previaEtapaIA());
+      aoAplicar&&aoAplicar();
+    }catch(e){ setErro(e.message); } finally{ setRodando(""); }
+  }
+
+  const cartao=(filhos)=><div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:10}}>{filhos}</div>;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="target" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Arrumar a base</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+      Duas correções que valem para a base inteira. As duas mostram o tamanho antes de aplicar.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"10px 12px",marginTop:10}}>{feito}</div>}
+
+    {/* ===== 1. TEMPERATURA ===== */}
+    {cartao(<React.Fragment>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Tirar a marcação "Morno"</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+        Todo lead que entra pelo WhatsApp nascia marcado como <b>Morno</b> — não era leitura de ninguém,
+        era o padrão do sistema. Tirando, eles passam a aparecer <b>sem temperatura</b>, que é a verdade
+        até alguém avaliar o cliente. Leads marcados como Quente ou Frio não são tocados.
+      </div>
+      {t&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+        {[["marcados como Morno",t.leads],["na base",t.total],
+          ...t.restam.map(x=>[`ficam como ${PRIO[x.p]?PRIO[x.p].label:x.p}`,x.n])].map(([r,v])=>
+          <div key={r} style={{background:C.card,borderRadius:10,padding:"7px 11px",minWidth:92}}>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{r}</div>
+          </div>)}
+      </div>}
+      <button onClick={limparMornos} disabled={!!rodando||!t||!t.leads}
+        style={{background:t&&t.leads?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
+          padding:isMobile?"12px 16px":"9px 16px",fontSize:12.5,fontWeight:700,cursor:t&&t.leads?"pointer":"default"}}>
+        {rodando==="temp"?"Tirando…":t&&t.leads?`Tirar o "Morno" de ${t.leads} lead(s)`:"Nenhum lead marcado como Morno"}</button>
+    </React.Fragment>)}
+
+    {/* ===== 2. ETAPA PELA IA ===== */}
+    {cartao(<React.Fragment>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Reposicionar o funil com a IA</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+        A IA lê a conversa de cada lead e coloca na etapa que o atendimento mostra.
+        Ficam <b>de fora</b>: quem está com a atendente ou sem dono (não é atendimento de corretor),
+        quem não tem conversa, quem tem venda registrada e quem está em etapa marcada na mão.
+      </div>
+      {ia&&!ia.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px"}}>
+        A IA não está ligada nesta instalação.</div>}
+      {ia&&ia.configurada&&<React.Fragment>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+          {[["conversas a ler",ia.leads],["com a atendente / sem dono",ia.fora.com_atendente_ou_sem_dono],
+            ["sem conversa",ia.fora.sem_conversa],["venda registrada",ia.fora.venda_registrada],
+            ["etapa manual",ia.fora.etapa_manual]].map(([r,v])=>
+            <div key={r} style={{background:C.card,borderRadius:10,padding:"7px 11px",minWidth:92}}>
+              <div style={{fontFamily:MONO,color:C.ink,fontSize:16,fontWeight:700,lineHeight:1}}>{v}</div>
+              <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{r}</div>
+            </div>)}
+        </div>
+        {/* O preço vem ANTES do botão. Gastar dinheiro da conta de alguém sem
+            dizer quanto é o tipo de coisa que quebra a confiança de uma vez. */}
+        {ia.leads>0&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",marginBottom:9,
+          color:C.sub,fontSize:11.5,lineHeight:1.5}}>
+          Custo estimado: <b style={{fontFamily:MONO,color:C.ink}}>US$ {ia.custo.total_usd.toFixed(2)}</b>
+          {" "}(≈ R$ {(ia.custo.total_usd*5.4).toFixed(2)}) para as {ia.leads} conversas — {ia.custo.base}.
+        </div>}
+        {ia.por_corretor.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+          {ia.por_corretor.map(x=><span key={x.nome} style={{background:C.card,borderRadius:999,padding:"4px 10px",color:C.sub,fontSize:11}}>
+            {first(x.nome)}: <b style={{fontFamily:MONO,color:C.ink}}>{x.leads}</b></span>)}
+        </div>}
+
+        {andamento&&<div style={{background:C.card,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+          <div style={{color:C.ink,fontSize:12,fontWeight:700}}>
+            {andamento.feitos} lida(s) · {andamento.mudaram} reposicionado(s) · {andamento.restam} na fila</div>
+          <div style={{height:7,borderRadius:999,background:C.surface,overflow:"hidden",margin:"7px 0"}}>
+            <div style={{width:Math.round(andamento.feitos*100/Math.max(1,andamento.feitos+andamento.restam))+"%",
+              height:"100%",background:C.green,transition:"width .3s"}}/>
+          </div>
+          {andamento.exemplos.slice(0,6).map((x,i)=><div key={i} style={{color:C.sub,fontSize:11,lineHeight:1.5}}>
+            {first(x.nome)}: <span style={{color:STAGE_C[x.de]}}>{x.de}</span> → <b style={{color:STAGE_C[x.para]}}>{x.para}</b>
+            <span style={{color:C.faint}}> ({x.confianca})</span></div>)}
+        </div>}
+
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={rodarIA} disabled={!!rodando||!ia.leads}
+            style={{background:ia.leads?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
+              padding:isMobile?"12px 16px":"9px 16px",fontSize:12.5,fontWeight:700,cursor:ia.leads?"pointer":"default",
+              display:"flex",alignItems:"center",gap:7}}>
+            {rodando==="ia"?<React.Fragment><Icon n="loader" size={13} spin/> Lendo as conversas…</React.Fragment>
+              :ia.leads?<React.Fragment><Icon n="sparkles" size={13}/> Ler e reposicionar {ia.leads} lead(s)</React.Fragment>
+              :"Nada para reanalisar"}</button>
+          {rodando==="ia"&&<button onClick={()=>{parar.current=true;}}
+            style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
+              padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Parar</button>}
+        </div>
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:8}}>
+          Roda em blocos e mostra o avanço. Dá para parar no meio — o que já foi lido fica gravado,
+          e continuar depois não paga de novo pelas mesmas conversas.
+        </div>
+      </React.Fragment>}
+    </React.Fragment>)}
+  </div>;
+}
+
 /* ===== POR QUE O FUNIL NÃO ANDA =====
 
    "O avanço por palavra-chave não está funcionando" é um sintoma com três
@@ -4955,6 +5120,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           </button>
         </div>
       </div>
+      <ArrumarBase acoes={acoes} isMobile={isMobile} aoAplicar={recarregar}/>
       <ReanalisarFunil acoes={acoes} isMobile={isMobile} aoAplicar={recarregar}/>
 
       {/* ===== conferência antes de gravar ===== */}
@@ -5149,7 +5315,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
             <td style={{...cel,color:C.ink,fontWeight:600}}>{l.nome}</td>
             <td style={{...cel,fontFamily:MONO}}>{fmtTel(l.tel)}</td>
             <td style={cel}>{l.origem}</td>
-            <td style={cel}><span style={{color:PRIO[l.prio].c,fontWeight:700,fontSize:11}}>{PRIO[l.prio].label}</span></td>
+            <td style={cel}><span style={{color:prioDe(l.prio).c,fontWeight:700,fontSize:11}}>{prioDe(l.prio).label}</span></td>
             <td style={cel}><span style={{color:STAGE_C[l.status],fontWeight:600}}>{l.status}</span></td>
             <td style={{...cel,color:l.assignedName?C.ink:C.hot}}>{l.assignedName||"na fila"}</td>
             <td style={cel}>{new Date(l.createdAt).toLocaleDateString("pt-BR")}</td>
@@ -6890,7 +7056,7 @@ function LeadsDaEtapa({acoes,etapa,atendente,periodo,isMobile,abrirConversa}){
           title="Abrir a conversa"
           style={{display:"flex",alignItems:"center",gap:5,background:C.card,border:`1px solid ${C.line}`,
             borderRadius:999,padding:"4px 11px",cursor:abrirConversa?"pointer":"default",fontSize:11.5,color:C.ink}}>
-          <span style={{width:6,height:6,borderRadius:99,background:PRIO[l.prio].c,flexShrink:0}}/>
+          <span style={{width:6,height:6,borderRadius:99,background:prioDe(l.prio).c,flexShrink:0}}/>
           {first(l.nome)}
         </button>)}
       </div>}

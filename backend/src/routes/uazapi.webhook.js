@@ -139,13 +139,18 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     if (!lead && fromMe)
       return lembrar({ em: Date.now(), evento, resultado: "ignorado: enviada para um número que ainda não é lead" });
 
-    // Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
-    // atendente da vez, exatamente como um lead vindo da Meta.
+    /* Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
+       atendente da vez, exatamente como um lead vindo da Meta.
+
+       SEM TEMPERATURA. Todo lead do WhatsApp nascia "MORNO", e isso não era
+       leitura de nada — era o padrão da coluna. A tela mostrava a marcação como
+       se alguém tivesse avaliado o cliente, e o funil inteiro ficou morno. Lead
+       sem temperatura é honesto: quem sabe a temperatura é quem conversou. */
     if (!lead) {
       const id = "l_" + randomUUID();
       const dono = proximoAtendente(orgId);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at)
-        VALUES (?,?,?,?,'WhatsApp','MORNO','{}','Lead',?,?)`)
+        VALUES (?,?,?,?,'WhatsApp',NULL,'{}','Lead',?,?)`)
         .run(id, orgId, nome || "Contato do WhatsApp", phone, dono, Date.now());
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
       console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);

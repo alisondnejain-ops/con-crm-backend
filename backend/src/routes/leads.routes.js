@@ -11,6 +11,7 @@ import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
+import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 const r = Router();
@@ -454,6 +455,36 @@ function reanalisar(orgId, aplicar) {
     },
   };
 }
+
+/* ===== ARRUMAR A BASE INTEIRA =====
+
+   Duas operações de gestor, as duas com PRÉVIA antes de aplicar. Mexer em
+   centenas de leads de uma vez é o tipo de coisa que não se desfaz na mão.
+
+   Só ADM: é decisão sobre a base da imobiliária, e a segunda gasta dinheiro. */
+r.get("/lote/temperatura", roles("adm"), (req, res) =>
+  res.json(previaTemperatura(req.user.org_id, String(req.query.t || "MORNO").toUpperCase())));
+
+r.post("/lote/temperatura", roles("adm"), (req, res) => {
+  const t = String(req.body?.temperatura || "").toUpperCase();
+  if (!["QUENTE", "MORNO", "FRIO"].includes(t))
+    return res.status(400).json({ error: "Temperatura inválida." });
+  res.json(limparTemperatura(req.user.org_id, t));
+});
+
+// Prévia da leitura de etapa por IA: quantos leads, de quem, e quanto custa.
+r.get("/lote/etapa-ia", roles("adm"), (req, res) => res.json(previaEtapaIA(req.user.org_id)));
+
+/* Roda a IA num pedaço da fila. A tela chama de novo enquanto `restam > 0`.
+
+   Em pedaços porque são centenas de conversas: uma requisição só levaria
+   minutos e o navegador desistiria no meio, sem ninguém saber o que foi feito. */
+r.post("/lote/etapa-ia", roles("adm"), async (req, res) => {
+  const limite = Math.min(Math.max(Number(req.body?.limite) || 20, 1), 40);
+  const out = await rodarEtapaIA(req.user.org_id, { limite, userId: req.user.id });
+  if (out.erro) return res.status(503).json({ error: out.erro });
+  res.json(out);
+});
 
 /* A gestão cutuca um atendimento parado: o corretor recebe o aviso no celular
    e o pedido fica marcado no lead. `POST /leads/:id/cutucar` */

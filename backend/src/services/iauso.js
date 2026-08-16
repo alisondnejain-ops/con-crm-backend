@@ -93,3 +93,16 @@ export function resumoDeUso(orgId, dias = 30) {
     por_recurso: porRecurso,
   };
 }
+
+/* Quanto custaria analisar N conversas. Serve para a tela dizer o preço ANTES
+   de rodar: mexer na base inteira gastando dinheiro sem saber quanto é o tipo
+   de botão que ninguém aperta duas vezes.
+
+   A média sai do consumo real já registrado; sem histórico, usa a medida do
+   primeiro resumo que a Conecta rodou (985 entrada + 257 saída). */
+export function custoEstimado(quantas) {
+  const m = db.prepare("SELECT AVG(custo_usd) media, COUNT(*) n FROM ia_uso WHERE custo_usd > 0").get();
+  const porChamada = m && m.n >= 3 ? m.media : custoDe({ entrada: 985, saida: 257 }, modeloIA()) || 0.0023;
+  return { por_chamada_usd: +porChamada.toFixed(5), total_usd: +(porChamada * quantas).toFixed(2),
+    base: m && m.n >= 3 ? `média de ${m.n} chamadas já feitas` : "estimativa do primeiro resumo medido" };
+}
