@@ -3918,8 +3918,10 @@ const MOTIVO_ROBO={
   ja_com_corretor:"Este lead já está com um corretor. O robô nunca fala em atendimento de corretor.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
-  teto_de_mensagens:"Ele já mandou o máximo de mensagens combinado para um lead.",
+  ele_se_despediu:"A IA já se despediu neste atendimento — ela fecha a conversa quando termina de anotar ou quando chega no limite de mensagens.",
+  teto_de_mensagens:"Ele já mandou o máximo de mensagens combinado para um lead, e se despediu.",
   nao_esta_esperando:"A última mensagem da conversa não é do cliente — não há o que responder agora.",
+  robo_encerrado:"A IA já saiu desta conversa.",
   lead_nao_encontrado:"Lead não encontrado.",
 };
 function RoboNoLead({lead,acoes,isMobile}){

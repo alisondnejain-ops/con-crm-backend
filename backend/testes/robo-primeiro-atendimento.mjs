@@ -40,11 +40,12 @@ try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 const real = globalThis.fetch;
 let respostaDaIA = { texto: "Oi! Que bom que chamou 😊 Me conta, é pra morar ou pra investir?",
   coletado: {}, encerrar: false };
-let chamadasIA = 0, enviadas = [];
+let chamadasIA = 0, enviadas = [], ultimoPedido = "";
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes("api.anthropic.com")) {
     chamadasIA++;
+    ultimoPedido = String(opts && opts.body || "");
     return { ok: true, status: 200, json: async () => ({
       content: [{ type: "text", text: JSON.stringify(respostaDaIA) }],
       usage: { input_tokens: 1200, output_tokens: 90 } }) };
@@ -193,11 +194,16 @@ assert.deepEqual(guardado, { situacao: "primeiro imóvel, para morar", renda: "3
   "o que ele colheu antes não some quando ele colhe mais");
 
 console.log("10. Gente entrou na conversa: o robô sai e não volta");
+// Pelo CELULAR, que é o caso difícil: a mensagem não tem autor, e mesmo assim
+// não pode ser confundida com a do robô.
+db.prepare("INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at) VALUES (?,?,'out',NULL,NULL,?,?)")
+  .run("m_" + randomUUID(), naFila, "oi! aqui é a Vanessa, já te ajudo", Date.now() + n++);
 pararPorGente(naFila);
 doCliente(naFila, "oi, ainda tá aí?");
 const t10 = podeAtender(org, naFila, NOITE);
 console.log(`   motivo: ${t10.motivo}`);
-assert.equal(t10.motivo, "gente_assumiu");
+assert.equal(t10.motivo, "robo_encerrado");
+assert.equal(estadoNoLead(org, naFila, NOITE).motivo, "gente_assumiu", "e a ficha diz QUEM: uma pessoa entrou");
 
 console.log("11. Palavra que move o funil é barrada ANTES de sair");
 for (const frase of ["Podemos agendar sua visita amanhã!", "Me manda os documentos por aqui",
@@ -226,7 +232,7 @@ for (let i = 0; i < 15; i++) { doCliente(semFim, "sei lá " + i); await atender(
 const l12 = db.prepare("SELECT robo_msgs FROM leads WHERE id=?").get(semFim);
 console.log(`   parou em ${l12.robo_msgs} mensagens (teto 12)`);
 assert.equal(l12.robo_msgs, 12);
-assert.equal(podeAtender(org, semFim, NOITE).motivo, "teto_de_mensagens");
+assert.equal(estadoNoLead(org, semFim, NOITE).motivo, "teto_de_mensagens");
 
 console.log("13. Encerrar fecha a conversa do robô de vez");
 const despedida = lead({ nome: "Terminou bem", dono: vanessa });
@@ -235,7 +241,9 @@ respostaDaIA = { texto: "Show! Anotei tudo. Amanhã nossa atendente confere e te
   coletado: { prazo: "3 meses" }, encerrar: true };
 await atender(org, despedida, { agora: NOITE, atraso: 0 });
 doCliente(despedida, "beleza");
-assert.equal(podeAtender(org, despedida, NOITE).motivo, "gente_assumiu", "encerrou é encerrou");
+assert.equal(podeAtender(org, despedida, NOITE).motivo, "robo_encerrado", "encerrou é encerrou");
+assert.equal(estadoNoLead(org, despedida, NOITE).motivo, "ele_se_despediu",
+  "na ficha, o motivo é preciso: ninguém respondeu, ele mesmo fechou a conversa");
 
 console.log("14. A lista de segunda-feira mostra quem ele atendeu");
 const lista = paraConferir(org);
@@ -357,5 +365,36 @@ console.log(`   situação: ${fichaAluguel.situacao}`);
 assert.ok(/ALUGUEL/.test(fichaAluguel.situacao), "o corretor precisa ver na hora que não é compra");
 assert.ok(/1\.200/.test(fichaAluguel.situacao), "o orçamento não pode sumir");
 assert.ok(!fichaAluguel.entrada, "e não pode virar 'entrada', que seria mentira num campo com nome");
+
+console.log("25. Chegando no teto, ele avisa a IA e a última vira despedida");
+/* Antes ele simplesmente emudecia no teto — o cliente ficava falando sozinho
+   depois de "e qual a sua renda?". Uma conversa que acaba sem despedida é
+   pior do que uma que nunca começou. */
+db.prepare("UPDATE orgs SET robo_ativo=1, robo_teto=4 WHERE id=?").run(org);
+const ateOFim = lead({ nome: "Conversou até o teto", dono: vanessa });
+respostaDaIA = { texto: "Legal! E pra quando você precisa?", coletado: {}, encerrar: false };
+
+const avisos = [];
+for (let i = 1; i <= 4; i++) {
+  doCliente(ateOFim, "mensagem " + i);
+  await atender(org, ateOFim, { agora: NOITE, atraso: 0 });
+  avisos.push(/ÚLTIMA MENSAGEM/.test(ultimoPedido) ? "última"
+    : /Comece a fechar/.test(ultimoPedido) ? "começar a fechar" : "—");
+}
+console.log(`   mensagem 1→4: ${avisos.join(" · ")}`);
+assert.equal(avisos[0], "—", "no começo não tem por que apressar");
+assert.equal(avisos[2], "começar a fechar", "faltando 2, ele começa a fechar");
+assert.equal(avisos[3], "última", "na última, o aviso é explícito");
+
+const fim = db.prepare("SELECT robo_msgs, robo_parado FROM leads WHERE id=?").get(ateOFim);
+console.log(`   parou em ${fim.robo_msgs} mensagens · encerrado: ${!!fim.robo_parado}`);
+assert.equal(fim.robo_msgs, 4);
+assert.equal(!!fim.robo_parado, true, "a última encerra a conversa, a IA tendo dito isso ou não");
+
+console.log("26. E a ficha explica o teto em vez de culpar o relógio");
+const eTeto = estadoNoLead(org, ateOFim, MANHA);
+console.log(`   às 10h da manhã, o motivo mostrado é: ${eTeto.motivo}`);
+assert.equal(eTeto.motivo, "teto_de_mensagens", "o motivo é o teto, não o relógio nem uma pessoa");
+db.prepare("UPDATE orgs SET robo_teto=12 WHERE id=?").run(org);
 
 console.log("\nTudo certo ✅");

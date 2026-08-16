@@ -484,6 +484,7 @@ QUANDO ENCERRAR (encerrar: true):
   quiser deixar recado. Na despedida diga, com suas palavras: que anotou tudo, que amanhã a
   atendente confere as informações e encaminha para o corretor responsável, e que ele apresenta
   as opções. Sem prometer horário.
+- Uma despedida NÃO tem pergunta no fim. Se você está encerrando, encerre.
 
 Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
 
@@ -493,12 +494,27 @@ Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela, 
 do caso dela (compra OU aluguel). Campo que ela não respondeu fica fora do objeto. Nunca
 deduza, nunca preencha por educação.`;
 
-export async function atenderPrimeiroContato({ mensagens, nome, coletado = {} }) {
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
     .map(m => `${m.de === "cliente" ? "CLIENTE" : "VOCÊ"}: ${String(m.texto || "").replace(/\s+/g, " ").trim().slice(0, 600)}`)
     .join("\n");
+
+  /* Quantas mensagens ainda cabem nesta conversa.
+
+     Sem isto, o robô batia o teto no meio de uma pergunta e sumia — o cliente
+     ficava falando sozinho depois de "e qual a sua renda?". Agora ele sabe
+     quando está chegando ao fim e se despede como gente se despede. */
+  const aviso = restantes == null ? ""
+    : restantes <= 1
+      ? `\n\nATENÇÃO: esta é a SUA ÚLTIMA MENSAGEM nesta conversa. Não faça mais nenhuma
+pergunta. Encerre agora com uma despedida calorosa: agradeça, diga que anotou tudo, e explique
+que o corretor responsável vai dar continuidade em breve com as opções. Devolva encerrar: true.`
+      : restantes <= 2
+        ? `\n\nATENÇÃO: só cabem mais ${restantes} mensagens suas nesta conversa. Comece a fechar:
+pergunte no máximo mais uma coisa, a mais importante que ainda falta, e prepare a despedida.`
+        : "";
 
   const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
   const contexto = jaTem.length
@@ -508,7 +524,7 @@ export async function atenderPrimeiroContato({ mensagens, nome, coletado = {} })
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${INSTRUCAO_ATENDIMENTO}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${INSTRUCAO_ATENDIMENTO}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -530,6 +546,8 @@ export async function atenderPrimeiroContato({ mensagens, nome, coletado = {} })
   return { ok: true, uso: r.uso, resposta: {
     texto: texto.slice(0, 900),
     coletado: limpo,
-    encerrar: d.encerrar === true,
+    // Na última mensagem o encerramento não é opinião da IA: a conversa acabou
+    // de qualquer jeito, e marcar isso mantém a tela dizendo a verdade.
+    encerrar: d.encerrar === true || (restantes != null && restantes <= 1),
   } };
 }

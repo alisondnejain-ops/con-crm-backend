@@ -37,6 +37,15 @@ import { lerHorario } from "./expediente.js";
 
 export const TETO_PADRAO = 12;
 
+/* Como as mensagens do robô ficam assinadas na conversa.
+
+   É por este nome que ele se reconhece depois. Mensagem enviada do celular
+   não tem autor (`from_user_id` nulo) — o número é único e o WhatsApp não diz
+   quem digitou — então "tem autor?" NÃO serve para separar gente de robô: a
+   Vanessa respondendo pelo WhatsApp Web cairia do lado errado. O que separa é
+   a assinatura. */
+export const ASSINATURA_ROBO = "Atendimento automático";
+
 /* ATRASO ANTES DE RESPONDER — e ele faz duas coisas.
 
    A visível: resposta em dois segundos às 23h de sábado grita "robô" mais
@@ -144,7 +153,12 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   const lead = db.prepare(`SELECT l.*, u.role AS dono_papel FROM leads l
     LEFT JOIN users u ON u.id = l.assigned_to WHERE l.id = ? AND l.org_id = ?`).get(leadId, orgId);
   if (!lead) return { pode: false, motivo: "lead_nao_encontrado" };
-  if (lead.robo_parado) return { pode: false, motivo: "gente_assumiu" };
+  /* Neutro de propósito: aqui só interessa que ele está fora da conversa. POR
+     QUE ele saiu — gente respondeu, ele se despediu, bateu o teto, a atendente
+     conferiu — é conta de `estadoNoLead`, que é quem escreve na tela. Dizer
+     "alguém já respondeu" neste ponto fazia a ficha culpar uma pessoa que
+     nunca falou. */
+  if (lead.robo_parado) return { pode: false, motivo: "robo_encerrado" };
   /* A trava é o CORRETOR, e só ele. Lead na fila, com a atendente OU com o
      gestor é tudo a mesma situação: ainda não tem dono de verdade, ninguém
      tem esse atendimento no nome para ser cobrado por ele. Lead repassado a
@@ -211,6 +225,9 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
     const r = await atenderPrimeiroContato({
       nome: lead.name,
       coletado,
+      // Quantas ainda cabem, contando esta. É o que permite a última ser uma
+      // despedida em vez de um silêncio no meio de uma pergunta.
+      restantes: cfg.teto - (lead.robo_msgs || 0),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
     if (!r.ok) { console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`); return { atendeu: false, motivo: "ia_falhou", erro: r.erro }; }
@@ -240,8 +257,8 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
        resposta de ninguém — o tempo de primeira resposta continua sendo o da
        Vanessa, que é o número que o gestor usa. */
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at)
-      VALUES (?,?,'out',NULL,'Atendimento automático',?,?,?)`)
-      .run("m_" + randomUUID(), leadId, r.resposta.texto, envio?.messageid || null, Date.now());
+      VALUES (?,?,'out',NULL,?,?,?,?)`)
+      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, Date.now());
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o
        robô o marcasse, um lead atendido só por robô apareceria no relatório
@@ -285,8 +302,23 @@ export function estadoNoLead(orgId, leadId, agora = Date.now()) {
      expediente" é uma resposta que muda sozinha às 18h — e esconde a que
      interessa e não muda: alguém já respondeu, ou o lead é de um corretor. É
      essa que o botão resolve. */
-  const doLead = !lead.robo_parado ? null
-    : lead.robo_conferido_em ? "ja_conferido" : "gente_assumiu";
+  /* POR QUE ele está fora desta conversa. São quatro causas diferentes, e
+     dizer "alguém já respondeu" quando na verdade ele se despediu sozinho é o
+     tipo de frase que faz a atendente procurar uma mensagem que não existe.
+
+     Gente responder é o único caso que precisa ser conferido no histórico: as
+     outras três estão no próprio lead. */
+  const teveGente = !!db.prepare(`SELECT 1 FROM messages
+    WHERE lead_id = ? AND direction = 'out' AND COALESCE(from_name,'') <> ? LIMIT 1`)
+    .get(leadId, ASSINATURA_ROBO);
+  const doLead =
+      lead.robo_conferido_em ? "ja_conferido"
+    : teveGente ? "gente_assumiu"
+    // Bater o teto é causa deste lead, e não do relógio: às 14h a ficha diria
+    // "agora é expediente" e esconderia o motivo que o botão resolve.
+    : (lead.robo_msgs || 0) >= cfg.teto ? "teto_de_mensagens"
+    : lead.robo_parado ? "ele_se_despediu"
+    : null;
   return {
     // Ligado NESTE lead. Diferente de `cfg.ativo`, que é da imobiliária toda.
     ligado: !lead.robo_parado,
