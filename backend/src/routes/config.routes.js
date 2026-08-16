@@ -9,6 +9,8 @@
      todo mundo, então é só do gestor. */
 
 import { Router } from "express";
+import { configDoRobo, dentroDaJanela, paraConferir, conferir } from "../services/robo.js";
+import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
@@ -186,6 +188,52 @@ r.post("/conexao/desconectar", roles("adm"), async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: "Não consegui desconectar", detail: e.message });
   }
+});
+
+/* ===== PRIMEIRO ATENDIMENTO AUTOMÁTICO =====
+
+   Ligar e desligar o robô que atende fora do expediente, e a janela dele.
+
+   LIGAR É SÓ DO ADM. A atendente edita as mensagens rápidas porque o texto de
+   abordagem é o trabalho dela; um robô conversando sozinho com cliente no
+   WhatsApp da imobiliária é decisão de quem responde pela empresa. Ver, a
+   supervisão inteira vê. */
+r.get("/robo", roles("adm", "sdr"), (req, res) => {
+  const cfg = configDoRobo(req.user.org_id);
+  res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+});
+
+r.post("/robo", roles("adm"), (req, res) => {
+  const b = req.body || {};
+  const hora = (v, padrao) => (lerHorario(v) ? String(v).trim() : padrao);
+  const atual = configDoRobo(req.user.org_id);
+
+  const inicio = hora(b.inicio, atual.inicio), fim = hora(b.fim, atual.fim);
+  // Janela de tamanho zero deixaria o robô ligado e mudo — e "ligado e mudo" é
+  // exatamente o estado que ninguém consegue diagnosticar olhando a tela.
+  if (inicio === fim) return res.status(400).json({ error: "O início e o fim da janela não podem ser o mesmo horário." });
+
+  const teto = Math.min(Math.max(Number(b.teto) || atual.teto, 2), 30);
+  db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=? WHERE id=?")
+    .run(b.ativo ? 1 : 0, inicio, fim, teto, req.user.org_id);
+
+  const cfg = configDoRobo(req.user.org_id);
+  console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — janela ${cfg.inicio}→${cfg.fim}, teto ${cfg.teto}`);
+  res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+});
+
+/* A lista de segunda-feira. É o par obrigatório do robô: a conversa que ele
+   atendeu tem a última mensagem da imobiliária, e por isso SAI da fila de
+   "cliente esperando". Sem esta lista, o robô trocaria "ninguém respondeu"
+   por "ninguém percebeu que ainda faltava responder". */
+r.get("/robo/conferir", roles("adm", "sdr"), (req, res) =>
+  res.json({ leads: paraConferir(req.user.org_id) }));
+
+r.post("/robo/conferir/:leadId", roles("adm", "sdr"), (req, res) => {
+  const out = conferir(req.user.org_id, req.params.leadId,
+    { gravarNaFicha: req.body?.gravar_na_ficha !== false, userId: req.user.id });
+  if (out.erro) return res.status(404).json({ error: out.erro });
+  res.json(out);
 });
 
 export default r;

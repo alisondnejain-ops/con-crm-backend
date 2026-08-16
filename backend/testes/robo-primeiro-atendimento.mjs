@@ -1,0 +1,277 @@
+/* O robô que atende fora do expediente.
+
+   Este é o único lugar do CRM em que a IA fala com o CLIENTE. Não tem
+   desfazer: o que sai vai para o WhatsApp de uma pessoa de verdade, com o
+   nome da Conecta. Então o que este teste protege não é a resposta bonita —
+   é QUANDO ELE FICA CALADO:
+
+   - dentro do expediente (às 09:00 a Vanessa assume);
+   - em lead que já está com um corretor;
+   - em conversa cuja última mensagem NÃO é do cliente;
+   - depois que gente entrou na conversa;
+   - passado o teto de mensagens;
+   - e quando o texto dele traz palavra que faz o funil andar sozinho.
+
+   Mais duas coisas que o relatório do Ali depende:
+   - a mensagem do robô NÃO conta como primeira resposta de ninguém;
+   - o lead atendido por ele cai numa lista de conferência.
+
+   A Anthropic e a Uazapi são trocadas por respostas de mentira: roda offline.
+
+   Rodar:  npm run teste:robo
+*/
+import assert from "node:assert";
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs";
+/* O fuso da operação, como o `server.js` faz na segunda linha dele.
+
+   Sem isto o teste roda em UTC e a janela "18:00 às 09:00" fica três horas
+   deslocada — o robô pareceria calado às 21h de sábado. Não é detalhe de
+   teste: é a mesma linha que faz o horário estar certo em produção. */
+process.env.TZ = "America/Recife";
+process.env.DB_PATH = path.join(os.tmpdir(), "concrm-teste-robo.db");
+process.env.JWT_SECRET = "teste";
+process.env.ANTHROPIC_API_KEY = "chave-de-teste";
+process.env.UAZAPI_HOST = "https://uazapi.teste";
+process.env.UAZAPI_TOKEN = "token-de-teste";
+try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
+
+const real = globalThis.fetch;
+let respostaDaIA = { texto: "Oi! Que bom que chamou 😊 Me conta, é pra morar ou pra investir?",
+  coletado: {}, encerrar: false };
+let chamadasIA = 0, enviadas = [];
+globalThis.fetch = async (url, opts) => {
+  const u = String(url);
+  if (u.includes("api.anthropic.com")) {
+    chamadasIA++;
+    return { ok: true, status: 200, json: async () => ({
+      content: [{ type: "text", text: JSON.stringify(respostaDaIA) }],
+      usage: { input_tokens: 1200, output_tokens: 90 } }) };
+  }
+  if (u.includes("uazapi.teste")) {
+    enviadas.push(JSON.parse(opts.body || "{}"));
+    return { ok: true, status: 200, text: async () => JSON.stringify({ messageid: "wa_" + enviadas.length }) };
+  }
+  return real(url, opts);
+};
+
+const { default: db } = await import("../src/db.js");
+const { randomUUID } = await import("crypto");
+const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, conferir,
+  palavraProibida, configDoRobo } = await import("../src/services/robo.js");
+
+const org = "org_" + randomUUID().slice(0, 8);
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Conecta", "A-1", Date.now());
+db.prepare("UPDATE orgs SET robo_ativo=1, robo_inicio='18:00', robo_fim='09:00', robo_teto=12, uazapi_host=?, uazapi_token=? WHERE id=?")
+  .run(process.env.UAZAPI_HOST, process.env.UAZAPI_TOKEN, org);
+
+const user = (nome, role) => { const id = "u_" + randomUUID();
+  db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+    VALUES (?,?,?,?,'x',?,1,?,'ativo')`).run(id, org, nome, nome + "@x.com", role, Date.now()); return id; };
+const vanessa = user("Vanessa", "sdr"), marina = user("Marina", "corretor");
+
+let n = 0;
+function lead({ nome, dono = null }) {
+  const id = "l_" + randomUUID();
+  db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,qual_json,stage,assigned_to,created_at)
+    VALUES (?,?,?,?,'WhatsApp','{}','Lead',?,?)`).run(id, org, nome, "558790000" + (1000 + n++), dono, Date.now());
+  return id;
+}
+const doCliente = (leadId, texto) => db.prepare(
+  "INSERT INTO messages (id,lead_id,direction,body,created_at) VALUES (?,?,'in',?,?)")
+  .run("m_" + randomUUID(), leadId, texto, Date.now() + n++);
+const daGente = (leadId, quem, texto) => db.prepare(
+  "INSERT INTO messages (id,lead_id,direction,from_user_id,body,created_at) VALUES (?,?,'out',?,?,?)")
+  .run("m_" + randomUUID(), leadId, quem, texto, Date.now() + n++);
+
+// Sábado 21:00 e segunda 10:00, no fuso da operação.
+const NOITE = new Date("2026-08-15T21:00:00-03:00").getTime();
+const MANHA = new Date("2026-08-17T10:00:00-03:00").getTime();
+
+console.log("1. A janela 18:00→09:00 atravessa a meia-noite");
+const cfg = configDoRobo(org);
+for (const [q, esperado] of [["2026-08-15T21:00:00-03:00", true], ["2026-08-16T03:00:00-03:00", true],
+  ["2026-08-16T08:59:00-03:00", true], ["2026-08-16T09:00:00-03:00", false],
+  ["2026-08-16T13:00:00-03:00", false], ["2026-08-16T17:59:00-03:00", false],
+  ["2026-08-16T18:00:00-03:00", true]]) {
+  const dentro = dentroDaJanela(cfg, new Date(q).getTime());
+  console.log(`   ${q.slice(11, 16)} → ${dentro ? "robô atende" : "atendente assume"}`);
+  assert.equal(dentro, esperado, `janela errada às ${q}`);
+}
+
+console.log("2. Fila e lead da atendente: o robô atende");
+const naFila = lead({ nome: "Chegou sábado" });
+doCliente(naFila, "oi, vi o anúncio das casas");
+assert.equal(podeAtender(org, naFila, NOITE).pode, true);
+const daVanessa = lead({ nome: "Com a Vanessa", dono: vanessa });
+doCliente(daVanessa, "boa noite, tenho interesse");
+assert.equal(podeAtender(org, daVanessa, NOITE).pode, true);
+
+console.log("3. Lead que já está com CORRETOR: nunca");
+const doCorretor = lead({ nome: "Com a Marina", dono: marina });
+doCliente(doCorretor, "oi Marina, e aí?");
+const t3 = podeAtender(org, doCorretor, NOITE);
+console.log(`   motivo: ${t3.motivo}`);
+assert.equal(t3.pode, false);
+assert.equal(t3.motivo, "ja_com_corretor");
+
+console.log("4. Dentro do expediente: nunca — é a hora da Vanessa");
+const t4 = podeAtender(org, naFila, MANHA);
+console.log(`   motivo às 10h: ${t4.motivo}`);
+assert.equal(t4.motivo, "dentro_do_expediente");
+
+console.log("5. Conversa cuja última mensagem NÃO é do cliente: nunca");
+const respondido = lead({ nome: "Já respondido", dono: vanessa });
+doCliente(respondido, "oi");
+daGente(respondido, vanessa, "oi! já te respondo");
+const t5 = podeAtender(org, respondido, NOITE);
+console.log(`   motivo: ${t5.motivo}`);
+assert.equal(t5.motivo, "nao_esta_esperando");
+
+console.log("6. Atendendo de verdade: manda pelo WhatsApp e grava na conversa");
+const r6 = await atender(org, naFila, { agora: NOITE, atraso: 0 });
+console.log(`   enviou: "${enviadas[0]?.text?.slice(0, 50)}…" para ${enviadas[0]?.number}`);
+assert.equal(r6.atendeu, true);
+assert.equal(enviadas.length, 1, "uma mensagem no WhatsApp");
+assert.ok(!/^\*/.test(enviadas[0].text), "sem assinatura de corretor: não tem corretor");
+const m6 = db.prepare("SELECT * FROM messages WHERE lead_id=? ORDER BY created_at DESC LIMIT 1").get(naFila);
+assert.equal(m6.direction, "out");
+assert.equal(m6.from_user_id, null, "não é mensagem de pessoa nenhuma");
+assert.equal(m6.from_name, "Atendimento automático", "a tela precisa dizer quem falou");
+
+console.log("7. NÃO conta como primeira resposta — o relógio é da equipe");
+const l7 = db.prepare("SELECT first_resp_at, robo_msgs FROM leads WHERE id=?").get(naFila);
+console.log(`   first_resp_at: ${l7.first_resp_at} · mensagens do robô: ${l7.robo_msgs}`);
+assert.equal(l7.first_resp_at, null, "senão o lead apareceria como atendido por gente que não atendeu");
+assert.equal(l7.robo_msgs, 1);
+
+console.log("8. Não fala duas vezes seguidas: agora a última mensagem é dele");
+const r8 = await atender(org, naFila, { agora: NOITE, atraso: 0 });
+console.log(`   motivo: ${r8.motivo}`);
+assert.equal(r8.atendeu, false);
+assert.equal(r8.motivo, "nao_esta_esperando");
+
+console.log("9. O que ele apurou fica guardado, e vai somando");
+respostaDaIA = { texto: "Boa! E qual a renda que vocês somam por mês?",
+  coletado: { situacao: "primeiro imóvel, para morar" }, encerrar: false };
+doCliente(naFila, "é pra morar, primeiro imóvel");
+await atender(org, naFila, { agora: NOITE, atraso: 0 });
+respostaDaIA = { texto: "Anotado! Tem quanto separado de entrada?",
+  coletado: { renda: "3 mil" }, encerrar: false };
+doCliente(naFila, "uns 3 mil");
+await atender(org, naFila, { agora: NOITE, atraso: 0 });
+const guardado = JSON.parse(db.prepare("SELECT robo_json FROM leads WHERE id=?").get(naFila).robo_json);
+console.log(`   ${Object.entries(guardado).map(([k, v]) => k + "=" + v).join(" · ")}`);
+assert.deepEqual(guardado, { situacao: "primeiro imóvel, para morar", renda: "3 mil" },
+  "o que ele colheu antes não some quando ele colhe mais");
+
+console.log("10. Gente entrou na conversa: o robô sai e não volta");
+pararPorGente(naFila);
+doCliente(naFila, "oi, ainda tá aí?");
+const t10 = podeAtender(org, naFila, NOITE);
+console.log(`   motivo: ${t10.motivo}`);
+assert.equal(t10.motivo, "gente_assumiu");
+
+console.log("11. Palavra que move o funil é barrada ANTES de sair");
+for (const frase of ["Podemos agendar sua visita amanhã!", "Me manda os documentos por aqui",
+  "Vou passar pro atendimento", "Fechamos o contrato assim"]) {
+  const achou = palavraProibida(frase);
+  console.log(`   "${frase.slice(0, 34)}…" → barrada (${achou})`);
+  assert.ok(achou, "essa frase moveria o lead de etapa sozinha");
+}
+assert.equal(palavraProibida("Oi! Que bom que chamou. É pra morar ou investir?"), null,
+  "conversa normal passa");
+
+const barrado = lead({ nome: "Frase perigosa", dono: vanessa });
+doCliente(barrado, "quero ver as casas");
+respostaDaIA = { texto: "Claro! Posso agendar uma visita pra você.", coletado: {}, encerrar: false };
+const antesDoBarrado = enviadas.length;
+const r11 = await atender(org, barrado, { agora: NOITE, atraso: 0 });
+console.log(`   resultado: ${r11.motivo}`);
+assert.equal(r11.atendeu, false);
+assert.equal(enviadas.length, antesDoBarrado, "nada saiu no WhatsApp do cliente");
+assert.equal(db.prepare("SELECT stage FROM leads WHERE id=?").get(barrado).stage, "Lead", "e o funil não andou");
+
+console.log("12. O teto de mensagens segura a conversa (e a conta)");
+const semFim = lead({ nome: "Conversa sem fim", dono: vanessa });
+respostaDaIA = { texto: "Certo! E em quanto tempo pretende comprar?", coletado: {}, encerrar: false };
+for (let i = 0; i < 15; i++) { doCliente(semFim, "sei lá " + i); await atender(org, semFim, { agora: NOITE, atraso: 0 }); }
+const l12 = db.prepare("SELECT robo_msgs FROM leads WHERE id=?").get(semFim);
+console.log(`   parou em ${l12.robo_msgs} mensagens (teto 12)`);
+assert.equal(l12.robo_msgs, 12);
+assert.equal(podeAtender(org, semFim, NOITE).motivo, "teto_de_mensagens");
+
+console.log("13. Encerrar fecha a conversa do robô de vez");
+const despedida = lead({ nome: "Terminou bem", dono: vanessa });
+doCliente(despedida, "só isso mesmo, obrigado");
+respostaDaIA = { texto: "Show! Anotei tudo. Amanhã nossa atendente confere e te encaminha pro corretor 😊",
+  coletado: { prazo: "3 meses" }, encerrar: true };
+await atender(org, despedida, { agora: NOITE, atraso: 0 });
+doCliente(despedida, "beleza");
+assert.equal(podeAtender(org, despedida, NOITE).motivo, "gente_assumiu", "encerrou é encerrou");
+
+console.log("14. A lista de segunda-feira mostra quem ele atendeu");
+const lista = paraConferir(org);
+console.log(`   ${lista.length} lead(s): ${lista.map(l => `${l.nome} (${l.completos}/${l.total_campos})`).join(", ")}`);
+assert.ok(lista.some(l => l.id === naFila), "quem o robô atendeu aparece para conferência");
+assert.ok(!lista.some(l => l.id === doCorretor), "quem ele não tocou, não");
+const oNaFila = lista.find(l => l.id === naFila);
+assert.equal(oNaFila.completos, 2, "dois dos cinco campos");
+
+console.log("15. Conferir tira da lista e leva o que ele apurou para a ficha");
+conferir(org, naFila, { userId: vanessa });
+const ficha = JSON.parse(db.prepare("SELECT qual_json FROM leads WHERE id=?").get(naFila).qual_json);
+console.log(`   ficha: ${Object.keys(ficha).join(", ")}`);
+assert.equal(ficha.renda, "3 mil", "o corretor não precisa ler a conversa inteira");
+assert.ok(!paraConferir(org).some(l => l.id === naFila), "saiu da lista");
+
+console.log("16. Desligado é desligado");
+db.prepare("UPDATE orgs SET robo_ativo=0 WHERE id=?").run(org);
+const desligado = lead({ nome: "Depois de desligar", dono: vanessa });
+doCliente(desligado, "oi");
+const antes16 = enviadas.length;
+const r16 = await atender(org, desligado, { agora: NOITE, atraso: 0 });
+console.log(`   motivo: ${r16.motivo}`);
+assert.equal(r16.motivo, "desligado");
+assert.equal(enviadas.length, antes16, "nenhuma mensagem saiu");
+
+console.log("17. O gasto entrou no Uso da IA");
+const { resumoDeUso } = await import("../src/services/iauso.js");
+const uso = resumoDeUso(org, 30);
+const atendimento = uso.por_recurso.find(x => x.recurso === "atendimento");
+console.log(`   ${atendimento.rotulo}: ${atendimento.usos} uso(s) · US$ ${atendimento.custo}`);
+assert.ok(atendimento.usos > 0, "atendimento automático precisa aparecer na conta como os outros");
+
+console.log("18. Duas mensagens seguidas do cliente NÃO viram duas respostas");
+db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
+const apressado = lead({ nome: "Mandou tudo junto", dono: vanessa });
+doCliente(apressado, "oi");
+doCliente(apressado, "tenho interesse nas casas");
+respostaDaIA = { texto: "Oi! Me conta, é pra morar ou investir?", coletado: {}, encerrar: false };
+const antes18 = enviadas.length;
+// Os dois webhooks chegando ao mesmo tempo, como acontece de verdade.
+const [a, b2] = await Promise.all([
+  atender(org, apressado, { agora: NOITE, atraso: 30 }),
+  atender(org, apressado, { agora: NOITE, atraso: 30 }),
+]);
+const saiu = enviadas.length - antes18;
+console.log(`   ${[a, b2].map(x => x.atendeu ? "respondeu" : x.motivo).join(" + ")} → ${saiu} mensagem(ns) no WhatsApp`);
+assert.equal(saiu, 1, "o cliente não pode receber duas respostas quase iguais");
+assert.ok([a, b2].some(x => x.motivo === "ja_respondendo"), "a segunda foi segurada pela trava");
+
+console.log("19. Gente respondendo durante a espera cancela a resposta do robô");
+const atropelado = lead({ nome: "A Vanessa chegou junto", dono: vanessa });
+doCliente(atropelado, "boa noite");
+const antes19 = enviadas.length;
+const vaiResponder = atender(org, atropelado, { agora: NOITE, atraso: 120 });
+// A Vanessa responde pelo celular enquanto o robô "pensa".
+await new Promise(r => setTimeout(r, 40));
+daGente(atropelado, vanessa, "oi! tô aqui sim");
+pararPorGente(atropelado);
+const r19 = await vaiResponder;
+console.log(`   resultado: ${r19.motivo} · mensagens novas: ${enviadas.length - antes19}`);
+assert.equal(r19.atendeu, false, "quem estava trabalhando não pode ser atropelado por um robô");
+assert.equal(enviadas.length, antes19);
+
+console.log("\nTudo certo ✅");

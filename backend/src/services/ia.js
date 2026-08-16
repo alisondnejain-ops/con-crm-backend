@@ -376,3 +376,111 @@ export async function temperaturaDaConversa({ mensagens, nome }) {
     mensagens_lidas: Math.min(uteis.length, 120),
   } };
 }
+
+/* ===== PRIMEIRO ATENDIMENTO FORA DO EXPEDIENTE =====
+
+   Este é o único lugar do CRM em que a IA FALA COM O CLIENTE. Todo o resto —
+   resumo, etapa, temperatura — é leitura para gente de dentro ler. Aqui o
+   texto sai pelo WhatsApp da Conecta, com o nome da Conecta, e não tem
+   desfazer. Por isso o prompt é mais uma lista de proibições do que de
+   instruções.
+
+   A missão é estreita de propósito: ACOLHER e COLHER. Ele conversa como
+   gente, pergunta as cinco informações que o formulário do Meta pergunta, e
+   encerra dizendo que a atendente confere e encaminha. Ele não vende, não
+   calcula, não agenda e não promete — não porque a IA erraria a conta, mas
+   porque uma parcela dita de madrugada por um robô vira promessa que a
+   Conecta tem que desmontar na frente do cliente depois.
+
+   O texto ainda passa por um filtro de palavras antes de sair (`services/
+   robo.js`): a resposta pode ser ótima e mesmo assim conter a palavra que faz
+   o funil andar sozinho. */
+
+// Os cinco campos da ficha — os mesmos que o formulário do Meta preenche.
+export const CAMPOS_SIMULACAO = ["renda", "entrada", "situacao", "cpf", "prazo"];
+
+const INSTRUCAO_ATENDIMENTO = `Você atende o WhatsApp da Conecta Imóveis, uma imobiliária de
+Petrolina/Juazeiro. É fora do horário comercial e a equipe volta amanhã de manhã. Seu trabalho
+é receber bem a pessoa e anotar as informações para a simulação de financiamento.
+
+COMO FALAR
+- Português do Brasil, informal e caloroso, como um atendente de imobiliária no WhatsApp
+- Mensagens CURTAS: uma ou duas frases. Ninguém lê parágrafo no WhatsApp
+- UMA pergunta por vez. Isto é conversa, não formulário
+- Pode usar no máximo um emoji, e só quando couber
+- Trate a pessoa pelo primeiro nome depois que ela disser
+- Se ela perguntar se você é um robô ou um sistema, diga a verdade em uma frase, sem drama,
+  e siga a conversa
+
+O QUE VOCÊ PRECISA ANOTAR (sem parecer interrogatório):
+- renda: renda que a família soma por mês
+- entrada: quanto tem disponível para dar de entrada
+- situacao: se é o primeiro imóvel, se é para morar ou investir, se já tem financiamento
+- cpf: se tem restrição/negativação no CPF
+- prazo: em quanto tempo pretende comprar
+
+O QUE VOCÊ NUNCA FAZ — sem exceção, nem se a pessoa insistir:
+- NUNCA diga valor de parcela, de entrada mínima, de juros, de subsídio ou preço de imóvel
+- NUNCA diga que a pessoa foi aprovada, que se enquadra ou que consegue financiar
+- NUNCA marque visita, horário, dia ou reunião
+- NUNCA prometa que alguém liga em tal hora
+- NUNCA invente empreendimento, endereço, metragem ou disponibilidade
+Se perguntarem qualquer uma dessas coisas, seja honesto: essa conta quem faz é o corretor com
+a simulação na mão, e ele passa certinho amanhã. E siga anotando.
+
+ÁUDIO E FOTO: você recebe só o rótulo ("Áudio", "Foto"), não o conteúdo. Se vier áudio, peça
+com jeito para a pessoa mandar por escrito, dizendo que agora você não consegue ouvir.
+
+QUANDO ENCERRAR (encerrar: true):
+- Quando tiver as cinco informações, OU a pessoa não quiser mais responder, OU ela só quiser
+  deixar recado. Na despedida diga, com suas palavras: que anotou tudo, que amanhã a atendente
+  confere as informações e encaminha para o corretor responsável, e que ele apresenta as opções
+  disponíveis. Sem prometer horário.
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+
+{"texto":"a mensagem que vai para o cliente","coletado":{"renda":"...","entrada":"...","situacao":"...","cpf":"...","prazo":"..."},"encerrar":true|false}
+
+Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela. Campo que ela
+não respondeu fica fora do objeto. Nunca deduza, nunca preencha por educação.`;
+
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {} }) {
+  if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
+
+  const linhas = (mensagens || []).slice(-40)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "VOCÊ"}: ${String(m.texto || "").replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+
+  const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
+  const contexto = jaTem.length
+    ? `\n\nVOCÊ JÁ ANOTOU (não pergunte de novo): ${jaTem.map(k => `${k} = ${coletado[k]}`).join("; ")}`
+    : "";
+
+  const r = await perguntar({
+    max_tokens: 500,
+    content: [{ type: "text", text:
+      `${INSTRUCAO_ATENDIMENTO}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato." }; }
+
+  const texto = typeof d.texto === "string" ? d.texto.trim() : "";
+  // Sem texto não há o que enviar. Melhor a conversa ficar parada para a
+  // atendente ver amanhã do que sair um balão vazio no WhatsApp do cliente.
+  if (!texto) return { ok: false, erro: "A IA não devolveu mensagem para enviar." };
+
+  const limpo = {};
+  for (const c of CAMPOS_SIMULACAO) {
+    const v = d.coletado && d.coletado[c];
+    if (typeof v === "string" && v.trim()) limpo[c] = v.trim().slice(0, 200);
+  }
+
+  return { ok: true, uso: r.uso, resposta: {
+    texto: texto.slice(0, 900),
+    coletado: limpo,
+    encerrar: d.encerrar === true,
+  } };
+}

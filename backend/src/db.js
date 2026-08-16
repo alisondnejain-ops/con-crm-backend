@@ -376,6 +376,20 @@ addOrgCol("ultimo_aviso_plantao", "INTEGER");
 // Minutos de espera do cliente até o corretor ser avisado. 0 desliga.
 addOrgCol("alerta_resposta_min", "INTEGER DEFAULT 30");
 
+/* Primeiro atendimento automático: ligado/desligado e a janela de horário.
+
+   Nasce DESLIGADO. É um robô falando com cliente no WhatsApp da imobiliária —
+   isso não pode começar a acontecer porque uma versão nova subiu; tem que ser
+   alguém decidindo, num botão, sabendo o que faz.
+
+   A janela é "das 18:00 às 09:00", ou seja, atravessa a meia-noite. É por isso
+   que ela não reaproveita o `expediente_fim`: aquele é um instante (o corte da
+   prontidão), este é um intervalo. */
+addOrgCol("robo_ativo", "INTEGER DEFAULT 0");
+addOrgCol("robo_inicio", "TEXT DEFAULT '18:00'");   // hora em que o robô assume
+addOrgCol("robo_fim", "TEXT DEFAULT '09:00'");      // hora em que a atendente assume
+addOrgCol("robo_teto", "INTEGER DEFAULT 12");       // máximo de mensagens por lead
+
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa
@@ -421,6 +435,24 @@ addLeadCol("priority_em", "INTEGER");
 addLeadCol("etapa_ia_json", "TEXT");
 addLeadCol("etapa_ia_em", "INTEGER");
 addLeadCol("etapa_ia_msgs", "INTEGER");
+/* Primeiro atendimento automático, fora do expediente.
+
+   O robô conversa com o lead que chega de madrugada ou no fim de semana e
+   colhe as informações da simulação. O que ele apurou fica em `robo_json`
+   (os mesmos cinco campos do formulário do Meta) e o CRM sabe em que pé
+   está a conversa:
+
+   - `robo_msgs`: quantas mensagens ele já mandou neste lead. É o teto que
+     impede uma conversa sem fim — e uma conta sem fim;
+   - `robo_parado`: gente entrou na conversa. A partir daí ele não fala mais,
+     nunca, neste lead. Quem atende é quem atende;
+   - `robo_conferido_em`: a atendente já passou o olho no que ele colheu. É o
+     que tira o lead da lista de segunda-feira. */
+addLeadCol("robo_json", "TEXT");
+addLeadCol("robo_msgs", "INTEGER DEFAULT 0");
+addLeadCol("robo_em", "INTEGER");
+addLeadCol("robo_parado", "INTEGER DEFAULT 0");
+addLeadCol("robo_conferido_em", "INTEGER");
 /* Consumo da IA, por pessoa.
 
    Recurso que gasta dinheiro precisa ter dono registrado. O log do servidor

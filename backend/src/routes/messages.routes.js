@@ -4,6 +4,7 @@ import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
+import { pararPorGente } from "../services/robo.js";
 
 // O tipo do arquivo pela extensão da URL guardada. Só serve para rotular o
 // arquivo embutido no reenvio — o catálogo já limitou o que pode entrar.
@@ -59,6 +60,7 @@ r.post("/:id/messages", async (req, res) => {
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
+  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
 
   advanceStage(lead.id);
   res.json({ ok: true });
@@ -178,6 +180,7 @@ r.post("/:id/anexo", async (req, res) => {
 
   for (const m of enviados) gravarSaida(lead, req.user, firstName, m);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
 });
@@ -207,6 +210,7 @@ r.post("/:id/localizacao", async (req, res) => {
     VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
       `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
+  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   res.json({ ok: true });
 });
 
@@ -297,6 +301,7 @@ r.post("/:id/produto", async (req, res) => {
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
     VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
+  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   // Guarda como imóvel de interesse, se ainda não houver outro marcado.
   if (!lead.produto_id) db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(p.id, lead.id);
 

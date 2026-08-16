@@ -4,6 +4,7 @@ import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
 import { guardarMidiaRecebida } from "../services/midia.js";
+import { atender, pararPorGente } from "../services/robo.js";
 import { avisar } from "../services/push.js";
 import { advanceStage } from "./messages.routes.js";
 import { orgDoWhatsapp } from "../services/uazapi.js";
@@ -182,7 +183,19 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       console.log(`[uazapi] atendimento de ${lead.name} reaberto: o cliente respondeu`);
     }
 
-    advanceStage(lead.id);
+    /* O funil NÃO anda enquanto o robô está atendendo.
+
+       A regra da palavra-chave lê a conversa inteira, e a conversa do robô é
+       conversa: bastaria o cliente escrever "quero agendar" às 3h da manhã
+       para o lead amanhecer em Agendamento sem ninguém ter agendado nada. Com
+       o robô no meio, quem decide a etapa é a atendente de manhã. */
+    const roboFalando = lead.robo_msgs > 0 && !lead.robo_parado;
+    if (!roboFalando) advanceStage(lead.id);
+
+    /* Mensagem que saiu do celular é gente atendendo: o robô sai da conversa.
+       Vale para a Vanessa respondendo às 19h pelo WhatsApp Web — o robô não
+       pode voltar a falar por cima dela na treplica do cliente. */
+    if (fromMe) pararPorGente(lead.id);
 
     // Aviso no celular de quem está com o lead. Lead que acabou de entrar e
     // cliente que respondeu são situações diferentes — e a pressa também.
@@ -195,6 +208,16 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
 
     lembrar({ em: Date.now(), evento, resultado: fromMe ? "ok (enviada pelo celular)" : "ok", lead: lead.name, tipo });
     console.log(`[uazapi] mensagem ${fromMe ? "enviada pelo celular para" : "recebida de"} ${lead.name}`);
+
+    /* Primeiro atendimento automático, fora do expediente.
+
+       SEM `await`, e é o ponto mais importante desta linha. A resposta da IA
+       leva alguns segundos; o webhook da Uazapi tem que responder na hora. Se
+       ele demorar, ela desiste de chamar — e o CRM PARA DE RECEBER LEAD, que é
+       o pior estrago possível aqui e já aconteceu uma vez por outro motivo.
+
+       `atender` nunca lança: erro dele vira log, nunca derruba o processo. */
+    if (!fromMe) atender(orgId, lead.id);
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);

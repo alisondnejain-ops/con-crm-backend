@@ -857,6 +857,10 @@ function ConCRM(){
     usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
+    robo:()=>api("/config/robo"),
+    salvarRobo:(dados)=>api("/config/robo",{method:"POST",body:dados}),
+    roboConferir:()=>api("/config/robo/conferir"),
+    roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
     // Não passa pelo `acao()`: quem chama precisa da RESPOSTA (se o push saiu
@@ -6498,7 +6502,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
   const [aba,setAba]=useState("mensagens");
-  const abas=[["mensagens","Mensagens automáticas"],["conexao","Conexão"],["ia","Uso da IA"]];
+  const abas=[["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],["conexao","Conexão"],["ia","Uso da IA"]];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -6507,6 +6511,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
             background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
       </div>
       {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
+      {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="ia"&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
     </div>
@@ -6549,6 +6554,157 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobi
     </div>
   </React.Fragment>;
 }
+
+/* ===== FORA DO EXPEDIENTE: O ROBÔ DO PRIMEIRO ATENDIMENTO =====
+
+   A única tela do CRM que liga uma IA para FALAR COM O CLIENTE. Todo o resto
+   que a IA faz é leitura para gente de dentro ler; aqui o texto sai no
+   WhatsApp da Conecta e não tem desfazer.
+
+   Por isso a tela é escrita como um contrato, e não como uma configuração:
+   antes do interruptor, o que ele faz e o que ele NUNCA faz. Quem liga tem
+   que saber o que soltou. */
+function RoboConfig({acoes,session,isMobile}){
+  const [cfg,setCfg]=useState(null);
+  const [fila,setFila]=useState(null);
+  const [erro,setErro]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  const ehAdm=session.role==="adm";
+
+  const carregar=()=>{ acoes.robo().then(setCfg).catch(e=>setErro(e.message));
+    acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{}); };
+  useEffect(carregar,[]);
+
+  async function salvar(mudanca){
+    setErro(""); setSalvando(true);
+    try{ setCfg(await acoes.salvarRobo({...cfg,...mudanca})); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  async function conferido(leadId){
+    try{ await acoes.roboConferido(leadId); setFila(f=>f.filter(x=>x.id!==leadId)); }
+    catch(e){ setErro(e.message); }
+  }
+
+  if(!cfg) return <div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>;
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
+    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",width:92};
+  const cartao=(filhos,extra)=><div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
+    padding:isMobile?13:16,marginBottom:14,...extra}}>{filhos}</div>;
+
+  return <React.Fragment>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:12}}>{erro}</div>}
+
+    {cartao(<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <Icon n="spark" size={15} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Primeiro atendimento fora do expediente</span>
+        {cfg.ativo&&<span style={{background:cfg.agora_atenderia?C.greenSoft:C.surface,
+          color:cfg.agora_atenderia?C.greenDeep:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:700}}>
+          {cfg.agora_atenderia?"atendendo agora":"em silêncio agora"}</span>}
+      </div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6}}>
+        Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele, acolhe e
+        anota as informações da simulação. Na manhã seguinte a atendente confere e encaminha.
+      </div>
+
+      {/* O que ele NUNCA faz vem antes do interruptor, e não escondido num
+          "saiba mais". É a parte que muda a decisão de ligar. */}
+      <div style={{background:C.surface,borderRadius:11,padding:"11px 13px",margin:"11px 0"}}>
+        <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>O que ele nunca faz</div>
+        {[["Falar valor","nada de parcela, entrada mínima, juros ou preço de imóvel"],
+          ["Dizer que aprovou","quem diz se enquadra é o corretor com a simulação"],
+          ["Marcar visita","nem dia, nem hora, nem promessa de ligação"],
+          ["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"],
+          ["Falar por cima de alguém","na primeira mensagem de uma pessoa, ele sai da conversa e não volta"],
+          ["Mexer no funil","a etapa fica parada até a atendente olhar de manhã"]].map(([t,d])=>
+          <div key={t} style={{display:"flex",gap:7,marginTop:5,alignItems:"flex-start"}}>
+            <span style={{color:C.hot,fontSize:12,fontWeight:700,lineHeight:1.5}}>×</span>
+            <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}><b style={{color:C.ink}}>{t}.</b> {d}</div>
+          </div>)}
+      </div>
+
+      {!cfg.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,
+        padding:"8px 10px",marginBottom:10,lineHeight:1.5}}>
+        A IA não está ligada nesta instalação — sem ela o robô não atende, mesmo ligado aqui.</div>}
+
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",alignItems:"flex-end"}}>
+        <div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>ELE ASSUME ÀS</div>
+          <input value={cfg.inicio} disabled={!ehAdm} onChange={e=>setCfg({...cfg,inicio:e.target.value})}
+            placeholder="18:00" style={campo}/>
+        </div>
+        <div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>A EQUIPE ASSUME ÀS</div>
+          <input value={cfg.fim} disabled={!ehAdm} onChange={e=>setCfg({...cfg,fim:e.target.value})}
+            placeholder="09:00" style={campo}/>
+        </div>
+        <div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>MÁX. DE MENSAGENS</div>
+          <input value={cfg.teto} disabled={!ehAdm} onChange={e=>setCfg({...cfg,teto:e.target.value})}
+            style={{...campo,width:70}}/>
+        </div>
+      </div>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:7}}>
+        A janela atravessa a meia-noite. Das {cfg.inicio} às {cfg.fim} é dele; no resto do dia
+        ele fica calado, para o tempo de resposta da equipe continuar sendo o da equipe.
+      </div>
+
+      {ehAdm?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+        <button onClick={()=>salvar({ativo:!cfg.ativo})} disabled={salvando}
+          style={{background:cfg.ativo?C.hot:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
+            padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {salvando?"…":cfg.ativo?"Desligar o atendimento automático":"Ligar o atendimento automático"}</button>
+        <button onClick={()=>salvar({})} disabled={salvando}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+            padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar horários</button>
+      </div>
+      :<div style={{color:C.faint,fontSize:11.5,marginTop:11}}>
+        Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
+    </React.Fragment>,cfg.ativo?{borderColor:C.greenMid}:null)}
+
+    {/* ===== A LISTA DE SEGUNDA-FEIRA =====
+
+        Par obrigatório do robô, não um extra. A conversa que ele atendeu tem a
+        última mensagem da imobiliária — e por isso SAI da fila de "cliente
+        esperando", que é onde a atendente olha. Sem esta lista, o robô
+        trocaria "ninguém respondeu" por "ninguém percebeu que faltava
+        responder", que é pior porque parece resolvido. */}
+    {cartao(<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+        <Icon n="check" size={15} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Atendidos pelo robô, esperando conferência</span>
+        {fila&&fila.length>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:999,
+          padding:"3px 10px",fontSize:11,fontWeight:700,fontFamily:MONO}}>{fila.length}</span>}
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+        Estes leads têm a última mensagem da imobiliária, então não aparecem como "esperando
+        resposta". Confira o que o robô anotou e encaminhe para o corretor.
+      </div>
+      {!fila&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
+      {fila&&!fila.length&&<div style={{color:C.faint,fontSize:12}}>Nada esperando conferência.</div>}
+      {fila&&fila.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"10px 12px",marginTop:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{l.nome}</span>
+          <span style={{background:l.completos===l.total_campos?C.greenSoft:C.card,
+            color:l.completos===l.total_campos?C.greenDeep:C.sub,borderRadius:999,padding:"2px 9px",
+            fontSize:10.5,fontWeight:700,fontFamily:MONO}}>{l.completos}/{l.total_campos} campos</span>
+          <span style={{color:C.faint,fontSize:10.5}}>{l.respostas_do_robo} resposta(s) · {fmtQuando(l.quando)}</span>
+        </div>
+        {l.completos>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginTop:5}}>
+          {Object.entries(l.coletado).map(([k,v])=>
+            <div key={k}><b style={{color:C.ink}}>{ROTULO_SIMULACAO[k]||k}:</b> {v}</div>)}
+        </div>}
+        <button onClick={()=>conferido(l.id)}
+          style={{marginTop:8,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+            padding:isMobile?"10px 14px":"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          Conferi — jogar para a ficha</button>
+      </div>)}
+    </React.Fragment>)}
+  </React.Fragment>;
+}
+
+// Como cada campo da simulação aparece escrito na tela.
+const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cpf:"Restrição no CPF",prazo:"Prazo"};
 
 function MensagensAutomaticas({acoes,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);
