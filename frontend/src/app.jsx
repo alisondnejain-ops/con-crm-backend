@@ -1637,7 +1637,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // Sobe quando a configuração salva uma mensagem pronta: é o sinal para as
   // conversas abertas buscarem a lista nova sem recarregar a página.
   const [versaoMsgs,setVersaoMsgs]=useState(0);
-  const chatRef=useRef(null);
+  const chatEl=useRef(null);
   const isMobile=useIsMobile();
 
   // Quem atende de fato: corretor e atendente já liberados. Gestor não entra na catraca.
@@ -1669,7 +1669,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      mensagem nova COM o leitor já perto do rodapé. Quem subiu para ler fica
      onde está — igual ao WhatsApp. */
   const ancora=useRef({id:null,qtd:0,abrindo:false,timers:[]});
-  const irAoFim=()=>{ const el=chatRef.current; if(el) el.scrollTop=el.scrollHeight; };
+  const irAoFim=()=>{ const el=chatEl.current; if(el) el.scrollTop=el.scrollHeight; };
   /* Uma rolagem só não basta. A altura da conversa muda DEPOIS que o React
      desenha: foto e áudio carregam, as fontes assentam, o separador de dia
      entra. Numa conversa de texto puro uma chamada acerta; numa com mídia, ela
@@ -1682,8 +1682,33 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   };
   useEffect(()=>()=>ancora.current.timers.forEach(clearTimeout),[]);
 
+  /* A conversa desce ao FIM toda vez que o painel dela aparece na tela — não
+     só quando se troca de lead.
+
+     Era esse o furo: abrir a ficha e voltar, ou sair para outra tela e voltar
+     para o atendimento, MONTA o painel de novo. Div recém-montada nasce com a
+     rolagem no topo, e o efeito lá embaixo não fazia nada porque o lead
+     continuava o mesmo — a conversa abria na primeira mensagem, de meses
+     atrás.
+
+     Por isso é um ref de FUNÇÃO: ele é chamado pelo React no instante em que
+     o elemento entra na tela, que é exatamente o momento certo. O `.current`
+     continua existindo para o resto do código que já usava. */
+  const chatRef=useMemo(()=>{
+    const f=(node)=>{
+      chatEl.current=node;
+      if(!node) return;
+      // Ainda "abrindo" até as mensagens chegarem: elas vêm de outra
+      // requisição, e sem isto a rolagem aconteceria numa caixa vazia.
+      ancora.current.abrindo=true;
+      fixarNoFim();
+    };
+    Object.defineProperty(f,"current",{get:()=>chatEl.current});
+    return f;
+  },[]);
+
   useEffect(()=>{
-    const el=chatRef.current; if(!el) return;
+    const el=chatEl.current; if(!el) return;
     const atual=leads.find(l=>l.id===selId);
     const qtd=atual&&atual.msgs?atual.msgs.length:0;
 
