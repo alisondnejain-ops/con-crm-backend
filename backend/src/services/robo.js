@@ -76,6 +76,16 @@ export const lerDias = (txt) => {
   return String(txt).trim() === "" ? [] : (d.length ? [...new Set(d)].sort() : DIAS_PADRAO);
 };
 
+/* O que a equipe ensinou ao robô, na ordem em que foi escrito.
+
+   Só as linhas ligadas. Desligar em vez de apagar importa: a atendente testa
+   uma orientação num fim de semana, não gosta, desliga — e não perde o texto
+   para voltar a ligar depois. */
+export function orientacoes(orgId, todas = false) {
+  return db.prepare(`SELECT id, texto, ativo, ordem, created_at FROM robo_ensino
+    WHERE org_id = ?${todas ? "" : " AND ativo = 1"} ORDER BY ordem, created_at`).all(orgId);
+}
+
 export function configDoRobo(orgId) {
   const o = db.prepare(
     "SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias FROM orgs WHERE id = ?").get(orgId) || {};
@@ -228,6 +238,8 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
       // Quantas ainda cabem, contando esta. É o que permite a última ser uma
       // despedida em vez de um silêncio no meio de uma pergunta.
       restantes: cfg.teto - (lead.robo_msgs || 0),
+      // O jeito de falar que a atendente ensinou.
+      orientacoes: orientacoes(orgId).map(o => o.texto),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
     if (!r.ok) { console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`); return { atendeu: false, motivo: "ia_falhou", erro: r.erro }; }

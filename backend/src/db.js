@@ -239,6 +239,28 @@ CREATE TABLE IF NOT EXISTS mensagens_rapidas (
   criado_por TEXT,
   created_at INTEGER NOT NULL
 );
+/* O que a EQUIPE ensina ao robô do fora-do-expediente.
+
+   A Vanessa é quem faz o primeiro atendimento na Conecta; a IA cobre a
+   ausência dela. Para as duas soarem como a mesma imobiliária, ela precisa
+   poder escrever o jeito de falar — e não depender de alguém mexer no código
+   toda vez que a abordagem muda.
+
+   IMPORTANTE: isto orienta o ESTILO e o conteúdo permitido. Nunca destrava o
+   que é proibido (valor, aprovação, agendamento) — a montagem do prompt em
+   services/ia.js coloca as proibições DEPOIS destas linhas, e diz por
+   escrito que elas não podem ser contrariadas. Campo de texto que qualquer
+   pessoa preenche e que a IA obedece cegamente é porta destrancada. */
+CREATE TABLE IF NOT EXISTS robo_ensino (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  ordem INTEGER DEFAULT 0,
+  ativo INTEGER DEFAULT 1,    -- desligar sem perder o que já foi escrito
+  criado_por TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ensino_org ON robo_ensino(org_id, ordem);
 CREATE INDEX IF NOT EXISTS idx_etapas_lead ON lead_etapas(lead_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_etapas_org ON lead_etapas(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tarefas_lead ON tarefas(lead_id, quando);

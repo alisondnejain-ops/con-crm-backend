@@ -9,7 +9,7 @@
      todo mundo, então é só do gestor. */
 
 import { Router } from "express";
-import { configDoRobo, dentroDaJanela, paraConferir, conferir } from "../services/robo.js";
+import { configDoRobo, dentroDaJanela, paraConferir, conferir, orientacoes } from "../services/robo.js";
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
@@ -227,6 +227,51 @@ r.post("/robo", roles("adm"), (req, res) => {
   const cfg = configDoRobo(req.user.org_id);
   console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}], teto ${cfg.teto}`);
   res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+});
+
+/* ===== O QUE A EQUIPE ENSINA AO ROBÔ =====
+
+   A ATENDENTE EDITA, e não só o gestor. É a mesma razão das mensagens rápidas:
+   quem sabe como se fala com o cliente da Conecta é quem fala com ele todo
+   dia. O robô cobre a ausência dela — se as duas não soam iguais, o cliente
+   percebe a troca de turno.
+
+   Ligar o robô continua sendo só do ADM. Ensinar o que dizer é do trabalho de
+   quem atende; decidir que existe um robô falando, não. */
+r.get("/robo/ensino", roles("adm", "sdr"), (req, res) =>
+  res.json({ linhas: orientacoes(req.user.org_id, true) }));
+
+r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
+  const texto = String(req.body?.texto || "").trim();
+  if (!texto) return res.status(400).json({ error: "Escreva a orientação." });
+  /* Teto de 30 linhas, e não é economia besta: cada uma entra no pedido de
+     TODA mensagem que o robô responde, então o texto acumulado vira dinheiro
+     em toda conversa. Trinta orientações curtas descrevem um jeito de falar;
+     duzentas descrevem um manual que ninguém leu. */
+  const quantas = db.prepare("SELECT COUNT(*) n FROM robo_ensino WHERE org_id=?").get(req.user.org_id).n;
+  if (quantas >= 30) return res.status(400).json({ error: "São no máximo 30 orientações. Apague ou junte alguma antes de criar outra." });
+
+  const ordem = (db.prepare("SELECT MAX(ordem) m FROM robo_ensino WHERE org_id=?").get(req.user.org_id).m || 0) + 1;
+  const id = "en_" + randomUUID();
+  db.prepare(`INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,criado_por,created_at)
+    VALUES (?,?,?,?,1,?,?)`).run(id, req.user.org_id, texto.slice(0, 500), ordem, req.user.id, Date.now());
+  console.log(`[robo] ${req.user.name} ensinou: "${texto.slice(0, 60)}"`);
+  res.json({ linhas: orientacoes(req.user.org_id, true) });
+});
+
+r.patch("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
+  const linha = db.prepare("SELECT * FROM robo_ensino WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!linha) return res.status(404).json({ error: "Orientação não encontrada." });
+  const texto = req.body?.texto === undefined ? linha.texto : String(req.body.texto).trim().slice(0, 500);
+  if (!texto) return res.status(400).json({ error: "A orientação não pode ficar vazia." });
+  const ativo = req.body?.ativo === undefined ? linha.ativo : (req.body.ativo ? 1 : 0);
+  db.prepare("UPDATE robo_ensino SET texto=?, ativo=? WHERE id=?").run(texto, ativo, linha.id);
+  res.json({ linhas: orientacoes(req.user.org_id, true) });
+});
+
+r.delete("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
+  db.prepare("DELETE FROM robo_ensino WHERE id=? AND org_id=?").run(req.params.id, req.user.org_id);
+  res.json({ linhas: orientacoes(req.user.org_id, true) });
 });
 
 /* A lista de segunda-feira. É o par obrigatório do robô: a conversa que ele

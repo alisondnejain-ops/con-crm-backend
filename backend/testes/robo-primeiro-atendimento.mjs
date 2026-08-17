@@ -60,7 +60,7 @@ globalThis.fetch = async (url, opts) => {
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, conferir,
-  palavraProibida, configDoRobo, estadoNoLead, ligarNoLead } = await import("../src/services/robo.js");
+  palavraProibida, configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Conecta", "A-1", Date.now());
@@ -396,5 +396,35 @@ const eTeto = estadoNoLead(org, ateOFim, MANHA);
 console.log(`   às 10h da manhã, o motivo mostrado é: ${eTeto.motivo}`);
 assert.equal(eTeto.motivo, "teto_de_mensagens", "o motivo é o teto, não o relógio nem uma pessoa");
 db.prepare("UPDATE orgs SET robo_teto=12 WHERE id=?").run(org);
+
+console.log("27. O que a equipe ensina entra no pedido à IA");
+db.prepare("UPDATE orgs SET robo_ativo=1, robo_teto=12 WHERE id=?").run(org);
+const ensinar = (texto, ativo = 1) => db.prepare(
+  `INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,criado_por,created_at) VALUES (?,?,?,?,?,?,?)`)
+  .run("en_" + randomUUID(), org, texto, n++, ativo, vanessa, Date.now());
+
+ensinar("Chame a pessoa de 'você', nunca de 'senhor' ou 'senhora'.");
+ensinar("Quando falarem do Morar Bem PE, diga que é o programa do governo de PE.");
+ensinar("Esta orientação está desligada e não pode aparecer.", 0);
+
+const ensinado = lead({ nome: "Vai ouvir a Vanessa", dono: vanessa });
+doCliente(ensinado, "oi, boa noite");
+respostaDaIA = { texto: "Oi! Tudo bem? Me conta o que você procura 😊", coletado: {}, encerrar: false };
+await atender(org, ensinado, { agora: NOITE, atraso: 0 });
+
+console.log(`   orientações ligadas: ${orientacoes(org).length} de ${orientacoes(org, true).length}`);
+assert.equal(orientacoes(org).length, 2, "a desligada fica guardada, mas fora do pedido");
+assert.ok(/nunca de 'senhor'/.test(ultimoPedido), "o que a Vanessa escreveu chegou na IA");
+assert.ok(/Morar Bem PE/.test(ultimoPedido));
+assert.ok(!/está desligada/.test(ultimoPedido), "orientação desligada NÃO pode ir junto");
+
+console.log("28. E o ensino vem DEPOIS das proibições, sem poder derrubá-las");
+const posProibicoes = ultimoPedido.indexOf("NUNCA diga valor de parcela");
+const posEnsino = ultimoPedido.indexOf("COMO A EQUIPE DA CONECTA FALA");
+console.log(`   proibições na posição ${posProibicoes}, ensino em ${posEnsino}`);
+assert.ok(posProibicoes > 0 && posEnsino > posProibicoes,
+  "campo que qualquer pessoa preenche não pode vir antes da trava");
+assert.ok(/nunca valem mais que as proibições/.test(ultimoPedido),
+  "e está escrito que uma não derruba a outra");
 
 console.log("\nTudo certo ✅");

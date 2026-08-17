@@ -864,6 +864,10 @@ function ConCRM(){
     roboConferir:()=>api("/config/robo/conferir"),
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
+    roboEnsino:()=>api("/config/robo/ensino"),
+    roboEnsinar:(texto)=>api("/config/robo/ensino",{method:"POST",body:{texto}}),
+    roboEnsinoEditar:(id,dados)=>api("/config/robo/ensino/"+id,{method:"PATCH",body:dados}),
+    roboEnsinoApagar:(id)=>api("/config/robo/ensino/"+id,{method:"DELETE"}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
     // Não passa pelo `acao()`: quem chama precisa da RESPOSTA (se o push saiu
@@ -6677,18 +6681,34 @@ const DIAS_SEMANA=[[1,"seg"],[2,"ter"],[3,"qua"],[4,"qui"],[5,"sex"],[6,"sáb"],
 function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
   const [fila,setFila]=useState(null);
+  const [ensino,setEnsino]=useState(null);
+  const [novaLinha,setNovaLinha]=useState("");
   const [erro,setErro]=useState("");
   const [salvando,setSalvando]=useState(false);
   const ehAdm=session.role==="adm";
 
   const carregar=()=>{ acoes.robo().then(setCfg).catch(e=>setErro(e.message));
-    acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{}); };
+    acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{});
+    acoes.roboEnsino().then(d=>setEnsino(d.linhas)).catch(()=>{}); };
   useEffect(carregar,[]);
 
   async function salvar(mudanca){
     setErro(""); setSalvando(true);
     try{ setCfg(await acoes.salvarRobo({...cfg,...mudanca})); }
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  async function ensinar(){
+    setErro(""); setSalvando(true);
+    try{ const d=await acoes.roboEnsinar(novaLinha.trim()); setEnsino(d.linhas); setNovaLinha(""); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  async function editarEnsino(id,dados){
+    setErro("");
+    try{ setEnsino((await acoes.roboEnsinoEditar(id,dados)).linhas); }catch(e){ setErro(e.message); }
+  }
+  async function apagarEnsino(id){
+    setErro("");
+    try{ setEnsino((await acoes.roboEnsinoApagar(id)).linhas); }catch(e){ setErro(e.message); }
   }
   async function conferido(leadId){
     try{ await acoes.roboConferido(leadId); setFila(f=>f.filter(x=>x.id!==leadId)); }
@@ -6791,6 +6811,63 @@ function RoboConfig({acoes,session,isMobile}){
       :<div style={{color:C.faint,fontSize:11.5,marginTop:11}}>
         Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
     </React.Fragment>,cfg.ativo?{borderColor:C.greenMid}:null)}
+
+    {/* ===== O QUE A EQUIPE ENSINA =====
+
+        A ATENDENTE edita, não só o gestor. O robô cobre a ausência dela; se as
+        duas não soam iguais, o cliente percebe a troca de turno. Quem sabe
+        como se fala com o cliente da Conecta é quem fala com ele todo dia. */}
+    {cartao(<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+        <Icon n="msg" size={15} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Ensinar a IA a falar como a Conecta</span>
+        {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
+      </div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+        Escreva aqui como a equipe fala — o jeito de tratar o cliente, o que explicar quando
+        perguntarem de um programa, o que sempre perguntar. A IA lê estas linhas antes de cada
+        resposta. <b>Elas não desbloqueiam o que é proibido:</b> nada de valor, aprovação ou
+        agendamento, mesmo que escrito aqui.
+      </div>
+
+      {/* Exemplos concretos: campo em branco é campo que ninguém preenche. */}
+      {ensino&&!ensino.length&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",
+        marginBottom:9,color:C.faint,fontSize:11,lineHeight:1.6}}>
+        Exemplos: <i>"Chame a pessoa de você, nunca de senhor ou senhora."</i> · <i>"Se perguntarem
+        do Morar Bem PE, diga que é o programa do governo de Pernambuco."</i> · <i>"Sempre pergunte
+        em qual bairro a pessoa quer morar."</i>
+      </div>}
+
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+        <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2} maxLength={500}
+          placeholder="Ex.: Se perguntarem se atendemos Juazeiro, diga que sim."
+          style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
+            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
+            color:C.ink,outline:"none",resize:"vertical"}}/>
+        <button onClick={ensinar} disabled={!novaLinha.trim()||salvando}
+          style={{alignSelf:"flex-start",background:novaLinha.trim()?C.greenDeep:C.faint,color:"#fff",
+            border:"none",borderRadius:9,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
+            fontWeight:700,cursor:novaLinha.trim()?"pointer":"default"}}>Ensinar</button>
+      </div>
+
+      {!ensino&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
+      {ensino&&ensino.map(e=><div key={e.id} style={{background:C.card,borderRadius:10,padding:"9px 11px",
+        marginBottom:6,display:"flex",gap:9,alignItems:"flex-start",opacity:e.ativo?1:.55}}>
+        <div style={{flex:1,color:C.ink,fontSize:12,lineHeight:1.5}}>
+          {e.texto}
+          {!e.ativo&&<span style={{color:C.faint,fontSize:10.5,fontWeight:600}}> · desligada</span>}
+        </div>
+        {/* Desligar guarda o texto. A atendente testa uma orientação num fim de
+            semana, não gosta, desliga — e não perde o que escreveu. */}
+        <button onClick={()=>editarEnsino(e.id,{ativo:!e.ativo})} title={e.ativo?"Desligar":"Ligar"}
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,
+            padding:isMobile?"8px 11px":"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          {e.ativo?"desligar":"ligar"}</button>
+        <button onClick={()=>apagarEnsino(e.id)} title="Apagar"
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,
+            padding:isMobile?"8px 11px":"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>×</button>
+      </div>)}
+    </React.Fragment>)}
 
     {/* ===== A LISTA DE SEGUNDA-FEIRA =====
 
