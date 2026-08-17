@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authRequired } from "../auth.js";
-import { chavePublica, configurado, inscrever, cancelar, inscricoesDe, avisar } from "../services/push.js";
+import { chavePublica, configurado, inscrever, cancelar, inscricoesDe, avisar, trocar } from "../services/push.js";
 
 const r = Router();
 
@@ -24,6 +24,19 @@ r.post("/push/inscrever", authRequired, (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
+});
+
+/* Renovação automática da inscrição, feita pelo service worker.
+
+   SEM `authRequired` de propósito: o service worker roda com a página
+   fechada e não tem o token. Quem prova ser o dono é o endereço antigo, que
+   só o navegador daquele aparelho conhece — e o serviço só TRANSFERE uma
+   inscrição existente, nunca cria uma nova para alguém. */
+r.post("/push/trocar", (req, res) => {
+  const { antigo, nova } = req.body || {};
+  const out = trocar(antigo, nova);
+  if (!out.trocada) return res.status(404).json({ error: "Inscrição não encontrada." });
+  res.json({ ok: true });
 });
 
 r.post("/push/cancelar", authRequired, (req, res) => {

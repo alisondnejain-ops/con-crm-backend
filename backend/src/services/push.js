@@ -34,6 +34,23 @@ export function inscrever(userId, sub) {
 }
 
 export const cancelar = (endpoint) => db.prepare("DELETE FROM push_subs WHERE endpoint = ?").run(endpoint);
+
+/* O navegador trocou a inscrição deste aparelho.
+
+   Chamado pelo service worker, SEM login — ele não tem o token da pessoa. A
+   prova de posse é o endereço antigo: só o navegador daquele aparelho o
+   conhece, e aqui só se TRANSFERE uma inscrição que já existe. Endereço
+   desconhecido não cria nada, para esta rota não virar uma porta de inscrever
+   qualquer um em nome de outro. */
+export function trocar(antigo, nova) {
+  if (!antigo || !nova || !nova.endpoint || !nova.keys) return { trocada: false };
+  const atual = db.prepare("SELECT user_id FROM push_subs WHERE endpoint = ?").get(antigo);
+  if (!atual) return { trocada: false };
+  db.prepare("DELETE FROM push_subs WHERE endpoint = ?").run(antigo);
+  inscrever(atual.user_id, nova);
+  console.log("[push] inscrição renovada pelo navegador");
+  return { trocada: true };
+}
 export const inscricoesDe = (userId) => db.prepare("SELECT COUNT(*) n FROM push_subs WHERE user_id = ?").get(userId).n;
 
 /* Dispara para todos os aparelhos do usuário. Não lança nunca: push é aviso,

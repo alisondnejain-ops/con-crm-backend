@@ -4335,15 +4335,27 @@ function VersaoDoApp(){
   </div>;
 }
 
-/* Recarrega de verdade: derruba o service worker e os caches antes.
+/* Recarrega de verdade: limpa os caches antes.
 
    Só apertar F5 muitas vezes devolve o mesmo arquivo guardado — e a pessoa
-   conclui que o conserto não foi feito. */
+   conclui que o conserto não foi feito.
+
+   O SERVICE WORKER NÃO É MAIS DESREGISTRADO AQUI (17/08/2026), e essa linha
+   era a causa das "notificações que desativavam sozinhas" nos celulares dos
+   corretores. Desregistrar o service worker DESTRÓI a inscrição de push junto
+   — e este é o botão "Atualizar agora" do aviso de versão nova, que a equipe
+   aperta a cada publicação. Cada atualização desligava o aviso de lead novo, e
+   ninguém tinha como ligar essa ponta na outra.
+
+   Pior: não adiantava nada. O nosso service worker não guarda um único
+   arquivo em cache (está escrito no `sw.js`), então derrubá-lo nunca trouxe
+   versão nova nenhuma. Ele só destruía o push. */
 async function atualizarConHub(){
   try{
+    // Busca a versão nova do próprio service worker, sem derrubar o que existe.
     if(navigator.serviceWorker){
       const rs=await navigator.serviceWorker.getRegistrations();
-      await Promise.all(rs.map(r=>r.unregister()));
+      await Promise.all(rs.map(r=>r.update().catch(()=>{})));
     }
     if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
   }catch(e){}
@@ -4474,7 +4486,29 @@ function Notificacoes({acoes,isMobile}){
         const s=await acoes.pushSituacao();
         if(suportado){
           const reg=await navigator.serviceWorker.ready;
-          const sub=await reg.pushManager.getSubscription();
+          let sub=await reg.pushManager.getSubscription();
+
+          /* CONSERTA SOZINHO o aparelho que perdeu a inscrição.
+
+             A pessoa AUTORIZOU as notificações no navegador — essa permissão
+             continua lá. O que sumiu foi a inscrição, e sumia por motivos que
+             não são escolha de ninguém: o botão de atualizar derrubava o
+             service worker, o navegador rotacionava a chave. Se ainda temos
+             permissão, reinscrever não pergunta nada e não incomoda: é
+             refazer em silêncio o que a pessoa já tinha pedido.
+
+             Sem isto, todo corretor que já perdeu teria que descobrir a tela
+             e apertar "ativar" de novo — e ninguém descobre sozinho que parou
+             de receber aviso. */
+          if(!sub&&Notification.permission==="granted"&&s.configurado){
+            try{
+              const {chave}=await acoes.pushChave();
+              sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ParaBytes(chave)});
+              const r=await acoes.pushInscrever(sub.toJSON());
+              s.aparelhos=r.aparelhos;
+              console.log("[push] inscrição refeita sozinha neste aparelho");
+            }catch(e){ console.warn("[push] não consegui refazer a inscrição:",e.message); }
+          }
           if(vivo) setAtivoAqui(!!sub);
         }
         if(vivo) setEstado({carregando:false,...s});
