@@ -2518,9 +2518,48 @@ function ControleConversa({lead,acoes,isMobile}){
   </div>;
 }
 
+/* O texto da mensagem, do jeito que o cliente escreveu.
+
+   `white-space: pre-wrap` é o que faz as quebras de linha existirem. Sem ele o
+   navegador junta tudo num parágrafo só, e a mensagem de "dados para
+   simulação" — que chega como uma lista de sete linhas — vira um bloco
+   ilegível na tela do corretor, diferente do que a pessoa mandou no WhatsApp.
+
+   `*negrito*` e `_itálico_` são a formatação do próprio WhatsApp, e o cliente
+   já a vê aplicada do lado dele. Mostrar os asteriscos crus aqui seria mostrar
+   uma mensagem que ninguém escreveu. Só vale com conteúdo entre os sinais e na
+   mesma linha — assim "2*3" e um asterisco solto continuam sendo texto. */
+const MARCACAO=/(\*[^*\n]+\*|_[^_\n]+_)/g;
+function TextoDaMensagem({texto}){
+  if(!texto) return null;
+  const partes=String(texto).split(MARCACAO);
+  return <span style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>
+    {partes.map((p,i)=>{
+      if(/^\*[^*\n]+\*$/.test(p)) return <b key={i}>{p.slice(1,-1)}</b>;
+      if(/^_[^_\n]+_$/.test(p)) return <i key={i}>{p.slice(1,-1)}</i>;
+      return <React.Fragment key={i}>{p}</React.Fragment>;
+    })}
+  </span>;
+}
+
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs}){
   const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
+  /* Os mesmos filtros que a atendente tem, pedido do Ali em 20/08/2026. Ela
+     enxergava a etapa, a temperatura e o período; o corretor tinha cinco
+     pastilhas e nem busca por nome — e é ele quem mais precisa achar "quem
+     está na Pasta" no meio de sessenta conversas.
+
+     Aqui a filtragem é NO NAVEGADOR, sobre os leads que já vieram: a caixa do
+     corretor é só a dele e já está carregada. Ir ao servidor a cada clique
+     seria uma volta inteira para peneirar uma lista que está na mão. */
+  const [busca,setBusca]=usarEscolha("atendimento.busca","");
+  const [gaveta,setGaveta]=usarEscolha("atendimento.gaveta",false);
+  const [fEtapa,setFEtapa]=usarEscolha("atendimento.etapa","");
+  const [fPrio,setFPrio]=usarEscolha("atendimento.prio","");
+  const [esperando,setEsperando]=usarEscolha("atendimento.esperando",false);
+  const [de,setDe]=usarEscolha("atendimento.de","");
+  const [ate,setAte]=usarEscolha("atendimento.ate","");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -2577,20 +2616,89 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
+  const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
+  const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
+  const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   const list=myLeads.filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
-    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase());
+    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase())
+    .filter(l=>{
+      if(!busca.trim()) return true;
+      const t=busca.trim().toLowerCase();
+      // Telefone comparado só por dígitos: quem digita "87 99999" não deve
+      // perder o lead por causa do parêntese e do traço que a tela desenha.
+      return (l.nome||"").toLowerCase().includes(t)||soNumeros(l.tel).includes(soNumeros(t));
+    })
+    .filter(l=>fEtapa?l.status===fEtapa:true)
+    .filter(l=>fPrio?l.prio===fPrio:true)
+    .filter(l=>esperando?l.unread>0:true)
+    .filter(l=>{
+      if(!de&&!ate) return true;
+      const q=l.createdAt||0;
+      // O "até" cobre o dia inteiro: sem isso o filtro exclui tudo que entrou
+      // depois da meia-noite da data escolhida.
+      if(de&&q<new Date(de+"T00:00:00").getTime()) return false;
+      if(ate&&q>new Date(ate+"T23:59:59.999").getTime()) return false;
+      return true;
+    });
   const openChat=(id)=>{abrir(id);setPane("chat");};
   // Se o lead sai da conta (repasse da SDR), volta sozinho para a lista.
   useEffect(()=>{if(!sel&&pane!=="lista")setPane("lista");},[sel,pane]);
   const showList=!isMobile||pane==="lista";
   const showChat=!!sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const showFicha=!!sel&&(fichaPorBotao?pane==="ficha":true);
+  const seloCorretor=(label,valor,setar,opcoes)=><select value={valor} onChange={e=>setar(e.target.value)}
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    <option value="">{label}</option>
+    {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+  </select>;
   const backBtn=(onClick,label)=><button onClick={onClick} aria-label={label} style={{width:34,height:34,marginRight:2,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>;
 
   return <div style={{height:"100%",display:"flex",minHeight:0}}>
     {showList&&<div style={{width:isMobile?"100%":isCompact?250:300,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
-      <div style={{padding:12,borderBottom:`1px solid ${C.line}`}}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Quente","Morno","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
+      <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
+          <Icon n="search" size={15} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
+
+        {/* Recolhidos, como na tela da atendente: abertos, empurram a lista de
+            conversas para fora da tela do celular. O contador avisa quando
+            algum ficou ligado. */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={()=>setGaveta(a=>!a)}
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
+            <Icon n="columns" size={13}/>Filtros
+            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
+            <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+          </button>
+          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{list.length} conversa(s)</span>
+        </div>
+
+        {gaveta&&<React.Fragment>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <button onClick={()=>setEsperando(v=>!v)}
+              style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${esperando?C.hot+"66":C.line}`,
+                background:esperando?C.hotSoft:C.surface,color:esperando?C.hot:C.sub,borderRadius:9,
+                padding:isMobile?"11px 13px":"7px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
+              <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
+            {filtrosAtivos>0&&<button onClick={limparFiltros}
+              style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {seloCorretor("Etapa",fEtapa,setFEtapa,STAGES.map(s2=>({v:s2,t:s2})))}
+            {seloCorretor("Temperatura",fPrio,setFPrio,[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+            <input type="date" value={de} onChange={e=>setDe(e.target.value)}
+              style={{fontSize:isMobile?16:12,border:`1px solid ${de?C.green+"66":C.line}`,background:de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+            <input type="date" value={ate} onChange={e=>setAte(e.target.value)}
+              style={{fontSize:isMobile?16:12,border:`1px solid ${ate?C.green+"66":C.line}`,background:ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          </div>
+        </React.Fragment>}
       </div>
       <div style={{flex:1,overflowY:"auto"}}>
         {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
@@ -2636,7 +2744,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
               <Citacao c={m.citada} claro={mine}/>
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
-              {!m.rotuloAuto&&m.text}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
@@ -3708,7 +3816,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
               <Citacao c={m.citada} claro={meu}/>
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
-              {!m.rotuloAuto&&m.text}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
