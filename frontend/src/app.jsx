@@ -2354,11 +2354,47 @@ function PreviaColagem({arquivos,legenda,enviando,onRemover,onEnviar,onCancelar,
   </div>;
 }
 
-function Anexar({lead,acoes,isMobile,aoAvisar}){
+/* O áudio gravado, para OUVIR antes de mandar.
+
+   Mesma regra da imagem colada: gravar não envia. A pessoa escuta, e só então
+   decide. Áudio errado no WhatsApp do cliente não tem desfazer — e até
+   20/08/2026 era o que acontecia com todo mundo, atendente e corretor: parou
+   de gravar, foi. A Vanessa reclamou que não conseguia apagar nem corrigir, e
+   estava certa: não dava mesmo. */
+function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
+  if(!audio) return null;
+  const mm=String(Math.floor((audio.segundos||0)/60)).padStart(2,"0");
+  const ss=String((audio.segundos||0)%60).padStart(2,"0");
+  const botao={borderRadius:9,padding:isMobile?"11px 14px":"8px 14px",fontSize:12.5,fontWeight:600,cursor:enviando?"default":"pointer"};
+  return <div style={{background:C.surface,border:`1px solid ${C.green}55`,borderRadius:12,padding:10,marginBottom:8}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,flexWrap:"wrap"}}>
+      <Icon n="phone" size={13} color={C.greenDeep}/>
+      <span style={{color:C.greenDeep,fontSize:12,fontWeight:700,flex:1}}>
+        Áudio de {mm}:{ss} — ouça antes de enviar</span>
+    </div>
+    {/* O player do próprio navegador: dá para ouvir, pausar e voltar. */}
+    <audio src={audio.url} controls preload="metadata"
+      style={{width:"100%",display:"block",marginBottom:9}}/>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      <button onClick={onEnviar} disabled={enviando}
+        style={{...botao,border:"none",background:enviando?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",gap:6}}>
+        <Icon n={enviando?"loader":"send"} size={13} spin={enviando}/>{enviando?"Enviando…":"Enviar áudio"}</button>
+      <button onClick={onRegravar} disabled={enviando}
+        style={{...botao,border:`1px solid ${C.line}`,background:C.card,color:C.sub}}>Gravar de novo</button>
+      <button onClick={onDescartar} disabled={enviando}
+        style={{...botao,border:`1px solid ${C.line}`,background:C.card,color:C.hot,marginLeft:"auto"}}>Descartar</button>
+    </div>
+  </div>;
+}
+
+function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
   const [gravando,setGravando]=useState(0); // segundos
   const gravador=useRef(null), pedacos=useRef([]), cronometro=useRef(null);
+  // `descartar` marca que a parada foi um cancelamento; `gravadosRef` guarda a
+  // duração, que o `onstop` precisa depois de o cronômetro já ter sido zerado.
+  const descartar=useRef(false), gravadosRef=useRef(0);
   const fotos=useRef(null), video=useRef(null);
 
   const aviso=(m)=>aoAvisar&&aoAvisar(m);
@@ -2405,30 +2441,52 @@ function Anexar({lead,acoes,isMobile,aoAvisar}){
       rec.ondataavailable=(e)=>e.data.size&&pedacos.current.push(e.data);
       rec.onstop=async()=>{
         stream.getTracks().forEach(t=>t.stop());
+        const segundos=gravadosRef.current;
         clearInterval(cronometro.current); setGravando(0);
+
+        /* Cancelou no meio: joga fora e não gera nada. Sem isto, o único jeito
+           de sair da gravação era MANDAR — quem apertou o microfone sem querer
+           tinha que mandar um áudio para o cliente. */
+        if(descartar.current){ descartar.current=false; pedacos.current=[]; return; }
+
         const blob=new Blob(pedacos.current,{type:rec.mimeType||"audio/webm"});
         // Só o tipo base: "audio/webm;codecs=opus" não bate com a lista do servidor.
         const mime=(rec.mimeType||"audio/webm").split(";")[0];
         setOcupado("áudio");
         try{
           const base64=await new Promise(ok=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]);r.readAsDataURL(blob);});
-          await acoes.anexar(lead.id,[{mime,nome:"audio",base64}]);
+          /* O ÁUDIO NÃO SAI DAQUI. Ele volta para o campo de mensagem como
+             prévia, para a pessoa ouvir, refazer ou descartar antes de enviar
+             — mesma regra da imagem colada. Áudio errado no WhatsApp do
+             cliente não tem desfazer, e era exatamente isso que acontecia:
+             parou de gravar, foi. */
+          if(aoGravarAudio) aoGravarAudio({mime,base64,segundos,url:URL.createObjectURL(blob)});
+          else await acoes.anexar(lead.id,[{mime,nome:"audio",base64}]);
         }catch(e){ aviso(e.message); } finally{ setOcupado(""); }
       };
-      gravador.current=rec; rec.start();
-      setGravando(1); cronometro.current=setInterval(()=>setGravando(s=>s+1),1000);
+      gravador.current=rec; descartar.current=false; rec.start();
+      gravadosRef.current=1; setGravando(1);
+      cronometro.current=setInterval(()=>{gravadosRef.current+=1;setGravando(s=>s+1);},1000);
     }catch(e){ aviso("Não consegui usar o microfone. Confira a permissão no navegador."); }
   }
   const pararGravacao=()=>gravador.current&&gravador.current.state!=="inactive"&&gravador.current.stop();
+  const cancelarGravacao=()=>{ descartar.current=true; pararGravacao(); };
+  /* "Gravar de novo" mora na prévia, que é de outro componente. Em vez de
+     duplicar a gravação lá, o botão chama esta mesma função por um ref. */
+  useEffect(()=>{ if(refGravar) refGravar.current=gravar; });
 
   if(gravando) return <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
     <span style={{display:"flex",alignItems:"center",gap:6,color:C.hot,fontSize:12.5,fontWeight:600,whiteSpace:"nowrap"}}>
       <span style={{width:9,height:9,borderRadius:"50%",background:C.hot}}/>
       {String(Math.floor(gravando/60)).padStart(2,"0")}:{String(gravando%60).padStart(2,"0")}
     </span>
-    <button onClick={pararGravacao} title="Enviar áudio"
+    {/* Cancelar existe porque apertar o microfone sem querer não pode
+        obrigar ninguém a mandar áudio para o cliente. */}
+    <button onClick={cancelarGravacao} title="Cancelar a gravação"
+      style={{width:40,height:40,borderRadius:12,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:700,lineHeight:1,padding:0}}>×</button>
+    <button onClick={pararGravacao} title="Parar e ouvir antes de enviar"
       style={{width:40,height:40,borderRadius:12,border:"none",background:C.green,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <Icon n="send" size={17}/></button>
+      <Icon n="check" size={17}/></button>
   </div>;
 
   const item=(icone,texto,onClick)=><button key={texto} onClick={onClick}
@@ -2542,6 +2600,30 @@ function TextoDaMensagem({texto}){
   </span>;
 }
 
+/* Áudio esperando conferência, no campo de mensagem.
+
+   Um gancho só, usado pelos DOIS campos (o do corretor e o da supervisão), que
+   são componentes diferentes e já divergiram antes. Com a lógica em um lugar,
+   consertar num conserta nos dois. */
+function usarAudioPendente({lead,acoes,aoAvisar}){
+  const [audio,setAudio]=useState(null);
+  const [enviando,setEnviando]=useState(false);
+  // Trocar de conversa descarta o que estava pendente: áudio gravado para um
+  // cliente não pode sair na conversa de outro.
+  useEffect(()=>{ setAudio(a=>{ if(a) URL.revokeObjectURL(a.url); return null; }); },[lead&&lead.id]);
+  const descartar=()=>setAudio(a=>{ if(a) URL.revokeObjectURL(a.url); return null; });
+  async function enviar(){
+    if(!audio||enviando) return;
+    setEnviando(true);
+    try{
+      await acoes.anexar(lead.id,[{mime:audio.mime,nome:"audio",base64:audio.base64}]);
+      descartar();
+    }catch(e){ aoAvisar&&aoAvisar(e.message); }
+    finally{ setEnviando(false); }
+  }
+  return {audio,setAudio,enviando,descartar,enviar};
+}
+
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs}){
   const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
@@ -2566,6 +2648,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Avisos do anexo (limite de fotos, microfone negado, GPS bloqueado). Falha de
   // envio já é tratada pelo aviso geral do topo; aqui é o que acontece antes de sair.
   const [erroAnexo,setErroAnexo]=useState("");
+  const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
+  const gravarDeNovo=useRef(null);
   const [colando,setColando]=useState(false);
   /* Mensagem em edição: {id, texto}. O texto vai para o campo de baixo, então
      guardamos o rascunho de antes para devolver se a pessoa desistir. */
@@ -2762,10 +2846,13 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
           onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
           onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
+        <PreviaAudio audio={gravado.audio} enviando={gravado.enviando} isMobile={isMobile}
+          onDescartar={gravado.descartar} onRegravar={()=>{gravado.descartar();gravarDeNovo.current&&gravarDeNovo.current();}}
+          onEnviar={gravado.enviar}/>
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
+          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{
             if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
@@ -4326,6 +4413,8 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
   const [erroAnexo,setErroAnexo]=useState("");
+  const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
+  const gravarDeNovo=useRef(null);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
@@ -4386,10 +4475,13 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
       onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
       onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
+    <PreviaAudio audio={gravado.audio} enviando={gravado.enviando} isMobile={isMobile}
+      onDescartar={gravado.descartar} onRegravar={()=>{gravado.descartar();gravarDeNovo.current&&gravarDeNovo.current();}}
+      onEnviar={gravado.enviar}/>
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo}/>
+      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
         onKeyDown={e=>{
           if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
