@@ -580,6 +580,11 @@ function toSession(u){
           // app continuava tratando o master como um gestor qualquer — o hub
           // nunca aparecia.
           master:!!u.master, available:!!u.available,
+          /* Mesma armadilha do `master` logo acima: esta função copia campo a
+             campo, então preferência nova que não for listada aqui chega do
+             servidor e é jogada fora em silêncio — a barra voltava aberta a
+             cada login sem nenhum erro aparecer. */
+          barra_recolhida:!!u.barra_recolhida,
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
@@ -798,6 +803,7 @@ function ConCRM(){
     resultadoLigacao:(leadId,ligId,resultado,obs)=>
       api(`/leads/${leadId}/ligacao/${ligId}`,{method:"PATCH",body:{resultado,obs}}),
     pushChave:()=>api("/push/chave"),
+    recolherBarra:(recolhida)=>api("/auth/me/barra",{method:"POST",body:{recolhida}}),
     pushSituacao:()=>api("/push/situacao"),
     pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
     pushCancelar:(endpoint)=>api("/push/cancelar",{method:"POST",body:{endpoint}}),
@@ -1796,8 +1802,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     {/* A marca leva para a tela inicial de cada papel — Painel para quem
         supervisiona, Atender para o corretor. É o primeiro item do menu, o
         mesmo lugar para onde o CRM abre. */}
-    {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso}
-      org={org&&org.nome} papel={roleLabel} nome={first(session.name)}
+    {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso} acoes={acoes}
+      org={org&&org.nome} papel={roleLabel} nome={first(session.name)} session={session}
       irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
@@ -1936,14 +1942,37 @@ function ItemMais({n,label,ativo,badge,onClick,ultimo}){
    Ela ENCOLHE para 200px em janela apertada (notebook, tela dividida): a de
    conversas tem lista + conversa + ficha ao lado, e é ela quem paga a largura
    que a barra tomar. */
-function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome}){
+function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,acoes,session}){
   const [estreita,setEstreita]=useState(()=>typeof window!=="undefined"&&window.innerWidth<1200);
   useEffect(()=>{
     const medir=()=>setEstreita(window.innerWidth<1200);
     window.addEventListener("resize",medir);
     return()=>window.removeEventListener("resize",medir);
   },[]);
-  const LARGURA=estreita?200:236;
+
+  /* RECOLHER É PREFERÊNCIA DA CONTA, não do aparelho.
+
+     A pessoa escolhe uma vez e vale no computador da imobiliária e no
+     notebook de casa — foi "por conta" o que o Ali pediu. Por isso o estado
+     nasce da sessão e vai para o servidor, em vez de morar no navegador.
+
+     O clique responde NA HORA e a gravação vai atrás: preferência de layout
+     não pode ter tela travada esperando resposta de rede. Se a gravação
+     falhar, a barra continua como a pessoa deixou nesta sessão e volta ao que
+     era no próximo login — mais honesto do que desfazer o clique na cara
+     dela por causa de uma oscilação de internet. */
+  const [recolhida,setRecolhida]=useState(!!(session&&session.barra_recolhida));
+  const alternar=()=>{
+    const novo=!recolhida;
+    setRecolhida(novo);
+    /* A sessão NÃO é mexida aqui, e isso é de propósito: ela guarda o crachá
+       da pessoa e a imobiliária em que o master está trabalhando, e um clique
+       de layout não pode ter chance de esbarrar nisso. O valor volta do
+       servidor no próximo login, que é quando ele é lido. */
+    acoes&&acoes.recolherBarra(novo).catch(()=>{});
+  };
+
+  const LARGURA=recolhida?64:(estreita?200:236);
 
   // As seções na ordem em que aparecem no menu — sem lista fixa aqui, para
   // quem mexer no NAV não precisar lembrar de mexer aqui também.
@@ -1957,8 +1986,9 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome}){
   const linha=([v,n,label])=>{
     const ativo=view===v, badge=aviso(v);
     return <button key={v} onClick={()=>setView(v)} title={label}
-      style={{position:"relative",width:"100%",display:"flex",alignItems:"center",gap:11,
-        padding:"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
+      style={{position:"relative",width:"100%",display:"flex",alignItems:"center",
+        gap:recolhida?0:11,justifyContent:recolhida?"center":"flex-start",
+        padding:recolhida?"11px 0":"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
         background:ativo?"rgba(255,255,255,.13)":"transparent",
         color:ativo?"#fff":"rgba(255,255,255,.62)",fontWeight:ativo?600:500,fontSize:13.5,
         fontFamily:FONT,marginBottom:2}}>
@@ -1966,50 +1996,73 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome}){
       <span style={{position:"absolute",left:0,top:8,bottom:8,width:3,borderRadius:"0 3px 3px 0",
         background:ativo?C.green:"transparent"}}/>
       <Icon n={n} size={17}/>
-      <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
-      {badge>0&&<span style={{minWidth:19,height:19,padding:"0 6px",borderRadius:999,background:C.hot,
-        color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
-        flexShrink:0}}>{badge}</span>}
+      {!recolhida&&<span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>}
+      {/* Recolhida, o contador vira uma bolinha no canto do ícone: o número
+          por extenso não cabe em 64px, mas sumir com ele esconderia o aviso
+          de lead esperando, que é o que faz a pessoa olhar para a barra. */}
+      {badge>0&&(recolhida
+        ? <span style={{position:"absolute",top:6,right:11,minWidth:8,height:8,borderRadius:999,background:C.hot}}/>
+        : <span style={{minWidth:19,height:19,padding:"0 6px",borderRadius:999,background:C.hot,
+            color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
+            flexShrink:0}}>{badge}</span>)}
     </button>;
   };
 
   return <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",
-    flexDirection:"column",padding:"16px 10px 12px",minHeight:0}}>
+    flexDirection:"column",padding:recolhida?"16px 6px 12px":"16px 10px 12px",minHeight:0,
+    transition:"width .16s ease"}}>
     {/* Marca clicável: em qualquer tela, um clique aqui volta para o começo —
         é o que todo mundo já tenta fazer por hábito de site. */}
-    <button onClick={irParaCasa} title="Ir para o início"
-      style={{border:"none",background:"transparent",padding:"0 4px",cursor:"pointer",
-        display:"flex",alignItems:"center",gap:9,marginBottom:14}}>
-      <div style={{background:C.green,width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
-        justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>
-      <div style={{minWidth:0,textAlign:"left"}}>
-        <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.1}}>ConHub</div>
-        {/* De quem é a conta e em que papel se está. Antes isso só existia no
-            canto oposto da tela, e o master trocava de imobiliária sem nada
-            por perto lembrando em qual estava. */}
-        <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
-          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"CRM imobiliário"}</div>
-      </div>
-    </button>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,
+      flexDirection:recolhida?"column":"row"}}>
+      <button onClick={irParaCasa} title="Ir para o início"
+        style={{flex:1,minWidth:0,border:"none",background:"transparent",padding:"0 4px",cursor:"pointer",
+          display:"flex",alignItems:"center",gap:9}}>
+        <div style={{background:C.green,width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
+          justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>
+        {!recolhida&&<div style={{minWidth:0,textAlign:"left"}}>
+          <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.1}}>ConHub</div>
+          {/* De quem é a conta e em que papel se está. Antes isso só existia no
+              canto oposto da tela, e o master trocava de imobiliária sem nada
+              por perto lembrando em qual estava. */}
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"CRM imobiliário"}</div>
+        </div>}
+      </button>
+      {/* A seta aponta para onde a barra VAI: fechando quando aberta, abrindo
+          quando recolhida. Seta que não muda vira adivinhação. */}
+      <button onClick={alternar} title={recolhida?"Abrir o menu":"Recolher o menu"}
+        aria-label={recolhida?"Abrir o menu":"Recolher o menu"}
+        style={{width:30,height:30,flexShrink:0,borderRadius:9,border:"none",cursor:"pointer",
+          background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.7)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          transform:recolhida?"none":"scaleX(-1)"}}>
+        <Icon n="chevron" size={15}/></button>
+    </div>
 
     {/* Rola só a lista: a marca fica no topo e o "Sair" no rodapé mesmo em
         janela baixa (notebook com a tela dividida). */}
     <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",scrollbarWidth:"none"}}>
-      {secoes.map((s2,i)=><div key={s2.nome} style={{marginTop:i?13:2}}>
-        <div style={{color:"rgba(255,255,255,.32)",fontSize:9.5,fontWeight:700,letterSpacing:.9,
-          textTransform:"uppercase",padding:"0 11px",marginBottom:5}}>{s2.nome}</div>
+      {secoes.map((s2,i)=><div key={s2.nome} style={{marginTop:i?(recolhida?10:13):2,
+        paddingTop:recolhida&&i?10:0,
+        // Recolhida não cabe o rótulo da seção; o risco mantém a separação
+        // visível, que é para o que o rótulo servia.
+        borderTop:recolhida&&i?"1px solid rgba(255,255,255,.1)":"none"}}>
+        {!recolhida&&<div style={{color:"rgba(255,255,255,.32)",fontSize:9.5,fontWeight:700,letterSpacing:.9,
+          textTransform:"uppercase",padding:"0 11px",marginBottom:5}}>{s2.nome}</div>}
         {s2.itens.map(linha)}
       </div>)}
     </div>
 
     <div style={{borderTop:"1px solid rgba(255,255,255,.1)",marginTop:10,paddingTop:9}}>
-      <div style={{color:"rgba(255,255,255,.5)",fontSize:10.5,padding:"0 11px",marginBottom:6,
-        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome} · {papel}</div>
-      <button onClick={sair} title="Sair"
-        style={{width:"100%",display:"flex",alignItems:"center",gap:11,padding:"9px 11px",borderRadius:10,
+      {!recolhida&&<div style={{color:"rgba(255,255,255,.5)",fontSize:10.5,padding:"0 11px",marginBottom:6,
+        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome} · {papel}</div>}
+      <button onClick={sair} title={recolhida?`Sair — ${nome} · ${papel}`:"Sair"}
+        style={{width:"100%",display:"flex",alignItems:"center",gap:recolhida?0:11,
+          justifyContent:recolhida?"center":"flex-start",padding:recolhida?"11px 0":"9px 11px",borderRadius:10,
           border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,.62)",
           fontSize:13.5,fontWeight:500,fontFamily:FONT,textAlign:"left"}}>
-        <Icon n="logout" size={17}/><span>Sair</span></button>
+        <Icon n="logout" size={17}/>{!recolhida&&<span>Sair</span>}</button>
     </div>
   </aside>;
 }

@@ -296,6 +296,19 @@ r.patch("/me", authRequired, (req, res) => {
   res.json({ token: sign(atualizado), user: publicUser(atualizado) });
 });
 
+/* Recolher ou abrir a barra lateral. `POST /auth/me/barra`
+
+   Rota própria em vez de entrar no PATCH /me: aquele valida nome, e-mail e
+   telefone e devolve um TOKEN NOVO, porque o nome viaja dentro dele e assina
+   as mensagens no WhatsApp. Recolher uma barra não pode passar por nada
+   disso — seria um clique de layout capaz de derrubar a sessão de quem
+   estivesse com o cadastro pela metade. */
+r.post("/me/barra", authRequired, (req, res) => {
+  const recolhida = req.body?.recolhida ? 1 : 0;
+  db.prepare("UPDATE users SET barra_recolhida=? WHERE id=?").run(recolhida, req.user.id);
+  res.json({ barra_recolhida: !!recolhida });
+});
+
 r.post("/me/senha", authRequired, (req, res) => {
   const { atual, nova } = req.body || {};
   const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
@@ -506,6 +519,8 @@ function publicUser(u) {
   return { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role,
            funcao: PAPEIS[u.role].rotulo, org_id: u.org_id, status: u.status,
            available: !!u.available, avatar_url: u.avatar_url || null,
+           // Preferência de tela: a barra lateral nasce recolhida ou aberta.
+           barra_recolhida: !!u.barra_recolhida,
            // A própria pessoa sabe que é master; a equipe nunca a vê na lista.
            master: !!u.master };
 }

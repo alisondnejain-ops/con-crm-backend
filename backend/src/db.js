@@ -335,7 +335,14 @@ addUserCol("invite_expires", "INTEGER");                // validade do token (ms
    senha). O mesmo link e a mesma pagina servem os dois — o que muda e que a
    redefinicao vale para conta JA ATIVA e nao mexe no status dela. */
 addUserCol("invite_tipo", "TEXT");
-addUserCol("avatar_url", "TEXT");                       // foto de perfil
+addUserCol("avatar_url", "TEXT");
+/* Preferência de tela, por CONTA e não por aparelho.
+
+   A barra lateral recolhida segue a pessoa: ela escolhe uma vez e vale no
+   computador da imobiliária e no notebook de casa. Guardar no navegador seria
+   mais simples, mas aí a escolha se perderia a cada aparelho novo — e foi
+   "por conta" o que o Ali pediu. */
+addUserCol("barra_recolhida", "INTEGER DEFAULT 0");                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 /* Gestor MASTER — dono da plataforma, não da imobiliária.
 
