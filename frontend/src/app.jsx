@@ -1773,12 +1773,12 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel"],["funil","columns","Funil"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["relatorios","chart","Relatórios"],["base","columns","Base de leads"],["equipe","users","Equipe"],["config","key","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["base","columns","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["dashboard","grid","Painel"],["funil","columns","Funil"],["atendimento","msg","Atender"],["catraca","transfer","Catraca"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["equipe","userplus","Equipe"],["disp","toggleOn","Disponib."],["relatorios","chart","Relatórios"],["config","key","Configurações"]],
-    corretor:[["atendimento","msg","Atender"],["funil","columns","Funil"],["imoveis","pin","Imóveis"],["plantao","calendar","Plantão"],["disp","toggleOn","Disponib."],["produtividade","trend","Produção"]],
-  }[role].concat([["conta","users","Minha conta"]]);
+    sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
+    corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
+  }[role].concat([["conta","users","Minha conta","Configurações"]]);
   const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
@@ -1797,6 +1797,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         supervisiona, Atender para o corretor. É o primeiro item do menu, o
         mesmo lugar para onde o CRM abre. */}
     {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso}
+      org={org&&org.nome} papel={roleLabel} nome={first(session.name)}
       irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
@@ -1898,8 +1899,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
    A ORDEM continua a mesma nos dois. O que muda é só onde a lista é cortada,
    então o que está à vista no celular está à vista no PC também: ninguém
    precisa procurar em dois lugares diferentes. */
+/* Só o CELULAR corta o menu. No computador a barra lateral mostra tudo,
+   agrupado por seção — lá sobra largura, e era justamente onde metade dos
+   itens ficava escondida. */
 const LIMITE_NAV=5;      // celular: 4 + o "Mais"
-const LIMITE_NAV_PC=7;   // computador: 6 + o "Mais"
 function dividirNav(nav,limite=LIMITE_NAV){
   if(nav.length<=limite) return {cabem:nav,extras:[]};
   return {cabem:nav.slice(0,limite-1),extras:nav.slice(limite-1)};
@@ -1915,74 +1918,100 @@ function ItemMais({n,label,ativo,badge,onClick,ultimo}){
   </button>;
 }
 
-/* Barra lateral do computador. Os quatro primeiros ficam à vista e o resto
-   abre numa folha ao lado, presa ao botão "Mais".
+/* Barra lateral do computador: LARGA e AGRUPADA POR SEÇÃO.
 
-   Sobre o esquadro: altura fixa por botão e rótulo em uma linha só. Antes a
-   altura vinha do texto, então "Base de leads" empurrava o vizinho e a coluna
-   ficava desalinhada. Com quatro itens os rótulos são curtos e nada corta. */
-function BarraLateral({nav,view,setView,aviso,irParaCasa,sair}){
-  const [maisAberto,setMaisAberto]=useState(false);
-  const botaoMais=useRef(null);
-  const [topo,setTopo]=useState(0);
-  const {cabem,extras}=dividirNav(nav,LIMITE_NAV_PC);
-  const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
-  const maisAtivo=extras.some(([v])=>v===view);
-  const escolher=(v)=>{setView(v);setMaisAberto(false);};
+   Era uma tira de 76px só com ícones, e com metade do menu escondida atrás de
+   um botão "Mais" — no computador, onde sobra largura de tela justamente. O
+   gestor precisava de dois cliques para chegar em Relatórios, Base de leads e
+   Equipe, e não tinha como saber que elas existiam sem abrir o "Mais".
 
-  // Fecha com Esc — no computador é o reflexo de quem abriu sem querer.
+   Agora tudo aparece de uma vez, com o nome escrito, separado por seção
+   (Principal, Ferramentas, Gestão, Configurações). O "Mais" deixa de existir
+   no PC — ele continua no celular, onde a largura é de verdade escassa.
+
+   O rótulo da seção não é enfeite: é ele que diz que "Base de leads" é gestão
+   e não atendimento. Sem os rótulos, dez itens numa coluna são uma lista onde
+   ninguém acha nada.
+
+   Ela ENCOLHE para 200px em janela apertada (notebook, tela dividida): a de
+   conversas tem lista + conversa + ficha ao lado, e é ela quem paga a largura
+   que a barra tomar. */
+function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome}){
+  const [estreita,setEstreita]=useState(()=>typeof window!=="undefined"&&window.innerWidth<1200);
   useEffect(()=>{
-    if(!maisAberto) return;
-    const t=(e)=>{ if(e.key==="Escape") setMaisAberto(false); };
-    window.addEventListener("keydown",t);
-    return()=>window.removeEventListener("keydown",t);
-  },[maisAberto]);
+    const medir=()=>setEstreita(window.innerWidth<1200);
+    window.addEventListener("resize",medir);
+    return()=>window.removeEventListener("resize",medir);
+  },[]);
+  const LARGURA=estreita?200:236;
 
-  const alternarMais=()=>{
-    if(botaoMais.current){
-      const r=botaoMais.current.getBoundingClientRect();
-      const alturaFolha=extras.length*47+22;
-      // Nasce na altura do botão, mas nunca passa do rodapé nem do topo da janela.
-      setTopo(Math.max(12,Math.min(r.top,window.innerHeight-alturaFolha-12)));
-    }
-    setMaisAberto(m=>!m);
+  // As seções na ordem em que aparecem no menu — sem lista fixa aqui, para
+  // quem mexer no NAV não precisar lembrar de mexer aqui também.
+  const secoes=[];
+  for(const item of nav){
+    const nomeSecao=item[3]||"Principal";
+    const ja=secoes.find(x=>x.nome===nomeSecao);
+    if(ja) ja.itens.push(item); else secoes.push({nome:nomeSecao,itens:[item]});
+  }
+
+  const linha=([v,n,label])=>{
+    const ativo=view===v, badge=aviso(v);
+    return <button key={v} onClick={()=>setView(v)} title={label}
+      style={{position:"relative",width:"100%",display:"flex",alignItems:"center",gap:11,
+        padding:"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
+        background:ativo?"rgba(255,255,255,.13)":"transparent",
+        color:ativo?"#fff":"rgba(255,255,255,.62)",fontWeight:ativo?600:500,fontSize:13.5,
+        fontFamily:FONT,marginBottom:2}}>
+      {/* Marcador na borda: a cor de fundo sozinha some no verde escuro. */}
+      <span style={{position:"absolute",left:0,top:8,bottom:8,width:3,borderRadius:"0 3px 3px 0",
+        background:ativo?C.green:"transparent"}}/>
+      <Icon n={n} size={17}/>
+      <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+      {badge>0&&<span style={{minWidth:19,height:19,padding:"0 6px",borderRadius:999,background:C.hot,
+        color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
+        flexShrink:0}}>{badge}</span>}
+    </button>;
   };
 
-  const LARGURA=76;
-  const botao=(v,n,label,badge,ativo,onClick,ref)=><button key={v} ref={ref} onClick={onClick} title={label}
-    style={{position:"relative",width:56,height:54,flexShrink:0,borderRadius:12,border:"none",cursor:"pointer",
-      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:0,
-      background:ativo?"rgba(255,255,255,.14)":"transparent",color:ativo?"#fff":"rgba(255,255,255,.55)"}}>
-    <Icon n={n} size={19}/>
-    <span style={{fontSize:9,fontWeight:500,lineHeight:1,maxWidth:52,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
-    {badge>0&&<Badge n={badge} top={6} right={8}/>}
-  </button>;
-
-  return <React.Fragment>
-    <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",padding:"20px 0 14px",gap:4}}>
-      {/* Marca clicável: em qualquer tela, um clique aqui volta para o começo —
-          é o que todo mundo já tenta fazer por hábito de site. */}
-      <button onClick={irParaCasa} title="Ir para o início" style={{border:"none",background:"transparent",padding:0,cursor:"pointer",
-        display:"flex",flexDirection:"column",alignItems:"center",margin:"0 0 16px"}}>
-        <div style={{background:C.green,width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={20}/></div>
-        <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:10,fontWeight:700,textAlign:"center",lineHeight:1.1,marginTop:4}}>Con<br/>Hub</div>
-      </button>
-      {/* rolagem: em janela baixa (notebook com a tela dividida) os botões não
-          cabem, e sem isto eles passavam por baixo do "Sair" — que ficava por
-          cima e roubava o clique do "Mais". */}
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",width:"100%",scrollbarWidth:"none"}}>
-        {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v),view===v,()=>setView(v)))}
-        {extras.length>0&&botao("__mais","mais","Mais",avisoNoMais,maisAtivo||maisAberto,alternarMais,botaoMais)}
+  return <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",
+    flexDirection:"column",padding:"16px 10px 12px",minHeight:0}}>
+    {/* Marca clicável: em qualquer tela, um clique aqui volta para o começo —
+        é o que todo mundo já tenta fazer por hábito de site. */}
+    <button onClick={irParaCasa} title="Ir para o início"
+      style={{border:"none",background:"transparent",padding:"0 4px",cursor:"pointer",
+        display:"flex",alignItems:"center",gap:9,marginBottom:14}}>
+      <div style={{background:C.green,width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
+        justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>
+      <div style={{minWidth:0,textAlign:"left"}}>
+        <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.1}}>ConHub</div>
+        {/* De quem é a conta e em que papel se está. Antes isso só existia no
+            canto oposto da tela, e o master trocava de imobiliária sem nada
+            por perto lembrando em qual estava. */}
+        <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
+          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"CRM imobiliário"}</div>
       </div>
-      {botao("__sair","logout","Sair",0,false,sair)}
-    </aside>
-    {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,zIndex:30}}/>}
-    {maisAberto&&<div style={{position:"fixed",left:LARGURA+8,top:topo,zIndex:31,width:222,background:C.card,
-      border:`1px solid ${C.line}`,borderRadius:14,padding:"6px 12px",boxShadow:"0 12px 34px rgba(0,0,0,.18)"}}>
-      {extras.map(([v,n,label],i)=><ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
-        ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>)}
-    </div>}
-  </React.Fragment>;
+    </button>
+
+    {/* Rola só a lista: a marca fica no topo e o "Sair" no rodapé mesmo em
+        janela baixa (notebook com a tela dividida). */}
+    <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",scrollbarWidth:"none"}}>
+      {secoes.map((s2,i)=><div key={s2.nome} style={{marginTop:i?13:2}}>
+        <div style={{color:"rgba(255,255,255,.32)",fontSize:9.5,fontWeight:700,letterSpacing:.9,
+          textTransform:"uppercase",padding:"0 11px",marginBottom:5}}>{s2.nome}</div>
+        {s2.itens.map(linha)}
+      </div>)}
+    </div>
+
+    <div style={{borderTop:"1px solid rgba(255,255,255,.1)",marginTop:10,paddingTop:9}}>
+      <div style={{color:"rgba(255,255,255,.5)",fontSize:10.5,padding:"0 11px",marginBottom:6,
+        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome} · {papel}</div>
+      <button onClick={sair} title="Sair"
+        style={{width:"100%",display:"flex",alignItems:"center",gap:11,padding:"9px 11px",borderRadius:10,
+          border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,.62)",
+          fontSize:13.5,fontWeight:500,fontFamily:FONT,textAlign:"left"}}>
+        <Icon n="logout" size={17}/><span>Sair</span></button>
+    </div>
+  </aside>;
 }
 
 // Barra inferior do celular.
