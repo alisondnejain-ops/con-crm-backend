@@ -447,6 +447,14 @@ addOrgCol("robo_teto", "INTEGER DEFAULT 12");       // máximo de mensagens por 
    semana não existe "fora do expediente", existe "não tem expediente". */
 addOrgCol("robo_dias", "TEXT DEFAULT '1,2,3,4,5'");
 
+/* Quem foi o ÚLTIMO corretor a receber lead pelo rodízio.
+
+   Substitui o `distribution_ptr`, que era um contador e virava outra pessoa
+   sozinho: a vez era "contador % quantos estão disponíveis", e a lista de
+   disponíveis muda o dia inteiro. Guardando QUEM recebeu, a fila só anda
+   quando alguém de fato recebe. */
+addOrgCol("rodizio_ultimo", "TEXT");
+
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa

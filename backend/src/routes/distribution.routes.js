@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { filaDaVez, pegarProximo, marcarQueRecebeu } from "../services/rodizio.js";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
@@ -153,19 +154,25 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
   res.json({ ok: true, assigned_to: user_id, aviso: avisarNovoLead(user_id, lead_id) });
 });
 
-// Catraca automática (rodízio): entrega ao próximo atendente disponível.
+/* A FILA DA VEZ, numerada. `GET /distribution/rodizio`
+
+   O que a tela mostra é calculado pela MESMA função que a transferência usa
+   (`services/rodizio.js`). Número na tela que não é o número usado pelo botão
+   é pior do que número nenhum: a atendente combina com o corretor que ele é o
+   próximo e o lead cai em outro. */
+r.get("/rodizio", roles("sdr", "adm"), (req, res) => res.json(filaDaVez(req.user.org_id)));
+
+// Catraca automática (rodízio): entrega ao próximo CORRETOR disponível.
 r.post("/next", roles("sdr", "adm"), (req, res) => {
   const { lead_id } = req.body || {};
-  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
-  const avl = db.prepare(
-    `SELECT u.id FROM users u WHERE u.org_id = ? AND u.role IN ('corretor','sdr') AND u.available = 1${semMaster("u")} ORDER BY u.name`
-  ).all(req.user.org_id);
-  if (!avl.length) return res.status(409).json({ error: "Ninguém disponível na catraca" });
-  const ptr = org.distribution_ptr % avl.length;
-  const chosen = avl[ptr].id;
+  /* A atendente saiu desta fila (25/08/2026). Ela sorteava entre corretores E
+     atendentes, enquanto o repasse da ficha sorteava só entre corretores — e
+     os dois mexiam no mesmo contador, então usar um bagunçava a vez do outro.
+     A regra escrita já dizia que o repasse nunca volta para a atendente. */
+  const chosen = pegarProximo(req.user.org_id);
+  if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível na catraca" });
   const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
-  db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);
   res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
 });
 
@@ -179,14 +186,15 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
     if (!u) return res.status(404).json({ error: "Corretor não encontrado" });
     if (!u.available) return res.status(409).json({ error: "Corretor indisponível" });
   } else {
-    const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
-    const corr = db.prepare(`SELECT u.id FROM users u WHERE u.org_id = ? AND u.role = 'corretor' AND u.available = 1${semMaster("u")} ORDER BY u.name`).all(req.user.org_id);
-    if (!corr.length) return res.status(409).json({ error: "Nenhum corretor disponível" });
-    chosen = corr[org.distribution_ptr % corr.length].id;
-    db.prepare("UPDATE orgs SET distribution_ptr = ? WHERE id = ?").run(org.distribution_ptr + 1, org.id);
+    chosen = pegarProximo(req.user.org_id);
+    if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível" });
   }
   const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
+  /* Escolher um corretor a dedo TAMBÉM move a vez: quem acabou de receber vai
+     para o fim da fila. Sem isto, a atendente escolhia a Marina na mão e a
+     Marina continuava sendo a próxima do rodízio — recebia de novo em seguida. */
+  marcarQueRecebeu(req.user.org_id, chosen);
   res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
 });
 

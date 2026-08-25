@@ -812,6 +812,7 @@ function ConCRM(){
       api(`/leads/${leadId}/ligacao/${ligId}`,{method:"PATCH",body:{resultado,obs}}),
     pushChave:()=>api("/push/chave"),
     recolherBarra:(recolhida)=>api("/auth/me/barra",{method:"POST",body:{recolhida}}),
+    rodizio:()=>api("/distribution/rodizio"),
     pushSituacao:()=>api("/push/situacao"),
     pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
     pushCancelar:(endpoint)=>api("/push/cancelar",{method:"POST",body:{endpoint}}),
@@ -2745,6 +2746,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [erroAnexo,setErroAnexo]=useState("");
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
+  // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
+  const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id);
   const [colando,setColando]=useState(false);
   /* Mensagem em edição: {id, texto}. O texto vai para o campo de baixo, então
      guardamos o rascunho de antes para devolver se a pessoa desistir. */
@@ -2986,7 +2989,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
-          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> Passar para o corretor da vez</button>
+          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
+          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>é a vez de {proximoDaVez.name} no rodízio</div>}
           <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
             {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
@@ -3774,6 +3778,71 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 }
 
 /* ===== CATRACA (SDR) ===== */
+/* Quem é o próximo da catraca — para o BOTÃO poder dizer o nome.
+
+   Era a segunda metade do pedido do Ali: "ao transferir, identificar quem é o
+   próximo". Um botão escrito "corretor da vez" não diz de quem é a vez, e
+   quem repassa acaba perguntando no grupo do WhatsApp antes de clicar.
+
+   Recarrega quando o lead muda: entre abrir uma ficha e outra, alguém pode ter
+   recebido e a vez já é de outra pessoa. */
+function usarProximoDaVez(acoes,gatilho){
+  const [p,setP]=useState(null);
+  useEffect(()=>{ let vivo=true;
+    acoes.rodizio().then(d=>vivo&&setP(d.proximo)).catch(()=>{});
+    return()=>{vivo=false;}; },[gatilho]);
+  return p;
+}
+
+/* A ordem do rodízio, com número.
+
+   `versao` é quantos estão disponíveis: quando alguém é marcado ou
+   desmarcado, a fila é buscada de novo. Sem isso a tela mostraria a ordem de
+   antes do clique, que é justamente quando ela mudou. */
+function FilaDaVez({acoes,isMobile,versao}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ let vivo=true;
+    acoes.rodizio().then(x=>vivo&&setD(x)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;}; },[versao]);
+
+  if(erro) return null;
+  const naFila=d?d.fila.filter(x=>x.posicao):[];
+  const fora=d?d.fila.filter(x=>!x.posicao):[];
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,display:"flex",alignItems:"center",gap:8}}>
+      <Icon n="transfer" size={15} color={C.green}/> Ordem da catraca</div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
+      Quem recebe o próximo lead do rodízio. Recebeu, vai para o fim da fila —
+      inclusive quando a escolha é feita na mão.
+    </div>
+
+    {!d&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
+
+    {d&&!naFila.length&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>
+      Ninguém disponível — a catraca não tem para quem entregar. Marque quem está pronto ali embaixo.</div>}
+
+    {naFila.map((p,i)=><div key={p.id} style={{display:"flex",alignItems:"center",gap:10,
+      background:i===0?C.greenSoft:"transparent",border:`1px solid ${i===0?C.green+"55":"transparent"}`,
+      borderRadius:11,padding:isMobile?"9px 10px":"7px 10px",marginBottom:4}}>
+      <span style={{fontFamily:MONO,fontSize:13,fontWeight:700,color:i===0?C.greenDeep:C.faint,
+        minWidth:20,textAlign:"right"}}>{p.posicao}º</span>
+      <Avatar ini={initials(p.name)} color={i===0?C.green:C.cool} size={26}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:i===0?700:500,flex:1,minWidth:0,
+        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+      {i===0&&<span style={{background:C.green,color:"#fff",borderRadius:999,padding:"3px 10px",
+        fontSize:10.5,fontWeight:700,flexShrink:0}}>é a vez</span>}
+    </div>)}
+
+    {/* Quem não se prontificou continua na tela, sem número: sem isso o gestor
+        vê seis corretores na equipe e dois na catraca, e não entende o sumiço. */}
+    {fora.length>0&&<div style={{color:C.faint,fontSize:11,marginTop:8,lineHeight:1.5}}>
+      Fora da catraca hoje: {fora.map(p=>first(p.name)).join(", ")} — não marcaram disponibilidade.
+    </div>}
+  </div>;
+}
+
 function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente}){
   const novos=[...fila].sort((a,b)=>ordemTemp(a.prio)-ordemTemp(b.prio));
   const brokers=pessoas, disp=disponiveis;
@@ -3784,6 +3853,14 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       {/* Antes da fila e do roster: cliente parado é o que custa venda, e é a
           primeira coisa que a gestão precisa ver ao abrir esta tela. */}
       <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
+      {/* A FILA DA VEZ, numerada.
+
+          Pedido do Ali: dá para saber quem é o próximo antes de transferir. A
+          ordem vem do servidor, calculada pela MESMA função que a
+          transferência usa — número na tela que o botão não cumpre é pior do
+          que número nenhum. */}
+      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length}/>
+
       {/* roster de disponibilidade */}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
@@ -4520,6 +4597,7 @@ function EtapaIA({lead,acoes,isMobile}){
 }
 
 function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
+  const proximoDaVez=usarProximoDaVez(acoes,lead.id);
   const [simulando,setSimulando]=useState(false);
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
   // não há barra do celular por cima nem disputa de camada.
@@ -4547,8 +4625,10 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>O lead sai da conta atual e passa para o corretor escolhido.</div>
         <button onClick={()=>acoes.repassar(lead.id)} disabled={!corretoresDisponiveis.length}
           style={{width:"100%",background:corretoresDisponiveis.length?C.green:C.coolSoft,color:corretoresDisponiveis.length?"#fff":C.faint,border:"none",cursor:corretoresDisponiveis.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          <Icon n="transfer" size={14}/> Corretor da vez (rodízio)
+          <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
         </button>
+        {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>
+          é a vez de {proximoDaVez.name} no rodízio</div>}
         <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher:</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
           {corretoresDisponiveis.length
