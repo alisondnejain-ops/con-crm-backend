@@ -143,6 +143,30 @@ CREATE TABLE IF NOT EXISTS tarefas (
   created_at INTEGER NOT NULL
 );
 
+/* Observações do lead: o quadro de recados do atendimento.
+
+   "O cliente só atende depois das 18h", "o marido é quem decide", "já foi
+   negado na Caixa em janeiro". Coisas que não são etapa, não são tarefa e não
+   cabem na conversa — mas que quem atende precisa ver antes de falar.
+
+   O caso que motivou (pedido do Ali, 22/08/2026) é o REPASSE: a atendente faz
+   o primeiro contato e passa o lead adiante. O que ela descobriu na conversa
+   se perdia, e o corretor começava do zero ou relia quarenta mensagens.
+
+   É uma LISTA, não um campo de texto único. Com um campo só, a atendente e o
+   corretor escrevendo ao mesmo tempo apagariam um ao outro em silêncio — e
+   observação apagada por acidente ninguém descobre que existiu. Em lista, cada
+   recado tem autor e hora, e some só quando alguém manda apagar. */
+CREATE TABLE IF NOT EXISTS observacoes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  autor_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_obs_lead ON observacoes(lead_id, created_at);
+
 CREATE TABLE IF NOT EXISTS ligacoes (
   id TEXT PRIMARY KEY,
   lead_id TEXT NOT NULL,

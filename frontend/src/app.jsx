@@ -88,6 +88,8 @@ function adaptLead(l,anterior){
     etapaIA:l.etapa_ia||(anterior?anterior.etapaIA:null),
     // Estado do robô do fora-do-expediente neste lead. Só a supervisão recebe.
     robo:l.robo!==undefined?l.robo:(anterior?anterior.robo:null),
+    // Observações do lead: só chegam ao abrir a conversa.
+    obs:l.observacoes!==undefined?l.observacoes:(anterior?anterior.obs:null),
     // Desde quando está nesta etapa. null = nunca mudou desde que o histórico
     // existe; a tela mostra "—" em vez de inventar uma data.
     etapaDesde:l.etapa_desde!==undefined?l.etapa_desde:(anterior?anterior.etapaDesde:null),
@@ -864,6 +866,9 @@ function ConCRM(){
     roboConferir:()=>api("/config/robo/conferir"),
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
+    observacoes:(leadId)=>api(`/leads/${leadId}/observacoes`),
+    anotar:(leadId,texto)=>api(`/leads/${leadId}/observacoes`,{method:"POST",body:{texto}}),
+    apagarObs:(leadId,obsId)=>api(`/leads/${leadId}/observacoes/${obsId}`,{method:"DELETE"}),
     roboEnsino:()=>api("/config/robo/ensino"),
     roboEnsinar:(texto)=>api("/config/robo/ensino",{method:"POST",body:{texto}}),
     roboEnsinoEditar:(id,dados)=>api("/config/robo/ensino/"+id,{method:"PATCH",body:dados}),
@@ -2804,6 +2809,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
+      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
@@ -2879,6 +2885,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
 
         <NomeDoLead lead={sel} acoes={acoes}/>
+        <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
@@ -3883,6 +3890,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
           de corretor para apagar, e alguém precisa poder encerrar. */}
       {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
+      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
@@ -3918,7 +3926,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
 
-    {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} corretoresDisponiveis={corretoresDisponiveis}
+    {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} session={session} corretoresDisponiveis={corretoresDisponiveis}
       aoVoltar={fichaPorBotao?()=>setPane("chat"):null} largura={fichaPorBotao?"100%":300}/>}
   </div>;
 }
@@ -3943,6 +3951,124 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
      corretor agir sobre algo que já mudou;
    - só sai no clique. O texto da conversa vai para o provedor de IA, e isso
      não pode acontecer sozinho em toda conversa que alguém abre. */
+/* ===== OBSERVAÇÕES DO LEAD =====
+
+   O quadro de recados do atendimento: "só atende depois das 18h", "quem decide
+   é o marido", "já foi negado na Caixa em janeiro". Não é etapa, não é tarefa,
+   e não cabe na conversa — mas é o que quem atende precisa saber ANTES de
+   falar.
+
+   Aparece em dois lugares de propósito, e o segundo é o que importa:
+
+   1) na ficha, onde se escreve e se apaga;
+   2) numa FAIXA acima da conversa, onde se lê. Durante o atendimento ninguém
+      abre ficha: o cliente está esperando, e no celular a ficha é outra tela.
+      Recado que só existe atrás de um botão é recado que não é lido — e o caso
+      que motivou tudo isto é o repasse, em que o corretor abre a conversa sem
+      saber o que a atendente descobriu.
+
+   É uma lista com autor e hora, não um campo de texto único: com um campo só,
+   dois atendendo ao mesmo tempo se apagariam em silêncio. */
+function usarObservacoes({lead,acoes}){
+  const [lista,setLista]=useState(lead.obs||null);
+  const [erro,setErro]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  // A lista vem junto com a conversa; este efeito só a mantém em dia quando o
+  // lead é recarregado ou trocado.
+  useEffect(()=>{ setLista(lead.obs||null); setErro(""); },[lead.id,lead.obs]);
+
+  async function anotar(texto){
+    if(!texto.trim()||salvando) return false;
+    setErro(""); setSalvando(true);
+    try{ setLista((await acoes.anotar(lead.id,texto.trim())).observacoes); return true; }
+    catch(e){ setErro(e.message); return false; }
+    finally{ setSalvando(false); }
+  }
+  async function apagar(id){
+    setErro("");
+    try{ setLista((await acoes.apagarObs(lead.id,id)).observacoes); }
+    catch(e){ setErro(e.message); }
+  }
+  return {lista:lista||[],erro,salvando,anotar,apagar};
+}
+
+// A faixa que aparece ACIMA da conversa. Mostra a mais recente e abre o resto
+// num toque — três recados empilhados empurrariam a conversa para fora da tela.
+function FaixaObservacoes({lead,isMobile}){
+  const [aberta,setAberta]=useState(false);
+  const lista=lead.obs||[];
+  useEffect(()=>{setAberta(false);},[lead.id]);
+  if(!lista.length) return null;
+  const mostrar=aberta?lista:lista.slice(0,1);
+  return <div style={{background:"#FFF8E6",borderBottom:`1px solid #E8D9A8`,padding:isMobile?"9px 12px":"9px 16px",flexShrink:0}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+      <Icon n="star" size={12} color="#8a6d1f"/>
+      <span style={{color:"#8a6d1f",fontSize:11,fontWeight:700,flex:1}}>
+        Observações{lista.length>1?` · ${lista.length}`:""}</span>
+      {lista.length>1&&<button onClick={()=>setAberta(a=>!a)}
+        style={{border:"none",background:"transparent",color:"#8a6d1f",fontSize:11,fontWeight:600,cursor:"pointer",textDecoration:"underline",padding:0}}>
+        {aberta?"ver menos":`ver as ${lista.length}`}</button>}
+    </div>
+    {mostrar.map(o=><div key={o.id} style={{color:C.ink,fontSize:12.5,lineHeight:1.45,marginTop:3,whiteSpace:"pre-wrap"}}>
+      {o.texto}
+      <span style={{color:"#9a8550",fontSize:10.5,fontWeight:600}}> — {first(o.autor)||"alguém"}, {fmtQuando(o.created_at)}</span>
+    </div>)}
+  </div>;
+}
+
+// O cartão da ficha: onde se escreve e se apaga.
+function Observacoes({lead,acoes,session,isMobile}){
+  const o=usarObservacoes({lead,acoes});
+  const [texto,setTexto]=useState("");
+  const [escrevendo,setEscrevendo]=useState(false);
+  useEffect(()=>{setTexto("");setEscrevendo(false);},[lead.id]);
+
+  async function salvar(){ if(await o.anotar(texto)){ setTexto(""); setEscrevendo(false); } }
+  const podeApagar=(obs)=>obs.autor_id===session.id||session.role==="adm"||session.role==="sdr";
+
+  return <div style={{background:"#FFF8E6",border:`1px solid #E8D9A8`,borderRadius:12,padding:12,marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+      <Icon n="star" size={13} color="#8a6d1f"/>
+      <span style={{color:"#8a6d1f",fontSize:12,fontWeight:700,flex:1}}>Observações</span>
+      {!escrevendo&&<button onClick={()=>setEscrevendo(true)}
+        style={{border:"none",background:"transparent",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",padding:0}}>+ anotar</button>}
+    </div>
+
+    {!o.lista.length&&!escrevendo&&<div style={{color:"#9a8550",fontSize:11.5,lineHeight:1.5}}>
+      O que quem atender precisa saber antes de falar: melhor horário, quem decide na família,
+      tentativa anterior. Aparece no alto da conversa, para o corretor ler ao abrir.
+    </div>}
+
+    {escrevendo&&<React.Fragment>
+      <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={3} maxLength={1000} autoFocus
+        placeholder="Ex.: só atende depois das 18h; quem decide é o marido."
+        style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
+          border:`1px solid #E8D9A8`,background:C.card,borderRadius:9,padding:"8px 10px",
+          color:C.ink,outline:"none",resize:"vertical",marginBottom:7}}/>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:o.lista.length?9:0}}>
+        <button onClick={salvar} disabled={!texto.trim()||o.salvando}
+          style={{border:"none",background:texto.trim()?C.greenDeep:C.faint,color:"#fff",borderRadius:9,
+            padding:isMobile?"11px 15px":"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {o.salvando?"Salvando…":"Salvar"}</button>
+        <button onClick={()=>{setEscrevendo(false);setTexto("");}} disabled={o.salvando}
+          style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,
+            padding:isMobile?"11px 15px":"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </React.Fragment>}
+
+    {o.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginBottom:8}}>{o.erro}</div>}
+
+    {o.lista.map(obs=><div key={obs.id} style={{background:C.card,borderRadius:9,padding:"8px 10px",marginTop:6}}>
+      <div style={{color:C.ink,fontSize:12.5,lineHeight:1.45,whiteSpace:"pre-wrap"}}>{obs.texto}</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
+        <span style={{color:C.faint,fontSize:10.5,flex:1}}>{obs.autor||"alguém"} · {fmtQuando(obs.created_at)}</span>
+        {podeApagar(obs)&&<button onClick={()=>o.apagar(obs.id)} title="Apagar esta observação"
+          style={{border:"none",background:"transparent",color:C.faint,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1}}>×</button>}
+      </div>
+    </div>)}
+  </div>;
+}
+
 function ResumoIA({lead,acoes,isMobile}){
   const [dados,setDados]=useState(lead.resumo&&lead.resumo.gerado||null);
   const [novas,setNovas]=useState(lead.resumo?lead.resumo.novas||0:0);
@@ -4303,7 +4429,7 @@ function EtapaIA({lead,acoes,isMobile}){
   </div>;
 }
 
-function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
+function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
   const [simulando,setSimulando]=useState(false);
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
   // não há barra do celular por cima nem disputa de camada.
@@ -4319,6 +4445,7 @@ function FichaLead({lead,acoes,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <NomeDoLead lead={lead} acoes={acoes}/>
+      <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>

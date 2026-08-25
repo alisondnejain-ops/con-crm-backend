@@ -515,6 +515,51 @@ r.post("/lote/temperatura-ia/:corretorId", roles("adm"), async (req, res) => {
    Só a supervisão: é a mesma decisão de ligar o robô, tomada num atendimento
    só. O corretor não entra porque, se o lead está com ele, o robô não fala de
    qualquer jeito — a trava do dono continua valendo depois de religar. */
+/* ===== OBSERVAÇÕES DO LEAD =====
+
+   O quadro de recados do atendimento. Quem pode ABRIR a conversa pode ler e
+   escrever: o corretor dono do lead e a supervisão. É de propósito que a
+   atendente escreva na ficha de um lead que já é do corretor — o caso que
+   motivou o recurso é exatamente esse, ela deixar o aviso antes de repassar.
+
+   Apagar é mais restrito: o autor apaga o que escreveu, e a supervisão apaga
+   qualquer um. O corretor não apaga o recado que a atendente deixou para ele. */
+r.get("/:id/observacoes", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json({ observacoes: observacoesDoLead(lead.id) });
+});
+
+r.post("/:id/observacoes", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+
+  const texto = String(req.body?.texto || "").trim();
+  if (!texto) return res.status(400).json({ error: "Escreva a observação." });
+
+  db.prepare(`INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at)
+    VALUES (?,?,?,?,?,?)`).run("ob_" + randomUUID(), lead.org_id, lead.id,
+      texto.slice(0, 1000), req.user.id, Date.now());
+  res.json({ observacoes: observacoesDoLead(lead.id) });
+});
+
+r.delete("/:id/observacoes/:obsId", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+
+  const obs = db.prepare("SELECT * FROM observacoes WHERE id = ? AND lead_id = ?").get(req.params.obsId, lead.id);
+  if (!obs) return res.status(404).json({ error: "Observação não encontrada" });
+  // O recado que a atendente deixou para o corretor não é dele para apagar.
+  if (obs.autor_id !== req.user.id && !supervisiona(req.user))
+    return res.status(403).json({ error: "Só quem escreveu pode apagar esta observação." });
+
+  db.prepare("DELETE FROM observacoes WHERE id = ?").run(obs.id);
+  res.json({ observacoes: observacoesDoLead(lead.id) });
+});
+
 r.post("/:id/robo", roles("adm", "sdr"), (req, res) => {
   const out = ligarNoLead(req.user.org_id, req.params.id, req.body?.ativo !== false);
   if (out.erro) return res.status(404).json({ error: out.erro });
@@ -551,6 +596,14 @@ r.post("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.or
 // nas rotas de mensagem — duas cópias da mesma regra é como uma delas fica para
 // trás. Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.
 const podeVer = podeVerLead;
+
+/* As observações, da mais nova para a mais antiga: o recado de agora é o que
+   interessa quando o corretor abre a conversa com o cliente esperando. */
+function observacoesDoLead(leadId) {
+  return db.prepare(`SELECT o.id, o.texto, o.autor_id, o.created_at, u.name AS autor
+    FROM observacoes o LEFT JOIN users u ON u.id = o.autor_id
+    WHERE o.lead_id = ? ORDER BY o.created_at DESC`).all(leadId);
+}
 
 r.get("/:id", (req, res) => {
   const lead = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(req.params.id);
@@ -593,7 +646,10 @@ r.get("/:id", (req, res) => {
     etapa_desde: [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null,
     // O robô do fora-do-expediente, neste lead. Só a supervisão liga e desliga,
     // então só ela recebe o cartão.
-    robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null });
+    robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null,
+    // Junto com o lead: a faixa de observações precisa aparecer no mesmo
+    // instante em que a conversa abre, e não uma requisição depois.
+    observacoes: observacoesDoLead(lead.id) });
 });
 
 /* O resumo que já está no banco, com a informação que muda tudo: quantas

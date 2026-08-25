@@ -13,7 +13,7 @@
     "teste:dono": "node testes/dono-imobiliaria.mjs",
     "teste:whatsapp": "node testes/whatsapp-por-imobiliaria.mjs",
     "teste:apagar": "node testes/apagar-imobiliaria.mjs",
-    "teste": "npm run teste:webhook && npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:tempo && npm run teste:lote && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse && npm run teste:robo && npm run teste:push",
+    "teste": "npm run teste:webhook && npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:tempo && npm run teste:lote && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse && npm run teste:robo && npm run teste:push && npm run teste:observacoes",
     "teste:resumo": "node testes/resumo-ia.mjs",
     "teste:iauso": "node testes/uso-ia.mjs",
     "teste:funil": "node testes/diagnostico-funil.mjs",
@@ -27,7 +27,8 @@
     "teste:tempo": "node testes/tempo-de-quem.mjs",
     "teste:lote": "node testes/arrumar-base.mjs",
     "teste:robo": "node testes/robo-primeiro-atendimento.mjs",
-    "teste:push": "node testes/push-nao-desliga.mjs"
+    "teste:push": "node testes/push-nao-desliga.mjs",
+    "teste:observacoes": "node testes/observacoes.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",
