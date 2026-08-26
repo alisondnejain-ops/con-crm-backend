@@ -16,7 +16,7 @@ import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster } from "../auth.js";
 import { situacao } from "../services/assinatura.js";
-import { apagar as apagarArquivo } from "../services/storage.js";
+import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 
@@ -183,6 +183,68 @@ r.delete("/masters/:id", (req, res) => {
   console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name} — a conta foi desativada`);
   res.json({ ok: true, nome: alvo.name });
 });
+
+/* ===== A FOTO DA TELA DE ENTRADA =====
+
+   Uma imagem só, igual para todo mundo que abre o sistema — inclusive para
+   quem ainda não tem conta. Por isso ela não mora em `orgs`: não é de
+   imobiliária nenhuma.
+
+   Sobe pela tela porque quem troca é o dono da plataforma, não a hospedagem.
+   Colocar o arquivo dentro do projeto exigiria mexer no GitHub a cada troca, e
+   ele se perderia no próximo deploy: o disco do container é descartável. Aqui
+   ela vai para o mesmo armazenamento das fotos dos imóveis, que é persistente,
+   e o endereço fica guardado no banco.
+
+   O caminho público continua sendo `/login-fundo.jpg` (ver server.js): a tela
+   de login não tem sessão e não pode consultar nada antes de desenhar. */
+const CHAVE_FUNDO = "login_fundo";
+const lerConfig = (chave) => {
+  const l = db.prepare("SELECT valor FROM config_plataforma WHERE chave = ?").get(chave);
+  try { return l ? JSON.parse(l.valor) : null; } catch (e) { return null; }
+};
+const gravarConfig = (chave, valor) =>
+  db.prepare(`INSERT INTO config_plataforma (chave,valor,atualizado_em) VALUES (?,?,?)
+    ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor, atualizado_em=excluded.atualizado_em`)
+    .run(chave, valor ? JSON.stringify(valor) : null, Date.now());
+
+r.get("/login-fundo", (req, res) => res.json({ fundo: lerConfig(CHAVE_FUNDO) }));
+
+r.post("/login-fundo", async (req, res) => {
+  const { mime, base64 } = req.body || {};
+  if (!mime || !base64) return res.status(400).json({ error: "Escolha uma imagem." });
+  if (ehVideo(mime) || !tipoPermitido(mime))
+    return res.status(400).json({ error: "Use uma imagem JPG, PNG ou WEBP." });
+
+  const buffer = Buffer.from(String(base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+  /* 6 MB porque é uma foto de fundo em tela cheia e comprimir demais aparece —
+     mas ela é baixada por TODO MUNDO que abre o login, inclusive no 4G do
+     corretor, então também não pode ser um arquivo de câmera sem tratamento. */
+  if (buffer.length > 6 * 1024 * 1024)
+    return res.status(413).json({ error: "Imagem muito grande. O limite é 6 MB." });
+
+  const anterior = lerConfig(CHAVE_FUNDO);
+  try {
+    const { url, chave } = await salvar({ buffer, mime, prefixo: "plataforma/login" });
+    gravarConfig(CHAVE_FUNDO, { url, chave, em: Date.now() });
+    if (anterior && anterior.chave) apagarArquivo(anterior.chave);
+    console.log(`[login] ${req.user.name} trocou a foto da tela de entrada`);
+    res.json({ ok: true, fundo: lerConfig(CHAVE_FUNDO) });
+  } catch (e) {
+    console.error("[login] falha ao guardar a foto:", e.message);
+    res.status(500).json({ error: "Não consegui guardar a imagem. Tente de novo." });
+  }
+});
+
+r.delete("/login-fundo", (req, res) => {
+  const atual = lerConfig(CHAVE_FUNDO);
+  if (atual && atual.chave) apagarArquivo(atual.chave);
+  gravarConfig(CHAVE_FUNDO, null);
+  res.json({ ok: true, fundo: null });
+});
+
+/* O endereço público da foto, para o `server.js` responder sem exigir login. */
+export const fundoDoLogin = () => lerConfig(CHAVE_FUNDO);
 
 /* Cadastra uma imobiliária nova.
 

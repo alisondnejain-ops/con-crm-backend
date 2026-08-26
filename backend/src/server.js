@@ -17,7 +17,7 @@ import assinaturaRoutes from "./routes/assinatura.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
-import orgsRoutes from "./routes/orgs.routes.js";
+import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
 import configRoutes from "./routes/config.routes.js";
 import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
@@ -158,6 +158,26 @@ const paginaImobiliaria = (req, res) => servirPagina("criar-imobiliaria.html", r
 app.get("/criar-imobiliaria", paginaImobiliaria);
 // Apelido curto: é o que cabe num card de anúncio e o que as pessoas chutam.
 app.get("/nova-imobiliaria", paginaImobiliaria);
+
+/* A FOTO DA TELA DE ENTRADA, sem exigir login.
+
+   O CSS do login pede `/login-fundo.jpg` e a tela é desenhada antes de existir
+   sessão — então este caminho precisa responder para qualquer visitante. O
+   arquivo em si vive no armazenamento (R2 ou disco), como as fotos dos
+   imóveis: aqui só redirecionamos para ele.
+
+   Sem foto escolhida a resposta é 404, e o navegador simplesmente não pinta a
+   camada — o verde profundo que está embaixo continua ali. É por isso que a
+   tela de entrada nunca depende deste arquivo existir.
+
+   Fica ANTES do express.static de propósito: se um dia alguém puser um
+   login-fundo.jpg dentro de public/, o static responderia primeiro e a escolha
+   feita na tela deixaria de valer, sem nenhum erro aparecer. */
+app.get("/login-fundo.jpg", (_req, res) => {
+  const fundo = fundoDoLogin();
+  if (!fundo || !fundo.url) return res.status(404).end();
+  res.redirect(302, fundo.url);
+});
 
 app.use(express.static(publicDir, { extensions: ["html"] }));
 /* A raiz abre o CRM.

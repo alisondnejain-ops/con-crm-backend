@@ -1049,6 +1049,11 @@ function ConCRM(){
     listarSocios:()=>api("/orgs/masters"),
     convidarSocio:(dados)=>api("/orgs/masters",{method:"POST",body:dados}),
     tirarSocio:(id)=>api(`/orgs/masters/${id}`,{method:"DELETE"}),
+    // A foto da tela de entrada. É uma só, da plataforma, e vale para todo
+    // mundo que abre o sistema — inclusive para quem ainda não tem conta.
+    fundoDoLogin:()=>api("/orgs/login-fundo"),
+    enviarFundoDoLogin:(mime,base64)=>api("/orgs/login-fundo",{method:"POST",body:{mime,base64}}),
+    tirarFundoDoLogin:()=>api("/orgs/login-fundo",{method:"DELETE"}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
@@ -1517,6 +1522,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         </div>}
 
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
+      <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
     </div>
   </div>;
 }
@@ -1655,6 +1661,88 @@ function Socios({acoes,session,isMobile}){
         style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:12,padding:"13px 18px",
           cursor:"pointer",display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600}}>
         <Icon n="userplus" size={17}/> Convidar sócio ou administrador</button>}
+  </div>;
+}
+
+/* A FOTO DA TELA DE ENTRADA.
+
+   Mora no hub porque é da PLATAFORMA: uma imagem só, que todo mundo vê ao
+   abrir o sistema — inclusive quem ainda não tem conta. Não é a logo de uma
+   imobiliária, que é outra coisa e fica em Configurações → Identidade.
+
+   Sobe por aqui, e não por dentro do projeto, por dois motivos: trocar a foto
+   não pode exigir mexer no GitHub, e o disco do servidor é descartável — um
+   arquivo colocado lá some no próximo deploy. Aqui ela vai para o mesmo
+   armazenamento das fotos dos imóveis.
+
+   A prévia mostra o resultado REAL: a foto com o degradê verde por cima, que é
+   como ela vai aparecer. Uma miniatura crua enganaria — foto clara demais só
+   se revela quando o texto branco entra em cima. */
+function FundoDoLogin({acoes,isMobile}){
+  const [fundo,setFundo]=useState(undefined);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const arquivo=useRef(null);
+
+  useEffect(()=>{ acoes.fundoDoLogin().then(d=>setFundo(d.fundo)).catch(e=>{setErro(e.message);setFundo(null);}); },[]);
+
+  function escolher(e){
+    const f=e.target.files&&e.target.files[0];
+    e.target.value="";
+    if(!f) return;
+    if(f.size>6*1024*1024) return setErro("Imagem muito grande. O limite é 6 MB.");
+    setErro("");setOcupado(true);
+    const leitor=new FileReader();
+    leitor.onload=async()=>{
+      try{ const d=await acoes.enviarFundoDoLogin(f.type,String(leitor.result).split(",")[1]); setFundo(d.fundo); }
+      catch(err){ setErro(err.message); }
+      finally{ setOcupado(false); }
+    };
+    leitor.onerror=()=>{ setErro("Não consegui ler o arquivo."); setOcupado(false); };
+    leitor.readAsDataURL(f);
+  }
+  async function tirar(){
+    setErro("");setOcupado(true);
+    try{ const d=await acoes.tirarFundoDoLogin(); setFundo(d.fundo); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(false); }
+  }
+
+  return <div style={{marginTop:isMobile?24:32,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
+      Foto da tela de entrada</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:16,lineHeight:1.55}}>
+      O fundo do login, que todo mundo vê antes de entrar. Uma foto larga
+      (16:9) funciona melhor — sem ela a tela fica no verde, como está hoje.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    <div style={{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+      {/* A prévia do jeito que fica: foto + degradê + texto branco por cima. */}
+      <div style={{position:"relative",width:isMobile?"100%":300,aspectRatio:"16 / 9",borderRadius:14,
+        overflow:"hidden",background:C.greenDeep,flexShrink:0,border:`1px solid ${C.line}`}}>
+        {fundo&&fundo.url&&<div style={{position:"absolute",inset:0,backgroundImage:`url('${fundo.url}')`,
+          backgroundSize:"cover",backgroundPosition:"center"}}/>}
+        <div style={{position:"absolute",inset:0,
+          background:`linear-gradient(180deg, ${C.greenDeep}e0 0%, ${C.greenDeep}b8 42%, ${C.greenDeep}cc 72%, ${C.greenDeep}f0 100%)`}}/>
+        <div style={{position:"absolute",left:14,bottom:12,right:14,color:"#fff",fontFamily:DISPLAY,
+          fontSize:isMobile?15:14,fontWeight:700,lineHeight:1.2,textShadow:"0 2px 14px rgba(0,0,0,.55)"}}>
+          Nenhum lead esquecido.<br/>Nenhuma venda no acaso.</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <input ref={arquivo} type="file" accept="image/jpeg,image/png,image/webp" onChange={escolher} style={{display:"none"}}/>
+        <button onClick={()=>arquivo.current&&arquivo.current.click()} disabled={ocupado}
+          style={{background:ocupado?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
+            padding:"11px 18px",fontSize:13,fontWeight:600,cursor:ocupado?"default":"pointer"}}>
+          {ocupado?"Enviando…":fundo&&fundo.url?"Trocar a foto":"Escolher a foto"}</button>
+        {fundo&&fundo.url&&<button onClick={tirar} disabled={ocupado}
+          style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+            padding:"11px 18px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Tirar a foto</button>}
+        <div style={{color:C.faint,fontSize:11,lineHeight:1.5,maxWidth:220}}>
+          JPG, PNG ou WEBP, até 6 MB. Ela é baixada por quem abre o login,
+          então evite o arquivo direto da câmera.
+        </div>
+      </div>
+    </div>
   </div>;
 }
 

@@ -285,6 +285,23 @@ CREATE TABLE IF NOT EXISTS robo_ensino (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ensino_org ON robo_ensino(org_id, ordem);
+
+/* AJUSTES DA PLATAFORMA, acima das imobiliárias.
+
+   Uma tabela chave-valor pequena, e de propósito: o que mora aqui não pertence
+   a imobiliária nenhuma — hoje é só a foto da tela de entrada, que é a mesma
+   para todo mundo que abre o sistema.
+
+   Não virou coluna em "orgs" porque não é de uma org, e não virou variável de
+   ambiente porque quem troca é o Ali pela tela, não a hospedagem.
+
+   (Sem crases neste comentário: ele vive dentro do template literal do
+   db.exec, e uma crase aqui fecharia a string no meio do schema.) */
+CREATE TABLE IF NOT EXISTS config_plataforma (
+  chave TEXT PRIMARY KEY,
+  valor TEXT,
+  atualizado_em INTEGER
+);
 CREATE INDEX IF NOT EXISTS idx_etapas_lead ON lead_etapas(lead_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_etapas_org ON lead_etapas(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tarefas_lead ON tarefas(lead_id, quando);
