@@ -3173,15 +3173,23 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
      gestão faz de verdade é "como está o funil DA MARINA" — e essa não tinha
      resposta em lugar nenhum.
 
-     A busca casa com o nome do LEAD e com o nome do CORRETOR, no mesmo campo:
-     quem digita "marina" quer o funil dela, quem digita "jhennyfer" quer o
-     lead. Perguntar antes em qual dos dois procurar seria trabalho para o
-     computador jogado no colo de quem usa.
+     A busca casa com nome de LEAD e nome de CORRETOR, e o seletor ao lado diz
+     em qual dos dois procurar. Ele nasceu de um pedido do Ali (26/08/2026) e o
+     motivo é bom: o campo único acerta, mas não CONTA o que está fazendo —
+     quem procura "Marina" e recebe leads chamados Marina junto com o funil da
+     corretora Marina não entende de onde saiu cada resultado.
+
+     "Tudo" continua sendo o padrão, porque é o que serve a quem já sabe o que
+     digitou. O seletor existe para quando o nome é ambíguo, que é justamente
+     quando a busca única confunde.
 
      A peneira roda NO NAVEGADOR, sobre os leads já carregados — o quadro já
      tem tudo na mão, e ir ao servidor a cada tecla seria uma volta inteira
      para filtrar uma lista que está aqui. */
   const [busca,setBusca]=usarEscolha("funil.busca","");
+  /* Guardado junto com o texto: voltar com a busca escrita e o alvo trocado
+     mostraria um resultado que não é o que a pessoa deixou na tela. */
+  const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
   const [f,setF]=useState({dono:"",prioridade:"",de:"",ate:""});
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
   const filtrosAtivos=[f.dono,f.prioridade,f.de,f.ate].filter(Boolean).length;
@@ -3196,7 +3204,12 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         const nome=semAcento(String(l.nome||"").toLowerCase());
         const dono=semAcento(String(l.assignedName||"").toLowerCase());
         const tel=String(l.tel||"").replace(/\D/g,"");
-        if(!(nome.includes(q)||dono.includes(q)||(digitos.length>=4&&tel.includes(digitos)))) return false;
+        /* Telefone só entra quando se procura o LEAD: número é do cliente, e
+           casá-lo procurando corretor devolveria resultado que ninguém pediu. */
+        const achouLead=nome.includes(q)||(digitos.length>=4&&tel.includes(digitos));
+        const achouDono=dono.includes(q);
+        const bateu=onde==="lead"?achouLead:onde==="corretor"?achouDono:(achouLead||achouDono);
+        if(!bateu) return false;
       }
       // "fila" é um dono possível: lead sem ninguém é justamente o que some do
       // radar, e sem esta opção não haveria como listá-los.
@@ -3207,7 +3220,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       if(fim&&quando>fim) return false;
       return true;
     });
-  },[leads,busca,f]);
+  },[leads,busca,onde,f]);
 
   const limpar=()=>setF({dono:"",prioridade:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
@@ -3280,7 +3293,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex"}}>
             <Icon n="search" size={14} color={C.faint}/></span>
           <input value={busca} onChange={e=>setBusca(e.target.value)}
-            placeholder={mostrarDono?"Buscar por lead ou corretor":"Buscar por nome do lead"}
+            placeholder={!mostrarDono?"Buscar por nome do lead"
+              :onde==="lead"?"Buscar por nome do lead"
+              :onde==="corretor"?"Buscar por nome do corretor"
+              :"Buscar por lead ou corretor"}
             style={{width:"100%",fontSize:isMobile?16:12.5,padding:isMobile?"10px 32px 10px 30px":"8px 32px 8px 30px",
               borderRadius:9,border:`1px solid ${busca?C.green+"66":C.line}`,background:busca?C.greenSoft:C.surface,
               color:C.ink,outline:"none"}}/>
@@ -3288,6 +3304,25 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
               color:C.faint,cursor:"pointer",fontSize:15,lineHeight:1,padding:4}}>×</button>}
         </div>
+        {/* EM QUAL DOS DOIS PROCURAR.
+
+            Só existe para quem enxerga a equipe: o corretor vê apenas os leads
+            dele, e "buscar por corretor" ali seria um campo que sempre devolve
+            a mesma coisa.
+
+            Fica GRUDADO na busca, e não dentro da gaveta, porque é parte da
+            pergunta que está sendo feita — escondido, ninguém saberia que a
+            busca tem alvo, que é justamente o que este seletor veio contar. */}
+        {mostrarDono&&<select value={onde} onChange={e=>setOnde(e.target.value)}
+          title="Onde procurar o que você digitou"
+          style={{fontSize:isMobile?16:12.5,fontWeight:600,flexShrink:0,cursor:"pointer",
+            color:onde==="tudo"?C.sub:C.greenDeep,background:onde==="tudo"?C.surface:C.greenSoft,
+            border:`1px solid ${onde==="tudo"?C.line:C.green+"66"}`,borderRadius:9,
+            padding:isMobile?"10px 8px":"8px 9px",outline:"none"}}>
+          <option value="tudo">Lead ou corretor</option>
+          <option value="lead">Só o lead</option>
+          <option value="corretor">Só o corretor</option>
+        </select>}
         <button onClick={()=>setFiltrosAbertos(a=>!a)}
           style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
             background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,
