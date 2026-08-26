@@ -18,6 +18,11 @@ const DISPLAY="'Sora',sans-serif", FONT="'Inter',sans-serif", MONO="'IBM Plex Mo
    O padrão fica AQUI e no `services/marca.js` do servidor. Nas telas ninguém
    escreve o verde na mão: quem não tem marca própria recebe este objeto, então
    a barra tem um caminho só, com ou sem personalização. */
+/* Busca não pode depender de acento: ninguém digita "João" no meio do
+   atendimento, digita "joao". O nome do lead vem do aparelho do cliente e vem
+   acentuado; quem procura, não. */
+const semAcento=(t)=>String(t||"").normalize("NFD").replace(/[̀-ͯ]/g,"");
+
 const MARCA_PADRAO={logo:null,cor:C.greenDeep};
 const marcaDe=(org)=>({logo:(org&&org.logo)||null,cor:(org&&org.cor)||C.greenDeep});
 /* O marcador do item ativo é verde no tema padrão e branco em cima de qualquer
@@ -111,6 +116,9 @@ function adaptLead(l,anterior){
     // Resumo da conversa feito pela IA (vem só ao abrir a conversa).
     resumo:l.resumo||(anterior?anterior.resumo:null),
     etapaIA:l.etapa_ia||(anterior?anterior.etapaIA:null),
+    // A etapa que a CONVERSA sugere pela palavra dita. Recomendação: só
+    // entra no funil quando alguém confirma.
+    sugestaoEtapa:l.sugestao_etapa!==undefined?l.sugestao_etapa:(anterior?anterior.sugestaoEtapa:null),
     // Estado do robô do fora-do-expediente neste lead. Só a supervisão recebe.
     robo:l.robo!==undefined?l.robo:(anterior?anterior.robo:null),
     // Observações do lead: só chegam ao abrir a conversa.
@@ -191,15 +199,16 @@ const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprov
 const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprovação":"aprovação",
   "Agendamento":"visita","Visita":"o que achou do imóvel","Proposta":"fechar","Venda":"contrato"};
 
-/* A etapa só anda quando a palavra é dita na conversa. Se o corretor não sabe
-   qual é a palavra, a regra não existe na prática — então ela fica escrita
-   embaixo do seletor de etapa, na ficha do lead. */
+/* A palavra dita na conversa RECOMENDA a etapa; ela não move mais nada
+   sozinha (26/08/2026). Este texto mudou junto: enquanto dizia "diga a palavra
+   e o lead vai", ele prometia um automatismo que não existe mais — e regra que
+   a tela ensina errado é pior do que regra nenhuma. */
 function DicaEtapa({etapa}){
   const i=LINEAR.indexOf(etapa);
   const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
   return <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.5}}>
     {prox
-      ?<React.Fragment>Para ir para <b style={{color:STAGE_C[prox]}}>{prox}</b>, diga <b style={{color:C.ink}}>“{PALAVRA_ETAPA[prox]}”</b> na conversa. Ou mude aqui na mão.</React.Fragment>
+      ?<React.Fragment>Quem move a etapa é você, aqui. Se alguém falar em <b style={{color:C.ink}}>“{PALAVRA_ETAPA[prox]}”</b> na conversa, o CRM sugere <b style={{color:STAGE_C[prox]}}>{prox}</b> para você confirmar.</React.Fragment>
       :i>=0?"Última etapa do funil. Dá para mudar aqui na mão."
       :"Etapa marcada na mão — a conversa não mexe mais nela."}
   </div>;
@@ -884,6 +893,11 @@ function ConCRM(){
        volta, e é por isso que a barra muda de cor no mesmo clique: sem isso a
        nova identidade só apareceria no próximo login, e o gestor recarregaria
        a página achando que não salvou. */
+    /* Confirmar ou dispensar a etapa que a conversa recomendou. Passa pelo
+       `acao(...)` para a lista e a conversa aberta se atualizarem: confirmar
+       move o lead de coluna no funil, e a tela precisa mostrar isso na hora. */
+    resolverSugestao:acao((leadId,acaoEscolhida)=>
+      api(`/leads/${leadId}/sugestao-etapa`,{method:"POST",body:{acao:acaoEscolhida}})),
     marca:()=>api("/config/marca"),
     salvarCor:async(cor)=>{ const d=await api("/config/marca",{method:"PATCH",body:{cor}});
       setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
@@ -1900,7 +1914,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
         {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
-        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes}/>}
+        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
@@ -2758,6 +2772,31 @@ function TextoDaMensagem({texto}){
    Um gancho só, usado pelos DOIS campos (o do corretor e o da supervisão), que
    são componentes diferentes e já divergiram antes. Com a lógica em um lugar,
    consertar num conserta nos dois. */
+/* LEAD ABERTO DE FORA DA TELA DE ATENDIMENTO, NO CELULAR.
+
+   Relatórios, funil, painel de recomendações e Base de leads têm o mesmo gesto:
+   toca no nome do lead e cai na conversa dele. No computador funcionava — a
+   lista e a conversa aparecem lado a lado, então escolher o lead já mostra a
+   conversa. No celular só cabe um painel por vez, e a tela de atendimento
+   abria SEMPRE na lista: a pessoa tocava no lead e chegava numa lista de
+   sessenta conversas, tendo que procurar o mesmo lead na mão.
+
+   Não era um caminho quebrado, eram todos: quem escolhe o lead está fora deste
+   componente, e ele nunca ficava sabendo. Por isso a regra mora aqui, e não em
+   cada botão que abre conversa — botão novo nasce funcionando.
+
+   Vale para lead que JÁ estava escolhido na montagem (o `useState` de cada
+   painel cuida disso) e para o que chega um instante depois, quando a ficha
+   ainda estava sendo buscada do servidor. */
+function usarAberturaDeFora(sel,isMobile,setPane){
+  const id=sel&&sel.id;
+  const anterior=useRef(id);
+  useEffect(()=>{
+    if(id&&id!==anterior.current&&isMobile) setPane("chat");
+    anterior.current=id;
+  },[id,isMobile]);
+}
+
 function usarAudioPendente({lead,acoes,aoAvisar}){
   const [audio,setAudio]=useState(null);
   const [enviando,setEnviando]=useState(false);
@@ -2882,6 +2921,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const openChat=(id)=>{abrir(id);setPane("chat");};
   // Se o lead sai da conta (repasse da SDR), volta sozinho para a lista.
   useEffect(()=>{if(!sel&&pane!=="lista")setPane("lista");},[sel,pane]);
+  usarAberturaDeFora(sel,isMobile,setPane);
   const showList=!isMobile||pane==="lista";
   const showChat=!!sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const showFicha=!!sel&&(fichaPorBotao?pane==="ficha":true);
@@ -3040,6 +3080,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        <SugestaoDaConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         <RoboNoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
         <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
@@ -3124,7 +3165,58 @@ function FichaVenda({lead,onSalvar}){
    No celular precisa SEGURAR um instante antes de arrastar (250ms). Sem essa
    espera, qualquer rolagem lateral entre as colunas viraria um arrasto sem
    querer, e o lead mudava de etapa sozinho. */
-function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
+function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],session}){
+  /* OS FILTROS DO KANBAN.
+
+     O quadro é a ferramenta de leitura do funil, e sem peneira ele responde
+     uma pergunta só: "como está a imobiliária inteira". A pergunta que a
+     gestão faz de verdade é "como está o funil DA MARINA" — e essa não tinha
+     resposta em lugar nenhum.
+
+     A busca casa com o nome do LEAD e com o nome do CORRETOR, no mesmo campo:
+     quem digita "marina" quer o funil dela, quem digita "jhennyfer" quer o
+     lead. Perguntar antes em qual dos dois procurar seria trabalho para o
+     computador jogado no colo de quem usa.
+
+     A peneira roda NO NAVEGADOR, sobre os leads já carregados — o quadro já
+     tem tudo na mão, e ir ao servidor a cada tecla seria uma volta inteira
+     para filtrar uma lista que está aqui. */
+  const [busca,setBusca]=usarEscolha("funil.busca","");
+  const [f,setF]=useState({dono:"",prioridade:"",de:"",ate:""});
+  const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  const filtrosAtivos=[f.dono,f.prioridade,f.de,f.ate].filter(Boolean).length;
+
+  const visiveis=useMemo(()=>{
+    const q=semAcento(busca.trim().toLowerCase());
+    const digitos=busca.replace(/\D/g,"");
+    const inicio=f.de?new Date(f.de+"T00:00:00").getTime():null;
+    const fim=f.ate?new Date(f.ate+"T23:59:59").getTime():null;
+    return leads.filter(l=>{
+      if(q){
+        const nome=semAcento(String(l.nome||"").toLowerCase());
+        const dono=semAcento(String(l.assignedName||"").toLowerCase());
+        const tel=String(l.tel||"").replace(/\D/g,"");
+        if(!(nome.includes(q)||dono.includes(q)||(digitos.length>=4&&tel.includes(digitos)))) return false;
+      }
+      // "fila" é um dono possível: lead sem ninguém é justamente o que some do
+      // radar, e sem esta opção não haveria como listá-los.
+      if(f.dono==="fila"?l.assignedTo:f.dono&&l.assignedTo!==f.dono) return false;
+      if(f.prioridade&&l.prio!==f.prioridade) return false;
+      const quando=l.createdAt||0;
+      if(inicio&&quando<inicio) return false;
+      if(fim&&quando>fim) return false;
+      return true;
+    });
+  },[leads,busca,f]);
+
+  const limpar=()=>setF({dono:"",prioridade:"",de:"",ate:""});
+  const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
+      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    <option value="">{label}</option>
+    {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+  </select>;
+
   // Lead aberto no popup. Fica aqui, e não dentro do card, porque só um abre
   // por vez e o fundo escuro é da tela inteira.
   const [aberto,setAberto]=useState(null);
@@ -3176,12 +3268,70 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
     if(arrasto&&alvo&&alvo!==arrasto.de) setStatus(arrasto.id,alvo);
     setArrasto(null); setAlvo(null);
   };
-  return <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
-    style={{height:"100%",overflowX:"auto",overflowY:"hidden",padding:isMobile?12:16,
+  return <div style={{height:"100%",display:"flex",flexDirection:"column",minHeight:0}}>
+    {/* A BUSCA FICA SEMPRE À VISTA; o resto vai para a gaveta.
+
+        Achar um lead pelo nome é o gesto mais repetido do quadro — esse campo
+        não pode custar um clique a mais. Os outros filtros abertos empurrariam
+        as colunas para baixo e sobraria meia coluna visível. */}
+    <div style={{display:"flex",flexDirection:"column",gap:9,padding:isMobile?"12px 12px 0":"14px 16px 0",flexShrink:0}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{position:"relative",flex:1,minWidth:isMobile?"100%":220}}>
+          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex"}}>
+            <Icon n="search" size={14} color={C.faint}/></span>
+          <input value={busca} onChange={e=>setBusca(e.target.value)}
+            placeholder={mostrarDono?"Buscar por lead ou corretor":"Buscar por nome do lead"}
+            style={{width:"100%",fontSize:isMobile?16:12.5,padding:isMobile?"10px 32px 10px 30px":"8px 32px 8px 30px",
+              borderRadius:9,border:`1px solid ${busca?C.green+"66":C.line}`,background:busca?C.greenSoft:C.surface,
+              color:C.ink,outline:"none"}}/>
+          {busca&&<button onClick={()=>setBusca("")} aria-label="Limpar busca"
+            style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
+              color:C.faint,cursor:"pointer",fontSize:15,lineHeight:1,padding:4}}>×</button>}
+        </div>
+        <button onClick={()=>setFiltrosAbertos(a=>!a)}
+          style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
+            background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,
+            padding:isMobile?"10px 13px":"8px 12px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          <Icon n="columns" size={13}/>Filtros
+          {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,
+            color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
+          <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}>
+            <Icon n="chevron" size={13}/></span>
+        </button>
+        {/* Quantos leads o quadro está mostrando. Com peneira ligada, o total
+            das colunas deixa de ser o total da base, e sem este número ninguém
+            percebe que está lendo um funil filtrado. */}
+        <span style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap"}}>
+          {visiveis.length} lead(s){visiveis.length!==leads.length?` de ${leads.length}`:""}</span>
+      </div>
+      {filtrosAbertos&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingBottom:2}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          {mostrarDono&&selo("Todo mundo",f.dono,"dono",
+            [...(session?[{v:session.id,t:"Comigo"}]:[]),{v:"fila",t:"Na fila (sem dono)"},
+             ...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {selo("Temperatura",f.prioridade,"prioridade",
+            [{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          {filtrosAtivos>0&&<button onClick={limpar}
+            style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,
+              cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+          <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+          <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+        </div>
+      </div>}
+    </div>
+
+    <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
+    style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:16,
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
     <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":STAGES.length*172}}>
-      {STAGES.map(st=>{const items=leads.filter(l=>l.status===st);
+      {STAGES.map(st=>{const items=visiveis.filter(l=>l.status===st);
         const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:STAGE_C[st],width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
@@ -3209,6 +3359,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes}){
     </div>}
     {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
+    </div>
   </div>;
 }
 
@@ -3982,7 +4133,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
-  const [pane,setPane]=useState("lista");
+  const [pane,setPane]=useState(()=>sel?"chat":"lista");
   // Guardada junto com os filtros: restaurar um sem o outro deixaria a lista
   // filtrada por um texto que não aparece em lugar nenhum da tela.
   const [busca,setBusca]=usarEscolha("conversas.busca","");
@@ -4011,6 +4162,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
     .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id]);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
+  usarAberturaDeFora(sel,isMobile,setPane);
   const mostrarLista=!isMobile||pane==="lista";
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":true);
@@ -4548,6 +4700,58 @@ function RoboNoLead({lead,acoes,isMobile}){
   </div>;
 }
 
+/* A ETAPA QUE A CONVERSA RECOMENDA — e que espera confirmação.
+
+   Até 26/08/2026 a palavra dita na conversa MOVIA o lead sozinha. Saiu a
+   pedido do Ali. O motivo não é a regra errar muito: é que ela e a gestão
+   escreviam no mesmo lugar. O funil andava pela palavra, alguém corrigia na
+   mão, a palavra aparecia de novo na mensagem seguinte e empurrava outra vez —
+   e no fim ninguém sabia dizer, olhando o relatório, qual etapa era leitura de
+   gente e qual era palpite de regra.
+
+   A leitura continua, porque é de graça e instantânea. Só que agora ela pede
+   licença. Dois botões, e os dois são decisões: Confirmar grava com o nome de
+   quem confirmou; Não é isso apaga a recomendação em vez de deixá-la piscando
+   para sempre num lead que já foi lido e recusado.
+
+   A PALAVRA APARECE ESCRITA. "Mude para Pasta" sem dizer por quê não dá para
+   conferir — com "porque alguém falou em documentação", o corretor decide em
+   dois segundos, e descobre sozinho como a regra funciona. */
+function SugestaoDaConversa({lead,acoes,isMobile}){
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const s=lead.sugestaoEtapa;
+  if(!s||!s.para) return null;
+
+  const resolver=async(acao)=>{
+    setErro("");setOcupado(acao);
+    try{ await acoes.resolverSugestao(lead.id,acao); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  };
+
+  return <div style={{background:C.amberSoft,border:`1px solid ${C.amber}44`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{color:"#8a6d1f",fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:5}}>
+      <Icon n="spark" size={13} color={C.amber}/> A conversa sugere outra etapa</div>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>
+      De <b style={{color:C.ink}}>{s.de}</b> para <b style={{color:C.ink}}>{s.para}</b>
+      {s.palavra?<span> — alguém falou em <b style={{color:C.ink}}>“{s.palavra}”</b> na conversa.</span>:"."}
+      {" "}Nada muda até você confirmar.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={()=>resolver("confirmar")} disabled={!!ocupado}
+        style={{flex:1,minWidth:120,background:ocupado?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+          padding:isMobile?"11px":"9px 14px",fontSize:12.5,fontWeight:600,cursor:ocupado?"default":"pointer"}}>
+        {ocupado==="confirmar"?"…":`Confirmar ${s.para}`}</button>
+      <button onClick={()=>resolver("dispensar")} disabled={!!ocupado}
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+          padding:isMobile?"11px 14px":"9px 14px",fontSize:12.5,fontWeight:600,cursor:ocupado?"default":"pointer"}}>
+        {ocupado==="dispensar"?"…":"Não é isso"}</button>
+    </div>
+  </div>;
+}
+
 function EtapaIA({lead,acoes,isMobile}){
   const [sug,setSug]=useState(lead.etapaIA&&lead.etapaIA.sugestao||null);
   const [novas,setNovas]=useState(lead.etapaIA&&lead.etapaIA.novas||0);
@@ -4672,6 +4876,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <NomeDoLead lead={lead} acoes={acoes}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>

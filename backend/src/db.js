@@ -517,6 +517,26 @@ addLeadCol("priority_em", "INTEGER");
 addLeadCol("etapa_ia_json", "TEXT");
 addLeadCol("etapa_ia_em", "INTEGER");
 addLeadCol("etapa_ia_msgs", "INTEGER");
+
+/* A ETAPA QUE A CONVERSA SUGERE — e que NINGUÉM aplicou ainda.
+
+   Até 26/08/2026 a palavra-chave MOVIA o lead sozinha. Foi tirado a pedido do
+   Ali: o funil andava pela regra, a gestão corrigia na mão, e depois não havia
+   como saber qual etapa era leitura de gente e qual era palpite de regex — o
+   relatório virava cobrança em cima de um número que ninguém reconhecia.
+
+   Agora a mesma leitura vira RECOMENDAÇÃO. Fica guardada aqui, ao lado do
+   lead, e só entra no funil quando alguém confirma. Duas colunas e não uma:
+   sem a data, "sugerido" e "sugerido há três semanas e ignorado" seriam a
+   mesma coisa na tela.
+
+   `sugestao_de` guarda a etapa em que o lead estava quando a sugestão nasceu.
+   Se ele andou desde então, a sugestão está velha e some sozinha — confirmar
+   uma recomendação feita sobre outro estado é como mover o lead para trás sem
+   querer. */
+addLeadCol("sugestao_etapa", "TEXT");
+addLeadCol("sugestao_de", "TEXT");
+addLeadCol("sugestao_em", "INTEGER");
 /* Primeiro atendimento automático, fora do expediente.
 
    O robô conversa com o lead que chega de madrugada ou no fim de semana e

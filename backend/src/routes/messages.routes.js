@@ -14,7 +14,6 @@ const MIME_POR_EXT = {
 };
 const mimeDaUrl = (url) => MIME_POR_EXT[String(url || "").split(".").pop().toLowerCase()] || "application/octet-stream";
 import { inferStage } from "../services/stages.js";
-import { moverEtapa } from "../services/etapas.js";
 
 const r = Router();
 r.use(authRequired);
@@ -320,14 +319,49 @@ r.patch("/:id/interesse", (req, res) => {
   res.json({ ok: true });
 });
 
-// Recalcula e aplica o avanço automático de etapa a partir do histórico.
-export function advanceStage(leadId) {
-  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
-  if (!lead) return;
-  const msgs = db.prepare("SELECT direction,body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
-  const next = inferStage(lead.stage, msgs);
-  // Passa pelo histórico: é assim que o funil sabe dizer "nesta etapa desde".
-  if (next !== lead.stage) moverEtapa({ leadId, para: next, motivo: "palavra" });
+/* A CONVERSA SUGERE UMA ETAPA — E NÃO MOVE NADA.
+
+   Isto já foi `advanceStage`, e movia o lead sozinho quando a palavra da etapa
+   aparecia na conversa. Saiu a pedido do Ali (26/08/2026), e o motivo não é a
+   regra ter errado muito: é que ela e a gestão escreviam no MESMO lugar. O
+   funil andava pela palavra, a pessoa corrigia na mão, a palavra aparecia de
+   novo na mensagem seguinte e empurrava outra vez — e no fim ninguém sabia
+   dizer, olhando o relatório, qual etapa era leitura de gente e qual era
+   palpite de regex. Número que ninguém reconhece não sustenta reunião.
+
+   A leitura continua: é de graça, é instantânea e acerta quando a palavra é
+   dita mesmo. Só que agora ela vira RECOMENDAÇÃO, guardada ao lado do lead, e
+   quem grava a etapa é uma pessoa no botão — pela rota manual de sempre, com
+   `motivo='mao'`. É a mesma regra que já valia para a etapa lida pela IA: a
+   máquina lê, quem escreve é gente.
+
+   Nunca lança: é chamada de dentro de webhook e de envio de mensagem, e
+   sugestão que falha não pode derrubar a entrada de lead. */
+export function sugerirEtapa(leadId) {
+  try {
+    const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
+    if (!lead) return;
+    const msgs = db.prepare("SELECT direction,body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
+    const sugerida = inferStage(lead.stage, msgs);
+    /* `inferStage` só anda para a frente, então "igual à atual" quer dizer que
+       não há nada a recomendar. Nesse caso a sugestão antiga é limpa — deixá-la
+       na tela depois de a pessoa já ter movido o lead seria pedir a mesma
+       confirmação duas vezes. */
+    if (sugerida === lead.stage) {
+      if (lead.sugestao_etapa)
+        db.prepare("UPDATE leads SET sugestao_etapa=NULL, sugestao_de=NULL, sugestao_em=NULL WHERE id=?").run(leadId);
+      return;
+    }
+    db.prepare("UPDATE leads SET sugestao_etapa=?, sugestao_de=?, sugestao_em=? WHERE id=?")
+      .run(sugerida, lead.stage, Date.now(), leadId);
+  } catch (e) {
+    console.warn("[etapa] não consegui sugerir para", leadId, e.message);
+  }
 }
+
+/* Nome antigo, mantido porque o webhook e as rotas de envio o chamam em quatro
+   lugares. Aponta para a versão que NÃO move — se algum caminho voltar a
+   chamar `advanceStage` esperando que ele mova, ele vai apenas sugerir. */
+export const advanceStage = sugerirEtapa;
 
 export default r;

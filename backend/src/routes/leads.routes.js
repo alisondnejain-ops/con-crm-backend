@@ -425,9 +425,21 @@ function reanalisar(orgId, aplicar) {
     if (novo !== l.stage) mudancas.push({ id: l.id, nome: l.name, de: l.stage, para: novo });
   }
 
+  /* APLICAR AQUI NÃO MOVE MAIS NADA: grava a RECOMENDAÇÃO em cada lead.
+
+     Até 26/08/2026 este botão reposicionava centenas de leads de uma vez pela
+     palavra-chave. Saiu junto com o avanço automático, e pelo mesmo motivo: o
+     gestor não tinha como conferir 300 mudanças antes de aplicar, e depois não
+     dava para separar o que era leitura de gente do que era palpite de regra.
+
+     Agora cada lead recebe a sugestão e ela aparece na ficha e no popup do
+     funil, para ser confirmada uma a uma por quem conhece o atendimento. */
   if (aplicar && mudancas.length) {
+    const agora = Date.now();
     const gravar = db.transaction(() => {
-      for (const m of mudancas) moverEtapa({ leadId: m.id, para: m.para, motivo: "reanalise", userId: req.user.id, de: m.de });
+      for (const m of mudancas)
+        db.prepare("UPDATE leads SET sugestao_etapa=?, sugestao_de=?, sugestao_em=? WHERE id=? AND org_id=?")
+          .run(m.para, m.de, agora, m.id, req.user.org_id);
     });
     gravar();
   }
@@ -443,6 +455,8 @@ function reanalisar(orgId, aplicar) {
   const ordem = (s) => LINEAR.indexOf(s);
   return {
     aplicado: !!aplicar,
+    // O que "aplicado" quer dizer agora: recomendações gravadas, nada movido.
+    so_recomendacao: true,
     com_conversa: comConversa,
     fora,
     mudam: mudancas.length,
@@ -605,6 +619,28 @@ function observacoesDoLead(leadId) {
     WHERE o.lead_id = ? ORDER BY o.created_at DESC`).all(leadId);
 }
 
+/* A RECOMENDAÇÃO DE ETAPA, e quando ela deixa de valer.
+
+   A palavra-chave não move mais o lead (ver `sugerirEtapa`). Ela recomenda, e
+   a recomendação fica esperando alguém confirmar.
+
+   `sugestao_de` é a etapa em que o lead estava quando a leitura foi feita. Se
+   ele andou desde então — na mão, pela IA, por venda — a recomendação é velha
+   e some. Confirmar uma leitura feita sobre outro estado moveria o lead para
+   uma etapa que já foi superada, e ninguém entenderia o retrocesso. */
+function sugestaoGuardada(lead) {
+  if (!lead.sugestao_etapa || lead.sugestao_de !== lead.stage) return null;
+  const g = GATILHOS.find(x => x.etapa === lead.sugestao_etapa);
+  return {
+    para: lead.sugestao_etapa,
+    de: lead.sugestao_de,
+    em: lead.sugestao_em || null,
+    // A palavra que disparou: sem ela a tela diria "mude para Pasta" sem dizer
+    // por quê, e uma recomendação sem motivo não dá para conferir.
+    palavra: g ? g.palavra : null,
+  };
+}
+
 r.get("/:id", (req, res) => {
   const lead = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
@@ -637,6 +673,8 @@ r.get("/:id", (req, res) => {
   const etapas = historicoDoLead(lead.id);
   res.json({ ...parse(lead), messages: linhaDoTempo, resumo: resumoGuardado(lead, messages.length),
     etapa_ia: etapaIaGuardada(lead, messages.length),
+    // A etapa que a CONVERSA sugere, e que ninguém aplicou ainda.
+    sugestao_etapa: sugestaoGuardada(lead),
     // Nome diferente do resumo que a LISTA manda (`tarefas`): um é a lista
     // inteira, o outro é "quantas em aberto e qual a próxima". Mesmo nome para
     // formatos diferentes é armadilha para quem vier depois.
@@ -997,6 +1035,46 @@ r.patch("/:id/stage", (req, res) => {
    O nome só é gravado quando o lead nasce (ver uazapi.webhook.js), nunca
    atualizado depois — então a correção feita aqui não corre risco de ser
    desfeita pela próxima mensagem que chegar. */
+/* CONFIRMAR OU DISPENSAR A RECOMENDAÇÃO DE ETAPA.
+
+   Confirmar grava com `motivo='mao'` — porque foi mesmo uma pessoa que
+   decidiu. É o que faz a etapa contar como confirmada no score (as visitas do
+   relatório só contam quando alguém confirmou) e o que permite, meses depois,
+   separar o funil que a equipe leu do funil que a máquina chutou.
+
+   Dispensar apaga a recomendação sem mexer na etapa. Não é "ignorar por
+   enquanto": é dizer que a leitura estava errada. Se a conversa continuar e a
+   palavra aparecer de novo, a recomendação volta — e aí é uma pergunta nova
+   sobre uma conversa nova, não a mesma insistindo.
+
+   Quem confirma é quem pode abrir a conversa: dono e supervisão. */
+r.post("/:id/sugestao-etapa", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+
+  const limpar = () => db.prepare(
+    "UPDATE leads SET sugestao_etapa=NULL, sugestao_de=NULL, sugestao_em=NULL WHERE id=?").run(lead.id);
+
+  if (req.body?.acao === "dispensar") { limpar(); return res.json({ ok: true, etapa: lead.stage }); }
+
+  const para = lead.sugestao_etapa;
+  if (!para) return res.status(400).json({ error: "Não há recomendação para este lead." });
+  /* A recomendação foi feita sobre a etapa em que o lead estava naquele
+     momento. Se ele andou desde então, aplicar agora seria movê-lo para trás
+     sem ninguém ter pedido. */
+  if (lead.sugestao_de !== lead.stage) {
+    limpar();
+    return res.status(409).json({ error: "O lead mudou de etapa depois desta leitura — a recomendação foi descartada." });
+  }
+  if (!STAGES.includes(para)) { limpar(); return res.status(400).json({ error: "Etapa inválida." }); }
+
+  moverEtapa({ leadId: lead.id, para, motivo: "mao", userId: req.user.id, de: lead.stage });
+  limpar();
+  console.log(`[etapa] ${req.user.name} confirmou "${lead.name}": ${lead.stage} -> ${para}`);
+  res.json({ ok: true, etapa: para });
+});
+
 r.patch("/:id/nome", (req, res) => {
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!nome) return res.status(400).json({ error: "Escreva o nome do cliente." });
