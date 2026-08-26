@@ -7474,7 +7474,14 @@ function Equipe({acoes,session,org,isMobile,versao}){
     catch(e){ setErro(e.message); }
     finally{ setGerando(null); } };
   const apagar=async(u)=>{ setErro("");
-    if(!window.confirm(`Apagar o cadastro de ${u.name} definitivamente?\n\nIsso não pode ser desfeito. As conversas antigas continuam guardadas, mas o cadastro some da plataforma.`)) return;
+    /* O aviso muda conforme o caso. Para quem nunca entrou não existem
+       "conversas antigas" para tranquilizar ninguém, e a frase genérica faria
+       o gestor hesitar diante de uma decisão que não tem consequência. */
+    const nuncaEntrou=u.status==="pendente"||u.status==="recusado";
+    const aviso=nuncaEntrou
+      ?`Apagar o cadastro de ${u.name}?\n\nEssa pessoa nunca confirmou o e-mail, então não há atendimento nem histórico ligados a ela. O cadastro simplesmente sai da lista.`
+      :`Apagar o cadastro de ${u.name} definitivamente?\n\nIsso não pode ser desfeito. As conversas antigas continuam guardadas, mas o cadastro some da plataforma.`;
+    if(!window.confirm(aviso)) return;
     try{ await acoes.apagarCadastro(u.id); setUsers(await acoes.equipe()); }
     catch(e){ setErro(e.message); } };
   const codigo=org&&org.codigo;
@@ -7531,6 +7538,21 @@ function Equipe({acoes,session,org,isMobile,versao}){
           {session.role==="adm"&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
         </React.Fragment>}
         {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar</button>}
+        {/* CONVITE QUE NUNCA VIROU CONTA: sai direto, sem passar por "Remover".
+
+            Faltava um caminho aqui, e o buraco não aparecia olhando cada botão
+            sozinho: "Remover" só existe para conta ATIVA, "Apagar de vez" só
+            para conta JÁ REMOVIDA. Quem nunca confirmou o e-mail não é nenhum
+            dos dois — e ficava preso na lista para sempre, sem nenhum botão
+            que servisse. É o caso do cadastro de teste.
+
+            Aqui apagar é seguro justamente porque a pessoa nunca entrou: não
+            atendeu ninguém, não tem conversa nem relatório apontando para ela.
+            O que "Remover" protege não existe neste caso. */}
+        {!comBotoes&&session.role==="adm"&&(u.status==="pendente"||u.status==="recusado")&&
+          <button onClick={()=>apagar(u)} title="Apagar este cadastro — a pessoa nunca confirmou o e-mail"
+            style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,
+              padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar cadastro</button>}
       </div>}
     </div>
     {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}

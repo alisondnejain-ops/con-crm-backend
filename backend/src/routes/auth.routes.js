@@ -483,7 +483,18 @@ r.delete("/users/:id", authRequired, roles("adm"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Usuário não encontrado" });
   if (u.id === req.user.id) return res.status(400).json({ error: "Você não pode apagar a própria conta." });
-  if (u.status !== "removido")
+  /* CONVITE QUE NUNCA VIROU CONTA some direto.
+
+     A regra "remova da equipe primeiro" existe para proteger o histórico: quem
+     atendeu aparece nas conversas e nos relatórios, e apagar de uma vez
+     quebraria isso. Só que ela vinha valendo também para quem NUNCA definiu
+     senha nem entrou — e aí não há histórico nenhum para proteger.
+
+     Na prática isso deixava a conta de teste presa na tela para sempre: a tela
+     não oferece "Remover" para quem não está ativo, e o servidor não deixava
+     apagar quem não tinha sido removido. Duas metades que não se encontravam. */
+  const nuncaEntrou = u.status === "pendente" || u.status === "recusado";
+  if (u.status !== "removido" && !nuncaEntrou)
     return res.status(409).json({ error: "Remova a pessoa da equipe primeiro. Apagar é o passo seguinte." });
 
   const apagar = db.transaction(() => {
@@ -506,8 +517,13 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
   const impedimento = podeMexer(req.user, u);
   if (impedimento) return res.status(403).json({ error: impedimento });
 
-  // Nunca deixar a organização sem gestor ativo.
-  if (u.role === "adm") {
+  /* Nunca deixar a organização sem gestor ativo.
+
+     Só vale para quem ESTÁ ativo: tirar da equipe um gestor que nunca
+     confirmou o e-mail não muda a cobertura da imobiliária em nada, e a trava
+     impedia justamente isso — inclusive quando o único gestor ativo era o
+     master, que `semMaster` não conta. */
+  if (u.role === "adm" && u.status === "ativo") {
     const gestores = db.prepare(`SELECT COUNT(*) n FROM users u WHERE u.org_id=? AND u.role='adm' AND u.status='ativo'${semMaster("u")}`).get(req.user.org_id).n;
     if (gestores <= 1) return res.status(409).json({ error: "Esse é o único gestor ativo. Promova ou aprove outro antes de remover." });
   }
