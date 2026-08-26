@@ -7239,54 +7239,76 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
 
 /* A IDENTIDADE DA IMOBILIÁRIA: logo e cor da barra.
 
-   Duas escolhas, e as duas aparecem na hora na própria barra do lado — não há
-   "salvar e conferir depois". Cor é a única coisa aqui que não dá para julgar
-   por descrição: ou se vê, ou não se decide.
+   NADA AQUI SALVA SOZINHO (pedido do Ali). Escolher a logo e escolher a cor
+   mexem só num RASCUNHO; a barra da equipe inteira só muda quando o gestor
+   aperta Salvar. Identidade visual não é campo de formulário — é o que a
+   imobiliária vê ao abrir o sistema, e experimentar uma cor não pode ser a
+   mesma coisa que publicá-la.
+
+   Isso vale INCLUSIVE PARA A LOGO: o arquivo fica no navegador e só sobe no
+   Salvar. Subir na escolha e "confirmar" depois deixaria arquivo pago no
+   armazenamento para cada logo que o gestor experimentou e descartou.
 
    A cor clara é RECUSADA PELO SERVIDOR, que devolve junto a versão escura da
    mesma cor. A tela oferece essa versão num botão em vez de só mostrar o erro:
    dizer "não pode" para quem acabou de colar a cor da marca dele, sem nenhuma
    saída, é o mesmo que dizer "desista da sua cor". */
 function IdentidadeConfig({acoes,isMobile}){
-  const [m,setM]=useState(null);
+  const [salvo,setSalvo]=useState(null);      // o que está no servidor
+  const [cor,setCor]=useState("");            // rascunho da cor
+  const [logoNova,setLogoNova]=useState(null); // {mime,base64,previa} ainda não enviada
+  const [tirando,setTirando]=useState(false);  // pediu para tirar a logo atual
   const [erro,setErro]=useState("");
   const [sugestao,setSugestao]=useState("");
-  const [ocupado,setOcupado]=useState("");
-  const [rascunho,setRascunho]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  const [feito,setFeito]=useState("");
   const arquivo=useRef(null);
 
-  useEffect(()=>{ acoes.marca().then(d=>{setM(d);setRascunho(d.cor);}).catch(e=>setErro(e.message)); },[]);
+  useEffect(()=>{ acoes.marca().then(d=>{setSalvo(d);setCor(d.cor);}).catch(e=>setErro(e.message)); },[]);
 
-  async function gravarCor(cor){
-    setErro("");setSugestao("");setOcupado("cor");
-    try{ const d=await acoes.salvarCor(cor); setM(d); setRascunho(d.cor); }
-    catch(e){ setErro(e.message); if(e.dados&&e.dados.sugestao) setSugestao(e.dados.sugestao); }
-    finally{ setOcupado(""); }
-  }
+  const mudou=!!salvo&&(cor!==salvo.cor||!!logoNova||tirando);
+  // O que a prévia mostra: o rascunho, não o que está publicado.
+  const logoPrevia=logoNova?logoNova.previa:(tirando?null:(salvo&&salvo.logo));
 
   function escolherArquivo(e){
     const f=e.target.files&&e.target.files[0];
     e.target.value="";
     if(!f) return;
-    setErro("");setOcupado("logo");
+    if(f.size>2*1024*1024) return setErro("Imagem muito grande. O limite é 2 MB.");
+    setErro("");setFeito("");
     const leitor=new FileReader();
-    leitor.onload=async()=>{
-      try{ setM(await acoes.enviarLogo(f.type,String(leitor.result).split(",")[1])); }
-      catch(err){ setErro(err.message); }
-      finally{ setOcupado(""); }
-    };
-    leitor.onerror=()=>{ setErro("Não consegui ler o arquivo.");setOcupado(""); };
+    leitor.onload=()=>{ setLogoNova({mime:f.type,base64:String(leitor.result).split(",")[1],previa:String(leitor.result)}); setTirando(false); };
+    leitor.onerror=()=>setErro("Não consegui ler o arquivo.");
     leitor.readAsDataURL(f);
   }
 
-  async function tirarLogo(){
-    setErro("");setOcupado("logo");
-    try{ setM(await acoes.removerLogo()); }catch(e){ setErro(e.message); }finally{ setOcupado(""); }
+  function desfazer(){
+    setCor(salvo.cor); setLogoNova(null); setTirando(false); setErro(""); setSugestao(""); setFeito("");
   }
 
-  if(!m) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando…"}</div>;
+  /* A COR VAI PRIMEIRO, e é de propósito: é a única coisa que o servidor pode
+     recusar. Se ela falhar, a logo nem sobe — senão o gestor veria "não pode"
+     e mesmo assim teria a logo trocada, sem ter salvado nada. */
+  async function salvarTudo(){
+    setErro("");setSugestao("");setFeito("");setSalvando(true);
+    try{
+      let d=salvo;
+      if(cor!==salvo.cor) d=await acoes.salvarCor(cor);
+      if(tirando&&!logoNova) d=await acoes.removerLogo();
+      if(logoNova) d=await acoes.enviarLogo(logoNova.mime,logoNova.base64);
+      setSalvo(d); setCor(d.cor); setLogoNova(null); setTirando(false);
+      setFeito("Pronto. A equipe já vê a nova identidade.");
+    }catch(e){
+      setErro(e.message);
+      if(e.dados&&e.dados.sugestao) setSugestao(e.dados.sugestao);
+    }finally{ setSalvando(false); }
+  }
+
+  if(!salvo) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando…"}</div>;
 
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:14};
+  const botao=(ativo)=>({background:ativo?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
+    padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ativo?"pointer":"default"});
 
   return <div>
     <div style={cartao}>
@@ -7299,22 +7321,20 @@ function IdentidadeConfig({acoes,isMobile}){
         {/* A prévia fica sobre a COR ESCOLHIDA, não sobre branco: é ali que a
             logo vai viver, e uma marca escura só some quando está no lugar
             dela. Ver depois de publicar seria descobrir tarde demais. */}
-        <div style={{background:m.cor,borderRadius:12,padding:12,display:"flex",alignItems:"center",gap:10,minWidth:180}}>
+        <div style={{background:cor,borderRadius:12,padding:12,display:"flex",alignItems:"center",gap:10,minWidth:180}}>
           <div style={{background:"#fff",width:38,height:38,borderRadius:11,flexShrink:0,
             display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-            {m.logo
-              ? <img src={m.logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
+            {logoPrevia
+              ? <img src={logoPrevia} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
               : <Icon n="pin" size={18} color={C.faint}/>}
           </div>
           <div style={{color:"#fff",fontSize:12,fontWeight:600,opacity:.85}}>assim no menu</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <input ref={arquivo} type="file" accept="image/png,image/jpeg,image/webp" onChange={escolherArquivo} style={{display:"none"}}/>
-          <button onClick={()=>arquivo.current&&arquivo.current.click()} disabled={ocupado==="logo"}
-            style={{background:ocupado==="logo"?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
-              padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ocupado==="logo"?"default":"pointer"}}>
-            {ocupado==="logo"?"Enviando…":m.logo?"Trocar a logo":"Escolher a logo"}</button>
-          {m.logo&&<button onClick={tirarLogo} disabled={!!ocupado}
+          <button onClick={()=>arquivo.current&&arquivo.current.click()} disabled={salvando} style={botao(!salvando)}>
+            {logoPrevia?"Trocar a logo":"Escolher a logo"}</button>
+          {logoPrevia&&<button onClick={()=>{setLogoNova(null);setTirando(true);setFeito("");}} disabled={salvando}
             style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
               padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Tirar</button>}
         </div>
@@ -7330,32 +7350,49 @@ function IdentidadeConfig({acoes,isMobile}){
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
         {[["#0A3D30","Verde (padrão)"],["#12263F","Azul-marinho"],["#1B3A6B","Azul"],
-          ["#3B2560","Roxo"],["#7A2E2E","Vinho"],["#1F2A26","Grafite"]].map(([cor,nome])=>
-          <button key={cor} onClick={()=>gravarCor(cor)} title={nome} disabled={!!ocupado}
-            style={{width:isMobile?44:38,height:isMobile?44:38,borderRadius:11,cursor:"pointer",background:cor,
-              border:m.cor===cor?`3px solid ${C.green}`:`1px solid ${C.line}`}}/>)}
+          ["#3B2560","Roxo"],["#7A2E2E","Vinho"],["#1F2A26","Grafite"]].map(([c,nome])=>
+          <button key={c} onClick={()=>{setCor(c);setErro("");setSugestao("");setFeito("");}} title={nome} disabled={salvando}
+            style={{width:isMobile?44:38,height:isMobile?44:38,borderRadius:11,cursor:"pointer",background:c,
+              border:cor===c?`3px solid ${C.green}`:`1px solid ${C.line}`}}/>)}
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <input type="color" value={rascunho} onChange={e=>setRascunho(e.target.value.toUpperCase())}
+        <input type="color" value={cor} onChange={e=>{setCor(e.target.value.toUpperCase());setFeito("");}}
           style={{width:44,height:38,padding:0,border:`1px solid ${C.line}`,borderRadius:9,background:C.card,cursor:"pointer"}}/>
-        <input value={rascunho} onChange={e=>setRascunho(e.target.value.toUpperCase())} placeholder="#0A3D30"
+        <input value={cor} onChange={e=>{setCor(e.target.value.toUpperCase());setFeito("");}} placeholder="#0A3D30"
           style={{width:110,fontFamily:MONO,fontSize:12.5,padding:"9px 10px",borderRadius:9,
             border:`1px solid ${C.line}`,background:C.card,color:C.ink}}/>
-        <button onClick={()=>gravarCor(rascunho)} disabled={!!ocupado||rascunho===m.cor}
-          style={{background:ocupado||rascunho===m.cor?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
-            padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ocupado||rascunho===m.cor?"default":"pointer"}}>
-          {ocupado==="cor"?"Salvando…":"Usar esta cor"}</button>
+        <span style={{color:C.faint,fontSize:11.5}}>ou cole a cor exata da sua marca</span>
       </div>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginTop:10}}>
+    </div>
+
+    {/* A BARRA DE SALVAR.
+
+        Fica no fim das duas escolhas porque é uma só para as duas: quem trocou
+        a logo E a cor aperta um botão, não dois, e não fica em dúvida sobre o
+        que já valeu e o que não. O aviso de alteração pendente é o que impede
+        alguém de sair da tela achando que publicou. */}
+    <div style={{...cartao,position:"sticky",bottom:0,boxShadow:mudou?"0 -4px 16px rgba(0,0,0,.06)":"none"}}>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginBottom:11}}>
         {erro}
         {sugestao&&<div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <span style={{width:26,height:26,borderRadius:8,background:sugestao,border:`1px solid ${C.line}`,flexShrink:0}}/>
-          <button onClick={()=>gravarCor(sugestao)}
+          <button onClick={()=>{setCor(sugestao);setErro("");setSugestao("");}}
             style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,
               padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
             Usar {sugestao}, que é a sua cor mais escura</button>
         </div>}
       </div>}
+      {feito&&!mudou&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,
+        borderRadius:10,padding:"10px 12px",marginBottom:11}}>{feito}</div>}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <button onClick={salvarTudo} disabled={!mudou||salvando} style={{...botao(mudou&&!salvando),padding:"11px 20px",fontSize:13.5}}>
+          {salvando?"Salvando…":"Salvar alterações"}</button>
+        {mudou&&!salvando&&<button onClick={desfazer}
+          style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+            padding:"11px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Descartar</button>}
+        <span style={{color:mudou?C.amber:C.faint,fontSize:11.5,fontWeight:mudou?600:400}}>
+          {mudou?"Você tem alterações não salvas.":"Nada mudou desde a última vez que você salvou."}</span>
+      </div>
     </div>
   </div>;
 }
