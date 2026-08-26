@@ -234,6 +234,8 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
 
     const r = await atenderPrimeiroContato({
       nome: lead.name,
+      // A IA se apresenta com o nome DESTA imobiliária, não com um nome fixo.
+      imobiliaria: db.prepare("SELECT name FROM orgs WHERE id = ?").get(orgId)?.name || "",
       coletado,
       // Quantas ainda cabem, contando esta. É o que permite a última ser uma
       // despedida em vez de um silêncio no meio de uma pergunta.

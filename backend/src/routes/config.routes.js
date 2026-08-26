@@ -17,6 +17,8 @@ import { authRequired, roles } from "../auth.js";
 import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { resumoDeUso } from "../services/iauso.js";
+import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
+import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 
 const r = Router();
 r.use(authRequired);
@@ -286,6 +288,57 @@ r.post("/robo/conferir/:leadId", roles("adm", "sdr"), (req, res) => {
     { gravarNaFicha: req.body?.gravar_na_ficha !== false, userId: req.user.id });
   if (out.erro) return res.status(404).json({ error: out.erro });
   res.json(out);
+});
+
+/* ===== A MARCA DA IMOBILIÁRIA =====
+
+   Logo e cor da barra. É do GESTOR, não da atendente: identidade visual não é
+   decisão de quem atende, e trocar a logo mexe no que a equipe inteira vê ao
+   abrir o sistema. A regra de contraste mora em services/marca.js. */
+
+const orgAtual = (req) => db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+
+r.get("/marca", roles("adm", "sdr"), (req, res) =>
+  res.json({ ...marcaDaOrg(orgAtual(req)), padrao: COR_PADRAO }));
+
+r.post("/marca/logo", roles("adm"), async (req, res) => {
+  const { mime, base64 } = req.body || {};
+  if (!mime || !base64) return res.status(400).json({ error: "Escolha uma imagem." });
+  if (ehVideo(mime) || !tipoPermitido(mime))
+    return res.status(400).json({ error: "Use uma imagem PNG, JPG ou WEBP." });
+
+  const buffer = Buffer.from(String(base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (buffer.length > 2 * 1024 * 1024)
+    return res.status(413).json({ error: "Imagem muito grande. O limite é 2 MB." });
+
+  const org = orgAtual(req);
+  try {
+    const { url, chave } = await salvar({ buffer, mime, prefixo: `marca/${org.id}` });
+    /* A logo antiga sai do armazenamento na troca. Sem isto, cada ajuste de
+       marca deixaria um arquivo pago para sempre, sem nada apontando para ele. */
+    if (org.logo_key) apagar(org.logo_key);
+    db.prepare("UPDATE orgs SET logo_url=?, logo_key=? WHERE id=?").run(url, chave, org.id);
+    res.json({ ok: true, ...marcaDaOrg(orgAtual(req)) });
+  } catch (e) {
+    console.error("[marca] falha ao salvar a logo:", e.message);
+    res.status(500).json({ error: "Não consegui guardar a logo. Tente de novo." });
+  }
+});
+
+r.delete("/marca/logo", roles("adm"), (req, res) => {
+  const org = orgAtual(req);
+  if (org.logo_key) apagar(org.logo_key);
+  db.prepare("UPDATE orgs SET logo_url=NULL, logo_key=NULL WHERE id=?").run(org.id);
+  res.json({ ok: true, ...marcaDaOrg(orgAtual(req)) });
+});
+
+/* Cor clara volta 400 COM a versão escura da mesma cor. A recusa seca faria o
+   gestor abandonar a cor da marca dele; com a sugestão, ele aceita num clique. */
+r.patch("/marca", roles("adm"), (req, res) => {
+  const { cor, erro, sugestao } = validarCor(req.body?.cor);
+  if (erro) return res.status(400).json({ error: erro, sugestao });
+  db.prepare("UPDATE orgs SET cor_barra=? WHERE id=?").run(cor, req.user.org_id);
+  res.json({ ok: true, ...marcaDaOrg(orgAtual(req)) });
 });
 
 export default r;

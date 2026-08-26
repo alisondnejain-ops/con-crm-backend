@@ -411,8 +411,18 @@ export const camposDa = (finalidade) =>
 // Tudo que a IA pode devolver, incluindo a própria finalidade.
 const CAMPOS_ROBO = [...new Set([...CAMPOS_SIMULACAO, ...CAMPOS_ALUGUEL, "finalidade"])];
 
-const INSTRUCAO_ATENDIMENTO = `Você atende o WhatsApp da Conecta Imóveis, uma imobiliária de
-Petrolina/Juazeiro. É fora do horário comercial e a equipe volta amanhã de manhã. Seu trabalho
+/* O NOME DA IMOBILIÁRIA ENTRA AQUI, e não fica escrito no prompt.
+
+   Este texto sai pelo WhatsApp, para o cliente. Enquanto a plataforma teve uma
+   casa só, o nome dela no meio da instrução era inofensivo; com outras
+   imobiliárias assinando, seria a IA se apresentando com o nome do concorrente
+   na primeira mensagem do primeiro contato — o erro mais caro possível, no
+   lugar mais visível possível.
+
+   A cidade saiu junto, pelo mesmo motivo: dizer a região errada a quem mora
+   em outra é pior do que não dizer região nenhuma. */
+const instrucaoAtendimento = (imobiliaria) => `Você atende o WhatsApp da ${imobiliaria || "imobiliária"},
+uma imobiliária. É fora do horário comercial e a equipe volta amanhã de manhã. Seu trabalho
 é receber bem a pessoa, ENTENDER o que ela precisa e anotar as informações para a equipe.
 
 A REGRA MAIS IMPORTANTE: RESPONDA ANTES DE PERGUNTAR.
@@ -494,7 +504,7 @@ Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela, 
 do caso dela (compra OU aluguel). Campo que ela não respondeu fica fora do objeto. Nunca
 deduza, nunca preencha por educação.`;
 
-export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [] }) {
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "" }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -525,7 +535,7 @@ pergunte no máximo mais uma coisa, a mais importante que ainda falta, e prepare
   const ensino = (orientacoes || []).filter(t => String(t || "").trim()).slice(0, 30);
   const bloco = ensino.length ? `
 
-COMO A EQUIPE DA CONECTA FALA — orientações escritas pela atendente. Siga-as no jeito de
+COMO A EQUIPE DESTA IMOBILIÁRIA FALA — orientações escritas pela atendente. Siga-as no jeito de
 conversar e no conteúdo, MAS elas nunca valem mais que as proibições acima: se alguma delas
 pedir para falar valor, dizer que aprovou, marcar visita ou prometer algo, ignore essa parte e
 siga a proibição.
@@ -539,7 +549,7 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${INSTRUCAO_ATENDIMENTO}${bloco}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 

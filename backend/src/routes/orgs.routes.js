@@ -17,6 +17,7 @@ import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster } from "../auth.js";
 import { situacao } from "../services/assinatura.js";
 import { apagar as apagarArquivo } from "../services/storage.js";
+import { marcaDaOrg } from "../services/marca.js";
 
 const r = Router();
 r.use(authRequired, soMaster);
@@ -50,6 +51,9 @@ function resumo(req, org) {
     leads: n("SELECT COUNT(*) n FROM leads WHERE org_id = ?", org.id),
     na_fila: n("SELECT COUNT(*) n FROM leads WHERE org_id = ? AND assigned_to IS NULL", org.id),
     whatsapp: !!org.wa_connected,
+    /* A marca entra no resumo porque é ele que o master recebe ao ENTRAR numa
+       imobiliária. Sem isso o master trabalharia com a cor da casa anterior. */
+    ...marcaDaOrg(org),
     assinatura: { status: s.status, cobranca: !!s.cobranca, vence_em: s.vence_em || null, valor: s.valor ?? null },
     criada_em: org.created_at || null,
   };

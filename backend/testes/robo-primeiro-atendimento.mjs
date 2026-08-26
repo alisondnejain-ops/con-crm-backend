@@ -63,7 +63,7 @@ const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, confe
   palavraProibida, configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
 
 const org = "org_" + randomUUID().slice(0, 8);
-db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Conecta", "A-1", Date.now());
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Imobiliária Aurora", "A-1", Date.now());
 db.prepare("UPDATE orgs SET robo_ativo=1, robo_inicio='18:00', robo_fim='09:00', robo_teto=12, uazapi_host=?, uazapi_token=? WHERE id=?")
   .run(process.env.UAZAPI_HOST, process.env.UAZAPI_TOKEN, org);
 
@@ -420,11 +420,20 @@ assert.ok(!/está desligada/.test(ultimoPedido), "orientação desligada NÃO po
 
 console.log("28. E o ensino vem DEPOIS das proibições, sem poder derrubá-las");
 const posProibicoes = ultimoPedido.indexOf("NUNCA diga valor de parcela");
-const posEnsino = ultimoPedido.indexOf("COMO A EQUIPE DA CONECTA FALA");
+const posEnsino = ultimoPedido.indexOf("COMO A EQUIPE DESTA IMOBILIÁRIA FALA");
 console.log(`   proibições na posição ${posProibicoes}, ensino em ${posEnsino}`);
 assert.ok(posProibicoes > 0 && posEnsino > posProibicoes,
   "campo que qualquer pessoa preenche não pode vir antes da trava");
 assert.ok(/nunca valem mais que as proibições/.test(ultimoPedido),
   "e está escrito que uma não derruba a outra");
+
+console.log("29. A IA se apresenta com o nome DESTA imobiliária, e não com um nome fixo");
+/* O texto sai pelo WhatsApp, para o cliente. Enquanto houve uma casa só, o
+   nome dela escrito no prompt era inofensivo; com outras imobiliárias
+   assinando, seria a IA se apresentando com o nome do concorrente na primeira
+   mensagem do primeiro contato. */
+console.log(`   ${ultimoPedido.slice(0, 68).replace(/\n/g, " ")}…`);
+assert.ok(/Imobili.ria Aurora/.test(ultimoPedido), "o nome da imobiliária do lead entra no pedido");
+assert.ok(!/Conecta/.test(ultimoPedido), "e nenhum nome de imobiliária fica fixo no código");
 
 console.log("\nTudo certo ✅");

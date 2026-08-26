@@ -8,6 +8,23 @@ const C = {
 };
 const DISPLAY="'Sora',sans-serif", FONT="'Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
 
+/* A MARCA DA IMOBILIÁRIA (white-label).
+
+   Só a barra muda de cor, e é de propósito. Coral e âmbar continuam vindo do
+   `C`: eles não são enfeite, são o cronômetro que esquenta e a tarefa vencida.
+   Deixar a imobiliária escolher vermelho como cor de marca apagaria justamente
+   o sinal que o CRM existe para dar.
+
+   O padrão fica AQUI e no `services/marca.js` do servidor. Nas telas ninguém
+   escreve o verde na mão: quem não tem marca própria recebe este objeto, então
+   a barra tem um caminho só, com ou sem personalização. */
+const MARCA_PADRAO={logo:null,cor:C.greenDeep};
+const marcaDe=(org)=>({logo:(org&&org.logo)||null,cor:(org&&org.cor)||C.greenDeep});
+/* O marcador do item ativo é verde no tema padrão e branco em cima de qualquer
+   outra cor: um risco verde numa barra azul-marinho vira sujeira, e o branco
+   funciona sobre todas as cores que passam na regra de contraste. */
+const realceDa=(marca)=>marca.cor===MARCA_PADRAO.cor?C.green:"rgba(255,255,255,.92)";
+
 /* ===== API (backend hospedado) =====
    Para apontar para outro servidor sem recompilar, defina window.CON_CRM_API no index.html. */
 // Registra o service worker: é ele que recebe a notificação push com o CRM
@@ -53,7 +70,15 @@ async function api(path,{method="GET",body}={}){
      "Falha ao enviar pelo WhatsApp" sozinho não diz nada a quem está na tela
      nem a quem vai consertar — o motivo de verdade vinha no `detail` e era
      jogado fora aqui. Um dia inteiro se perdeu por causa disso. */
-  if(!res.ok) throw new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
+  if(!res.ok){
+    const erro=new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
+    /* O corpo inteiro vai junto do erro. Uma recusa às vezes traz mais do que
+       a frase: a cor de menu clara demais volta com a versão escura da mesma
+       cor, e sem isto a tela só teria o "não pode" para oferecer. */
+    erro.dados=data;
+    erro.status=res.status;
+    throw erro;
+  }
   return data;
 }
 
@@ -187,7 +212,7 @@ function DicaEtapa({etapa}){
 const TEMPLATES=[
   // "atendimento" aqui não é enfeite: é a palavra que tira o lead da etapa
   // Lead. O primeiro contato é justamente o momento em que isso acontece.
-  {t:"Primeiro contato (forte)",body:"Oi {nome}! Aqui é o time da Conecta Imóveis e vou dar continuidade ao seu atendimento. Você se cadastrou pra realizar o sonho da casa própria no Jardim Amazonas e eu não quero que você perca as condições dessa fase. Posso te mostrar agora quanto ficaria a sua entrada e a parcela que cabe no seu bolso?"},
+  {t:"Primeiro contato (forte)",body:"Oi {nome}! Aqui é o time da imobiliária e vou dar continuidade ao seu atendimento. Você se cadastrou pra realizar o sonho da casa própria e eu não quero que você perca as condições dessa fase. Posso te mostrar agora quanto ficaria a sua entrada e a parcela que cabe no seu bolso?"},
   {t:"Follow-up",body:"Oi {nome}, passando aqui rapidinho 🙂 As unidades dessa fase estão saindo. Quer que eu segure uma simulação no seu nome hoje?"},
   {t:"Agendar visita",body:"{nome}, que tal conhecer o imóvel de pertinho? Consigo te agendar essa semana. Prefere durante a semana ou no sábado?"},
   {t:"Pedir documentação",body:"{nome}, pra eu já adiantar a sua pasta e a simulação de crédito, consegue me enviar seus documentos (RG, CPF e comprovante de renda)?"},
@@ -855,6 +880,17 @@ function ConCRM(){
       await api("/auth/me/foto",{method:"DELETE"});
       setSession(toSession((await api("/auth/me")).user));
     },
+    /* A MARCA DA IMOBILIÁRIA. As três gravações atualizam o `org` do app na
+       volta, e é por isso que a barra muda de cor no mesmo clique: sem isso a
+       nova identidade só apareceria no próximo login, e o gestor recarregaria
+       a página achando que não salvou. */
+    marca:()=>api("/config/marca"),
+    salvarCor:async(cor)=>{ const d=await api("/config/marca",{method:"PATCH",body:{cor}});
+      setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
+    enviarLogo:async(mime,base64)=>{ const d=await api("/config/marca/logo",{method:"POST",body:{mime,base64}});
+      setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
+    removerLogo:async()=>{ const d=await api("/config/marca/logo",{method:"DELETE"});
+      setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
     expediente:()=>api("/distribution/expediente"),
@@ -1794,7 +1830,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
     corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
   }[role].concat([["conta","user","Minha conta","Configurações"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão da Conecta",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
@@ -1812,7 +1848,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         supervisiona, Atender para o corretor. É o primeiro item do menu, o
         mesmo lugar para onde o CRM abre. */}
     {!isMobile&&<BarraLateral nav={NAV} view={view} setView={setView} aviso={aviso} acoes={acoes}
-      org={org&&org.nome} papel={roleLabel} nome={first(session.name)} session={session}
+      org={org&&org.nome} marca={marcaDe(org)} papel={roleLabel} nome={first(session.name)} session={session}
       irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
       <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
@@ -1887,7 +1923,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
-    {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso}/>}
+    {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
   </div>;
 }
 
@@ -1951,7 +1987,8 @@ function ItemMais({n,label,ativo,badge,onClick,ultimo}){
    Ela ENCOLHE para 200px em janela apertada (notebook, tela dividida): a de
    conversas tem lista + conversa + ficha ao lado, e é ela quem paga a largura
    que a barra tomar. */
-function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,acoes,session}){
+function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,acoes,session,marca=MARCA_PADRAO}){
+  const realce=realceDa(marca);
   const [estreita,setEstreita]=useState(()=>typeof window!=="undefined"&&window.innerWidth<1200);
   useEffect(()=>{
     const medir=()=>setEstreita(window.innerWidth<1200);
@@ -2003,7 +2040,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
         fontFamily:FONT,marginBottom:2}}>
       {/* Marcador na borda: a cor de fundo sozinha some no verde escuro. */}
       <span style={{position:"absolute",left:0,top:8,bottom:8,width:3,borderRadius:"0 3px 3px 0",
-        background:ativo?C.green:"transparent"}}/>
+        background:ativo?realce:"transparent"}}/>
       <Icon n={n} size={17}/>
       {!recolhida&&<span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>}
       {/* Recolhida, o contador vira uma bolinha no canto do ícone: o número
@@ -2017,7 +2054,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
     </button>;
   };
 
-  return <aside style={{background:C.greenDeep,width:LARGURA,flexShrink:0,display:"flex",
+  return <aside style={{background:marca.cor,width:LARGURA,flexShrink:0,display:"flex",
     flexDirection:"column",padding:recolhida?"16px 6px 12px":"16px 10px 12px",minHeight:0,
     transition:"width .16s ease"}}>
     {/* Marca clicável: em qualquer tela, um clique aqui volta para o começo —
@@ -2027,15 +2064,30 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
       <button onClick={irParaCasa} title="Ir para o início"
         style={{flex:1,minWidth:0,border:"none",background:"transparent",padding:"0 4px",cursor:"pointer",
           display:"flex",alignItems:"center",gap:9}}>
-        <div style={{background:C.green,width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
-          justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>
+        {/* A LOGO DA IMOBILIÁRIA, quando existe.
+
+            Fundo branco atrás dela porque logo quase sempre é feita para papel
+            branco: uma marca de traço escuro colocada direto na barra some.
+            `contain` para não recortar — logo cortada é pior que logo nenhuma. */}
+        {marca.logo
+          ? <div style={{background:"#fff",width:34,height:34,borderRadius:10,flexShrink:0,
+              display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+              <img src={marca.logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
+            </div>
+          : <div style={{background:realce==="rgba(255,255,255,.92)"?"rgba(255,255,255,.16)":C.green,
+              width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
+              justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>}
         {!recolhida&&<div style={{minWidth:0,textAlign:"left"}}>
-          <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.1}}>ConHub</div>
-          {/* De quem é a conta e em que papel se está. Antes isso só existia no
-              canto oposto da tela, e o master trocava de imobiliária sem nada
-              por perto lembrando em qual estava. */}
+          {/* O NOME DA IMOBILIÁRIA VEM PRIMEIRO, e o ConHub embaixo.
+
+              Era o contrário, e fazia sentido enquanto havia uma casa só. Numa
+              plataforma que outras imobiliárias assinam, a equipe abrir o
+              sistema e ler o nome do fornecedor em cima do próprio é o oposto
+              do que a marca na barra existe para fazer. */}
+          <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.15,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"ConHub"}</div>
           <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"CRM imobiliário"}</div>
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?"ConHub":"CRM imobiliário"}</div>
         </div>}
       </button>
       {/* A seta aponta para onde a barra VAI: fechando quando aberta, abrindo
@@ -2077,7 +2129,12 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
 }
 
 // Barra inferior do celular.
-function NavCelular({nav,view,setView,aviso}){
+function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
+  /* A barra do celular acompanha a cor da imobiliária pelo mesmo motivo da
+     barra do computador: é o corretor, em pé, na rua, com o cliente esperando
+     — é ele quem passa o dia olhando para esta faixa. O ícone na tela de
+     início continua o do ConHub: aquele é gerado no build, não por conta. */
+  const realce=realceDa(marca);
   const [maisAberto,setMaisAberto]=useState(false);
   /* A folha do "Mais" abre colada no rodapé e a barra fica por cima dela — o
      último item do menu sumia atrás. Medimos a barra em vez de chutar um valor:
@@ -2093,7 +2150,7 @@ function NavCelular({nav,view,setView,aviso}){
   const {cabem,extras}=dividirNav(nav);
   const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
-  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?C.green:"transparent"}`}}>
+  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?realce:"transparent"}`}}>
     <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
     {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
   </button>;
@@ -2105,9 +2162,9 @@ function NavCelular({nav,view,setView,aviso}){
       {extras.map(([v,n,label],i)=><ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
         ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>)}
     </div>}
-    <nav ref={barra} style={{background:C.greenDeep,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
+    <nav ref={barra} style={{background:marca.cor,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
       {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
-      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?C.green:"transparent"}`}}>
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?realce:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
@@ -2898,7 +2955,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
           {fichaPorBotao
             ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>
-            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da Conecta</div>}
+            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da imobiliária</div>}
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
@@ -2916,7 +2973,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
              numero e compartilhado e o WhatsApp nao diz quem digitou. Dizer
              isso e melhor do que assinar com o nome de quem esta olhando. */
           const peloCelular=mine&&!m.byName;
-          const senderName=peloCelular?"Enviada pelo WhatsApp":`${m.byName} · Conecta`;
+          const senderName=peloCelular?"Enviada pelo WhatsApp":m.byName;
           return <React.Fragment key={i}>
             {abreDia&&<SeparadorDia ts={m.at}/>}
             <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6,
@@ -2966,7 +3023,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
-        <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
+        <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
@@ -4792,7 +4849,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     </div>
     {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
-      <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da Conecta, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
+      <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
     </div>
   </div>;
 }
@@ -6818,7 +6875,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
           <input value={f.comissao_pct||""} onChange={set("comissao_pct")} inputMode="decimal" placeholder="6" style={entrada}/>
           {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",marginTop:7,fontSize:12,color:C.sub,lineHeight:1.6}}>
             Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b><br/>
-            Conecta (45%): {fmtMoeda(comissao*0.45)} · Corretor (55%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*0.55)}</b>
+            Imobiliária (45%): {fmtMoeda(comissao*0.45)} · Corretor (55%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*0.55)}</b>
           </div>}
         </div>
 
@@ -6901,7 +6958,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Comissão da venda</div>
         <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}</div>
         <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
-          Conecta ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
+          Imobiliária ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
           Corretor ({p.comissao.split.corretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(p.comissao.corretor)}</b>
         </div>
       </div>}
@@ -7144,7 +7201,18 @@ function Equipe({acoes,session,org,isMobile,versao}){
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
   const [aba,setAba]=useState("mensagens");
-  const abas=[["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],["conexao","Conexão"],["ia","Uso da IA"]];
+  /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
+     inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
+     nem aparece para os outros — botão que só devolve "não pode" é pior do que
+     botão nenhum.
+
+     E SÓ NO COMPUTADOR (pedido do Ali). Escolher logo é procurar um arquivo, e
+     o arquivo da marca está no notebook, não no celular; escolher cor é olhar
+     o resultado numa tela grande. É a mesma régua de recolher a barra: coisa
+     que se faz sentado, uma vez, não em pé com o cliente esperando. */
+  const podeMarca=session&&session.role==="adm"&&!isMobile;
+  const abas=[["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],
+    ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],["ia","Uso da IA"]];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -7152,10 +7220,142 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
           style={{fontSize:12.5,fontWeight:600,padding:"8px 15px",borderRadius:999,border:"none",cursor:"pointer",
             background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
       </div>
+      {/* No celular a aba não existe. Sem esta linha, o gestor que mexeu na
+          identidade no notebook procuraria a aba no celular e concluiria que
+          alguma coisa quebrou — recurso que some sem explicação vira chamado. */}
+      {isMobile&&session&&session.role==="adm"&&<div style={{background:C.card,border:`1px solid ${C.line}`,
+        borderRadius:12,padding:"11px 13px",marginBottom:14,color:C.faint,fontSize:11.5,lineHeight:1.55}}>
+        A logo e a cor do menu ficam em <b style={{color:C.sub}}>Identidade</b>, no computador — é lá que
+        está o arquivo da sua marca e a tela para conferir o resultado.
+      </div>}
       {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
+      {aba==="marca"&&podeMarca&&<IdentidadeConfig acoes={acoes} isMobile={isMobile}/>}
       {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="ia"&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
+    </div>
+  </div>;
+}
+
+/* A IDENTIDADE DA IMOBILIÁRIA: logo e cor da barra.
+
+   Duas escolhas, e as duas aparecem na hora na própria barra do lado — não há
+   "salvar e conferir depois". Cor é a única coisa aqui que não dá para julgar
+   por descrição: ou se vê, ou não se decide.
+
+   A cor clara é RECUSADA PELO SERVIDOR, que devolve junto a versão escura da
+   mesma cor. A tela oferece essa versão num botão em vez de só mostrar o erro:
+   dizer "não pode" para quem acabou de colar a cor da marca dele, sem nenhuma
+   saída, é o mesmo que dizer "desista da sua cor". */
+function IdentidadeConfig({acoes,isMobile}){
+  const [m,setM]=useState(null);
+  const [erro,setErro]=useState("");
+  const [sugestao,setSugestao]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const [rascunho,setRascunho]=useState("");
+  const arquivo=useRef(null);
+
+  useEffect(()=>{ acoes.marca().then(d=>{setM(d);setRascunho(d.cor);}).catch(e=>setErro(e.message)); },[]);
+
+  async function gravarCor(cor){
+    setErro("");setSugestao("");setOcupado("cor");
+    try{ const d=await acoes.salvarCor(cor); setM(d); setRascunho(d.cor); }
+    catch(e){ setErro(e.message); if(e.dados&&e.dados.sugestao) setSugestao(e.dados.sugestao); }
+    finally{ setOcupado(""); }
+  }
+
+  function escolherArquivo(e){
+    const f=e.target.files&&e.target.files[0];
+    e.target.value="";
+    if(!f) return;
+    setErro("");setOcupado("logo");
+    const leitor=new FileReader();
+    leitor.onload=async()=>{
+      try{ setM(await acoes.enviarLogo(f.type,String(leitor.result).split(",")[1])); }
+      catch(err){ setErro(err.message); }
+      finally{ setOcupado(""); }
+    };
+    leitor.onerror=()=>{ setErro("Não consegui ler o arquivo.");setOcupado(""); };
+    leitor.readAsDataURL(f);
+  }
+
+  async function tirarLogo(){
+    setErro("");setOcupado("logo");
+    try{ setM(await acoes.removerLogo()); }catch(e){ setErro(e.message); }finally{ setOcupado(""); }
+  }
+
+  if(!m) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando…"}</div>;
+
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:14};
+
+  return <div>
+    <div style={cartao}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Logo da imobiliária</div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
+        Aparece no alto do menu, para a equipe inteira. PNG com fundo transparente
+        fica melhor. Até 2 MB.
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        {/* A prévia fica sobre a COR ESCOLHIDA, não sobre branco: é ali que a
+            logo vai viver, e uma marca escura só some quando está no lugar
+            dela. Ver depois de publicar seria descobrir tarde demais. */}
+        <div style={{background:m.cor,borderRadius:12,padding:12,display:"flex",alignItems:"center",gap:10,minWidth:180}}>
+          <div style={{background:"#fff",width:38,height:38,borderRadius:11,flexShrink:0,
+            display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+            {m.logo
+              ? <img src={m.logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
+              : <Icon n="pin" size={18} color={C.faint}/>}
+          </div>
+          <div style={{color:"#fff",fontSize:12,fontWeight:600,opacity:.85}}>assim no menu</div>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input ref={arquivo} type="file" accept="image/png,image/jpeg,image/webp" onChange={escolherArquivo} style={{display:"none"}}/>
+          <button onClick={()=>arquivo.current&&arquivo.current.click()} disabled={ocupado==="logo"}
+            style={{background:ocupado==="logo"?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+              padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ocupado==="logo"?"default":"pointer"}}>
+            {ocupado==="logo"?"Enviando…":m.logo?"Trocar a logo":"Escolher a logo"}</button>
+          {m.logo&&<button onClick={tirarLogo} disabled={!!ocupado}
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+              padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Tirar</button>}
+        </div>
+      </div>
+    </div>
+
+    <div style={cartao}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Cor do menu</div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
+        A faixa do menu, no computador e no celular. O resto do sistema não muda:
+        o vermelho do cliente esperando e o âmbar da tarefa vencida são avisos, não
+        decoração — se virassem cor de marca, o alerta sumiria junto.
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        {[["#0A3D30","Verde (padrão)"],["#12263F","Azul-marinho"],["#1B3A6B","Azul"],
+          ["#3B2560","Roxo"],["#7A2E2E","Vinho"],["#1F2A26","Grafite"]].map(([cor,nome])=>
+          <button key={cor} onClick={()=>gravarCor(cor)} title={nome} disabled={!!ocupado}
+            style={{width:isMobile?44:38,height:isMobile?44:38,borderRadius:11,cursor:"pointer",background:cor,
+              border:m.cor===cor?`3px solid ${C.green}`:`1px solid ${C.line}`}}/>)}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="color" value={rascunho} onChange={e=>setRascunho(e.target.value.toUpperCase())}
+          style={{width:44,height:38,padding:0,border:`1px solid ${C.line}`,borderRadius:9,background:C.card,cursor:"pointer"}}/>
+        <input value={rascunho} onChange={e=>setRascunho(e.target.value.toUpperCase())} placeholder="#0A3D30"
+          style={{width:110,fontFamily:MONO,fontSize:12.5,padding:"9px 10px",borderRadius:9,
+            border:`1px solid ${C.line}`,background:C.card,color:C.ink}}/>
+        <button onClick={()=>gravarCor(rascunho)} disabled={!!ocupado||rascunho===m.cor}
+          style={{background:ocupado||rascunho===m.cor?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+            padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ocupado||rascunho===m.cor?"default":"pointer"}}>
+          {ocupado==="cor"?"Salvando…":"Usar esta cor"}</button>
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginTop:10}}>
+        {erro}
+        {sugestao&&<div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{width:26,height:26,borderRadius:8,background:sugestao,border:`1px solid ${C.line}`,flexShrink:0}}/>
+          <button onClick={()=>gravarCor(sugestao)}
+            style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,
+              padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            Usar {sugestao}, que é a sua cor mais escura</button>
+        </div>}
+      </div>}
     </div>
   </div>;
 }
@@ -7351,7 +7551,7 @@ function RoboConfig({acoes,session,isMobile}){
     {cartao(<React.Fragment>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
         <Icon n="msg" size={15} color={C.greenMid}/>
-        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Ensinar a IA a falar como a Conecta</span>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Ensinar a IA a falar como a sua equipe</span>
         {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
@@ -7855,7 +8055,7 @@ function Conexao({conecta}){
     <div style={{maxWidth:560,margin:"0 auto"}}>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
         <div style={{background:conecta.connected?C.greenSoft:C.hotSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:conecta.connected?C.green:C.hot}}><Icon n={conecta.connected?"wifi":"wifioff"} size={28}/></div>
-        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{conecta.connected?"WhatsApp da Conecta conectado":"WhatsApp desconectado"}</div>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{conecta.connected?"WhatsApp da imobiliária conectado":"WhatsApp desconectado"}</div>
         {conecta.connected?<React.Fragment>
           <div style={{color:C.sub,fontSize:13,marginTop:4}}>Todos os corretores atendem por este número:</div>
           <div style={{color:C.green,fontFamily:MONO,fontSize:16,fontWeight:600,margin:"8px 0"}}>{fmtTel(conecta.number)}</div>
@@ -7869,7 +8069,7 @@ function Conexao({conecta}){
       </div>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Icon n="link" size={15} color={C.green}/> Como funciona</div>
-        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>Um único número da Conecta conectado via Uazapi. Todos os corretores atendem por ele, e cada mensagem sai assinada com o nome de quem enviou — o lead sempre sabe com quem está falando.</div>
+        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>Um único número conectado via Uazapi. Todos os corretores atendem por ele, e cada mensagem sai assinada com o nome de quem enviou — o lead sempre sabe com quem está falando.</div>
       </div>
     </div>
   </div>;
@@ -8200,7 +8400,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
           <div style={{color:C.greenDeep,fontFamily:DISPLAY,fontSize:isMobile?18:21,fontWeight:700,lineHeight:1.15}}>
             {linha.nome}</div>
           <div style={{color:C.sub,fontSize:12.5,marginTop:3}}>
-            {linha.papel==="sdr"?"Atendente (SDR)":"Corretor(a)"} · {org&&org.nome?org.nome:"Conecta Imóveis"}</div>
+            {linha.papel==="sdr"?"Atendente (SDR)":"Corretor(a)"} · {org&&org.nome?org.nome:"a imobiliária"}</div>
           <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
             Período: <b style={{color:C.sub}}>{fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</b></div>
         </div>

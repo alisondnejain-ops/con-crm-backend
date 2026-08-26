@@ -455,6 +455,23 @@ addOrgCol("robo_dias", "TEXT DEFAULT '1,2,3,4,5'");
    quando alguém de fato recebe. */
 addOrgCol("rodizio_ultimo", "TEXT");
 
+/* A MARCA DA IMOBILIÁRIA (white-label).
+
+   A plataforma é multi-imobiliária desde sempre, mas a aparência era uma só —
+   e uma imobiliária que assina o sistema não pode ver o nome nem as cores de
+   outra. Duas coisas ficam por conta dela: a logo, que aparece no alto da
+   barra lateral, e a cor da própria barra.
+
+   `logo_key` é o caminho no armazenamento, guardado ao lado da URL para a
+   logo antiga poder ser apagada quando outra sobe — sem isso cada troca
+   deixaria um arquivo órfão pagando espaço para sempre.
+
+   Cor vazia = o verde profundo do padrão. Guardar NULL em vez de gravar o
+   padrão é o que permite mudar o padrão depois sem reescrever a base. */
+addOrgCol("logo_url", "TEXT");
+addOrgCol("logo_key", "TEXT");
+addOrgCol("cor_barra", "TEXT");
+
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa

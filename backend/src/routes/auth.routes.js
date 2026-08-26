@@ -8,6 +8,7 @@ import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
 import { codigoLivre } from "../services/codigo.js";
+import { marcaDaOrg } from "../services/marca.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -23,9 +24,13 @@ const newToken = () => randomBytes(24).toString("hex");
 const norm = (e) => String(e || "").trim().toLowerCase();
 
 // A imobiliária de alguém, no formato que as telas usam.
+/* A marca vem JUNTO com a imobiliária, não numa requisição depois.
+   Buscá-la separado faria a barra nascer verde e trocar de cor um instante
+   depois, em todo login — o piscar diria à equipe que a marca dela é um
+   enfeite que o sistema aplica com atraso. */
 function orgDoUsuario(user) {
-  const o = db.prepare("SELECT id,name,adm_code FROM orgs WHERE id = ?").get(user.org_id);
-  return o ? { id: o.id, nome: o.name, codigo: o.adm_code } : null;
+  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra FROM orgs WHERE id = ?").get(user.org_id);
+  return o ? { id: o.id, nome: o.name, codigo: o.adm_code, ...marcaDaOrg(o) } : null;
 }
 // O link que o gestor manda para os corretores dele.
 function linkDaEquipe(req, user) {
@@ -265,9 +270,9 @@ r.get("/me", authRequired, (req, res) => {
   /* A imobiliária vem do TOKEN, não do cadastro da pessoa. Para quase todo
      mundo dá no mesmo; para o master é a diferença entre "a casa dele" e "a
      casa em que ele está trabalhando agora", escolhida no hub de contas. */
-  const org = db.prepare("SELECT id,name,adm_code FROM orgs WHERE id = ?").get(req.user.org_id);
+  const org = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra FROM orgs WHERE id = ?").get(req.user.org_id);
   res.json({ user: publicUser(user),
-    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code } : null });
+    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code, ...marcaDaOrg(org) } : null });
 });
 
 // ── Minha conta ───────────────────────────────────────────────────────────────
