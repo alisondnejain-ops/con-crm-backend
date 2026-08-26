@@ -157,9 +157,17 @@ r.post("/masters", async (req, res) => {
   res.json({ ok: true, nome, email, link, email_enviado: enviado, horas: MASTER_CONVITE_HORAS });
 });
 
-/* Tirar o crachá de sócio. Não apaga a conta: ela vira uma conta de gestor
-   comum da imobiliária em que está, e some do hub. Apagar seria perder o
-   histórico do que a pessoa fez enquanto era sócia. */
+/* Tirar o crachá de sócio DESATIVA a conta junto.
+
+   Antes só o `master` caía, e a pessoa virava gestora comum da imobiliária
+   onde a conta dela nasceu — aparecendo na Equipe, com acesso total aos leads
+   daquela casa. Era o contrário do que a conta de sócio é: um acesso que
+   ninguém da operação enxerga. Quem deixa de ser sócio do ConHub não vira, por
+   tabela, gestor de um cliente do ConHub.
+
+   Desativar e não apagar: o histórico do que a pessoa fez enquanto era sócia
+   continua de pé, e a conta pode ser reativada pela tela Equipe se um dia for
+   o caso. */
 r.delete("/masters/:id", (req, res) => {
   if (req.params.id === req.user.id)
     return res.status(400).json({ error: "Você não pode tirar o próprio acesso de sócio." });
@@ -171,8 +179,8 @@ r.delete("/masters/:id", (req, res) => {
      porque as duas coisas exigem ser master. */
   if (quantos <= 1 && alvo.status === "ativo")
     return res.status(409).json({ error: "É o único sócio ativo. Convide outro antes de tirar este." });
-  db.prepare("UPDATE users SET master = 0 WHERE id = ?").run(alvo.id);
-  console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name}`);
+  db.prepare("UPDATE users SET master = 0, status = 'removido', available = 0 WHERE id = ?").run(alvo.id);
+  console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name} — a conta foi desativada`);
   res.json({ ok: true, nome: alvo.name });
 });
 

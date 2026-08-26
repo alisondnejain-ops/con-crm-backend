@@ -285,6 +285,23 @@ function usarAlturaDaBarra(){
    Fica em sessionStorage, não em localStorage, e a diferença é de propósito: a
    escolha sobrevive ao recarregamento e à volta do segundo plano, e some quando
    o app é fechado de verdade — que é quando começar limpo faz sentido. */
+/* O TÍTULO DA ABA diz em que tela a pessoa está.
+
+   O CRM é uma página só: o endereço não muda ao trocar de tela, então o
+   navegador mostrava "ConHub — CRM de atendimento" do login ao relatório. Com
+   quatro abas abertas — que é como a gestão trabalha — todas ficavam iguais, e
+   achar a certa virava tentativa e erro.
+
+   A ordem é "Tela | ConHub" porque a aba corta o fim quando estreita: o que
+   sobra visível ao lado do ícone precisa ser o que muda, não a marca que se
+   repete em todas. */
+function usarTitulo(tela){
+  useEffect(()=>{
+    if(typeof document==="undefined") return;
+    document.title=tela?`${tela} | ConHub`:"ConHub · CRM imobiliário";
+  },[tela]);
+}
+
 function usarEscolha(chave,inicial){
   const nome="conhub:"+chave;
   const [v,setV]=useState(()=>{
@@ -548,6 +565,7 @@ function Brand({size=44,noEscuro}){
 
 /* ===== LOGIN (contas reais, via backend) ===== */
 function Auth({onLogin}){
+  usarTitulo("Login");
   const [f,setF]=useState({email:"",pass:""});
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState(false);
@@ -564,21 +582,86 @@ function Auth({onLogin}){
   }
   const onEnter=(e)=>{ if(e.key==="Enter") entrar(); };
   return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center",padding:isMobile?0:24}}>
-    <div style={{width:"100%",maxWidth:isMobile?"none":860,display:"grid",gridTemplateColumns:"1fr 1fr",borderRadius:isMobile?0:24,overflow:"hidden",boxShadow:isMobile?"none":"0 20px 60px rgba(0,0,0,.12)",border:isMobile?"none":`1px solid ${C.line}`}} className="authgrid">
-      <div style={{background:C.greenDeep,padding:isMobile?"24px 22px":32,color:"#fff",display:"flex",flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,minHeight:isMobile?0:460}}>
+    {/* A FOTO É FUNDO DO CARTÃO INTEIRO, não de uma coluna.
+
+        A imagem é 16:9, larga. Enfiada só na coluna da esquerda — quase
+        quadrada — ela seria recortada nas laterais e a pessoa sairia do
+        quadro. Atrás do cartão todo, a proporção é respeitada: a foto ocupa a
+        largura para a qual foi feita, o texto vive sobre a metade esquerda e o
+        formulário flutua em branco na direita.
+
+        Camadas, de baixo para cima: o verde profundo (que é o que resta se o
+        arquivo faltar), a foto, e o degradê que segura o contraste do texto. A
+        porta de entrada do sistema nunca depende de um arquivo carregar. */}
+    {/* No celular a grade vira uma coluna só e o cartão ocupa a tela inteira.
+        Sem `display:flex` + `flex:1` na grade, o conteúdo terminava no meio e
+        sobrava um bloco verde vazio embaixo — a foto de fundo do cartão
+        aparecendo onde não havia mais nada para mostrar. */}
+    <div style={{position:"relative",width:"100%",maxWidth:isMobile?"none":900,
+      borderRadius:isMobile?0:24,overflow:"hidden",background:C.greenDeep,
+      display:"flex",flexDirection:"column",minHeight:isMobile?"100dvh":0,
+      boxShadow:isMobile?"none":"0 24px 70px rgba(10,61,48,.22)",
+      border:isMobile?"none":`1px solid ${C.line}`}}>
+      <div aria-hidden="true" style={{position:"absolute",inset:0,
+        backgroundImage:"url('/login-fundo.jpg')",backgroundSize:"cover",
+        backgroundPosition:isMobile?"30% center":"center",backgroundRepeat:"no-repeat"}}/>
+      <div aria-hidden="true" style={{position:"absolute",inset:0,
+        /* O degradê é VERTICAL, e não da esquerda para a direita.
+
+           A metade direita do cartão fica atrás do formulário branco, que é
+           opaco: só a metade esquerda da foto aparece. Um degradê horizontal
+           gastaria toda a sua transparência exatamente na parte que ninguém vê,
+           e apagaria a foto justamente onde ela aparece.
+
+           Vertical, o peso vai para o topo (onde fica a marca) e para o pé
+           (onde fica a versão), deixando o miolo mais aberto — que é onde a
+           pessoa da foto costuma estar. */
+        background:`linear-gradient(180deg, ${C.greenDeep}e0 0%, ${C.greenDeep}b8 42%, ${C.greenDeep}cc 72%, ${C.greenDeep}f0 100%)`}}/>
+    {/* `auto 1fr` no celular: a faixa da marca ocupa só o que precisa e o
+        formulário fica com o resto da tela. Sem isso as duas linhas dividiam a
+        altura em partes iguais, e sobrava meia tela verde vazia acima do
+        campo de e-mail. */}
+    <div style={{position:"relative",zIndex:1,display:"grid",gridTemplateColumns:"1fr 1fr",
+      gridTemplateRows:isMobile?"auto 1fr":"auto",flex:1}} className="authgrid">
+      {/* A FOTO DE FUNDO, e por que ela é montada em CAMADAS.
+
+          O arquivo entra como `background-image` POR CIMA do verde profundo,
+          nunca no lugar dele: se a imagem faltar, demorar ou o navegador
+          recusar, o painel continua verde com o texto legível — a porta de
+          entrada do sistema não pode depender de um arquivo carregar.
+
+          Em cima da foto vai um degradê do verde escuro, mais opaco à
+          esquerda, onde o texto vive. Sem ele o branco cai sobre as luzes do
+          fundo e some justamente no meio da frase. O degradê deixa a direita
+          mais aberta, que é onde a foto tem o que mostrar.
+
+          `background-position` fixo em 60% horizontal: o rosto está à
+          esquerda da imagem, e centralizar cortaria a pessoa ao meio quando a
+          coluna estreita. */}
+      <div style={{color:"#fff",display:"flex",flexDirection:"column",
+        justifyContent:"space-between",gap:isMobile?14:0,minHeight:isMobile?0:500}}>
+        <div style={{padding:isMobile?"26px 22px":"36px 34px",display:"flex",
+          flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,flex:1}}>
         <Brand size={isMobile?38:44} noEscuro/>
         {/* Nada de Conecta aqui: esta tela é a porta do ConHub, e a partir de
             agora ela abre para qualquer imobiliária. O nome de quem opera
             aparece depois de entrar, dentro do sistema. */}
-        <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:26,fontWeight:700,lineHeight:1.15,marginBottom:isMobile?8:12}}>Nenhum lead esquecido. Nenhuma venda no acaso.</div>
-          {!isMobile&&<p style={{color:"rgba(255,255,255,.75)",fontSize:13,lineHeight:1.6}}>O CRM de atendimento das imobiliárias: um só WhatsApp para a equipe inteira, cada mensagem assinada pelo corretor, distribuição automática e funil que anda sozinho conforme a conversa evolui.</p>}</div>
+        <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:28,fontWeight:700,lineHeight:1.15,
+          marginBottom:isMobile?8:12,textShadow:"0 2px 16px rgba(0,0,0,.55)"}}>Nenhum lead esquecido. Nenhuma venda no acaso.</div>
+          {/* O texto mudou junto com o produto: o funil NÃO anda mais sozinho
+              (a palavra virou recomendação, 26/08/2026). Prometer isso na porta
+              de entrada seria a primeira coisa que o cliente descobre ser
+              falsa. */}
+          {!isMobile&&<p style={{color:"rgba(255,255,255,.82)",fontSize:13,lineHeight:1.6,
+            textShadow:"0 1px 12px rgba(0,0,0,.5)"}}>O CRM de atendimento das imobiliárias: um só WhatsApp para a equipe inteira, cada mensagem assinada pelo corretor, distribuição automática por rodízio e o funil sempre com um nome por trás de cada etapa.</p>}</div>
         {/* A versão fica visível ANTES do login de propósito: quando alguém
             diz "aqui está diferente", este número responde na hora, sem
             precisar entrar no sistema nem procurar menu. */}
-        {!isMobile&&<div style={{color:"rgba(255,255,255,.5)",fontSize:11}}>
+        {!isMobile&&<div style={{color:"rgba(255,255,255,.62)",fontSize:11,textShadow:"0 1px 8px rgba(0,0,0,.5)"}}>
           ConHub · plataforma de atendimento imobiliário
           {typeof window!=="undefined"&&window.CONHUB_BUILD?<React.Fragment><br/>versão {window.CONHUB_BUILD}</React.Fragment>:null}
         </div>}
+        </div>
       </div>
       <div style={{background:C.card,padding:isMobile?"24px 22px 40px":32,display:"flex",flexDirection:"column",justifyContent:"center"}}>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:4}}>Entrar</div>
@@ -607,6 +690,7 @@ function Auth({onLogin}){
           </div>
         </div>
       </div>
+    </div>
     </div>
   </div>;
 }
@@ -1264,6 +1348,7 @@ function AvisoPlantao({meu,isMobile,compacto}){
    equipe, leads na fila, quem tem cadastro esperando aprovação e a situação da
    mensalidade. */
 function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
+  usarTitulo("Suas imobiliárias");
   const [contas,setContas]=useState(null);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
@@ -1988,6 +2073,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
   }[role].concat([["conta","user","Minha conta","Configurações"]]);
   const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  /* Dentro do sistema o título segue a tela aberta, e leva o nome da
+     imobiliária junto: o master trabalha com várias abas, uma por cliente, e
+     "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
+  usarTitulo(org&&org.nome?`${TITLES[view]||"Painel"} · ${org.nome}`:(TITLES[view]||"Painel"));
+
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);

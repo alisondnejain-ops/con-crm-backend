@@ -160,7 +160,11 @@ for (const corpo of [{ nome: "Fulano", email: "nao-e-email" }, { nome: "", email
   assert.equal(r.status, 400);
 }
 
-console.log("11. Tirar o crachá de sócio não apaga a conta");
+console.log("11. Tirar o crachá de sócio DESATIVA a conta, sem apagá-la");
+/* Antes só o crachá caía, e a pessoa virava gestora comum da imobiliária onde
+   a conta nasceu — aparecendo na Equipe, com acesso aos leads daquela casa.
+   Quem deixa de ser sócio do ConHub não vira, por tabela, gestor de um cliente
+   do ConHub. O histórico fica; a conta pode ser reativada pela tela Equipe. */
 r = await chamar(tAli, `/orgs/masters/${db.prepare("SELECT id FROM users WHERE email=?").get("socia@conhub.com").id}`,
   { method: "DELETE" });
 d = await r.json();
@@ -168,7 +172,7 @@ const depois = db.prepare("SELECT master,status FROM users WHERE email=?").get("
 console.log(`   ${r.status} · master=${depois.master} · status=${depois.status}`);
 assert.equal(r.status, 200);
 assert.equal(depois.master, 0);
-assert.equal(depois.status, "ativo", "a conta continua existindo, com o histórico dela");
+assert.equal(depois.status, "removido", "a conta é desativada, não apagada");
 
 console.log("12. O ÚLTIMO sócio ativo não pode ser removido");
 /* Sem esta trava a plataforma fica sem ninguém que possa criar imobiliária ou
