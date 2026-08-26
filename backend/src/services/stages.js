@@ -1,4 +1,6 @@
-// Lógica compartilhada com o frontend: etapas, avanço automático, prioridade e telefone.
+// Etapas do funil, as palavras que RECOMENDAM cada uma, prioridade e telefone.
+// Desde 26/08/2026 nada aqui move lead: `inferStage` alimenta a recomendação
+// que uma pessoa confirma (ver `sugerirEtapa` em routes/messages.routes.js).
 
 export const STAGES = ["Lead", "Atendimento", "Pasta", "Aprovação", "Agendamento", "Visita", "Proposta", "Venda", "Perdido", "Recaptação", "Transferido por ligação"];
 export const LINEAR = ["Lead", "Atendimento", "Pasta", "Aprovação", "Agendamento", "Visita", "Proposta", "Venda"];

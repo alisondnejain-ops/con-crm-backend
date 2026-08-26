@@ -1008,7 +1008,10 @@ r.patch("/:id/qualificacao", (req, res) => {
   res.json({ ok: true, qual });
 });
 
-// Ajuste manual de etapa (o automático acontece no envio/recebimento de mensagem).
+// Ajuste manual de etapa. NÃO existe mais avanço automático: desde 26/08/2026 a
+// palavra na conversa apenas recomenda (ver `sugerirEtapa`), e quem grava a
+// etapa é sempre uma pessoa — aqui, na confirmação da recomendação, ou no
+// registro da venda.
 r.patch("/:id/stage", (req, res) => {
   const { stage } = req.body || {};
   if (!STAGES.includes(stage)) return res.status(400).json({ error: "Etapa inválida" });

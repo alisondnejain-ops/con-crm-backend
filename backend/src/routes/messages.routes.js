@@ -18,8 +18,8 @@ import { inferStage } from "../services/stages.js";
 const r = Router();
 r.use(authRequired);
 
-// Envia mensagem ao lead pelo número único da Conecta, ASSINADA com o nome de quem envia.
-// Depois, roda o avanço automático de etapa com base na conversa.
+// Envia mensagem ao lead pelo número único da imobiliária, ASSINADA com o nome
+// de quem envia. Depois relê a conversa e RECOMENDA uma etapa — sem mover nada.
 r.post("/:id/messages", async (req, res) => {
   const { text, reply_to } = req.body || {};
   if (!text || !text.trim()) return res.status(400).json({ error: "Mensagem vazia" });
