@@ -12,20 +12,24 @@
    Tudo aqui exige master, conferido no banco (ver auth.js -> soMaster). */
 
 import { Router } from "express";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster } from "../auth.js";
 import { situacao } from "../services/assinatura.js";
 import { apagar as apagarArquivo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
+import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 
 const r = Router();
 r.use(authRequired, soMaster);
 
-const linkCadastro = (req, code) => {
-  const base = (process.env.SITE_URL || process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
-  return `${base}/cadastro?c=${code}`;
-};
+/* O endereço público do site. Vale para os dois links que saem daqui: o de
+   cadastro da equipe e o de convite de sócio. Sai do SITE_URL/APP_URL porque o
+   host da requisição pode ser o endereço interno da hospedagem, que não abre
+   no celular de quem recebe o link. */
+const siteUrl = (req) =>
+  (process.env.SITE_URL || process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+const linkCadastro = (req, code) => `${siteUrl(req)}/cadastro?c=${code}`;
 
 /* Código da imobiliária: é a trava do cadastro e vai embutido no link, então
    precisa ser previsível e sem espaço. Maiúsculas, só letras, números e traço. */
@@ -73,6 +77,103 @@ r.post("/:id/entrar", (req, res) => {
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
   const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   res.json({ token: sign(eu, { orgId: org.id }), org: resumo(req, org) });
+});
+
+/* ===== SÓCIOS E ADMINISTRADORES DA PLATAFORMA =====
+
+   O convite de MASTER, que é uma coisa diferente do convite de corretor.
+
+   Até 26/08/2026 só existiam duas portas: `/cadastro?c=CODIGO`, que põe alguém
+   dentro de UMA imobiliária, e a variável `MASTER_EMAIL` no servidor, que
+   promove uma conta que já existe. Para um sócio novo entrar, alguém tinha que
+   mexer na configuração da hospedagem — o que é pedir ao Ali exatamente o tipo
+   de coisa que ele não faz sozinho.
+
+   POR QUE NÃO É UM LINK COM CÓDIGO, como o dos corretores.
+
+   O link do corretor pode ser repassado no grupo: quem entra por ele cai numa
+   imobiliária só, com papel limitado, e ainda passa por aprovação. O master vê
+   TODAS as imobiliárias, os clientes de todas elas e o que cada uma paga. Um
+   link que possa ser encaminhado e usado por quem o receber cria um
+   super-administrador da plataforma inteira — outra categoria de estrago.
+
+   Por isso o convite é NOMINAL e de uso único: nasce preso a um e-mail, vale
+   48h e morre quando a senha é definida. É o mesmo mecanismo do link de nova
+   senha, que já existia e já era assim.
+
+   O e-mail já cadastrado em qualquer imobiliária é RECUSADO em vez de virar
+   master. Promover em silêncio a conta de um corretor porque alguém digitou o
+   e-mail errado é o pior desfecho possível desta tela. */
+const MASTER_CONVITE_HORAS = 48;
+const novoToken = () => randomBytes(24).toString("hex");
+
+r.get("/masters", (req, res) => {
+  const linhas = db.prepare(`
+    SELECT u.id, u.name, u.email, u.status, u.created_at, u.invite_expires,
+           (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS org_nome
+    FROM users u WHERE u.master = 1 ORDER BY u.created_at`).all();
+  res.json({ masters: linhas.map(m => ({ ...m, eu: m.id === req.user.id })) });
+});
+
+r.post("/masters", async (req, res) => {
+  const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (nome.length < 2) return res.status(400).json({ error: "Escreva o nome da pessoa." });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "E-mail inválido." });
+
+  const jaExiste = db.prepare("SELECT id, name, master, status FROM users WHERE email = ?").get(email);
+  if (jaExiste && !jaExiste.master)
+    return res.status(409).json({
+      error: `Esse e-mail já é de ${jaExiste.name}, que tem conta de equipe numa imobiliária. Use outro e-mail para a conta de sócio.` });
+  if (jaExiste && jaExiste.master && jaExiste.status === "ativo")
+    return res.status(409).json({ error: `${jaExiste.name} já é sócio e tem conta ativa.` });
+
+  const token = novoToken();
+  const expira = Date.now() + MASTER_CONVITE_HORAS * 3600000;
+  /* A imobiliária do convidado é a de quem convidou. O master enxerga todas de
+     qualquer jeito; o `org_id` existe porque toda conta precisa de uma casa, e
+     `semMaster` já o mantém fora da lista de equipe dessa imobiliária. */
+  if (jaExiste) {
+    db.prepare("UPDATE users SET name=?, invite_token=?, invite_expires=?, invite_tipo='convite', status='pendente' WHERE id=?")
+      .run(nome, token, expira, jaExiste.id);
+  } else {
+    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,master,invite_token,invite_expires,invite_tipo)
+      VALUES (?,?,?,?,'','adm',0,?,'pendente',1,?,?,'convite')`)
+      .run("u_" + randomUUID(), req.user.org_id, nome, email, Date.now(), token, expira);
+  }
+
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  let enviado = false;
+  if (mailConfigured()) {
+    try {
+      const { subject, html } = inviteEmail({ name: nome, link, orgName: "ConHub" });
+      const out = await sendMail({ to: email, subject, html });
+      enviado = !!out.sent;
+    } catch (e) { console.error("[master] não consegui enviar o e-mail:", e.message); }
+  }
+  console.log(`[master] convite de sócio para ${email}: ${link}`);
+  // O link volta SEMPRE, mesmo com e-mail configurado: é ele que o Ali manda no
+  // WhatsApp enquanto o Resend não está ligado.
+  res.json({ ok: true, nome, email, link, email_enviado: enviado, horas: MASTER_CONVITE_HORAS });
+});
+
+/* Tirar o crachá de sócio. Não apaga a conta: ela vira uma conta de gestor
+   comum da imobiliária em que está, e some do hub. Apagar seria perder o
+   histórico do que a pessoa fez enquanto era sócia. */
+r.delete("/masters/:id", (req, res) => {
+  if (req.params.id === req.user.id)
+    return res.status(400).json({ error: "Você não pode tirar o próprio acesso de sócio." });
+  const alvo = db.prepare("SELECT id,name,master FROM users WHERE id = ?").get(req.params.id);
+  if (!alvo || !alvo.master) return res.status(404).json({ error: "Sócio não encontrado." });
+  const quantos = db.prepare("SELECT COUNT(*) n FROM users WHERE master = 1 AND status = 'ativo'").get().n;
+  /* Sem esta trava dá para a plataforma ficar sem NENHUM sócio ativo — e aí
+     ninguém cria imobiliária, ninguém convida sócio e ninguém volta atrás,
+     porque as duas coisas exigem ser master. */
+  if (quantos <= 1 && alvo.status === "ativo")
+    return res.status(409).json({ error: "É o único sócio ativo. Convide outro antes de tirar este." });
+  db.prepare("UPDATE users SET master = 0 WHERE id = ?").run(alvo.id);
+  console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name}`);
+  res.json({ ok: true, nome: alvo.name });
 });
 
 /* Cadastra uma imobiliária nova.

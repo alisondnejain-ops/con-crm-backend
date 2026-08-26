@@ -961,6 +961,10 @@ function ConCRM(){
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
+    // Sócios da PLATAFORMA (contas master), não da imobiliária.
+    listarSocios:()=>api("/orgs/masters"),
+    convidarSocio:(dados)=>api("/orgs/masters",{method:"POST",body:dados}),
+    tirarSocio:(id)=>api(`/orgs/masters/${id}`,{method:"DELETE"}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
@@ -1426,7 +1430,146 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
               <span style={{fontSize:11,color:C.faint}}>um cliente novo na plataforma</span>
             </button>}
         </div>}
+
+      <Socios acoes={acoes} session={session} isMobile={isMobile}/>
     </div>
+  </div>;
+}
+
+/* SÓCIOS E ADMINISTRADORES DA PLATAFORMA.
+
+   Fica no hub, embaixo das imobiliárias, porque é a única tela que existe
+   acima delas — e porque só quem já é sócio pode ver.
+
+   O CONVITE É NOMINAL, e a tela diz isso por escrito. É a diferença que mais
+   importa aqui: o link do corretor pode circular no grupo da equipe, este não.
+   Quem recebe vira administrador de TODAS as imobiliárias, com os clientes e o
+   faturamento de cada uma. Sem a frase, o link parece o mesmo dos corretores e
+   vai parar no lugar errado por analogia.
+
+   O link volta na tela mesmo com e-mail configurado: enquanto o Resend não
+   está contratado, é ele que o Ali manda no WhatsApp. */
+function Socios({acoes,session,isMobile}){
+  const [lista,setLista]=useState(null);
+  const [novo,setNovo]=useState({nome:"",email:""});
+  const [abrindo,setAbrindo]=useState(false);
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [convite,setConvite]=useState(null);   // {nome,email,link,email_enviado,horas}
+  const [copiado,setCopiado]=useState(false);
+  const [tirando,setTirando]=useState(null);
+
+  const rever=()=>acoes.listarSocios().then(d=>setLista(d.masters)).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+
+  async function convidar(){
+    setErro("");setOcupado("convidar");
+    try{
+      const d=await acoes.convidarSocio(novo);
+      setConvite(d); setNovo({nome:"",email:""}); setAbrindo(false); await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
+  async function tirar(m){
+    setErro("");setOcupado(m.id);
+    try{ await acoes.tirarSocio(m.id); setTirando(null); await rever(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
+  const copiar=()=>{ try{ navigator.clipboard.writeText(convite.link); setCopiado(true);
+    setTimeout(()=>setCopiado(false),1800); }catch(e){} };
+
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
+      Sócios e administradores</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:16,lineHeight:1.55}}>
+      Quem administra o ConHub, e não uma imobiliária. Um sócio enxerga todas as
+      contas desta tela, os clientes de cada uma e o que cada uma paga.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+    {/* O convite recém-criado. Fica em destaque e não some sozinho: é a única
+        vez em que este link aparece, e ele vale 48h. */}
+    {convite&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:14,padding:14,marginBottom:14}}>
+      <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:3}}>
+        Convite criado para {convite.nome}</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:10}}>
+        Mande este link para <b style={{color:C.ink}}>{convite.email}</b>. Ele vale {convite.horas} horas,
+        serve uma vez só e é dessa pessoa — não repasse em grupo.
+        {convite.email_enviado?" Também foi enviado por e-mail.":" O e-mail ainda não está ligado, então mande você mesmo."}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input readOnly value={convite.link} onFocus={e=>e.target.select()}
+          style={{...entrada,flex:1,minWidth:isMobile?"100%":260,fontSize:isMobile?13:12,fontFamily:MONO,background:C.card}}/>
+        <button onClick={copiar} style={{background:copiado?C.card:C.greenDeep,color:copiado?C.greenMid:"#fff",
+          border:"none",borderRadius:10,padding:"11px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          {copiado?"Copiado!":"Copiar"}</button>
+        <button onClick={()=>setConvite(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,
+          borderRadius:10,padding:"11px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Fechar</button>
+      </div>
+    </div>}
+
+    {lista===null?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+        {lista.map(m=><div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
+          padding:"11px 13px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <Avatar ini={initials(m.name)} color={C.greenDeep} size={32}/>
+          <div style={{flex:1,minWidth:140}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:600}}>
+              {m.name}{m.eu&&<span style={{color:C.faint,fontWeight:400}}> · você</span>}</div>
+            <div style={{color:C.faint,fontSize:11}}>{m.email}</div>
+          </div>
+          {m.status!=="ativo"&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:10.5,fontWeight:700,
+            padding:"3px 9px",borderRadius:999}}>convite pendente</span>}
+          {!m.eu&&(tirando===m.id
+            ? <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>tirar(m)} disabled={!!ocupado}
+                  style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",
+                    fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+                  {ocupado===m.id?"…":"Confirmar"}</button>
+                <button onClick={()=>setTirando(null)}
+                  style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+                    padding:"7px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            : <button onClick={()=>setTirando(m.id)}
+                style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,
+                  padding:"7px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Tirar acesso</button>)}
+        </div>)}
+      </div>}
+
+    {abrindo
+      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,
+        display:"flex",flexDirection:"column",gap:9,maxWidth:420}}>
+        <div>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome</div>
+          <input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} placeholder="como a pessoa assina" style={entrada}/>
+        </div>
+        <div>
+          <div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>E-mail</div>
+          <input value={novo.email} onChange={e=>setNovo({...novo,email:e.target.value})}
+            placeholder="socio@exemplo.com" autoCapitalize="off" style={entrada}/>
+          <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+            Precisa ser um e-mail que ainda não tem conta em nenhuma imobiliária.
+          </div>
+        </div>
+        <div style={{display:"flex",gap:7}}>
+          <button onClick={convidar} disabled={ocupado==="convidar"||novo.nome.trim().length<2||!novo.email.trim()}
+            style={{flex:1,background:novo.nome.trim().length<2||!novo.email.trim()?C.faint:C.green,color:"#fff",
+              border:"none",borderRadius:11,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="convidar"?"Criando…":"Gerar convite"}</button>
+          <button onClick={()=>{setAbrindo(false);setErro("");}}
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,
+              padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>
+      :<button onClick={()=>setAbrindo(true)}
+        style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:12,padding:"13px 18px",
+          cursor:"pointer",display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600}}>
+        <Icon n="userplus" size={17}/> Convidar sócio ou administrador</button>}
   </div>;
 }
 

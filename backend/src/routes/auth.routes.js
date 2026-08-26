@@ -229,7 +229,14 @@ r.post("/set-password", (req, res) => {
      acabou de criar, e não existe ninguém do outro lado para aprovar. Mandá-lo
      para a fila de aprovação seria trancar a porta com a chave dentro. */
   const fundador = u.invite_tipo === "fundador";
-  const novoStatus = fundador || !PAPEIS[u.role].precisaAprovacao ? "ativo" : "aguardando_aprovacao";
+  /* O SÓCIO DA PLATAFORMA também entra direto, e por um motivo parecido: a
+     aprovação dele JÁ ACONTECEU, no momento em que outro sócio o convidou pelo
+     hub. Sem esta linha ele cairia em `aguardando_aprovacao` dentro de uma
+     imobiliária qualquer — e ficaria preso lá para sempre, porque `semMaster`
+     mantém o master fora da lista de equipe, que é onde o gestor aprova. Um
+     convite que não dá para aceitar nem para recusar. */
+  const socio = !!u.master;
+  const novoStatus = fundador || socio || !PAPEIS[u.role].precisaAprovacao ? "ativo" : "aguardando_aprovacao";
   db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_expires=NULL WHERE id=?")
     .run(bcrypt.hashSync(String(password), 10), novoStatus, u.id);
 
