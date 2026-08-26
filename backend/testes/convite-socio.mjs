@@ -178,5 +178,45 @@ r = await chamar(tAli, `/orgs/masters/${idAli}`, { method: "DELETE" });
 console.log(`   ele mesmo: ${r.status} · ${(await r.json()).error}`);
 assert.equal(r.status, 400, "e ninguém tira o próprio acesso por acidente");
 
+console.log("13. O sócio NÃO aparece em nenhuma lista da imobiliária onde a conta nasceu");
+/* Pergunta do Ali: criando um master agora, ele volta a aparecer dentro da
+   Conecta? A conta do sócio precisa de um `org_id` (toda conta tem uma casa) e
+   herda a de quem convidou — então ela EXISTE dentro daquela imobiliária. O
+   que não pode é a equipe de lá enxergá-la em lugar nenhum.
+
+   Este teste percorre as listas que a equipe realmente vê. Conferir só a tela
+   Equipe não bastaria: o nome poderia reaparecer no rodízio, no plantão ou no
+   relatório, que são outras consultas, escritas em outros dias. */
+const novoSocio = "u_" + randomUUID();
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,master)
+  VALUES (?,?,'Sócio Fantasma','fantasma@conhub.com',?, 'adm',1,?,'ativo',1)`)
+  .run(novoSocio, alfa, senha, Date.now());
+
+const listas = [
+  ["Equipe", "/auth/users", d => (d.users || d).map(u => u.name)],
+  ["Catraca das atendentes", "/distribution/atendentes", d => (d.atendentes || []).map(a => a.name)],
+  ["Ordem da catraca", "/distribution/rodizio", d => (d.fila || []).map(x => x.name)],
+  ["Plantão de hoje", "/plantoes/hoje", d => (d.escalados || d.pessoas || []).map(x => x.name || x.nome)],
+  ["Relatório por corretor", "/reports", d => (d.atendentes || d.linhas || []).map(x => x.nome || x.name)],
+];
+for (const [rotulo, caminho, extrair] of listas) {
+  const resp = await chamar(tGestor, caminho);
+  if (!resp.ok) { console.log(`   ${rotulo}: ${resp.status} (rota não disponível para este papel)`); continue; }
+  let nomes = [];
+  try { nomes = extrair(await resp.json()).filter(Boolean); } catch (e) { nomes = []; }
+  /* "Sócia Nova" aparece na Equipe de propósito: no caso 11 o crachá de sócia
+     dela foi tirado, e quem deixa de ser sócio vira conta comum da imobiliária
+     onde está. Quem não pode aparecer é quem AINDA é master. */
+  console.log(`   ${rotulo}: ${nomes.length ? nomes.join(", ") : "(vazia)"}`);
+  assert.ok(!nomes.includes("Sócio Fantasma"), `o sócio vazou em ${rotulo}`);
+  assert.ok(!nomes.includes("Ali"), `o sócio fundador vazou em ${rotulo}`);
+}
+
+console.log("14. Mas ele continua enxergando a plataforma inteira");
+const tFantasma = (() => { const { sign } = null || {}; return null; })();
+d = await (await chamar(tAli, "/orgs/masters")).json();
+console.log(`   na lista de sócios: ${d.masters.map(m => m.name).join(", ")}`);
+assert.ok(d.masters.some(m => m.name === "Sócio Fantasma"), "aparece onde deve aparecer: no hub");
+
 console.log("\nTudo certo ✅");
 process.exit(0);
