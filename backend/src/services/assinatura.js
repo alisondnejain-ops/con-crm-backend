@@ -1,5 +1,6 @@
 import db from "../db.js";
 import { randomUUID } from "crypto";
+import { mesesPagos, planoPorId } from "./planos.js";
 
 /* Assinatura mensal e bloqueio por atraso.
 
@@ -51,15 +52,25 @@ export function ehDono(orgId, userId) {
 
 const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
 
-/* Recalcula o vencimento a partir da base e da quantidade de pagamentos.
-   Cada pagamento vale um mês. É por isso que apagar um pagamento traz a data
-   de volta sem nenhuma conta extra — e mexer em qualquer ordem dá no mesmo. */
+/* Recalcula o vencimento a partir da base e dos MESES pagos.
+
+   Era a quantidade de pagamentos: cada linha valia um mês. Funcionava enquanto
+   todo plano fosse mensal, e quebrou no semestral do corretor autônomo — uma
+   cobrança de seis meses empurrava a data trinta dias, e quem pagou meio ano
+   era bloqueado no mês seguinte. Agora cada linha diz quantos meses comprou
+   (`pagamentos.meses`), e a soma é que manda; linha antiga, sem o campo, vale
+   1, que é o que ela sempre valeu.
+
+   O que não mudou é o mais importante: continua sendo uma conta feita do zero
+   a cada chamada, então apagar um pagamento traz a data de volta sozinho e
+   mexer em qualquer ordem dá no mesmo. */
 export function recalcularVencimento(orgId) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return null;
   const base = org.vence_base || org.vence_em;
   if (!base) return null;
-  const { n } = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId);
+  const { n } = db.prepare(
+    "SELECT COALESCE(SUM(COALESCE(meses,1)),0) n FROM pagamentos WHERE org_id = ?").get(orgId);
   const ultimo = db.prepare("SELECT MAX(pago_em) m FROM pagamentos WHERE org_id = ?").get(orgId).m;
   const vence = somaMeses(base, n);
   db.prepare("UPDATE orgs SET vence_em = ?, vence_base = ?, ultimo_pagamento_em = ? WHERE id = ?")
@@ -77,7 +88,14 @@ export function situacao(orgId, { dono = true } = {}) {
   /* Para quem não é o dono, sai só o que a tela de bloqueio precisa: em que
      estado está e desde quando. Valor, plano e link de pagamento não são
      assunto do outro gestor nem do corretor. */
-  const conforme = (s) => dono ? { ...s, dono } : {
+  /* Qual plano de prateleira está valendo. Só do autônomo, e só para o dono:
+     é o que a tela de gerenciar assinatura marca como "seu plano atual". */
+  const escolhido = planoPorId(org.plano_id);
+  const conforme = (s) => dono
+    ? { ...s, dono, plano_id: org.plano_id || null,
+        plano_nome: escolhido ? escolhido.nome : null,
+        plano_renova: escolhido ? escolhido.forma === "assinatura" : null }
+    : {
     status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo, teste: s.teste,
     dias: s.dias, atraso: s.atraso, restam: s.restam, carencia: s.carencia,
   };
@@ -134,7 +152,7 @@ export const bloqueada = (orgId) => situacao(orgId).status === "bloqueado";
    Pagamento do Asaas traz o id da cobrança. Ele evita a linha repetida quando
    o Asaas manda PAYMENT_CONFIRMED e PAYMENT_RECEIVED da mesma fatura — que
    antes empurrava o vencimento dois meses de uma vez. */
-export function registrarPagamento(orgId, { quando = Date.now(), link = null, valor = null, origem = "manual", asaasId = null, obs = null } = {}) {
+export function registrarPagamento(orgId, { quando = Date.now(), link = null, valor = null, origem = "manual", asaasId = null, obs = null, meses = null } = {}) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return null;
 
@@ -148,9 +166,16 @@ export function registrarPagamento(orgId, { quando = Date.now(), link = null, va
   if (!org.vence_base)
     db.prepare("UPDATE orgs SET vence_base = ? WHERE id = ?").run(org.vence_em || quando, orgId);
 
-  db.prepare(`INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,asaas_payment_id,obs,created_at)
-              VALUES (?,?,?,?,?,?,?,?)`).run("pg_" + randomUUID(), orgId,
-    valor != null ? Number(valor) : (org.valor_mensal ?? null), quando, origem, asaasId, obs, Date.now());
+  const quanto = valor != null ? Number(valor) : (org.valor_mensal ?? null);
+  /* Quantos meses este pagamento comprou. Quem chama pode dizer; quando não
+     diz, o plano da conta responde a partir do valor (services/planos.js), e
+     sem plano vale 1 — a regra de sempre. */
+  const compra = meses != null ? Math.max(1, Math.round(Number(meses)))
+    : mesesPagos(org.plano_id, quanto);
+
+  db.prepare(`INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,asaas_payment_id,obs,meses,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?)`).run("pg_" + randomUUID(), orgId,
+    quanto, quando, origem, asaasId, obs, compra, Date.now());
 
   db.prepare("UPDATE orgs SET assinatura_status = 'pago', link_pagamento = ? WHERE id = ?").run(link, orgId);
   return recalcularVencimento(orgId);
@@ -172,10 +197,15 @@ export function apagarPagamento(orgId, pagamentoId) {
 export function editarPagamento(orgId, pagamentoId, { pago_em, valor, obs }) {
   const alvo = db.prepare("SELECT * FROM pagamentos WHERE id = ? AND org_id = ?").get(pagamentoId, orgId);
   if (!alvo) return { ok: false, error: "Pagamento não encontrado." };
-  db.prepare("UPDATE pagamentos SET pago_em = ?, valor = ?, obs = ? WHERE id = ?").run(
+  const novoValor = valor != null && valor !== "" ? Number(valor) : alvo.valor;
+  /* Corrigir o valor tem que corrigir os meses junto. Sem isto, trocar uma
+     cobrança semestral lançada errado por uma mensal deixava o vencimento seis
+     meses à frente do que foi pago — e a conta ficaria liberada de graça. */
+  const org = db.prepare("SELECT plano_id FROM orgs WHERE id = ?").get(orgId);
+  const meses = novoValor !== alvo.valor ? mesesPagos(org?.plano_id, novoValor) : (alvo.meses ?? 1);
+  db.prepare("UPDATE pagamentos SET pago_em = ?, valor = ?, obs = ?, meses = ? WHERE id = ?").run(
     pago_em != null && isFinite(pago_em) ? Number(pago_em) : alvo.pago_em,
-    valor != null && valor !== "" ? Number(valor) : alvo.valor,
-    obs !== undefined ? obs : alvo.obs, pagamentoId);
+    novoValor, obs !== undefined ? obs : alvo.obs, meses, pagamentoId);
   return { ok: true, vence_em: recalcularVencimento(orgId) };
 }
 

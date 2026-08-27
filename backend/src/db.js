@@ -433,6 +433,12 @@ addOrgCol("uazapi_token", "TEXT");
    vence_base + (um mês por pagamento registrado), o que faz apagar pagamento
    voltar a data sozinho. Ver services/assinatura.js. */
 addOrgCol("vence_base", "INTEGER");
+/* Qual dos planos de prateleira o corretor autônomo escolheu (services/planos.js).
+   A imobiliária fica sem: o preço dela e combinado caso a caso e mora em
+   valor_mensal. E o plano que diz quantos meses cada pagamento compra — o
+   semestral paga seis de uma vez, e sem isso o cliente pagava meio ano e era
+   bloqueado no mes seguinte. */
+addOrgCol("plano_id", "TEXT");
 // Quando a imobiliária entrou na plataforma — aparece no hub de contas.
 addOrgCol("created_at", "INTEGER");
 /* Fim do expediente, "HH:MM". Às 18:00 (padrão) a prontidão de todo mundo cai,
@@ -505,6 +511,17 @@ addOrgCol("trial_ate", "INTEGER");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");
+
+/* Quantos MESES de acesso este pagamento comprou.
+
+   Era um por linha, contado com COUNT(*), e isso valia enquanto todo plano
+   fosse mensal. Com o semestral do corretor autônomo deixou de valer: uma
+   cobrança de R$ 1.482 empurrava o vencimento um mês só, e quem tinha acabado
+   de pagar meio ano era bloqueado trinta dias depois.
+
+   Linha antiga fica nula e conta como 1, que e o que ela sempre foi. */
+const pagCols = db.prepare("PRAGMA table_info(pagamentos)").all().map(c => c.name);
+if (!pagCols.includes("meses")) db.exec("ALTER TABLE pagamentos ADD COLUMN meses INTEGER");
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };

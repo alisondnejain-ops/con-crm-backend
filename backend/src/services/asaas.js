@@ -67,16 +67,64 @@ async function chamar(caminho, { metodo = "GET", corpo } = {}) {
 export const criarCliente = ({ nome, cpfCnpj, email, telefone }) =>
   chamar("/customers", { metodo: "POST", corpo: { name: nome, cpfCnpj, email, mobilePhone: telefone } });
 
-/* Assinatura mensal. `billingType: UNDEFINED` deixa o cliente escolher entre
-   Pix, boleto e cartão na hora de pagar — menos atrito que fixar um só. */
-export const criarAssinatura = ({ clienteId, valor, vencimento, descricao }) =>
+/* Assinatura recorrente. `billingType: UNDEFINED` deixa o cliente escolher entre
+   Pix, boleto e cartão na hora de pagar — menos atrito que fixar um só.
+
+   O ciclo é do PLANO (services/planos.js): MONTHLY no mensal, SEMIANNUALLY no
+   semestral. Era fixo em MONTHLY, o que estava certo quando só existia um
+   plano. */
+export const criarAssinatura = ({ clienteId, valor, vencimento, descricao, ciclo = "MONTHLY" }) =>
   chamar("/subscriptions", { metodo: "POST", corpo: {
     customer: clienteId, billingType: "UNDEFINED", value: valor,
-    nextDueDate: vencimento, cycle: "MONTHLY", description: descricao,
+    nextDueDate: vencimento, cycle: ciclo, description: descricao,
+  }});
+
+/* Cobrança PARCELADA — é o plano anual, 12x de R$ 197 no cartão.
+
+   Não é assinatura de propósito: assinatura anual no Asaas cobra o valor
+   cheio de uma vez, uma vez por ano, e o que foi vendido ao corretor foi a
+   parcela. Aqui o Asaas gera as 12 cobranças e manda um aviso de pago por
+   parcela — cada uma comprando um mês de acesso, o que fecha os doze.
+
+   `billingType: UNDEFINED` também aqui: quem preferir Pix ou boleto continua
+   podendo, e quem for de cartão vê o parcelamento. */
+export const criarParcelado = ({ clienteId, parcelas, valorParcela, vencimento, descricao }) =>
+  chamar("/payments", { metodo: "POST", corpo: {
+    customer: clienteId, billingType: "UNDEFINED",
+    installmentCount: parcelas, installmentValue: valorParcela,
+    dueDate: vencimento, description: descricao,
   }});
 
 export const cobrancasDaAssinatura = (assinaturaId) =>
   chamar(`/subscriptions/${assinaturaId}/payments`);
+
+/* Cancela a assinatura anterior quando o corretor troca de plano.
+
+   Sem isto, quem sai do mensal para o anual fica com as DUAS cobranças
+   correndo no Asaas e descobre no extrato do mês seguinte. O cancelamento
+   nunca derruba a troca: se ele falhar, o plano novo já foi contratado, e
+   travar aqui deixaria o cliente sem plano nenhum por causa da limpeza do
+   plano velho. Quem chama trata o erro e apenas registra. */
+export const cancelarAssinatura = (assinaturaId) =>
+  chamar(`/subscriptions/${assinaturaId}`, { metodo: "DELETE" });
+
+/* O ENDEREÇO DA TELA DE PAGAMENTO — a fatura hospedada pelo Asaas.
+
+   É para onde o corretor é mandado depois de escolher o plano, e é lá, no
+   domínio do Asaas, que ele digita os dados do cartão. Fazer essa tela aqui
+   dentro significaria número de cartão trafegando pelo nosso servidor e
+   entrando no escopo de PCI-DSS — responsabilidade que este CRM não tem
+   motivo nenhum para assumir para ganhar uma tela.
+
+   A assinatura não devolve a fatura na resposta da criação: ela cria a
+   primeira cobrança logo depois, e é essa cobrança que tem endereço. Por isso
+   a segunda chamada. O parcelado já devolve a dele direto. */
+export async function linkDaPrimeiraFatura(assinaturaId) {
+  const d = await cobrancasDaAssinatura(assinaturaId);
+  const lista = (d && d.data) || [];
+  const primeira = lista[0] || {};
+  return primeira.invoiceUrl || primeira.bankSlipUrl || null;
+}
 
 /* Traduz o evento do Asaas para o que o nosso sistema entende.
    Só três coisas importam: entrou dinheiro, atrasou, ou acabou. O resto

@@ -3,7 +3,9 @@ import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
-import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
+import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
+  linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
+import { planosParaTela, planoPorId, mesesPagos } from "../services/planos.js";
 
 const r = Router();
 
@@ -42,8 +44,14 @@ r.post("/webhooks/asaas", (req, res) => {
     }
 
     if (acao === "pago") {
-      const proximo = registrarPagamento(alvo.id, { link: null, valor: req.body?.payment?.value,
-        origem: "asaas", asaasId: req.body?.payment?.id || null });
+      /* Quantos meses esta cobrança comprou. No plano mensal é um; no
+         semestral, seis de uma vez; no anual, um por parcela — e são doze
+         parcelas. Creditar sempre um mês bloquearia quem acabou de pagar meio
+         ano. Sem plano (toda imobiliária) continua sendo um. */
+      const pago = req.body?.payment?.value;
+      const proximo = registrarPagamento(alvo.id, { link: null, valor: pago,
+        origem: "asaas", asaasId: req.body?.payment?.id || null,
+        meses: mesesPagos(alvo.plano_id, pago) });
       console.log(`[asaas] pagamento confirmado — próximo vencimento ${new Date(proximo).toLocaleDateString("pt-BR")}`);
     } else if (acao === "atrasado") {
       marcarAtraso(alvo.id, link);
@@ -138,6 +146,25 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
   res.json(situacao(org.id));
 });
 
+/* DAR BAIXA É DE QUEM RECEBE, NÃO DE QUEM PAGA.
+
+   Estas quatro rotas mexem no vencimento, e todas eram `soDono`. Só que o dono
+   da conta, num cliente, é o próprio cliente — então ele clicava em "Registrar
+   pagamento" e ganhava um mês, quantas vezes quisesse. Bloqueado, o mesmo
+   clique destravava a conta. Era o preço de 27/08/2026 outra vez, num botão
+   diferente: a régua de "o que vira dinheiro é do ConHub" não tinha alcançado
+   a baixa manual, o apagar, o corrigir e o reorganizar.
+
+   `soDono` continua na frente por causa da privacidade — outro gestor da casa
+   não vê o que se paga aqui —, e o master passa por ele desde sempre, porque
+   `ehDono` responde sim para quem cobra de todo mundo. */
+const soCobranca = (req, res, next) => {
+  const eu = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
+  if (eu && eu.master) return next();
+  res.status(403).json({
+    error: "Só o ConHub registra e corrige pagamento. O seu acesso é liberado sozinho assim que a cobrança é confirmada." });
+};
+
 /* Baixa manual. Continua existindo mesmo com o Asaas ligado: pagamento por
    fora, cortesia, acerto combinado — e, principalmente, para você destravar o
    cliente na hora se o webhook falhar. Depender só do automático é ficar refém
@@ -145,7 +172,7 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
 
    Aceita data e valor: dá para lançar pagamento retroativo e acertar meses que
    ficaram para trás, sem precisar mexer no vencimento na mão. */
-r.post("/assinatura/pagar", authRequired, soDono, (req, res) => {
+r.post("/assinatura/pagar", authRequired, soDono, soCobranca, (req, res) => {
   const { pago_em, valor, obs } = req.body || {};
   const quando = pago_em ? dataDoFormulario(pago_em) : Date.now();
   if (pago_em && !isFinite(quando)) return res.status(400).json({ error: "Data do pagamento inválida." });
@@ -154,14 +181,14 @@ r.post("/assinatura/pagar", authRequired, soDono, (req, res) => {
 });
 
 // Apaga um pagamento lançado por engano — o vencimento volta um mês sozinho.
-r.delete("/assinatura/pagamentos/:id", authRequired, soDono, (req, res) => {
+r.delete("/assinatura/pagamentos/:id", authRequired, soDono, soCobranca, (req, res) => {
   const r1 = apagarPagamento(req.user.org_id, req.params.id);
   if (!r1.ok) return res.status(404).json(r1);
   res.json({ ok: true, pagamentos: listarPagamentos(req.user.org_id), ...situacao(req.user.org_id) });
 });
 
 // Corrige data ou valor de um pagamento já lançado.
-r.patch("/assinatura/pagamentos/:id", authRequired, soDono, (req, res) => {
+r.patch("/assinatura/pagamentos/:id", authRequired, soDono, soCobranca, (req, res) => {
   const { pago_em, valor, obs } = req.body || {};
   const quando = pago_em ? dataDoFormulario(pago_em) : undefined;
   if (pago_em && !isFinite(quando)) return res.status(400).json({ error: "Data do pagamento inválida." });
@@ -173,7 +200,7 @@ r.patch("/assinatura/pagamentos/:id", authRequired, soDono, (req, res) => {
 /* Recalcula o vencimento a partir da base e dos pagamentos. É o "reorganizar":
    se a data ficou torta por lançamento antigo ou webhook repetido, isto põe
    tudo de volta na régua sem precisar apagar nada. */
-r.post("/assinatura/reorganizar", authRequired, soDono, (req, res) => {
+r.post("/assinatura/reorganizar", authRequired, soDono, soCobranca, (req, res) => {
   recalcularVencimento(req.user.org_id);
   res.json({ ok: true, pagamentos: listarPagamentos(req.user.org_id), ...situacao(req.user.org_id) });
 });
@@ -252,6 +279,123 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
     db.prepare(`UPDATE orgs SET asaas_customer_id = ?, asaas_subscription_id = ?, valor_mensal = ?, vence_em = ?, vence_base = ?
                 WHERE id = ?`).run(clienteId, assinatura.id, Number(valor), dataDoFormulario(venc), dataDoFormulario(venc), org.id);
     res.json({ ok: true, assinatura: assinatura.id, ...situacao(org.id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+/* ===== GERENCIAR ASSINATURA — os planos do CORRETOR AUTÔNOMO =====
+
+   Aqui o preço é de prateleira e o cliente se contrata sozinho: escolhe entre
+   mensal, semestral e anual, digita o CPF e é mandado para a tela do Asaas
+   para pagar. Nada disso passa pelo ConHub, que é o ponto — cada conta nova
+   deixa de ser uma digitação do Ali.
+
+   A IMOBILIÁRIA NÃO ENTRA AQUI. O preço dela é negociado caso a caso e
+   continua vindo de `orgs.valor_mensal`, gravado pelo master. Mostrar três
+   preços de prateleira para quem negociou outro seria oferecer um plano que
+   não é o dela. */
+const soAutonomo = (req, res, next) => {
+  const org = db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(req.user.org_id);
+  if (org && org.tipo === "autonomo") return next();
+  res.status(404).json({ error: "Os planos de assinatura são do corretor autônomo. O seu plano é combinado com o ConHub." });
+};
+
+r.get("/assinatura/planos", authRequired, soDono, soAutonomo, (req, res) => {
+  const org = db.prepare("SELECT plano_id FROM orgs WHERE id = ?").get(req.user.org_id);
+  res.json({ planos: planosParaTela(), atual: org.plano_id || null,
+    asaas: asaasConfigurado(), ambiente: ambienteAsaas() });
+});
+
+/* Contrata o plano escolhido e devolve o endereço da tela de pagamento.
+
+   O QUE ESTA ROTA NÃO FAZ: receber dados de cartão. O corretor é levado para a
+   fatura hospedada pelo Asaas, e é lá que ele digita o cartão. Uma tela nossa
+   pedindo número de cartão colocaria o CRM dentro do escopo de PCI-DSS e faria
+   o Railway trafegar dado de cartão — muito custo para nenhum ganho, já que a
+   tela do Asaas faz a mesma coisa e é a que a bandeira já auditou.
+
+   O VALOR CONTINUA NÃO VINDO DO CLIENTE. Ele manda o `plano_id`; o preço sai
+   da tabela do servidor. É a mesma trava de 27/08/2026, que existe porque a
+   rota é `soDono` e num cliente o dono é ele mesmo. */
+r.post("/assinatura/plano", authRequired, soDono, soAutonomo, async (req, res) => {
+  if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
+  const { plano_id, cpfCnpj } = req.body || {};
+  const plano = planoPorId(plano_id);
+  if (!plano) return res.status(400).json({ error: "Escolha um dos planos disponíveis." });
+
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  const eu = db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(req.user.id);
+  const dono = org.dono_user_id
+    ? db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(org.dono_user_id) : null;
+  const responsavel = dono || eu;
+  const nome = String(responsavel.name || "").trim();
+  const email = String(responsavel.email || "").trim();
+  const telefone = String(responsavel.phone || "").trim();
+
+  const doc = String(cpfCnpj || "").replace(/\D/g, "");
+  /* Só conta dígito: o cliente digita com ponto e traço, e "111.444.777-35"
+     tem 14 caracteres — do tamanho de um CNPJ, o que passaria por uma
+     conferência feita no texto cru. */
+  if (!org.asaas_customer_id && doc.length !== 11 && doc.length !== 14)
+    return res.status(400).json({ error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)." });
+  if (!nome || !email)
+    return res.status(400).json({ error: "A sua conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo." });
+
+  /* O PRIMEIRO VENCIMENTO CAI NO FIM DO TESTE, quando ele ainda está correndo.
+     Contratar no terceiro dia de teste não pode custar os onze que sobram —
+     seria cobrar por um período já vendido como grátis. Sem teste em curso, a
+     primeira cobrança vence em três dias: prazo de Pix e de boleto. */
+  const emTeste = org.trial_ate && org.trial_ate > Date.now()
+    && !db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(org.id).n;
+  const quando = emTeste ? org.trial_ate : Date.now() + 3 * 86400000;
+  const venc = new Date(quando - new Date(quando).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+  try {
+    let clienteId = org.asaas_customer_id;
+    if (!clienteId) {
+      const cliente = await criarCliente({ nome, cpfCnpj: doc, email, telefone });
+      clienteId = cliente.id;
+      db.prepare("UPDATE orgs SET asaas_customer_id = ? WHERE id = ?").run(clienteId, org.id);
+    }
+
+    const descricao = `ConHub ${plano.nome} — ${org.name}`;
+    let assinaturaId = null, link = null;
+
+    if (plano.forma === "assinatura") {
+      const a = await criarAssinatura({ clienteId, valor: plano.total, vencimento: venc, descricao, ciclo: plano.ciclo });
+      assinaturaId = a.id;
+      link = await linkDaPrimeiraFatura(a.id);
+    } else {
+      const p = await criarParcelado({ clienteId, parcelas: plano.parcelas,
+        valorParcela: plano.mensal, vencimento: venc, descricao });
+      link = p.invoiceUrl || p.bankSlipUrl || null;
+    }
+
+    /* A assinatura ANTERIOR é cancelada depois de a nova existir, e a falha
+       aqui não derruba a troca: o plano novo já está contratado, e travar por
+       causa da limpeza do velho deixaria o corretor sem plano nenhum. Fica no
+       log para dar para conferir no painel do Asaas. */
+    if (org.asaas_subscription_id && org.asaas_subscription_id !== assinaturaId) {
+      try { await cancelarAssinatura(org.asaas_subscription_id); }
+      catch (e) { console.warn(`[asaas] plano trocado, mas a assinatura antiga ${org.asaas_subscription_id} não foi cancelada: ${e.message}`); }
+    }
+
+    /* `vence_base` também é gravado: o vencimento em vigor é a base mais os
+       meses pagos, então sem ela o primeiro pagamento não teria de onde
+       contar. */
+    const data = dataDoFormulario(venc);
+    db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, asaas_subscription_id = ?,
+                vence_em = ?, vence_base = ?, link_pagamento = ?, assinatura_status = NULL WHERE id = ?`)
+      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, data, data, link, org.id);
+
+    /* Sem `url` a tela não tem para onde mandar o corretor, e ele ficaria com
+       um plano contratado e nenhum jeito de pagar. Isso é falha, não detalhe:
+       responder ok aqui seria dizer que deu certo o que não deu. */
+    if (!link) return res.status(502).json({
+      error: "O plano foi criado no Asaas, mas a tela de pagamento não veio. Abra a fatura pelo e-mail que o Asaas enviou, ou fale com o ConHub." });
+
+    res.json({ ok: true, url: link, plano: plano.id, ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
