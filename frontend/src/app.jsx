@@ -1066,6 +1066,9 @@ function ConCRM(){
     fundoDoLogin:()=>api("/orgs/login-fundo"),
     enviarFundoDoLogin:(mime,base64)=>api("/orgs/login-fundo",{method:"POST",body:{mime,base64}}),
     tirarFundoDoLogin:()=>api("/orgs/login-fundo",{method:"DELETE"}),
+    // Cópia de segurança do banco. É da plataforma inteira, então mora no hub.
+    backup:()=>api("/orgs/backup"),
+    rodarBackup:()=>api("/orgs/backup",{method:"POST"}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
@@ -1545,6 +1548,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
       <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever} aoEntrar={aoEntrar}/>
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
+      <Backup acoes={acoes} isMobile={isMobile}/>
     </div>
   </div>;
 }
@@ -1846,6 +1850,132 @@ function Socios({acoes,session,isMobile}){
    A prévia mostra o resultado REAL: a foto com o degradê verde por cima, que é
    como ela vai aparecer. Uma miniatura crua enganaria — foto clara demais só
    se revela quando o texto branco entra em cima. */
+/* ===== CÓPIA DE SEGURANÇA DO BANCO ===== (27/08/2026, pedido do Ali)
+
+   O banco é um arquivo só, e até aqui não havia cópia nenhuma: perder o volume
+   da hospedagem era perder a base de leads de todos os clientes de uma vez.
+   Agora ele é copiado todo dia de madrugada para o Cloudflare R2 — o mesmo
+   armazenamento das fotos dos imóveis, que já está contratado.
+
+   ESTA TELA EXISTE PARA UMA PERGUNTA SÓ: existe cópia recente? Backup é o
+   recurso que mais falha calado — ele "funciona" por meses sem ninguém olhar,
+   e o dia em que se descobre que parou é o dia em que se precisa dele. Por
+   isso o cartão nasce mostrando a data da última, em verde ou coral, antes de
+   qualquer outra coisa.
+
+   E a data vem da LISTA DO R2, não de um registro nosso: registro nosso diz o
+   que o servidor acha que aconteceu; a lista diz o que está guardado lá. */
+function Backup({acoes,isMobile}){
+  const [d,setD]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState("");
+  const rever=()=>acoes.backup().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+  if(!d) return null;
+
+  async function agora(){
+    setErro("");setFeito("");setOcupado(true);
+    try{ const r=await acoes.rodarBackup();
+      setD(r); setFeito(`Cópia feita agora — ${(r.bytes/1048576).toFixed(1)} MB, ${r.leads} leads.`); }
+    /* Em vez de escrever o erro aqui em cima, recarrega: o servidor guarda a
+       tentativa que falhou, e ela aparece no bloco "A última tentativa falhou"
+       logo abaixo — com a hora junto. Mostrar nos dois lugares era a mesma
+       frase duas vezes na mesma tela. */
+    catch(e){ await rever(); }
+    finally{ setOcupado(false); }
+  }
+
+  const ultima=d.copias&&d.copias.length?d.copias[0]:null;
+  /* Listagem que falhou NÃO é "não há cópia". São coisas diferentes: uma diz
+     que você está desprotegido, a outra que não deu para perguntar. Trocar uma
+     pela outra manda o gestor consertar o problema errado. */
+  const semResposta=d.ligado&&!!d.erro_listagem;
+  const horas=ultima?(Date.now()-ultima.quando)/3600000:null;
+  /* Mais de 36 horas é atraso de verdade: a cópia é diária, então uma janela
+     perdida ainda cabe em 36h com folga para o fuso e para o servidor que
+     reiniciou. Passando disso, alguma coisa parou. */
+  const atrasada=horas!=null&&horas>36;
+  const cor=!d.ligado?C.hot:semResposta?C.amber:!ultima?C.hot:atrasada?C.amber:C.greenMid;
+  const fundo=!d.ligado?C.hotSoft:semResposta?C.amberSoft:!ultima?C.hotSoft:atrasada?C.amberSoft:C.greenSoft;
+  const mb=(b)=>b==null?"—":`${(b/1048576).toFixed(1)} MB`;
+  const quando=(ms)=>new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
+      Cópia de segurança</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+      O banco é um arquivo só, com os leads de todas as contas dentro. Todo dia de
+      madrugada ele é copiado para o Cloudflare R2 — fora do servidor, que é o
+      ponto: cópia guardada no mesmo disco some junto com ele.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{feito}</div>}
+
+    {/* A resposta da pergunta, antes de qualquer detalhe. */}
+    <div style={{background:fundo,border:`1px solid ${cor}33`,borderRadius:14,padding:14,marginBottom:12,
+      display:"flex",alignItems:"center",gap:11,flexWrap:"wrap"}}>
+      <Icon n={!d.ligado||(!ultima&&!semResposta)?"lock":semResposta||atrasada?"clock":"check"} size={19} color={cor}/>
+      <div style={{flex:1,minWidth:180}}>
+        <div style={{color:cor,fontSize:13.5,fontWeight:700}}>
+          {!d.ligado?"Nenhuma cópia está sendo feita"
+            :semResposta?"Não consegui perguntar ao R2 o que está guardado"
+            :!ultima?"Ainda não há nenhuma cópia guardada"
+            :atrasada?`A última cópia é de ${quando(ultima.quando)}`
+            :`Cópia de ${quando(ultima.quando)}`}
+        </div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:2}}>
+          {!d.ligado
+            ? <React.Fragment>Falta o <b>Cloudflare R2</b> neste servidor (as variáveis <b>R2_*</b>).
+                Sem ele a cópia ficaria no mesmo disco do banco — que é o disco que ela existe para proteger.</React.Fragment>
+            :semResposta?d.erro_listagem
+            :!ultima?"A primeira sai na próxima madrugada. Ou clique em “Copiar agora”."
+            :atrasada?"Passou de um dia. Vale conferir se o R2 continua respondendo — clique em “Copiar agora” para testar."
+            :`${d.total} cópia(s) guardada(s), ${mb(d.ocupado)} no total. Ficam as ${d.manter} mais recentes.`}
+        </div>
+      </div>
+      <button onClick={agora} disabled={ocupado||!d.ligado}
+        style={{background:d.ligado?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
+          padding:isMobile?"11px 15px":"10px 16px",fontSize:12.5,fontWeight:600,
+          cursor:d.ligado&&!ocupado?"pointer":"default",flexShrink:0}}>
+        {ocupado?"Copiando…":"Copiar agora"}</button>
+    </div>
+
+    {/* O erro da última tentativa fica à vista. Cópia que parou de acontecer
+        sem ninguém saber é o modo clássico de o backup falhar.
+
+        Some quando repete o que a faixa de cima já disse: quando a mesma pane
+        do R2 derruba o envio E a listagem, os dois blocos trazem a mesma frase,
+        e ler a mesma coisa duas vezes faz parecer que são dois problemas. */}
+    {d.ultimo_erro&&d.ultimo_erro.erro!==d.erro_listagem&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}33`,borderRadius:12,padding:"10px 12px",marginBottom:12}}>
+      <div style={{color:C.hot,fontSize:12,fontWeight:700,marginBottom:2}}>
+        A última tentativa falhou ({quando(d.ultimo_erro.quando)})</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>{d.ultimo_erro.erro}</div>
+    </div>}
+
+    {d.copias&&d.copias.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5}}>
+      {d.copias.slice(0,8).map(c=>
+        <div key={c.chave} style={{display:"flex",alignItems:"center",gap:9,background:C.card,
+          border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 11px"}}>
+          <Icon n="lista" size={13} color={C.faint}/>
+          <span style={{flex:1,color:C.ink,fontSize:12,fontFamily:MONO}}>
+            {c.chave.replace("backups/","")}</span>
+          <span style={{color:C.faint,fontSize:11}}>{mb(c.bytes)}</span>
+          <span style={{color:C.faint,fontSize:11,minWidth:74,textAlign:"right"}}>{quando(c.quando)}</span>
+        </div>)}
+      {d.total>8&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>e mais {d.total-8} guardada(s).</div>}
+      {/* Como se usa. Escrito porque o dia de precisar disto é o pior dia
+          possível para descobrir o caminho na hora. */}
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.55,marginTop:6}}>
+        Para voltar uma cópia: baixe o arquivo no painel do R2, descompacte o <b>.gz</b>,
+        e ponha o <b>.db</b> no lugar do banco no volume do Railway. Fale comigo antes —
+        é uma operação que se faz uma vez e não pode dar errado.
+      </div>
+    </div>}
+  </div>;
+}
+
 function FundoDoLogin({acoes,isMobile}){
   const [fundo,setFundo]=useState(undefined);
   const [erro,setErro]=useState("");

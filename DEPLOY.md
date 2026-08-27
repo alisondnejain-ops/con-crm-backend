@@ -213,6 +213,45 @@ Detalhes em `backend/README.md`.
 
 ---
 
+## Cópia de segurança do banco
+
+O banco é **um arquivo só**, no disco do Railway, com os leads de todas as
+contas dentro. Perder esse disco é perder tudo de todo mundo de uma vez.
+
+Desde 27/08/2026 o sistema faz uma cópia **todo dia às 3 da manhã** para o
+Cloudflare R2 — o mesmo armazenamento das fotos dos imóveis. Ela vai
+compactada, é conferida antes de subir (arquivo quebrado não sobe) e ficam
+guardadas as **30 mais recentes**.
+
+**Ela só acontece com o R2 configurado**, e isso é de propósito: gravar a cópia
+no disco da hospedagem seria guardá-la no mesmo lugar que ela existe para
+proteger. Sem R2, o hub avisa em vermelho que não há cópia nenhuma sendo feita.
+
+Onde olhar: **hub de contas → Cópia de segurança**. O cartão mostra a data da
+última e um botão **Copiar agora** — use antes de mexer em algo grande
+(importar planilha grande, apagar imobiliária).
+
+Duas variáveis opcionais, se quiser mudar: `BACKUP_HORA` (padrão 3) e
+`BACKUP_MANTER` (padrão 30).
+
+### Como voltar uma cópia
+
+Você não deve precisar disso sozinho — me chame antes. Mas o caminho é:
+
+1. No painel do Cloudflare R2, abra o bucket e a pasta `backups/`.
+2. Baixe o arquivo do dia que você quer (`concrm-2026-08-27.db.gz`).
+3. Descompacte: vira `concrm-2026-08-27.db`.
+4. No Railway, pare o serviço.
+5. Ponha o arquivo no volume, no lugar de `/data/concrm.db`, com esse nome.
+6. Apague os arquivos `/data/concrm.db-wal` e `/data/concrm.db-shm` se existirem
+   — eles são de outra versão do banco e brigariam com o arquivo restaurado.
+7. Suba o serviço de novo.
+
+O que voltar é a foto daquele dia às 3 da manhã: o que entrou depois disso não
+está lá. Por isso o botão **Copiar agora** existe.
+
+---
+
 ## Alternativa: Render
 
 Já existe um `render.yaml` pronto na raiz. É só **New → Blueprint** apontando para o

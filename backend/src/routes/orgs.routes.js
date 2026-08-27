@@ -15,6 +15,7 @@ import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster } from "../auth.js";
+import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao } from "../services/assinatura.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
@@ -468,6 +469,26 @@ r.delete("/:id", async (req, res) => {
   apagar();
   console.log(`[orgs] imobiliária APAGADA: ${org.name} (${contagem.leads} leads, ${contagem.equipe} pessoas, ${contagem.arquivos} arquivos)`);
   res.json({ ok: true, apagada: org.name, ...contagem });
+});
+
+/* ===== CÓPIA DE SEGURANÇA DO BANCO =====
+
+   Mora aqui porque é da PLATAFORMA, não de uma imobiliária: o arquivo é um só
+   e guarda todo mundo dentro. Este roteador já exige master no topo
+   (`r.use(authRequired, soMaster)`), que é a permissão certa — a cópia carrega
+   os leads de todos os clientes.
+
+   O botão de rodar agora existe para o dia em que você vai mexer em algo
+   grande: importar planilha, apagar imobiliária, publicar mudança de banco.
+   Cópia de ontem serve para desastre; para susto, a de cinco minutos atrás. */
+r.get("/backup", async (_req, res) => {
+  res.json(await situacaoDoBackup());
+});
+
+r.post("/backup", async (_req, res) => {
+  const r1 = await rodarBackup({ motivo: "manual" });
+  if (!r1.ok) return res.status(502).json({ error: r1.erro });
+  res.json({ ...r1, ...(await situacaoDoBackup()) });
 });
 
 export default r;

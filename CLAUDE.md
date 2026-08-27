@@ -184,6 +184,19 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
   **O sócio convidado entra DIRETO ao definir a senha** (`socio` no `set-password`, ao lado do `fundador`). Sem isso ele cairia em `aguardando_aprovacao` dentro de uma imobiliária qualquer e ficaria **preso lá para sempre**: `semMaster` mantém o master fora da lista de equipe, que é onde o gestor aprova — um convite que não dá para aceitar nem recusar. A aprovação já aconteceu quando outro sócio o convidou.
 
   **Tirar o acesso DESATIVA a conta** (o histórico fica e dá para reativar pela tela Equipe). Antes só o crachá caía, e a pessoa virava gestora comum da imobiliária onde a conta nasceu — visível na Equipe, com acesso aos leads daquela casa. Quem deixa de ser sócio do ConHub não vira, por tabela, gestor de um cliente do ConHub, e **o último sócio ativo não pode ser removido** — sem essa trava a plataforma fica sem ninguém que possa criar imobiliária ou convidar sócio, e não há caminho de volta pela tela. Teste: `npm run teste:socio`.
+- **Cópia de segurança diária do banco** (27/08/2026, pedido do Ali; `services/backup.js`, `GET/POST /orgs/backup`, seção "Cópia de segurança" no hub): o banco é **um arquivo só**, com os leads de todas as contas dentro, e até aqui **não havia cópia nenhuma** — nem no código nem no `DEPLOY.md`. Perder o volume do Railway era perder tudo de todo mundo de uma vez. É um risco de outra natureza do "está lento": lentidão avisa antes, disco perdido não avisa nada.
+
+  **Vai para FORA do servidor, ou não vai.** Cópia gravada no disco da hospedagem fica no mesmo volume do banco que ela deveria proteger — some junto, e no meio do caminho todo mundo achou que estava protegido. Por isso `enviarAoR2` é a única função do `storage.js` que **não** cai para o disco quando o R2 recusa: aqui a queda seria pior que a falha. Sem R2 configurado o backup não acontece e o hub avisa em vermelho.
+
+  **É conferida antes de subir**, e são duas perguntas, não uma: `integrity_check` (o arquivo abre inteiro?) **e uma contagem de imobiliárias** (tem dado dentro?). A segunda existe porque **arquivo vazio passa no `integrity_check`** — sem ela, um banco zerado subiria todo dia parecendo a cópia boa. Backup quebrado é pior que backup nenhum: com nenhum você se sabe desprotegido; com um quebrado você descobre no dia em que precisa dele.
+
+  **`db.backup()`, e não copiar o arquivo.** O banco roda em WAL: o `.db` no disco NÃO contém as escritas recentes, que estão no `.db-wal` ao lado. Copiar só o `.db` entregaria uma base sem os últimos atendimentos, e ninguém perceberia até precisar dela.
+
+  **Quem manda é o registro, não o relógio** (`config_plataforma.backup_estado`) — mesma regra do `orgs.ultimo_corte` e do `ultimo_aviso_plantao`: servidor fora do ar às 03:00 faz a cópia quando voltar, servidor que reinicia dez vezes continua fazendo uma. E **falha não marca o dia como feito**, senão a tentativa que deu errado tiraria o backup do dia inteiro.
+
+  **O temporário é sempre apagado** (`finally`): ele tem o tamanho do banco, e um por dia enche o volume e derruba o CRM **por causa do** backup.
+
+  **O erro chega em português** (`emPortugues`): o SDK da Amazon devolve "@aws-sdk XML parse error… inspect the hidden field {error}.$response", que é verdade e não serve para nada — quem lê a tela administra a plataforma, não escreveu o cliente HTTP. Os casos conhecidos do R2 são nomeados com o que fazer; o que não se sabe nomear passa cru, porque esconder some com a única pista. E **listagem que falhou não é "não há cópia"**: são coisas diferentes, e trocar uma pela outra manda o gestor consertar o problema errado. Teste: `npm run teste:backup`.
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Identidade visual

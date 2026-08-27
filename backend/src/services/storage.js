@@ -222,3 +222,49 @@ export async function bytesDoArquivo(chave) {
 }
 
 export const pastaLocal = () => PASTA;
+
+/* ===== R2 DIRETO, SEM REDE DE SEGURANÇA =====
+
+   `salvar()` cai para o disco quando o R2 recusa, e está certo: foto que não
+   sobe não pode impedir o corretor de cadastrar imóvel.
+
+   O BACKUP É O CONTRÁRIO. Um backup gravado no disco da hospedagem fica no
+   MESMO volume do banco que ele deveria proteger — e o cenário que o backup
+   existe para cobrir é justamente perder esse volume. Ele não seria uma cópia
+   pior; seria uma cópia que some junto, dando a impressão de que existe.
+
+   Por isso estas três funções falham alto: quem chama precisa saber que não
+   subiu, para dizer isso na tela em vez de mostrar um backup que não existe. */
+export async function enviarAoR2(chave, buffer, mime = "application/octet-stream") {
+  if (!usandoR2()) throw new Error("O Cloudflare R2 não está configurado neste servidor.");
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const cliente = await s3();
+  await cliente.send(new PutObjectCommand({ Bucket: R2.bucket, Key: chave, Body: buffer, ContentType: mime }));
+  return { chave, bytes: buffer.length };
+}
+
+/* Lista o que está guardado sob um prefixo. É o que responde "o último backup
+   foi quando?" olhando o R2, e não um registro nosso — registro nosso diz o
+   que o servidor ACHA que aconteceu; isto diz o que está lá. */
+export async function listarNoR2(prefixo) {
+  if (!usandoR2()) throw new Error("O Cloudflare R2 não está configurado neste servidor.");
+  const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const cliente = await s3();
+  const itens = [];
+  let token;
+  do {
+    const saida = await cliente.send(new ListObjectsV2Command({
+      Bucket: R2.bucket, Prefix: prefixo, ContinuationToken: token }));
+    for (const o of saida.Contents || [])
+      itens.push({ chave: o.Key, bytes: o.Size, quando: new Date(o.LastModified).getTime() });
+    token = saida.IsTruncated ? saida.NextContinuationToken : null;
+  } while (token);
+  return itens.sort((a, b) => b.quando - a.quando);
+}
+
+export async function apagarNoR2(chave) {
+  if (!usandoR2()) throw new Error("O Cloudflare R2 não está configurado neste servidor.");
+  const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+  const cliente = await s3();
+  await cliente.send(new DeleteObjectCommand({ Bucket: R2.bucket, Key: chave }));
+}

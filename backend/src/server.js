@@ -28,6 +28,7 @@ import { bootstrap } from "./bootstrap.js";
 import { authRequired } from "./auth.js";
 import { porteiro } from "./services/assinatura.js";
 import { agendarCorte } from "./services/expediente.js";
+import { backupSePassouDaHora } from "./services/backup.js";
 import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 
@@ -263,6 +264,19 @@ app.listen(PORT, () => {
   /* Cliente esperando resposta. Mesmo batimento e mesmo princípio: quem
      controla a repetição é o carimbo no lead, não o relógio. */
   avisarSemRespostaEmTodas();
-  setInterval(() => { avisarPlantaoEmTodas(); avisarSemRespostaEmTodas(); }, 60000);
+  /* Cópia de segurança diária do banco, para o Cloudflare R2. Entra no mesmo
+     batimento pelo mesmo motivo dos dois acima: quem decide se roda hoje é o
+     registro de "já fiz hoje" (config_plataforma), não o relógio — servidor
+     que estava fora do ar às 03:00 faz a cópia quando voltar, e servidor que
+     reinicia dez vezes no mesmo dia continua fazendo uma.
+
+     Sem R2 configurado ela não acontece, de propósito: cópia gravada no disco
+     da hospedagem fica no mesmo volume do banco que ela deveria proteger. */
+  backupSePassouDaHora().catch(e => console.error("[backup] erro no start:", e.message));
+  setInterval(() => {
+    avisarPlantaoEmTodas(); avisarSemRespostaEmTodas();
+    // `catch` explícito: é async, e promessa rejeitada solta derruba o Node.
+    backupSePassouDaHora().catch(e => console.error("[backup] erro no ciclo:", e.message));
+  }, 60000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });
