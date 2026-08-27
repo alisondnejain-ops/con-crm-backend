@@ -339,6 +339,35 @@ CREATE INDEX IF NOT EXISTS idx_midias_produto ON produto_midias(produto_id);
 CREATE INDEX IF NOT EXISTS idx_leads_assigned ON leads(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone);
 CREATE INDEX IF NOT EXISTS idx_msg_lead ON messages(lead_id);
+
+/* OS TRES INDICES QUE SEGURAM A PLATAFORMA CRESCER (medido em 27/08/2026).
+
+   Com 100 imobiliarias e 6,4 milhoes de mensagens no banco, o poll de 10
+   segundos da gestao custava 78 ms de servidor e o relatorio custava 1,6
+   SEGUNDO. Como o better-sqlite3 e SINCRONO, esse tempo nao e "a consulta
+   demora" — e o servidor inteiro parado, para todo mundo. Com os tres, o poll
+   caiu para 16 ms e o relatorio para 2 ms.
+
+   1) leads(org_id, created_at) — o /leads da gestao filtra por org_id e ordena
+      por created_at, e nao havia indice nenhum por org: cada poll fazia um SCAN
+      da tabela de leads da PLATAFORMA INTEIRA para achar os de uma imobiliaria.
+      Com uma imobiliaria isso nao aparece; com cinquenta, cada uma paga o
+      tamanho de todas as outras.
+
+   2) messages(lead_id, created_at) — as tres subconsultas de "ultima mensagem"
+      rodam por lead e faziam ORDER BY em memoria (USE TEMP B-TREE) porque o
+      indice so tinha lead_id. Com a data junto, o SQLite le a ultima direto.
+
+   3) messages(from_user_id, created_at) — o score mede o tempo de resposta DE
+      CADA PESSOA, entao filtra mensagem por autor. Sem indice era varredura das
+      milhoes de mensagens; e este era o pior de todos.
+
+   Criar custa uma vez, no primeiro start depois da publicacao (13 s num banco
+   de 2,4 GB; instantaneo no tamanho de hoje). Depois o IF NOT EXISTS nao faz
+   mais nada. */
+CREATE INDEX IF NOT EXISTS idx_leads_org ON leads(org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_msg_lead_data ON messages(lead_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_msg_autor ON messages(from_user_id, created_at);
 `);
 
 // Migrações leves: adiciona colunas que apareceram depois, sem apagar o banco existente.
