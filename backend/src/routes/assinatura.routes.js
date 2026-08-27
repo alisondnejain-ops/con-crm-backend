@@ -83,7 +83,17 @@ const dataDoFormulario = (v) => {
 r.get("/assinatura", authRequired, (req, res) => {
   const dono = ehDono(req.user.org_id, req.user.id);
   const s = situacao(req.user.org_id, { dono });
-  res.json({ ...s, aviso_antes: AVISO_ANTES,
+  /* `valor_mensal` vem separado do `valor` da situação, e é de propósito.
+
+     A situação só carrega valor quando existe cobrança em curso — conta sem
+     vencimento nenhum devolve `{status:"ativo"}` e mais nada. Só que é
+     exatamente essa a conta que precisa ATIVAR a assinatura, e a tela tem que
+     mostrar o preço combinado antes de existir a primeira fatura. Sem este
+     campo, o cliente com plano definido via "o valor ainda não foi definido". */
+  const preco = dono
+    ? db.prepare("SELECT valor_mensal FROM orgs WHERE id = ?").get(req.user.org_id)?.valor_mensal
+    : undefined;
+  res.json({ ...s, aviso_antes: AVISO_ANTES, valor_mensal: preco ?? undefined,
     asaas: dono ? asaasConfigurado() : undefined, ambiente: dono ? ambienteAsaas() : undefined });
 });
 
@@ -92,10 +102,23 @@ r.get("/assinatura/pagamentos", authRequired, soDono, (req, res) => {
   res.json({ pagamentos: listarPagamentos(req.user.org_id), ...situacao(req.user.org_id) });
 });
 
-// Configuração do plano.
+/* Configuração do plano.
+
+   PREÇO, VENCIMENTO E CARÊNCIA SÃO DE QUEM VENDE, não de quem paga.
+
+   A rota é `soDono`, e o dono da conta é o próprio cliente — então até aqui ele
+   podia baixar a própria mensalidade para R$ 1 e ativar a cobrança com esse
+   valor. O buraco não estava na tela de ativar: estava aqui, um passo antes.
+
+   Agora quem não é master só consegue mexer no NOME do plano, que é rótulo. O
+   que vira dinheiro fica com o ConHub. */
 r.patch("/assinatura", authRequired, soDono, (req, res) => {
   const { plano, valor_mensal, vence_em, dias_carencia } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  const souMaster = !!db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id)?.master;
+  if (!souMaster && (valor_mensal != null && valor_mensal !== "" || vence_em || dias_carencia != null))
+    return res.status(403).json({
+      error: "Valor, vencimento e carência são definidos pelo ConHub. Fale com a gente para mudar o seu plano." });
   const data = vence_em ? dataDoFormulario(vence_em) : org.vence_em;
   if (vence_em && !isFinite(data)) return res.status(400).json({ error: "Data de vencimento inválida." });
 
@@ -173,13 +196,48 @@ r.get("/assinatura/gestores", authRequired, soDono, (req, res) => {
 });
 
 // Cria cliente e assinatura no Asaas a partir dos dados da imobiliária.
+/* ATIVAR A COBRANÇA AUTOMÁTICA — e quem preenche o quê.
+
+   O cliente ativa a PRÓPRIA assinatura, dentro do CRM dele. Antes esta rota
+   exigia nome, e-mail e telefone digitados na mão, e o ConHub acabava
+   preenchendo dados do cliente por ele — que é justamente o que não escala:
+   cada conta nova vira uma digitação sua.
+
+   Agora o que o CRM já sabe, ele usa: nome, e-mail e telefone saem da conta do
+   titular. Sobra UM campo para o cliente, o CPF ou CNPJ, que é o único dado
+   que o sistema não tem e que o Asaas exige para emitir cobrança.
+
+   E O VALOR NÃO VEM MAIS DO FORMULÁRIO DO CLIENTE.
+
+   Vinha, e era um furo: quem ativasse a própria assinatura escolheria quanto
+   paga. O preço é combinado fora do CRM e gravado por quem vende — o master,
+   pelo painel ou na criação da conta. O cliente vê o valor e confirma; não o
+   digita. Master continua podendo mandar o valor no corpo, porque é ele quem
+   está configurando a conta. */
 r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
   if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
-  const { nome, cpfCnpj, email, telefone, valor, vencimento } = req.body || {};
-  if (!nome || !cpfCnpj || !email) return res.status(400).json({ error: "Informe nome, CPF/CNPJ e e-mail do responsável." });
-  if (!Number(valor)) return res.status(400).json({ error: "Informe o valor da mensalidade." });
-
+  const { cpfCnpj, vencimento } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  const eu = db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(req.user.id);
+  const dono = org.dono_user_id
+    ? db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(org.dono_user_id) : null;
+  // O titular da conta é quem responde pela cobrança; o master só a configura.
+  const responsavel = dono || eu;
+
+  const nome = String(req.body?.nome || responsavel.name || "").trim();
+  const email = String(req.body?.email || responsavel.email || "").trim();
+  const telefone = String(req.body?.telefone || responsavel.phone || "").trim();
+  if (!cpfCnpj) return res.status(400).json({ error: "Informe o CPF ou CNPJ de quem vai receber a cobrança." });
+  if (!nome || !email) return res.status(400).json({ error: "A conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo." });
+
+  /* O valor é o que está gravado na conta. Só o master pode defini-lo aqui —
+     para o cliente, mandar `valor` no corpo não muda nada. */
+  const souMaster = !!db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id)?.master;
+  const valor = souMaster && Number(req.body?.valor) ? Number(req.body.valor) : Number(org.valor_mensal);
+  if (!valor)
+    return res.status(400).json({
+      error: "O valor da mensalidade ainda não foi definido para esta conta. Fale com o ConHub para combinar o plano." });
+
   try {
     let clienteId = org.asaas_customer_id;
     if (!clienteId) {

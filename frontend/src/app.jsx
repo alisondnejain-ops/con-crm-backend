@@ -1547,7 +1547,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
    aí o teste deixa de valer sozinho. */
 function Autonomos({acoes,isMobile,contas,aoMudar}){
   const [abrindo,setAbrindo]=useState(false);
-  const [novo,setNovo]=useState({nome:"",email:"",marca:""});
+  const [novo,setNovo]=useState({nome:"",email:"",marca:"",valor:""});
   const [ocupado,setOcupado]=useState("");
   const [erro,setErro]=useState("");
   const [criado,setCriado]=useState(null);
@@ -1555,7 +1555,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar}){
 
   async function criar(){
     setErro("");setOcupado("criar");
-    try{ const d=await acoes.criarAutonomo(novo); setCriado(d); setNovo({nome:"",email:"",marca:""});
+    try{ const d=await acoes.criarAutonomo(novo); setCriado(d); setNovo({nome:"",email:"",marca:"",valor:""});
       setAbrindo(false); await aoMudar(); }
     catch(e){ setErro(e.message); }
     finally{ setOcupado(""); }
@@ -1634,6 +1634,12 @@ function Autonomos({acoes,isMobile,contas,aoMudar}){
         <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>E-mail</div>
           <input value={novo.email} onChange={e=>setNovo({...novo,email:e.target.value})}
             placeholder="corretor@exemplo.com" autoCapitalize="off" style={entrada}/></div>
+        <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Mensalidade (R$)</div>
+          <input value={novo.valor} onChange={e=>setNovo({...novo,valor:e.target.value})}
+            inputMode="decimal" placeholder="ex.: 97" style={entrada}/>
+          <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+            É o preço que ele vai ver ao ativar a cobrança. Dá para mudar depois.
+          </div></div>
         <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome que aparece no sistema dele</div>
           <input value={novo.marca} onChange={e=>setNovo({...novo,marca:e.target.value})}
             placeholder="deixe em branco para usar o nome dele" style={entrada}/>
@@ -1886,7 +1892,7 @@ function FundoDoLogin({acoes,isMobile}){
    Só aparece para o TITULAR da conta. Pode haver outro gestor com acesso total
    ao CRM — o que ele paga, quanto e quando não é assunto dele. O servidor
    recusa do mesmo jeito (403); esconder aqui é só não mostrar porta trancada. */
-function PainelAssinatura({acoes,isMobile}){
+function PainelAssinatura({acoes,isMobile,master}){
   const [a,setA]=useState(null);
   const [f,setF]=useState({plano:"",valor_mensal:"",vence_em:"",dias_carencia:5});
   const [novo,setNovo]=useState({nome:"",cpfCnpj:"",email:"",telefone:"",valor:"",vencimento:""});
@@ -1942,17 +1948,30 @@ function PainelAssinatura({acoes,isMobile}){
     {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
       color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
 
-    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-      <div style={{flex:"1 1 130px"}}>{rot("Plano")}<input value={f.plano} onChange={e=>setF({...f,plano:e.target.value})} placeholder="ConHub Mensal" style={entrada}/></div>
-      <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={f.valor_mensal} onChange={e=>setF({...f,valor_mensal:e.target.value})} inputMode="decimal" placeholder="297" style={entrada}/></div>
-      <div style={{flex:"1 1 140px"}}>{rot("Próximo vencimento")}<input type="date" value={f.vence_em} onChange={e=>setF({...f,vence_em:e.target.value})} style={entrada}/></div>
-      <div style={{flex:"1 1 110px"}}>{rot("Carência (dias)")}<input value={f.dias_carencia} onChange={e=>setF({...f,dias_carencia:e.target.value})} inputMode="numeric" style={entrada}/></div>
-    </div>
+    {/* VALOR, VENCIMENTO E CARÊNCIA SÓ APARECEM PARA O MASTER.
+
+        A tela é do titular da conta — que, num cliente, é o próprio cliente. Com
+        os campos à vista ele baixava a mensalidade para R$ 1 e ativava a
+        cobrança com esse valor. O servidor recusa desde 27/08/2026, mas campo
+        que não vale nada é pior que campo nenhum: ele promete uma edição que
+        vai dar erro.
+
+        Sobra o nome do plano, que é rótulo e não vira dinheiro. */}
+    {master
+      ?<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 130px"}}>{rot("Plano")}<input value={f.plano} onChange={e=>setF({...f,plano:e.target.value})} placeholder="ConHub Mensal" style={entrada}/></div>
+        <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={f.valor_mensal} onChange={e=>setF({...f,valor_mensal:e.target.value})} inputMode="decimal" placeholder="297" style={entrada}/></div>
+        <div style={{flex:"1 1 140px"}}>{rot("Próximo vencimento")}<input type="date" value={f.vence_em} onChange={e=>setF({...f,vence_em:e.target.value})} style={entrada}/></div>
+        <div style={{flex:"1 1 110px"}}>{rot("Carência (dias)")}<input value={f.dias_carencia} onChange={e=>setF({...f,dias_carencia:e.target.value})} inputMode="numeric" style={entrada}/></div>
+      </div>
+      :<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+        O valor e o vencimento do seu plano são definidos pelo ConHub. Para mudar de plano, fale com a gente.
+      </div>}
 
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-      <button onClick={roda("salvar",()=>acoes.configurarAssinatura(f))} disabled={!!ocupado}
+      {master&&<button onClick={roda("salvar",()=>acoes.configurarAssinatura(f))} disabled={!!ocupado}
         style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-        {ocupado==="salvar"?"Salvando…":"Salvar"}</button>
+        {ocupado==="salvar"?"Salvando…":"Salvar"}</button>}
       <button onClick={()=>{setAviso(null);setLancar(lancar?null:{pago_em:hoje(),valor:a.valor||"",obs:""});}} disabled={!!ocupado}
         style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
         {lancar?"Cancelar":"Registrar pagamento"}</button>
@@ -2042,20 +2061,54 @@ function PainelAssinatura({acoes,isMobile}){
         :a.link||a.valor&&a.vence_em&&a.ultimo_pagamento_em!==undefined&&a.status!=="bloqueado"&&false
         ?null
         :<React.Fragment>
-          <div style={{color:C.faint,fontSize:11.5,marginBottom:9,lineHeight:1.5}}>
-            Ambiente: <b>{a.ambiente}</b>. Cria o cliente e a assinatura mensal no Asaas — o cliente recebe a cobrança e escolhe entre Pix, boleto ou cartão.
+          {/* O CLIENTE ATIVA A PRÓPRIA ASSINATURA, e digita UM campo.
+
+              Antes esta tela pedia nome, e-mail, telefone e valor. O nome, o
+              e-mail e o telefone o CRM já tem — são os da conta de quem está
+              olhando —, e pedi-los de novo transformava cada cliente novo numa
+              digitação. Sobrou o CPF/CNPJ, que é o único dado que o sistema
+              não tem e que o Asaas exige para emitir cobrança.
+
+              E o VALOR não é campo: é o preço combinado, mostrado para
+              conferência. Deixá-lo editável aqui seria deixar o cliente
+              escolher quanto paga — o servidor recusa de qualquer forma, mas
+              um campo que não vale nada é pior que campo nenhum. */}
+          <div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
+            Ative a cobrança automática. Você recebe a fatura todo mês e escolhe entre
+            Pix, boleto ou cartão. Ambiente: <b>{a.ambiente}</b>.
           </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <div style={{flex:"1 1 150px"}}>{rot("Nome do responsável")}<input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} style={entrada}/></div>
-            <div style={{flex:"1 1 130px"}}>{rot("CPF ou CNPJ")}<input value={novo.cpfCnpj} onChange={e=>setNovo({...novo,cpfCnpj:e.target.value})} inputMode="numeric" style={entrada}/></div>
-            <div style={{flex:"1 1 150px"}}>{rot("E-mail")}<input value={novo.email} onChange={e=>setNovo({...novo,email:e.target.value})} type="email" style={entrada}/></div>
-            <div style={{flex:"1 1 130px"}}>{rot("WhatsApp")}<input value={novo.telefone} onChange={e=>setNovo({...novo,telefone:e.target.value})} inputMode="tel" style={entrada}/></div>
-            <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={novo.valor} onChange={e=>setNovo({...novo,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
-            <div style={{flex:"1 1 140px"}}>{rot("1º vencimento")}<input type="date" value={novo.vencimento} onChange={e=>setNovo({...novo,vencimento:e.target.value})} style={entrada}/></div>
-          </div>
-          <button onClick={roda("asaas",()=>acoes.criarAssinaturaAsaas(novo))} disabled={!!ocupado}
-            style={{width:"100%",marginTop:9,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-            {ocupado==="asaas"?"Criando…":"Criar assinatura no Asaas"}</button>
+          {!(a.valor||a.valor_mensal)
+            ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+              O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano —
+              assim que ele estiver aqui, você ativa a cobrança sozinho.
+            </div>
+            :<React.Fragment>
+              <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",marginBottom:10,
+                display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                <span style={{color:C.sub,fontSize:11.5}}>Sua mensalidade</span>
+                <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtMoeda(a.valor||a.valor_mensal)}</span>
+                <span style={{color:C.faint,fontSize:11}}>por mês</span>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 170px"}}>{rot("Seu CPF ou CNPJ")}
+                  <input value={novo.cpfCnpj} onChange={e=>setNovo({...novo,cpfCnpj:e.target.value})}
+                    inputMode="numeric" placeholder="só números" style={entrada}/>
+                  <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+                    É o que o Asaas exige para emitir a cobrança no seu nome.
+                  </div></div>
+                <div style={{flex:"1 1 140px"}}>{rot("1º vencimento")}
+                  <input type="date" value={novo.vencimento} onChange={e=>setNovo({...novo,vencimento:e.target.value})} style={entrada}/>
+                  <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+                    Em branco, cai daqui a 7 dias.
+                  </div></div>
+              </div>
+              <button onClick={roda("asaas",()=>acoes.criarAssinaturaAsaas({cpfCnpj:novo.cpfCnpj,vencimento:novo.vencimento}))}
+                disabled={!!ocupado||!String(novo.cpfCnpj||"").trim()}
+                style={{width:"100%",marginTop:11,background:!String(novo.cpfCnpj||"").trim()?C.faint:C.green,
+                  color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,
+                  cursor:!String(novo.cpfCnpj||"").trim()?"default":"pointer"}}>
+                {ocupado==="asaas"?"Ativando…":"Ativar cobrança automática"}</button>
+            </React.Fragment>}
         </React.Fragment>}
     </div>
   </div>;
@@ -5705,7 +5758,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar}){
         </button>
       </div>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
-      {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile}/>}
+      {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile} master={!!session.master}/>}
       <VersaoDoApp/>
     </div>
   </div>;

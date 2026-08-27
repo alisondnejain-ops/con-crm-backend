@@ -220,6 +220,10 @@ r.post("/autonomos", async (req, res) => {
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase();
   const marca = String(req.body?.marca || "").trim().slice(0, 80) || nome;
+  /* O preço é combinado na venda e gravado AQUI, na criação. Sem isso o
+     corretor abre a tela de assinatura e não tem o que ativar — e você
+     precisaria voltar em cada conta para digitar o valor depois. */
+  const valor = Number(req.body?.valor) || null;
   if (nome.length < 2) return res.status(400).json({ error: "Escreva o nome do corretor." });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "E-mail inválido." });
 
@@ -235,6 +239,7 @@ r.post("/autonomos", async (req, res) => {
   const criar = db.transaction(() => {
     db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo)
       VALUES (?,?,?,'',0,0,?,'autonomo')`).run(orgId, marca, codigoLivre(marca), Date.now());
+    if (valor) db.prepare("UPDATE orgs SET valor_mensal = ? WHERE id = ?").run(valor, orgId);
     if (jaExiste) {
       db.prepare(`UPDATE users SET org_id=?, name=?, role='adm', status='pendente',
         invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)

@@ -25,6 +25,12 @@ process.env.DB_PATH = path.join(os.tmpdir(), "concrm-teste-autonomo.db");
 process.env.JWT_SECRET = "teste";
 process.env.PORT = "4623";
 process.env.SITE_URL = "https://www.conhubcrm.com.br";
+/* Chave falsa de sandbox: sem ela a rota para no "Asaas não configurado" antes
+   de chegar nas validações, e o que este teste precisa checar é justamente
+   quem preenche o quê. A chamada ao Asaas em si não acontece — o teste para
+   antes, ou o provedor recusa, e as duas coisas servem. */
+process.env.ASAAS_API_KEY = "$aact_test_chave_de_teste";
+process.env.ASAAS_SANDBOX = "true";
 try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 
 const { default: db } = await import("../src/db.js");
@@ -176,6 +182,76 @@ assert.equal(r.status, 403);
 r = await chamar(tAna, `/orgs/autonomos/${orgId}/liberar`, { method: "POST", body: JSON.stringify({ dias: 999 }) });
 console.log(`   atendente tentando liberar: ${r.status}`);
 assert.equal(r.status, 403);
+
+console.log("15. O cliente ativa a assinatura SOZINHO, digitando um campo só");
+/* Antes esta rota exigia nome, e-mail, telefone e valor. Nome, e-mail e
+   telefone o CRM já tem — pedi-los de novo transformava cada cliente novo numa
+   digitação do Ali. Sobra o CPF/CNPJ, que o sistema não tem. */
+db.prepare("UPDATE orgs SET valor_mensal = 97 WHERE id = ?").run(orgId);
+r = await chamar(tBruno, "/assinatura");
+d = await r.json();
+console.log(`   a tela dele mostra a mensalidade: R$ ${d.valor_mensal}`);
+assert.equal(d.valor_mensal, 97, "o preço combinado chega à tela antes de existir fatura");
+
+r = await chamar(tBruno, "/assinatura/asaas", { method: "POST", body: JSON.stringify({}) });
+d = await r.json();
+console.log(`   sem CPF: ${r.status} · ${d.error}`);
+assert.equal(r.status, 400);
+assert.ok(/CPF/i.test(d.error), "o unico campo que falta e dito pelo nome");
+
+console.log("16. E NAO escolhe quanto paga");
+/* Era um furo: o valor vinha do formulario. Quem ativasse a propria assinatura
+   escolheria o proprio preco. Agora o servidor usa o que esta gravado na conta
+   e ignora o que veio do cliente. */
+r = await chamar(tBruno, "/assinatura/asaas", { method: "POST",
+  body: JSON.stringify({ cpfCnpj: "12345678909", valor: 1 }) });
+d = await r.json();
+/* Sem ASAAS_API_KEY o servidor para antes de chamar o Asaas — o que este teste
+   precisa provar e que ele NAO parou por falta de valor nem aceitou o 1. */
+console.log(`   ${r.status} · passou das validações e foi falar com o Asaas`);
+assert.ok(r.status === 502 || r.status === 200,
+  `deveria ter chegado ao Asaas; parou antes com ${r.status}: ${d.error}`);
+assert.equal(db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal, 97,
+  "o valor da conta nao foi trocado pelo que o cliente mandou");
+
+console.log("17. Conta sem preco definido nao deixa ativar — e explica");
+const semPreco = "org_" + randomUUID().slice(0, 8);
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,tipo) VALUES (?,?,?,?,'autonomo')")
+  .run(semPreco, "Sem Preco", "SP-1", Date.now());
+const uSem = "u_" + randomUUID();
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+  VALUES (?,?,'Sem Preco','sem@preco.com',?,'adm',1,?,'ativo')`).run(uSem, semPreco, senha, Date.now());
+db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(uSem, semPreco);
+const tSem = await entrar("sem@preco.com");
+r = await chamar(tSem, "/assinatura/asaas", { method: "POST", body: JSON.stringify({ cpfCnpj: "12345678909" }) });
+d = await r.json();
+console.log(`   ${r.status} · ${d.error}`);
+assert.equal(r.status, 400);
+assert.ok(/valor da mensalidade ainda/i.test(d.error));
+
+console.log("18. E o cliente não baixa o próprio preço por outro caminho");
+/* O furo não estava na tela de ativar: estava um passo antes. A rota de
+   configurar o plano é do "dono da conta", e num cliente o dono é ele mesmo —
+   dava para gravar valor_mensal = 1 e só então ativar a cobrança. */
+r = await chamar(tBruno, "/assinatura", { method: "PATCH", body: JSON.stringify({ valor_mensal: 1 }) });
+d = await r.json();
+console.log(`   ${r.status} · ${d.error}`);
+assert.equal(r.status, 403);
+assert.equal(db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal, 97,
+  "o preço continua o que o ConHub combinou");
+
+console.log("19. Mas ele ainda troca o NOME do plano, que é só rótulo");
+r = await chamar(tBruno, "/assinatura", { method: "PATCH", body: JSON.stringify({ plano: "Meu plano" }) });
+console.log(`   ${r.status} · plano: ${db.prepare("SELECT plano FROM orgs WHERE id=?").get(orgId).plano}`);
+assert.equal(r.status, 200);
+
+console.log("20. E o MASTER define o preço normalmente");
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+const tAliNaConta = (await r.json()).token;
+r = await chamar(tAliNaConta, "/assinatura", { method: "PATCH", body: JSON.stringify({ valor_mensal: 147 }) });
+console.log(`   ${r.status} · agora R$ ${db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal}`);
+assert.equal(r.status, 200);
+assert.equal(db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal, 147);
 
 console.log("\nTudo certo ✅");
 process.exit(0);
