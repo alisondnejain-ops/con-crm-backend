@@ -753,7 +753,12 @@ function ConCRM(){
     verPlantao();
     const t2=setInterval(verPlantao,60*60*1000);
     return()=>{vivo=false;clearInterval(t);clearInterval(t2);};
-  },[session]);
+    /* A imobiliária entra nas dependências junto com a sessão: entrar numa
+       conta pelo hub não troca a SESSÃO (é a mesma pessoa), só a casa. Sem
+       ela, `entrarNaConta` zerava a assinatura e nada buscava a nova — o
+       master ficava até uma hora sem saber se a conta em que acabou de entrar
+       está em dia, vencendo ou travada. */
+  },[session,org&&org.id]);
 
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
@@ -1087,7 +1092,13 @@ function ConCRM(){
   if(session.master&&!org)
     return <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>;
   // Bloqueado: o trabalho para, mas a saída (sair, exportar, pagar) continua.
-  if(assinatura&&assinatura.status==="bloqueado")
+  /* O master é a exceção, e é o mesmo motivo pelo qual o `porteiro` do servidor
+     já o deixa passar: é ele quem trava e quem libera. Barrá-lo na tela de
+     bloqueio deixaria o "pagou libera, não pagou trava" sem conserto — ele
+     entraria na conta do cliente justamente para ver o que há dentro dela e
+     bateria na porta que ele mesmo fechou. A tarja no alto avisa que a conta
+     está travada para o cliente. */
+  if(assinatura&&assinatura.status==="bloqueado"&&!session.master)
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
@@ -1527,7 +1538,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
             </button>}
         </div>}
 
-      <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever}/>
+      <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever} aoEntrar={aoEntrar}/>
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
     </div>
@@ -1544,8 +1555,14 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
    O botão de liberar e travar fica aqui, ao lado do nome, e é o "pagou libera,
    não pagou trava" na forma mais direta possível. Ele não mexe no histórico de
    pagamentos: quem paga de verdade entra pelo painel de mensalidade da conta, e
-   aí o teste deixa de valer sozinho. */
-function Autonomos({acoes,isMobile,contas,aoMudar}){
+   aí o teste deixa de valer sozinho.
+
+   O "Entrar" é o MESMO das imobiliárias, e precisa existir aqui pelo mesmo
+   motivo: suporte. Quando o autônomo diz que a mensagem não sai ou que o lead
+   não aparece, ninguém consegue ajudar de fora — é preciso ver a tela dele. O
+   servidor nunca distinguiu tipo de conta na hora de entrar; o que faltava era
+   o botão, e conta sem botão é conta sem socorro. */
+function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
   const [abrindo,setAbrindo]=useState(false);
   const [novo,setNovo]=useState({nome:"",email:"",marca:"",valor:""});
   const [ocupado,setOcupado]=useState("");
@@ -1565,6 +1582,12 @@ function Autonomos({acoes,isMobile,contas,aoMudar}){
     try{ await acoes.liberarAutonomo(c.id,dias); await aoMudar(); }
     catch(e){ setErro(e.message); }
     finally{ setOcupado(""); }
+  }
+  /* Entrar troca a tela inteira; não há "finally" que valha, porque em caso de
+     sucesso este componente já saiu do ar. Só o erro devolve o botão. */
+  async function entrar(c){
+    setErro("");setOcupado("entrar:"+c.id);
+    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); }
   }
   const copiar=()=>{ try{ navigator.clipboard.writeText(criado.link); setCopiado(true);
     setTimeout(()=>setCopiado(false),1800); }catch(e){} };
@@ -1617,9 +1640,14 @@ function Autonomos({acoes,isMobile,contas,aoMudar}){
               ? `em teste · ${Math.max(0,Math.ceil((c.assinatura.vence_em-Date.now())/86400000))} dia(s)`
               : st.t}</span>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={()=>entrar(c)} disabled={!!ocupado} title={`Abrir o CRM de ${c.nome}`}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
+                fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
+                display:"flex",alignItems:"center",gap:6}}>
+              {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
             <button onClick={()=>mexer(c,travado?30:-1)} disabled={!!ocupado}
-              style={{background:travado?C.greenDeep:C.card,color:travado?"#fff":C.hot,
-                border:travado?"none":`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",
+              style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.hot,
+                border:travado?"none":`1px solid ${C.hot}44`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
                 fontSize:12,fontWeight:600,cursor:"pointer"}}>
               {ocupado===c.id?"…":travado?"Liberar 30 dias":"Travar"}</button>
           </div>
@@ -2167,9 +2195,21 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever}){
 
 /* Tarja de aviso. Aparece perto do vencimento e durante a carência — o objetivo
    é a conta nunca chegar a bloquear de surpresa. */
-function TarjaMensalidade({assinatura,isMobile}){
-  if(!assinatura||!assinatura.cobranca) return null;
+function TarjaMensalidade({assinatura,isMobile,master}){
+  if(!assinatura) return null;
   const {status}=assinatura;
+  /* Conta travada, master dentro. Ele passa pela tela de bloqueio de propósito
+     (é ele quem libera, e para liberar precisa ver o que há na conta), mas
+     precisa saber o tempo todo que o CLIENTE não está vendo nada disso —
+     senão ele mexe numa conta parada achando que está no ar. */
+  if(master&&status==="bloqueado")
+    return <div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}33`,color:C.hot,
+      fontSize:isMobile?11.5:12.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
+      <Icon n="lock" size={13}/>
+      <span style={{flex:1,lineHeight:1.4}}>Conta travada por falta de pagamento — o cliente vê a tela de bloqueio.
+        Você está dentro porque é master.</span>
+    </div>;
+  if(!assinatura.cobranca) return null;
   if(status!=="vence_em_breve"&&status!=="atrasado") return null;
   const atrasado=status==="atrasado";
   const texto=atrasado
@@ -2402,7 +2442,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           {isMobile&&<button onClick={()=>setSession(null)} title="Sair" aria-label="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="logout" size={16}/></button>}
         </div>
       </header>
-      <TarjaMensalidade assinatura={assinatura} isMobile={isMobile}/>
+      <TarjaMensalidade assinatura={assinatura} isMobile={isMobile} master={session.master}/>
       {/* Lembrete do plantão no alto do sistema. Só aparece na véspera e no
           dia — antes disso é informação, não lembrete, e vive na tela da
           escala. Clicar leva para lá. */}

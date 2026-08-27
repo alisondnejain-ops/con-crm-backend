@@ -195,6 +195,15 @@ export function marcarAtraso(orgId, link) {
    - a própria rota da assinatura, senão a tela de bloqueio não carregaria */
 export function porteiro(req, res, next) {
   if (!req.user || !req.user.org_id) return next();
+  /* O master passa. É ele quem trava e quem libera a conta, e a única razão de
+     entrar numa conta travada é justamente olhar o que há dentro dela — o
+     cliente ligou dizendo que parou, ou pagou e quer conferir. Barrado aqui,
+     ele veria as mesmas telas vazias que o cliente vê e não teria como ajudar.
+
+     Confere no BANCO, e não no crachá: o token dura 30 dias, então um master
+     despromovido hoje continuaria entrando em conta bloqueada por um mês. */
+  const eu = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
+  if (eu && eu.master) return next();
   const s = situacao(req.user.org_id);
   if (s.status !== "bloqueado") return next();
   res.status(402).json({

@@ -253,5 +253,36 @@ console.log(`   ${r.status} · agora R$ ${db.prepare("SELECT valor_mensal FROM o
 assert.equal(r.status, 200);
 assert.equal(db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal, 147);
 
+console.log("21. O master ENTRA na conta do autônomo, igual numa imobiliária");
+/* Era o que faltava para o suporte existir: quando o autônomo diz que a
+   mensagem não sai ou que o lead não aparece, ninguém ajuda de fora — é
+   preciso ver a tela dele. O servidor nunca distinguiu tipo de conta aqui; o
+   que faltava era o botão no hub. */
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+d = await r.json();
+console.log(`   ${r.status} · entrou em ${d.org.nome} (tipo: ${d.org.tipo})`);
+assert.equal(r.status, 200);
+assert.equal(d.org.tipo, "autonomo", "a resposta diz que é conta de autônomo");
+assert.ok(d.token, "veio crachá novo, valendo para a conta dele");
+const tNaConta = d.token;
+r = await chamar(tNaConta, "/leads");
+console.log(`   com o crachá novo, /leads responde ${r.status}`);
+assert.equal(r.status, 200);
+
+console.log("22. E entra mesmo com a conta TRAVADA — é ele quem libera");
+/* A trava é o "não pagou, CRM travado". Se ela valesse para o master também,
+   o único jeito de olhar uma conta travada seria destravá-la antes — ou seja,
+   o suporte teria que começar liberando quem não pagou. */
+r = await chamar(tAli, `/orgs/autonomos/${orgId}/liberar`, { method: "POST", body: JSON.stringify({ dias: -1 }) });
+assert.equal(r.status, 200);
+r = await chamar(tBruno, "/leads");
+console.log(`   o cliente vê ${r.status} (402 = tela de bloqueio)`);
+assert.equal(r.status, 402);
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+const tTravada = (await r.json()).token;
+r = await chamar(tTravada, "/leads");
+console.log(`   o master vê ${r.status}`);
+assert.equal(r.status, 200, "o master precisa enxergar a conta travada");
+
 console.log("\nTudo certo ✅");
 process.exit(0);
