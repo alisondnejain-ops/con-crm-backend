@@ -485,6 +485,23 @@ addOrgCol("rodizio_ultimo", "TEXT");
 
    Cor vazia = o verde profundo do padrão. Guardar NULL em vez de gravar o
    padrão é o que permite mudar o padrão depois sem reescrever a base. */
+/* CORRETOR AUTÔNOMO: a mesma caixa da imobiliária, com a roda de um lugar só.
+
+   `tipo` = 'imobiliaria' (padrão, o que já existe) ou 'autonomo'. A conta do
+   autônomo é uma org como qualquer outra — WhatsApp próprio, kanban, funil,
+   IA, expediente, importação de leads e mensalidade própria. O que muda é o
+   tamanho: ele é o único corretor, então a catraca some (fila de uma pessoa
+   não é fila) e a equipe aceita no máximo UM atendente.
+
+   O atendente dele pode ser gente ou a IA do fora-do-expediente fazendo a
+   qualificação — as duas coisas já existem e não precisam de código novo.
+
+   `trial_ate` guarda o fim do teste grátis, e ele só começa quando a conta é
+   EFETIVADA (quando a pessoa define a senha) — não na criação. Criar a conta e
+   o relógio começar a correr antes de o corretor sequer receber o link seria
+   vender 14 dias e entregar menos. */
+addOrgCol("tipo", "TEXT DEFAULT 'imobiliaria'");
+addOrgCol("trial_ate", "INTEGER");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");

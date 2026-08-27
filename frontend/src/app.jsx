@@ -1047,6 +1047,9 @@ function ConCRM(){
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
     // Sócios da PLATAFORMA (contas master), não da imobiliária.
     listarSocios:()=>api("/orgs/masters"),
+    // Contas de corretor autônomo: criar, e liberar/travar sem esperar vencimento.
+    criarAutonomo:(dados)=>api("/orgs/autonomos",{method:"POST",body:dados}),
+    liberarAutonomo:(id,dias)=>api(`/orgs/autonomos/${id}/liberar`,{method:"POST",body:{dias}}),
     convidarSocio:(dados)=>api("/orgs/masters",{method:"POST",body:dados}),
     tirarSocio:(id)=>api(`/orgs/masters/${id}`,{method:"DELETE"}),
     // A foto da tela de entrada. É uma só, da plataforma, e vale para todo
@@ -1355,6 +1358,7 @@ function AvisoPlantao({meu,isMobile,compacto}){
 function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   usarTitulo("Suas imobiliárias");
   const [contas,setContas]=useState(null);
+  const [autonomos,setAutonomos]=useState([]);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
   const [criando,setCriando]=useState(false);
@@ -1367,7 +1371,9 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   const [nomeDigitado,setNomeDigitado]=useState("");
   const [apagada,setApagada]=useState("");
 
-  const rever=()=>acoes.listarContas().then(d=>setContas(d.orgs||[])).catch(e=>{setErro(e.message);setContas([]);});
+  const rever=()=>acoes.listarContas()
+    .then(d=>{setContas(d.orgs||[]);setAutonomos(d.autonomos||[]);})
+    .catch(e=>{setErro(e.message);setContas([]);});
 
   async function abrirExclusao(c){
     setErro(""); setNomeDigitado(""); setApagada("");
@@ -1521,9 +1527,133 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
             </button>}
         </div>}
 
+      <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever}/>
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
     </div>
+  </div>;
+}
+
+/* CORRETORES AUTÔNOMOS.
+
+   Uma lista separada das imobiliárias, e não um selo dentro delas, porque o
+   master faz perguntas diferentes para cada uma. De uma imobiliária ele quer
+   saber o tamanho da equipe e o movimento; de um autônomo, quase sempre em
+   teste, o que importa é UM número — quantos dias faltam.
+
+   O botão de liberar e travar fica aqui, ao lado do nome, e é o "pagou libera,
+   não pagou trava" na forma mais direta possível. Ele não mexe no histórico de
+   pagamentos: quem paga de verdade entra pelo painel de mensalidade da conta, e
+   aí o teste deixa de valer sozinho. */
+function Autonomos({acoes,isMobile,contas,aoMudar}){
+  const [abrindo,setAbrindo]=useState(false);
+  const [novo,setNovo]=useState({nome:"",email:"",marca:""});
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [criado,setCriado]=useState(null);
+  const [copiado,setCopiado]=useState(false);
+
+  async function criar(){
+    setErro("");setOcupado("criar");
+    try{ const d=await acoes.criarAutonomo(novo); setCriado(d); setNovo({nome:"",email:"",marca:""});
+      setAbrindo(false); await aoMudar(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
+  async function mexer(c,dias){
+    setErro("");setOcupado(c.id);
+    try{ await acoes.liberarAutonomo(c.id,dias); await aoMudar(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
+  const copiar=()=>{ try{ navigator.clipboard.writeText(criado.link); setCopiado(true);
+    setTimeout(()=>setCopiado(false),1800); }catch(e){} };
+
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+  const SELO={teste:{t:"em teste",c:C.greenMid,bg:C.greenSoft},ativo:{t:"Em dia",c:C.greenMid,bg:C.greenSoft},
+    vence_em_breve:{t:"Vence em breve",c:C.amber,bg:C.amberSoft},atrasado:{t:"Em atraso",c:C.hot,bg:C.hotSoft},
+    bloqueado:{t:"Travado",c:C.hot,bg:C.hotSoft}};
+
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
+      Corretores autônomos</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:16,lineHeight:1.55}}>
+      Quem trabalha sozinho. A conta tem tudo que uma imobiliária tem — WhatsApp próprio,
+      funil, IA e marca — com um atendente no máximo e sem catraca.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+    {criado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:14,padding:14,marginBottom:14}}>
+      <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:3}}>Conta criada para {criado.nome}</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:10}}>
+        Mande o link para <b style={{color:C.ink}}>{criado.email}</b> criar a senha.
+        {" "}<b style={{color:C.ink}}>O teste de {criado.dias} dias só começa quando ele entrar</b> — até lá o relógio fica parado.
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input readOnly value={criado.link} onFocus={e=>e.target.select()}
+          style={{...entrada,flex:1,minWidth:isMobile?"100%":240,fontSize:isMobile?13:12,fontFamily:MONO,background:C.card}}/>
+        <button onClick={copiar} style={{background:copiado?C.card:C.greenDeep,color:copiado?C.greenMid:"#fff",
+          border:"none",borderRadius:10,padding:"11px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          {copiado?"Copiado!":"Copiar"}</button>
+        <button onClick={()=>setCriado(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,
+          borderRadius:10,padding:"11px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Fechar</button>
+      </div>
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+      {contas.length===0&&<div style={{color:C.faint,fontSize:12.5}}>Nenhum corretor autônomo ainda.</div>}
+      {contas.map(c=>{const st=SELO[c.assinatura.status]||SELO.ativo;
+        const travado=c.assinatura.status==="bloqueado";
+        return <div key={c.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
+          padding:"12px 13px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:160}}>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{c.nome}</div>
+            <div style={{color:C.faint,fontSize:11,fontFamily:MONO}}>{c.codigo} · {c.leads} lead(s)</div>
+          </div>
+          <span style={{background:st.bg,color:st.c,fontSize:10.5,fontWeight:700,padding:"3px 10px",borderRadius:999}}>
+            {c.assinatura.status==="teste"&&c.assinatura.vence_em
+              ? `em teste · ${Math.max(0,Math.ceil((c.assinatura.vence_em-Date.now())/86400000))} dia(s)`
+              : st.t}</span>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={()=>mexer(c,travado?30:-1)} disabled={!!ocupado}
+              style={{background:travado?C.greenDeep:C.card,color:travado?"#fff":C.hot,
+                border:travado?"none":`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",
+                fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              {ocupado===c.id?"…":travado?"Liberar 30 dias":"Travar"}</button>
+          </div>
+        </div>;})}
+    </div>
+
+    {abrindo
+      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,
+        display:"flex",flexDirection:"column",gap:9,maxWidth:420}}>
+        <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome do corretor</div>
+          <input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} placeholder="como ele assina" style={entrada}/></div>
+        <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>E-mail</div>
+          <input value={novo.email} onChange={e=>setNovo({...novo,email:e.target.value})}
+            placeholder="corretor@exemplo.com" autoCapitalize="off" style={entrada}/></div>
+        <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome que aparece no sistema dele</div>
+          <input value={novo.marca} onChange={e=>setNovo({...novo,marca:e.target.value})}
+            placeholder="deixe em branco para usar o nome dele" style={entrada}/>
+          <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+            É o que a equipe dele vê na barra. Ele pode trocar a logo e a cor depois.
+          </div></div>
+        <div style={{display:"flex",gap:7}}>
+          <button onClick={criar} disabled={ocupado==="criar"||novo.nome.trim().length<2||!novo.email.trim()}
+            style={{flex:1,background:novo.nome.trim().length<2||!novo.email.trim()?C.faint:C.green,color:"#fff",
+              border:"none",borderRadius:11,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="criar"?"Criando…":"Criar conta"}</button>
+          <button onClick={()=>{setAbrindo(false);setErro("");}}
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,
+              padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>
+      :<button onClick={()=>setAbrindo(true)}
+        style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:12,padding:"13px 18px",
+          cursor:"pointer",display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600}}>
+        <Icon n="userplus" size={17}/> Criar conta de corretor autônomo</button>}
   </div>;
 }
 
@@ -2159,8 +2289,16 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
     corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
-  }[role].concat([["conta","user","Minha conta","Configurações"]]);
-  const TITLES={dashboard:"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  }[role].concat([["conta","user","Minha conta","Configurações"]])
+    /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA SOME.
+
+       Ela distribui leads entre corretores disponíveis, e ali existe um
+       corretor só — a fila teria sempre uma pessoa, e a tela responderia uma
+       pergunta que ninguém faz. O atendente dele continua repassando o lead
+       normalmente pela ficha; o que sai é a tela de rodízio, não o repasse. */
+    .filter(item=>!(org&&org.tipo==="autonomo"&&item[0]==="catraca"));
+  const sozinho=!!(org&&org.tipo==="autonomo");
+  const TITLES={dashboard:sozinho?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -2242,7 +2380,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:role==="adm"}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
-        {supervisor&&view==="dashboard"&&<Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile}}/>}
+        {supervisor&&view==="dashboard"&&<React.Fragment>
+          <FaixaTeste assinatura={assinatura} isMobile={isMobile}/>
+          <Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile,sozinho:org&&org.tipo==="autonomo"}}/>
+        </React.Fragment>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
@@ -9357,7 +9498,42 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
 }
 
 /* ===== DASHBOARD (ADM) ===== */
-function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
+/* A CONTAGEM REGRESSIVA DO TESTE GRÁTIS, no alto do painel.
+
+   Pedido do Ali: "faltam 14 dias, faltam 13, faltam 12". A frase importa mais
+   do que parece — quem está experimentando precisa saber quanto tempo tem, e
+   uma barra que só aparece no último dia vira susto, não aviso.
+
+   A cor acompanha a urgência com a mesma régua do resto do sistema: verde
+   enquanto sobra tempo, âmbar na última semana, coral nos três últimos dias.
+   Nada de vermelho no primeiro dia — alarme que toca sempre ninguém escuta.
+
+   Só aparece em conta de teste. Assinatura normal já tem o aviso de
+   vencimento, e dois avisos sobre a mesma coisa competem entre si. */
+function FaixaTeste({assinatura,isMobile}){
+  if(!assinatura||assinatura.status!=="teste") return null;
+  const dias=assinatura.dias;
+  const cor=dias<=3?C.hot:dias<=7?C.amber:C.greenMid;
+  const fundo=dias<=3?C.hotSoft:dias<=7?C.amberSoft:C.greenSoft;
+  const frase=dias===0?"Último dia do seu teste."
+    :dias===1?"Falta 1 dia para o fim do teste."
+    :`Faltam ${dias} dias para o fim do teste.`;
+  return <div style={{background:fundo,borderBottom:`1px solid ${cor}33`,padding:isMobile?"10px 14px":"11px 20px",
+    display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",flexShrink:0}}>
+    <Icon n="timer" size={15} color={cor}/>
+    <span style={{color:cor,fontSize:isMobile?12.5:13,fontWeight:700}}>{frase}</span>
+    <span style={{color:C.sub,fontSize:isMobile?11.5:12,lineHeight:1.45}}>
+      Você tem acesso a tudo até lá. Depois disso o CRM fica travado até a assinatura ser liberada —
+      seus leads e conversas continuam guardados.
+    </span>
+  </div>;
+}
+
+function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho}){
+  /* `sozinho` é a conta de corretor autônomo. Não muda nenhum número — muda o
+     que a tela CHAMA as coisas. "Painel da equipe" e "passam a receber leads na
+     catraca" são frases escritas para uma casa com gente dentro; para quem
+     trabalha sozinho elas descrevem um sistema que ele não comprou. */
   const [d,setD]=useState(null);
   useEffect(()=>{
     let vivo=true;
@@ -9392,7 +9568,7 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
         <Metric n="award" label="Valor vendido" value={fmtMoeda(d.total.valor_vendido)} accent={C.green}/>
       </div>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa (equipe)</div>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa{sozinho?"":" (equipe)"}</div>
         <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
           {STAGES.map(st=>{const v=totalPorEtapa(st);
             return <div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>;})}
@@ -9400,8 +9576,12 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile}){
       </div>
       {team.length===0?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center"}}>
         <Icon n="userplus" size={26} color={C.faint}/>
-        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum corretor cadastrado ainda</div>
-        <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</div>
+        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>
+          {sozinho?"Você ainda não tem atendente":"Nenhum corretor cadastrado ainda"}</div>
+        <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>
+          {sozinho
+            ?<React.Fragment>Sua conta aceita um atendente, que faz o primeiro contato e te repassa o lead.<br/>Ou deixe a IA fazer isso fora do expediente, em Configurações.</React.Fragment>
+            :<React.Fragment>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</React.Fragment>}</div>
       </div>
       :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>

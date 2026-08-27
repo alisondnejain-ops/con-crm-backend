@@ -12,6 +12,8 @@ import { marcaDaOrg } from "../services/marca.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
+// O teste grátis do corretor autônomo. Ver orgs.routes.js -> /autonomos.
+const TRIAL_DIAS = 14;
 
 // URL pública deste backend — usada para montar o link "definir senha" do e-mail.
 const appUrl = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -29,8 +31,10 @@ const norm = (e) => String(e || "").trim().toLowerCase();
    depois, em todo login — o piscar diria à equipe que a marca dela é um
    enfeite que o sistema aplica com atraso. */
 function orgDoUsuario(user) {
-  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra FROM orgs WHERE id = ?").get(user.org_id);
-  return o ? { id: o.id, nome: o.name, codigo: o.adm_code, ...marcaDaOrg(o) } : null;
+  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo FROM orgs WHERE id = ?").get(user.org_id);
+  /* `tipo` vem junto porque decide o MENU: a conta de corretor autônomo não
+     mostra catraca — fila de distribuição com uma pessoa não é fila. */
+  return o ? { id: o.id, nome: o.name, codigo: o.adm_code, tipo: o.tipo || "imobiliaria", ...marcaDaOrg(o) } : null;
 }
 // O link que o gestor manda para os corretores dele.
 function linkDaEquipe(req, user) {
@@ -145,6 +149,32 @@ r.post("/register", async (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE adm_code = ?").get(String(adm_code).trim().toUpperCase());
   if (!org) return res.status(403).json({ error: "Código da imobiliária inválido. Peça o link de cadastro à gestão da sua imobiliária." });
 
+  /* O TAMANHO DA CASA DO AUTÔNOMO.
+
+     A conta dele é uma org como qualquer outra, e por isso o link de cadastro
+     funcionaria igual — montando uma equipe inteira numa conta vendida como
+     individual. Duas travas, e as duas ficam AQUI, na porta:
+
+     - corretor não entra: o corretor é ele. Uma segunda pessoa atendendo já é
+       imobiliária, e imobiliária é outro plano;
+     - atendente, no máximo um. Pode ser gente ou a IA do fora-do-expediente
+       fazendo a qualificação — a IA não ocupa a vaga porque não é conta.
+
+     Recusar com a razão escrita, e não com "não pode": quem está cadastrando é
+     alguém que o corretor convidou, e precisa entender por que foi barrado. */
+  if ((org.tipo || "imobiliaria") === "autonomo") {
+    if (role !== "sdr")
+      return res.status(403).json({
+        error: "Esta é uma conta de corretor autônomo: ela aceita apenas um atendente, e nenhum corretor além do titular." });
+    const jaTem = db.prepare(
+      `SELECT COUNT(*) n FROM users u WHERE u.org_id = ? AND u.role = 'sdr'
+        AND u.status IN ('ativo','pendente','aguardando_aprovacao') AND u.email <> ?${semMaster("u")}`)
+      .get(org.id, norm(email)).n;
+    if (jaTem >= 1)
+      return res.status(409).json({
+        error: "Esta conta já tem o atendente dela. O plano de corretor autônomo vai até um." });
+  }
+
   const mail = norm(email);
   const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
   if (existing && existing.status === "ativo")
@@ -240,6 +270,23 @@ r.post("/set-password", (req, res) => {
   db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_expires=NULL WHERE id=?")
     .run(bcrypt.hashSync(String(password), 10), novoStatus, u.id);
 
+  /* O TESTE GRÁTIS DO AUTÔNOMO COMEÇA AQUI, e não na criação da conta.
+
+     Pedido do Ali: o relógio só corre depois que a conta está efetivada. Criar
+     a conta na segunda e mandar o link na quinta não pode custar três dias de
+     teste a quem ainda não tinha entrado.
+
+     Só o FUNDADOR dispara: quem entra depois é o atendente dele, e o teste da
+     casa não recomeça porque chegou mais alguém. */
+  if (fundador) {
+    const casa = db.prepare("SELECT id, tipo, trial_ate FROM orgs WHERE id = ?").get(u.org_id);
+    if (casa && casa.tipo === "autonomo" && !casa.trial_ate) {
+      const ate = Date.now() + TRIAL_DIAS * 86400000;
+      db.prepare("UPDATE orgs SET trial_ate = ? WHERE id = ?").run(ate, casa.id);
+      console.log(`[autonomo] teste de ${TRIAL_DIAS} dias começou para ${u.name}`);
+    }
+  }
+
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
   if (novoStatus === "aguardando_aprovacao")
     return res.json({ aguardandoAprovacao: true, funcao: PAPEIS[u.role].rotulo, user: publicUser(user) });
@@ -277,9 +324,9 @@ r.get("/me", authRequired, (req, res) => {
   /* A imobiliária vem do TOKEN, não do cadastro da pessoa. Para quase todo
      mundo dá no mesmo; para o master é a diferença entre "a casa dele" e "a
      casa em que ele está trabalhando agora", escolhida no hub de contas. */
-  const org = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra FROM orgs WHERE id = ?").get(req.user.org_id);
+  const org = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo FROM orgs WHERE id = ?").get(req.user.org_id);
   res.json({ user: publicUser(user),
-    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code, ...marcaDaOrg(org) } : null });
+    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code, tipo: org.tipo || "imobiliaria", ...marcaDaOrg(org) } : null });
 });
 
 // ── Minha conta ───────────────────────────────────────────────────────────────

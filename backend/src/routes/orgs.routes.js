@@ -18,6 +18,7 @@ import { authRequired, soMaster, sign, semMaster } from "../auth.js";
 import { situacao } from "../services/assinatura.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
+import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 
 const r = Router();
@@ -60,13 +61,23 @@ function resumo(req, org) {
     ...marcaDaOrg(org),
     assinatura: { status: s.status, cobranca: !!s.cobranca, vence_em: s.vence_em || null, valor: s.valor ?? null },
     criada_em: org.created_at || null,
+    tipo: org.tipo || "imobiliaria",
+    trial_ate: org.trial_ate || null,
   };
 }
 
 // As imobiliárias que existem. É a tela que abre quando o master entra.
 r.get("/", (req, res) => {
-  const orgs = db.prepare("SELECT * FROM orgs ORDER BY name").all();
-  res.json({ orgs: orgs.map(o => resumo(req, o)), atual: req.user.org_id });
+  const orgs = db.prepare("SELECT * FROM orgs ORDER BY name").all().map(o => resumo(req, o));
+  /* Duas listas, e não uma com um selo: no hub o master faz perguntas
+     diferentes para cada uma. Imobiliária é cliente com equipe; autônomo é
+     assinatura individual, quase sempre em teste, e nele o que importa é
+     quantos dias faltam. Misturados, a segunda pergunta se perde no meio. */
+  res.json({
+    orgs: orgs.filter(o => o.tipo !== "autonomo"),
+    autonomos: orgs.filter(o => o.tipo === "autonomo"),
+    atual: req.user.org_id,
+  });
 });
 
 /* Entrar numa imobiliária. Devolve um token novo — mesma pessoa, outra casa.
@@ -182,6 +193,91 @@ r.delete("/masters/:id", (req, res) => {
   db.prepare("UPDATE users SET master = 0, status = 'removido', available = 0 WHERE id = ?").run(alvo.id);
   console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name} — a conta foi desativada`);
   res.json({ ok: true, nome: alvo.name });
+});
+
+/* ===== CORRETOR AUTÔNOMO =====
+
+   A conta de quem trabalha sozinho. Por dentro é uma org como qualquer outra —
+   e é justamente por isso que ela sai barata: WhatsApp próprio, kanban, funil,
+   IA, expediente, importação de leads e mensalidade já existiam.
+
+   O que muda é o TAMANHO, e são duas regras:
+
+   - a catraca some. Fila de distribuição com uma pessoa não é fila;
+   - a equipe aceita no máximo UM atendente, que pode ser gente ou a própria IA
+     do fora-do-expediente fazendo a qualificação.
+
+   O TESTE COMEÇA QUANDO A CONTA É EFETIVADA (pedido do Ali), não aqui. Criar a
+   conta e o relógio já correr antes de o corretor sequer abrir o link seria
+   vender 14 dias e entregar menos — ver `set-password` em auth.routes.js.
+
+   O corretor entra como GESTOR da própria casa: é ele quem conecta o WhatsApp,
+   sobe a lista de leads, escolhe a logo e a cor. Controle total da conta, que
+   é o que ele está pagando. */
+const TRIAL_DIAS = 14;
+
+r.post("/autonomos", async (req, res) => {
+  const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const marca = String(req.body?.marca || "").trim().slice(0, 80) || nome;
+  if (nome.length < 2) return res.status(400).json({ error: "Escreva o nome do corretor." });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "E-mail inválido." });
+
+  const jaExiste = db.prepare("SELECT id,name,status FROM users WHERE email = ?").get(email);
+  if (jaExiste && jaExiste.status === "ativo")
+    return res.status(409).json({ error: `Esse e-mail já é de ${jaExiste.name}, que tem conta ativa na plataforma.` });
+
+  const token = novoToken();
+  const expira = Date.now() + 7 * 86400000;
+  const orgId = "org_" + randomUUID().slice(0, 8);
+  const userId = jaExiste ? jaExiste.id : "u_" + randomUUID();
+
+  const criar = db.transaction(() => {
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo)
+      VALUES (?,?,?,'',0,0,?,'autonomo')`).run(orgId, marca, codigoLivre(marca), Date.now());
+    if (jaExiste) {
+      db.prepare(`UPDATE users SET org_id=?, name=?, role='adm', status='pendente',
+        invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
+        .run(orgId, nome, token, expira, userId);
+    } else {
+      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,invite_token,invite_expires,invite_tipo)
+        VALUES (?,?,?,?,'','adm',0,?,'pendente',?,?,'fundador')`)
+        .run(userId, orgId, nome, email, Date.now(), token, expira);
+    }
+    // Dono da conta: é quem responde pela mensalidade e vê a cobrança.
+    db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
+  });
+  criar();
+
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  let enviado = false;
+  if (mailConfigured()) {
+    try {
+      const { subject, html } = inviteEmail({ name: nome, link, orgName: marca });
+      enviado = !!(await sendMail({ to: email, subject, html })).sent;
+    } catch (e) { console.error("[autonomo] e-mail não saiu:", e.message); }
+  }
+  console.log(`[autonomo] conta de ${nome} criada — link: ${link}`);
+  res.json({ ok: true, nome, email, link, email_enviado: enviado, dias: TRIAL_DIAS,
+    org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId)) });
+});
+
+/* Liberar ou travar na mão, sem esperar vencimento.
+
+   É o "pagou libera, não pagou trava" do Ali, com um botão. Liberar empurra o
+   fim do teste para daqui a N dias; travar puxa para ontem. Não mexe no
+   histórico de pagamentos: quem paga de verdade entra pelo painel de
+   mensalidade, e aí o teste deixa de valer sozinho. */
+r.post("/autonomos/:id/liberar", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ? AND tipo = 'autonomo'").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  const dias = Number(req.body?.dias);
+  const ate = Number.isFinite(dias)
+    ? (dias >= 0 ? Date.now() + dias * 86400000 : Date.now() - 86400000)
+    : Date.now() + TRIAL_DIAS * 86400000;
+  db.prepare("UPDATE orgs SET trial_ate = ? WHERE id = ?").run(ate, org.id);
+  console.log(`[autonomo] ${req.user.name} ${dias < 0 ? "travou" : "liberou"} ${org.name}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
 /* ===== A FOTO DA TELA DE ENTRADA =====

@@ -78,12 +78,34 @@ export function situacao(orgId, { dono = true } = {}) {
      estado está e desde quando. Valor, plano e link de pagamento não são
      assunto do outro gestor nem do corretor. */
   const conforme = (s) => dono ? { ...s, dono } : {
-    status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo,
+    status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo, teste: s.teste,
     dias: s.dias, atraso: s.atraso, restam: s.restam, carencia: s.carencia,
   };
 
   if (org.assinatura_status === "cancelado")
     return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
+
+  /* O TESTE GRÁTIS, que é um estado só do corretor autônomo.
+
+     Ele reaproveita a máquina de vencimento em vez de inventar outra: o fim do
+     teste É o primeiro vencimento. A diferença está no que a tela diz — "faltam
+     9 dias de teste" não é a mesma frase que "sua mensalidade vence em 9 dias",
+     e quem está experimentando precisa da primeira.
+
+     Assim que entra o primeiro pagamento o teste acaba de ser assunto: a conta
+     passa a ser uma assinatura comum, com a mesma régua de todas as outras. */
+  if (org.trial_ate) {
+    const pagos = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId).n;
+    if (!pagos) {
+      const faltam = Math.ceil((meiaNoite(org.trial_ate) - meiaNoite(Date.now())) / DIA);
+      if (faltam >= 0)
+        return conforme({ status: "teste", cobranca: true, teste: true, dias: faltam,
+          vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
+      return conforme({ status: "bloqueado", cobranca: true, teste: true, atraso: -faltam,
+        vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
+        motivo: "O teste de 14 dias terminou." });
+    }
+  }
 
   if (!org.vence_em) return conforme({ status: "ativo", cobranca: false });
 
