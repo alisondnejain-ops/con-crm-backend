@@ -438,6 +438,20 @@ assert.ok(nomesOper.length > nomesConv.length, "o operacional mostra tudo; a con
 assert.ok(!nomesConv.includes("Pasta"), "etapa administrativa fica fora da conversão");
 assert.ok(nomesOper.includes("Pasta"), "mas aparece no avanço operacional");
 
+console.log("41b. E a conversão sequencial NUNCA passa de 100%");
+/* Saía "seq 300%" no primeiro teste com base real. A taxa vinha de dividir a
+   contagem de uma etapa pela da anterior, medidas de forma independente — nada
+   garantia que quem chegou na segunda tivesse passado pela primeira. Numa base
+   real isso é comum: lead importado direto em "Proposta", etapa pulada pela
+   equipe. Taxa acima de 100% não é arredondamento feio: é um número que
+   ninguém reconhece, e um só deles faz o gestor parar de confiar na tela. */
+for (const c of f.conversao) {
+  console.log(`   ${c.name.padEnd(14)} ${String(c.alcancaram).padStart(3)} alcançaram · seq ${c.taxa_sequencial}%${c.entraram_por_fora ? ` · ${c.entraram_por_fora} entraram por fora` : ""}`);
+  assert.ok(c.taxa_sequencial <= 100, `${c.name} deu ${c.taxa_sequencial}% — impossível`);
+  assert.ok(c.taxa_sobre_entrada <= 100, `${c.name}: taxa sobre entrada acima de 100%`);
+  assert.ok(c.entraram_por_fora >= 0);
+}
+
 console.log("42. E o funil sem degrau marcado avisa, em vez de mostrar gráfico vazio");
 const semDegrau = P.criarPipeline(org, { name: "Sem degraus" });
 P.criarEtapa(org, semDegrau.pipeline.id, { name: "Única" });

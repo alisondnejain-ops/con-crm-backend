@@ -206,6 +206,30 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 - **A cópia de segurança leva o BANCO, não as fotos** (28/08/2026, descoberto ao diagnosticar o R2): com `DB_PATH=/data/concrm.db`, o `storage.js` guarda os arquivos em `/data/uploads` quando o R2 não está funcionando — o **mesmo volume** do banco. Elas sobrevivem ao deploy (é disco persistente, e a dica do diagnóstico dizia o contrário, assustando com a coisa errada), mas ficam **dentro do ponto único de falha que a cópia existe para cobrir**. Perder o volume, hoje, é perder as fotos dos imóveis mesmo com o backup em dia. Enquanto o R2 estiver de pé isso não acontece — as fotos vão para lá e o volume só guarda o banco; mas o dia em que a chave do R2 para de valer, o CRM volta a acumular arquivo no volume **em silêncio**, porque cair para o disco é de propósito (foto que não sobe não pode travar o corretor). O sinal é `/integracoes/armazenamento/teste`.
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
+## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
+
+O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.
+
+**`leads.stage` (o nome) continua existindo e continua sendo escrito**, agora ao lado de `stage_id`. Os dois, sempre juntos, por `moverEtapa`. É duplicação de propósito: cerca de 40 pontos de leitura dependem do nome, e trocá-los de uma vez seria reescrever o sistema num commit com a operação rodando em cima. O preço é renomear etapa ter que atualizar os leads dela — e isso se paga num lugar só (`editarEtapa`).
+
+**A migração é invisível.** No start, cada imobiliária ganha o pipeline padrão com exatamente as etapas que já usava, e cada lead é ligado pelo nome. Lead com etapa fora da lista fica com pipeline e sem `stage_id`: continua aparecendo pelo nome, em vez de ser descartado. Idempotente — reiniciar o servidor dez vezes faz o trabalho uma.
+
+**Apagar e desativar são coisas diferentes.** Etapa com lead dentro não some (os leads ficariam órfãos, fora do funil e do relatório, sem ninguém perceber); ela se desativa. Apagar de vez só quando está vazia. Vale igual para pipeline.
+
+**`moverLead` (`services/movimento.js`) é onde as regras moram**, e não nas rotas. Lead muda de etapa por cinco caminhos — rota manual, arrasto no kanban, confirmação da IA, venda registrada, reanálise em lote. Regra na rota valeria para um e não para os outros quatro, e regra que vale às vezes é pior que regra nenhuma. A ordem é: conferir campos, mover, rodar automação. `forcar` existe para o fato consumado (a venda aconteceu; segurá-la por um campo seria o CRM discordando do mundo).
+
+**`automation_config`** entende `distribuir` (rodízio ou pessoa fixa), `mover_para_pipeline` e `limpar_responsavel`. É o caso central: o lead chega em "qualificado" no SDR e vai sozinho para o comercial, com dono. **Ninguém disponível vira aviso explícito** — lead sem dono parecendo distribuído é lead que ninguém atende. A automação nunca lança: configuração errada não pode virar etapa em que ninguém entra.
+
+**SLA conta da ÚLTIMA INTERAÇÃO, não da entrada na etapa.** Lead que entrou ontem e conversou agora está saudável; lead que entrou hoje e ninguém tocou não está. Etapa sem `sla_minutes` devolve `null`, e **null não é "em dia"** — é "ninguém mandou medir". O painel mostra quantos leads estão fora de qualquer medição: sem isso, "3 vencidos" parece ótimo numa base em que 300 não têm prazo.
+
+**`last_interaction_at` é mantido por GATILHO no banco**, não pelas rotas. Seriam seis lugares hoje e o sétimo que alguém escrever depois — e o esquecido não dá erro: só faz o lead parecer abandonado enquanto a conversa acontece. `MAX` impede que mensagem atrasada faça a data retroceder. Gatilho é código invisível; vale a troca porque a alternativa é um campo errado em silêncio.
+
+**Funil de conversão x avanço operacional** (`services/painel.js`): o primeiro usa só as etapas com `counts_as_conversion`; o segundo mostra todas, com tempo mediano e atrasados. Etapa administrativa contada como conversão faz o relatório dizer que a operação converteu quando ela só juntou papel. **A taxa sequencial é uma INTERSEÇÃO** (dos que chegaram no degrau anterior, quantos chegaram neste) — dividir contagens independentes produzia "seq 300%", e um número impossível faz o gestor parar de confiar na tela inteira. Quem chegou sem passar pelo degrau anterior aparece como `+N` em âmbar.
+
+**Os dados de campanha estavam se perdendo.** O webhook da Meta guardava só o `meta_lead_id`: a Graph API não manda campanha, conjunto, anúncio e formulário sem serem pedidos pelo nome. É dado que não volta — lead de ontem perdeu a atribuição para sempre. Por isso entrou junto da fundação, antes de qualquer tela que fosse usá-lo. O painel de campanhas informa a **cobertura** ("4 de 300 leads têm campanha"), senão quatro linhas parecem a operação inteira.
+
+Testes: `npm run teste:pipelines` (49 casos).
+
 ## Identidade visual
 
 Verde-esmeralda (`#0E8F6E`), verde profundo (`#0A3D30`), base clara, coral (`#E1553A`) para urgência. Fontes: Sora (títulos), Inter (texto), IBM Plex Mono (números). Elemento-assinatura: cronômetro de espera que "esquenta" (verde→âmbar→vermelho) conforme o lead aguarda. Se o usuário mandar logo/cores oficiais da Conecta, aplicar.

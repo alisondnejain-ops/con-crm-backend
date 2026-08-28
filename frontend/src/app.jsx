@@ -101,6 +101,20 @@ function adaptLead(l,anterior){
     createdAt:l.created_at, firstRespAt:l.first_resp_at,
     assignedTo:l.assigned_to, assignedName:l.assigned_name,
     status:l.stage||"Lead",
+    /* O VINCULO da etapa, ao lado do nome. O nome é o que a tela sempre
+       desenhou; o id é o que permite o kanban montar as colunas a partir do
+       funil DA EMPRESA em vez da lista fixa do código. Os dois chegam juntos
+       do servidor e os dois ficam aqui — o dia em que a tela ler só um deles é
+       o dia em que ela passa a mostrar um estado e a gravar outro. */
+    stageId:l.stage_id||null, pipelineId:l.pipeline_id||null,
+    /* O cronômetro da etapa: {status:'ok'|'warning'|'overdue', minutos,
+       limite, restam}. Vem `null` quando a etapa não tem SLA configurado, e
+       null NÃO é "em dia" — é "ninguém pediu para medir isto". */
+    sla:l.sla!==undefined?l.sla:(anterior?anterior.sla:null),
+    etapaEntrouEm:l.stage_entered_at||null,
+    ultimaInteracao:l.last_interaction_at||null,
+    campos:l.custom_fields?(()=>{try{return JSON.parse(l.custom_fields);}catch(e){return {};}})():(anterior?anterior.campos:{}),
+    campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
     finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
@@ -191,6 +205,46 @@ const CALCULADORA_CAIXA="https://simuladorhabitacao.caixa.gov.br/calculadora";
 const SIMULADOR_CAIXA="https://simuladorhabitacao.caixa.gov.br/simulacao";
 const STAGES=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda","Perdido","Recaptação","Transferido por ligação"];
 const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita","Proposta","Venda"];
+/* ===== O FUNIL DA EMPRESA, VINDO DO SERVIDOR ===== (28/08/2026)
+
+   Até aqui a tela tinha as 11 etapas escritas aqui embaixo, iguais às do
+   servidor. Duas listas fixas espelhadas: mexer numa sem mexer na outra fazia
+   o CRM mostrar uma coisa e gravar outra, e isso já estava documentado como
+   armadilha no CLAUDE.md.
+
+   Agora as etapas vêm do funil configurado pela imobiliária. As constantes
+   abaixo continuam existindo como ÚLTIMO RECURSO — e só isso: se a busca
+   falhar (rede caindo, deploy no meio), a tela desenha o funil de sempre em
+   vez de aparecer vazia. Kanban em branco parece base perdida. */
+function usarPipelines(acoes,session){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const rever=React.useCallback(()=>acoes.pipelines()
+    .then(setD).catch(e=>setErro(e.message)),[acoes]);
+  useEffect(()=>{if(session) rever();},[session,rever]);
+  return {dados:d,rever,erro,
+    pipelines:(d&&d.pipelines)||[],
+    padrao:(d&&d.padrao)||null,
+    templates:(d&&d.templates)||[]};
+}
+
+/* A cor da etapa: a que a empresa escolheu, com a paleta antiga como reserva
+   para os funis que nasceram antes de a cor existir. */
+const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
+
+/* O cronômetro do SLA, desenhado. Verde não existe de propósito — mesma regra
+   da faixa de urgência do card (13/08/2026): quadro cheio de verde vira
+   enfeite, e o que precisa saltar é o que está atrasado. */
+const CORES_SLA={ok:null,warning:"#D97706",overdue:"#E1553A"};
+function textoSla(sla){
+  if(!sla) return null;
+  const h=Math.floor(sla.minutos/60), m=sla.minutos%60;
+  const tempo=h>=24?`${Math.floor(h/24)}d`:h?`${h}h${m?" "+m+"min":""}`:`${m}min`;
+  if(sla.status==="overdue") return `SLA vencido · ${tempo} sem interação`;
+  if(sla.status==="warning") return `vence em ${sla.restam}min`;
+  return `${tempo} sem interação`;
+}
+
 const STAGE_C={"Lead":"#64748B","Atendimento":"#0E8F6E","Pasta":"#0C6B52","Aprovação":"#2F80C4","Agendamento":"#7A5AD6","Visita":"#C8912B","Proposta":"#D97706","Venda":"#0A3D30","Perdido":"#B0463A","Recaptação":"#B07C1F","Transferido por ligação":"#5C6B7A"};
 
 /* A palavra que faz o lead subir para cada etapa. Só para MOSTRAR na tela —
@@ -864,7 +918,11 @@ function ConCRM(){
       await api(`/leads/${leadId}/messages/${msgId}`,{method:"PATCH",body:{text}});
       await recarregar(); await abrir(leadId,true);
     },
-    mudarEtapa:acao((leadId,stage)=>api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage}})),
+    /* Aceita o NOME (todo o código de hoje) ou o `stage_id` (o kanban, que
+       monta as colunas a partir do funil da empresa). O id é mais preciso:
+       dois funis podem ter uma etapa com o mesmo nome. */
+    mudarEtapa:acao((leadId,stage,extra)=>api(`/leads/${leadId}/stage`,
+      {method:"PATCH",body:{stage,...(extra||{})}})),
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
     /* Tarefas: NÃO passam pelo `acao()`. Aquele envelope engole o erro e
        recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
@@ -1069,6 +1127,26 @@ function ConCRM(){
     // Cópia de segurança do banco. É da plataforma inteira, então mora no hub.
     backup:()=>api("/orgs/backup"),
     rodarBackup:()=>api("/orgs/backup",{method:"POST"}),
+    // ===== CORE DE GESTAO: funis, etapas, campos e painel =====
+    pipelines:()=>api("/pipelines"),
+    pipelinesTodos:()=>api("/pipelines?todos=1"),
+    criarPipeline:(dados)=>api("/pipelines",{method:"POST",body:dados}),
+    editarPipeline:(id,dados)=>api(`/pipelines/${id}`,{method:"PATCH",body:dados}),
+    duplicarPipeline:(id,name)=>api(`/pipelines/${id}/duplicar`,{method:"POST",body:{name}}),
+    apagarPipeline:(id)=>api(`/pipelines/${id}`,{method:"DELETE"}),
+    criarEtapa:(id,dados)=>api(`/pipelines/${id}/etapas`,{method:"POST",body:dados}),
+    editarEtapa:(etapaId,dados)=>api(`/pipelines/etapas/${etapaId}`,{method:"PATCH",body:dados}),
+    apagarEtapa:(etapaId)=>api(`/pipelines/etapas/${etapaId}`,{method:"DELETE"}),
+    ordenarEtapas:(id,ids)=>api(`/pipelines/${id}/etapas/ordem`,{method:"POST",body:{ids}}),
+    camposPersonalizados:()=>api("/pipelines/campos/lista"),
+    criarCampo:(dados)=>api("/pipelines/campos",{method:"POST",body:dados}),
+    editarCampo:(id,dados)=>api(`/pipelines/campos/${id}`,{method:"PATCH",body:dados}),
+    apagarCampo:(id)=>api(`/pipelines/campos/${id}`,{method:"DELETE"}),
+    painel:(f)=>api("/painel"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    painelOpcoes:()=>api("/painel/opcoes"),
+    painelEquipe:(f)=>api("/painel/equipe"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    painelFunil:(id,f)=>api(`/painel/funil/${id}`+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    painelCampanhas:(f)=>api("/painel/campanhas"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
@@ -2738,7 +2816,34 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     setEnviando(true); setDraft(""); setCitando(null);
     try{ await acoes.enviar(sel.id,text,citada&&citada.id); }finally{ setEnviando(false); }
   }
-  const setStatus=(id,status)=>acoes.mudarEtapa(id,status);
+  /* MOVER O LEAD, E O QUE ACONTECE QUANDO A ETAPA RECUSA.
+
+     Com campos obrigatórios por etapa, mover deixou de ser sempre possível: o
+     servidor responde 422 com a lista do que falta. 422 e não 400 de
+     propósito — o pedido está certo, o que falta é dado do lead.
+
+     A tela precisa DIZER o que falta, e não "deu erro". O erro genérico
+     transformaria uma regra que o próprio gestor configurou num defeito
+     aparente do sistema, e a primeira reação seria pedir para tirar a regra.
+
+     O aviso da automação (ninguém disponível no rodízio, funil de destino sem
+     etapa) sobe pelo mesmo caminho: o lead moveu, mas alguma coisa não saiu
+     como configurado, e isso não pode passar em silêncio. */
+  const setStatus=async(id,status,extra)=>{
+    try{
+      const r=await acoes.mudarEtapa(id,status,extra);
+      if(r&&r.aviso) setRecado(r.aviso);
+      else if(r&&r.responsavel_nome) setRecado(`Lead entregue a ${r.responsavel_nome}.`);
+      return r;
+    }catch(e){
+      if(e.status===422&&e.dados&&e.dados.faltam){
+        setErro(e.dados.error);
+        return {bloqueado:true,...e.dados};
+      }
+      setErro(e.message);
+      throw e;
+    }
+  };
   const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
   const toggleAvail=(id,estaDisponivel,extra)=>acoes.disponibilidade(id,!estaDisponivel,extra);
 
@@ -2747,10 +2852,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
+    sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
     corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
   }[role].concat([["conta","user","Minha conta","Configurações"]])
     /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA SOME.
@@ -2849,6 +2954,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         </React.Fragment>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
+        {/* O painel de gestão: filtros, SLA, funil de conversão x avanço
+            operacional, equipe e campanha. Fica ao lado de Relatórios e não
+            dentro dele porque responde outra pergunta — Relatórios é a
+            produtividade de cada pessoa, isto é o estado da operação agora. */}
+        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
@@ -4091,6 +4201,25 @@ function FichaVenda({lead,onSalvar}){
    espera, qualquer rolagem lateral entre as colunas viraria um arrasto sem
    querer, e o lead mudava de etapa sozinho. */
 function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],session}){
+  /* ===== QUAL FUNIL ESTE QUADRO ESTA MOSTRANDO ===== (28/08/2026)
+
+     As colunas deixaram de ser a lista fixa do código e passaram a ser as
+     etapas do pipeline escolhido. A imobiliária pode ter cinco funis — SDR,
+     comercial, locação —, e "o kanban" sem dizer de qual deles não responde
+     mais nada.
+
+     A escolha fica guardada por conta (`usarEscolha`): quem trabalha em
+     locação não quer reabrir o CRM no funil comercial todo dia.
+
+     Se a busca dos funis falhar, as colunas caem para as etapas de sempre. Um
+     kanban vazio parece base perdida — e é a primeira coisa que a pessoa vê. */
+  const {pipelines,padrao}=usarPipelines(acoes,session);
+  const [pipeSel,setPipeSel]=usarEscolha("funil.pipeline","");
+  const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
+  const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
+    ? pipeAtual.stages
+    : STAGES.map(n=>({id:null,name:n,color:STAGE_C[n]}));
+
   /* OS FILTROS DO KANBAN.
 
      O quadro é a ferramenta de leitura do funil, e sem peneira ele responde
@@ -4203,7 +4332,12 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
 
   const aoSoltar=()=>{
     cancelarEspera();
-    if(arrasto&&alvo&&alvo!==arrasto.de) setStatus(arrasto.id,alvo);
+    if(arrasto&&alvo&&alvo!==arrasto.de){
+      // Manda o VINCULO quando o funil tem: dois pipelines podem ter uma etapa
+      // com o mesmo nome, e aí o nome sozinho é ambíguo.
+      const col=colunas2.find(c=>c.name===alvo);
+      setStatus(arrasto.id,alvo,col&&col.id?{stage_id:col.id}:null);
+    }
     setArrasto(null); setAlvo(null);
   };
   return <div style={{height:"100%",display:"flex",flexDirection:"column",minHeight:0}}>
@@ -4248,6 +4382,18 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           <option value="lead">Só o lead</option>
           <option value="corretor">Só o corretor</option>
         </select>}
+        {/* O SELETOR DE FUNIL, ao lado da busca e antes dos filtros.
+
+            Fica aqui e não numa aba porque trocar de funil NÃO é filtrar: é
+            olhar outro quadro. Escondê-lo atrás da gaveta faria a operação de
+            locação não descobrir que o funil dela existe. Só aparece com mais
+            de um — com um só, o seletor seria um botão que não faz nada. */}
+        {pipelines.length>1&&<select value={pipeAtual?pipeAtual.id:""} onChange={e=>setPipeSel(e.target.value)}
+          style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
+            padding:isMobile?"10px 11px":"8px 11px",fontSize:isMobile?13:12,fontWeight:700,
+            cursor:"pointer",flexShrink:0,outline:"none",maxWidth:isMobile?150:200}}>
+          {pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>}
         <button onClick={()=>setFiltrosAbertos(a=>!a)}
           style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
             background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,
@@ -4290,14 +4436,20 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:16,
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
-    <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":STAGES.length*172}}>
-      {STAGES.map(st=>{const items=visiveis.filter(l=>l.status===st);
+    <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*172}}>
+      {colunas2.map(col=>{const st=col.name;
+        /* Casa pelo VINCULO quando os dois lados o têm, e pelo nome quando
+           não. Só pelo nome, dois funis com uma etapa "Visita" misturariam os
+           leads dos dois no mesmo quadro; só pelo id, o lead antigo (que ainda
+           não foi ligado) sumiria da tela. */
+        const items=visiveis.filter(l=>col.id&&l.stageId?l.stageId===col.id:l.status===st);
         const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
+        const corCol=corDaEtapa(col,st);
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:STAGE_C[st],width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
           <div ref={el=>{colunas.current[st]=el;}}
-            style={{flex:1,borderRadius:12,border:`1px solid ${destacada?STAGE_C[st]:C.line}`,
-              background:destacada?STAGE_C[st]+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
+            style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
+              background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
             {items.map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
@@ -4518,7 +4670,19 @@ function fmtCurto(ms){
 }
 
 function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
-  const urgencia=corDeUrgencia(l);
+  /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
+
+     A faixa já esquentava pela última conversa (regra de 13/08/2026: âmbar em
+     24h, vermelho em 72h). Esses números eram um palpite razoável enquanto o
+     CRM não sabia o que cada etapa tolera — e deixaram de ser necessários no
+     momento em que a empresa passou a dizer isso etapa por etapa.
+
+     Onde há SLA configurado, ele manda: 30 minutos numa etapa de primeiro
+     contato é atraso, e 30 minutos numa etapa de documentação não é. Onde não
+     há, a régua antiga continua valendo — é melhor que nada, e tirá-la deixaria
+     o quadro sem nenhum sinal para quem ainda não configurou. */
+  const sla=l.sla;
+  const urgencia=(sla&&CORES_SLA[sla.status])||(sla?null:corDeUrgencia(l));
   const tar=l.tarefas;
   const linha=(icone,texto,cor)=><div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
     <Icon n={icone} size={9} color={cor||C.faint}/>
@@ -4558,6 +4722,12 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
       {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
 
       {linha("msg", l.lastAt?`falou ${fmtQuando(l.lastAt)}`:"sem conversa", urgencia)}
+
+      {/* O cronômetro, escrito. A faixa colorida diz QUE está atrasado; esta
+          linha diz HÁ QUANTO — e é a diferença entre o gestor olhar e agir, ou
+          olhar e ter que abrir o lead para descobrir o tamanho do problema. */}
+      {sla&&sla.status!=="ok"&&linha(sla.status==="overdue"?"flame":"clock",
+        textoSla(sla), CORES_SLA[sla.status])}
 
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
         `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
@@ -8388,7 +8558,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
-  const [aba,setAba]=useState("mensagens");
+  const [aba,setAba]=useState("funis");
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
      nem aparece para os outros — botão que só devolve "não pode" é pior do que
@@ -8399,7 +8569,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
      o resultado numa tela grande. É a mesma régua de recolher a barra: coisa
      que se faz sentado, uma vez, não em pé com o cliente esperando. */
   const podeMarca=session&&session.role==="adm"&&!isMobile;
-  const abas=[["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],
+  const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],["ia","Uso da IA"]];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
@@ -8416,6 +8586,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
         A logo e a cor do menu ficam em <b style={{color:C.sub}}>Identidade</b>, no computador — é lá que
         está o arquivo da sua marca e a tela para conferir o resultado.
       </div>}
+      {aba==="funis"&&<FunisConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="marca"&&podeMarca&&<IdentidadeConfig acoes={acoes} isMobile={isMobile}/>}
@@ -8876,6 +9047,632 @@ function RoboConfig({acoes,session,isMobile}){
    porque aparece como etiqueta, em cima. */
 const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cpf:"Restrição no CPF",
   prazo:"Prazo",orcamento:"Orçamento de aluguel",garantia:"Garantia"};
+
+/* ===== FUNIS E ETAPAS ===== (28/08/2026)
+
+   A tela onde a imobiliária monta a própria operação. Até aqui o funil era uma
+   lista de 11 nomes escrita no servidor, igual para todo cliente; aqui ela vira
+   o que a empresa quiser.
+
+   O QUE ESTA TELA PRECISA DEIXAR OBVIO, e é por isso que ela não é só um CRUD:
+
+   - que APAGAR e DESATIVAR são coisas diferentes. Etapa com lead dentro não
+     some; ela sai do fluxo. Sem essa distinção escrita, o gestor tenta apagar,
+     recebe uma recusa e conclui que o sistema travou;
+   - que SLA é opcional, e que etapa sem SLA não é etapa "em dia" — é etapa que
+     ninguém mandou medir;
+   - que nem toda etapa é degrau de venda. "Documentação" é trabalho, não
+     avanço comercial, e marcá-la como conversão faz o relatório mentir.
+
+   Só a gestão chega aqui (a rota também recusa quem não supervisiona). */
+/* ===== PAINEL DE GESTAO ===== (28/08/2026)
+
+   O relatório que existia respondia uma pergunta: "como foi o mês da
+   imobiliária inteira". Esta tela responde as outras — como foi a semana DA
+   MARINA, o que a campanha trouxe, quantos leads estão parados agora.
+
+   TRES COISAS QUE ESTA TELA FAZ E O RELATORIO ANTIGO NAO FAZIA:
+
+   1. os filtros valem para TODOS os números ao mesmo tempo. Métrica que ignora
+      o período escolhido devolve um valor que não bate com o de cima, e
+      ninguém consegue dizer qual dos dois está certo;
+   2. mostra quantos leads estão FORA de qualquer medição de SLA. Sem isso,
+      "3 vencidos" parece ótimo numa base em que 300 não têm prazo configurado;
+   3. separa o funil de conversão do avanço operacional, em dois blocos com
+      títulos diferentes — porque são duas perguntas, e juntá-las num gráfico
+      só é o que faz etapa administrativa virar métrica falsa de venda. */
+function PainelGestao({acoes,session,isMobile,abrirConversa}){
+  const [f,setF]=usarEscolha("painel.filtros",{periodo:"mes"});
+  const [d,setD]=useState(null);
+  const [op,setOp]=useState(null);
+  const [funil,setFunil]=useState(null);
+  const [camp,setCamp]=useState(null);
+  const [equipe,setEquipe]=useState(null);
+  const [erro,setErro]=useState("");
+  const [aba,setAba]=usarEscolha("painel.aba","visao");
+
+  useEffect(()=>{acoes.painelOpcoes().then(setOp).catch(e=>setErro(e.message));},[]);
+  useEffect(()=>{
+    let vivo=true;
+    setErro("");
+    acoes.painel(f).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    acoes.painelEquipe(f).then(r=>vivo&&setEquipe(r.equipe)).catch(()=>{});
+    acoes.painelCampanhas(f).then(r=>vivo&&setCamp(r)).catch(()=>{});
+    const pipe=f.pipeline_id||(op&&op.pipelines[0]&&op.pipelines[0].id);
+    if(pipe) acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil(r)).catch(()=>{});
+    return()=>{vivo=false;};
+  },[JSON.stringify(f),op&&op.pipelines.length]);
+
+  const set=(k,v)=>setF(a=>({...a,[k]:v||undefined}));
+  const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
+    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+
+  const Metric=({rot,v,sub,cor})=><div style={{background:C.card,border:`1px solid ${C.line}`,
+    borderRadius:13,padding:isMobile?"11px 12px":"13px 15px",flex:"1 1 130px",minWidth:0}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>{rot}</div>
+    <div style={{color:cor||C.ink,fontFamily:MONO,fontSize:isMobile?20:23,fontWeight:700,lineHeight:1,
+      overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
+    {sub&&<div style={{color:C.faint,fontSize:10,marginTop:4,lineHeight:1.35}}>{sub}</div>}
+  </div>;
+
+  /* "Não disponível" e zero são coisas diferentes, e a tela precisa manter a
+     diferença: a primeira é uma lacuna de medição, a segunda é um fato. */
+  const num=(v,suf="")=>v===null||v===undefined?"—":`${v}${suf}`;
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?12:18}}>
+    <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* ===== FILTROS ===== */}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+        <select value={f.periodo||"mes"} onChange={e=>set("periodo",e.target.value)}
+          style={{...entrada,fontWeight:700,color:C.greenDeep,background:C.greenSoft,border:`1px solid ${C.green}55`}}>
+          {(op?op.periodos:[{id:"mes",rotulo:"Este mês"}]).map(p=><option key={p.id} value={p.id}>{p.rotulo}</option>)}
+        </select>
+        {f.periodo==="custom"&&<React.Fragment>
+          <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={entrada}/>
+          <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={entrada}/>
+        </React.Fragment>}
+        {op&&op.pipelines.length>1&&<select value={f.pipeline_id||""} onChange={e=>set("pipeline_id",e.target.value)} style={entrada}>
+          <option value="">Todos os funis</option>
+          {op.pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>}
+        {op&&<select value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)} style={entrada}>
+          <option value="">Toda a equipe</option>
+          <option value="fila">Na fila, sem dono</option>
+          {op.pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>}
+        {op&&op.campanhas.length>0&&<select value={f.campanha||""} onChange={e=>set("campanha",e.target.value)} style={entrada}>
+          <option value="">Todas as campanhas</option>
+          {op.campanhas.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>}
+        {Object.keys(f).filter(k=>k!=="periodo"&&f[k]).length>0&&
+          <button onClick={()=>setF({periodo:f.periodo})}
+            style={{...entrada,color:C.hot,border:`1px solid ${C.hot}44`,fontWeight:600}}>Limpar filtros</button>}
+      </div>
+
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{erro}</div>}
+      {!d&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+
+      {d&&<React.Fragment>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          {[["visao","Visão geral"],["funil","Funil"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
+            <button key={k} onClick={()=>setAba(k)}
+              style={{fontSize:12,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
+                background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+        </div>
+
+        {aba==="visao"&&<React.Fragment>
+          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+            <Metric rot="Leads recebidos" v={d.atendimento.recebidos} sub={`${d.atendimento.na_fila} na fila`}/>
+            <Metric rot="1ª resposta (mediana)" v={num(d.atendimento.primeira_resposta_mediana_min," min")}
+              sub={d.atendimento.primeira_resposta_mediana_min===null?"ninguém respondeu ainda":"do responsável, não da atendente"}/>
+            <Metric rot="Taxa de 1ª resposta" v={num(d.atendimento.taxa_primeira_resposta,"%")}/>
+            <Metric rot="O cliente respondeu" v={num(d.atendimento.taxa_resposta_cliente,"%")}/>
+            <Metric rot="Vendas" v={d.vendas.quantidade} sub={d.vendas.vgv?fmtMoeda(d.vendas.vgv):null}/>
+          </div>
+
+          {/* ===== ABANDONO ===== */}
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Quem está esperando</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+              O prazo conta a partir da última interação, e não da entrada na etapa: lead que
+              entrou ontem e conversou agora está saudável; lead que entrou hoje e ninguém tocou não está.
+            </div>
+            <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+              <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
+              <Metric rot="Perto de vencer" v={d.sla.em_aviso} cor={d.sla.em_aviso?C.amber:C.ink}/>
+              <Metric rot="Nunca tiveram interação" v={d.sla.sem_interacao}/>
+              <Metric rot="Sem prazo configurado" v={d.sla.sem_sla_configurado}
+                sub={d.sla.sem_sla_configurado?"não entram na conta acima":null}/>
+            </div>
+            {/* A honestidade que faz o número acima significar alguma coisa. */}
+            {d.sla.sem_sla_configurado>0&&<div style={{marginTop:11,background:C.amberSoft,color:"#8a6d1f",
+              fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px"}}>
+              <b>{d.sla.sem_sla_configurado} de {d.sla.total_em_aberto} leads</b> estão em etapas sem prazo
+              configurado — eles não são contados como atrasados porque ninguém mandou medi-los.
+              O prazo se define em Configurações → Funis e etapas.
+            </div>}
+          </div>
+        </React.Fragment>}
+
+        {/* ===== FUNIL: CONVERSAO x OPERACIONAL ===== */}
+        {aba==="funil"&&funil&&<React.Fragment>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de conversão</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+              Só as etapas marcadas como degrau comercial. <b>Sobre a entrada</b> é quantos dos que chegaram
+              alcançaram a etapa; <b>sequencial</b> é quantos passaram da etapa anterior — é essa que mostra onde trava.
+              O <span style={{color:C.amber,fontWeight:700}}>+N</span> em âmbar são os que chegaram
+              sem passar pela etapa anterior: lead importado direto, ou etapa pulada pela equipe.
+            </div>
+            {funil.sem_degraus
+              ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.55,borderRadius:10,padding:"11px 13px"}}>
+                Nenhuma etapa deste funil está marcada como conversão, então não há funil comercial para desenhar.
+                Marque os degraus em Configurações → Funis e etapas.
+              </div>
+              :<div style={{display:"flex",flexDirection:"column",gap:7}}>
+                <div style={{color:C.sub,fontSize:11.5,marginBottom:2}}>{funil.entraram} lead(s) entraram no período</div>
+                {funil.conversao.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:9}}>
+                  <span style={{color:C.ink,fontSize:11.5,fontWeight:600,width:isMobile?90:150,flexShrink:0,
+                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                  <div style={{flex:1,height:12,borderRadius:999,background:C.surface,overflow:"hidden",minWidth:40}}>
+                    <div style={{width:Math.max(c.taxa_sobre_entrada,c.alcancaram?3:0)+"%",height:"100%",
+                      borderRadius:999,background:c.color||C.green}}/></div>
+                  <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700,width:38,textAlign:"right"}}>{c.alcancaram}</span>
+                  <span style={{color:C.faint,fontSize:10.5,width:isMobile?44:112,textAlign:"right"}}
+                    title={c.entraram_por_fora?`${c.entraram_por_fora} chegaram aqui sem passar pela etapa anterior — lead importado direto, ou etapa pulada.`:undefined}>
+                    {c.taxa_sobre_entrada}%{!isMobile&&` \u00b7 seq ${c.taxa_sequencial}%`}
+                    {/* Quem apareceu sem passar pelo degrau anterior. Sem esta
+                        marca, a diferenca entre "5 alcancaram" e "seq 0%" fica
+                        inexplicavel e parece defeito. */}
+                    {c.entraram_por_fora>0&&<span style={{color:C.amber,fontWeight:700}}> +{c.entraram_por_fora}</span>}
+                  </span>
+                </div>)}
+              </div>}
+          </div>
+
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Avanço operacional</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+              Todas as etapas, incluindo as administrativas. Não é conversão: é onde o trabalho está parado agora.
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:420}}>
+                <thead><tr style={{color:C.faint,textAlign:"left"}}>
+                  <th style={{padding:"6px 8px",fontWeight:600}}>Etapa</th>
+                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Agora</th>
+                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Tempo mediano</th>
+                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Atrasados</th>
+                </tr></thead>
+                <tbody>{funil.operacional.map(o=><tr key={o.id} style={{borderTop:`1px solid ${C.line}`}}>
+                  <td style={{padding:"7px 8px",color:C.ink}}>
+                    <span style={{background:o.color||"#64748B",width:7,height:7,borderRadius:"50%",
+                      display:"inline-block",marginRight:6}}/>{o.name}
+                    {o.counts_as_conversion&&<span style={{color:C.greenMid,fontSize:9.5,marginLeft:5}}>conversão</span>}
+                  </td>
+                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{o.leads_agora}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>
+                    {o.tempo_mediano_dias===null?"—":`${o.tempo_mediano_dias}d`}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:o.sla_vencidos?C.hot:C.faint,fontWeight:o.sla_vencidos?700:400}}>
+                    {o.sla_minutes?o.sla_vencidos:"sem prazo"}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+        </React.Fragment>}
+
+        {/* ===== EQUIPE ===== */}
+        {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Equipe</div>
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+            "Esperando" é a última mensagem da conversa ser do cliente — a mesma definição do aviso que o corretor recebe.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {equipe.map(p=><div key={p.id} style={{background:C.surface,border:`1px solid ${C.line}`,
+              borderRadius:11,padding:"10px 12px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
+                <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{p.nome}</span>
+                <span style={{color:C.faint,fontSize:10.5}}>{p.papel}</span>
+                {p.sla_vencidos>0&&<span style={{background:C.hotSoft,color:C.hot,fontSize:10,fontWeight:700,
+                  padding:"2px 8px",borderRadius:999}}>{p.sla_vencidos} atrasado(s)</span>}
+                {p.aguardando_resposta>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:10,fontWeight:700,
+                  padding:"2px 8px",borderRadius:999}}>{p.aguardando_resposta} esperando</span>}
+              </div>
+              <div style={{display:"flex",gap:isMobile?11:18,flexWrap:"wrap"}}>
+                {[["Na mão",p.leads_na_mao],["Recebidos",p.recebidos_no_periodo],["Mensagens",p.mensagens],
+                  ["Ligações",p.ligacoes],["Tarefas feitas",p.tarefas_concluidas]].map(([t,v])=>
+                  <div key={t}><div style={{fontFamily:MONO,color:C.ink,fontSize:15,fontWeight:700,lineHeight:1}}>{v}</div>
+                    <div style={{color:C.faint,fontSize:9.5,marginTop:2}}>{t}</div></div>)}
+              </div>
+            </div>)}
+          </div>
+        </div>}
+
+        {/* ===== CAMPANHAS ===== */}
+        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Campanhas e origem</div>
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:11}}>
+            O que liga o dinheiro de marketing ao resultado do atendimento.
+          </div>
+          {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
+              operação inteira. */}
+          {camp.cobertura.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,
+            borderRadius:10,padding:"10px 12px",marginBottom:11}}>
+            <b>{camp.cobertura.com_campanha} de {camp.cobertura.total} leads</b> ({camp.cobertura.pct}%) têm campanha
+            gravada. {camp.cobertura.aviso}
+          </div>}
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
+              <thead><tr style={{color:C.faint,textAlign:"left"}}>
+                {["Campanha","Leads","Qualif.","%","1ª resp.","Respondeu","Vendas"].map(h=>
+                  <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{camp.campanhas.map(c=><tr key={c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
+                <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}
+                  {c.platform&&<span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{c.platform}</span>}</td>
+                <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{c.leads}</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.qualificados}</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.taxa_qualificacao}%</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>
+                  {c.primeira_resposta_mediana_min===null?"—":`${c.primeira_resposta_mediana_min}min`}</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.taxa_resposta_cliente}%</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:c.vendas?C.greenDeep:C.faint,fontWeight:c.vendas?700:400}}>
+                  {c.vendas}{c.vgv?` · ${fmtMoeda(c.vgv)}`:""}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </div>}
+      </React.Fragment>}
+    </div>
+  </div>;
+}
+
+
+function FunisConfig({acoes,session,isMobile}){
+  const [d,setD]=useState(null);
+  const [sel,setSel]=useState("");
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const [criando,setCriando]=useState(false);
+  const [novoNome,setNovoNome]=useState("");
+  const [template,setTemplate]=useState("");
+  const [editando,setEditando]=useState(null);
+  const [campos,setCampos]=useState([]);
+
+  const rever=()=>acoes.pipelinesTodos().then(r=>{
+    setD(r);
+    setSel(a=>a&&r.pipelines.find(p=>p.id===a)?a:(r.padrao||(r.pipelines[0]&&r.pipelines[0].id)||""));
+  }).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{});},[]);
+  if(!d) return <div style={{color:C.faint,fontSize:13}}>Carregando…</div>;
+
+  const pipe=d.pipelines.find(p=>p.id===sel)||d.pipelines[0];
+  const roda=(nome,fn)=>async()=>{ setErro("");setOcupado(nome);
+    try{ await fn(); await rever(); }catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
+
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16};
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+  const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
+
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+      Cada funil é um fluxo de trabalho da sua operação — pré-atendimento, venda,
+      locação, recaptação. Você monta as etapas, o prazo de cada uma e o que precisa
+      estar preenchido para o lead avançar.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",lineHeight:1.45}}>{erro}</div>}
+
+    {/* Os funis, em pastilhas. Quem tem um só vê um; quem tem cinco troca aqui. */}
+    <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+      {d.pipelines.map(p=><button key={p.id} onClick={()=>setSel(p.id)}
+        style={{fontSize:12,fontWeight:600,padding:"7px 13px",borderRadius:999,cursor:"pointer",
+          border:`1px solid ${sel===p.id?C.green:C.line}`,
+          background:sel===p.id?C.greenSoft:C.card,color:sel===p.id?C.greenDeep:C.sub,
+          opacity:p.is_active?1:.5,display:"flex",alignItems:"center",gap:5}}>
+        {p.name}
+        {p.is_default&&<span style={{fontSize:9,fontWeight:700,color:C.greenMid}}>PADRÃO</span>}
+        {!p.is_active&&<span style={{fontSize:9,color:C.faint}}>desligado</span>}
+      </button>)}
+      <button onClick={()=>setCriando(a=>!a)}
+        style={{fontSize:12,fontWeight:600,padding:"7px 13px",borderRadius:999,cursor:"pointer",
+          border:`1px dashed ${C.line}`,background:"transparent",color:C.sub}}>+ Novo funil</button>
+    </div>
+
+    {criando&&<div style={{...caixa,display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Criar um funil</div>
+      {/* O template vem primeiro porque é o caminho que quase todo mundo quer:
+          funil vazio obriga a inventar as etapas antes de ver o produto
+          funcionando, e é aí que a pessoa desiste. */}
+      <div>{rot("Começar de um modelo pronto")}
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {d.templates.map(t=><button key={t.id} onClick={()=>setTemplate(template===t.id?"":t.id)}
+            style={{textAlign:"left",cursor:"pointer",borderRadius:11,padding:"10px 12px",
+              border:`${template===t.id?2:1}px solid ${template===t.id?C.green:C.line}`,
+              background:template===t.id?C.greenSoft:C.surface}}>
+            <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{t.nome}</div>
+            <div style={{color:C.sub,fontSize:11,marginTop:2,lineHeight:1.45}}>{t.descricao}</div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:4,lineHeight:1.45}}>{t.etapas.join(" → ")}</div>
+          </button>)}
+          <button onClick={()=>setTemplate("")}
+            style={{textAlign:"left",cursor:"pointer",borderRadius:11,padding:"10px 12px",
+              border:`${!template?2:1}px solid ${!template?C.green:C.line}`,
+              background:!template?C.greenSoft:C.surface,color:C.sub,fontSize:12}}>
+            Começar do zero, sem etapas</button>
+        </div>
+      </div>
+      <div>{rot("Nome do funil")}
+        <input value={novoNome} onChange={e=>setNovoNome(e.target.value)}
+          placeholder={template?d.templates.find(t=>t.id===template)?.nome:"ex.: Locação"} style={entrada}/></div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={roda("criar",async()=>{
+            await acoes.criarPipeline({template:template||undefined,name:novoNome.trim()||undefined});
+            setCriando(false);setNovoNome("");setTemplate("");})}
+          disabled={!!ocupado||(!template&&!novoNome.trim())}
+          style={{flex:1,background:(!template&&!novoNome.trim())?C.faint:C.green,color:"#fff",border:"none",
+            borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          {ocupado==="criar"?"Criando…":"Criar funil"}</button>
+        <button onClick={()=>{setCriando(false);setTemplate("");}}
+          style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+            padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
+
+    {pipe&&<div style={{...caixa,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+        <input value={pipe.name} onChange={e=>{
+            const v=e.target.value;
+            setD(x=>({...x,pipelines:x.pipelines.map(p=>p.id===pipe.id?{...p,name:v}:p)}));}}
+          onBlur={e=>acoes.editarPipeline(pipe.id,{name:e.target.value}).then(rever).catch(x=>setErro(x.message))}
+          style={{...entrada,flex:1,minWidth:150,fontWeight:700,fontSize:isMobile?16:14}}/>
+        {!pipe.is_default&&<button onClick={roda("padrao",()=>acoes.editarPipeline(pipe.id,{is_default:true}))}
+          title="Lead novo passa a cair neste funil"
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
+            padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Tornar padrão</button>}
+        <button onClick={roda("dup",()=>acoes.duplicarPipeline(pipe.id))}
+          title="Copiar este funil para experimentar sem mexer no que a equipe usa"
+          style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+            padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Duplicar</button>
+        <button onClick={roda("ativo",()=>acoes.editarPipeline(pipe.id,{is_active:!pipe.is_active}))}
+          style={{background:C.surface,color:pipe.is_active?C.hot:C.greenDeep,
+            border:`1px solid ${pipe.is_active?C.hot+"44":C.green+"55"}`,borderRadius:9,
+            padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          {pipe.is_active?"Desligar":"Religar"}</button>
+      </div>
+
+      {/* AS ETAPAS. A ordem na tela é a ordem no kanban. */}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {(pipe.stages||[]).map((e,i)=><EtapaLinha key={e.id} etapa={e} indice={i}
+          total={(pipe.stages||[]).length} campos={campos} isMobile={isMobile}
+          aberta={editando===e.id} aoAbrir={()=>setEditando(editando===e.id?null:e.id)}
+          acoes={acoes} aoMudar={rever} aoErro={setErro}
+          aoMover={(dir)=>{
+            const ids=(pipe.stages||[]).map(x=>x.id);
+            const j=i+dir; if(j<0||j>=ids.length) return;
+            [ids[i],ids[j]]=[ids[j],ids[i]];
+            acoes.ordenarEtapas(pipe.id,ids).then(rever).catch(x=>setErro(x.message));
+          }}/>)}
+      </div>
+
+      <button onClick={roda("etapa",()=>acoes.criarEtapa(pipe.id,{name:"Nova etapa"}))}
+        style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:10,padding:"10px",
+          fontSize:12.5,fontWeight:600,color:C.sub,cursor:"pointer"}}>+ Adicionar etapa</button>
+    </div>}
+
+    <CamposConfig acoes={acoes} campos={campos} isMobile={isMobile}
+      aoMudar={()=>acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{})}/>
+  </div>;
+}
+
+/* Uma etapa na lista de configuração. Fechada mostra o essencial; aberta, tudo
+   que dá para configurar nela. Tudo à mostra de uma vez faria uma parede de
+   dez formulários iguais. */
+function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover}){
+  const [f,setF]=useState(etapa);
+  const [confirmar,setConfirmar]=useState(false);
+  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active]);
+
+  const salvar=(mudanca)=>acoes.editarEtapa(etapa.id,mudanca).then(aoMudar).catch(e=>aoErro(e.message));
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:8,padding:"8px 10px",color:C.ink,outline:"none"};
+  const rot=(t,ajuda)=><div style={{marginBottom:3}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{t}</div>
+    {ajuda&&<div style={{color:C.faint,fontSize:10,lineHeight:1.4,marginTop:1}}>{ajuda}</div>}</div>;
+
+  return <div style={{border:`1px solid ${aberta?C.green+"55":C.line}`,borderRadius:11,
+    background:aberta?C.greenSoft+"55":C.surface,opacity:etapa.is_active?1:.55}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px"}}>
+      <span style={{background:etapa.color||"#64748B",width:9,height:9,borderRadius:"50%",flexShrink:0}}/>
+      <button onClick={aoAbrir} style={{flex:1,textAlign:"left",background:"transparent",border:"none",
+        cursor:"pointer",padding:0,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {etapa.name}</div>
+        <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
+          {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
+          {etapa.counts_as_conversion?" · conta como conversão":""}
+          {etapa.required_fields&&etapa.required_fields.length?` · exige ${etapa.required_fields.length} campo(s)`:""}
+          {etapa.status_type&&etapa.status_type!=="aberto"?` · ${etapa.status_type}`:""}
+          {!etapa.is_active?" · desativada":""}
+        </div>
+      </button>
+      <div style={{display:"flex",gap:2,flexShrink:0}}>
+        <button onClick={()=>aoMover(-1)} disabled={indice===0} title="Subir"
+          style={{background:"transparent",border:"none",color:indice===0?C.line:C.sub,cursor:"pointer",padding:3}}>▲</button>
+        <button onClick={()=>aoMover(1)} disabled={indice===total-1} title="Descer"
+          style={{background:"transparent",border:"none",color:indice===total-1?C.line:C.sub,cursor:"pointer",padding:3}}>▼</button>
+      </div>
+    </div>
+
+    {aberta&&<div style={{padding:"0 11px 11px",display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 160px"}}>{rot("Nome")}
+          <input value={f.name} onChange={e=>setF({...f,name:e.target.value})}
+            onBlur={e=>e.target.value!==etapa.name&&salvar({name:e.target.value})} style={entrada}/></div>
+        <div style={{flex:"0 0 92px"}}>{rot("Cor")}
+          <input type="color" value={f.color||"#64748B"} onChange={e=>setF({...f,color:e.target.value})}
+            onBlur={e=>salvar({color:e.target.value})}
+            style={{...entrada,padding:2,height:36,cursor:"pointer"}}/></div>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 130px"}}>
+          {rot("Prazo sem interação","Em minutos. Vazio = esta etapa não é medida.")}
+          <input value={f.sla_minutes??""} onChange={e=>setF({...f,sla_minutes:e.target.value})}
+            onBlur={e=>salvar({sla_minutes:e.target.value===""?null:Number(e.target.value)})}
+            inputMode="numeric" placeholder="ex.: 60" style={entrada}/></div>
+        <div style={{flex:"1 1 130px"}}>
+          {rot("Avisar antes","Minutos antes de vencer.")}
+          <input value={f.warning_before_minutes??""} onChange={e=>setF({...f,warning_before_minutes:e.target.value})}
+            onBlur={e=>salvar({warning_before_minutes:e.target.value===""?null:Number(e.target.value)})}
+            inputMode="numeric" placeholder="ex.: 15" style={entrada}/></div>
+        <div style={{flex:"1 1 130px"}}>
+          {rot("Tipo de desfecho","Ganho e perdido fecham o atendimento.")}
+          <select value={f.status_type||"aberto"} onChange={e=>salvar({status_type:e.target.value})} style={entrada}>
+            <option value="aberto">Em andamento</option>
+            <option value="ganho">Ganho</option>
+            <option value="perdido">Perdido</option>
+          </select></div>
+      </div>
+
+      {/* A separação entre conversão e trabalho administrativo, decidida aqui e
+          não na hora de desenhar o gráfico. */}
+      <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+        <input type="checkbox" checked={!!f.counts_as_conversion}
+          onChange={e=>{setF({...f,counts_as_conversion:e.target.checked});salvar({counts_as_conversion:e.target.checked});}}
+          style={{marginTop:2,width:16,height:16,accentColor:C.green,cursor:"pointer"}}/>
+        <span style={{fontSize:11.5,color:C.sub,lineHeight:1.5}}>
+          <b style={{color:C.ink}}>Conta como conversão.</b> Marque só os degraus comerciais.
+          Etapa administrativa — documentação, análise — é trabalho necessário que não é avanço
+          de venda, e contá-la faz o relatório dizer que a operação converteu quando ela só juntou papel.
+        </span>
+      </label>
+
+      {campos.length>0&&<div>
+        {rot("Campos obrigatórios para ENTRAR nesta etapa","Sem eles, o lead não avança — e a tela diz o que falta.")}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[...campos.map(c=>({k:c.key,t:c.name})),
+            {k:"telefone",t:"Telefone"},{k:"temperatura",t:"Temperatura"},
+            {k:"responsavel",t:"Responsável"},{k:"produto",t:"Imóvel de interesse"}].map(({k,t})=>{
+            const on=(f.required_fields||[]).includes(k);
+            return <button key={k} onClick={()=>{
+                const lista=on?(f.required_fields||[]).filter(x=>x!==k):[...(f.required_fields||[]),k];
+                setF({...f,required_fields:lista});salvar({required_fields:lista});}}
+              style={{fontSize:11,fontWeight:600,padding:"6px 11px",borderRadius:999,cursor:"pointer",
+                border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+                color:on?C.greenDeep:C.sub}}>{t}</button>;})}
+        </div>
+      </div>}
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+        <button onClick={()=>salvar({is_active:!etapa.is_active})}
+          style={{background:C.card,color:etapa.is_active?C.hot:C.greenDeep,
+            border:`1px solid ${etapa.is_active?C.hot+"44":C.green+"55"}`,borderRadius:9,
+            padding:"8px 13px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          {etapa.is_active?"Desativar etapa":"Reativar etapa"}</button>
+        <button onClick={()=>setConfirmar(true)}
+          style={{background:"transparent",color:C.hot,border:"none",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          Apagar</button>
+      </div>
+
+      {/* DESATIVAR x APAGAR, dito na hora em que a diferença importa. */}
+      {confirmar&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:11}}>
+        <div style={{color:C.hot,fontSize:12,fontWeight:700,marginBottom:4}}>Apagar "{etapa.name}"?</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:9}}>
+          Só dá para apagar etapa vazia. Se houver lead dentro, o caminho é <b>desativar</b>:
+          ela sai do fluxo e do kanban, e os leads continuam onde estão até alguém movê-los.
+        </div>
+        <div style={{display:"flex",gap:7}}>
+          <button onClick={()=>acoes.apagarEtapa(etapa.id).then(()=>{setConfirmar(false);aoMudar();})
+              .catch(e=>{aoErro(e.message);setConfirmar(false);})}
+            style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",
+              fontSize:12,fontWeight:700,cursor:"pointer"}}>Apagar</button>
+          <button onClick={()=>setConfirmar(false)}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+              padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
+    </div>}
+  </div>;
+}
+
+/* Campos personalizados: o que a empresa quer saber de cada lead, além do que
+   o CRM já pergunta. É o que tira a operação de "cabe na observação". */
+function CamposConfig({acoes,campos,isMobile,aoMudar}){
+  const [abrindo,setAbrindo]=useState(false);
+  const [novo,setNovo]=useState({name:"",type:"text",options:""});
+  const [erro,setErro]=useState("");
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+  const TIPOS=[["text","Texto"],["number","Número"],["currency","Valor em R$"],["select","Escolha única"],
+    ["multiselect","Escolha múltipla"],["date","Data"],["boolean","Sim/Não"],["phone","Telefone"],["email","E-mail"]];
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Campos do lead</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
+      O que a sua operação precisa saber de cada atendimento. Depois de criado, o campo
+      pode ser exigido em qualquer etapa — é assim que o funil para de andar com lead pela metade.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:11}}>
+      {campos.length===0&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum campo criado ainda.</div>}
+      {campos.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,
+        border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{c.name}</div>
+          <div style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{c.key} · {(TIPOS.find(t=>t[0]===c.type)||[])[1]||c.type}</div>
+        </div>
+        {/* Onde o campo aparece é escolha da empresa: o que serve no card do
+            funil não é o que serve na ficha. */}
+        <button onClick={()=>acoes.editarCampo(c.id,{show_on_card:!c.show_on_card}).then(aoMudar).catch(e=>setErro(e.message))}
+          title="Mostrar no card do funil"
+          style={{fontSize:10.5,fontWeight:600,padding:"5px 9px",borderRadius:999,cursor:"pointer",
+            border:`1px solid ${c.show_on_card?C.green:C.line}`,
+            background:c.show_on_card?C.greenSoft:C.card,color:c.show_on_card?C.greenDeep:C.faint}}>no card</button>
+        <button onClick={()=>acoes.apagarCampo(c.id).then(aoMudar).catch(e=>setErro(e.message))}
+          title="Desativar. Os valores já preenchidos continuam guardados."
+          style={{background:"transparent",border:"none",color:C.hot,cursor:"pointer",padding:3,display:"flex"}}>
+          <Icon n="trash" size={14}/></button>
+      </div>)}
+    </div>
+
+    {abrindo
+      ?<div style={{display:"flex",flexDirection:"column",gap:9}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 160px"}}>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Nome do campo</div>
+            <input value={novo.name} onChange={e=>setNovo({...novo,name:e.target.value})}
+              placeholder="ex.: Orçamento máximo" style={entrada}/></div>
+          <div style={{flex:"1 1 140px"}}>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Tipo</div>
+            <select value={novo.type} onChange={e=>setNovo({...novo,type:e.target.value})} style={entrada}>
+              {TIPOS.map(([v,t])=><option key={v} value={v}>{t}</option>)}
+            </select></div>
+        </div>
+        {(novo.type==="select"||novo.type==="multiselect")&&<div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Opções, separadas por vírgula</div>
+          <input value={novo.options} onChange={e=>setNovo({...novo,options:e.target.value})}
+            placeholder="Casa, Apartamento, Terreno" style={entrada}/></div>}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>acoes.criarCampo({name:novo.name.trim(),type:novo.type,
+              options:novo.options?novo.options.split(",").map(o=>o.trim()).filter(Boolean):[]})
+              .then(()=>{setNovo({name:"",type:"text",options:""});setAbrindo(false);aoMudar();})
+              .catch(e=>setErro(e.message))}
+            disabled={!novo.name.trim()}
+            style={{flex:1,background:novo.name.trim()?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,
+              padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Criar campo</button>
+          <button onClick={()=>setAbrindo(false)}
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+              padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>
+      :<button onClick={()=>setAbrindo(true)}
+        style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:10,padding:"10px",
+          fontSize:12.5,fontWeight:600,color:C.sub,cursor:"pointer",width:"100%"}}>+ Criar campo</button>}
+  </div>;
+}
+
 
 function MensagensAutomaticas({acoes,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);

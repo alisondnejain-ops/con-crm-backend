@@ -263,22 +263,38 @@ export function funil(orgId, pipelineId, filtros = {}) {
     .all(...p.args, periodo.de, periodo.ate);
   const emAberto = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql}`).all(...p.args);
 
-  /* "Alcançou a etapa X" sai do HISTORICO, e não de onde o lead está agora.
-     Sem isso, um lead que passou por Visita e hoje está em Venda não contaria
-     como visita — e o funil mostraria menos visitas do que aconteceram. */
+  /* QUEM alcançou cada etapa — o CONJUNTO de leads, não a contagem.
+
+     A contagem sozinha produzia um número impossível: "conversão sequencial de
+     300%". Ela saía de dividir a contagem de uma etapa pela da anterior, e as
+     duas eram medidas de forma independente — nada garantia que quem chegou na
+     segunda tivesse passado pela primeira. Numa base real isso é comum: lead
+     importado já em "Proposta", lead que a equipe pula direto para "Visita".
+
+     Taxa acima de 100% não é um arredondamento feio: é um número que ninguém
+     reconhece, e um só deles faz o gestor parar de confiar na tela inteira.
+
+     Com os conjuntos, a taxa sequencial passa a ser o que a frase promete —
+     "dos que chegaram na etapa anterior, quantos também chegaram nesta" — e
+     não pode passar de 100% porque é uma interseção.
+
+     Vem do HISTÓRICO e não de onde o lead está agora: quem passou por Visita e
+     hoje está em Venda continua tendo alcançado a Visita. */
   const ids = doPeriodo.map(l => l.id);
-  const alcancou = new Map();
+  const quemAlcancou = new Map();
   if (ids.length) {
     const marcadores = "?,".repeat(ids.length).slice(0, -1);
     for (const e of etapas) {
-      const { n } = db.prepare(
-        `SELECT COUNT(DISTINCT lead_id) n FROM lead_etapas WHERE para = ? AND lead_id IN (${marcadores})`)
-        .get(e.name, ...ids);
-      // Quem está na etapa agora e nunca teve linha no histórico (base anterior
-      // ao histórico, de 13/08/2026) também alcançou.
-      const parados = doPeriodo.filter(l => l.stage === e.name && !l.stage_entered_at).length;
-      alcancou.set(e.id, Math.max(n, doPeriodo.filter(l => l.stage === e.name).length, parados));
+      const doHistorico = db.prepare(
+        `SELECT DISTINCT lead_id FROM lead_etapas WHERE para = ? AND lead_id IN (${marcadores})`)
+        .all(e.name, ...ids).map(r => r.lead_id);
+      // Mais quem está na etapa AGORA: a base anterior a 13/08/2026 não tem
+      // histórico, e sem isto ela apareceria como se nunca tivesse chegado.
+      const agoraAqui = doPeriodo.filter(l => l.stage === e.name).map(l => l.id);
+      quemAlcancou.set(e.id, new Set([...doHistorico, ...agoraAqui]));
     }
+  } else {
+    for (const e of etapas) quemAlcancou.set(e.id, new Set());
   }
 
   const agora = Date.now();
@@ -300,17 +316,26 @@ export function funil(orgId, pipelineId, filtros = {}) {
   });
 
   const degraus = etapas.filter(e => e.counts_as_conversion);
-  let anterior = doPeriodo.length;
+  let anteriores = new Set(ids);   // o degrau zero é a entrada
   const conversao = degraus.map(e => {
-    const n = alcancou.get(e.id) || 0;
+    const aqui = quemAlcancou.get(e.id) || new Set();
+    // A interseção: destes, quantos vieram do degrau anterior.
+    let vindos = 0;
+    for (const id of aqui) if (anteriores.has(id)) vindos++;
     const linha = {
       id: e.id, name: e.name, color: e.color,
-      alcancaram: n,
-      taxa_sobre_entrada: pct(n, doPeriodo.length),
-      // Sequencial: do degrau anterior para este. É o que mostra onde trava.
-      taxa_sequencial: pct(n, anterior),
+      alcancaram: aqui.size,
+      taxa_sobre_entrada: pct(aqui.size, doPeriodo.length),
+      /* Sequencial: dos que chegaram no degrau anterior, quantos também
+         chegaram neste. É o que mostra ONDE trava — e não pode passar de 100%. */
+      taxa_sequencial: pct(vindos, anteriores.size),
+      /* Quem apareceu aqui sem ter passado pelo degrau anterior. Não é erro:
+         é lead importado direto, ou etapa pulada pela equipe. Dito por escrito
+         porque a diferença entre `alcancaram` e a taxa sequencial ficaria
+         inexplicável sem ele. */
+      entraram_por_fora: aqui.size - vindos,
     };
-    anterior = n;
+    anteriores = aqui;
     return linha;
   });
 

@@ -94,7 +94,13 @@ r.get("/", (req, res) => {
     // null quando o lead nunca mudou de etapa desde que o histórico existe. A
     // tela mostra "—": inventar a data de criação seria dizer que ele está ali
     // desde que entrou, o que muitas vezes é falso.
-    etapa_desde: desde.get(l.id) || null,
+    /* `stage_entered_at` primeiro, o histórico como reserva.
+
+       A coluna é preenchida por `moverEtapa` e pela migração, então responde
+       para TODO lead; o histórico só tem linha para quem se mexeu depois de
+       13/08/2026. Na ordem inversa, a base inteira mostrava "nesta etapa há —"
+       mesmo com a data disponível ao lado. */
+    etapa_desde: l.stage_entered_at || desde.get(l.id) || null,
     tarefas: tarefas.get(l.id) || null,
   })));
 });
