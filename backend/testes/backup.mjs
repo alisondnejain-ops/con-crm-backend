@@ -236,5 +236,60 @@ const estranho = semR2.emPortugues(new Error("coisa nova que ninguém previu"));
 console.log(`   ${estranho}`);
 assert.equal(estranho, "coisa nova que ninguém previu");
 
+/* ===== AS VARIÁVEIS DO R2 =====
+
+   "O R2 não reconheceu a chave" é a pior mensagem que este cartão pode dar: ela
+   é verdade e não diz onde procurar. As duas credenciais do S3 do R2 têm forma
+   fixa (32 e 64 caracteres hexadecimais), então dá para pegar os dois erros de
+   colar ANTES de a Cloudflare recusar — e dizer qual campo está torto. */
+console.log("\n16. As duas chaves do R2 são conferidas pelo formato");
+const comEnv = async (vars, tag) => {
+  const antes = {};
+  for (const [k, v] of Object.entries(vars)) { antes[k] = process.env[k]; process.env[k] = v; }
+  const mod = await import(`../src/services/storage.js?caso=${tag}`);
+  const r1 = mod.conferirR2();
+  for (const [k, v] of Object.entries(antes)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  return r1;
+};
+const BASE_OK = {
+  R2_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+  R2_BUCKET: "conhub", R2_PUBLIC_URL: "https://pub-x.r2.dev",
+  R2_ACCESS_KEY_ID: "0123456789abcdef0123456789abcdef",
+  R2_SECRET_ACCESS_KEY: "f".repeat(64),
+};
+
+let c = await comEnv(BASE_OK, "ok");
+console.log(`   tudo no formato certo → ${c.problemas.length} problema(s)`);
+assert.equal(c.problemas.length, 0, "chave e segredo bem formados não podem virar alarme");
+assert.equal(c.tudo_certo, true);
+
+console.log("17. Token da API colado no lugar do Access Key ID");
+/* O erro nº 1 da instalação: a tela do Cloudflare mostra o token em destaque e
+   o Access Key ID discreto ao lado. */
+c = await comEnv({ ...BASE_OK, R2_ACCESS_KEY_ID: "V1abc-def_GHI1234567890123456789012345" }, "token");
+console.log(`   ${c.problemas[0]}`);
+assert.ok(/TOKEN da API/.test(c.problemas[0]));
+assert.ok(!c.tudo_certo);
+
+console.log("18. Segredo cortado ao copiar — diz quantos vieram e quantos faltam");
+c = await comEnv({ ...BASE_OK, R2_SECRET_ACCESS_KEY: "a".repeat(40) }, "curto");
+console.log(`   ${c.problemas[0]}`);
+assert.ok(/40 caracteres/.test(c.problemas[0]), "diz o tamanho que chegou");
+assert.ok(/64/.test(c.problemas[0]), "e o esperado");
+assert.ok(/crie outro token/i.test(c.problemas[0]), "e o que fazer, já que o segredo não reaparece");
+
+console.log("19. A conferência NUNCA imprime o valor das chaves");
+/* Esta é a regra que não pode cair: /integracoes é público. */
+const segredo = "9".repeat(64), chave = "8".repeat(32);
+c = await comEnv({ ...BASE_OK, R2_ACCESS_KEY_ID: chave, R2_SECRET_ACCESS_KEY: segredo }, "vazamento");
+const tudo = JSON.stringify(c);
+assert.ok(!tudo.includes(segredo), "o segredo não pode aparecer na resposta");
+assert.ok(!tudo.includes(chave), "nem a chave");
+c = await comEnv({ ...BASE_OK, R2_ACCESS_KEY_ID: "curta", R2_SECRET_ACCESS_KEY: "tambem-curta" }, "vazamento2");
+const tudo2 = JSON.stringify(c);
+assert.ok(!tudo2.includes("tambem-curta") && !tudo2.includes("curta"),
+  "nem quando o valor está errado — é justamente aí que a tentação de mostrar aparece");
+console.log("   nem quando estão certas, nem quando estão erradas");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

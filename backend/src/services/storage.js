@@ -85,6 +85,37 @@ export function conferirR2() {
     else if (!/^[0-9a-f]{32}$/i.test(R2.conta))
       problemas.push("R2_ACCOUNT_ID não tem a cara de um Account ID. " + VARS[0].ajuda);
   }
+  /* AS DUAS CHAVES TÊM FORMA FIXA, e conferi-la aqui evita a pior mensagem
+     possível: "o R2 não reconheceu a chave", que manda procurar defeito sem
+     dizer onde. As credenciais do S3 do R2 são derivadas do token:
+
+       R2_ACCESS_KEY_ID     = 32 caracteres hexadecimais (o ID do token)
+       R2_SECRET_ACCESS_KEY = 64 caracteres hexadecimais
+
+     Os dois erros que essa conferência pega, e que custam uma tarde cada:
+
+     1. colar o TOKEN da API do Cloudflare (aquele texto de ~40 caracteres com
+        hífen e sublinhado) no lugar do Access Key ID. Acontece porque a tela
+        do Cloudflare mostra os dois juntos, e o token é o que fica em destaque;
+     2. colar o segredo pela metade. Ele tem 64 caracteres e sai numa caixinha
+        que rola — selecionar com o mouse corta o fim, e o R2 recusa com a
+        mesma cara de "chave errada".
+
+     NUNCA imprime o valor: esta rota é pública. Só o tamanho e a forma. */
+  const chaveOk = (v) => /^[0-9a-f]{32}$/i.test(v);
+  if (R2.chave && !chaveOk(R2.chave)) {
+    if (/^[A-Za-z0-9_-]{35,}$/.test(R2.chave) && /[-_]/.test(R2.chave))
+      problemas.push("R2_ACCESS_KEY_ID parece ser o TOKEN da API do Cloudflare, não o Access Key ID do R2. Na tela em que o token foi criado, o Access Key ID é o campo de 32 caracteres (só números e letras de a-f).");
+    else
+      problemas.push(`R2_ACCESS_KEY_ID tem ${R2.chave.length} caracteres; o esperado são 32 (só números e letras de a-f). Copie de novo o Access Key ID, inteiro.`);
+  }
+  if (R2.segredo && !/^[0-9a-f]{64}$/i.test(R2.segredo)) {
+    if (/^[0-9a-f]+$/i.test(R2.segredo) && R2.segredo.length < 64)
+      problemas.push(`R2_SECRET_ACCESS_KEY tem ${R2.segredo.length} caracteres; o esperado são 64. Ele provavelmente foi cortado ao copiar — o campo rola, e a seleção com o mouse perde o fim. Se o token já foi fechado, o segredo não aparece mais: crie outro token.`);
+    else
+      problemas.push("R2_SECRET_ACCESS_KEY não tem a cara de um Secret Access Key do R2 (64 caracteres, só números e letras de a-f). Confira se não trocou de campo.");
+  }
+
   if (R2.publico && !/^https?:\/\//i.test(R2.publico))
     problemas.push("R2_PUBLIC_URL precisa começar com https://.");
   if (R2.bucket && /[^a-z0-9.-]/.test(R2.bucket))
