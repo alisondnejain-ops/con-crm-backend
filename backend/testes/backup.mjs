@@ -211,6 +211,15 @@ assert.ok(!/Confira R2_ACCESS_KEY_ID/.test(permissao), "não pode mandar conferi
 assert.ok(/Confira R2_ACCESS_KEY_ID/.test(chaveRuim), "chave errada, sim, manda conferir a chave");
 assert.notEqual(permissao, chaveRuim, "as duas causas não podem sair com a mesma frase");
 
+console.log("12b. \"Access Denied\" com espaço é a mesma coisa que \"AccessDenied\"");
+/* O SDK escreve com espaço na MENSAGEM e sem espaço no NOME do erro. Quando o
+   diagnóstico do armazenamento só tem a mensagem guardada, é a forma com espaço
+   que chega — e um regex que só casasse a sem espaço deixaria a tradução
+   funcionar pela metade, dependendo de onde o erro veio. */
+assert.ok(/permissão|Read & Write/i.test(semR2.emPortugues({ message: "Access Denied" }, "listar")));
+assert.ok(/permissão|Read & Write/i.test(semR2.emPortugues({ name: "AccessDenied" }, "listar")));
+console.log("   as duas formas caem na mesma frase");
+
 console.log("13. E a permissão que falta é dita pela OPERAÇÃO que foi negada");
 /* "Não deixou listar" e "não deixou gravar" levam ao mesmo lugar no painel do
    R2, mas dizem coisas diferentes sobre o estado do backup: sem listar, as

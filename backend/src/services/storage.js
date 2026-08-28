@@ -206,7 +206,9 @@ export async function salvar({ buffer, mime, prefixo = "produtos" }) {
          o problema fica visível em /integracoes em vez de virar "deu erro".
          Mesmo princípio do e-mail, do push e da IA — serviço externo fora do ar
          degrada, não derruba. */
-      ultimaFalhaR2 = { quando: Date.now(), erro: e.message };
+      // O `name` vai junto: é ele que separa "chave errada" de "sem permissão",
+      // e sem ele o diagnóstico só tem a mensagem para adivinhar.
+      ultimaFalhaR2 = { quando: Date.now(), erro: e.message, nome: e.name || null };
       console.error("[storage] R2 recusou o arquivo, gravando no disco:", e.message);
       clienteR2 = null;   // credencial pode ter mudado; força refazer na próxima
       return gravarNoDisco(chave, buffer);

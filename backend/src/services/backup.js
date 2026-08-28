@@ -162,7 +162,10 @@ export function emPortugues(e, operacao = "enviar") {
      falta de permissão de chave errada, e cair aqui por causa dele mandaria o
      gestor no caminho de permissão sem base para isso. Sem nome reconhecido, o
      403 genérico logo abaixo cita as duas causas. */
-  if (/AccessDenied/i.test(nome + m))
+  // "Access Denied" com espaço é como o SDK escreve na mensagem; "AccessDenied"
+  // sem espaço é o `name` do erro. Os dois precisam casar, senão a tradução só
+  // funciona quando o objeto de erro chega inteiro.
+  if (/Access ?Denied/i.test(nome + m))
     return operacao === "listar"
       ? "O Cloudflare R2 aceitou a chave mas não deixou LISTAR o bucket. O token foi criado sem permissão de leitura da lista, ou está preso a outro bucket. No painel do R2, em Manage R2 API Tokens, o token precisa ser \"Object Read & Write\" no bucket " + "informado em R2_BUCKET. Não troque a chave: ela é a mesma das fotos dos imóveis, que estão funcionando."
       : "O Cloudflare R2 aceitou a chave mas não deixou GRAVAR no bucket. O token está como somente leitura, ou preso a outro bucket. Em Manage R2 API Tokens, ele precisa ser \"Object Read & Write\".";

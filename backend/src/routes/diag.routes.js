@@ -5,6 +5,11 @@ import { mailConfigured } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "./uazapi.webhook.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
+/* A tradução dos erros do R2 mora no backup.js porque foi lá que ela nasceu.
+   Aqui ela vale igual: este teste é a prova de fogo do armazenamento, e devolver
+   "@aws-sdk XML parse error… inspect the hidden field {error}.$response" numa
+   tela feita para diagnóstico é entregar o problema sem a pista. */
+import { emPortugues } from "../services/backup.js";
 
 const r = Router();
 // Quando este processo subiu — a lista de webhooks abaixo só vale a partir daqui.
@@ -124,7 +129,7 @@ r.get("/integracoes/armazenamento/teste", async (_req, res) => {
        justamente o que este teste existe para revelar. */
     const caiu = usandoR2() && falhaR2();
     passos.push({ passo: "gravar", ok: !caiu, url: r1.url,
-      erro: caiu ? "O R2 recusou o arquivo: " + caiu.erro : undefined,
+      erro: caiu ? "O R2 recusou o arquivo: " + emPortugues({ message: caiu.erro, name: caiu.nome }) : undefined,
       dica: caiu ? "As fotos estão sendo salvas no disco da hospedagem, que some quando o servidor é trocado. Confira as variáveis R2_* na conferência abaixo." : undefined });
 
     let leitura;
@@ -140,7 +145,7 @@ r.get("/integracoes/armazenamento/teste", async (_req, res) => {
     responder({ modo: modoArmazenamento(), tudo_certo: passos.every(p => p.ok !== false), passos });
   } catch (e) {
     if (chave) await apagar(chave).catch(() => {});
-    responder({ modo: modoArmazenamento(), tudo_certo: false, erro: e.message, passos }, 500);
+    responder({ modo: modoArmazenamento(), tudo_certo: false, erro: emPortugues(e), passos }, 500);
   }
 });
 
