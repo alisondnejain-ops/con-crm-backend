@@ -304,5 +304,184 @@ console.log(`   editar etapa da outra: ${r.erro}`);
 assert.ok(r.erro, "e o id vazado não vira acesso");
 assert.equal(P.etapaPorId(org, porNome.get("Venda")).name, "Venda", "a etapa original ficou intacta");
 
+/* ===== BLOCO B: as regras em cima do movimento ===== */
+const M = await import("../src/services/movimento.js");
+const PA = await import("../src/services/painel.js");
+
+console.log("\n===== CAMPO OBRIGATORIO BLOQUEIA O AVANCO =====");
+console.log("29. A etapa exige, o lead não tem, o movimento não acontece");
+/* A regra mora no moverLead e não na rota: lead muda de etapa por cinco
+   caminhos, e regra que vale em um deles é pior que regra nenhuma. */
+const idAprov = porNome.get("Aprovação");
+P.editarEtapa(org, idAprov, { required_fields: ["orcamento_max"] });
+const antesEtapa = db.prepare("SELECT stage FROM leads WHERE id='l_5'").get().stage;
+r = M.moverLead({ leadId: "l_5", paraEtapaId: idAprov, userId: uAdm });
+console.log(`   ${r.error}`);
+assert.equal(r.bloqueado, true);
+assert.equal(r.faltam[0].label, "Orçamento máximo", "diz o rótulo, não a chave");
+assert.equal(db.prepare("SELECT stage FROM leads WHERE id='l_5'").get().stage, antesEtapa,
+  "e o lead NAO se mexeu — bloquear depois de mover é não bloquear");
+
+console.log("30. Preenchido, passa");
+db.prepare("UPDATE leads SET custom_fields=? WHERE id='l_5'").run(JSON.stringify({ orcamento_max: 300000 }));
+r = M.moverLead({ leadId: "l_5", paraEtapaId: idAprov, userId: uAdm });
+assert.equal(r.ok, true);
+assert.equal(db.prepare("SELECT stage FROM leads WHERE id='l_5'").get().stage, "Aprovação");
+console.log("   moveu");
+
+console.log("31. `forcar` existe para o fato consumado");
+/* A venda registrada leva o lead para a etapa de ganho porque a venda
+   ACONTECEU. Segurar isso por falta de um campo seria o CRM discordando de um
+   fato que já é verdade no mundo. */
+P.editarEtapa(org, porNome.get("Venda"), { required_fields: ["nunca_preenchido"] });
+r = M.moverLead({ leadId: "l_6", paraEtapaId: porNome.get("Venda"), userId: uAdm, forcar: true });
+assert.equal(r.ok, true);
+console.log("   venda registrada entra mesmo com campo faltando");
+P.editarEtapa(org, porNome.get("Venda"), { required_fields: [] });
+
+console.log("\n===== DISTRIBUICAO AUTOMATICA =====");
+console.log("32. A etapa distribui por rodízio ao receber o lead");
+/* O caso principal do sprint: o lead chega em "qualificado" e vai sozinho para
+   um corretor. */
+const c1 = "u_c1", c2 = "u_c2";
+for (const [id, nome] of [[c1, "Marina"], [c2, "Rafael"]])
+  db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+    VALUES (?,?,?,?,'x','corretor',1,?,'ativo')`).run(id, org, nome, nome + "@c.com", Date.now());
+const idAgend = porNome.get("Agendamento");
+P.editarEtapa(org, idAgend, { automation_config: { distribuir: "rodizio" } });
+r = M.moverLead({ leadId: "l_7", paraEtapaId: idAgend, userId: uAdm });
+console.log(`   entregue a ${r.responsavel_nome}`);
+assert.ok(r.responsavel, "alguém recebeu");
+const dono1 = r.responsavel;
+
+console.log("33. E o próximo lead vai para OUTRA pessoa");
+r = M.moverLead({ leadId: "l_8", paraEtapaId: idAgend, userId: uAdm });
+console.log(`   entregue a ${r.responsavel_nome}`);
+assert.notEqual(r.responsavel, dono1, "o rodízio girou");
+
+console.log("34. Sem ninguém disponível, o aviso é EXPLÍCITO");
+/* Lead que entra sem dono parecendo distribuído é lead que ninguém atende, e
+   ninguém descobre até o cliente reclamar. */
+db.prepare("UPDATE users SET available = 0 WHERE id IN (?,?)").run(c1, c2);
+db.prepare("UPDATE users SET available = 0 WHERE org_id = ? AND role IN ('corretor','sdr')").run(org);
+r = M.moverLead({ leadId: "l_orfao", paraEtapaId: idAgend, userId: uAdm });
+console.log(`   ${r.aviso}`);
+assert.ok(r.ok, "o lead move mesmo assim");
+assert.ok(/ninguém está disponível/i.test(r.aviso || ""), "e o aviso diz o que houve");
+
+console.log("35. A etapa também pode empurrar o lead para OUTRO funil");
+/* SDR qualifica → comercial, sozinho. */
+db.prepare("UPDATE users SET available = 1 WHERE id = ?").run(c1);
+const sdrPipe = P.criarDoTemplate(org, "sdr", {});
+const qualificado = sdrPipe.etapas.find(e => e.name === "Lead qualificado");
+P.editarEtapa(org, qualificado.id, {
+  automation_config: { mover_para_pipeline: pipelines[0].id, distribuir: "rodizio" } });
+db.prepare("INSERT INTO leads (id,org_id,name,phone,stage,created_at) VALUES ('l_sdr',?,'Do SDR','8791',?,?)")
+  .run(org, sdrPipe.etapas[0].name, Date.now());
+db.prepare("UPDATE leads SET pipeline_id=?, stage_id=? WHERE id='l_sdr'").run(sdrPipe.pipeline.id, sdrPipe.etapas[0].id);
+r = M.moverLead({ leadId: "l_sdr", paraEtapaId: qualificado.id, userId: uAdm });
+const doSdr = db.prepare("SELECT pipeline_id, stage, assigned_to FROM leads WHERE id='l_sdr'").get();
+console.log(`   foi para o funil comercial: ${doSdr.pipeline_id === pipelines[0].id} · dono: ${!!doSdr.assigned_to}`);
+assert.equal(doSdr.pipeline_id, pipelines[0].id, "trocou de funil sozinho");
+assert.ok(doSdr.assigned_to, "e chegou com dono");
+
+console.log("36. A automação NUNCA derruba a movimentação");
+/* Configuração errada do gestor não pode virar uma etapa em que ninguém
+   consegue entrar. */
+P.editarEtapa(org, idAgend, { automation_config: { mover_para_pipeline: "pipeline_que_nao_existe" } });
+r = M.moverLead({ leadId: "l_3", paraEtapaId: idAgend, userId: uAdm });
+console.log(`   ok: ${r.ok} · aviso: ${r.aviso}`);
+assert.equal(r.ok, true, "o lead moveu");
+assert.ok(r.aviso, "e o problema virou aviso, não exceção");
+P.editarEtapa(org, idAgend, { automation_config: {} });
+
+console.log("\n===== TROCA DE RESPONSAVEL VIRA HISTORICO =====");
+console.log("37. Quem estava com o lead antes fica registrado");
+const antesDono = db.prepare("SELECT assigned_to FROM leads WHERE id='l_7'").get().assigned_to;
+M.trocarResponsavel(db.prepare("SELECT * FROM leads WHERE id='l_7'").get(), c2, uAdm, "mao");
+const hist = M.transferenciasDoLead("l_7");
+console.log(`   ${hist.length} registro(s), o último de ${hist[0].de_nome || "ninguém"} para ${hist[0].para_nome}`);
+assert.equal(hist[0].from_user_id, antesDono);
+assert.equal(hist[0].to_user_id, c2);
+
+console.log("\n===== PAINEL =====");
+console.log("38. Os períodos são resolvidos no servidor");
+/* Ficavam no navegador, e o "mês atual" do aparelho em outro fuso não era o
+   mesmo do relatório — dois números divergindo sem motivo aparente. */
+for (const id of ["hoje", "ontem", "semana", "mes", "90dias", "ano"]) {
+  const p2 = PA.resolverPeriodo({ periodo: id });
+  assert.ok(p2.de && p2.ate && p2.de <= p2.ate, id);
+}
+console.log("   hoje, ontem, semana, mês, 90 dias e ano");
+
+console.log("39. O painel responde com números, não com invenção");
+const d = PA.painel(org, { periodo: "ano" });
+console.log(`   recebidos ${d.atendimento.recebidos} · SLA vencidos ${d.sla.vencidos} · sem SLA ${d.sla.sem_sla_configurado}`);
+assert.ok(typeof d.atendimento.recebidos === "number");
+assert.ok(typeof d.sla.sem_sla_configurado === "number",
+  "quantos estão FORA de qualquer medição — sem isso '0 vencidos' engana");
+
+console.log("40. Sem ninguém respondido, o tempo é null e não zero");
+/* Zero e 'não sei' são coisas diferentes: a primeira é um fato, a segunda é
+   uma lacuna. Trocar uma pela outra faz decidir sobre número que ninguém mediu. */
+const vazio = PA.painel(org2, { periodo: "hoje" });
+console.log(`   mediana: ${vazio.atendimento.primeira_resposta_mediana_min}`);
+assert.equal(vazio.atendimento.primeira_resposta_mediana_min, null);
+assert.equal(vazio.atendimento.recebidos, 0, "mas a contagem é zero, que é um fato");
+
+console.log("41. O funil separa CONVERSÃO de AVANÇO OPERACIONAL");
+const f = PA.funil(org, pipelines[0].id, { periodo: "ano" });
+const nomesConv = f.conversao.map(c => c.name);
+const nomesOper = f.operacional.map(o => o.name);
+console.log(`   conversão: ${nomesConv.length} degraus · operacional: ${nomesOper.length} etapas`);
+assert.ok(nomesOper.length > nomesConv.length, "o operacional mostra tudo; a conversão, só os degraus");
+assert.ok(!nomesConv.includes("Pasta"), "etapa administrativa fica fora da conversão");
+assert.ok(nomesOper.includes("Pasta"), "mas aparece no avanço operacional");
+
+console.log("42. E o funil sem degrau marcado avisa, em vez de mostrar gráfico vazio");
+const semDegrau = P.criarPipeline(org, { name: "Sem degraus" });
+P.criarEtapa(org, semDegrau.pipeline.id, { name: "Única" });
+const fv = PA.funil(org, semDegrau.pipeline.id, { periodo: "ano" });
+console.log(`   sem_degraus: ${fv.sem_degraus} · conversao: ${fv.conversao}`);
+assert.equal(fv.sem_degraus, true);
+assert.equal(fv.conversao, null, "null e não [] — é ausência de configuração, não funil vazio");
+
+console.log("43. O avanço operacional traz tempo mediano e atrasados por etapa");
+const comLeads = f.operacional.find(o => o.leads_agora > 0);
+console.log(`   ${comLeads.name}: ${comLeads.leads_agora} lead(s), mediana ${comLeads.tempo_mediano_dias} dia(s)`);
+assert.ok(typeof comLeads.tempo_mediano_dias === "number");
+
+console.log("44. Campanha: agrupa e é honesto sobre a cobertura");
+/* Dizer que 1 de 12 leads tem campanha é o que impede alguém de ler o painel
+   como se fosse a operação inteira. */
+const camp = PA.campanhas(org, { periodo: "ano" });
+console.log(`   ${camp.campanhas.length} grupo(s) · cobertura ${camp.cobertura.pct}% (${camp.cobertura.com_campanha}/${camp.cobertura.total})`);
+assert.ok(camp.campanhas.length >= 1);
+assert.ok(camp.cobertura.aviso, "e o aviso explica por que a cobertura é parcial");
+const lancamento = camp.campanhas.find(c => c.campanha === "Lançamento Set");
+assert.ok(lancamento, "a campanha gravada aparece");
+
+console.log("45. A equipe: quem tem lead parado e quanto produziu");
+const eq = PA.atividades(org, PA.resolverPeriodo({ periodo: "ano" }), {});
+const marina = eq.find(p2 => p2.nome === "Marina");
+console.log(`   ${marina.nome}: ${marina.leads_na_mao} na mão, ${marina.sla_vencidos} vencidos, ${marina.aguardando_resposta} esperando`);
+assert.ok(typeof marina.leads_na_mao === "number");
+assert.ok(typeof marina.sla_vencidos === "number");
+
+console.log("46. As opções do filtro saem da base, não de lista fixa");
+/* Lista fixa mostraria campanha que nunca existiu e esconderia a que existe. */
+const op = PA.opcoesDeFiltro(org);
+console.log(`   ${op.pipelines.length} funis · ${op.pessoas.length} pessoas · ${op.campanhas.length} campanha(s)`);
+assert.ok(op.campanhas.includes("Lançamento Set"));
+assert.ok(op.pipelines[0].stages.length, "e cada funil vem com as etapas, para o filtro encadear");
+
+console.log("47. O painel filtra por pipeline, pessoa e campanha");
+const soMarina = PA.painel(org, { periodo: "ano", responsavel: c1 });
+const tudo = PA.painel(org, { periodo: "ano" });
+console.log(`   toda a base: ${tudo.sla.total_em_aberto} · só da Marina: ${soMarina.sla.total_em_aberto}`);
+assert.ok(soMarina.sla.total_em_aberto < tudo.sla.total_em_aberto, "o filtro realmente peneira");
+const porCamp = PA.painel(org, { periodo: "ano", campanha: "Lançamento Set" });
+assert.equal(porCamp.sla.total_em_aberto, 1);
+
 console.log("\nTudo certo ✅");
 process.exit(0);

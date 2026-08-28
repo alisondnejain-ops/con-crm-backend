@@ -10,6 +10,9 @@ import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
+import { moverLead, transferenciasDoLead } from "../services/movimento.js";
+import { slaDoLead } from "../services/etapas.js";
+import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
 import { estadoNoLead, ligarNoLead } from "../services/robo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
@@ -77,8 +80,17 @@ r.get("/", (req, res) => {
      crescendo, e é o funil que a gestão deixa aberto o dia todo. */
   const desde = etapaDesdePorLead(org_id);
   const tarefas = tarefasAbertasPorLead(org_id);
+  /* O SLA de cada card, calculado com UMA consulta de etapas para a lista
+     inteira. Uma por card deixaria a tela que recarrega de 10 em 10 segundos
+     fazendo centenas de consultas — o custo que os índices de 27/08 vieram
+     justamente tirar. */
+  const etapasDaCasa = new Map(db.prepare(
+    "SELECT * FROM pipeline_stages WHERE org_id = ?").all(org_id)
+    .map(e => [e.id, formatarEtapa(e)]));
+  const agoraMs = Date.now();
   res.json(rows.map(l => ({
     ...parse(l),
+    sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs) : null,
     // null quando o lead nunca mudou de etapa desde que o histórico existe. A
     // tela mostra "—": inventar a data de criação seria dizer que ele está ali
     // desde que entrou, o que muitas vezes é falso.
@@ -681,7 +693,21 @@ r.get("/:id", (req, res) => {
     lista_tarefas: listarTarefas(lead.id),
     historico_etapas: etapas,
     // Desde quando está na etapa atual — a última entrada que aponta para ela.
-    etapa_desde: [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null,
+    etapa_desde: lead.stage_entered_at
+      || [...etapas].reverse().find(e => e.para === lead.stage)?.created_at || null,
+    /* ONDE ESTE LEAD ESTA, NO VOCABULARIO DA EMPRESA.
+
+       A ficha mostrava só o nome da etapa. Com funil configurável isso deixou
+       de bastar: a mesma tela atende uma imobiliária com cinco funis, e "está
+       em Visita" não diz em qual deles. Vai junto o SLA — o cronômetro que
+       responde "este atendimento está abandonado?" sem ninguém ter que
+       procurar. */
+    pipeline: lead.pipeline_id ? pipelinePorId(lead.org_id, lead.pipeline_id) : null,
+    etapa: lead.stage_id ? etapaPorId(lead.org_id, lead.stage_id) : null,
+    sla: lead.stage_id ? slaDoLead(etapaPorId(lead.org_id, lead.stage_id), lead) : null,
+    // Por onde passou: funil e dono. Outra pergunta que o histórico de etapas
+    // não responde.
+    transferencias: transferenciasDoLead(lead.id),
     // O robô do fora-do-expediente, neste lead. Só a supervisão liga e desliga,
     // então só ela recebe o cartão.
     robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null,
@@ -1013,16 +1039,30 @@ r.patch("/:id/qualificacao", (req, res) => {
 // etapa é sempre uma pessoa — aqui, na confirmação da recomendação, ou no
 // registro da venda.
 r.patch("/:id/stage", (req, res) => {
-  const { stage } = req.body || {};
-  if (!STAGES.includes(stage)) return res.status(400).json({ error: "Etapa inválida" });
+  const { stage, stage_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  if (!stage && !stage_id) return res.status(400).json({ error: "Diga para qual etapa." });
   /* `motivo` separa a mudança feita na mão da que veio da leitura da IA. As
      duas são cliques de gente — mas saber que a segunda partiu de uma sugestão
      é o que permite, depois, medir se a IA está acertando. */
   const motivo = req.body?.origem === "ia" ? "ia" : "mao";
-  moverEtapa({ leadId: lead.id, para: stage, motivo, userId: req.user.id });
-  res.json({ ok: true, stage });
+
+  /* A validação saiu da lista fixa STAGES e passou a ser o funil DA
+     IMOBILIÁRIA. Com etapa configurável, recusar o que não está na lista do
+     código recusaria justamente as etapas que a empresa criou.
+
+     Quem responde agora é o moverLead: ele resolve o destino no funil do lead,
+     confere os campos que a etapa exige e roda a automação. Etapa que não
+     existe volta como erro de destino. */
+  const r1 = moverLead({ leadId: lead.id, para: stage || null, paraEtapaId: stage_id || null,
+    motivo, userId: req.user.id });
+
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  /* 422 e não 400: o pedido está bem formado, o que falta é dado do lead. A
+     tela usa isso para abrir os campos em vez de mostrar "deu erro". */
+  if (r1.bloqueado) return res.status(422).json(r1);
+  res.json(r1);
 });
 
 /* Corrigir o nome do lead.
