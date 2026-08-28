@@ -130,15 +130,29 @@ r.get("/integracoes/armazenamento/teste", async (_req, res) => {
     const caiu = usandoR2() && falhaR2();
     passos.push({ passo: "gravar", ok: !caiu, url: r1.url,
       erro: caiu ? "O R2 recusou o arquivo: " + emPortugues({ message: caiu.erro, name: caiu.nome }) : undefined,
-      dica: caiu ? "As fotos estão sendo salvas no disco da hospedagem, que some quando o servidor é trocado. Confira as variáveis R2_* na conferência abaixo." : undefined });
+      /* A dica dizia que as fotos "somem quando o servidor é trocado". Não é
+         verdade quando existe disco persistente: com DB_PATH em /data, elas vão
+         para /data/uploads e sobrevivem ao deploy. Dito daquele jeito, assustava
+         com a coisa errada — e escondia a certa, que é bem mais séria: elas
+         passam a morar no MESMO volume do banco, que é o ponto único de falha
+         que a cópia de segurança existe para cobrir. E a cópia leva o banco,
+         não as fotos. */
+      dica: caiu ? "As fotos estão sendo salvas no disco da hospedagem, no mesmo volume do banco de dados. Elas sobrevivem ao deploy, mas ficam fora da cópia de segurança diária — se o volume se perder, os imóveis perdem as fotos. Confira as variáveis R2_* na conferência abaixo." : undefined });
 
     let leitura;
     try {
       const resp = await fetch(r1.url);
       leitura = { ok: resp.ok, status: resp.status, tipo: resp.headers.get("content-type") };
     } catch (e) { leitura = { ok: false, erro: e.message }; }
+    /* Quando a gravação caiu para o disco, este passo leu o arquivo do DISCO —
+       e dizer "ok" sem essa ressalva faz o teste parecer 2 de 3 quando o R2
+       está 0 de 3. O passo fez o que promete; o que faltava era dizer sobre
+       qual cópia ele respondeu. */
     passos.push({ passo: "abrir pela URL pública", ...leitura,
-      dica: leitura.ok ? undefined : "O arquivo subiu mas não abre. No R2, isso quase sempre é o bucket sem domínio público ligado (R2_PUBLIC_URL)." });
+      testou: caiu ? "o arquivo no disco da hospedagem, porque o envio ao R2 falhou" : undefined,
+      dica: leitura.ok
+        ? (caiu ? "Isto NÃO diz que o R2 está funcionando: o arquivo lido é o que caiu no disco." : undefined)
+        : "O arquivo subiu mas não abre. No R2, isso quase sempre é o bucket sem domínio público ligado (R2_PUBLIC_URL)." });
 
     await apagar(chave);
     passos.push({ passo: "apagar", ok: true });
