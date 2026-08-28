@@ -179,8 +179,9 @@ console.log("11. O erro chega em português, não como despejo do SDK da Amazon"
    {error}.$response" — verdade, e inútil para quem administra a plataforma.
    Quem lê esta tela não escreveu o cliente HTTP. */
 const casos = [
-  [{ name: "InvalidAccessKeyId", message: "The Access Key Id you provided does not exist" }, /credenciais/i],
-  [{ name: "SignatureDoesNotMatch", message: "signature we calculated does not match" }, /credenciais/i],
+  [{ name: "InvalidAccessKeyId", message: "The Access Key Id you provided does not exist" }, /não reconheceu a chave/i],
+  [{ name: "SignatureDoesNotMatch", message: "signature we calculated does not match" }, /não reconheceu a chave/i],
+  [{ name: "AccessDenied", message: "Access Denied" }, /permissão|Read & Write/i],
   [{ name: "NoSuchBucket", message: "The specified bucket does not exist" }, /bucket/i],
   [{ message: "getaddrinfo ENOTFOUND abc.r2.cloudflarestorage.com" }, /R2_ACCOUNT_ID/],
   [{ message: "ENOSPC: no space left on device, write" }, /espaço em disco/i],
@@ -195,7 +196,41 @@ for (const [erro, esperado] of casos) {
     `a tradução ainda carrega jargão: ${frase}`);
 }
 
-console.log("12. O que ele NÃO conhece passa cru, em vez de virar 'erro desconhecido'");
+console.log("12. Chave ERRADA e falta de PERMISSÃO não são o mesmo problema");
+/* Os dois chegam como 403, e eu tinha jogado os dois na mesma frase — que
+   mandava trocar a chave. No R2 a chave é a MESMA das fotos dos imóveis: se
+   elas sobem e só o backup reclama, trocar a chave conserta o que não está
+   quebrado e arrisca derrubar o que está funcionando. */
+const permissao = semR2.emPortugues({ name: "AccessDenied", message: "Access Denied" }, "listar");
+const chaveRuim = semR2.emPortugues({ name: "InvalidAccessKeyId", message: "does not exist" }, "listar");
+console.log(`   AccessDenied      → ${permissao.slice(0, 62)}…`);
+console.log(`   InvalidAccessKeyId→ ${chaveRuim.slice(0, 62)}…`);
+assert.ok(/permissão|Read & Write/i.test(permissao), "falta de permissão é nomeada como tal");
+assert.ok(/não troque a chave/i.test(permissao), "e avisa para NÃO mexer na chave que está funcionando");
+assert.ok(!/Confira R2_ACCESS_KEY_ID/.test(permissao), "não pode mandar conferir a chave nesse caso");
+assert.ok(/Confira R2_ACCESS_KEY_ID/.test(chaveRuim), "chave errada, sim, manda conferir a chave");
+assert.notEqual(permissao, chaveRuim, "as duas causas não podem sair com a mesma frase");
+
+console.log("13. E a permissão que falta é dita pela OPERAÇÃO que foi negada");
+/* "Não deixou listar" e "não deixou gravar" levam ao mesmo lugar no painel do
+   R2, mas dizem coisas diferentes sobre o estado do backup: sem listar, as
+   cópias podem estar sendo feitas; sem gravar, não há cópia nenhuma. */
+const listar = semR2.emPortugues({ name: "AccessDenied" }, "listar");
+const gravar = semR2.emPortugues({ name: "AccessDenied" }, "enviar");
+assert.ok(/LISTAR/.test(listar) && /GRAVAR/.test(gravar));
+assert.notEqual(listar, gravar);
+console.log("   listar → LISTAR · enviar → GRAVAR");
+
+console.log("14. 403 sem nome cita as DUAS causas, em vez de escolher a errada");
+/* Sem nome reconhecido: cai no 403 genérico. Se este caso voltar a devolver a
+   frase de permissão, é porque alguém afrouxou o casamento do AccessDenied. */
+const cego = semR2.emPortugues({ message: "operation not allowed", $metadata: { httpStatusCode: 403 } }, "listar");
+console.log(`   ${cego.slice(0, 70)}…`);
+assert.ok(/chave/i.test(cego) && /permiss/i.test(cego), "as duas hipóteses ficam na frase");
+assert.ok(/ou a chave/i.test(cego), "é o 403 genérico, não a frase de permissão");
+assert.notEqual(cego, semR2.emPortugues({ name: "AccessDenied" }, "listar"));
+
+console.log("15. O que ele NÃO conhece passa cru, em vez de virar 'erro desconhecido'");
 /* Esconder o que não sabe nomear é pior: some a única pista que existe. */
 const estranho = semR2.emPortugues(new Error("coisa nova que ninguém previu"));
 console.log(`   ${estranho}`);

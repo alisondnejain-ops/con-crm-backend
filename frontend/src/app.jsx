@@ -1886,18 +1886,30 @@ function Backup({acoes,isMobile}){
     finally{ setOcupado(false); }
   }
 
-  const ultima=d.copias&&d.copias.length?d.copias[0]:null;
   /* Listagem que falhou NÃO é "não há cópia". São coisas diferentes: uma diz
      que você está desprotegido, a outra que não deu para perguntar. Trocar uma
      pela outra manda o gestor consertar o problema errado. */
   const semResposta=d.ligado&&!!d.erro_listagem;
+  /* E quando não dá para perguntar, o servidor AINDA SABE quando fez a última
+     cópia com sucesso — está gravado em `config_plataforma`. Descartar esse
+     registro e dizer "não sei" seria jogar fora a resposta que temos na mão.
+     A listagem é melhor (diz o que está guardado de verdade, não o que a gente
+     acha que mandou), mas na falta dela o registro é muito melhor que nada. */
+  const ultima=d.copias&&d.copias.length
+    ? d.copias[0]
+    : d.ultimo_em ? {quando:d.ultimo_em,bytes:d.bytes,pelo_registro:true} : null;
   const horas=ultima?(Date.now()-ultima.quando)/3600000:null;
   /* Mais de 36 horas é atraso de verdade: a cópia é diária, então uma janela
      perdida ainda cabe em 36h com folga para o fuso e para o servidor que
      reiniciou. Passando disso, alguma coisa parou. */
   const atrasada=horas!=null&&horas>36;
-  const cor=!d.ligado?C.hot:semResposta?C.amber:!ultima?C.hot:atrasada?C.amber:C.greenMid;
-  const fundo=!d.ligado?C.hotSoft:semResposta?C.amberSoft:!ultima?C.hotSoft:atrasada?C.amberSoft:C.greenSoft;
+  /* VERMELHO só quando há problema de verdade: R2 desligado, ou uma tentativa
+     que falhou. "Ainda não rodou" no dia em que o recurso foi publicado é
+     esperado, não é pane — pintar de vermelho faz o gestor sair procurando
+     defeito onde não tem. */
+  const nunca=!ultima&&!d.ultimo_erro;
+  const cor=!d.ligado?C.hot:d.ultimo_erro&&!ultima?C.hot:semResposta||nunca||atrasada?C.amber:C.greenMid;
+  const fundo=!d.ligado?C.hotSoft:d.ultimo_erro&&!ultima?C.hotSoft:semResposta||nunca||atrasada?C.amberSoft:C.greenSoft;
   const mb=(b)=>b==null?"—":`${(b/1048576).toFixed(1)} MB`;
   const quando=(ms)=>new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 
@@ -1916,21 +1928,26 @@ function Backup({acoes,isMobile}){
     {/* A resposta da pergunta, antes de qualquer detalhe. */}
     <div style={{background:fundo,border:`1px solid ${cor}33`,borderRadius:14,padding:14,marginBottom:12,
       display:"flex",alignItems:"center",gap:11,flexWrap:"wrap"}}>
-      <Icon n={!d.ligado||(!ultima&&!semResposta)?"lock":semResposta||atrasada?"clock":"check"} size={19} color={cor}/>
+      <Icon n={!d.ligado||(d.ultimo_erro&&!ultima)?"lock":semResposta||nunca||atrasada?"clock":"check"} size={19} color={cor}/>
       <div style={{flex:1,minWidth:180}}>
         <div style={{color:cor,fontSize:13.5,fontWeight:700}}>
           {!d.ligado?"Nenhuma cópia está sendo feita"
-            :semResposta?"Não consegui perguntar ao R2 o que está guardado"
-            :!ultima?"Ainda não há nenhuma cópia guardada"
-            :atrasada?`A última cópia é de ${quando(ultima.quando)}`
-            :`Cópia de ${quando(ultima.quando)}`}
+            :ultima?`${atrasada?"A última cópia é de":"Cópia de"} ${quando(ultima.quando)}`
+            :d.ultimo_erro?"A cópia não está conseguindo ser feita"
+            :"A primeira cópia ainda não rodou"}
         </div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:2}}>
           {!d.ligado
             ? <React.Fragment>Falta o <b>Cloudflare R2</b> neste servidor (as variáveis <b>R2_*</b>).
                 Sem ele a cópia ficaria no mesmo disco do banco — que é o disco que ela existe para proteger.</React.Fragment>
+            /* Quando a data veio do nosso registro e não da lista do R2, a tela
+               diz isso: é uma resposta com uma ressalva, e esconder a ressalva
+               seria afirmar mais do que se sabe. */
+            :ultima&&ultima.pelo_registro
+            ? `O servidor registra ter feito esta cópia, mas não consegue conferir no R2 se ela está lá — ${d.erro_listagem}`
             :semResposta?d.erro_listagem
-            :!ultima?"A primeira sai na próxima madrugada. Ou clique em “Copiar agora”."
+            :!ultima&&d.ultimo_erro?d.ultimo_erro.erro
+            :!ultima?"Ela sai na próxima madrugada, às 3h. Se quiser não esperar, clique em “Copiar agora”."
             :atrasada?"Passou de um dia. Vale conferir se o R2 continua respondendo — clique em “Copiar agora” para testar."
             :`${d.total} cópia(s) guardada(s), ${mb(d.ocupado)} no total. Ficam as ${d.manter} mais recentes.`}
         </div>
@@ -1948,7 +1965,7 @@ function Backup({acoes,isMobile}){
         Some quando repete o que a faixa de cima já disse: quando a mesma pane
         do R2 derruba o envio E a listagem, os dois blocos trazem a mesma frase,
         e ler a mesma coisa duas vezes faz parecer que são dois problemas. */}
-    {d.ultimo_erro&&d.ultimo_erro.erro!==d.erro_listagem&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}33`,borderRadius:12,padding:"10px 12px",marginBottom:12}}>
+    {d.ultimo_erro&&d.ultimo_erro.erro!==d.erro_listagem&&ultima&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}33`,borderRadius:12,padding:"10px 12px",marginBottom:12}}>
       <div style={{color:C.hot,fontSize:12,fontWeight:700,marginBottom:2}}>
         A última tentativa falhou ({quando(d.ultimo_erro.quando)})</div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>{d.ultimo_erro.erro}</div>

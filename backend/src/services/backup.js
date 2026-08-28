@@ -139,14 +139,39 @@ function falhou(comecou, motivo, erro) {
 
    Mesma ideia do `chamar()` do asaas.js: traduzir os casos que a gente sabe
    nomear e deixar o resto passar cru, em vez de esconder o que não conhece. */
-export function emPortugues(e) {
+export function emPortugues(e, operacao = "enviar") {
   const m = String(e && e.message || e);
   const nome = String(e && e.name || "");
   const codigo = (e && e.$metadata && e.$metadata.httpStatusCode) || 0;
   if (/ENOSPC/.test(m))
     return "Faltou espaço em disco para montar a cópia. O arquivo temporário ocupa o mesmo tamanho do banco.";
-  if (/InvalidAccessKeyId|SignatureDoesNotMatch/i.test(nome + m) || codigo === 403)
-    return "O Cloudflare R2 recusou as credenciais. Confira R2_ACCESS_KEY_ID e R2_SECRET_ACCESS_KEY — o segredo só aparece uma vez, ao criar o token.";
+  /* CHAVE ERRADA E FALTA DE PERMISSÃO SÃO PROBLEMAS DIFERENTES, e os dois
+     chegam como 403. Confundi-los custa caro nos dois sentidos:
+
+     - `InvalidAccessKeyId` / `SignatureDoesNotMatch` é chave errada: o token
+       não existe ou o segredo foi copiado torto;
+     - `AccessDenied` é a chave CERTA sem direito àquela operação. No R2 isso
+       acontece com token criado como "Object Read only", ou preso a outro
+       bucket. Mandar trocar a chave nesse caso é mandar consertar o que não
+       está quebrado — e, pior, arrisca derrubar o envio de fotos, que usa as
+       MESMAS credenciais e está funcionando.
+
+     O sintoma que separa os dois na prática: se a foto do imóvel sobe e só o
+     backup reclama, a chave está certa e falta permissão. */
+  /* Só `AccessDenied` mesmo — "Forbidden" solto na mensagem não distingue
+     falta de permissão de chave errada, e cair aqui por causa dele mandaria o
+     gestor no caminho de permissão sem base para isso. Sem nome reconhecido, o
+     403 genérico logo abaixo cita as duas causas. */
+  if (/AccessDenied/i.test(nome + m))
+    return operacao === "listar"
+      ? "O Cloudflare R2 aceitou a chave mas não deixou LISTAR o bucket. O token foi criado sem permissão de leitura da lista, ou está preso a outro bucket. No painel do R2, em Manage R2 API Tokens, o token precisa ser \"Object Read & Write\" no bucket " + "informado em R2_BUCKET. Não troque a chave: ela é a mesma das fotos dos imóveis, que estão funcionando."
+      : "O Cloudflare R2 aceitou a chave mas não deixou GRAVAR no bucket. O token está como somente leitura, ou preso a outro bucket. Em Manage R2 API Tokens, ele precisa ser \"Object Read & Write\".";
+  if (/InvalidAccessKeyId|SignatureDoesNotMatch/i.test(nome + m))
+    return "O Cloudflare R2 não reconheceu a chave. Confira R2_ACCESS_KEY_ID e R2_SECRET_ACCESS_KEY — o segredo só aparece uma vez, ao criar o token.";
+  /* 403 que não se identificou: as duas causas continuam de pé, então a frase
+     cita as duas em vez de escolher uma e mandar o gestor no caminho errado. */
+  if (codigo === 403)
+    return "O Cloudflare R2 respondeu \"proibido\". Ou a chave está errada (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY), ou o token não tem permissão sobre este bucket. Se as fotos dos imóveis sobem normalmente, é a permissão do token.";
   if (/NoSuchBucket/i.test(nome + m) || codigo === 404)
     return "O bucket informado em R2_BUCKET não existe nesta conta do R2.";
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(m))
@@ -203,7 +228,7 @@ export async function situacaoDoBackup() {
     return { ...base, copias: copias.slice(0, 40),
       total: copias.length, ocupado: copias.reduce((s, c) => s + c.bytes, 0) };
   } catch (e) {
-    return { ...base, copias: [], erro_listagem: emPortugues(e) };
+    return { ...base, copias: [], erro_listagem: emPortugues(e, "listar") };
   }
 }
 
