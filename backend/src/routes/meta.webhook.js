@@ -4,6 +4,7 @@ import db from "../db.js";
 import { fetchLead } from "../services/meta.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
+import { entradaPadrao } from "../services/pipelines.js";
 
 const r = Router();
 
@@ -43,11 +44,25 @@ r.post("/meta", async (req, res) => {
 
              Temperatura agora tem uma origem só: alguém a colocou — o corretor
              na ficha, ou a IA na análise por corretor que o gestor pediu. */
-          db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at)
-            VALUES (?,?,?,?,?,?,NULL,?, 'Lead', ?, ?)`).run(
+          /* O lead nasce JA dentro de um pipeline. Antes a etapa era a
+             palavra 'Lead' escrita aqui, e isso presumia que toda imobiliaria
+             tem uma etapa com esse nome — o que deixou de ser verdade no dia
+             em que o funil virou configuravel. Agora o destino e a primeira
+             etapa do pipeline padrao da casa, seja ela qual for. */
+          const entrada = entradaPadrao(org.id);
+          const agora = Date.now();
+          db.prepare(`INSERT INTO leads
+            (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
+             pipeline_id,stage_id,stage_entered_at,
+             source,platform,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,form_id,form_name)
+            VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?,?,?)`).run(
             "l_" + randomUUID(), org.id, info.name, phone, info.email, "Meta Ads",
-            JSON.stringify(info.qual), dono, Date.now()
+            JSON.stringify(info.qual), entrada.nome, dono, agora,
+            entrada.pipeline_id, entrada.stage_id, agora,
+            info.source || "meta", info.platform, info.campaign_id, info.campaign_name,
+            info.adset_id, info.adset_name, info.ad_id, info.ad_name, info.form_id, info.form_name
           );
+          if (info.campaign_name) console.log(`[meta] campanha: ${info.campaign_name} · anúncio: ${info.ad_name || "—"}`);
           console.log("[meta] novo lead:", info.name, phone, dono ? "— para a atendente da vez" : "— sem atendente, foi para a fila");
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);

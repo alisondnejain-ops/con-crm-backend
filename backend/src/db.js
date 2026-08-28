@@ -302,6 +302,137 @@ CREATE TABLE IF NOT EXISTS config_plataforma (
   valor TEXT,
   atualizado_em INTEGER
 );
+/* ===== PIPELINES E ETAPAS CONFIGURAVEIS =====
+   (28/08/2026 - o core de gestao do ConHub)
+
+   O funil era uma lista fixa de 11 nomes num arquivo do servidor
+   (services/stages.js), igual para toda imobiliaria. Isso servia enquanto o
+   produto era o CRM de uma casa. Nao serve para uma plataforma: uma operacao
+   de locacao, uma de lancamento e uma de recaptacao nao tem as mesmas etapas,
+   e nenhuma delas tem que pedir mudanca de codigo para existir.
+
+   Agora cada empresa monta os proprios fluxos. As etapas deixam de ser texto
+   solto e passam a ser LINHA, com dono (pipeline), ordem, cor, SLA, campos
+   obrigatorios e configuracao de automacao.
+
+   COMPATIBILIDADE: leads.stage (o NOME da etapa) continua existindo e continua
+   sendo escrito. E de proposito. Umas trinta consultas e a tela inteira leem
+   esse campo hoje; troca-lo de uma vez seria reescrever o sistema num commit.
+   O caminho e outro: moverEtapa passa a gravar stage_id E stage juntos, quem
+   ja lia o nome continua funcionando sem saber de nada, e os leitores migram
+   um a um. Ver services/etapas.js. */
+CREATE TABLE IF NOT EXISTS pipelines (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  -- sdr, commercial, rental, launch, recapture, post_sale, custom
+  type TEXT DEFAULT 'custom',
+  is_default INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  ordem INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+/* org_id fica desnormalizado aqui, repetido do pipeline.
+
+   Nao e descuido: quase toda consulta de etapa comeca por "as etapas desta
+   imobiliaria", e sem a coluna cada uma delas precisaria de um JOIN com
+   pipelines so para chegar ao org_id. E o isolamento entre empresas fica mais
+   dificil de errar quando o filtro esta na propria tabela. */
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+  id TEXT PRIMARY KEY,
+  pipeline_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  ordem INTEGER DEFAULT 0,
+  color TEXT,
+  -- aberto | ganho | perdido. Serve para o relatorio saber o que e desfecho
+  -- sem depender do nome que a empresa deu a etapa.
+  status_type TEXT DEFAULT 'aberto',
+  is_active INTEGER DEFAULT 1,
+  /* O que separa FUNIL DE CONVERSAO de AVANCO OPERACIONAL. Etapa
+     administrativa (Documentacao, Analise) faz parte da operacao e nao e
+     degrau de venda; conta-la como conversao inventa numero que ninguem
+     reconhece. Quem decide e a empresa, etapa por etapa. */
+  counts_as_conversion INTEGER DEFAULT 0,
+  -- SLA: minutos sem interacao ate a etapa estourar, e o aviso antes disso.
+  sla_minutes INTEGER,
+  warning_before_minutes INTEGER,
+  -- JSON: chaves de campo que precisam estar preenchidas para ENTRAR aqui.
+  required_fields TEXT,
+  -- JSON: base para as automacoes (mover, distribuir, notificar, criar tarefa).
+  automation_config TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+/* ===== CAMPOS PERSONALIZADOS =====
+
+   A DEFINICAO e tabela; o VALOR mora em leads.custom_fields (JSON).
+
+   Definicao em tabela porque a empresa precisa listar, ordenar, dizer o tipo e
+   escolher ONDE cada campo aparece — isso e dado estruturado e a tela le o
+   tempo todo.
+
+   Valor em JSON no lead porque a consulta quente do sistema (o /leads que a
+   gestao recarrega de 10 em 10 segundos) ja carrega a linha do lead inteira:
+   uma tabela de valores obrigaria um JOIN por campo por lead, e foi justamente
+   esse tipo de custo que os indices de 27/08 vieram tirar. Se um dia for
+   preciso consultar POR valor de campo, a tabela de valores entra ao lado sem
+   quebrar nada — o JSON continua sendo a leitura rapida. */
+CREATE TABLE IF NOT EXISTS custom_fields (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  key TEXT NOT NULL,
+  -- text, number, currency, select, multiselect, date, boolean, phone, email
+  type TEXT NOT NULL DEFAULT 'text',
+  options TEXT,
+  is_required_default INTEGER DEFAULT 0,
+  show_on_card INTEGER DEFAULT 0,
+  show_on_lead_profile INTEGER DEFAULT 1,
+  show_on_conversation_sidebar INTEGER DEFAULT 0,
+  show_on_reports INTEGER DEFAULT 0,
+  ordem INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+/* ===== HISTORICO DE TRANSFERENCIA =====
+
+   lead_etapas ja guarda mudanca de ETAPA. Isto guarda a mudanca de DONO e de
+   PIPELINE, que e outra pergunta: "por onde este lead passou e por quem".
+
+   Existe separado porque as duas coisas acontecem em momentos diferentes — um
+   lead pode trocar de responsavel sem sair da etapa, e pode mudar de pipeline
+   inteiro numa transferencia do SDR para o comercial. Juntar as duas numa
+   tabela so faria toda leitura ter que filtrar qual tipo de linha e qual. */
+CREATE TABLE IF NOT EXISTS lead_transfers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  from_pipeline_id TEXT,
+  from_stage_id TEXT,
+  to_pipeline_id TEXT,
+  to_stage_id TEXT,
+  from_user_id TEXT,
+  to_user_id TEXT,
+  triggered_by_user_id TEXT,
+  -- 'automatica' (regra da etapa), 'mao', 'rodizio', 'importacao'
+  trigger_reason TEXT,
+  observacao TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipelines_org ON pipelines(org_id, ordem);
+CREATE INDEX IF NOT EXISTS idx_stages_pipeline ON pipeline_stages(pipeline_id, ordem);
+CREATE INDEX IF NOT EXISTS idx_stages_org ON pipeline_stages(org_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_customfields_org ON custom_fields(org_id, ordem);
+CREATE INDEX IF NOT EXISTS idx_transfers_lead ON lead_transfers(lead_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_transfers_org ON lead_transfers(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_etapas_lead ON lead_etapas(lead_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_etapas_org ON lead_etapas(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tarefas_lead ON tarefas(lead_id, quando);
@@ -554,6 +685,53 @@ if (!pagCols.includes("meses")) db.exec("ALTER TABLE pagamentos ADD COLUMN meses
 
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
+
+/* ===== O LEAD DENTRO DE UM PIPELINE =====
+
+   `stage` (o nome) continua e continua sendo escrito — ver o comentario da
+   tabela pipelines. Estas colunas sao o mesmo dado em forma de vinculo, e sao
+   elas que permitem etapa configuravel, SLA e campo obrigatorio.
+
+   Ficam NULAS nos leads anteriores a isto ate o bootstrap ligar cada um ao
+   pipeline padrao da imobiliaria (ver bootstrap.js). Codigo novo tem que
+   aguentar nulo aqui: base grande demora a converter e o CRM nao pode parar
+   enquanto isso. */
+addLeadCol("pipeline_id", "TEXT");
+addLeadCol("stage_id", "TEXT");
+/* Desde quando o lead esta NESTA etapa. Existe em lead_etapas, mas so a partir
+   de 13/08/2026 e so quando houve mudanca — o lead que nunca se mexeu nao tem
+   linha. Como o SLA precisa responder isso para TODO lead e a cada leitura de
+   card, a data vira coluna: uma consulta a menos numa tela que recarrega
+   sozinha o dia inteiro. */
+addLeadCol("stage_entered_at", "INTEGER");
+/* Ultima interacao de qualquer lado (mensagem recebida, enviada, ligacao).
+   O SLA de abandono se mede por ela, e nao pela data de entrada na etapa: lead
+   que entrou ontem mas conversou agora esta saudavel; lead que entrou hoje e
+   nao teve resposta esta em chamas. */
+addLeadCol("last_interaction_at", "INTEGER");
+// Valores dos campos personalizados da empresa. JSON: {chave: valor}.
+addLeadCol("custom_fields", "TEXT");
+
+/* ===== DE ONDE O LEAD VEIO =====
+
+   Isto estava se PERDENDO. O webhook da Meta guardava o meta_lead_id e as
+   respostas do formulario, e jogava fora campanha, conjunto, anuncio e
+   formulario — que e exatamente o que liga o dinheiro de marketing ao
+   resultado do atendimento.
+
+   E dado que nao volta: lead que entrou ontem sem a campanha gravada perdeu a
+   atribuicao para sempre. Por isso estas colunas entram antes de qualquer
+   tela que as use. */
+addLeadCol("source", "TEXT");          // meta, whatsapp, importacao, manual, site
+addLeadCol("platform", "TEXT");        // facebook, instagram, messenger
+addLeadCol("campaign_name", "TEXT");
+addLeadCol("campaign_id", "TEXT");
+addLeadCol("adset_name", "TEXT");
+addLeadCol("adset_id", "TEXT");
+addLeadCol("ad_name", "TEXT");
+addLeadCol("ad_id", "TEXT");
+addLeadCol("form_name", "TEXT");
+addLeadCol("form_id", "TEXT");
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa
 addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
 addLeadCol("sale_date", "INTEGER");      // data da venda
@@ -692,6 +870,53 @@ addMsgCol("media_name", "TEXT");  // nome original, quando é documento
    vezes — é o que permite aceitar as mensagens digitadas direto no celular. */
 addMsgCol("wa_id", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_id)");
+/* As leituras novas do core de gestao: o kanban por pipeline e o painel de SLA
+   filtram leads por etapa e por pipeline dentro da imobiliaria. Sem indice,
+   cada um deles varre a tabela de leads da plataforma inteira — foi o que os
+   indices de 27/08 vieram consertar, e nao vale reintroduzir o problema. */
+/* ===== ULTIMA INTERACAO DO LEAD, POR GATILHO =====
+
+   `leads.last_interaction_at` e a base do SLA: e dela que sai "abandonado ha
+   X horas". Manter esse campo do lado de fora significaria lembrar de
+   atualiza-lo em SEIS lugares diferentes hoje (dois webhooks, tres rotas de
+   mensagem, o robo) e no setimo que alguem escrever daqui a tres meses — e o
+   esquecido nao da erro: ele so faz o lead parecer abandonado enquanto a
+   conversa acontece.
+
+   Por isso a regra mora no BANCO. O gatilho roda junto do INSERT, na mesma
+   transacao, e nao ha caminho que escape dele.
+
+   O preco e conhecido e esta escrito aqui de proposito: gatilho e codigo
+   invisivel: nao aparece em nenhum arquivo de rota, e quem for procurar por
+   que um campo mudou nao vai encontrar. Vale a troca porque a alternativa e
+   um campo que fica errado em silencio — e um SLA que mente e pior que um SLA
+   que nao existe.
+
+   `MAX` protege contra a mensagem antiga que chega atrasada (reenvio da
+   Uazapi, importacao de historico): ela nao pode fazer o lead retroceder para
+   uma data anterior a ultima conversa de verdade. */
+db.exec(`CREATE TRIGGER IF NOT EXISTS trg_msg_interacao
+  AFTER INSERT ON messages BEGIN
+    UPDATE leads SET last_interaction_at = MAX(COALESCE(last_interaction_at, 0), NEW.created_at)
+    WHERE id = NEW.lead_id;
+  END;`);
+db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ligacao_interacao
+  AFTER INSERT ON ligacoes BEGIN
+    UPDATE leads SET last_interaction_at = MAX(COALESCE(last_interaction_at, 0), NEW.created_at)
+    WHERE id = NEW.lead_id;
+  END;`);
+
+/* A base de hoje nasce com o campo nulo, e nulo faria todo lead antigo
+   aparecer como "nunca teve interacao" — coral no painel inteiro no primeiro
+   dia. Uma vez so, preenche a partir da ultima mensagem que cada um tem. */
+db.exec(`UPDATE leads SET last_interaction_at = (
+    SELECT MAX(m.created_at) FROM messages m WHERE m.lead_id = leads.id)
+  WHERE last_interaction_at IS NULL
+    AND EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = leads.id)`);
+
+db.exec("CREATE INDEX IF NOT EXISTS idx_leads_stage_id ON leads(org_id, stage_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_leads_pipeline ON leads(org_id, pipeline_id, stage_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_leads_campanha ON leads(org_id, campaign_id)");
 /* Qual mensagem esta responde. Guarda o id LOCAL (m_...), não o do WhatsApp:
    é ele que permite montar a citação na tela mesmo quando a mensagem citada
    é antiga e não tem `wa_id` — o do WhatsApp a gente busca na hora de enviar. */

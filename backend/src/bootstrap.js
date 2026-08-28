@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import db from "./db.js";
+import { garantirPipelinePadrao } from "./services/pipelines.js";
 
 // Roda a cada start do servidor. Garante que a organização existe e que o código
 // da imobiliária é o do .env — assim, ao hospedar, o link de cadastro já funciona
@@ -117,5 +118,33 @@ export function bootstrap() {
       }
     }
   }
+  /* ===== O FUNIL DE CADA IMOBILIARIA VIRA DADO =====
+
+     Roda para TODAS as contas, e nao so para a que o bootstrap acabou de
+     criar: quando esta versao sobe, cada imobiliaria que ja existe precisa
+     ganhar o pipeline padrao com as etapas que ela ja usava, e cada lead
+     precisa ser ligado a etapa dele pelo nome.
+
+     Idempotente nos dois sentidos — conta que ja tem pipeline nao ganha outro,
+     lead que ja esta ligado nao e mexido —, entao reiniciar o servidor dez
+     vezes faz o trabalho uma. Mesma regra do corte de expediente e do backup:
+     quem manda e o estado, nao o evento.
+
+     Falha de UMA imobiliaria nao pode parar as outras nem derrubar o start: um
+     funil que nao converteu e um problema daquela conta, e o CRM parado e um
+     problema de todas. */
+  let convertidas = 0, ligados = 0;
+  for (const { id } of db.prepare("SELECT id FROM orgs").all()) {
+    try {
+      const r = garantirPipelinePadrao(id);
+      if (r.criado) convertidas++;
+      ligados += r.ligados || 0;
+    } catch (e) {
+      console.error(`[pipelines] não consegui preparar o funil da imobiliária ${id}:`, e.message);
+    }
+  }
+  if (convertidas || ligados)
+    console.log(`Funil configurável: ${convertidas} imobiliária(s) convertida(s), ${ligados} lead(s) ligado(s) às etapas.`);
+
   return org;
 }
