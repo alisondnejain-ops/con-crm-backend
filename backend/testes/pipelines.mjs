@@ -497,5 +497,90 @@ assert.ok(soMarina.sla.total_em_aberto < tudo.sla.total_em_aberto, "o filtro rea
 const porCamp = PA.painel(org, { periodo: "ano", campanha: "Lançamento Set" });
 assert.equal(porCamp.sla.total_em_aberto, 1);
 
+console.log("\n===== MOVER OS LEADS DE UMA PESSOA PARA OUTRO FUNIL =====");
+const L = await import("../src/services/lote.js");
+
+/* O caso do Ali: "todos os contatos atribuídos à Vanessa no funil de SDR".
+   Sem esta operação, ter vários funis não serve para nada — criar o funil do
+   SDR não muda nada enquanto os leads continuam no comercial. */
+const uVanessa = "u_vanessa";
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+  VALUES (?,?,'Vanessa','vanessa@c.com','x','sdr',1,?,'ativo')`).run(uVanessa, org, Date.now());
+const comercial = pipelines[0].id;
+for (let i = 0; i < 5; i++) {
+  const id = "lv_" + i;
+  db.prepare("INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,created_at) VALUES (?,?,?,?,?,?,?)")
+    .run(id, org, "Cliente da Vanessa " + i, "8798" + i, ["Lead","Atendimento","Pasta","Visita","Proposta"][i], uVanessa, Date.now());
+  db.prepare("UPDATE leads SET pipeline_id=?, stage_id=? WHERE id=?")
+    .run(comercial, porNome.get(["Lead","Atendimento","Pasta","Visita","Proposta"][i]), id);
+}
+
+console.log("48. A prévia diz quantos, de onde e EM QUE ETAPA vão cair");
+/* O último é o que não pode faltar: os funis têm etapas diferentes, quase nada
+   casa por nome, e mover a base para "Lead novo" sem avisar zeraria um funil
+   que alguém passou meses construindo. */
+let pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id });
+console.log(`   ${pv.leads} lead(s) de ${pv.pessoa} → ${pv.destino}, todos em "${pv.etapa_destino}"`);
+console.log(`   saindo de: ${pv.de.map(d => `${d.funil} (${d.leads})`).join(", ")}`);
+assert.equal(pv.leads, 5);
+assert.equal(pv.etapa_destino, "Lead novo");
+assert.equal(pv.etapa_para_a_primeira, 5, "a prévia diz quantos perdem o avanço");
+assert.equal(pv.ja_estao_la, 0);
+
+console.log("49. Mover de verdade");
+let mv = L.moverParaFunil(org, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id, quemMandou: uAdm });
+console.log(`   ${mv.movidos} movidos`);
+assert.equal(mv.movidos, 5);
+const daVanessa = db.prepare("SELECT pipeline_id, stage, assigned_to FROM leads WHERE assigned_to=?").all(uVanessa);
+assert.ok(daVanessa.every(l => l.pipeline_id === sdrPipe.pipeline.id), "todos no funil de SDR");
+assert.ok(daVanessa.every(l => l.stage === "Lead novo"), "todos na primeira etapa");
+
+console.log("50. O RESPONSÁVEL não muda — mover de funil não é repassar");
+assert.ok(daVanessa.every(l => l.assigned_to === uVanessa));
+console.log("   os 5 continuam com a Vanessa");
+
+console.log("51. Cada movimentação deixa rastro de etapa E de funil");
+/* Um UPDATE em massa seria mais rápido e apagaria a resposta para "por onde
+   este lead passou" — que é justamente a pergunta que trocar de funil cria. */
+const hist51 = db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = 'lv_0'").get().n;
+const tr51 = db.prepare("SELECT * FROM lead_transfers WHERE lead_id = 'lv_0'").all();
+console.log(`   ${hist51} linha(s) de etapa · ${tr51.length} transferência(s) de funil`);
+assert.ok(hist51 >= 1);
+assert.equal(tr51.length, 1);
+assert.equal(tr51[0].from_pipeline_id, comercial);
+assert.equal(tr51[0].to_pipeline_id, sdrPipe.pipeline.id);
+
+console.log("52. Rodar de novo não move nada — quem já está lá não é tocado");
+mv = L.moverParaFunil(org, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id, quemMandou: uAdm });
+console.log(`   ${mv.movidos} movidos · ${mv.ja_estao_la} já estavam lá`);
+assert.equal(mv.movidos, 0);
+assert.equal(mv.ja_estao_la, 5);
+
+console.log("53. `manterEtapa` preserva o que casa por nome");
+/* Entre dois funis comerciais parecidos vale a pena; entre comercial e SDR
+   quase nada casa, e é por isso que não é o padrão. */
+const copia = P.duplicarPipeline(org, comercial, "Comercial 2");
+for (const l of db.prepare("SELECT id FROM leads WHERE assigned_to=?").all(uVanessa))
+  moverEtapa({ leadId: l.id, paraEtapaId: porNome.get("Visita"), userId: uAdm });
+pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: copia.pipeline.id, manterEtapa: true });
+console.log(`   ${pv.etapa_preservada} mantêm a etapa · ${pv.etapa_para_a_primeira} vão para a primeira`);
+assert.equal(pv.etapa_preservada, 5, "Visita existe nos dois funis");
+L.moverParaFunil(org, { userId: uVanessa, pipelineId: copia.pipeline.id, manterEtapa: true, quemMandou: uAdm });
+assert.ok(db.prepare("SELECT stage FROM leads WHERE assigned_to=?").all(uVanessa).every(l => l.stage === "Visita"));
+console.log("   e depois de mover, continuam em Visita");
+
+console.log("54. Funil de destino sem etapa é recusado com a razão");
+/* Mover para um funil vazio deixaria os leads sem etapa nenhuma — fora do
+   kanban e fora do relatório, sem erro nenhum aparecer. */
+const vazio2 = P.criarPipeline(org, { name: "Vazio de propósito" });
+pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: vazio2.pipeline.id });
+console.log(`   ${pv.erro}`);
+assert.ok(/não tem etapas/i.test(pv.erro));
+
+console.log("55. E a operação não atravessa imobiliárias");
+pv = L.previaMoverFunil(org2, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id });
+console.log(`   pedindo da outra imobiliária: ${pv.erro}`);
+assert.ok(pv.erro, "pessoa de outra casa não é encontrada");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

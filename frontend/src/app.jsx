@@ -1010,6 +1010,10 @@ function ConCRM(){
     marcarLida:acao((leadId)=>api(`/leads/${leadId}/read`,{method:"POST"})),
     marcarNaoLida:acao((leadId)=>api(`/leads/${leadId}/nao-lida`,{method:"POST"})),
     equipe:()=>api("/auth/users"),
+    // Mover em lote os leads de uma pessoa para outro funil. A prévia é
+    // separada da aplicação: mexer em centenas de leads não se desfaz na mão.
+    previaMoverFunil:(f)=>api(`/leads/lote/mover-funil?user_id=${encodeURIComponent(f.user_id)}&pipeline_id=${encodeURIComponent(f.pipeline_id)}&manter=${f.manter?1:0}`),
+    moverParaFunil:(dados)=>api("/leads/lote/mover-funil",{method:"POST",body:dados}),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
     mudarFuncao:acao((userId,funcao)=>api(`/auth/users/${userId}/funcao`,{method:"POST",body:{funcao}})),
@@ -4213,8 +4217,14 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
 
      Se a busca dos funis falhar, as colunas caem para as etapas de sempre. Um
      kanban vazio parece base perdida — e é a primeira coisa que a pessoa vê. */
-  const {pipelines,padrao}=usarPipelines(acoes,session);
+  const {pipelines,padrao,templates,rever:reverFunis}=usarPipelines(acoes,session);
   const [pipeSel,setPipeSel]=usarEscolha("funil.pipeline","");
+  // Criar funil sem sair do quadro. Ver o comentário do seletor, abaixo.
+  const [criandoFunil,setCriandoFunil]=useState(false);
+  const [novoFunil,setNovoFunil]=useState({template:"",nome:""});
+  const [criandoErro,setCriandoErro]=useState("");
+  const [criandoOcupado,setCriandoOcupado]=useState(false);
+  const podeCriarFunil=session&&(session.role==="adm"||session.role==="sdr");
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -4248,12 +4258,28 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
   const filtrosAtivos=[f.dono,f.prioridade,f.de,f.ate].filter(Boolean).length;
 
+  /* SÓ OS LEADS DESTE FUNIL.
+
+     Sem este recorte o quadro ficava mentindo de um jeito específico: ao
+     escolher um funil novo, as colunas apareciam vazias (correto — ele não tem
+     lead nenhum) e o contador ao lado dizia "60 lead(s)", porque contava a base
+     inteira. Duas afirmações contrárias na mesma barra.
+
+     O lead SEM vínculo entra no funil padrão. É a base anterior a 28/08/2026 e
+     a que ainda não foi migrada: descartá-la faria a operação inteira sumir do
+     quadro no dia da publicação. */
+  const doFunil=useMemo(()=>{
+    if(!pipeAtual) return leads;
+    const ehPadrao=pipeAtual.id===padrao||pipelines.length===1;
+    return leads.filter(l=>l.pipelineId?l.pipelineId===pipeAtual.id:ehPadrao);
+  },[leads,pipeAtual&&pipeAtual.id,padrao,pipelines.length]);
+
   const visiveis=useMemo(()=>{
     const q=semAcento(busca.trim().toLowerCase());
     const digitos=busca.replace(/\D/g,"");
     const inicio=f.de?new Date(f.de+"T00:00:00").getTime():null;
     const fim=f.ate?new Date(f.ate+"T23:59:59").getTime():null;
-    return leads.filter(l=>{
+    return doFunil.filter(l=>{
       if(q){
         const nome=semAcento(String(l.nome||"").toLowerCase());
         const dono=semAcento(String(l.assignedName||"").toLowerCase());
@@ -4274,7 +4300,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       if(fim&&quando>fim) return false;
       return true;
     });
-  },[leads,busca,onde,f]);
+  },[doFunil,busca,onde,f]);
 
   const limpar=()=>setF({dono:"",prioridade:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
@@ -4385,14 +4411,29 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         {/* O SELETOR DE FUNIL, ao lado da busca e antes dos filtros.
 
             Fica aqui e não numa aba porque trocar de funil NÃO é filtrar: é
-            olhar outro quadro. Escondê-lo atrás da gaveta faria a operação de
-            locação não descobrir que o funil dela existe. Só aparece com mais
-            de um — com um só, o seletor seria um botão que não faz nada. */}
-        {pipelines.length>1&&<select value={pipeAtual?pipeAtual.id:""} onChange={e=>setPipeSel(e.target.value)}
+            olhar outro quadro.
+
+            APARECE SEMPRE, inclusive com um funil só — e isso foi um conserto.
+            A primeira versão o escondia quando havia apenas um, com o
+            raciocínio de que um seletor de uma opção não faz nada. O
+            raciocínio estava errado: TODA conta começa com um funil, então o
+            seletor nunca aparecia para ninguém, e a possibilidade de ter
+            vários simplesmente não existia aos olhos de quem usa. Recurso que
+            não tem porta na tela onde ele importa é recurso que não existe.
+
+            E criar um funil novo sai daqui também. Estava só em Configurações
+            — outra seção, longe do quadro. Quem está olhando o funil e pensa
+            "precisava de um para locação" tem que poder fazer isso no lugar em
+            que teve a ideia. O AJUSTE FINO (SLA, campos obrigatórios, ordem)
+            continua em Configurações: é trabalho de sentar e configurar, não de
+            um clique no meio do atendimento. */}
+        {pipelines.length>0&&<select value={pipeAtual?pipeAtual.id:""}
+          onChange={e=>{ if(e.target.value==="__novo"){setCriandoFunil(true);} else setPipeSel(e.target.value); }}
           style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
             padding:isMobile?"10px 11px":"8px 11px",fontSize:isMobile?13:12,fontWeight:700,
-            cursor:"pointer",flexShrink:0,outline:"none",maxWidth:isMobile?150:200}}>
+            cursor:"pointer",flexShrink:0,outline:"none",maxWidth:isMobile?170:230}}>
           {pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          {podeCriarFunil&&<option value="__novo">+ Criar outro funil…</option>}
         </select>}
         <button onClick={()=>setFiltrosAbertos(a=>!a)}
           style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
@@ -4408,8 +4449,83 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             das colunas deixa de ser o total da base, e sem este número ninguém
             percebe que está lendo um funil filtrado. */}
         <span style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap"}}>
-          {visiveis.length} lead(s){visiveis.length!==leads.length?` de ${leads.length}`:""}</span>
+          {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}</span>
       </div>
+      {/* ===== CRIAR UM FUNIL, SEM SAIR DO QUADRO =====
+
+          Compacto de propósito: escolher um modelo e dar um nome. O resto —
+          SLA, campos obrigatórios, cor, ordem — fica em Configurações, porque
+          é decisão de sentar e pensar, e enfiar tudo aqui transformaria um
+          atalho numa segunda tela de configuração pela metade. */}
+      {criandoFunil&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:13,
+        padding:isMobile?12:14,display:"flex",flexDirection:"column",gap:10,marginBottom:2}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Criar outro funil</span>
+          <button onClick={()=>{setCriandoFunil(false);setCriandoErro("");setNovoFunil({template:"",nome:""});}}
+            style={{background:"transparent",border:"none",color:C.faint,fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+          Um funil é um fluxo de trabalho: pré-atendimento, venda, locação, recaptação.
+          Comece de um modelo e ajuste depois — nada aqui é definitivo.
+        </div>
+
+        {criandoErro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px"}}>{criandoErro}</div>}
+
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
+          {templates.map(t=><button key={t.id} onClick={()=>setNovoFunil({...novoFunil,template:t.id})}
+            style={{textAlign:"left",cursor:"pointer",borderRadius:11,padding:"10px 12px",
+              border:`${novoFunil.template===t.id?2:1}px solid ${novoFunil.template===t.id?C.green:C.line}`,
+              background:novoFunil.template===t.id?C.greenSoft:C.surface}}>
+            <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{t.nome}</div>
+            <div style={{color:C.sub,fontSize:10.5,marginTop:2,lineHeight:1.45}}>{t.para||t.descricao}</div>
+            <div style={{color:C.faint,fontSize:10,marginTop:4,lineHeight:1.4}}>
+              {t.etapas.length} etapas · {t.etapas.slice(0,3).join(" → ")}…</div>
+          </button>)}
+          <button onClick={()=>setNovoFunil({...novoFunil,template:""})}
+            style={{textAlign:"left",cursor:"pointer",borderRadius:11,padding:"10px 12px",
+              border:`${!novoFunil.template?2:1}px solid ${!novoFunil.template?C.green:C.line}`,
+              background:!novoFunil.template?C.greenSoft:C.surface}}>
+            <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>Do zero</div>
+            <div style={{color:C.sub,fontSize:10.5,marginTop:2,lineHeight:1.45}}>
+              Sem etapas — você monta cada uma.</div>
+          </button>
+        </div>
+
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:"1 1 200px"}}>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Nome do funil</div>
+            <input value={novoFunil.nome} onChange={e=>setNovoFunil({...novoFunil,nome:e.target.value})}
+              placeholder={novoFunil.template?(templates.find(t=>t.id===novoFunil.template)||{}).nome:"ex.: Locação"}
+              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+                background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
+          <button disabled={criandoOcupado||(!novoFunil.template&&!novoFunil.nome.trim())}
+            onClick={async()=>{
+              setCriandoErro("");setCriandoOcupado(true);
+              try{
+                const r=await acoes.criarPipeline({template:novoFunil.template||undefined,
+                  name:novoFunil.nome.trim()||undefined});
+                await reverFunis();
+                /* Já abre no funil recém-criado: quem acabou de criar quer
+                   vê-lo, e deixar o quadro no funil antigo faria parecer que
+                   não aconteceu nada. */
+                if(r&&r.pipeline) setPipeSel(r.pipeline.id);
+                setCriandoFunil(false);setNovoFunil({template:"",nome:""});
+              }catch(e){ setCriandoErro(e.message); }
+              finally{ setCriandoOcupado(false); }
+            }}
+            style={{background:(!novoFunil.template&&!novoFunil.nome.trim())?C.faint:C.green,color:"#fff",
+              border:"none",borderRadius:10,padding:isMobile?"12px 18px":"10px 18px",fontSize:13,
+              fontWeight:600,cursor:"pointer",flexShrink:0}}>
+            {criandoOcupado?"Criando…":"Criar funil"}</button>
+        </div>
+
+        {/* Onde fica o ajuste fino, dito aqui para ninguém procurar. */}
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,borderTop:`1px solid ${C.line}`,paddingTop:9}}>
+          Prazo de cada etapa, campos obrigatórios, cores e ordem ficam em
+          <b style={{color:C.sub}}> Configurações → Funis e etapas</b>.
+        </div>
+      </div>}
+
       {filtrosAbertos&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingBottom:2}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
           {mostrarDono&&selo("Todo mundo",f.dono,"dono",
@@ -6764,6 +6880,129 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
 /* Preço miúdo não pode virar "0.00". Uma leitura de 3 conversas custa menos
    de um centavo de dólar — mostrar "US$ 0.00" é dizer que é de graça. */
 const dinheirinho=(v)=>v>=0.01?v.toFixed(2):v.toFixed(4);
+/* MOVER OS LEADS DE UMA PESSOA PARA OUTRO FUNIL (28/08/2026, pedido do Ali).
+
+   "Todos os contatos atribuídos à Vanessa no funil de SDR." É a operação que
+   faltava para os múltiplos funis servirem para alguma coisa — e a única
+   maneira de fazer isso hoje seria abrir trezentos leads, um a um.
+
+   A PREVIA DIZ EM QUE ETAPA ELES CAEM, e isso não é detalhe.
+
+   Os funis são diferentes por natureza: o comercial tem "Pasta" e "Aprovação",
+   o de SDR tem "Tentativa 2". Quase nada casa por nome, então o padrão é a
+   PRIMEIRA etapa do destino — o começo honesto de um fluxo novo. Só que isso
+   significa zerar o avanço desses leads, e fazer isso sem avisar apagaria um
+   funil que alguém passou meses construindo. Por isso o número aparece antes
+   do botão, com todas as letras.
+
+   O RESPONSAVEL NAO MUDA. Mover de funil é trocar o fluxo, não tirar o lead da
+   pessoa — repassar é a catraca, que é outra decisão e outra tela. */
+function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
+  const [pessoas,setPessoas]=useState([]);
+  const [funis,setFunis]=useState([]);
+  const [f,setF]=useState({user_id:"",pipeline_id:"",manter:false});
+  const [previa,setPrevia]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [feito,setFeito]=useState("");
+
+  useEffect(()=>{
+    acoes.equipe().then(r=>setPessoas((r.users||r||[]).filter(u=>u.status==="ativo"))).catch(()=>{});
+    acoes.pipelines().then(r=>setFunis(r.pipelines||[])).catch(()=>{});
+  },[]);
+
+  // A prévia se refaz sozinha a cada escolha: pedir para o gestor clicar em
+  // "conferir" antes de ver o tamanho só adiciona um passo entre ele e o número.
+  useEffect(()=>{
+    setFeito("");
+    if(!f.user_id||!f.pipeline_id){setPrevia(null);return;}
+    let vivo=true;
+    acoes.previaMoverFunil(f).then(r=>vivo&&(setPrevia(r),setErro("")))
+      .catch(e=>vivo&&(setPrevia(null),setErro(e.message)));
+    return()=>{vivo=false;};
+  },[f.user_id,f.pipeline_id,f.manter]);
+
+  const sel={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,
+    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px"};
+
+  return cartao(<React.Fragment>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Mover os leads de uma pessoa para outro funil</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Para separar a operação: os leads da atendente no funil de pré-atendimento,
+      os do corretor no comercial. O <b>responsável não muda</b> — só o fluxo em que o lead anda.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+      <select value={f.user_id} onChange={e=>setF({...f,user_id:e.target.value})} style={sel}>
+        <option value="">Leads de quem?</option>
+        <option value="fila">Sem dono (na fila)</option>
+        {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <select value={f.pipeline_id} onChange={e=>setF({...f,pipeline_id:e.target.value})} style={sel}>
+        <option value="">Para qual funil?</option>
+        {funis.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+
+    {previa&&<React.Fragment>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+        {[["vão ser movidos",previa.leads],["já estão lá",previa.ja_estao_la]].map(([t,v])=>
+          <div key={t} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
+            padding:"9px 12px",flex:"1 1 110px"}}>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{color:C.faint,fontSize:10,marginTop:3}}>{t}</div></div>)}
+      </div>
+
+      {previa.leads>0&&<React.Fragment>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
+          Saindo de: {previa.de.map(d=>`${d.funil} (${d.leads})`).join(", ")}.
+        </div>
+
+        {/* O AVISO QUE NAO PODE FALTAR: em que etapa eles caem. */}
+        <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,
+          borderRadius:10,padding:"10px 12px",marginBottom:9}}>
+          {f.manter&&previa.etapa_preservada>0
+            ? <React.Fragment><b>{previa.etapa_preservada}</b> mantêm a etapa atual (existe uma com o mesmo
+                nome no destino) e <b>{previa.etapa_para_a_primeira}</b> vão para <b>{previa.etapa_destino}</b>.</React.Fragment>
+            : <React.Fragment>Todos os <b>{previa.leads}</b> vão para a primeira etapa do funil de destino,
+                <b> {previa.etapa_destino}</b>. O avanço que eles tinham no funil atual não é transferido —
+                os funis têm etapas diferentes, e quase nada casa entre eles.</React.Fragment>}
+        </div>
+
+        <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",marginBottom:10}}>
+          <input type="checkbox" checked={f.manter} onChange={e=>setF({...f,manter:e.target.checked})}
+            style={{marginTop:2,width:16,height:16,accentColor:C.green,cursor:"pointer"}}/>
+          <span style={{fontSize:11.5,color:C.sub,lineHeight:1.5}}>
+            Manter a etapa quando existir uma com o mesmo nome no funil de destino.
+            O que não casar cai na primeira do mesmo jeito.
+          </span>
+        </label>
+
+        <button disabled={ocupado} onClick={async()=>{
+            setErro("");setOcupado(true);
+            try{
+              const r=await acoes.moverParaFunil({user_id:f.user_id,pipeline_id:f.pipeline_id,manter_etapa:f.manter});
+              setFeito(`${r.movidos} lead(s) de ${r.pessoa} movidos para "${r.destino}".`);
+              setPrevia(null);setF({...f,user_id:"",pipeline_id:""});
+              if(aoAplicar) aoAplicar();
+            }catch(e){ setErro(e.message); }
+            finally{ setOcupado(false); }
+          }}
+          style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,
+            padding:"12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          {ocupado?"Movendo…":`Mover ${previa.leads} lead(s) para ${previa.destino}`}</button>
+      </React.Fragment>}
+
+      {previa.leads===0&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+        Não há nada para mover — {previa.ja_estao_la>0?`os ${previa.ja_estao_la} leads dessa pessoa já estão nesse funil.`:"essa pessoa não tem leads."}
+      </div>}
+    </React.Fragment>}
+  </React.Fragment>);
+}
+
 function ArrumarBase({acoes,isMobile,aoAplicar}){
   const [t,setT]=useState(null);          // prévia da temperatura
   const [ia,setIa]=useState(null);        // prévia da IA
@@ -6865,11 +7104,18 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Arrumar a base</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-      Três correções para a base. Todas mostram o tamanho — e o custo, quando gasta — antes de aplicar.
+      Quatro correções para a base. Todas mostram o tamanho — e o custo, quando gasta — antes de aplicar.
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
     {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"10px 12px",marginTop:10}}>{feito}</div>}
+
+    {/* ===== 0. MOVER PARA OUTRO FUNIL =====
+
+        Fica em primeiro porque é a operação que faz os múltiplos funis
+        existirem de verdade: criar o funil do SDR não muda nada enquanto os
+        leads que deveriam estar nele continuam no comercial. */}
+    <MoverFunil acoes={acoes} isMobile={isMobile} cartao={cartao} aoAplicar={aoAplicar}/>
 
     {/* ===== 1. TEMPERATURA ===== */}
     {cartao(<React.Fragment>

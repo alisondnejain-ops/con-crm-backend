@@ -16,7 +16,7 @@ import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
 import { estadoNoLead, ligarNoLead } from "../services/robo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
-  corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA } from "../services/lote.js";
+  corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 const r = Router();
@@ -496,6 +496,30 @@ function reanalisar(orgId, aplicar) {
    centenas de leads de uma vez é o tipo de coisa que não se desfaz na mão.
 
    Só ADM: é decisão sobre a base da imobiliária, e a segunda gasta dinheiro. */
+/* ===== MOVER OS LEADS DE UMA PESSOA PARA OUTRO FUNIL =====
+
+   Sem isto, ter vários funis não serve para nada: criar o funil do SDR não
+   muda nada se os leads que deveriam estar nele continuam no comercial, e
+   mover trezentos leads um a um não é uma opção que se ofereça a alguém.
+
+   `soDono` não: é ADM como as outras operações em massa. Mexe na base inteira
+   da imobiliária e não se desfaz na mão. */
+r.get("/lote/mover-funil", roles("adm"), (req, res) => {
+  const r1 = previaMoverFunil(req.user.org_id, {
+    userId: req.query.user_id, pipelineId: req.query.pipeline_id,
+    manterEtapa: req.query.manter === "1" });
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
+
+r.post("/lote/mover-funil", roles("adm"), (req, res) => {
+  const r1 = moverParaFunil(req.user.org_id, {
+    userId: req.body?.user_id, pipelineId: req.body?.pipeline_id,
+    manterEtapa: !!req.body?.manter_etapa, quemMandou: req.user.id });
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
+
 r.get("/lote/temperatura", roles("adm"), (req, res) =>
   res.json(previaTemperatura(req.user.org_id, String(req.query.t || "MORNO").toUpperCase())));
 

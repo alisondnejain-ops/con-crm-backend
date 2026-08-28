@@ -228,7 +228,11 @@ O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde ca
 
 **Os dados de campanha estavam se perdendo.** O webhook da Meta guardava só o `meta_lead_id`: a Graph API não manda campanha, conjunto, anúncio e formulário sem serem pedidos pelo nome. É dado que não volta — lead de ontem perdeu a atribuição para sempre. Por isso entrou junto da fundação, antes de qualquer tela que fosse usá-lo. O painel de campanhas informa a **cobertura** ("4 de 300 leads têm campanha"), senão quatro linhas parecem a operação inteira.
 
-Testes: `npm run teste:pipelines` (49 casos).
+**O seletor de funil no Kanban aparece SEMPRE**, mesmo com um só — e criar outro sai dali. A primeira versão o escondia quando havia apenas um, com o raciocínio de que um seletor de uma opção não faz nada. O raciocínio estava errado: toda conta começa com um funil, então o seletor nunca aparecia para ninguém, e a possibilidade de ter vários não existia aos olhos de quem usa. Recurso sem porta na tela onde ele importa é recurso que não existe. O ajuste fino (SLA, campos, ordem) continua em Configurações — é trabalho de sentar, não de um clique no meio do atendimento. E o quadro passou a mostrar **só os leads do funil escolhido**: sem isso, escolher um funil novo dava colunas vazias com "60 lead(s)" no contador ao lado, duas afirmações contrárias na mesma barra.
+
+**Mover os leads de uma pessoa para outro funil** (`services/lote.js` → `previaMoverFunil`/`moverParaFunil`, Base de leads → Arrumar a base, só ADM): é a operação que faz os múltiplos funis existirem de verdade — criar o funil do SDR não muda nada enquanto os leads que deveriam estar nele continuam no comercial, e mover trezentos um a um não é opção que se ofereça a alguém. **A prévia diz em que ETAPA eles caem**, e isso não é detalhe: os funis têm etapas diferentes por natureza, quase nada casa por nome, e o padrão é a primeira etapa do destino — mover a base para "Lead novo" sem avisar zeraria um funil que alguém passou meses construindo. **O responsável não muda**: mover de funil é trocar o fluxo, não tirar o lead da pessoa. Usa `moverEtapa` lead a lead, e não um UPDATE em massa, porque é ele que grava o histórico e a transferência — "por onde este lead passou" é justamente a pergunta que trocar de funil cria.
+
+Testes: `npm run teste:pipelines` (55 casos).
 
 ## Identidade visual
 

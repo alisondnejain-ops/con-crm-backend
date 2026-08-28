@@ -18,6 +18,7 @@
    temperatura é quem conversou. */
 
 import db from "../db.js";
+import { pipelinePorId, etapasDoPipeline } from "./pipelines.js";
 import { LINEAR } from "./stages.js";
 import { moverEtapa } from "./etapas.js";
 import { etapaDaConversa, temperaturaDaConversa, iaConfigurada } from "./ia.js";
@@ -258,3 +259,104 @@ const jaAnalisado = (id) => {
   return !!(l && l.etapa_ia_em && Date.now() - l.etapa_ia_em < JANELA);
 };
 
+/* ===== MOVER LEADS DE UMA PESSOA PARA OUTRO FUNIL ===== (28/08/2026)
+
+   Pedido do Ali: "todos os contatos atribuídos à Vanessa no funil de SDR".
+
+   É a operação que faltava para os múltiplos funis servirem para alguma coisa.
+   Criar o funil do SDR não adianta nada se os leads que deveriam estar nele
+   continuam no comercial, e mover trezentos leads um a um não é uma opção que
+   se ofereça a alguém.
+
+   DUAS DECISOES QUE MUDAM O RESULTADO, E POR ISSO SAO ESCOLHA DE QUEM MANDA:
+
+   1. EM QUAL ETAPA ELES CAEM. Os funis são diferentes por natureza — o
+      comercial tem "Pasta" e "Aprovação", o de SDR tem "Tentativa 2". Quase
+      nada casa por nome. Por isso o padrão é a PRIMEIRA etapa do destino, que
+      é o começo honesto de um fluxo novo; quem quiser preservar o que casar
+      pede `manterEtapa`, e o que não casar cai na primeira do mesmo jeito.
+
+      Dito na prévia, sempre: a etapa é o que a gestão lê no relatório, e
+      mover a base inteira para "Lead novo" sem avisar zeraria um funil que
+      alguém passou meses construindo.
+
+   2. O QUE ACONTECE COM QUEM JA ESTA LA. Nada: lead que já está no funil de
+      destino não é tocado nem contado. Rodar duas vezes dá no mesmo.
+
+   O que NAO muda: o responsável. Mover de funil é mudar o fluxo, não tirar o
+   lead da pessoa — quem quiser repassar usa a catraca, que é outra decisão. */
+
+export function previaMoverFunil(orgId, { userId, pipelineId, manterEtapa = false }) {
+  const destino = pipelinePorId(orgId, pipelineId);
+  if (!destino) return { erro: "Funil de destino não encontrado." };
+  const etapas = etapasDoPipeline(orgId, pipelineId);
+  if (!etapas.length) return { erro: "O funil de destino não tem etapas ativas. Crie ao menos uma antes de mover." };
+
+  const dono = userId === "fila"
+    ? { id: null, name: "sem dono (na fila)" }
+    : db.prepare("SELECT id,name FROM users WHERE id=? AND org_id=?").get(userId, orgId);
+  if (!dono) return { erro: "Pessoa não encontrada nesta imobiliária." };
+
+  const alvos = db.prepare(`SELECT l.*, p.name AS pipeline_nome FROM leads l
+    LEFT JOIN pipelines p ON p.id = l.pipeline_id
+    WHERE l.org_id = ? AND ${userId === "fila" ? "l.assigned_to IS NULL" : "l.assigned_to = ?"}
+      AND (l.pipeline_id IS NULL OR l.pipeline_id <> ?)`)
+    .all(...(userId === "fila" ? [orgId, pipelineId] : [orgId, userId, pipelineId]));
+
+  const porNome = new Map(etapas.map(e => [e.name, e]));
+  const primeira = etapas[0];
+  // De onde eles vêm, para a prévia dizer o tamanho do estrago antes do clique.
+  const origem = new Map();
+  let casam = 0;
+  for (const l of alvos) {
+    const chave = l.pipeline_nome || "(sem funil)";
+    origem.set(chave, (origem.get(chave) || 0) + 1);
+    if (manterEtapa && porNome.has(l.stage)) casam++;
+  }
+
+  return {
+    pessoa: dono.name, destino: destino.name,
+    leads: alvos.length,
+    ja_estao_la: db.prepare(`SELECT COUNT(*) n FROM leads WHERE org_id=? AND pipeline_id=?
+      AND ${userId === "fila" ? "assigned_to IS NULL" : "assigned_to = ?"}`)
+      .get(...(userId === "fila" ? [orgId, pipelineId] : [orgId, pipelineId, userId])).n,
+    de: [...origem.entries()].map(([nome, n]) => ({ funil: nome, leads: n })),
+    etapa_destino: primeira ? primeira.name : null,
+    manter_etapa: !!manterEtapa,
+    // Quantos conservariam a etapa atual, se a opção estiver ligada.
+    etapa_preservada: manterEtapa ? casam : 0,
+    etapa_para_a_primeira: manterEtapa ? alvos.length - casam : alvos.length,
+  };
+}
+
+export function moverParaFunil(orgId, { userId, pipelineId, manterEtapa = false, quemMandou = null }) {
+  const previa = previaMoverFunil(orgId, { userId, pipelineId, manterEtapa });
+  if (previa.erro) return previa;
+  if (!previa.leads) return { movidos: 0, ...previa };
+
+  const etapas = etapasDoPipeline(orgId, pipelineId);
+  const porNome = new Map(etapas.map(e => [e.name, e]));
+  const primeira = etapas[0];
+
+  const alvos = db.prepare(`SELECT id, stage FROM leads
+    WHERE org_id = ? AND ${userId === "fila" ? "assigned_to IS NULL" : "assigned_to = ?"}
+      AND (pipeline_id IS NULL OR pipeline_id <> ?)`)
+    .all(...(userId === "fila" ? [orgId, pipelineId] : [orgId, userId, pipelineId]));
+
+  let movidos = 0;
+  /* Um `moverEtapa` por lead, e não um UPDATE em massa. Custa mais e é o certo:
+     é ele que grava o histórico de etapa e o registro de transferência entre
+     funis. Um UPDATE direto moveria os leads sem deixar rastro, e "por onde
+     este lead passou" é justamente a pergunta que a mudança de funil cria. */
+  const rodar = db.transaction(() => {
+    for (const l of alvos) {
+      const destinoEtapa = (manterEtapa && porNome.get(l.stage)) || primeira;
+      if (!destinoEtapa) continue;
+      if (moverEtapa({ leadId: l.id, paraEtapaId: destinoEtapa.id,
+        motivo: "mao", userId: quemMandou })) movidos++;
+    }
+  });
+  rodar();
+  console.log(`[lote] ${movidos} lead(s) de ${previa.pessoa} movidos para o funil "${previa.destino}"`);
+  return { movidos, ...previa };
+}
