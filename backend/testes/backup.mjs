@@ -300,5 +300,33 @@ assert.ok(!tudo2.includes("tambem-curta") && !tudo2.includes("curta"),
   "nem quando o valor está errado — é justamente aí que a tentação de mostrar aparece");
 console.log("   nem quando estão certas, nem quando estão erradas");
 
+console.log("20. Falha de TLS não chega crua — e aponta o campo certo");
+/* O erro do OpenSSL ("sslv3 alert handshake failure … SSL alert number 40") é
+   ilegível e não diz onde mexer. Aqui ele acontece ANTES de qualquer
+   autenticação: o endereço foi recusado, e o endereço é montado com o
+   R2_ACCOUNT_ID. */
+const tls = semR2.emPortugues({ message: "write EPROTO 804306D3F47F0000:error:0A000410:SSL routines:ssl3_read_bytes:sslv3 alert handshake failure:ssl/record/rec_layer_s3.c:908:SSL alert number 40" });
+console.log(`   ${tls.slice(0, 74)}…`);
+assert.ok(/R2_ACCOUNT_ID/.test(tls), "aponta o campo");
+assert.ok(!/EPROTO|SSL routines|rec_layer/.test(tls), "e não repete o despejo do OpenSSL");
+assert.ok(/antes de a chave ser conferida/i.test(tls),
+  "diz que a chave nem foi olhada — senão o gestor vai mexer na chave de novo");
+
+console.log("21. E o endpoint colado no lugar do Account ID é pego antes disso");
+/* É a causa mais provável desse TLS: a tela do R2 mostra o endereço junto das
+   chaves, e ele é o que mais parece "a configuração". */
+const casos2 = [
+  ["https://abc.r2.cloudflarestorage.com", /ENDEREÇO do R2/],
+  ["abc.def", /ponto/],
+  ["0123456789abcdef0123456789abcde", /31 caracteres/],
+];
+for (const [valor, esperado] of casos2) {
+  const c2 = await comEnv({ ...BASE_OK, R2_ACCOUNT_ID: valor }, "conta-" + valor.length);
+  console.log(`   ${valor.slice(0, 34).padEnd(36)}→ ${c2.problemas[0].slice(0, 44)}…`);
+  assert.ok(esperado.test(c2.problemas[0]), `não pegou: ${valor}`);
+}
+const bom = await comEnv(BASE_OK, "conta-boa");
+assert.equal(bom.problemas.length, 0, "e o Account ID certo não vira alarme");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

@@ -82,8 +82,17 @@ export function conferirR2() {
   if (R2.conta) {
     if (/^cfat[_-]/i.test(R2.conta))
       problemas.push("R2_ACCOUNT_ID está com o ID do TOKEN (começa com cfat_), não com o ID da CONTA. " + VARS[0].ajuda);
+    /* O endpoint inteiro colado no lugar do Account ID. A tela do R2 mostra os
+       dois juntos ("Use this S3 endpoint: https://<conta>.r2.cloudflarestorage.com"),
+       e o endereço é o que parece mais com "a configuração". O sintoma é feio e
+       não aponta para cá: a conexão TLS é recusada com "SSL alert number 40",
+       porque o endereço montado fica com o endpoint duas vezes. */
+    else if (/^https?:\/\//i.test(R2.conta) || R2.conta.includes("/") || /r2\.cloudflarestorage\.com/i.test(R2.conta))
+      problemas.push("R2_ACCOUNT_ID está com o ENDEREÇO do R2, não com o ID da conta. O sistema monta o endereço sozinho — aqui vai só o identificador. " + VARS[0].ajuda);
+    else if (R2.conta.includes("."))
+      problemas.push("R2_ACCOUNT_ID tem ponto, e um Account ID não tem. Parece que veio um pedaço do endereço junto. " + VARS[0].ajuda);
     else if (!/^[0-9a-f]{32}$/i.test(R2.conta))
-      problemas.push("R2_ACCOUNT_ID não tem a cara de um Account ID. " + VARS[0].ajuda);
+      problemas.push(`R2_ACCOUNT_ID tem ${R2.conta.length} caracteres e o esperado são 32 (números e letras de a-f). ` + VARS[0].ajuda);
   }
   /* AS DUAS CHAVES TÊM FORMA FIXA, e conferi-la aqui evita a pior mensagem
      possível: "o R2 não reconheceu a chave", que manda procurar defeito sem

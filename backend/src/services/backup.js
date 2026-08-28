@@ -179,6 +179,21 @@ export function emPortugues(e, operacao = "enviar") {
     return "O bucket informado em R2_BUCKET não existe nesta conta do R2.";
   if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(m))
     return "Não consegui alcançar o Cloudflare R2 pela rede. Confira R2_ACCOUNT_ID — ele é parte do endereço do servidor.";
+  /* TLS que nem chega a começar. O erro vem cru do OpenSSL — "sslv3 alert
+     handshake failure … SSL alert number 40" — e não há nada nele que um não
+     programador possa fazer.
+
+     O que ele significa aqui é bem específico: o servidor do outro lado
+     RECUSOU a conexão segura para o endereço pedido, o que acontece quando o
+     endereço não é um endereço válido do R2. E o endereço é montado com o
+     R2_ACCOUNT_ID (`https://<conta>.r2.cloudflarestorage.com`), então é ele o
+     suspeito — em especial quando alguém cola ali o endpoint inteiro em vez de
+     só o identificador da conta.
+
+     Repare que isto acontece ANTES de qualquer autenticação: se este erro
+     aparece, a chave e o segredo nem foram olhados. */
+  if (/EPROTO|handshake failure|alert number 40|ERR_TLS|ERR_SSL|wrong version number/i.test(nome + m))
+    return "Não consegui abrir conexão segura com o endereço do R2 — ele foi recusado antes de a chave ser conferida. O endereço é montado com o R2_ACCOUNT_ID, então é quase sempre ele: precisa ser SÓ o Account ID (32 caracteres, números e letras de a-f), sem https:// e sem o resto do endereço.";
   if (/ECONNREFUSED|ETIMEDOUT|ECONNRESET|socket hang up/i.test(m))
     return "A conexão com o Cloudflare R2 caiu no meio do envio. Tente de novo; se repetir, é rede da hospedagem.";
   if (/XML parse error|Deserialization/i.test(m))
