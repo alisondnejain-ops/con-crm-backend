@@ -43,6 +43,8 @@ const arrumarCodigo = (v) => String(v || "").trim().toUpperCase()
 const codigoSugerido = (nome) =>
   (arrumarCodigo(nome).split("-").slice(0, 2).join("-") || "IMOBILIARIA") + "-" + new Date().getFullYear();
 
+import { limites as limitesDeCanais } from "../services/canais.js";
+
 function resumo(req, org) {
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
   const s = situacao(org.id);
@@ -61,6 +63,11 @@ function resumo(req, org) {
        imobiliária. Sem isso o master trabalharia com a cor da casa anterior. */
     ...marcaDaOrg(org),
     assinatura: { status: s.status, cobranca: !!s.cobranca, vence_em: s.vence_em || null, valor: s.valor ?? null },
+    /* Quantas linhas de WhatsApp esta conta tem ligadas, e o que elas somam por
+       mês. É a resposta que o hub precisa dar de relance: o número extra é
+       cobrado à parte, e sem ele na lista o master precisaria entrar em cada
+       conta para saber quanto faturar. */
+    canais: limitesDeCanais(org.id),
     criada_em: org.created_at || null,
     tipo: org.tipo || "imobiliaria",
     trial_ate: org.trial_ate || null,

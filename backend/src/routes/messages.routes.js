@@ -5,6 +5,29 @@ import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
 import { pararPorGente } from "../services/robo.js";
+import { canalDoLead } from "../services/canais.js";
+
+/* POR QUAL LINHA ESTA MENSAGEM SAI.
+
+   Uma pergunta só, respondida num lugar só. O lead sabe em que linha a
+   conversa está (`leads.canal_id`), e é dela que saem texto, mídia,
+   localização, imóvel e edição. Deixar cada rota decidir seria a mesma regra
+   escrita cinco vezes — e a que ficasse para trás não daria erro: mandaria a
+   mensagem pelo número errado, e só o cliente veria.
+
+   Devolve o id do canal, ou `null` para a linha da casa. */
+const linhaDo = (lead) => { const c = canalDoLead(lead); return c && c.tipo === "corretor" ? c.id : null; };
+
+/* O nome que aparece no pino do mapa. Estava escrito "Conecta Imóveis" no
+   código — texto que vai PARA O CLIENTE com o nome de outra imobiliária, do
+   mesmo tipo que saiu do prompt do robô em 26/08/2026. Agora vem da conta; e
+   numa linha pessoal vai só o nome da pessoa, que é com quem o cliente pensa
+   que está falando. */
+function nomeNoMapa(lead, firstName) {
+  if (linhaDo(lead)) return firstName;
+  const o = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id);
+  return o && o.name ? `${firstName} — ${o.name}` : firstName;
+}
 
 // O tipo do arquivo pela extensão da URL guardada. Só serve para rotular o
 // arquivo embutido no reenvio — o catálogo já limitou o que pode entrar.
@@ -42,7 +65,7 @@ r.post("/:id/messages", async (req, res) => {
 
   let envio;
   try {
-    envio = await sendText({ orgId: lead.org_id, toPhone: lead.phone, text: text.trim(), signedBy: firstName,
+    envio = await sendText({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, text: text.trim(), signedBy: firstName,
       // Sem `wa_id` (mensagem anterior a 09/08/2026) não dá para citar no
       // WhatsApp — mas a citação continua valendo dentro do CRM.
       replyTo: citada && citada.wa_id ? citada.wa_id : null, quotedText: citada ? citada.body : null });
@@ -53,9 +76,9 @@ r.post("/:id/messages", async (req, res) => {
   const now = Date.now();
   // `wa_id`: o webhook devolve esta mesma mensagem daqui a instantes, e e por
   // ele que ela e reconhecida como eco em vez de virar uma copia na conversa.
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,reply_to,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(),
-      envio?.messageid || null, citada ? citada.id : null, now);
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,reply_to,created_at,canal_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(),
+      envio?.messageid || null, citada ? citada.id : null, now, linhaDo(lead));
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
@@ -101,7 +124,12 @@ r.patch("/:id/messages/:msgId", async (req, res) => {
     return res.status(403).json({ error: "Esta mensagem foi assinada por outra pessoa." });
 
   try {
-    await editMessage({ orgId: lead.org_id, messageid: msg.wa_id, text: text.trim() });
+    /* Edita pela linha por onde a mensagem SAIU, não pela linha atual da
+       conversa. São coisas diferentes desde que existem duas linhas: o cliente
+       pode ter migrado para o número pessoal depois, e a instância da casa é a
+       única que consegue editar o que a casa mandou. */
+    await editMessage({ orgId: lead.org_id, canalId: msg.canal_id || linhaDo(lead),
+      messageid: msg.wa_id, text: text.trim() });
   } catch (e) {
     // De propósito: NADA muda no banco quando a edição não sai no WhatsApp.
     return res.status(502).json({ error: "Não consegui editar no WhatsApp — a mensagem continua como está", detail: e.message });
@@ -167,7 +195,7 @@ r.post("/:id/anexo", async (req, res) => {
       const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
       // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
       // conseguir baixar pela URL, ele vai embutido, sem reler nada.
-      const envio = await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
+      const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
         caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
       enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda, wa_id: envio?.messageid || null });
     }
@@ -199,15 +227,15 @@ r.post("/:id/localizacao", async (req, res) => {
 
   const firstName = (req.user.name || "").split(" ")[0];
   try {
-    await sendLocation({ orgId: lead.org_id, toPhone: lead.phone, latitude: lat, longitude: lon, name: `${firstName} — Conecta Imóveis` });
+    await sendLocation({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, latitude: lat, longitude: lon, name: nomeNoMapa(lead, firstName) });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
 
   const now = Date.now();
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
-    VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
-      `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now);
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at,canal_id)
+    VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
+      `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   res.json({ ok: true });
@@ -215,9 +243,9 @@ r.post("/:id/localizacao", async (req, res) => {
 
 function gravarSaida(lead, user, firstName, m) {
   const rotulo = /^image\//.test(m.mime) ? "Foto" : /^video\//.test(m.mime) ? "Vídeo" : /^audio\//.test(m.mime) ? "Áudio" : (m.nome || "Arquivo");
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
-      m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now());
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at,canal_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
+      m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now(), linhaDo(lead));
 }
 
 // Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial
@@ -273,15 +301,15 @@ r.post("/:id/produto", async (req, res) => {
   if (localizacao && p.maps_url) texto += `\n\n📍 Localização: ${p.maps_url}`;
 
   try {
-    await sendText({ orgId: lead.org_id, toPhone: lead.phone, text: texto, signedBy: firstName });
+    await sendText({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, text: texto, signedBy: firstName });
     /* A foto do catálogo já está guardada, então aqui não temos o arquivo em
        mãos. `bytes` é uma função: só lê do disco/R2 se a URL falhar — assim o
        envio normal continua tão leve quanto era. */
     if (fotos) for (const m of fotosParaEnviar)
-      await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: "image", file: m.url,
+      await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: "image", file: m.url,
         bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
     if (video) for (const m of midias.filter(m => m.tipo === "video"))
-      await sendMedia({ orgId: lead.org_id, toPhone: lead.phone, type: "video", file: m.url,
+      await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: "video", file: m.url,
         bytes: () => bytesDoArquivo(m.chave), mime: mimeDaUrl(m.url) });
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
@@ -297,8 +325,8 @@ r.post("/:id/produto", async (req, res) => {
   const registro = `[Imóvel enviado] ${p.titulo}`
     + (parcial ? ` (${fotosParaEnviar.length} de ${todasAsFotos} fotos)` : "")
     + (localizacao && p.maps_url ? " (com localização)" : "");
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
-    VALUES (?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now);
+  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at,canal_id)
+    VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   // Guarda como imóvel de interesse, se ainda não houver outro marcado.

@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import db from "./db.js";
 import { garantirPipelinePadrao } from "./services/pipelines.js";
+import { migrarCanais } from "./services/canais.js";
 
 // Roda a cada start do servidor. Garante que a organização existe e que o código
 // da imobiliária é o do .env — assim, ao hospedar, o link de cadastro já funciona
@@ -145,6 +146,12 @@ export function bootstrap() {
   }
   if (convertidas || ligados)
     console.log(`Funil configurável: ${convertidas} imobiliária(s) convertida(s), ${ligados} lead(s) ligado(s) às etapas.`);
+
+  /* As LINHAS de WhatsApp. Cada imobiliária ganha a linha da casa com a mesma
+     conexão que ela já usava — ninguém reconecta nada, e quem nunca ligou o
+     WhatsApp ganha a linha vazia, pronta para quando ligar. Idempotente. */
+  try { migrarCanais(); }
+  catch (e) { console.error("[canais] não consegui preparar as linhas de WhatsApp:", e.message); }
 
   return org;
 }

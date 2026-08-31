@@ -17,8 +17,17 @@ import { salvar } from "./storage.js";
      2) content.URL direto, que serve quando o provedor já entrega decifrado.
    Cada tentativa diz o que aconteceu, para o diagnóstico não virar adivinhação. */
 
-const HOST = (process.env.UAZAPI_HOST || "").replace(/\/$/, "");
-const TOKEN = process.env.UAZAPI_TOKEN || "";
+/* AS CREDENCIAIS VÊM DA LINHA QUE RECEBEU A MENSAGEM (31/08/2026).
+
+   Aqui ficou um resto da época em que a Uazapi era do SERVIDOR: `UAZAPI_HOST`
+   e `UAZAPI_TOKEN` das variáveis de ambiente. A migração de 2026 mudou o envio
+   para as credenciais da imobiliária e esqueceu deste caminho — e o esquecido
+   não dava erro nenhum na Conecta, porque as variáveis apontavam justamente
+   para a instância dela. Numa segunda imobiliária, toda foto que o cliente
+   mandasse falharia em silêncio e a conversa guardaria só o rótulo "Foto".
+
+   Com linhas pessoais isso ficaria pior: a foto que o cliente manda para o
+   número do corretor só é baixável com o token DAQUELA instância. */
 
 // Teto por arquivo. Documento de cliente costuma ser pequeno; vídeo é o que
 // enche o disco da hospedagem, e é o motivo do R2 existir na lista de próximos passos.
@@ -38,11 +47,13 @@ async function baixarDe(url, headers) {
 
 // A Uazapi devolve ora um link temporário, ora o arquivo em base64 — os dois
 // caminhos aparecem conforme a versão, então tratamos ambos.
-async function viaUazapi(messageid) {
-  if (!HOST || !TOKEN || !messageid) throw new Error("Uazapi não configurada");
-  const res = await fetch(`${HOST}/message/download`, {
+async function viaUazapi(messageid, canal) {
+  const host = String(canal?.host || "").replace(/\/$/, "");
+  const token = String(canal?.token || "");
+  if (!host || !token || !messageid) throw new Error("a linha que recebeu não tem conexão configurada");
+  const res = await fetch(`${host}/message/download`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", token: TOKEN },
+    headers: { "Content-Type": "application/json", token },
     body: JSON.stringify({ id: messageid }),
   });
   const dados = await res.json().catch(() => ({}));
@@ -61,14 +72,14 @@ async function viaUazapi(messageid) {
 
 /* Devolve { url, mime, nome } ou null. Nunca lança: mídia que não desce não
    pode derrubar o recebimento da mensagem — o texto e o lead importam mais. */
-export async function guardarMidiaRecebida({ content, messageid, tipo }) {
+export async function guardarMidiaRecebida({ content, messageid, tipo, canal = null }) {
   if (!content || typeof content !== "object") return null;
   const mimeDeclarado = content.mimetype || content.mimeType || "";
   const nome = content.fileName || content.title || "";
   const tentativas = [];
 
   for (const [via, fn] of [
-    ["uazapi /message/download", () => viaUazapi(messageid)],
+    ["uazapi /message/download", () => viaUazapi(messageid, canal)],
     ["link direto do payload", () => baixarDe(content.URL || content.url, {})],
   ]) {
     try {

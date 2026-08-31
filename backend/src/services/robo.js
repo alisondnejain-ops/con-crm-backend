@@ -33,6 +33,7 @@ import { randomUUID } from "crypto";
 import { atenderPrimeiroContato, iaConfigurada, camposDa } from "./ia.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { sendText } from "./uazapi.js";
+import { canalDoLead } from "./canais.js";
 import { lerHorario } from "./expediente.js";
 
 export const TETO_PADRAO = 12;
@@ -173,7 +174,20 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
      gestor é tudo a mesma situação: ainda não tem dono de verdade, ninguém
      tem esse atendimento no nome para ser cobrado por ele. Lead repassado a
      corretor é o contrário disso, e é o único caso em que o robô se cala. */
-  if (lead.dono_papel === "corretor") return { pode: false, motivo: "ja_com_corretor" };
+  /* A LINHA PESSOAL INVERTE ESTA REGRA, e por isso ela vem antes.
+
+     "Já tem corretor, o robô se cala" vale no número da CASA: ali o robô cobre
+     o vazio entre o lead chegar e alguém assumir. Na linha PESSOAL de alguém
+     não existe esse vazio — todo lead dela é dela, então a trava do dono
+     silenciaria o robô em 100% das conversas e o recurso não existiria.
+
+     O que sustenta a inversão é o consentimento: a linha nasce com o robô
+     DESLIGADO e quem liga é o dono dela, na tela dele. Ninguém acorda com uma
+     IA falando pelo próprio WhatsApp por causa de uma versão nova. */
+  const canal = canalDoLead(lead);
+  const pessoal = canal && canal.tipo === "corretor";
+  if (pessoal && !canal.robo_ligado) return { pode: false, motivo: "robo_desligado_nesta_linha" };
+  if (!pessoal && lead.dono_papel === "corretor") return { pode: false, motivo: "ja_com_corretor" };
   if ((lead.robo_msgs || 0) >= cfg.teto) return { pode: false, motivo: "teto_de_mensagens" };
 
   // Sem retorno = a última mensagem da conversa é do cliente. Uma linha de SQL
@@ -263,16 +277,18 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
 
     /* Sem assinatura. Toda mensagem do CRM sai com "*Nome:*" do corretor; esta
        não tem corretor e não vai fingir um. Sai como a Conecta falando. */
-    const envio = await sendText({ orgId, toPhone: lead.phone, text: r.resposta.texto });
+    const canalDaVez = canalDoLead(lead);
+    const canalId = canalDaVez && canalDaVez.tipo === "corretor" ? canalDaVez.id : null;
+    const envio = await sendText({ orgId, canalId, toPhone: lead.phone, text: r.resposta.texto });
 
     /* A mensagem entra na conversa SEM autor (`from_user_id` nulo) e com
        `from_name` dizendo que foi o atendimento automático. Duas consequências
        de propósito: a tela mostra quem falou, e o score não conta isso como
        resposta de ninguém — o tempo de primeira resposta continua sendo o da
        Vanessa, que é o número que o gestor usa. */
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at)
-      VALUES (?,?,'out',NULL,?,?,?,?)`)
-      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, Date.now());
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
+      VALUES (?,?,'out',NULL,?,?,?,?,?)`)
+      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, Date.now(), canalId);
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o
        robô o marcasse, um lead atendido só por robô apareceria no relatório

@@ -564,6 +564,14 @@ addUserCol("master", "INTEGER DEFAULT 0");
 // Quando a pessoa se prontificou. É o que faz a disponibilidade expirar no fim
 // do expediente: vale só enquanto for da janela de hoje (ver services/expediente.js).
 addUserCol("available_desde", "INTEGER");
+/* O gestor liberou esta pessoa a ligar o WhatsApp DELA no CRM?
+
+   Nasce desligado, e é nominal de propósito. Cada linha ligada é cobrada à
+   parte, então quem decide é quem paga — sem isso a fatura da imobiliária
+   cresceria por decisão de quem não assina a conta. E é uma coluna, não uma
+   conta de "os N primeiros que pedirem": autorização deduzida de um número é
+   autorização que muda sozinha quando o número muda. */
+addUserCol("canal_liberado", "INTEGER DEFAULT 0");
 
 /* Registro de ponto da atendente.
 
@@ -618,6 +626,21 @@ addOrgCol("dono_user_id", "TEXT");
    quem já estava conectado continua conectado. */
 addOrgCol("uazapi_host", "TEXT");
 addOrgCol("uazapi_token", "TEXT");
+/* QUANTAS LINHAS DE WHATSAPP esta conta pode ligar, e quanto custa cada uma.
+
+   O plano de imobiliária vendido hoje é "até 10 corretores", e a leitura em
+   linhas é 1 da casa + 10 pessoais = 11. `limite_canais` é o TETO, não o que
+   está contratado: cada linha ligada é cobrada à parte, mensalmente. Por isso
+   o teto e o preço são campos separados — teto é o que o plano permite, preço
+   é o que cada linha custa quando o gestor decide ligá-la.
+
+   `canais_incluidos` é quantas já estão pagas dentro da mensalidade. O padrão
+   é 1 porque a linha da casa já vinha junto do plano desde antes disto existir;
+   passar a cobrar por ela seria aumentar o preço de quem já é cliente sem
+   ninguém ter combinado. O ConHub muda esse número pelo hub quando quiser. */
+addOrgCol("limite_canais", "INTEGER DEFAULT 11");
+addOrgCol("canais_incluidos", "INTEGER DEFAULT 1");
+addOrgCol("valor_canal", "REAL");
 /* Data do vencimento ANTES de qualquer pagamento. O vencimento em vigor é
    vence_base + (um mês por pagamento registrado), o que faz apagar pagamento
    voltar a data sozinho. Ver services/assinatura.js. */
@@ -957,5 +980,66 @@ addMsgCol("reply_to", "TEXT");
 addMsgCol("edited_at", "INTEGER");
 addMsgCol("edited_by", "TEXT");
 addMsgCol("body_original", "TEXT");
+
+/* ===== AS LINHAS DE WHATSAPP (canais) =====
+
+   Até aqui a imobiliária tinha UMA conexão, guardada em `orgs.uazapi_*`, e o
+   sistema inteiro assumia isso: o número era um só, e por isso toda mensagem
+   que saía era assinada com o nome do corretor (`*Marina:*`) — o lead precisava
+   saber com quem falava.
+
+   Agora o corretor pode ligar o WhatsApp DELE. A conversa continua acontecendo
+   dentro do CRM, mas sai por outra linha. Uma linha por LUGAR de onde a
+   mensagem sai e para onde ela chega: a da casa (tipo 'imobiliaria') e as
+   pessoais (tipo 'corretor', com `user_id`).
+
+   `orgs.uazapi_host/uazapi_token` CONTINUAM sendo escritos, sempre em par com
+   a linha da casa. É a mesma escolha de `leads.stage` ao lado de `stage_id`:
+   há código demais lendo as colunas antigas para trocar tudo num commit com a
+   operação rodando em cima. O par é mantido num lugar só (services/canais.js).
+
+   O token é único no sistema INTEIRO, não só dentro da imobiliária: é ele que
+   o webhook usa para descobrir de quem é a mensagem que chegou. Dois canais com
+   o mesmo token seriam duas conversas disputando a mesma entrada, e o
+   desempate seria a ordem das linhas na tabela — ou seja, sorte. */
+db.exec(`
+CREATE TABLE IF NOT EXISTS canais (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  tipo TEXT NOT NULL,            -- 'imobiliaria' | 'corretor'
+  user_id TEXT,                  -- nulo na linha da casa
+  nome TEXT,
+  host TEXT,
+  token TEXT,
+  wa_number TEXT,                -- o número pareado, para o diagnóstico
+  ativo INTEGER DEFAULT 1,
+  robo_ligado INTEGER DEFAULT 0, -- o robô fora do expediente responde nesta linha?
+  criado_por TEXT,
+  created_at INTEGER NOT NULL,
+  conectado_em INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_token ON canais(token) WHERE token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_canal_org ON canais(org_id, tipo);
+-- Uma linha pessoal por pessoa: duas seriam duas caixas de entrada para a
+-- mesma pessoa, e a tela "Meu WhatsApp" não teria como escolher entre elas.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_user ON canais(org_id, user_id) WHERE user_id IS NOT NULL;
+`);
+
+/* Por qual linha esta conversa está acontecendo AGORA.
+
+   Nulo = a linha da casa, que é o que toda conversa existente é. Não é um
+   enfeite de histórico: é para onde a próxima mensagem vai sair. A regra que
+   o mantém é uma só — **responde-se pela linha que o cliente usou por último**
+   —, e ela é a única sem buraco: o cliente escreve para o número que ele tem
+   no telefone, e responder por outro faria a resposta chegar como mensagem de
+   um desconhecido. */
+addLeadCol("canal_id", "TEXT");
+db.exec("CREATE INDEX IF NOT EXISTS idx_leads_canal ON leads(org_id, canal_id)");
+/* E por qual linha CADA mensagem passou. O lead aponta para o presente; a
+   mensagem guarda o passado. Sem ela, uma conversa que começou no número da
+   casa e migrou para o do corretor ficaria toda marcada como se tivesse saído
+   da linha atual — e "por onde isso foi combinado" é justamente a pergunta que
+   duas linhas na mesma conversa criam. */
+addMsgCol("canal_id", "TEXT");
 
 export default db;

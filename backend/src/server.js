@@ -18,6 +18,7 @@ import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
+import canaisRoutes from "./routes/canais.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
@@ -218,6 +219,7 @@ app.use("/produtos", cobrando, produtosRoutes);
 /* O core de gestão: funis, etapas e campos personalizados. Caminho explícito,
    como todo o resto — a regra de 13/08/2026 que já custou os webhooks uma vez. */
 app.use("/pipelines", cobrando, pipelinesRoutes);
+app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta

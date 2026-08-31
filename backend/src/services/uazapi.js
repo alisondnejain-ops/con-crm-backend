@@ -24,15 +24,35 @@
    o bootstrap copia UAZAPI_HOST/UAZAPI_TOKEN para a imobiliária dona delas na
    primeira subida (ver bootstrap.js). Ninguém precisa reconectar nada. */
 import db from "../db.js";
+import { canalPorId, canalDaCasa, canalDoWhatsapp } from "./canais.js";
 
-export function credenciais(orgId) {
-  if (!orgId) return { host: "", token: "" };
-  const o = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id = ?").get(orgId) || {};
-  return { host: String(o.uazapi_host || "").replace(/\/$/, ""), token: String(o.uazapi_token || "") };
+/* AS CREDENCIAIS SÃO DE UMA LINHA, NÃO DA IMOBILIÁRIA (31/08/2026).
+
+   Desde que o corretor pode ligar o WhatsApp dele, "de qual imobiliária" parou
+   de ser pergunta suficiente: a mesma casa tem a linha dela e as pessoais, e
+   mandar pela errada faz a mensagem chegar ao cliente vindo de um número que
+   ele não conhece.
+
+   `canalId` opcional, e a ausência dele significa a LINHA DA CASA — que é o
+   que todo chamador antigo quer dizer sem saber que está dizendo. Por isso a
+   mudança não quebra nenhum ponto de envio que ainda não foi tocado. */
+export function credenciais(orgId, canalId = null) {
+  if (!orgId && !canalId) return { host: "", token: "" };
+  const canal = canalId ? canalPorId(canalId) : null;
+  if (canal && canal.ativo && canal.token)
+    return { host: limpar(canal.host), token: String(canal.token || ""), canal };
+
+  /* Cai para a casa lendo `orgs`, e não o canal da casa, de propósito: é a
+     coluna que o resto do sistema escreve, e numa divergência é ela que está
+     certa. `migrarCanais` realinha o canal no start seguinte. */
+  const o = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id = ?").get(orgId || (canal && canal.org_id)) || {};
+  return { host: limpar(o.uazapi_host), token: String(o.uazapi_token || ""), canal: canalDaCasa(orgId) };
 }
 
-export function uazapiConfigured(orgId) {
-  const { host, token } = credenciais(orgId);
+const limpar = (h) => String(h || "").replace(/\/$/, "");
+
+export function uazapiConfigured(orgId, canalId = null) {
+  const { host, token } = credenciais(orgId, canalId);
   return !!(host && token);
 }
 
@@ -42,23 +62,15 @@ export function salvarCredenciais(orgId, { host, token }) {
     .run(String(host || "").trim().replace(/\/$/, "") || null, String(token || "").trim() || null, orgId);
 }
 
-/* De quem é este WhatsApp? Usado pelo webhook: a mensagem chega com o token da
-   instância (ou o número dono dela) e precisa entrar na imobiliária CERTA. */
+/* De quem é este WhatsApp? Quem responde isso agora é `canalDoWhatsapp`, em
+   services/canais.js: com várias linhas por imobiliária, a pergunta certa
+   deixou de ser "de qual casa" e passou a ser "de qual LINHA" — a casa vem
+   junto, pelo canal. Esta função ficou como ponte para quem só precisa da
+   imobiliária, e sem o antigo chute de "só existe uma conectada, então é ela",
+   que agora acertaria por acaso. */
 export function orgDoWhatsapp({ token, numero }) {
-  if (token) {
-    const por = db.prepare("SELECT id FROM orgs WHERE uazapi_token = ?").get(String(token).trim());
-    if (por) return por.id;
-  }
-  if (numero) {
-    const so = String(numero).replace(/\D/g, "");
-    if (so) {
-      const por = db.prepare("SELECT id FROM orgs WHERE REPLACE(REPLACE(REPLACE(REPLACE(wa_number,'+',''),'-',''),' ',''),'(','') LIKE ?").get(`%${so.slice(-8)}%`);
-      if (por) return por.id;
-    }
-  }
-  // Uma só imobiliária conectada: não há como errar o destino.
-  const conectadas = db.prepare("SELECT id FROM orgs WHERE uazapi_token IS NOT NULL AND uazapi_token <> ''").all();
-  return conectadas.length === 1 ? conectadas[0].id : null;
+  const c = canalDoWhatsapp({ token, numero });
+  return c ? c.org_id : null;
 }
 
 /* Provedores de conexão do WhatsApp.
@@ -87,12 +99,12 @@ export const PROVEDORES = [
    diz que não conseguiu, e o gestor desconecta pelo painel da Uazapi. */
 const CAMINHOS_DESCONECTAR = ["/instance/disconnect", "/instance/logout", "/instance/close"];
 
-export async function desconectarInstancia(orgId) {
-  if (!uazapiConfigured(orgId)) throw new Error("Esta imobiliária não tem WhatsApp conectado.");
+export async function desconectarInstancia(orgId, canalId = null) {
+  if (!uazapiConfigured(orgId, canalId)) throw new Error("Esta linha não tem WhatsApp conectado.");
   const tentativas = [];
   for (const caminho of CAMINHOS_DESCONECTAR) {
     try {
-      const r = await call(orgId, caminho, {});
+      const r = await call(orgId, caminho, {}, canalId);
       return { caminho, resposta: String(r.bruto || "").slice(0, 300) };
     } catch (e) {
       tentativas.push({ caminho, erro: e.message.slice(0, 140) });
@@ -103,8 +115,8 @@ export async function desconectarInstancia(orgId) {
     + CAMINHOS_DESCONECTAR.join(", ") + "). Desconecte pelo painel da Uazapi.");
 }
 
-async function call(orgId, path, payload) {
-  const { host, token } = credenciais(orgId);
+async function call(orgId, path, payload, canalId = null) {
+  const { host, token } = credenciais(orgId, canalId);
   if (!host || !token) {
     console.warn(`[uazapi] imobiliária sem WhatsApp conectado — ${path} não foi enviado de verdade.`);
     return { ok: false, simulated: true };
@@ -183,15 +195,15 @@ const CAMINHOS_EDICAO = ["/message/edit", "/send/edit", "/message/update"];
 let ultimaEdicao = null;
 export const edicaoDiagnostico = () => ultimaEdicao;
 
-export async function editMessage({ orgId, messageid, text }) {
-  if (!uazapiConfigured(orgId)) return { ok: false, simulated: true };
+export async function editMessage({ orgId, canalId = null, messageid, text }) {
+  if (!uazapiConfigured(orgId, canalId)) return { ok: false, simulated: true };
   const tentativas = [];
 
   for (const caminho of CAMINHOS_EDICAO) {
     try {
       // `id` e `text` são os nomes mais comuns; os apelidos vão junto porque
       // campo a mais é ignorado, como esta conta já demonstrou.
-      const r = await call(orgId, caminho, { id: messageid, messageid, text, newText: text, message: text });
+      const r = await call(orgId, caminho, { id: messageid, messageid, text, newText: text, message: text }, canalId);
       ultimaEdicao = { quando: new Date().toISOString(), caminho, status: "aceito", tentativas,
         resposta: String(r.bruto || "").slice(0, 400) };
       return { ok: true, caminho, data: r.data };
@@ -211,9 +223,24 @@ export async function editMessage({ orgId, messageid, text }) {
   throw new Error("Esta conta da Uazapi não tem como editar mensagem enviada (nenhum dos endereços conhecidos existe).");
 }
 
-// Assina a mensagem com o nome do corretor: todos usam o mesmo número,
-// então o lead precisa saber com quem está falando.
-const assinar = (text, signedBy) => (signedBy ? `*${signedBy}:*\n${text}` : text);
+/* A ASSINATURA EXISTE POR CAUSA DO NÚMERO ÚNICO — e some quando ele não é único.
+
+   `*Marina:*` na frente da mensagem nasceu de uma necessidade só: todo mundo
+   fala pelo mesmo WhatsApp, e sem o nome o lead não sabe com quem está
+   falando. Numa linha PESSOAL isso deixa de ser verdade e passa a ser
+   estranho: o cliente salvou o número da Marina, está conversando com a
+   Marina, e recebe "*Marina:* oi" — que é a pessoa se anunciando na própria
+   casa.
+
+   A decisão fica AQUI, e não em cada lugar que envia, porque são cinco pontos
+   de envio hoje e o sexto que alguém escrever depois. O esquecido não daria
+   erro nenhum: só mandaria uma mensagem esquisita para o cliente, e ninguém
+   de dentro veria. */
+function assinar(text, signedBy, canal) {
+  if (!signedBy) return text;
+  if (canal && canal.tipo === "corretor") return text;
+  return `*${signedBy}:*\n${text}`;
+}
 
 /* Texto, com citação opcional.
 
@@ -225,9 +252,9 @@ const assinar = (text, signedBy) => (signedBy ? `*${signedBy}:*\n${text}` : text
    trecho citado escrito em cima. Fica mais feio, mas o cliente continua
    sabendo do que se está falando — e o corretor não perde a mensagem por
    causa de um recurso que a API não tem. */
-export async function sendText({ orgId, toPhone, text, signedBy, replyTo, quotedText }) {
-  const assinado = assinar(text, signedBy);
-  if (!replyTo) return call(orgId, "/send/text", { number: toPhone, text: assinado });
+export async function sendText({ orgId, canalId = null, toPhone, text, signedBy, replyTo, quotedText }) {
+  const assinado = assinar(text, signedBy, credenciais(orgId, canalId).canal);
+  if (!replyTo) return call(orgId, "/send/text", { number: toPhone, text: assinado }, canalId);
 
   /* Vários nomes para o mesmo campo, na mesma requisição.
 
@@ -247,7 +274,7 @@ export async function sendText({ orgId, toPhone, text, signedBy, replyTo, quoted
   };
 
   try {
-    const r = await call(orgId, "/send/text", { number: toPhone, text: assinado, ...apelidos });
+    const r = await call(orgId, "/send/text", { number: toPhone, text: assinado, ...apelidos }, canalId);
     ultimaCitacao = {
       quando: new Date().toISOString(),
       id_citado: replyTo,
@@ -269,7 +296,7 @@ export async function sendText({ orgId, toPhone, text, signedBy, replyTo, quoted
     };
     const trecho = String(quotedText || "").replace(/\s+/g, " ").trim().slice(0, 160);
     const citacao = trecho ? `> ${trecho}\n\n` : "";
-    return call(orgId, "/send/text", { number: toPhone, text: citacao + assinado });
+    return call(orgId, "/send/text", { number: toPhone, text: citacao + assinado }, canalId);
   }
 }
 
@@ -287,15 +314,16 @@ export async function sendText({ orgId, toPhone, text, signedBy, replyTo, quoted
    Fica mais pesado, mas não depende de ninguém conseguir abrir um endereço.
    `bytes` pode ser o Buffer ou uma função que devolve o Buffer — assim o
    arquivo só é lido do disco/R2 se a primeira tentativa falhar. */
-export async function sendMedia({ orgId, toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
+export async function sendMedia({ orgId, canalId = null, toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
+  const canal = credenciais(orgId, canalId).canal;
   const corpo = (arquivo) => ({
     number: toPhone, type, file: arquivo,
-    ...(caption ? { text: assinar(caption, signedBy) } : {}),
+    ...(caption ? { text: assinar(caption, signedBy, canal) } : {}),
     ...(docName ? { docName } : {}),
   });
 
   try {
-    return await call(orgId, "/send/media", corpo(file));
+    return await call(orgId, "/send/media", corpo(file), canalId);
   } catch (e) {
     if (!bytes) throw e;
     let buffer;
@@ -305,21 +333,21 @@ export async function sendMedia({ orgId, toPhone, type, file, caption, signedBy,
 
     console.warn(`[uazapi] a URL falhou (${e.message}); reenviando o arquivo embutido.`);
     try {
-      return await call(orgId, "/send/media", corpo(`data:${mime || "application/octet-stream"};base64,${buffer.toString("base64")}`));
+      return await call(orgId, "/send/media", corpo(`data:${mime || "application/octet-stream"};base64,${buffer.toString("base64")}`), canalId);
     } catch (e2) {
       throw new Error(`${e.message} — e o envio direto do arquivo também falhou: ${e2.message}`);
     }
   }
 }
 
-export function sendLocation({ orgId, toPhone, latitude, longitude, name, address }) {
-  return call(orgId, "/send/location", { number: toPhone, latitude, longitude, name, address });
+export function sendLocation({ orgId, canalId = null, toPhone, latitude, longitude, name, address }) {
+  return call(orgId, "/send/location", { number: toPhone, latitude, longitude, name, address }, canalId);
 }
 
 // Estado da instância — usado pelo diagnóstico, para conferir a conexão sem expor o token.
 // Reporta endereço e token separadamente: "não configurado" sozinho não diz qual faltou.
-export async function instanceStatus(orgId) {
-  const { host, token } = credenciais(orgId);
+export async function instanceStatus(orgId, canalId = null) {
+  const { host, token } = credenciais(orgId, canalId);
   if (!host || !token) {
     return {
       configurado: false,

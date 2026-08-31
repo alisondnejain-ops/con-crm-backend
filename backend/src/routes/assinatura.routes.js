@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
+import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
@@ -101,7 +102,12 @@ r.get("/assinatura", authRequired, (req, res) => {
   const preco = dono
     ? db.prepare("SELECT valor_mensal FROM orgs WHERE id = ?").get(req.user.org_id)?.valor_mensal
     : undefined;
+  /* AS LINHAS DE WHATSAPP ENTRAM NA CONTA, e aparecem separadas da
+     mensalidade. Somadas num número só, o gestor que ligasse três números
+     veria a mensalidade "subir" sem saber por quê — e é dele a decisão de
+     ligar cada uma. Separado, a fatura se explica sozinha. */
   res.json({ ...s, aviso_antes: AVISO_ANTES, valor_mensal: preco ?? undefined,
+    canais: limitesDeCanais(req.user.org_id),
     asaas: dono ? asaasConfigurado() : undefined, ambiente: dono ? ambienteAsaas() : undefined });
 });
 
@@ -121,12 +127,19 @@ r.get("/assinatura/pagamentos", authRequired, soDono, (req, res) => {
    Agora quem não é master só consegue mexer no NOME do plano, que é rótulo. O
    que vira dinheiro fica com o ConHub. */
 r.patch("/assinatura", authRequired, soDono, (req, res) => {
-  const { plano, valor_mensal, vence_em, dias_carencia } = req.body || {};
+  const { plano, valor_mensal, vence_em, dias_carencia, limite_canais, canais_incluidos, valor_canal } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
   const souMaster = !!db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id)?.master;
-  if (!souMaster && (valor_mensal != null && valor_mensal !== "" || vence_em || dias_carencia != null))
+  /* O TETO DE LINHAS E O PREÇO DE CADA UMA SÃO DO CONHUB, pelo mesmo motivo
+     que o valor da mensalidade: esta rota é `soDono`, e num cliente o dono é o
+     próprio cliente. Sem esta trava, o gestor gravaria `limite_canais = 99` e
+     `valor_canal = 0` e ligaria noventa e nove números de graça — que é o
+     furo do preço de 27/08/2026 aparecendo num campo novo. */
+  const soDoConHub = valor_mensal != null && valor_mensal !== "" || vence_em || dias_carencia != null
+    || limite_canais != null || canais_incluidos != null || valor_canal != null;
+  if (!souMaster && soDoConHub)
     return res.status(403).json({
-      error: "Valor, vencimento e carência são definidos pelo ConHub. Fale com a gente para mudar o seu plano." });
+      error: "Valor, vencimento, carência e os números de WhatsApp do plano são definidos pelo ConHub. Fale com a gente para mudar o seu plano." });
   const data = vence_em ? dataDoFormulario(vence_em) : org.vence_em;
   if (vence_em && !isFinite(data)) return res.status(400).json({ error: "Data de vencimento inválida." });
 
@@ -137,13 +150,17 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
   let base = org.vence_base;
   if (data) { const d = new Date(data); d.setMonth(d.getMonth() - n); base = d.getTime(); }
 
-  db.prepare(`UPDATE orgs SET plano = ?, valor_mensal = ?, vence_em = ?, vence_base = ?, dias_carencia = ? WHERE id = ?`).run(
+  db.prepare(`UPDATE orgs SET plano = ?, valor_mensal = ?, vence_em = ?, vence_base = ?, dias_carencia = ?,
+      limite_canais = ?, canais_incluidos = ?, valor_canal = ? WHERE id = ?`).run(
     (plano || org.plano || "").trim() || null,
     valor_mensal != null && valor_mensal !== "" ? Number(valor_mensal) : org.valor_mensal,
     data || null, base || null,
     dias_carencia != null ? Math.max(0, Number(dias_carencia)) : org.dias_carencia,
+    limite_canais != null && limite_canais !== "" ? Math.max(1, Number(limite_canais)) : org.limite_canais,
+    canais_incluidos != null && canais_incluidos !== "" ? Math.max(0, Number(canais_incluidos)) : org.canais_incluidos,
+    valor_canal != null && valor_canal !== "" ? Math.max(0, Number(valor_canal)) : org.valor_canal,
     org.id);
-  res.json(situacao(org.id));
+  res.json({ ...situacao(org.id), canais: limitesDeCanais(org.id) });
 });
 
 /* DAR BAIXA É DE QUEM RECEBE, NÃO DE QUEM PAGA.

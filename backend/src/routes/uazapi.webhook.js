@@ -8,7 +8,7 @@ import { guardarMidiaRecebida } from "../services/midia.js";
 import { atender, pararPorGente } from "../services/robo.js";
 import { avisar } from "../services/push.js";
 import { advanceStage } from "./messages.routes.js";
-import { orgDoWhatsapp } from "../services/uazapi.js";
+import { canalDoWhatsapp } from "../services/canais.js";
 
 const r = Router();
 
@@ -94,14 +94,16 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
        pelo número dono dela). Não dando para saber, a mensagem NÃO entra: lead
        na casa errada é pior do que lead perdido, e o diagnóstico mostra o que
        chegou para acertar a configuração. */
-    const orgId = orgDoWhatsapp({
+    const canal = canalDoWhatsapp({
       token: p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token,
       numero: p.owner || p.instance?.owner || p.instanceOwner || p.me || "",
     });
-    if (!orgId) return lembrar({ em: Date.now(), evento,
-      resultado: "ignorado: não identifiquei de qual imobiliária é este WhatsApp",
-      dica: "Conecte a instância em Configurações → Conexão da imobiliária dona deste número.",
+    if (!canal) return lembrar({ em: Date.now(), evento,
+      resultado: "ignorado: não identifiquei de qual linha de WhatsApp é esta mensagem",
+      dica: "Conecte a instância em Configurações → Conexão (linha da imobiliária) ou em Minha conta → Meu WhatsApp (linha do corretor).",
       campos: Object.keys(p) });
+    const orgId = canal.org_id;
+    const ehPessoal = canal.tipo === "corretor";
 
     /* Mensagem que o CRM mandou volta como webhook. Ela já está na conversa —
        gravar de novo seria a mesma mensagem duas vezes. O `wa_id` é o que
@@ -114,7 +116,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     // mensagem, para a conversa já nascer com a mídia. Se não der, `midia` volta
     // nulo e a mensagem entra como antes — o marcador de texto, sem travar nada.
     const temMidia = !!(content && (content.URL || content.url));
-    const midia = temMidia ? await guardarMidiaRecebida({ content, messageid, tipo }) : null;
+    const midia = temMidia ? await guardarMidiaRecebida({ content, messageid, tipo, canal }) : null;
 
     // Legenda da foto, ou o nome do documento. Sem nenhum dos dois, um rótulo
     // curto em português: é ele que aparece na prévia da lista de conversas
@@ -150,7 +152,17 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
        sem temperatura é honesto: quem sabe a temperatura é quem conversou. */
     if (!lead) {
       const id = "l_" + randomUUID();
-      const dono = proximoAtendente(orgId);
+      /* LEAD QUE CHEGA NUMA LINHA PESSOAL JÁ NASCE DO DONO DA LINHA.
+
+         A catraca das atendentes existe para repartir o que chega no número da
+         CASA, que é de todo mundo e de ninguém. O cliente que escreveu para o
+         número da Marina escolheu a Marina — sortear esse lead para outra
+         pessoa seria o CRM desfazendo uma decisão do cliente, e a Marina
+         descobriria isso vendo o próprio WhatsApp ser atendido por um colega.
+
+         O gestor não fica sem ver: `leads.canal_id` diz por onde ele entrou, e
+         o painel separa o que veio da casa do que veio das linhas pessoais. */
+      const dono = ehPessoal ? canal.user_id : proximoAtendente(orgId);
       /* A etapa de entrada vem do PIPELINE PADRAO da imobiliaria, e nao da
          palavra 'Lead' escrita aqui. Com o funil configuravel, uma operacao de
          locacao chama a primeira etapa de outra coisa — e o lead cairia numa
@@ -158,12 +170,15 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       const entrada = entradaPadrao(orgId);
       const quando = Date.now();
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
-                  pipeline_id,stage_id,stage_entered_at,last_interaction_at,source)
-        VALUES (?,?,?,?,'WhatsApp',NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp')`)
+                  pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
+        VALUES (?,?,?,?,'WhatsApp',NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
         .run(id, orgId, nome || "Contato do WhatsApp", phone, entrada.nome, dono, quando,
-             entrada.pipeline_id, entrada.stage_id, quando, quando);
+             entrada.pipeline_id, entrada.stage_id, quando, quando,
+             ehPessoal ? canal.id : null, dono ? quando : null);
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
-      console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
+      console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${
+        ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
+        dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }
 
     /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
@@ -176,9 +191,34 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       ? (db.prepare("SELECT id FROM messages WHERE wa_id = ? AND lead_id = ?").get(citada, lead.id) || {}).id || null
       : null;
 
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
-        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now());
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now(),
+        /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`.
+
+           Uma convenção só nas duas colunas. Gravar o id da casa aqui e nulo
+           lá faria a MESMA linha ser dois valores diferentes conforme quem
+           escreveu — e "por onde essa mensagem foi" passaria a depender de a
+           mensagem ter entrado pelo webhook ou saído pelo CRM. */
+        canal.tipo === "corretor" ? canal.id : null);
+
+    /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
+
+       É a regra que fecha o buraco mais fácil de abrir aqui. O cliente escreve
+       para o número que ele tem salvo — se o CRM responder por outro, a
+       resposta chega no celular dele como mensagem de um desconhecido, fora da
+       conversa que ele estava tendo, e ninguém de dentro vê nada de errado.
+
+       Vale para os dois sentidos, inclusive quando o corretor volta a falar
+       pelo número da casa: quem manda é a última linha usada, não a última
+       escolha feita numa tela. */
+    const canalAtual = lead.canal_id || null;
+    const canalNovo = canal.tipo === "corretor" ? canal.id : null;
+    if (canalAtual !== canalNovo) {
+      db.prepare("UPDATE leads SET canal_id = ? WHERE id = ?").run(canalNovo, lead.id);
+      lead.canal_id = canalNovo;
+      console.log(`[uazapi] ${lead.name} agora fala pela linha ${canalNovo ? canal.nome : "da imobiliária"}`);
+    }
 
     // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
     // relatório contaria como "nunca atendido" quem atendeu fora do CRM.

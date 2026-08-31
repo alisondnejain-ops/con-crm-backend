@@ -19,6 +19,8 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
+import { canalDoUsuario, canalDoLead, canalPorId } from "../services/canais.js";
+
 const r = Router();
 r.use(authRequired);
 
@@ -66,6 +68,27 @@ r.get("/", (req, res) => {
     if (fim && isFinite(fim)) { where.push("l.created_at <= ?"); args.push(fim); }
   } else {
     where.push("l.assigned_to = ?"); args.push(id);
+  }
+
+  /* POR QUAL LINHA DE WHATSAPP. As subcategorias de "Atender".
+
+     `linha=casa` é o WhatsApp da imobiliária, `linha=minha` é o número pessoal
+     de quem está olhando. A peneira é aqui e não no navegador porque a caixa do
+     corretor pode ter centenas de conversas e a tela recarrega de 10 em 10
+     segundos — trazer tudo para descartar metade no aparelho é pagar a
+     consulta inteira duas vezes.
+
+     Sem o parâmetro, vem tudo: a tela só separa as linhas para quem TEM duas,
+     e para todo o resto a pergunta não existe. */
+  if (req.query.linha === "casa") where.push("l.canal_id IS NULL");
+  else if (req.query.linha === "minha") {
+    const meu = canalDoUsuario(org_id, id);
+    // Sem linha pessoal, "minha caixa do meu número" é um conjunto vazio, e é
+    // o que se devolve — não a caixa inteira, que seria a resposta de outra
+    // pergunta.
+    where.push("l.canal_id = ?"); args.push(meu ? meu.id : "__sem_linha__");
+  } else if (req.query.linha && req.query.linha !== "todas") {
+    where.push("l.canal_id = ?"); args.push(req.query.linha);
   }
 
   // Atendimento finalizado sai da caixa de entrada, mas continua no funil e nos
@@ -745,8 +768,87 @@ r.get("/:id", (req, res) => {
     robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null,
     // Junto com o lead: a faixa de observações precisa aparecer no mesmo
     // instante em que a conversa abre, e não uma requisição depois.
-    observacoes: observacoesDoLead(lead.id) });
+    observacoes: observacoesDoLead(lead.id),
+    /* POR QUAL NÚMERO ESTA CONVERSA SAI, e se quem está olhando pode mudar.
+
+       Vai junto do lead, não numa requisição depois, pelo mesmo motivo da
+       marca da imobiliária: a barra acima do campo diria "WhatsApp da
+       imobiliária" por um instante e trocaria para "seu número" em seguida —
+       e quem lesse rápido mandaria a mensagem achando que ela sai por outra
+       linha. Aqui isso não é estética: é a diferença entre o cliente receber
+       de um número que conhece ou de um desconhecido. */
+    canal: canalDaConversa(req.user, lead) });
 });
+
+/* A linha desta conversa, do ponto de vista de quem está olhando.
+
+   `pode_trocar` é a resposta a uma pergunta só: este botão faria alguma coisa?
+   Ele exige TRÊS coisas ao mesmo tempo — a pessoa tem linha ligada, o lead é
+   dela, e a linha da casa está conectada (senão a volta não teria caminho). Um
+   botão que aparece e recusa é pior que botão nenhum. */
+function canalDaConversa(user, lead) {
+  const atual = lead.canal_id ? canalPorId(lead.canal_id) : null;
+  const meu = canalDoUsuario(lead.org_id, user.id);
+  const meuLigado = !!(meu && meu.ativo && meu.token);
+  return {
+    atual: atual && atual.ativo ? { id: atual.id, tipo: atual.tipo, nome: atual.nome, wa_number: atual.wa_number } : null,
+    // Nulo em `atual` é a linha da casa. A tela escreve o nome, não o nulo.
+    onde: atual && atual.ativo ? "corretor" : "imobiliaria",
+    tenho_linha: meuLigado,
+    minha_linha_id: meuLigado ? meu.id : null,
+    pode_trocar: meuLigado && lead.assigned_to === user.id,
+  };
+}
+
+/* O ATALHO: passar esta conversa para o meu WhatsApp, e voltar.
+
+   É o pedido do Ali em uma rota. Trocar a linha NÃO manda mensagem nenhuma
+   sozinha — só diz por onde a PRÓXIMA vai sair. Mandar um texto automático de
+   apresentação seria o CRM falando com o cliente no lugar do corretor, com
+   palavras que ele não escolheu, a partir de um número que o cliente ainda não
+   conhece: a pior primeira impressão possível.
+
+   O que a tela faz por ele é sugerir o texto no campo. Escrever é dele.
+
+   SÓ O DONO DO LEAD TROCA. O gestor supervisiona a conversa, mas mandar o
+   atendimento de alguém para o WhatsApp pessoal de outra pessoa é uma decisão
+   que não é dele — o número é do corretor. */
+r.post("/:id/canal", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  if (lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Só quem está com o lead pode mudar o número da conversa." });
+
+  const para = String(req.body?.para || "").trim();   // 'minha' | 'imobiliaria'
+  if (para === "imobiliaria") {
+    db.prepare("UPDATE leads SET canal_id = NULL WHERE id = ?").run(lead.id);
+    return res.json({ ok: true, canal: canalDaConversa(req.user, { ...lead, canal_id: null }) });
+  }
+  if (para !== "minha") return res.status(400).json({ error: "Escolha 'minha' ou 'imobiliaria'." });
+
+  const meu = canalDoUsuario(lead.org_id, req.user.id);
+  if (!meu || !meu.ativo || !meu.token)
+    return res.status(409).json({ error: "Você ainda não ligou o seu WhatsApp. Vá em Minha conta → Meu WhatsApp." });
+
+  db.prepare("UPDATE leads SET canal_id = ? WHERE id = ?").run(meu.id, lead.id);
+  res.json({
+    ok: true,
+    canal: canalDaConversa(req.user, { ...lead, canal_id: meu.id }),
+    /* A sugestão de texto vai daqui, e não do navegador, por um motivo prático:
+       ela usa o nome da imobiliária, que o servidor tem e a tela nem sempre. E
+       é SUGESTÃO — vai para o campo, não para o cliente. */
+    sugestao: sugestaoDeTroca(lead, req.user),
+  });
+});
+
+function sugestaoDeTroca(lead, user) {
+  const nome = (user.name || "").split(" ")[0];
+  const org = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id) || {};
+  const primeiro = (lead.name || "").split(" ")[0];
+  return `Oi${primeiro && !/^contato do/i.test(lead.name || "") ? ", " + primeiro : ""}! Aqui é o ${nome}`
+    + `${org.name ? `, da ${org.name}` : ""}. Salva esse número, que a partir de agora eu falo com você por aqui. 😊`;
+}
 
 /* O resumo que já está no banco, com a informação que muda tudo: quantas
    mensagens entraram DEPOIS dele. Resumo de ontem mostrado como se fosse de

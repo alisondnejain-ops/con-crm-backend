@@ -15,6 +15,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
 import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
+import { canalDaCasa, salvarConexao } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
@@ -166,12 +167,27 @@ r.post("/conexao/credenciais", roles("adm"), async (req, res) => {
   /* Token repetido é quase sempre o mesmo da imobiliária vizinha, copiado por
      engano. Deixar passar recria o problema que esta mudança veio corrigir:
      duas casas mandando pelo mesmo número. */
-  const jaUsado = db.prepare("SELECT id,name FROM orgs WHERE uazapi_token = ? AND id <> ?")
-    .get(token, req.user.org_id);
+  /* Token repetido: agora a conferência é contra TODAS as linhas, não só
+     contra as outras imobiliárias. Desde que o corretor pode ligar a dele,
+     colar aqui o token da linha pessoal de alguém faria o número da casa e o
+     dele apontarem para a mesma instância — e o webhook entregaria a mensagem
+     à primeira que casasse, sem erro nenhum aparecer. */
+  const casa = canalDaCasa(req.user.org_id);
+  const jaUsado = db.prepare(`SELECT c.tipo, c.nome, o.name AS imobiliaria FROM canais c
+    JOIN orgs o ON o.id = c.org_id WHERE c.token = ? AND c.id <> COALESCE(?, '')`)
+    .get(token, casa ? casa.id : null);
   if (jaUsado)
-    return res.status(409).json({ error: `Esse token já é usado por outra imobiliária (${jaUsado.name}). Cada uma precisa da sua própria instância na Uazapi.` });
+    return res.status(409).json({ error: jaUsado.tipo === "corretor"
+      ? `Esse token já é o da linha pessoal de ${jaUsado.nome}. O número da imobiliária precisa da própria instância na Uazapi.`
+      : `Esse token já é usado por outra imobiliária (${jaUsado.imobiliaria}). Cada uma precisa da sua própria instância na Uazapi.` });
 
-  salvarCredenciais(req.user.org_id, { host, token });
+  /* Grava PELO CANAL, e não direto em `orgs`. É o único lugar que mantém as
+     duas cópias em par — `orgs.uazapi_*`, que o resto do sistema lê, e a linha
+     da casa em `canais`, que é por onde o webhook reconhece a mensagem que
+     chega. Escrever só numa das duas deixaria o CRM enviando por um número e
+     recebendo por outro. */
+  if (casa) salvarConexao(casa.id, { host, token, quem: req.user.id });
+  else salvarCredenciais(req.user.org_id, { host, token });
   const whatsapp = await instanceStatus(req.user.org_id);
   // Token errado só aparece na hora de perguntar o estado — e é melhor dizer
   // agora do que na primeira mensagem que não sair.
@@ -185,7 +201,8 @@ r.post("/conexao/desconectar", roles("adm"), async (req, res) => {
   if (String(req.body?.confirmar || "").toUpperCase() !== "DESCONECTAR")
     return res.status(400).json({ error: "Escreva DESCONECTAR para confirmar." });
   try {
-    const out = await desconectarInstancia(req.user.org_id);
+    const casa = canalDaCasa(req.user.org_id);
+    const out = await desconectarInstancia(req.user.org_id, casa ? casa.id : null);
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(502).json({ error: "Não consegui desconectar", detail: e.message });
