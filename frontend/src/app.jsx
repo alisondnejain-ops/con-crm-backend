@@ -1012,7 +1012,7 @@ function ConCRM(){
     equipe:()=>api("/auth/users"),
     // Mover em lote os leads de uma pessoa para outro funil. A prévia é
     // separada da aplicação: mexer em centenas de leads não se desfaz na mão.
-    previaMoverFunil:(f)=>api(`/leads/lote/mover-funil?user_id=${encodeURIComponent(f.user_id)}&pipeline_id=${encodeURIComponent(f.pipeline_id)}&manter=${f.manter?1:0}`),
+    previaMoverFunil:(f)=>api(`/leads/lote/mover-funil?user_id=${encodeURIComponent(f.user_id)}&pipeline_id=${encodeURIComponent(f.pipeline_id)}&stage_id=${encodeURIComponent(f.stage_id||"")}&manter=${f.manter?1:0}`),
     moverParaFunil:(dados)=>api("/leads/lote/mover-funil",{method:"POST",body:dados}),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
@@ -6959,7 +6959,7 @@ const dinheirinho=(v)=>v>=0.01?v.toFixed(2):v.toFixed(4);
 function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
   const [pessoas,setPessoas]=useState([]);
   const [funis,setFunis]=useState([]);
-  const [f,setF]=useState({user_id:"",pipeline_id:"",manter:false});
+  const [f,setF]=useState({user_id:"",pipeline_id:"",stage_id:"",manter:false});
   const [previa,setPrevia]=useState(null);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState(false);
@@ -6979,7 +6979,10 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
     acoes.previaMoverFunil(f).then(r=>vivo&&(setPrevia(r),setErro("")))
       .catch(e=>vivo&&(setPrevia(null),setErro(e.message)));
     return()=>{vivo=false;};
-  },[f.user_id,f.pipeline_id,f.manter]);
+  },[f.user_id,f.pipeline_id,f.stage_id,f.manter]);
+
+  // As etapas do funil escolhido, para o gestor dizer ONDE eles caem.
+  const etapasDoDestino=((funis.find(p=>p.id===f.pipeline_id)||{}).stages)||[];
 
   const sel={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,
     borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px"};
@@ -7000,11 +7003,22 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
         <option value="fila">Sem dono (na fila)</option>
         {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
-      <select value={f.pipeline_id} onChange={e=>setF({...f,pipeline_id:e.target.value})} style={sel}>
+      {/* Trocar de funil ZERA a etapa: etapa é de um funil só, e manter a
+          escolha anterior mandaria para o servidor uma etapa que não existe
+          no destino — recusa certa, com cara de defeito. */}
+      <select value={f.pipeline_id} onChange={e=>setF({...f,pipeline_id:e.target.value,stage_id:""})} style={sel}>
         <option value="">Para qual funil?</option>
         {funis.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
     </div>
+
+    {f.pipeline_id&&etapasDoDestino.length>0&&<div style={{marginBottom:9}}>
+      <div style={{color:C.sub,fontSize:11.5,marginBottom:5}}>Em que etapa eles entram?</div>
+      <select value={f.stage_id} onChange={e=>setF({...f,stage_id:e.target.value})} style={{...sel,width:"100%",flex:"none"}}>
+        <option value="">{etapasDoDestino[0].name} (a primeira do funil)</option>
+        {etapasDoDestino.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+    </div>}
 
     {previa&&<React.Fragment>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
@@ -7026,9 +7040,10 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
           {f.manter&&previa.etapa_preservada>0
             ? <React.Fragment><b>{previa.etapa_preservada}</b> mantêm a etapa atual (existe uma com o mesmo
                 nome no destino) e <b>{previa.etapa_para_a_primeira}</b> vão para <b>{previa.etapa_destino}</b>.</React.Fragment>
-            : <React.Fragment>Todos os <b>{previa.leads}</b> vão para a primeira etapa do funil de destino,
-                <b> {previa.etapa_destino}</b>. O avanço que eles tinham no funil atual não é transferido —
-                os funis têm etapas diferentes, e quase nada casa entre eles.</React.Fragment>}
+            : <React.Fragment>Todos os <b>{previa.leads}</b> vão para <b>{previa.etapa_destino}</b>
+                {previa.etapa_escolhida?"":", a primeira etapa do funil de destino"}. O avanço que eles
+                tinham no funil atual não é transferido — os funis têm etapas diferentes, e quase nada
+                casa entre eles.</React.Fragment>}
         </div>
 
         <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",marginBottom:10}}>
@@ -7036,23 +7051,24 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
             style={{marginTop:2,width:16,height:16,accentColor:C.green,cursor:"pointer"}}/>
           <span style={{fontSize:11.5,color:C.sub,lineHeight:1.5}}>
             Manter a etapa quando existir uma com o mesmo nome no funil de destino.
-            O que não casar cai na primeira do mesmo jeito.
+            O que não casar cai em <b>{previa.etapa_destino}</b> do mesmo jeito.
           </span>
         </label>
 
         <button disabled={ocupado} onClick={async()=>{
             setErro("");setOcupado(true);
             try{
-              const r=await acoes.moverParaFunil({user_id:f.user_id,pipeline_id:f.pipeline_id,manter_etapa:f.manter});
-              setFeito(`${r.movidos} lead(s) de ${r.pessoa} movidos para "${r.destino}".`);
-              setPrevia(null);setF({...f,user_id:"",pipeline_id:""});
+              const r=await acoes.moverParaFunil({user_id:f.user_id,pipeline_id:f.pipeline_id,
+                stage_id:f.stage_id||null,manter_etapa:f.manter});
+              setFeito(`${r.movidos} lead(s) de ${r.pessoa} movidos para "${r.destino}", em ${r.etapa_destino}.`);
+              setPrevia(null);setF({...f,user_id:"",pipeline_id:"",stage_id:""});
               if(aoAplicar) aoAplicar();
             }catch(e){ setErro(e.message); }
             finally{ setOcupado(false); }
           }}
           style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,
             padding:"12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-          {ocupado?"Movendo…":`Mover ${previa.leads} lead(s) para ${previa.destino}`}</button>
+          {ocupado?"Movendo…":`Mover ${previa.leads} lead(s) para ${previa.destino} · ${previa.etapa_destino}`}</button>
       </React.Fragment>}
 
       {previa.leads===0&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>

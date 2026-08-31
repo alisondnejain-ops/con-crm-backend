@@ -582,5 +582,36 @@ pv = L.previaMoverFunil(org2, { userId: uVanessa, pipelineId: sdrPipe.pipeline.i
 console.log(`   pedindo da outra imobiliária: ${pv.erro}`);
 assert.ok(pv.erro, "pessoa de outra casa não é encontrada");
 
+console.log("56. Dá para escolher EM QUE ETAPA eles entram");
+/* O pedido do Ali é "os leads da Vanessa no SDR, em Primeiro contato" — e não
+   em "Lead novo". A primeira etapa é um chute razoável e quase sempre errado:
+   quem separa a operação está movendo leads que JÁ foram atendidos, e jogá-los
+   em "Lead novo" faz o relatório dizer que ninguém falou com eles. */
+const primeiroContato = sdrPipe.etapas.find(e => e.name === "Primeiro contato");
+pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id, stageId: primeiroContato.id });
+console.log(`   ${pv.leads} lead(s) → ${pv.destino}, em "${pv.etapa_destino}" (escolhida: ${pv.etapa_escolhida})`);
+assert.equal(pv.etapa_destino, "Primeiro contato");
+assert.equal(pv.etapa_escolhida, true, "a prévia diz que a etapa foi escolhida, não é o padrão");
+mv = L.moverParaFunil(org, { userId: uVanessa, pipelineId: sdrPipe.pipeline.id,
+  stageId: primeiroContato.id, quemMandou: uAdm });
+assert.equal(mv.movidos, 5);
+assert.ok(db.prepare("SELECT stage FROM leads WHERE assigned_to=?").all(uVanessa)
+  .every(l => l.stage === "Primeiro contato"), "todos caíram na etapa escolhida");
+console.log("   os 5 estão em Primeiro contato, não em Lead novo");
+
+console.log("57. Etapa de OUTRO funil é recusada, não ignorada");
+/* Aceitar em silêncio e cair na primeira deixaria o lead numa etapa que o
+   gestor não pediu, com a tela tendo prometido outra. E gravar a etapa de um
+   funil dentro de outro é o estado inconsistente que `moverEtapa` impede. */
+pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: copia.pipeline.id, stageId: primeiroContato.id });
+console.log(`   ${pv.erro}`);
+assert.ok(/não é uma etapa ativa/i.test(pv.erro));
+
+console.log("58. Sem escolher, continua sendo a primeira do funil");
+pv = L.previaMoverFunil(org, { userId: uVanessa, pipelineId: copia.pipeline.id });
+console.log(`   → "${pv.etapa_destino}" (escolhida: ${pv.etapa_escolhida})`);
+assert.equal(pv.etapa_escolhida, false);
+assert.equal(pv.etapa_destino, P.etapasDoPipeline(org, copia.pipeline.id)[0].name);
+
 console.log("\nTudo certo ✅");
 process.exit(0);

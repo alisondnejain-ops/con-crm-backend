@@ -286,11 +286,21 @@ const jaAnalisado = (id) => {
    O que NAO muda: o responsável. Mover de funil é mudar o fluxo, não tirar o
    lead da pessoa — quem quiser repassar usa a catraca, que é outra decisão. */
 
-export function previaMoverFunil(orgId, { userId, pipelineId, manterEtapa = false }) {
+export function previaMoverFunil(orgId, { userId, pipelineId, stageId = null, manterEtapa = false }) {
   const destino = pipelinePorId(orgId, pipelineId);
   if (!destino) return { erro: "Funil de destino não encontrado." };
   const etapas = etapasDoPipeline(orgId, pipelineId);
   if (!etapas.length) return { erro: "O funil de destino não tem etapas ativas. Crie ao menos uma antes de mover." };
+
+  /* ONDE ELES CAEM e escolha de quem manda, não padrão do código. A primeira
+     etapa é um chute razoável e quase sempre errado: quem separa a operação
+     está movendo leads que JÁ foram atendidos, e jogá-los em "Lead novo" diz
+     no relatório que ninguém falou com eles. A etapa escolhida precisa ser do
+     funil de destino — senão o lead ficaria com o funil de um e a etapa de
+     outro, que é exatamente o estado inconsistente que `moverEtapa` existe
+     para impedir. */
+  const escolhida = stageId ? etapas.find(e => e.id === stageId) : null;
+  if (stageId && !escolhida) return { erro: "A etapa escolhida não é uma etapa ativa do funil de destino." };
 
   const dono = userId === "fila"
     ? { id: null, name: "sem dono (na fila)" }
@@ -304,7 +314,7 @@ export function previaMoverFunil(orgId, { userId, pipelineId, manterEtapa = fals
     .all(...(userId === "fila" ? [orgId, pipelineId] : [orgId, userId, pipelineId]));
 
   const porNome = new Map(etapas.map(e => [e.name, e]));
-  const primeira = etapas[0];
+  const primeira = escolhida || etapas[0];
   // De onde eles vêm, para a prévia dizer o tamanho do estrago antes do clique.
   const origem = new Map();
   let casam = 0;
@@ -322,6 +332,8 @@ export function previaMoverFunil(orgId, { userId, pipelineId, manterEtapa = fals
       .get(...(userId === "fila" ? [orgId, pipelineId] : [orgId, pipelineId, userId])).n,
     de: [...origem.entries()].map(([nome, n]) => ({ funil: nome, leads: n })),
     etapa_destino: primeira ? primeira.name : null,
+    etapa_destino_id: primeira ? primeira.id : null,
+    etapa_escolhida: !!escolhida,
     manter_etapa: !!manterEtapa,
     // Quantos conservariam a etapa atual, se a opção estiver ligada.
     etapa_preservada: manterEtapa ? casam : 0,
@@ -329,14 +341,17 @@ export function previaMoverFunil(orgId, { userId, pipelineId, manterEtapa = fals
   };
 }
 
-export function moverParaFunil(orgId, { userId, pipelineId, manterEtapa = false, quemMandou = null }) {
-  const previa = previaMoverFunil(orgId, { userId, pipelineId, manterEtapa });
+export function moverParaFunil(orgId, { userId, pipelineId, stageId = null, manterEtapa = false, quemMandou = null }) {
+  const previa = previaMoverFunil(orgId, { userId, pipelineId, stageId, manterEtapa });
   if (previa.erro) return previa;
   if (!previa.leads) return { movidos: 0, ...previa };
 
   const etapas = etapasDoPipeline(orgId, pipelineId);
   const porNome = new Map(etapas.map(e => [e.name, e]));
-  const primeira = etapas[0];
+  /* A mesma etapa que a prévia prometeu — lida da prévia, não recalculada.
+     Duas contas iguais em dois lugares são duas contas que um dia divergem, e
+     aqui a divergência seria a tela dizer uma etapa e o banco gravar outra. */
+  const primeira = etapas.find(e => e.id === previa.etapa_destino_id) || etapas[0];
 
   const alvos = db.prepare(`SELECT id, stage FROM leads
     WHERE org_id = ? AND ${userId === "fila" ? "assigned_to IS NULL" : "assigned_to = ?"}

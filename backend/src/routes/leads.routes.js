@@ -507,6 +507,7 @@ function reanalisar(orgId, aplicar) {
 r.get("/lote/mover-funil", roles("adm"), (req, res) => {
   const r1 = previaMoverFunil(req.user.org_id, {
     userId: req.query.user_id, pipelineId: req.query.pipeline_id,
+    stageId: req.query.stage_id || null,
     manterEtapa: req.query.manter === "1" });
   if (r1.erro) return res.status(400).json({ error: r1.erro });
   res.json(r1);
@@ -515,6 +516,7 @@ r.get("/lote/mover-funil", roles("adm"), (req, res) => {
 r.post("/lote/mover-funil", roles("adm"), (req, res) => {
   const r1 = moverParaFunil(req.user.org_id, {
     userId: req.body?.user_id, pipelineId: req.body?.pipeline_id,
+    stageId: req.body?.stage_id || null,
     manterEtapa: !!req.body?.manter_etapa, quemMandou: req.user.id });
   if (r1.erro) return res.status(400).json({ error: r1.erro });
   res.json(r1);
