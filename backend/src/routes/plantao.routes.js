@@ -9,7 +9,8 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
-import { escala, doDia, definirTurno, limpar, importarEscala, meiaNoite, lerDia, TURNOS } from "../services/plantao.js";
+import { escala, doDia, definirTurno, limpar, importarEscala, marcarPresenca,
+  meiaNoite, lerDia, TURNOS } from "../services/plantao.js";
 import { lerXlsx } from "../services/xlsx.js";
 
 const r = Router();
@@ -45,7 +46,14 @@ r.get("/", (req, res) => {
   const porDia = new Map();
   for (const l of linhas) {
     if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, manha: [], tarde: [] });
-    porDia.get(l.dia)[l.turno].push({ id: l.user_id, nome: l.nome });
+    porDia.get(l.dia)[l.turno].push({
+      id: l.user_id, nome: l.nome,
+      // null = ninguém conferiu ainda, que NÃO é o mesmo que não ter vindo.
+      presente: l.presente === null || l.presente === undefined ? null : !!l.presente,
+      presenca_obs: l.presenca_obs || null,
+      conferido_por: l.conferido_por || null,
+      conferido_em: l.marcado_em || null,
+    });
   }
   res.json({
     de: meiaNoite(de), ate: meiaNoite(ate),
@@ -85,6 +93,22 @@ r.put("/", roles("adm", "sdr"), (req, res) => {
   res.json({ ...out, dia_completo: doDia(req.user.org_id, out.dia) });
 });
 
+/* Confere quem veio ao plantão.
+
+   É da ATENDENTE (e do gestor): ela é quem está na imobiliária durante o turno
+   e sabe quem apareceu. O corretor não confere a própria presença — o número
+   vira relatório individual dele, e nota que a própria pessoa se dá não é
+   conferência, é declaração.
+
+   `presente: null` desmarca — volta a ser "não conferido". */
+r.put("/presenca", roles("adm", "sdr"), (req, res) => {
+  const { dia, turno, user_id, presente, obs } = req.body || {};
+  const out = marcarPresenca(req.user.org_id, {
+    dia, turno, userId: user_id, presente, obs, autorId: req.user.id });
+  if (!out.ok) return res.status(400).json(out);
+  res.json({ ...out, dia_completo: doDia(req.user.org_id, out.dia) });
+});
+
 // Limpa um período (usado antes de subir a escala do mês seguinte).
 r.delete("/", roles("adm", "sdr"), (req, res) => {
   const { de, ate } = req.query;
@@ -104,10 +128,19 @@ r.post("/importar", roles("adm", "sdr"), (req, res) => {
     return res.status(400).json({ error: "Nenhuma linha recebida." });
   if (linhas.length > 400)
     return res.status(413).json({ error: "Máximo de 400 dias por importação." });
-  res.json(importarEscala(req.user.org_id, linhas, req.user.id, { ref: refDe(req.body) }));
+  res.json(importarEscala(req.user.org_id, linhas, req.user.id,
+    { ref: refDe(req.body), simular: !!req.body.previa }));
 });
 
 /* Sobe a escala a partir do arquivo, .xlsx ou .csv.
+
+   COM `previa: true` ela LÊ e não grava: devolve os mesmos números, mais os
+   primeiros dias com os nomes de cada turno e quantas escalas já existentes
+   seriam substituídas. É o que o botão "Salvar escala" precisa para existir —
+   sem uma leitura antes, o botão seria só um clique a mais no mesmo caminho
+   cego. E o caminho era cego de verdade: a importação APAGA dia+turno antes de
+   gravar, então subir a planilha de outubro com setembro aberto na tela
+   apagava setembro, respondia "30 dias importados" e ninguém via nada.
 
    O arquivo inteiro vem em base64 e a leitura é AQUI, não no navegador. O
    .xlsx é um ZIP: o Node descompacta com a zlib que já tem, enquanto no
@@ -152,7 +185,8 @@ r.post("/importar-arquivo", roles("adm", "sdr"), (req, res) => {
   }
 
   if (!linhas.length) return res.status(400).json({ error: "Nenhuma linha com data abaixo do cabeçalho." });
-  res.json({ ...importarEscala(req.user.org_id, linhas, req.user.id, { ref: refDe(req.body) }),
+  res.json({ ...importarEscala(req.user.org_id, linhas, req.user.id,
+      { ref: refDe(req.body), simular: !!req.body.previa }),
     arquivo: nome || null, lidas: linhas.length });
 });
 

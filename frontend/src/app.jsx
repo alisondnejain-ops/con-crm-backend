@@ -570,6 +570,8 @@ const ICO={
   edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
   trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
+  // O par do `check`: mesmo círculo, para "veio" e "não veio" se lerem juntos.
+  xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
 };
 function Icon({n,size=18,color,fill="none",spin}){
   return <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={spin?"spin":""} style={{display:"block"}}>{ICO[n]}</svg>;
@@ -1070,7 +1072,8 @@ function ConCRM(){
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
-    subirEscala:(base64,nome,mes)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome,mes}}),
+    subirEscala:(base64,nome,mes,previa)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome,mes,previa:!!previa}}),
+    marcarPresenca:(dados)=>api("/plantoes/presenca",{method:"PUT",body:dados}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
     mensagensRapidas:(todas)=>api("/config/mensagens"+(todas?"?todas=1":"")),
     criarMensagem:(dados)=>api("/config/mensagens",{method:"POST",body:dados}),
@@ -1216,6 +1219,9 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const arquivo=useRef(null);
   const [importando,setImportando]=useState(false);
   const [resultado,setResultado]=useState(null);
+  // A planilha lida e AINDA NÃO GRAVADA: fica aqui até o botão Salvar.
+  const [pendente,setPendente]=useState(null);   // {base64,nome,mes,previa}
+  const [conferindo,setConferindo]=useState(null); // {dia,turno,userId} com obs aberta
   const [confirmando,setConfirmando]=useState(false);
   const [apagando,setApagando]=useState(false);
   const [recado,setRecado]=useState("");
@@ -1267,10 +1273,22 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
 
      O arquivo vai cru para o servidor, que sabe abrir os dois formatos. Ler
      .xlsx aqui exigiria embutir uma biblioteca no HTML, e o CRM é um arquivo
-     só, sem rede; no servidor o Node já tem o descompactador. */
-  async function importar(ev){
+     só, sem rede; no servidor o Node já tem o descompactador.
+
+     ESCOLHER O ARQUIVO NÃO GRAVA. O servidor lê e devolve o que ENCONTROU — em
+     que mês caiu, quantos dias, os primeiros dias com os nomes de cada turno e
+     quantas escalas já existentes seriam substituídas. Só o botão Salvar
+     grava.
+
+     É a mesma regra da imagem colada, do áudio gravado e da marca da
+     imobiliária: o que sai da mão da pessoa e vai para cima de outra coisa
+     precisa de uma olhada no meio. Aqui pesa mais do que em qualquer um deles,
+     porque a importação APAGA o dia+turno antes de gravar — subir a planilha
+     de outubro com setembro aberto na tela apagava setembro em silêncio, e o
+     "30 dias importados" ainda parecia vitória. */
+  async function lerPlanilha(ev){
     const f=ev.target.files[0]; ev.target.value=""; if(!f) return;
-    setErro(""); setResultado(null); setImportando(true);
+    setErro(""); setResultado(null); setPendente(null); setImportando(true);
     try{
       const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();
         fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=falhou;fr.readAsDataURL(f);});
@@ -1281,10 +1299,34 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
          servidor teria que adivinhar pelo relógio, e erraria toda vez que a
          escala do mês seguinte fosse montada no mês anterior, que é quando ela
          é montada. */
-      const r=await acoes.subirEscala(base64,f.name,iso(primeiro));
-      setResultado(r); await rever();
+      const mesRef=iso(primeiro);
+      const previa=await acoes.subirEscala(base64,f.name,mesRef,true);
+      setPendente({base64,nome:f.name,mes:mesRef,previa});
     }catch(e){ setErro(e.message); }
     finally{ setImportando(false); }
+  }
+
+  // O botão Salvar: manda o MESMO arquivo, agora para valer.
+  async function salvarPlanilha(){
+    if(!pendente) return;
+    setErro(""); setImportando(true);
+    try{
+      const r=await acoes.subirEscala(pendente.base64,pendente.nome,pendente.mes,false);
+      setResultado(r); setPendente(null); await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setImportando(false); }
+  }
+
+  /* Confere quem veio. Clicar de novo no mesmo botão DESMARCA — o turno volta
+     a ser "não conferido", que é diferente de "não veio". Sem isso, errar o
+     clique só teria uma saída: registrar o contrário, que é uma mentira
+     gravada no relatório de alguém. */
+  async function conferir(dia,turno,userId,presente,obs){
+    setErro("");
+    try{
+      await acoes.marcarPresenca({dia:iso(dia),turno,user_id:userId,presente,obs:obs||null});
+      await rever();
+    }catch(e){ setErro(e.message); }
   }
 
   /* Apaga a escala do mês que está na tela.
@@ -1305,9 +1347,24 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     finally{ setApagando(false); }
   }
 
+  /* A pastilha de presença. Três estados, e o terceiro é o que não pode
+     sumir: veio, não veio e NINGUÉM CONFERIU. Desenhar só os dois primeiros
+     faria o não conferido parecer presença — que é exatamente o erro que a
+     conferência existe para não cometer. */
+  const selo=(p)=>p.presente===true
+    ?<span title={`Veio${p.conferido_por?" · conferido por "+first(p.conferido_por):""}${p.presenca_obs?" · "+p.presenca_obs:""}`}
+      style={{display:"flex"}}><Icon n="check" size={12} color={C.greenDeep}/></span>
+    :p.presente===false
+    ?<span title={`Não veio${p.conferido_por?" · conferido por "+first(p.conferido_por):""}${p.presenca_obs?" · "+p.presenca_obs:""}`}
+      style={{display:"flex"}}><Icon n="xcirc" size={12} color={C.hot}/></span>
+    :null;
+
   const cartaoTurno=(dia,turno,compacto)=>{
     const lista=doDia(dia)[turno];
     const editandoEste=editando&&editando.dia===dia&&editando.turno===turno;
+    // Só dá para conferir o que já aconteceu — plantão de amanhã ainda não é
+    // nada, e "veio" marcado antes da hora é um fato inventado no relatório.
+    const podeConferir=podeEditar&&dia<=hoje.getTime()&&!editandoEste;
     return <div key={turno} style={{flex:1,minWidth:0,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
         <span style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,flex:1}}>{TURNOS_ROT[turno]}</span>
@@ -1315,7 +1372,48 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
           style={{background:"transparent",border:"none",color:C.greenMid,cursor:"pointer",padding:0,display:"flex"}}>
           <Icon n="edit" size={13}/></button>}
       </div>
-      {editandoEste
+
+      {/* A CONFERÊNCIA DA ATENDENTE. Uma linha por pessoa, com os dois botões
+          à vista: escondido atrás de um clique, ninguém confere. */}
+      {podeConferir&&lista.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {lista.map(x=>{
+          const aberto=conferindo&&conferindo.dia===dia&&conferindo.turno===turno&&conferindo.userId===x.id;
+          const bt=(veio)=>{
+            const ativo=x.presente===veio;
+            const cor=veio?C.greenDeep:C.hot, fundo=veio?C.greenSoft:C.hotSoft;
+            return <button onClick={()=>conferir(dia,turno,x.id,ativo?null:veio,x.presenca_obs)}
+              title={ativo?"clique de novo para desmarcar":undefined}
+              style={{minHeight:32,padding:"0 11px",borderRadius:8,cursor:"pointer",fontSize:11.5,fontWeight:700,
+                border:`1px solid ${ativo?cor:C.line}`,background:ativo?fundo:C.card,color:ativo?cor:C.faint}}>
+              {veio?"Veio":"Faltou"}</button>;
+          };
+          return <div key={x.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+              <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:60}}>{first(x.nome||"—")}</span>
+              {bt(true)}{bt(false)}
+            </div>
+            {/* A observação só aparece depois de conferir: "chegou 10h" e
+                "avisou que não vinha" são a diferença entre um número e um
+                fato que dá para conversar na reunião. */}
+            {x.presente!==null&&<div style={{marginTop:6}}>
+              {aberto
+                ?<input autoFocus defaultValue={x.presenca_obs||""} placeholder="ex.: chegou 10h, avisou antes…"
+                  onBlur={e=>{setConferindo(null);
+                    if((e.target.value||"")!==(x.presenca_obs||"")) conferir(dia,turno,x.id,x.presente,e.target.value);}}
+                  onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape")setConferindo(null);}}
+                  style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:11.5,border:`1px solid ${C.line}`,
+                    borderRadius:7,padding:"6px 8px",color:C.ink,outline:"none",background:C.surface}}/>
+                :<button onClick={()=>setConferindo({dia,turno,userId:x.id})}
+                  style={{background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left",
+                    color:x.presenca_obs?C.sub:C.faint,fontSize:11,fontStyle:x.presenca_obs?"normal":"italic"}}>
+                  {x.presenca_obs||"+ observação"}</button>}
+            </div>}
+            {x.presente!==null&&x.conferido_por&&<div style={{color:C.faint,fontSize:10,marginTop:4}}>
+              conferido por {first(x.conferido_por)}</div>}
+          </div>;
+        })}
+      </div>}
+      {!(podeConferir&&lista.length>0)&&(editandoEste
         ?<div style={{display:"flex",flexDirection:"column",gap:5}}>
           {pessoas.map(p=>{
             const marcado=lista.some(x=>x.id===p.id);
@@ -1333,12 +1431,16 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
         :lista.length
         ?<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
           {lista.map(x=><span key={x.id} style={{display:"flex",alignItems:"center",gap:5,background:C.card,
-            border:`1px solid ${x.id===session.id?C.green:C.line}`,borderRadius:999,padding:"3px 9px 3px 3px"}}>
+            border:`1px solid ${x.presente===false?C.hot+"66":x.id===session.id?C.green:C.line}`,borderRadius:999,padding:"3px 9px 3px 3px"}}>
             <Avatar ini={initials(x.nome||"?")} color={x.id===session.id?C.greenDeep:COLORS[[...x.id].reduce((a,c)=>a+c.charCodeAt(0),0)%COLORS.length]} size={18}/>
             <span style={{color:C.ink,fontSize:11.5,fontWeight:x.id===session.id?700:500}}>{first(x.nome||"—")}</span>
+            {/* O corretor vê a própria conferência — o número vai para o
+                relatório dele, e descobrir uma falta só na reunião é o jeito
+                mais rápido de a conferência virar briga. */}
+            {selo(x)}
           </span>)}
         </div>
-        :<span style={{color:C.faint,fontSize:11.5}}>{compacto?"—":"ninguém escalado"}</span>}
+        :<span style={{color:C.faint,fontSize:11.5}}>{compacto?"—":"ninguém escalado"}</span>)}
     </div>;
   };
 
@@ -1374,11 +1476,11 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
               background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
         {podeEditar&&<React.Fragment>
           <span style={{flex:1}}/>
-          <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={importar} style={{display:"none"}}/>
+          <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={lerPlanilha} style={{display:"none"}}/>
           <button onClick={()=>arquivo.current.click()} disabled={importando}
             style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
               borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Importando…":"Subir escala"}</button>
+            <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Lendo…":"Escolher planilha"}</button>
           <button onClick={()=>{setConfirmando(true);setRecado("");}} disabled={apagando}
             style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,
               borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
@@ -1423,39 +1525,77 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
           Agora ele vem com o mês. E quando o mês gravado não é o que está
           aberto na tela, o aviso é coral — é o sintoma exato daquele defeito, e
           ele não pode voltar a passar calado. */}
-      {resultado&&(()=>{
-        const meses=resultado.meses||[];
+      {(()=>{
+        const r=pendente?pendente.previa:resultado;
+        if(!r) return null;
+        const previa=!!pendente;
+        const meses=r.meses||[];
         const mesDaTela=`${String(mes.mes+1).padStart(2,"0")}/${mes.ano}`;
         const forasDoMes=meses.filter(m=>m!==mesDaTela);
         const erradoDeVez=meses.length>0&&forasDoMes.length===meses.length;
         const cor=erradoDeVez?C.hot:forasDoMes.length?C.amber:C.greenDeep;
         const fundo=erradoDeVez?C.hotSoft:forasDoMes.length?C.amberSoft:C.greenSoft;
+        const ddmm=(ms)=>new Date(ms).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
         return <div style={{background:fundo,border:`1px solid ${cor}44`,borderRadius:12,padding:12,marginBottom:12}}>
           <div style={{color:cor,fontSize:13,fontWeight:700}}>
-            {resultado.dias} dia(s) e {resultado.escalados} escala(s) importados
+            {previa?"Li a planilha: ":""}{r.dias} dia(s) e {r.escalados} escala(s)
+            {previa?"":" importados"}
             {meses.length?` em ${meses.join(", ")}`:""}
-            {resultado.arquivo?` — ${resultado.arquivo}`:""}</div>
+            {r.arquivo?` — ${r.arquivo}`:""}</div>
 
           {erradoDeVez&&<div style={{color:C.hot,fontSize:12,marginTop:5,lineHeight:1.55}}>
-            <b>A escala não caiu em {nomeMesCap}.</b> Confira a coluna de datas da planilha:
-            se ela tem só dia e mês, o sistema usa o mês aberto aqui — então abra {meses[0]} antes
-            de subir, ou coloque o ano na planilha.
+            <b>{previa?"Esta escala não vai cair":"A escala não caiu"} em {nomeMesCap}.</b> Confira a coluna
+            de datas da planilha: se ela tem só dia e mês, o sistema usa o mês aberto aqui — então abra {meses[0]} antes
+            de {previa?"salvar":"subir"}, ou coloque o ano na planilha.
           </div>}
           {!erradoDeVez&&forasDoMes.length>0&&<div style={{color:"#8a6d1f",fontSize:12,marginTop:5,lineHeight:1.55}}>
-            Parte da planilha caiu fora de {nomeMesCap}: <b>{forasDoMes.join(", ")}</b>.
+            Parte da planilha {previa?"cai":"caiu"} fora de {nomeMesCap}: <b>{forasDoMes.join(", ")}</b>.
+          </div>}
+
+          {/* O QUE VAI SER APAGADO. A importação substitui o dia+turno inteiro, e
+              isso só dá para avisar ANTES — depois, o que sumiu já sumiu. */}
+          {previa&&r.substitui>0&&<div style={{color:"#8a6d1f",fontSize:12,marginTop:5,lineHeight:1.55}}>
+            Isto substitui <b>{r.substitui} escala(s)</b> que já existem nesses dias.
           </div>}
 
           {/* Linhas que o sistema não entendeu. Antes eram puladas em silêncio e
               o total contava só as que passaram. */}
-          {resultado.datas_ignoradas&&resultado.datas_ignoradas.length>0&&
+          {r.datas_ignoradas&&r.datas_ignoradas.length>0&&
             <div style={{color:C.sub,fontSize:12,marginTop:5,lineHeight:1.5}}>
-              {resultado.datas_ignoradas.length} linha(s) sem data que eu reconheça, e por isso ignoradas:{" "}
-              <b>{resultado.datas_ignoradas.slice(0,6).join(", ")}</b>
-              {resultado.datas_ignoradas.length>6?"…":""}.
+              {r.datas_ignoradas.length} linha(s) sem data que eu reconheça, e por isso ignoradas:{" "}
+              <b>{r.datas_ignoradas.slice(0,6).join(", ")}</b>
+              {r.datas_ignoradas.length>6?"…":""}.
             </div>}
 
-          {resultado.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:5,lineHeight:1.5}}>
-            Não identifiquei na equipe: <b>{resultado.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
+          {r.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:5,lineHeight:1.5}}>
+            Não identifiquei na equipe: <b>{r.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
+          </div>}
+
+          {/* OS PRIMEIROS DIAS, COM OS NOMES. Total sem conteúdo não dá para
+              conferir — e conferir é a única razão de o botão Salvar existir. */}
+          {previa&&r.amostra&&r.amostra.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,
+            borderRadius:10,padding:"9px 11px",marginTop:9}}>
+            <div style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>
+              Começa assim</div>
+            {r.amostra.map(a=><div key={a.dia} style={{display:"flex",gap:8,alignItems:"baseline",marginBottom:3,flexWrap:"wrap"}}>
+              <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,minWidth:44}}>{ddmm(a.dia)}</span>
+              <span style={{color:C.sub,fontSize:11.5}}>
+                manhã: {a.manha.length?a.manha.map(first).join(", "):"—"} · tarde: {a.tarde.length?a.tarde.map(first).join(", "):"—"}
+              </span>
+            </div>)}
+            {r.dias>r.amostra.length&&<div style={{color:C.faint,fontSize:11,marginTop:4}}>
+              …e mais {r.dias-r.amostra.length} dia(s).</div>}
+          </div>}
+
+          {previa&&<div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:11}}>
+            <button onClick={salvarPlanilha} disabled={importando||!r.dias}
+              style={{display:"flex",alignItems:"center",gap:6,background:erradoDeVez?C.hot:C.green,color:"#fff",border:"none",
+                borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:r.dias?1:.5}}>
+              <Icon n={importando?"loader":"check"} size={14} spin={importando}/>
+              {importando?"Salvando…":`Salvar escala de ${meses.length===1?meses[0]:nomeMesCap}`}</button>
+            <button onClick={()=>setPendente(null)} disabled={importando}
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+                padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Descartar</button>
           </div>}
         </div>;
       })()}
@@ -10431,6 +10571,50 @@ const diasAtras=(n)=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 
    Junto vem o cruzamento com a escala: dia de plantão aparece marcado, e o
    rodapé diz quantos leads caíram justamente nesses dias. */
+/* PRESENÇA NO PLANTÃO, conferida pela atendente.
+
+   É a única coisa do relatório que não sai do que o sistema observou sozinho:
+   alguém teve que olhar e marcar. Por isso ela vem sempre com o NÃO CONFERIDO
+   ao lado, e não escondido — sem esse número, "1 falta" num mês em que a
+   atendente conferiu dois turnos parece um mês quase perfeito, e o corretor
+   que veio todos os dias fica com uma falta e nenhum contexto.
+
+   É a mesma régua da visita confirmada e do lead sem temperatura: o que
+   ninguém marcou não vira presença nem falta — vira o terceiro número.
+
+   Conta TURNOS, não dias: dá para vir de manhã e faltar à tarde, e somar os
+   dois no mesmo dia esconderia justamente a metade que faltou. E só entra
+   turno que JÁ ACONTECEU — plantão de amanhã não está pendente de conferência,
+   ele ainda não é nada. */
+function PresencaNoPlantao({pl,isMobile}){
+  const passados=pl.turnos_passados||0;
+  if(!passados) return null;
+  const veio=pl.presencas||0, faltou=pl.faltas||0, semConferir=pl.nao_conferidos||0;
+  const conferidos=veio+faltou;
+  const caixa=(rot,v,cor)=><div style={{background:C.surface,borderRadius:10,padding:"8px 11px",flex:"1 1 88px"}}>
+    <div style={{fontFamily:MONO,color:cor,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
+    <div style={{color:C.faint,fontSize:10,marginTop:3}}>{rot}</div></div>;
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:isMobile?11:12,marginBottom:10}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+      <Icon n="check" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Presença no plantão</span>
+      <span style={{color:C.faint,fontSize:11}}>{conferidos} de {passados} turno(s) conferido(s)</span>
+    </div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      {caixa("veio",veio,C.greenDeep)}
+      {caixa("faltou",faltou,faltou?C.hot:C.ink)}
+      {caixa("não conferido",semConferir,semConferir?C.amber:C.faint)}
+    </div>
+    {semConferir>0&&<div style={{color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,marginTop:8}}>
+      {semConferir===passados
+        ?<React.Fragment>Nenhum turno deste período foi conferido — então este bloco ainda não diz nada
+          sobre a presença dele. A atendente marca na tela de Plantão.</React.Fragment>
+        :<React.Fragment><b>{semConferir} turno(s)</b> ninguém conferiu. Eles não contam como presença
+          nem como falta.</React.Fragment>}
+    </div>}
+  </div>;
+}
+
 function LeadsPorDia({linha,isMobile}){
   const dias=linha.por_dia||[];
   const pl=linha.plantao||{};
@@ -10474,6 +10658,8 @@ function LeadsPorDia({linha,isMobile}){
       se prontificou em <b style={{color:pl.dias_que_se_prontificou<pl.dias_escalado?C.hot:C.greenMid}}>{pl.dias_que_se_prontificou}</b> deles ·
       <b style={{color:C.ink}}> {pl.leads_em_dia_de_plantao}</b> lead(s) chegaram em dia de plantão dele.
     </div>}
+
+    <PresencaNoPlantao pl={pl} isMobile={isMobile}/>
 
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
       <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>Dia</span>
@@ -10819,6 +11005,20 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
           {numero("Dias que se prontificou",linha.plantao.dias_que_se_prontificou,null)}
           {numero("Leads em dia de plantão",linha.plantao.leads_em_dia_de_plantao,null)}
         </div>
+        {/* A presença só entra no papel quando alguém conferiu alguma coisa.
+            Três zeros impressos ao lado do nome de uma pessoa, numa reunião,
+            leem-se como ausência — e aqui seriam ausência de conferência. */}
+        {linha.plantao.turnos_passados>0&&<React.Fragment>
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:10}}>
+            {numero("Turnos: veio",linha.plantao.presencas,null)}
+            {numero("Turnos: faltou",linha.plantao.faltas,null)}
+            {numero("Não conferidos",linha.plantao.nao_conferidos,null)}
+          </div>
+          <div style={{color:C.sub,fontSize:11,lineHeight:1.6,marginTop:6}}>
+            {linha.plantao.presencas+linha.plantao.faltas} de {linha.plantao.turnos_passados} turno(s) do
+            período foram conferidos pela atendente. Turno não conferido não conta como presença nem como falta.
+          </div>
+        </React.Fragment>}
       </React.Fragment>}
 
       {titulo("Como cada número é medido")}

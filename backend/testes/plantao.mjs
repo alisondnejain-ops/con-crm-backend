@@ -240,5 +240,131 @@ assert.equal(r.recusados.length, 0, "ninguém foi recusado — a lista veio vazi
 assert.equal(P.doDia(org, new Date(2026, 8, 20).getTime()).manha.length, 0);
 console.log("   turno esvaziado, sem recusa nenhuma");
 
+console.log("\n===== SALVAR A PLANILHA (a prévia antes de gravar) =====");
+/* Escolher o arquivo passou a LER e não gravar. Pesa mais aqui do que na
+   imagem colada ou no áudio: a importação apaga dia+turno antes de gravar, e
+   subir a planilha errada apagava a escala certa em silêncio. */
+
+console.log("19. A prévia devolve os números e NÃO grava nada");
+const antes19 = db.prepare("SELECT COUNT(*) n FROM plantoes WHERE org_id=?").get(org).n;
+let pv = P.importarEscala(org, [
+  { data: "10/09/2026", manha: ["Marina"], tarde: ["Rafael"] },
+  { data: "11/09/2026", manha: ["Rafael"], tarde: ["Marina", "Vanessa"] },
+], "u_ali", { ref: SETEMBRO, simular: true });
+console.log(`   ${pv.dias} dia(s) · ${pv.escalados} escala(s) · simulado: ${pv.simulado}`);
+assert.equal(pv.dias, 2);
+assert.equal(pv.escalados, 5);
+assert.equal(pv.simulado, true);
+assert.equal(db.prepare("SELECT COUNT(*) n FROM plantoes WHERE org_id=?").get(org).n, antes19,
+  "a prévia não pode ter escrito uma linha sequer");
+
+console.log("20. A prévia mostra os primeiros dias COM OS NOMES");
+/* Total sem conteúdo não dá para conferir — e conferir é a única razão de o
+   botão Salvar existir. */
+console.log(`   ${pv.amostra.map(a => `${fmt(a.dia)} manhã:${a.manha.join("/")} tarde:${a.tarde.join("/")}`).join(" · ")}`);
+assert.equal(pv.amostra.length, 2);
+assert.deepEqual(pv.amostra[0].manha, ["Marina"]);
+assert.deepEqual(pv.amostra[1].tarde.sort(), ["Marina", "Vanessa"]);
+
+console.log("21. Salvar grava exatamente o que a prévia mostrou");
+let sv = P.importarEscala(org, [
+  { data: "10/09/2026", manha: ["Marina"], tarde: ["Rafael"] },
+  { data: "11/09/2026", manha: ["Rafael"], tarde: ["Marina", "Vanessa"] },
+], "u_ali", { ref: SETEMBRO });
+assert.equal(sv.escalados, pv.escalados);
+assert.equal(sv.simulado, false);
+assert.equal(P.doDia(org, new Date(2026, 8, 10).getTime()).manha.length, 1);
+console.log(`   ${sv.escalados} escala(s) gravadas`);
+
+console.log("22. A prévia AVISA quantas escalas ela vai substituir");
+/* É o aviso que só existe antes: depois, o que sumiu já sumiu. */
+pv = P.importarEscala(org, [{ data: "10/09/2026", manha: ["Rafael"], tarde: [] }],
+  "u_ali", { ref: SETEMBRO, simular: true });
+console.log(`   substitui ${pv.substitui} escala(s) já existentes`);
+assert.equal(pv.substitui, 2, "manhã e tarde do dia 10 já tinham gente");
+
+console.log("\n===== QUEM VEIO AO PLANTÃO =====");
+/* A atendente confere depois do turno, e o número vai para o relatório
+   individual do corretor. */
+const DIA10 = new Date(2026, 8, 10).getTime();
+// O "hoje" destes testes é o fim de setembro: a conferência só vale para
+// turno que já passou, e a escala montada acima é de setembro de 2026.
+const FIM_DE_SETEMBRO = new Date(2026, 8, 30, 12).getTime();
+
+console.log("23. Só dá para conferir plantão que JÁ ACONTECEU");
+/* Marcar "veio" no plantão de amanhã é afirmar um fato que ainda não existe —
+   e no relatório ele ficaria indistinguível de uma presença de verdade. */
+const amanha = new Date(); amanha.setDate(amanha.getDate() + 1);
+P.definirTurno(org, { dia: amanha, turno: "manha", userIds: ["u_marina"], autorId: "u_ali" });
+r = P.marcarPresenca(org, { dia: amanha, turno: "manha", userId: "u_marina", presente: true, autorId: "u_vanessa" });
+console.log(`   ${r.error}`);
+assert.equal(r.ok, false);
+assert.ok(/ainda não aconteceu/.test(r.error));
+
+console.log("24. Presença de quem NÃO está escalado é recusada");
+/* Senão "presenças" passaria de "turnos escalados", e número impossível
+   derruba a confiança na tela inteira. */
+r = P.marcarPresenca(org, { dia: DIA10, turno: "manha", userId: "u_rafael", presente: true, autorId: "u_vanessa", agora: FIM_DE_SETEMBRO });
+console.log(`   ${r.error}`);
+assert.equal(r.ok, false);
+assert.ok(/não está escalada/.test(r.error));
+
+console.log("25. Conferir grava, e volta na escala junto com quem conferiu");
+r = P.marcarPresenca(org, { dia: DIA10, turno: "manha", userId: "u_marina",
+  presente: true, obs: "chegou 8h10", autorId: "u_vanessa", agora: FIM_DE_SETEMBRO });
+assert.equal(r.ok, true);
+let linha = P.escala(org, { de: DIA10, ate: DIA10 }).find(l => l.user_id === "u_marina" && l.turno === "manha");
+console.log(`   ${linha.nome}: presente=${linha.presente} · "${linha.presenca_obs}" · por ${linha.conferido_por}`);
+assert.equal(linha.presente, 1);
+assert.equal(linha.presenca_obs, "chegou 8h10");
+assert.equal(linha.conferido_por, "Vanessa");
+
+console.log("26. DESMARCAR volta para 'não conferido' — não para 'não veio'");
+/* Clique errado precisa ter volta, e voltar não pode significar registrar o
+   contrário no relatório de alguém. */
+r = P.marcarPresenca(org, { dia: DIA10, turno: "manha", userId: "u_marina", presente: null, autorId: "u_vanessa", agora: FIM_DE_SETEMBRO });
+assert.equal(r.ok, true);
+linha = P.escala(org, { de: DIA10, ate: DIA10 }).find(l => l.user_id === "u_marina" && l.turno === "manha");
+console.log(`   presente agora é ${linha.presente} (nulo = ninguém conferiu)`);
+assert.equal(linha.presente, null);
+
+console.log("27. SUBIR A PLANILHA DE NOVO NÃO APAGA A CONFERÊNCIA");
+/* O motivo de a presença morar em tabela separada. As linhas de `plantoes`
+   são apagadas e recriadas a cada importação — se a conferência morasse lá,
+   corrigir um nome na planilha e reenviar apagaria o mês inteiro de
+   conferências, sem nada aparecer na tela. */
+P.marcarPresenca(org, { dia: DIA10, turno: "tarde", userId: "u_rafael", presente: false,
+  obs: "não avisou", autorId: "u_vanessa", agora: FIM_DE_SETEMBRO });
+P.importarEscala(org, [{ data: "10/09/2026", manha: ["Marina"], tarde: ["Rafael"] }],
+  "u_ali", { ref: SETEMBRO });
+linha = P.escala(org, { de: DIA10, ate: DIA10 }).find(l => l.user_id === "u_rafael" && l.turno === "tarde");
+console.log(`   depois de reimportar: presente=${linha.presente} · "${linha.presenca_obs}"`);
+assert.equal(linha.presente, 0);
+assert.equal(linha.presenca_obs, "não avisou");
+
+console.log("\n===== O QUE VAI PARA O RELATÓRIO DO CORRETOR =====");
+
+console.log("28. Conta TURNOS, e o não conferido é um número PRÓPRIO");
+/* Contar quem ninguém conferiu como falta faria o relatório inventar faltas
+   no mês em que a atendente esqueceu de marcar. */
+let res = P.resumoPresenca(org, { de: new Date(2026, 8, 1).getTime(), ate: new Date(2026, 8, 30).getTime() },
+  new Date(2026, 8, 30).getTime());
+const rafael = res.get("u_rafael");
+console.log(`   Rafael: ${rafael.turnos_passados} turno(s) · ${rafael.presencas} veio · ${rafael.faltas} faltou · ${rafael.nao_conferidos} não conferido`);
+assert.equal(rafael.faltas, 1);
+assert.equal(rafael.presencas, 0);
+assert.ok(rafael.nao_conferidos >= 1, "os turnos que ninguém marcou ficam no terceiro número");
+assert.equal(rafael.presencas + rafael.faltas + rafael.nao_conferidos, rafael.turnos_passados,
+  "as três parcelas têm que fechar com o total");
+
+console.log("29. Turno que ainda não aconteceu NÃO é 'não conferido'");
+/* Ele ainda não é nada. Sem esse corte, abrir o relatório do mês corrente
+   mostraria uma pilha de pendências que é só o resto do mês. */
+res = P.resumoPresenca(org, { de: new Date(2026, 8, 1).getTime(), ate: new Date(2026, 8, 30).getTime() },
+  new Date(2026, 8, 10).getTime());
+const r29 = res.get("u_rafael");
+console.log(`   olhando de dentro do dia 10: ${r29.turnos_escalado} escalado(s), ${r29.turnos_passados} já aconteceram`);
+assert.ok(r29.turnos_escalado > r29.turnos_passados, "o futuro conta como escalado, não como pendente");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

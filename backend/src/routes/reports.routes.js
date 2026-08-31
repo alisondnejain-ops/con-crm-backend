@@ -4,7 +4,7 @@ import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { ranking, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
-import { escala as escalaPlantao, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
+import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 
 const r = Router();
 r.use(authRequired);
@@ -89,6 +89,15 @@ r.get("/", (req, res) => {
     WHERE org_id = ? AND ativo = 1 AND plantao IS NOT NULL AND created_at BETWEEN ? AND ?
     GROUP BY user_id`).all(req.user.org_id, de, ate);
   const cumpriu = new Map(prontidaoEmPlantao.map(x => [x.user_id, x.dias]));
+  /* PRESENÇA NO PLANTÃO, conferida pela atendente.
+
+     É a única coisa do relatório que não sai do que o sistema observou sozinho
+     — alguém teve que olhar e marcar. Por isso ela vem com `nao_conferidos` ao
+     lado: sem esse número, "1 falta" num mês em que a atendente conferiu dois
+     turnos parece um mês quase perfeito. É a mesma régua da visita confirmada
+     e do lead sem temperatura — o que ninguém marcou não vira presença nem
+     falta, vira o terceiro número. */
+  const presencas = resumoPresenca(req.user.org_id, { de, ate });
 
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);
@@ -153,6 +162,10 @@ r.get("/", (req, res) => {
         dias_escalado: escalados.size,
         dias_que_se_prontificou: cumpriu.get(u.id) || 0,
         leads_em_dia_de_plantao: emPlantao.length,
+        /* Em TURNOS, não em dias: dá para vir de manhã e faltar à tarde, e
+           somar os dois no mesmo dia esconderia a metade que faltou. */
+        ...(presencas.get(u.id) ||
+          { turnos_escalado: 0, turnos_passados: 0, presencas: 0, faltas: 0, nao_conferidos: 0 }),
         // As datas em si, para a tela marcar "estava de plantão" no dia que o
         // gestor abrir — o número sozinho não responde "e no dia 4?".
         dias_plantao: [...escalados].sort((a, b) => a - b),

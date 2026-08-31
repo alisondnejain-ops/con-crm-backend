@@ -458,6 +458,35 @@ CREATE TABLE IF NOT EXISTS plantoes (
 -- Duas pessoas no mesmo turno é normal; a MESMA pessoa duas vezes, não.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plantao_unico ON plantoes(org_id, dia, turno, user_id);
 CREATE INDEX IF NOT EXISTS idx_plantao_dia ON plantoes(org_id, dia);
+
+--
+-- QUEM VEIO AO PLANTÃO. A atendente confere depois que o turno acontece.
+--
+-- Tabela SEPARADA de plantoes, e a chave é dia+turno+pessoa — não o id da
+-- linha da escala. É de propósito: subir a planilha de novo APAGA e recria as
+-- linhas de plantoes (é assim que a substituição do mês funciona). Se a
+-- presença morasse lá, corrigir um nome na planilha e reenviar apagaria a
+-- conferência do mês inteiro, sem nada aparecer na tela — e conferência
+-- perdida ninguém descobre que existiu.
+--
+-- presente é 1 (veio), 0 (não veio) — e a AUSÊNCIA de linha é "ainda não
+-- conferido", que é um terceiro estado de verdade, não um "não veio" com
+-- outro nome. Contar quem ninguém conferiu como falta faria o relatório
+-- inventar faltas no mês em que a atendente esqueceu de marcar.
+CREATE TABLE IF NOT EXISTS plantao_presencas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  dia INTEGER NOT NULL,
+  turno TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  presente INTEGER NOT NULL,   -- 1 veio · 0 não veio
+  obs TEXT,
+  marcado_por TEXT,
+  marcado_em INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_presenca_unica ON plantao_presencas(org_id, dia, turno, user_id);
+CREATE INDEX IF NOT EXISTS idx_presenca_dia ON plantao_presencas(org_id, dia);
+CREATE INDEX IF NOT EXISTS idx_presenca_user ON plantao_presencas(user_id, dia);
 CREATE INDEX IF NOT EXISTS idx_disp_org ON disponibilidade_log(org_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_disp_user ON disponibilidade_log(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_org ON pagamentos(org_id, pago_em);

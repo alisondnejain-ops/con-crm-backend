@@ -107,6 +107,17 @@ export function lerDia(valor, ref = Date.now()) {
       const d = new Date(Math.round((n - 25569) * 86400000));
       return monta(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
     }
+    /* Carimbo de tempo do próprio sistema (milissegundos). Quem chama de
+       dentro do código passa o número que já tem na mão, e exigir que ele
+       converta para texto antes seria uma armadilha em todo chamador novo —
+       a recusa sairia como "Data inválida" numa data perfeitamente válida.
+       Não é ambíguo: um serial do Excel não passa de 73.500 e um carimbo de
+       tempo destes anos está na casa dos bilhões. A faixa de anos continua
+       sendo conferida pelo `monta`. */
+    if (n > 73500) {
+      const d = new Date(n);
+      return isFinite(d.getTime()) ? monta(d.getFullYear(), d.getMonth() + 1, d.getDate()) : NaN;
+    }
     return NaN;
   }
 
@@ -119,13 +130,98 @@ export function lerDia(valor, ref = Date.now()) {
   return NaN;
 }
 
-// A escala de um período, já com o nome de quem está escalado.
+// A escala de um período, já com o nome de quem está escalado e com a
+// conferência de presença, quando ela existe.
 export function escala(orgId, { de, ate }) {
   return db.prepare(`
-    SELECT p.id, p.dia, p.turno, p.user_id, u.name AS nome, u.role
-    FROM plantoes p LEFT JOIN users u ON u.id = p.user_id
+    SELECT p.id, p.dia, p.turno, p.user_id, u.name AS nome, u.role,
+           pr.presente, pr.obs AS presenca_obs, pr.marcado_em, pr.marcado_por,
+           a.name AS conferido_por
+    FROM plantoes p
+    LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN plantao_presencas pr
+      ON pr.org_id = p.org_id AND pr.dia = p.dia AND pr.turno = p.turno AND pr.user_id = p.user_id
+    LEFT JOIN users a ON a.id = pr.marcado_por
     WHERE p.org_id = ? AND p.dia BETWEEN ? AND ?
     ORDER BY p.dia, p.turno, u.name`).all(orgId, meiaNoite(de), meiaNoite(ate));
+}
+
+/* ===== QUEM VEIO AO PLANTÃO =====
+
+   A atendente confere depois que o turno passou. Três regras, e as três
+   existem para o número não descrever coisa que ninguém viu acontecer:
+
+   1. SÓ DEPOIS DO DIA. Marcar "veio" no plantão de amanhã é afirmar um fato
+      que ainda não existe — e no relatório ele seria indistinguível de uma
+      presença conferida de verdade.
+
+   2. SÓ QUEM ESTÁ ESCALADO naquele dia e turno. Presença de quem não estava na
+      escala não responde pergunta nenhuma, e faria "presenças" passar de
+      "turnos escalados" — número impossível é número que derruba a confiança
+      na tela inteira.
+
+   3. DÁ PARA DESMARCAR. `presente = null` apaga a conferência e o turno volta
+      a ser "não conferido". Clique errado precisa ter volta, e voltar não pode
+      significar registrar o contrário. */
+export function marcarPresenca(orgId, { dia, turno, userId, presente, obs = null, autorId = null, agora = Date.now() }) {
+  if (!TURNOS.includes(turno)) return { ok: false, error: "Turno inválido." };
+  const d = lerDia(dia);
+  if (!isFinite(d)) return { ok: false, error: "Data inválida." };
+  if (d > meiaNoite(agora))
+    return { ok: false, error: "Esse plantão ainda não aconteceu — dá para conferir a partir do próprio dia." };
+
+  const escalado = db.prepare(
+    "SELECT 1 FROM plantoes WHERE org_id=? AND dia=? AND turno=? AND user_id=?").get(orgId, d, turno, userId);
+  if (!escalado) return { ok: false, error: "Essa pessoa não está escalada nesse turno." };
+
+  if (presente === null || presente === undefined || presente === "") {
+    db.prepare("DELETE FROM plantao_presencas WHERE org_id=? AND dia=? AND turno=? AND user_id=?")
+      .run(orgId, d, turno, userId);
+    return { ok: true, dia: d, turno, user_id: userId, presente: null };
+  }
+
+  const veio = (presente === true || presente === 1 || presente === "1" || presente === "veio") ? 1 : 0;
+  const texto = String(obs || "").trim().slice(0, 200) || null;
+  db.prepare(`INSERT INTO plantao_presencas (id,org_id,dia,turno,user_id,presente,obs,marcado_por,marcado_em)
+     VALUES (?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(org_id,dia,turno,user_id) DO UPDATE SET
+       presente=excluded.presente, obs=excluded.obs,
+       marcado_por=excluded.marcado_por, marcado_em=excluded.marcado_em`)
+    .run("pp_" + randomUUID(), orgId, d, turno, userId, veio, texto, autorId, Date.now());
+  return { ok: true, dia: d, turno, user_id: userId, presente: veio, obs: texto };
+}
+
+/* O resumo por pessoa, que é o que entra no relatório individual.
+
+   Conta TURNOS, não dias: dá para vir de manhã e faltar à tarde, e somar os
+   dois no mesmo dia esconderia justamente a metade que faltou.
+
+   `nao_conferidos` só olha turno que JÁ ACONTECEU. Turno de amanhã não está
+   pendente de conferência — ele ainda não é nada. Sem esse corte, abrir o
+   relatório do mês corrente mostraria uma pilha de "não conferidos" que é só o
+   resto do mês, e a atendente iria procurar trabalho que não existe. */
+export function resumoPresenca(orgId, { de, ate }, agora = Date.now()) {
+  const hoje = meiaNoite(agora);
+  const linhas = db.prepare(`
+    SELECT p.user_id, p.dia, pr.presente
+    FROM plantoes p
+    LEFT JOIN plantao_presencas pr
+      ON pr.org_id = p.org_id AND pr.dia = p.dia AND pr.turno = p.turno AND pr.user_id = p.user_id
+    WHERE p.org_id = ? AND p.dia BETWEEN ? AND ?`).all(orgId, meiaNoite(de), meiaNoite(ate));
+
+  const por = new Map();
+  for (const l of linhas) {
+    if (!por.has(l.user_id))
+      por.set(l.user_id, { turnos_escalado: 0, turnos_passados: 0, presencas: 0, faltas: 0, nao_conferidos: 0 });
+    const x = por.get(l.user_id);
+    x.turnos_escalado++;
+    if (l.dia > hoje) continue;             // ainda não aconteceu
+    x.turnos_passados++;
+    if (l.presente === 1) x.presencas++;
+    else if (l.presente === 0) x.faltas++;
+    else x.nao_conferidos++;
+  }
+  return por;
 }
 
 // Quem está de plantão num dia, separado por turno.
@@ -199,7 +295,7 @@ export function limpar(orgId, { de, ate }) {
 const chave = (t) => String(t || "").trim().toLowerCase()
   .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}) {
+export function importarEscala(orgId, linhas, autorId, { ref = Date.now(), simular = false } = {}) {
   const pessoas = db.prepare(
     `SELECT u.id, u.name FROM users u WHERE u.org_id = ? AND u.status = 'ativo'
      AND u.role IN ('corretor','sdr')${semMaster("u")}`).all(orgId);
@@ -239,7 +335,9 @@ export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}
   const naoEncontrados = new Set();
   const datasIgnoradas = [];
   const diasGravados = [];
-  let dias = 0, escalados = 0;
+  const amostra = [];
+  const nomeDe = new Map(pessoas.map(p => [p.id, p.name]));
+  let dias = 0, escalados = 0, substitui = 0;
 
   const rodar = db.transaction(() => {
     for (const l of linhas) {
@@ -256,6 +354,7 @@ export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}
       }
       dias++;
       diasGravados.push(d);
+      const doDiaAmostra = { dia: d, manha: [], tarde: [] };
       for (const turno of TURNOS) {
         const nomes = (l[turno] || []).map(n => String(n || "").trim()).filter(Boolean);
         const ids = [];
@@ -264,13 +363,25 @@ export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}
           if (achou && achou !== "__ambiguo__") ids.push(achou);
           else naoEncontrados.add(n);
         }
+        /* O QUE VAI SER SUBSTITUÍDO. A importação apaga o dia+turno antes de
+           gravar — é assim que refazer o mês funciona. Na prévia isso precisa
+           estar escrito: subir a planilha certa por cima da errada é rotina,
+           mas subir a de outubro com setembro aberto na tela apagaria setembro
+           em silêncio, e o número "30 dias importados" pareceria vitória. */
+        substitui += db.prepare(
+          "SELECT COUNT(*) n FROM plantoes WHERE org_id=? AND dia=? AND turno=?").get(orgId, d, turno).n;
+        const unicos = [...new Set(ids)];
+        for (const id of unicos) doDiaAmostra[turno].push(nomeDe.get(id) || "?");
+        escalados += unicos.length;
+        if (simular) continue;
         db.prepare("DELETE FROM plantoes WHERE org_id = ? AND dia = ? AND turno = ?").run(orgId, d, turno);
-        for (const id of [...new Set(ids)]) {
+        for (const id of unicos)
           db.prepare(`INSERT INTO plantoes (id,org_id,dia,turno,user_id,criado_por,created_at)
                       VALUES (?,?,?,?,?,?,?)`).run("pl_" + randomUUID(), orgId, d, turno, id, autorId, Date.now());
-          escalados++;
-        }
       }
+      // Uns poucos dias inteiros na prévia: total sem conteúdo não dá para
+      // conferir, e é justamente conferir que o botão Salvar existe para permitir.
+      if (amostra.length < 4) amostra.push(doDiaAmostra);
     }
   });
   rodar();
@@ -291,7 +402,7 @@ export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}
     datas_ignoradas: datasIgnoradas,
     de: diasGravados[0] ?? null,
     ate: diasGravados[diasGravados.length - 1] ?? null,
-    meses,
+    meses, simulado: !!simular, substitui, amostra,
   };
 }
 
