@@ -1070,7 +1070,7 @@ function ConCRM(){
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
-    subirEscala:(base64,nome)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome}}),
+    subirEscala:(base64,nome,mes)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome,mes}}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
     mensagensRapidas:(todas)=>api("/config/mensagens"+(todas?"?todas=1":"")),
     criarMensagem:(dados)=>api("/config/mensagens",{method:"POST",body:dados}),
@@ -1248,7 +1248,18 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
 
   async function salvarTurno(dia,turno,ids){
     setSalvando(true); setErro("");
-    try{ await acoes.definirPlantao({dia:iso(dia),turno,user_ids:ids}); await rever(); setEditando(null); }
+    try{
+      const r=await acoes.definirPlantao({dia:iso(dia),turno,user_ids:ids});
+      /* QUEM O SERVIDOR RECUSOU É DITO AQUI.
+
+         Só corretor e atendente entram na escala, e o servidor filtrava sem
+         avisar: a tela mandava dois nomes, gravava zero e respondia "ok". Do
+         lado de quem usa, isso é exatamente "a escala não está salvando" —
+         some o que estava lá e nada aparece no lugar. */
+      if(r&&r.recusados&&r.recusados.length)
+        setErro(r.recusados.map(x=>`${x.nome}: ${x.motivo}`).join(" · "));
+      await rever(); setEditando(null);
+    }
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
 
@@ -1263,7 +1274,14 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     try{
       const base64=await new Promise((ok,falhou)=>{const fr=new FileReader();
         fr.onload=()=>ok(String(fr.result).split(",")[1]);fr.onerror=falhou;fr.readAsDataURL(f);});
-      const r=await acoes.subirEscala(base64,f.name);
+      /* Manda o MÊS QUE ESTÁ NA TELA junto do arquivo.
+
+         Numa escala mensal a coluna de data costuma dizer só "01/09" — o mês
+         está no título da planilha, não na célula. Sem esta referência o
+         servidor teria que adivinhar pelo relógio, e erraria toda vez que a
+         escala do mês seguinte fosse montada no mês anterior, que é quando ela
+         é montada. */
+      const r=await acoes.subirEscala(base64,f.name,iso(primeiro));
       setResultado(r); await rever();
     }catch(e){ setErro(e.message); }
     finally{ setImportando(false); }
@@ -1394,12 +1412,53 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
         <Icon n="check" size={14} color={C.greenMid}/>{recado}
       </div>}
 
-      {resultado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12,marginBottom:12}}>
-        <div style={{color:C.greenDeep,fontSize:13,fontWeight:700}}>{resultado.dias} dia(s) e {resultado.escalados} escala(s) importados{resultado.arquivo?` — ${resultado.arquivo}`:""}</div>
-        {resultado.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:4,lineHeight:1.5}}>
-          Não identifiquei na equipe: <b>{resultado.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
-        </div>}
-      </div>}
+      {/* O RESULTADO DA IMPORTAÇÃO PRECISA DIZER EM QUE MÊS ELA CAIU.
+
+          Sem isso o defeito de 29/08/2026 passou despercebido por semanas: a
+          planilha ia toda para janeiro de 2001 (a coluna dizia "01/09", sem
+          ano, e o servidor inventava um), a tela respondia "30 dias
+          importados" e a escala de setembro continuava vazia. O número sozinho
+          descrevia um sucesso que não tinha acontecido.
+
+          Agora ele vem com o mês. E quando o mês gravado não é o que está
+          aberto na tela, o aviso é coral — é o sintoma exato daquele defeito, e
+          ele não pode voltar a passar calado. */}
+      {resultado&&(()=>{
+        const meses=resultado.meses||[];
+        const mesDaTela=`${String(mes.mes+1).padStart(2,"0")}/${mes.ano}`;
+        const forasDoMes=meses.filter(m=>m!==mesDaTela);
+        const erradoDeVez=meses.length>0&&forasDoMes.length===meses.length;
+        const cor=erradoDeVez?C.hot:forasDoMes.length?C.amber:C.greenDeep;
+        const fundo=erradoDeVez?C.hotSoft:forasDoMes.length?C.amberSoft:C.greenSoft;
+        return <div style={{background:fundo,border:`1px solid ${cor}44`,borderRadius:12,padding:12,marginBottom:12}}>
+          <div style={{color:cor,fontSize:13,fontWeight:700}}>
+            {resultado.dias} dia(s) e {resultado.escalados} escala(s) importados
+            {meses.length?` em ${meses.join(", ")}`:""}
+            {resultado.arquivo?` — ${resultado.arquivo}`:""}</div>
+
+          {erradoDeVez&&<div style={{color:C.hot,fontSize:12,marginTop:5,lineHeight:1.55}}>
+            <b>A escala não caiu em {nomeMesCap}.</b> Confira a coluna de datas da planilha:
+            se ela tem só dia e mês, o sistema usa o mês aberto aqui — então abra {meses[0]} antes
+            de subir, ou coloque o ano na planilha.
+          </div>}
+          {!erradoDeVez&&forasDoMes.length>0&&<div style={{color:"#8a6d1f",fontSize:12,marginTop:5,lineHeight:1.55}}>
+            Parte da planilha caiu fora de {nomeMesCap}: <b>{forasDoMes.join(", ")}</b>.
+          </div>}
+
+          {/* Linhas que o sistema não entendeu. Antes eram puladas em silêncio e
+              o total contava só as que passaram. */}
+          {resultado.datas_ignoradas&&resultado.datas_ignoradas.length>0&&
+            <div style={{color:C.sub,fontSize:12,marginTop:5,lineHeight:1.5}}>
+              {resultado.datas_ignoradas.length} linha(s) sem data que eu reconheça, e por isso ignoradas:{" "}
+              <b>{resultado.datas_ignoradas.slice(0,6).join(", ")}</b>
+              {resultado.datas_ignoradas.length>6?"…":""}.
+            </div>}
+
+          {resultado.nao_encontrados.length>0&&<div style={{color:C.sub,fontSize:12,marginTop:5,lineHeight:1.5}}>
+            Não identifiquei na equipe: <b>{resultado.nao_encontrados.join(", ")}</b>. Cadastre essas pessoas ou ajuste o nome na planilha.
+          </div>}
+        </div>;
+      })()}
 
       {aba==="hoje"&&<React.Fragment>
         {linhaDoDia(hoje.getTime(),true)}

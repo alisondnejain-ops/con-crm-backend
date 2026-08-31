@@ -22,18 +22,101 @@ export const HORA_AVISO = 8;   // 08:00, no fuso da operação
 
 export const meiaNoite = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
-/* Data vinda da tela ou da planilha. Aceita "2026-08-01" e "01/08/2026" — o
-   segundo formato é o que sai do Excel em português, e lido pelo JS puro
-   viraria janeiro de 2026 em vez de agosto. */
-export function lerDia(valor) {
+/* ===== A DATA DA PLANILHA =====
+
+   Reescrito em 29/08/2026 depois de a escala do Ali "não salvar". Ela salvava:
+   ia toda para JANEIRO DE 2001, e a tela de setembro ficava vazia.
+
+   A causa era a última linha da versão anterior — um `new Date(t)` de
+   consolo, que aceitava qualquer coisa que o JavaScript conseguisse
+   interpretar. E o JavaScript interpreta muita coisa que não é data de escala:
+
+     "01/09"      → 09/01/2001   (dia/mês sem ano, o formato mais comum de todos)
+     "seg 01/09"  → 09/01/2001
+     "Sábado"     → 01/01/2001
+     "46235"      → ano 46235    (o número cru do Excel, quando o estilo da
+                                  célula não é reconhecido como data)
+
+   Nenhum desses virava erro. Viravam DIAS VÁLIDOS em anos errados, a
+   importação respondia "30 dias lidos" e a escala sumia. E como o import apaga
+   dia+turno antes de gravar, dois meses caindo no mesmo janeiro de 2001 faziam
+   o segundo apagar o primeiro — que é o "o mês anterior sumiu".
+
+   Agora:
+   - dia/mês SEM ANO usa o mês de referência (o que está aberto na tela). É o
+     formato mais comum numa escala mensal, e adivinhar o ano pelo relógio do
+     servidor erraria em toda virada de ano;
+   - ano de dois dígitos vira 20xx, na ordem brasileira (dd/mm/aa);
+   - número solto na faixa do Excel vira data pelo serial;
+   - e o que não casa com nenhum formato conhecido é INVÁLIDO. Devolver NaN faz
+     a linha ser descartada e CONTADA como descartada — muito melhor que virar
+     uma data qualquer que ninguém vai encontrar depois.
+
+   `ref` é a data de referência para o que vier sem ano. */
+const ANO_MIN = 2000, ANO_MAX = 2100;
+
+export function lerDia(valor, ref = Date.now()) {
+  if (valor instanceof Date) return isFinite(valor.getTime()) ? meiaNoite(valor.getTime()) : NaN;
   const t = String(valor ?? "").trim();
   if (!t) return NaN;
-  const br = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1])).getTime();
-  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])).getTime();
-  const ms = new Date(t).getTime();
-  return isFinite(ms) ? meiaNoite(ms) : NaN;
+
+  const monta = (ano, mes, dia) => {
+    if (!(mes >= 1 && mes <= 12) || !(dia >= 1 && dia <= 31)) return NaN;
+    if (!(ano >= ANO_MIN && ano <= ANO_MAX)) return NaN;
+    const d = new Date(ano, mes - 1, dia);
+    // 31/02 vira 03/03 no JS. Data que "escorrega" não é data válida.
+    return (d.getMonth() === mes - 1 && d.getDate() === dia) ? d.getTime() : NaN;
+  };
+
+  // dd/mm/aaaa e dd/mm/aa — o que sai do Excel em português.
+  const br = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})\b/);
+  if (br) {
+    const ano = br[3].length === 2 ? 2000 + Number(br[3]) : Number(br[3]);
+    return monta(ano, Number(br[2]), Number(br[1]));
+  }
+
+  const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) return monta(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  /* SÓ DIA E MÊS. O caso que quebrou a escala do Ali.
+
+     Numa planilha mensal é o normal — a coluna diz "01/09" e o mês está no
+     título. Sem ano, o ano vem da referência: o mês que a gestão está vendo na
+     tela quando sobe o arquivo. Usar o ano do relógio erraria em dezembro
+     subindo a escala de janeiro. */
+  const so = t.match(/(?:^|\s)(\d{1,2})[\/\-.](\d{1,2})(?:\s|$)/);
+  if (so) {
+    const base = new Date(isFinite(ref) ? ref : Date.now());
+    const mes = Number(so[2]), dia = Number(so[1]);
+    let ano = base.getFullYear();
+    /* A virada de ano: escala de janeiro subida em dezembro. Se o mês da
+       planilha está muito atrás do mês de referência, é o ano que vem. */
+    const distancia = mes - (base.getMonth() + 1);
+    if (distancia <= -6) ano++;
+    else if (distancia >= 6) ano--;
+    return monta(ano, mes, dia);
+  }
+
+  /* Número solto: o serial do Excel (dias desde 30/12/1899). Chega assim
+     quando o estilo da célula não é reconhecido como data — o leitor de xlsx
+     converte o que reconhece, e o que escapa vinha parar aqui como "46235".
+     A faixa cobre 1980–2100; fora dela não é data de escala. */
+  if (/^\d+([.,]\d+)?$/.test(t)) {
+    const n = Number(t.replace(",", "."));
+    if (n >= 29000 && n <= 73500) {
+      const d = new Date(Math.round((n - 25569) * 86400000));
+      return monta(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+    }
+    return NaN;
+  }
+
+  /* E acabou. NÃO existe mais o `new Date(t)` de consolo.
+
+     Era ele que transformava "Sábado", "seg 01/09" e qualquer texto solto numa
+     data de 2001. Uma linha que não casa com nenhum formato conhecido é uma
+     linha que o sistema NÃO ENTENDEU, e dizer isso é a única resposta honesta:
+     inventar uma data faz a escala sumir num lugar onde ninguém vai procurar. */
+  return NaN;
 }
 
 // A escala de um período, já com o nome de quem está escalado.
@@ -69,7 +152,16 @@ export function definirTurno(orgId, { dia, turno, userIds, autorId }) {
     `SELECT u.id FROM users u WHERE u.org_id = ? AND u.status = 'ativo'
      AND u.role IN ('corretor','sdr')${semMaster("u")}`).all(orgId).map(u => u.id));
 
-  const escolhidos = [...new Set((userIds || []).filter(id => validos.has(id)))];
+  const pedidos = [...new Set(userIds || [])];
+  const escolhidos = pedidos.filter(id => validos.has(id));
+  /* QUEM FOI RECUSADO É DITO, e não descartado em silêncio.
+
+     A peneira existe por um motivo bom — nome de quem saiu da equipe não pode
+     continuar na escala do mês que vem. Mas ela também barra o gestor, que não
+     tem papel de corretor nem de atendente, e barrava calado: a tela mandava
+     dois nomes, o servidor gravava zero e respondia "ok". Do lado de quem
+     usa, isso é exatamente "a escala não está salvando". */
+  const recusados = pedidos.filter(id => !validos.has(id));
   const gravar = db.transaction(() => {
     db.prepare("DELETE FROM plantoes WHERE org_id = ? AND dia = ? AND turno = ?").run(orgId, d, turno);
     for (const id of escolhidos)
@@ -77,7 +169,17 @@ export function definirTurno(orgId, { dia, turno, userIds, autorId }) {
                   VALUES (?,?,?,?,?,?,?)`).run("pl_" + randomUUID(), orgId, d, turno, id, autorId, Date.now());
   });
   gravar();
-  return { ok: true, dia: d, turno, quantos: escolhidos.length };
+  const nomes = recusados.length
+    ? db.prepare(`SELECT name, role, status FROM users WHERE id IN (${recusados.map(() => "?").join(",")})`).all(...recusados)
+    : [];
+  return {
+    ok: true, dia: d, turno, quantos: escolhidos.length,
+    recusados: nomes.map(n => ({
+      nome: n.name,
+      motivo: n.status !== "ativo" ? "não está mais ativo na equipe"
+        : "só corretor e atendente entram na escala",
+    })),
+  };
 }
 
 // Limpa um período inteiro. Usado antes de subir uma escala nova do mês.
@@ -97,29 +199,63 @@ export function limpar(orgId, { de, ate }) {
 const chave = (t) => String(t || "").trim().toLowerCase()
   .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-export function importarEscala(orgId, linhas, autorId) {
+export function importarEscala(orgId, linhas, autorId, { ref = Date.now() } = {}) {
   const pessoas = db.prepare(
     `SELECT u.id, u.name FROM users u WHERE u.org_id = ? AND u.status = 'ativo'
      AND u.role IN ('corretor','sdr')${semMaster("u")}`).all(orgId);
 
+  /* O CASAMENTO DOS NOMES, EM DUAS PASSADAS.
+
+     A versão anterior fazia tudo num laço só, e por isso NUNCA reconhecia
+     alguém cadastrado com uma palavra só:
+
+       "Marina" → grava porNome["marina"] = id
+                → primeiro nome também é "marina"
+                → já existe no mapa, logo marca "__ambiguo__"
+
+     Ela ficava ambígua consigo mesma. Numa equipe cadastrada por primeiro nome
+     — que é como quase toda equipe é cadastrada — isso significava a planilha
+     inteira voltar em "não identifiquei ninguém", com zero escalas gravadas.
+     Do lado de quem usa: a escala não salva.
+
+     Agora o NOME COMPLETO tem prioridade e é imune: quem se chama "Marina"
+     casa com "Marina", ponto. A ambiguidade só existe entre PRIMEIROS NOMES de
+     pessoas diferentes — com duas Anas, adivinhar continua sendo pior do que
+     avisar que não deu para identificar. */
   const porNome = new Map();
+  const nomesCompletos = new Set();
   for (const p of pessoas) {
-    porNome.set(chave(p.name), p.id);
+    const inteiro = chave(p.name);
+    porNome.set(inteiro, p.id);
+    nomesCompletos.add(inteiro);
+  }
+  for (const p of pessoas) {
     const primeiro = chave(p.name).split(" ")[0];
-    // Primeiro nome só entra se for único — com duas Anas, adivinhar é pior
-    // do que avisar que não deu para identificar.
+    if (nomesCompletos.has(primeiro)) continue;      // é o nome inteiro de alguém: não se mexe
     if (!porNome.has(primeiro)) porNome.set(primeiro, p.id);
-    else porNome.set(primeiro, "__ambiguo__");
+    else if (porNome.get(primeiro) !== p.id) porNome.set(primeiro, "__ambiguo__");
   }
 
   const naoEncontrados = new Set();
+  const datasIgnoradas = [];
+  const diasGravados = [];
   let dias = 0, escalados = 0;
 
   const rodar = db.transaction(() => {
     for (const l of linhas) {
-      const d = lerDia(l.data);
-      if (!isFinite(d)) continue;
+      const d = lerDia(l.data, ref);
+      /* Linha com data que o sistema NÃO entendeu é contada e devolvida.
+
+         Antes ela era pulada em silêncio, e o resultado dizia "30 dias lidos"
+         contando só as que passaram — o gestor não tinha como saber que dez
+         linhas tinham ficado para trás. */
+      if (!isFinite(d)) {
+        const bruto = String(l.data ?? "").trim();
+        if (bruto && datasIgnoradas.length < 20) datasIgnoradas.push(bruto);
+        continue;
+      }
       dias++;
+      diasGravados.push(d);
       for (const turno of TURNOS) {
         const nomes = (l[turno] || []).map(n => String(n || "").trim()).filter(Boolean);
         const ids = [];
@@ -138,7 +274,25 @@ export function importarEscala(orgId, linhas, autorId) {
     }
   });
   rodar();
-  return { dias, escalados, nao_encontrados: [...naoEncontrados] };
+
+  /* O QUE FOI GRAVADO, E EM QUE MÊS.
+
+     É a informação que faltava para o defeito ter sido visto no primeiro dia:
+     a importação respondia um número e nada mais, então uma escala que caiu em
+     janeiro de 2001 parecia ter dado certo. Agora ela devolve o intervalo e os
+     meses tocados, e a tela compara com o mês que está aberto. */
+  diasGravados.sort((a, b) => a - b);
+  const meses = [...new Set(diasGravados.map(d => {
+    const x = new Date(d);
+    return `${String(x.getMonth() + 1).padStart(2, "0")}/${x.getFullYear()}`;
+  }))];
+  return {
+    dias, escalados, nao_encontrados: [...naoEncontrados],
+    datas_ignoradas: datasIgnoradas,
+    de: diasGravados[0] ?? null,
+    ate: diasGravados[diasGravados.length - 1] ?? null,
+    meses,
+  };
 }
 
 /* Aviso das 08:00 para quem está de plantão hoje.

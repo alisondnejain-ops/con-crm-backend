@@ -17,6 +17,18 @@ r.use(authRequired);
 
 const DIA = 86400000;
 
+/* O MÊS QUE A TELA ESTÁ MOSTRANDO, para as datas que vêm sem ano.
+
+   Numa escala mensal a coluna costuma dizer só "01/09" — o mês está no título
+   da planilha, não na célula. Sem uma referência, o servidor teria que
+   adivinhar pelo relógio, e erraria toda vez que a escala do mês que vem fosse
+   montada no mês anterior (que é quando ela é montada). A tela manda o mês que
+   está aberto; foi ele que a pessoa escolheu antes de subir o arquivo. */
+const refDe = (body) => {
+  const t = body && body.mes ? new Date(String(body.mes) + "T12:00:00").getTime() : NaN;
+  return isFinite(t) ? t : Date.now();
+};
+
 // Escala de um período. Sem parâmetros, o mês corrente.
 r.get("/", (req, res) => {
   const hoje = new Date();
@@ -92,7 +104,7 @@ r.post("/importar", roles("adm", "sdr"), (req, res) => {
     return res.status(400).json({ error: "Nenhuma linha recebida." });
   if (linhas.length > 400)
     return res.status(413).json({ error: "Máximo de 400 dias por importação." });
-  res.json(importarEscala(req.user.org_id, linhas, req.user.id));
+  res.json(importarEscala(req.user.org_id, linhas, req.user.id, { ref: refDe(req.body) }));
 });
 
 /* Sobe a escala a partir do arquivo, .xlsx ou .csv.
@@ -140,7 +152,8 @@ r.post("/importar-arquivo", roles("adm", "sdr"), (req, res) => {
   }
 
   if (!linhas.length) return res.status(400).json({ error: "Nenhuma linha com data abaixo do cabeçalho." });
-  res.json({ ...importarEscala(req.user.org_id, linhas, req.user.id), arquivo: nome || null, lidas: linhas.length });
+  res.json({ ...importarEscala(req.user.org_id, linhas, req.user.id, { ref: refDe(req.body) }),
+    arquivo: nome || null, lidas: linhas.length });
 });
 
 /* Acha o cabeçalho em qualquer linha das primeiras 15.

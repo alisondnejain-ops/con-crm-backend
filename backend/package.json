@@ -13,7 +13,7 @@
     "teste:dono": "node testes/dono-imobiliaria.mjs",
     "teste:whatsapp": "node testes/whatsapp-por-imobiliaria.mjs",
     "teste:apagar": "node testes/apagar-imobiliaria.mjs",
-    "teste": "npm run teste:webhook && npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:tempo && npm run teste:lote && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse && npm run teste:robo && npm run teste:push && npm run teste:observacoes && npm run teste:rodizio && npm run teste:marca && npm run teste:etapa-recomendada && npm run teste:socio && npm run teste:apagar-convite && npm run teste:autonomo && npm run teste:planos && npm run teste:backup && npm run teste:pipelines",
+    "teste": "npm run teste:webhook && npm run teste:imobiliarias && npm run teste:dono && npm run teste:whatsapp && npm run teste:apagar && npm run teste:resumo && npm run teste:iauso && npm run teste:funil && npm run teste:etapa-ia && npm run teste:score && npm run teste:tempo && npm run teste:lote && npm run teste:nome && npm run teste:funil-card && npm run teste:fotos && npm run teste:repasse && npm run teste:robo && npm run teste:push && npm run teste:observacoes && npm run teste:rodizio && npm run teste:marca && npm run teste:etapa-recomendada && npm run teste:socio && npm run teste:apagar-convite && npm run teste:autonomo && npm run teste:planos && npm run teste:backup && npm run teste:pipelines && npm run teste:plantao",
     "teste:resumo": "node testes/resumo-ia.mjs",
     "teste:iauso": "node testes/uso-ia.mjs",
     "teste:funil": "node testes/diagnostico-funil.mjs",
@@ -37,7 +37,8 @@
     "teste:autonomo": "node testes/corretor-autonomo.mjs",
     "teste:planos": "node testes/planos.mjs",
     "teste:backup": "node testes/backup.mjs",
-    "teste:pipelines": "node testes/pipelines.mjs"
+    "teste:pipelines": "node testes/pipelines.mjs",
+    "teste:plantao": "node testes/plantao.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",
