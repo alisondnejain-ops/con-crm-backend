@@ -20,6 +20,8 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 import { canalDoUsuario, canalPorId } from "../services/canais.js";
+import { entradaPadrao } from "../services/pipelines.js";
+import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 
 const r = Router();
 r.use(authRequired);
@@ -106,6 +108,155 @@ r.get("/", (req, res) => {
     tarefas: tarefas.get(l.id) || null,
   })));
 });
+
+
+/* ===== CADASTRAR UM LEAD NA MÃO =====
+   (01/09/2026, pedido do Ali)
+
+   Até aqui o lead só nascia de três jeitos: o cliente escrevia no WhatsApp, o
+   formulário do Meta disparava, ou o gestor subia uma planilha. Faltava o
+   caminho mais comum do dia a dia — **alguém ligou, alguém indicou, alguém
+   apareceu na porta** — e ele não tinha lugar nenhum no sistema. Na prática o
+   lead ficava num papel ou no bloco de notas do celular, que é onde o
+   atendimento deixa de ser medido.
+
+   QUEM PODE: todo mundo. O corretor cadastra o cliente que ligou para ele; a
+   atendente cadastra e já entrega para um corretor. Restringir isso à gestão
+   empurraria de volta para o papel justamente quem atende.
+
+   O QUE MUDA CONFORME QUEM ESTÁ CADASTRANDO: o corretor cadastra **para si** —
+   o campo "corretor responsável" não existe para ele, porque a resposta é uma
+   só e um campo com uma opção é um campo que só serve para errar. A supervisão
+   escolhe o dono e deixa uma observação, que é o caso que motivou o pedido: a
+   atendente recebe a ligação, anota o que descobriu e passa adiante. */
+r.post("/", (req, res) => {
+  const { nome, telefone, stage_id, assigned_to, observacao, origem, email } = req.body || {};
+
+  const limpo = String(nome || "").trim().slice(0, 120);
+  if (!limpo) return res.status(400).json({ error: "Escreva o nome do lead." });
+
+  /* O TELEFONE PASSA PELA MESMA NORMALIZAÇÃO DO WHATSAPP.
+
+     É o que faz o cadastro manual e a conversa serem a MESMA pessoa: se o
+     número entrasse aqui como "(87) 9 9999-8888" e o webhook gravasse
+     "5587999998888", o cliente que respondesse criaria um segundo lead ao lado
+     do primeiro, e ninguém veria nada de errado — duas fichas do mesmo cliente,
+     cada uma com metade da história. */
+  const phone = normalizePhone(String(telefone || "").trim());
+  /* `normalizePhone` é PERMISSIVA de propósito — no webhook, devolver os
+     dígitos que vieram é melhor do que perder um lead por causa de um formato
+     estranho. Aqui é o contrário: quem digita está criando o registro do zero,
+     e um lead com telefone "123" é um lead com quem ninguém consegue falar,
+     que entraria no funil e no relatório contando como atendimento. Por isso a
+     conferência do tamanho fica NESTA rota, e não dentro da função. */
+  if (!/^55\d{10,11}$/.test(phone))
+    return res.status(400).json({ error: "Informe um telefone válido, com DDD (ex.: 87 99999-8888)." });
+
+  /* NÚMERO REPETIDO NÃO VIRA LEAD NOVO — e a recusa devolve QUAL é o lead que
+     já existe, para a tela abrir a conversa dele em vez de só dizer "não".
+
+     Sem isso o caminho fácil seria cadastrar de novo, e um cliente com duas
+     fichas quebra tudo que este CRM faz: o histórico se parte, o funil conta
+     duas vezes e o relatório do corretor mede metade do atendimento. */
+  const jaExiste = db.prepare(
+    "SELECT id, name, assigned_to FROM leads WHERE org_id = ? AND phone = ? ORDER BY created_at DESC LIMIT 1")
+    .get(req.user.org_id, phone);
+  if (jaExiste) {
+    const dono = jaExiste.assigned_to
+      ? db.prepare("SELECT name FROM users WHERE id = ?").get(jaExiste.assigned_to)?.name : null;
+    return res.status(409).json({
+      error: `Esse número já está cadastrado como ${jaExiste.name}${dono ? ` (com ${dono.split(" ")[0]})` : " (na fila)"}.`,
+      lead_id: jaExiste.id, lead_nome: jaExiste.name,
+    });
+  }
+
+  /* A ETAPA VEM DO FUNIL DA EMPRESA, não de uma lista escrita no código.
+
+     Sem `stage_id` cai na entrada do funil padrão, que é o começo honesto para
+     quem não quer escolher. Etapa de outra imobiliária é recusada — o id chega
+     do navegador e não pode ser a única coisa que decide onde o lead entra. */
+  const entrada = entradaPadrao(req.user.org_id);
+  let etapa = null;
+  if (stage_id) {
+    etapa = etapaPorId(req.user.org_id, stage_id);
+    if (!etapa) return res.status(400).json({ error: "Essa etapa não é de um funil desta imobiliária." });
+  }
+  const pipelineId = etapa ? etapa.pipeline_id : entrada.pipeline_id;
+  const stageId = etapa ? etapa.id : entrada.stage_id;
+  const stageNome = etapa ? etapa.name : entrada.nome;
+
+  /* DE QUEM É.
+
+     O corretor cadastra para si, SEMPRE — mandar `assigned_to` de outra pessoa
+     no corpo da requisição não pode virar um jeito de empurrar lead para o
+     colega por fora da catraca.
+
+     A supervisão escolhe. E não escolher nada devolve o lead a QUEM CADASTROU,
+     não à fila: a atendente que acabou de atender a ligação é a dona natural
+     daquele atendimento, e esta casa tem uma regra própria sobre isso — lead
+     novo nasce com dono, senão fica parado esperando alguém reparar nele. Para
+     deixá-lo sem dono é preciso dizer isso, escolhendo "fila". */
+  let dono = req.user.id;
+  if (supervisiona(req.user)) {
+    const escolha = String(assigned_to === undefined || assigned_to === null ? "" : assigned_to).trim();
+    dono = escolha === "fila" ? null : (escolha || req.user.id);
+    if (dono) {
+      const u = db.prepare(`SELECT id FROM users u WHERE u.id = ? AND u.org_id = ? AND u.status = 'ativo'${semMaster("u")}`)
+        .get(dono, req.user.org_id);
+      if (!u) return res.status(400).json({ error: "Escolha alguém da equipe que esteja ativo." });
+    }
+  }
+
+  const agora = Date.now();
+  const id = "l_" + randomUUID();
+  const texto = String(observacao || "").trim().slice(0, 2000);
+
+  const criar = db.transaction(() => {
+    db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,
+                created_at,assigned_at,pipeline_id,stage_id,stage_entered_at,last_interaction_at,source)
+      VALUES (?,?,?,?,?,?,NULL,'{}',?,?,?,?,?,?,?,?,'manual')`)
+      .run(id, req.user.org_id, limpo, phone, String(email || "").trim() || null,
+        String(origem || "").trim().slice(0, 80) || "Cadastro manual",
+        stageNome, dono, agora,
+        // `assigned_at` é o que faz o lead subir ao topo da caixa de quem o
+        // recebeu, com o selo "novo com você". Sem ele, um lead cadastrado
+        // agora afundaria atrás dos antigos por causa da ordem.
+        dono ? agora : null,
+        pipelineId, stageId, agora, agora);
+
+    /* A OBSERVAÇÃO ENTRA COMO OBSERVAÇÃO, e não como mensagem da conversa.
+
+       É o caso que motivou o pedido: a atendente atende a ligação, descobre o
+       que importa e passa adiante. Escrita na conversa, ela apareceria como se
+       tivesse sido enviada ao cliente; na faixa âmbar acima da conversa, é
+       lida por quem for atender antes de falar — que é onde ela serve. */
+    if (texto)
+      db.prepare("INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at) VALUES (?,?,?,?,?,?)")
+        .run("ob_" + randomUUID(), req.user.org_id, id, texto, req.user.id, agora);
+  });
+  criar();
+
+  /* O AVISO DIZ SE O CORRETOR VAI MESMO SER CHAMADO — mesma regra do repasse.
+     Lead entregue a quem não sabe que recebeu fica parado exatamente como se
+     não tivesse sido entregue. Só quando o dono não é quem cadastrou: avisar a
+     própria pessoa do lead que ela acabou de digitar seria ruído. */
+  const aviso = dono && dono !== req.user.id ? avisarLeadNovo(dono, id, limpo) : null;
+
+  console.log(`[leads] cadastro manual: ${limpo} (${phone}) por ${req.user.name} — ${dono ? "para " + dono : "fila"}`);
+  const criado = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(id);
+  res.status(201).json({ ...parse(criado), aviso });
+});
+
+function avisarLeadNovo(userId, leadId, nome) {
+  avisar(userId, {
+    titulo: "Novo lead com você",
+    corpo: `${nome} acabou de ser cadastrado na sua lista. Fale agora — os primeiros minutos decidem.`,
+    leadId,
+  });
+  if (!pushConfigurado()) return { push: false, motivo: "sem_push_no_servidor" };
+  if (!inscricoesDe(userId)) return { push: false, motivo: "corretor_sem_notificacao" };
+  return { push: true };
+}
 
 /* Exportação da base de leads, para o gestor abrir no Excel.
 
@@ -203,9 +354,27 @@ r.post("/import", roles("adm"), (req, res) => {
   const resultado = { criados: 0, ignorados: 0, motivos: {}, import_id: importId };
   const anota = (motivo) => { resultado.ignorados++; resultado.motivos[motivo] = (resultado.motivos[motivo] || 0) + 1; };
 
+  /* O LEAD IMPORTADO PRECISA NASCER LIGADO AO FUNIL.
+
+     Achado em 01/09/2026, ao construir o cadastro manual ao lado: esta
+     importação gravava só `stage` (o nome) e deixava `pipeline_id` e
+     `stage_id` nulos — que era o certo antes de o funil ser configurável e
+     passou a ser defeito depois. O Kanban mostra só os leads do funil
+     escolhido, então trezentos leads importados ficavam FORA de todas as
+     colunas, com o contador ao lado dizendo que existiam.
+
+     O `garantirPipelinePadrao` do start conserta isso sozinho, ligando pelo
+     nome da etapa — mas só no próximo reinício do servidor. Entre a
+     importação e ele, o gestor sobe a base e não a encontra em lugar nenhum. */
+  const etapasDaCasa = new Map(
+    db.prepare("SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND active = 1").all(req.user.org_id)
+      .map(e => [e.name, e]));
+  const entradaDaCasa = entradaPadrao(req.user.org_id);
+
   const inserir = db.prepare(`INSERT INTO leads
-    (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,import_id)
-    VALUES (?,?,?,?,?,?,?,'{}',?,?,?,?)`);
+    (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,import_id,
+     pipeline_id,stage_id,stage_entered_at)
+    VALUES (?,?,?,?,?,?,?,'{}',?,?,?,?,?,?,?)`);
 
   const importar = db.transaction((lista) => {
     for (const l of lista) {
@@ -225,14 +394,22 @@ r.post("/import", roles("adm"), (req, res) => {
         : null;
       const entrada = dataBR(l.entrou_em);
 
+      /* A etapa da planilha casa pelo NOME com a do funil da casa. Não
+         casando, o lead entra na etapa de entrada — e não fora do funil, que
+         é onde ele some. */
+      const noFunil = etapasDaCasa.get(etapa);
+      const quando = isFinite(entrada) ? entrada : Date.now();
       inserir.run("l_" + randomUUID(), req.user.org_id,
         String(l.nome || "Sem nome").trim().slice(0, 120), phone,
         String(l.email || "").trim() || null,
         // A origem digitada na tela manda em tudo: é ela que separa "Feirão de
         // março" de "Base antiga do RD" na hora de medir o que deu resultado.
         origemFixa || String(l.origem || "").trim() || "Importado",
-        temperatura, etapa, dono,
-        isFinite(entrada) ? entrada : Date.now(), importId);
+        temperatura, noFunil ? noFunil.name : (entradaDaCasa.nome || etapa), dono,
+        quando, importId,
+        noFunil ? noFunil.pipeline_id : entradaDaCasa.pipeline_id,
+        noFunil ? noFunil.id : entradaDaCasa.stage_id,
+        quando);
       resultado.criados++;
     }
   });

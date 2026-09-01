@@ -250,6 +250,20 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **Risco que não é técnico, e precisa estar na tela:** hoje um ban da Uazapi derruba o WhatsApp comercial; com linhas pessoais, derruba o **WhatsApp pessoal do corretor**. É outra consequência, e ela fica escrita antes de ele ler o QR Code. Testes: `npm run teste:canais` (23 casos) e `npm run teste:canais-entrada` (8, com o servidor de pé, porque as regras de entrada moram na rota).
 
+- **Cadastrar um lead na mão** (01/09/2026, pedido do Ali; `POST /leads`, botão ao lado da busca nas duas telas de Atender): o lead só nascia de três jeitos — o cliente escrevia no WhatsApp, o formulário do Meta disparava, ou o gestor subia uma planilha. Faltava o mais comum do dia a dia: **alguém ligou, alguém indicou, alguém apareceu na porta**. Sem lugar no sistema, esse lead ficava num papel ou no bloco de notas do celular, que é onde o atendimento deixa de ser medido.
+
+  **Todo mundo cadastra** — restringir à gestão empurraria de volta para o papel justamente quem atende. São **três campos para todos** (nome, número, etapa) e **mais dois para quem supervisiona** (corretor responsável e observações gerais). O corretor não vê o campo de responsável: a resposta é uma só — ele — e campo com uma opção é campo que só serve para errar.
+
+  **O número passa pela mesma normalização do WhatsApp.** É o que faz o cadastro e a conversa serem a mesma pessoa: digitado "(87) 9 9111-2222" e gravado `5587991112222`, que é o formato do webhook. Guardado como veio, o cliente que respondesse criaria um **segundo lead** ao lado do primeiro, cada um com metade da história.
+
+  **Número repetido não vira lead novo, e a recusa devolve QUAL lead já existe** — a tela oferece "abrir a conversa desse lead". Só dizer "não" faria o caminho fácil ser cadastrar com o número trocado, e aí a duplicata acontece do mesmo jeito, sem ninguém perceber. E `normalizePhone` é permissiva de propósito (no webhook, devolver os dígitos que vieram é melhor que perder um lead), então **a conferência do tamanho fica na rota**: um lead com telefone "123" entraria no funil e no relatório contando como atendimento.
+
+  **Não escolher responsável deixa o lead com QUEM CADASTROU, não na fila.** A atendente que acabou de atender a ligação é a dona natural daquele atendimento, e esta casa tem regra própria: lead novo nasce com dono, senão fica parado esperando alguém reparar nele. Para deixá-lo sem dono é preciso dizer — escolhendo "ninguém ainda". O corretor cadastra **sempre para si**: mandar `assigned_to` de outra pessoa no corpo da requisição não pode virar um jeito de empurrar lead para o colega por fora da catraca.
+
+  **A observação vira observação, não mensagem.** Escrita na conversa apareceria como se tivesse sido enviada ao cliente; na faixa âmbar acima da conversa é lida por quem for atender **antes de falar** — que é o caso que motivou o pedido (a atendente descobre algo na ligação e passa adiante). E o repasse **avisa se o corretor vai mesmo ser chamado**, com a mesma tarja âmbar da catraca.
+
+  Junto, um defeito antigo: **a importação em massa não ligava os leads ao funil** (gravava só o nome da etapa, com `pipeline_id`/`stage_id` nulos — certo antes de o funil ser configurável, defeito depois). Trezentos leads importados ficavam **fora de todas as colunas do Kanban**, com o contador ao lado dizendo que existiam; só o reinício seguinte do servidor os ligava. Teste: `npm run teste:lead-manual` (18 casos, com o servidor de pé — as regras que importam são de permissão e de recusa, e permissão testada por dentro do serviço não prova nada sobre a rota).
+
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)

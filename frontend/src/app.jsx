@@ -1082,6 +1082,7 @@ function ConCRM(){
     plantoes:(params)=>api("/plantoes?"+new URLSearchParams(params||{})),
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     canais:()=>api("/canais"),
+    criarLead:(dados)=>api("/leads",{method:"POST",body:dados}),
     canalStatus:(id)=>api(`/canais/${id}/status`),
     criarMeuCanal:()=>api("/canais/meu",{method:"POST",body:{}}),
     conectarMeuCanal:(dados)=>api("/canais/meu/credenciais",{method:"POST",body:dados}),
@@ -4086,11 +4087,148 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
   return {audio,setAudio,enviando,descartar,enviar};
 }
 
+
+/* ===== CADASTRAR UM LEAD NA MÃO =====
+   (01/09/2026, pedido do Ali)
+
+   O lead que chega por fora do WhatsApp — alguém ligou, alguém indicou, alguém
+   apareceu na porta. Sem esta tela ele ficava num papel ou no bloco de notas do
+   celular, que é onde o atendimento deixa de ser medido.
+
+   TRÊS CAMPOS PARA TODO MUNDO (nome, número, etapa) e mais DOIS para quem
+   supervisiona (corretor responsável e observação). O corretor não vê o campo
+   de responsável porque a resposta é uma só — ele — e campo com uma opção é
+   campo que só serve para errar.
+
+   O NÚMERO REPETIDO NÃO VIRA ERRO SECO: o servidor devolve qual é o lead que
+   já existe, e a tela oferece ABRIR A CONVERSA DELE. Sem essa saída, o caminho
+   fácil seria cadastrar com o número trocado, e aí o cliente fica com duas
+   fichas — que é exatamente o que a recusa existe para impedir. */
+function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
+  const supervisor=session.role==="adm"||session.role==="sdr";
+  const [f,setF]=useState({nome:"",telefone:"",stage_id:"",assigned_to:"",observacao:""});
+  const [funis,setFunis]=useState([]);
+  const [equipe,setEquipe]=useState([]);
+  const [erro,setErro]=useState(null);   // {texto, leadId}
+  const [salvando,setSalvando]=useState(false);
+
+  useEffect(()=>{
+    acoes.pipelines().then(r=>setFunis(r.pipelines||[])).catch(()=>{});
+    if(supervisor) acoes.equipe().then(r=>setEquipe((r.users||r||[])
+      .filter(u=>u.status==="ativo"&&u.role!=="adm"))).catch(()=>{});
+  },[]);
+
+  const rotulo=(t)=><div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>{t}</div>;
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",background:C.surface,fontFamily:FONT};
+
+  async function salvar(){
+    setErro(null);
+    if(!f.nome.trim()) return setErro({texto:"Escreva o nome do lead."});
+    if(!f.telefone.trim()) return setErro({texto:"Escreva o número de WhatsApp, com DDD."});
+    setSalvando(true);
+    try{
+      const lead=await acoes.criarLead({
+        nome:f.nome.trim(), telefone:f.telefone.trim(),
+        stage_id:f.stage_id||undefined,
+        ...(supervisor?{assigned_to:f.assigned_to,observacao:f.observacao.trim()||undefined}:{}),
+      });
+      aoCriar&&aoCriar(lead);
+      aoFechar();
+    }catch(e){
+      // O servidor manda o id do lead que já existe; a tela vira um caminho.
+      setErro({texto:e.message,leadId:e.dados&&e.dados.lead_id});
+    }
+    finally{ setSalvando(false); }
+  }
+
+  return <div className="tela-cheia" style={{zIndex:60,background:"rgba(0,0,0,.4)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:460,maxHeight:"100%",
+      borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Novo lead</div>
+          <div style={{color:C.faint,fontSize:11.5}}>
+            Para quem chegou por fora do WhatsApp: ligação, indicação, visita na loja.</div>
+        </div>
+        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:12}}>
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",lineHeight:1.5}}>
+          {erro.texto}
+          {/* A saída, e não só a recusa: sem ela o caminho fácil é cadastrar
+              com o número trocado, e a duplicata acontece do mesmo jeito. */}
+          {erro.leadId&&<button onClick={()=>{abrirLead&&abrirLead(erro.leadId);aoFechar();}}
+            style={{display:"block",marginTop:7,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}66`,
+              borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            Abrir a conversa desse lead</button>}
+        </div>}
+
+        <div>{rotulo("Nome")}
+          <input value={f.nome} onChange={e=>setF({...f,nome:e.target.value})} autoFocus={!isMobile}
+            placeholder="Como o cliente se apresentou" style={entrada}/></div>
+
+        <div>{rotulo("Número de WhatsApp")}
+          <input value={f.telefone} onChange={e=>setF({...f,telefone:e.target.value})}
+            type="tel" inputMode="tel" placeholder="(87) 9 9999-8888" style={entrada}/>
+          {/* O número é o que amarra o cadastro à conversa: quando o cliente
+              escrever, o CRM acha ESTE lead em vez de criar outro. */}
+          <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+            É por ele que a conversa do WhatsApp vai cair nesta mesma ficha.</div></div>
+
+        <div>{rotulo("Etapa em que ele está")}
+          <select value={f.stage_id} onChange={e=>setF({...f,stage_id:e.target.value})} style={{...entrada,cursor:"pointer"}}>
+            <option value="">Começo do funil</option>
+            {funis.map(p=><optgroup key={p.id} label={p.name}>
+              {(p.stages||[]).map(st=><option key={st.id} value={st.id}>{st.name}</option>)}
+            </optgroup>)}
+          </select></div>
+
+        {/* OS DOIS CAMPOS DA SUPERVISÃO. É o caso que motivou o pedido: a
+            atendente recebe a ligação, anota o que descobriu e passa adiante. */}
+        {supervisor&&<React.Fragment>
+          <div>{rotulo("Corretor responsável")}
+            <select value={f.assigned_to} onChange={e=>setF({...f,assigned_to:e.target.value})} style={{...entrada,cursor:"pointer"}}>
+              <option value="">Deixar comigo ({first(session.name)})</option>
+              {equipe.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              {/* Sem dono é uma escolha, não um campo em branco: a diferença é
+                  grande demais para ficar num vazio que pode significar as
+                  duas coisas. */}
+              <option value="fila">Ninguém ainda — deixar na fila</option>
+            </select></div>
+
+          <div>{rotulo("Observações gerais")}
+            <textarea value={f.observacao} onChange={e=>setF({...f,observacao:e.target.value})} rows={3}
+              placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
+              style={{...entrada,resize:"vertical"}}/>
+            <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+              Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
+              O cliente <b>não recebe</b> este texto.</div></div>
+        </React.Fragment>}
+      </div>
+
+      <div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
+        <button onClick={salvar} disabled={salvando}
+          style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,
+            padding:"12px",fontSize:14,fontWeight:600,cursor:salvando?"default":"pointer"}}>
+          {salvando?"Cadastrando…":"Cadastrar lead"}</button>
+        <button onClick={aoFechar} disabled={salvando}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,
+            padding:"12px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}){
   const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
   // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
   const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
+  const [novoLead,setNovoLead]=useState(false);
   /* Os mesmos filtros que a atendente tem, pedido do Ali em 20/08/2026. Ela
      enxergava a etapa, a temperatura e o período; o corretor tinha cinco
      pastilhas e nem busca por nome — e é ele quem mais precisa achar "quem
@@ -4211,12 +4349,24 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const backBtn=(onClick,label)=><button onClick={onClick} aria-label={label} style={{width:34,height:34,marginRight:2,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>;
 
   return <div style={{height:"100%",display:"flex",minHeight:0}}>
+    {novoLead&&<NovoLead acoes={acoes} session={session} isMobile={isMobile}
+      aoFechar={()=>setNovoLead(false)} abrirLead={openChat}
+      aoCriar={(l)=>{setStatus&&setStatus(`${l.name} cadastrado.`);openChat(l.id);}}/>}
     {showList&&<div style={{width:isMobile?"100%":isCompact?250:300,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
       <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
-          <Icon n="search" size={15} color={C.faint}/>
-          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
-            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
+            <Icon n="search" size={15} color={C.faint}/>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+          </div>
+          {/* CADASTRAR NA MÃO fica ao lado da busca, e não escondido num menu:
+              é o gesto de quem acabou de desligar o telefone, e recurso atrás
+              de dois cliques é recurso que volta para o papel. */}
+          <button onClick={()=>setNovoLead(true)} title="Cadastrar um lead na mão"
+            style={{width:38,height:38,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
+              color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon n="userplus" size={16}/></button>
         </div>
         {/* As duas linhas de WhatsApp, acima de tudo: é a divisão mais alta da
             caixa dele. Só aparece para quem ligou o número pessoal. */}
@@ -5716,6 +5866,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
      lista voltaria só com a linha escolhida e a outra aba mostraria zero: duas
      afirmações contrárias na mesma barra. */
   const [linha,setLinha]=usarEscolha("conversas.linha","casa");
+  const [novoLead,setNovoLead]=useState(false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
@@ -5761,12 +5912,23 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   </select>;
 
   return <div style={{height:"100%",display:"flex",minHeight:0}}>
+    {novoLead&&<NovoLead acoes={acoes} session={session} isMobile={isMobile}
+      aoFechar={()=>setNovoLead(false)} abrirLead={abrir}
+      aoCriar={(l)=>{setLista(a=>[adaptLead(l),...a]);abrir(l.id);}}/>}
     {mostrarLista&&<div style={{width:isMobile?"100%":340,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
       <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
-          <Icon n="search" size={15} color={C.faint}/>
-          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
-            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
+            <Icon n="search" size={15} color={C.faint}/>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+          </div>
+          {/* O mesmo botão da tela do corretor, no mesmo lugar: quem cadastra
+              na mão com mais frequência é justamente quem atende o telefone. */}
+          <button onClick={()=>setNovoLead(true)} title="Cadastrar um lead na mão"
+            style={{width:38,height:38,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
+              color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon n="userplus" size={16}/></button>
         </div>
         {/* Só a atendente vê esta chave: ela atende e supervisiona, e precisa
             separar as duas coisas. O gestor já enxerga tudo por padrão. */}
