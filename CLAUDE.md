@@ -288,6 +288,8 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **`GET /publico/planos` serve a vitrine a partir do servidor.** Preço copiado no site seria uma segunda verdade sobre dinheiro, divergindo no primeiro reajuste e sendo descoberta pelo cliente.
 
+  **E ela tem PÁGINA PRÓPRIA** (`public/comecar.html`, servida em `/comecar`, `/teste-gratis` e `/sou-corretor`), no mesmo padrão do `criar-imobiliaria.html`. Não é capricho: assim o botão do site de vendas é um **link simples** — sem código, sem chave, sem CORS — e o texto do cadastro muda aqui, sem tocar no site e sem depender de crédito de ferramenta nenhuma. A tela de sucesso leva um **botão** para criar a senha, e não a instrução de esperar um e-mail: é ali que metade das pessoas desistiria, e quem desiste não reclama. E-mail que já tem conta não vira erro vermelho — vira o link de entrar.
+
   **Montada com caminho explícito e ANTES do porteiro da assinatura** em `server.js`: quem chega não tem conta nenhuma — é o que vem criar. Depois de qualquer middleware de cobrança, o botão do site responderia 402 e falharia calado. O teste 13 confere que `/leads`, `/reports`, `/config`, `/canais` e `/orgs` continuam fechados.
 
   **A descrição da cobrança no Asaas mudou junto**: era `ConHub Mensal — Nome`, e virou `ConHub — Plano Anual (12 meses · R$ 197,00/mês)`. É o que o cliente lê no checkout e, meses depois, na fatura do cartão, quando não lembrar o que contratou — o texto mais barato de escrever e o que mais evita contestação. Teste: `npm run teste:porta-do-site` (13 casos, com o servidor de pé).

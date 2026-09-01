@@ -164,6 +164,21 @@ app.get("/criar-imobiliaria", paginaImobiliaria);
 // Apelido curto: é o que cabe num card de anúncio e o que as pessoas chutam.
 app.get("/nova-imobiliaria", paginaImobiliaria);
 
+/* A PORTA DO CORRETOR AUTÔNOMO — o botão "Testar 14 dias grátis" do site.
+
+   Ela existe como PÁGINA, e não como um formulário dentro do site de vendas,
+   por um motivo prático que vale mais do que parece: assim o botão do site é
+   um link simples (`href`), sem código, sem chave de API, sem CORS. O dia em
+   que o texto do cadastro mudar, muda aqui — sem tocar no site, sem depender
+   de crédito de ferramenta nenhuma.
+
+   Três endereços para a mesma página porque são três palpites de gente: o que
+   escrevo no anúncio, o que a pessoa digita e o que o site linka. */
+const paginaComecar = (req, res) => servirPagina("comecar.html", req, res, "Pagina de cadastro nao encontrada.");
+app.get("/comecar", paginaComecar);
+app.get("/teste-gratis", paginaComecar);
+app.get("/sou-corretor", paginaComecar);
+
 /* A FOTO DA TELA DE ENTRADA, sem exigir login.
 
    O CSS do login pede `/login-fundo.jpg` e a tela é desenhada antes de existir
