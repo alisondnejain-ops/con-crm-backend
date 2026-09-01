@@ -107,6 +107,10 @@ function adaptLead(l,anterior){
        do servidor e os dois ficam aqui — o dia em que a tela ler só um deles é
        o dia em que ela passa a mostrar um estado e a gravar outro. */
     stageId:l.stage_id||null, pipelineId:l.pipeline_id||null,
+    /* Por qual LINHA de WhatsApp esta conversa acontece. Nulo é o número da
+       imobiliária — que é o que toda conversa era antes de existir uma segunda
+       linha, e por isso não precisou de migração de dado nenhuma. */
+    canalId:l.canal_id||null,
     /* O cronômetro da etapa: {status:'ok'|'warning'|'overdue', minutos,
        limite, restam}. Vem `null` quando a etapa não tem SLA configurado, e
        null NÃO é "em dia" — é "ninguém pediu para medir isto". */
@@ -137,6 +141,13 @@ function adaptLead(l,anterior){
     robo:l.robo!==undefined?l.robo:(anterior?anterior.robo:null),
     // Observações do lead: só chegam ao abrir a conversa.
     obs:l.observacoes!==undefined?l.observacoes:(anterior?anterior.obs:null),
+    /* Por qual linha esta conversa sai, e se quem está olhando pode trocar.
+       Vem junto do lead, e não numa requisição depois, pelo mesmo motivo da
+       marca da imobiliária: a faixa acima do campo diria "WhatsApp da
+       imobiliária" por um instante e trocaria em seguida — e aqui isso não é
+       estética, é a diferença entre o cliente receber de um número que
+       conhece ou de um desconhecido. */
+    canal:l.canal!==undefined?l.canal:(anterior?anterior.canal:null),
     // Desde quando está nesta etapa. null = nunca mudou desde que o histórico
     // existe; a tela mostra "—" em vez de inventar uma data.
     etapaDesde:l.etapa_desde!==undefined?l.etapa_desde:(anterior?anterior.etapaDesde:null),
@@ -1070,6 +1081,16 @@ function ConCRM(){
     ponto:(params)=>api("/reports/ponto?"+new URLSearchParams(params||{})),
     plantoes:(params)=>api("/plantoes?"+new URLSearchParams(params||{})),
     plantaoDeHoje:()=>api("/plantoes/hoje"),
+    canais:()=>api("/canais"),
+    canalStatus:(id)=>api(`/canais/${id}/status`),
+    criarMeuCanal:()=>api("/canais/meu",{method:"POST",body:{}}),
+    conectarMeuCanal:(dados)=>api("/canais/meu/credenciais",{method:"POST",body:dados}),
+    roboDoMeuCanal:(ligado)=>api("/canais/meu/robo",{method:"POST",body:{ligado}}),
+    desligarMeuCanal:()=>api("/canais/meu",{method:"DELETE"}),
+    liberarCanal:(user_id,liberado)=>api("/canais/liberar",{method:"POST",body:{user_id,liberado}}),
+    desligarCanalDe:(id)=>api(`/canais/${id}`,{method:"DELETE"}),
+    // O atalho da conversa: passar este atendimento para o meu WhatsApp, e voltar.
+    trocarLinha:(leadId,para)=>api(`/leads/${leadId}/canal`,{method:"POST",body:{para}}),
     definirPlantao:(dados)=>api("/plantoes",{method:"PUT",body:dados}),
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome,mes,previa)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome,mes,previa:!!previa}}),
@@ -2901,6 +2922,17 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // Sobe quando a configuração salva uma mensagem pronta: é o sinal para as
   // conversas abertas buscarem a lista nova sem recarregar a página.
   const [versaoMsgs,setVersaoMsgs]=useState(0);
+  /* AS LINHAS DE WHATSAPP desta conta, buscadas uma vez.
+
+     Quem tem número pessoal ligado ganha as subcategorias em Atender e o
+     atalho na conversa; quem não tem não vê nada disso — a pergunta "por qual
+     número?" não existe para quem só tem um. Por isso vive aqui e não em cada
+     tela: as duas telas de conversa e a Minha conta fariam três requisições
+     para a mesma resposta. */
+  const [canais,setCanais]=useState(null);
+  const reverCanais=()=>acoes.canais().then(setCanais).catch(()=>{});
+  useEffect(()=>{reverCanais();},[org&&org.id]);
+  const minhaLinha=canais&&canais.meu&&canais.meu.conectado?canais.meu:null;
   const chatEl=useRef(null);
   const isMobile=useIsMobile();
 
@@ -3142,7 +3174,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
             completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
-        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs}}/>}
+        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
@@ -3155,7 +3187,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           <FaixaTeste assinatura={assinatura} isMobile={isMobile}/>
           <Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile,sozinho:org&&org.tipo==="autonomo"}}/>
         </React.Fragment>}
-        {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao}}/>}
+        {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* O painel de gestão: filtros, SLA, funil de conversão x avanço
             operacional, equipe e campanha. Fica ao lado de Relatórios e não
@@ -3166,7 +3198,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* Minha conta é igual para os três papéis. */}
-        {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org}}/>}
+        {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,org,isMobile,versao}}/>}
         {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
         {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile}
@@ -4055,8 +4087,10 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
 }
 
 /* ===== ATENDIMENTO ===== */
-function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs}){
+function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}){
   const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
+  // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
+  const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
   /* Os mesmos filtros que a atendente tem, pedido do Ali em 20/08/2026. Ela
      enxergava a etapa, a temperatura e o período; o corretor tinha cinco
      pastilhas e nem busca por nome — e é ele quem mais precisa achar "quem
@@ -4135,7 +4169,13 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
   const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
-  const list=myLeads.filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
+  const daCasa=myLeads.filter(l=>!l.canalId).length;
+  const daMinha=minhaLinha?myLeads.filter(l=>l.canalId===minhaLinha.id).length:0;
+  const list=myLeads
+    // A linha, antes de tudo: as abas são a divisão mais alta da caixa dele, e
+    // os outros filtros valem dentro da que estiver aberta.
+    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:!l.canalId)
+    .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
     .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase())
     .filter(l=>{
       if(!busca.trim()) return true;
@@ -4178,6 +4218,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
         </div>
+        {/* As duas linhas de WhatsApp, acima de tudo: é a divisão mais alta da
+            caixa dele. Só aparece para quem ligou o número pessoal. */}
+        {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
+          contarCasa={daCasa} contarMinha={daMinha}/>}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
 
         {/* Recolhidos, como na tela da atendente: abertos, empurram a lista de
@@ -4233,7 +4277,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
           {fichaPorBotao
             ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>
-            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>Número da imobiliária</div>}
+            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>
+              {/* Qual número, e não "o número": com a linha pessoal ligada, o
+                  selo dizendo "da imobiliária" numa conversa que sai pelo
+                  celular do corretor seria a tela afirmando o contrário do que
+                  a faixa acima do campo diz, na mesma janela. */}
+              {sel&&sel.canal&&sel.canal.onde==="corretor"?"Seu número":"Número da imobiliária"}</div>}
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
@@ -4271,6 +4320,15 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
+      {/* POR QUAL NÚMERO A PRÓXIMA MENSAGEM SAI — e o atalho para trocar.
+          Fica colado no campo porque é aqui que a decisão acontece. */}
+      {/* Trocar a linha LEVA A ABA JUNTO. Sem isso a conversa que acabou de
+          mudar de número some da lista aberta ("Nenhum lead aqui") enquanto
+          continua na tela ao lado — duas afirmações contrárias na mesma
+          janela, e o corretor conclui que perdeu o lead. */}
+      <LinhaDaConversa canal={sel.canal} acoes={acoes} leadId={sel.id} isMobile={isMobile}
+        sugerir={(t)=>setDraft(t)}
+        aoTrocar={(c)=>{setLinha(c&&c.onde==="corretor"?"minha":"casa");acoes.abrir(sel.id);}}/>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
         <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
           <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
@@ -4301,7 +4359,13 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
-        <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/> Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</div>
+        {/* A frase da assinatura vale no número da CASA. Na linha pessoal a
+            mensagem não é assinada, e repetir aqui "assinada como Marina"
+            contradiria, na mesma tela, a faixa logo acima. */}
+        <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/>
+          {sel.canal&&sel.canal.onde==="corretor"
+            ?<React.Fragment>Sai pelo seu número, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
+            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}</div>
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
@@ -5560,7 +5624,74 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
    Acesso irrestrito: a ADM abre a conversa de qualquer corretor, com filtros
    para analisar atendimento por atendimento. Somente leitura — supervisionar
    não marca a conversa como lida, para não apagar o aviso do corretor. */
-function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
+
+/* AS SUBCATEGORIAS DE "ATENDER": por qual número esta conversa acontece.
+
+   Aparecem só para quem TEM duas linhas. Para todo o resto — que é a maior
+   parte da equipe — a pergunta não existe, e uma chave de uma opção só ocuparia
+   a linha mais visível da tela para não dizer nada.
+
+   A contagem vai no rótulo de propósito. Sem ela, "Meu WhatsApp" vazio e "Meu
+   WhatsApp" com trinta conversas são a mesma aba, e a pessoa clica para
+   descobrir. */
+function AbasDeLinha({linha,setLinha,contarCasa,contarMinha,isMobile}){
+  const aba=(v,rot,n)=><button key={v} onClick={()=>setLinha(v)}
+    style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+      fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"9px 0":"7px 0",borderRadius:8,border:"none",
+      cursor:"pointer",background:linha===v?C.card:"transparent",color:linha===v?C.greenDeep:C.sub,
+      boxShadow:linha===v?"0 1px 2px rgba(0,0,0,.06)":"none"}}>
+    <Icon n="whatsapp" size={12}/>{rot}
+    <span style={{fontFamily:MONO,fontSize:10.5,color:linha===v?C.greenMid:C.faint}}>{n}</span>
+  </button>;
+  return <div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
+    {aba("casa","Da imobiliária",contarCasa)}
+    {aba("minha","Meu WhatsApp",contarMinha)}
+  </div>;
+}
+
+/* A FAIXA ACIMA DO CAMPO: por qual número a próxima mensagem sai.
+
+   Ela não é enfeite nem aviso educado. Numa conversa que pode sair por duas
+   linhas, mandar sem saber qual é mandar às cegas — e o erro não aparece de
+   dentro: a mensagem chega no celular do cliente vindo de um número que ele não
+   conhece, fora da conversa que ele estava tendo.
+
+   O ATALHO fica aqui, e não numa ficha ou num menu, porque é aqui que a decisão
+   acontece: o corretor está lendo o cliente e resolve levar a conversa para o
+   número dele. Trocar NÃO manda mensagem nenhuma sozinha — só diz por onde a
+   próxima vai sair, e sugere o texto no campo. Um "oi, salva esse número"
+   escrito pelo CRM, de um número desconhecido, seria a pior primeira impressão
+   possível, e com palavras que o corretor não escolheu. */
+function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  if(!canal||(!canal.tenho_linha&&canal.onde==="imobiliaria")) return null;
+  const noMeu=canal.onde==="corretor";
+  const trocar=async(para)=>{
+    setErro("");setOcupado(true);
+    try{ const r=await acoes.trocarLinha(leadId,para);
+      if(r.sugestao&&sugerir) sugerir(r.sugestao);
+      if(aoTrocar) aoTrocar(r.canal);
+    }catch(e){ setErro(e.message); }
+    finally{ setOcupado(false); }
+  };
+  return <div style={{padding:isMobile?"7px 12px":"7px 14px",borderTop:`1px solid ${C.line}`,
+    background:noMeu?C.greenSoft:C.surface,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+    <Icon n="whatsapp" size={13} color={noMeu?C.greenDeep:C.faint}/>
+    <span style={{fontSize:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
+      {noMeu
+        ?<React.Fragment>Sai pelo <b>seu WhatsApp</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
+        :"Sai pelo WhatsApp da imobiliária"}
+    </span>
+    {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
+      style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
+        borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      {ocupado?"…":noMeu?"Voltar para o número da imobiliária":"Continuar no meu WhatsApp"}</button>}
+    {erro&&<span style={{color:C.hot,fontSize:11}}>{erro}</span>}
+  </div>;
+}
+
+function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}){
   // A atendente abre na PRÓPRIA caixa (o que está com ela + a fila): ela também
   // atende, e ver a imobiliária inteira misturava o trabalho dela com a
   // supervisão — o lead repassado ao corretor continuava aparecendo. A visão
@@ -5576,6 +5707,15 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
   const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0);
   const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
+  /* Por qual LINHA de WhatsApp. Só existe para quem tem número pessoal ligado;
+     para o resto a chave nem aparece e o valor fica em "casa", que é o
+     comportamento de sempre.
+
+     A peneira roda NO NAVEGADOR, sobre a lista já carregada, e não no servidor
+     — é o que mantém o contador de cada aba honesto. Filtrando no servidor, a
+     lista voltaria só com a linha escolhida e a outra aba mostraria zero: duas
+     afirmações contrárias na mesma barra. */
+  const [linha,setLinha]=usarEscolha("conversas.linha","casa");
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
   const [pane,setPane]=useState(()=>sel?"chat":"lista");
@@ -5604,7 +5744,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
   const visiveis=useMemo(()=>lista
     .filter(l=>rapido==="Meus"?l.assignedTo===session.id:true)
     .filter(l=>esperando?l.unread>0:true)
-    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id]);
+    // A linha só peneira quando existe uma segunda: sem número pessoal ligado,
+    // "da imobiliária" seria a caixa inteira com outro nome.
+    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:!l.canalId)
+    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha]);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
   usarAberturaDeFora(sel,isMobile,setPane);
@@ -5627,6 +5770,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         </div>
         {/* Só a atendente vê esta chave: ela atende e supervisiona, e precisa
             separar as duas coisas. O gestor já enxerga tudo por padrão. */}
+        {/* As duas linhas de WhatsApp. Só para quem tem a segunda: com um número
+            só, a chave ocuparia a faixa mais visível da tela para não dizer nada. */}
+        {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
+          contarCasa={lista.filter(l=>!l.canalId).length} contarMinha={lista.filter(l=>l.canalId===minhaLinha.id).length}/>}
         {session.role==="sdr"&&<div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
           {[["meus","Minha caixa"],["todos","Toda a equipe"]].map(([v,t])=><button key={v} onClick={()=>setEscopo(v)}
             style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:8,border:"none",cursor:"pointer",
@@ -5742,6 +5889,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao}){
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}
+        aoMudarLinha={(c)=>setLinha(c&&c.onde==="corretor"?"minha":"casa")}
         editando={editando} setEditando={setEditando} versaoMsgs={versao}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
@@ -6087,6 +6235,9 @@ const MOTIVO_ROBO={
   ia_nao_configurada:"A IA não está ligada nesta instalação.",
   dentro_do_expediente:"Agora é horário de expediente — quem atende é a equipe.",
   ja_com_corretor:"Este lead já está com um corretor. O robô nunca fala em atendimento de corretor.",
+  // Na linha pessoal a trava do dono se inverte (todo lead dali é dele), então
+  // o que decide é o consentimento: quem liga o robô é o dono do número.
+  robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
   ele_se_despediu:"A IA já se despediu neste atendimento — ela fecha a conversa quando termina de anotar ou quando chega no limite de mensagens.",
@@ -6412,7 +6563,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 /* ===== CAMPO DE ENVIO DA ADM =====
    A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
    corretor — o cliente sempre sabe com quem está falando. */
-function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setEditando,versaoMsgs}){
+function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setEditando,versaoMsgs,aoMudarLinha}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [enviandoImovel,setEnviandoImovel]=useState(false);
@@ -6470,7 +6621,14 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     try{ await acoes.enviar(lead.id,texto,citada&&citada.id); } finally{ setEnviando(false); }
   }
 
-  return <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
+  return <React.Fragment>
+  {/* A mesma faixa da tela do corretor. Os dois campos são componentes
+      diferentes e já divergiram antes — por isso a faixa e o atalho são um
+      componente só, usado pelos dois, e não um trecho copiado. */}
+  <LinhaDaConversa canal={lead.canal} acoes={acoes} leadId={lead.id} isMobile={isMobile}
+    sugerir={(t)=>setDraft(t)}
+    aoTrocar={(c)=>{aoMudarLinha&&aoMudarLinha(c);acoes.abrir(lead.id);}}/>
+  <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
     <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
       <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
       {mensagensProntas.map(tp=><button key={tp.id} onClick={()=>setDraft(tp.corpo)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.titulo}</button>)}
@@ -6498,10 +6656,18 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
         style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
     </div>
     {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
+    {/* A frase da assinatura só vale no número da CASA. Na linha pessoal a
+        mensagem NÃO é assinada — o cliente salvou aquele número e está falando
+        com a pessoa dele —, e repetir aqui "assinada como Vanessa" ensinaria
+        uma regra que o sistema deixou de ter. */}
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
-      <Icon n="msg" size={11} color={C.faint}/> Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.
+      <Icon n="msg" size={11} color={C.faint}/>
+      {lead.canal&&lead.canal.onde==="corretor"
+        ?<React.Fragment>Sai pelo número pessoal, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
+        :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
     </div>
-  </div>;
+  </div>
+  </React.Fragment>;
 }
 
 /* ===== MINHA CONTA =====
@@ -6566,7 +6732,157 @@ async function atualizarConHub(){
   location.replace(location.pathname+"?atualizado="+Date.now());
 }
 
-function MinhaConta({session,acoes,isMobile,aoAtualizar,org}){
+
+/* ===== MEU WHATSAPP =====
+
+   A tela onde o corretor liga o número DELE. Existe em Minha conta e não em
+   Configurações porque o número é dele: quem pareia o aparelho é quem tem o
+   aparelho na mão, e ninguém pode ler o QR Code do WhatsApp de outra pessoa.
+
+   O que ela precisa deixar claro, e nesta ordem:
+
+   1. QUE A CONVERSA CONTINUA NO CRM. É o mal-entendido natural — "ligar meu
+      WhatsApp" soa como "sair do sistema". É o contrário: o número muda, o
+      lugar onde se atende não. Se isso não estiver escrito na primeira linha,
+      o corretor liga a linha e volta a atender pelo celular, que é exatamente
+      o que este recurso existe para evitar.
+
+   2. QUE ISSO CUSTA. Cada linha é cobrada à parte, e quem liga não é quem
+      paga. Sem a frase, o corretor acha que é um botão de conveniência.
+
+   3. QUE SÓ O GESTOR LIBERA. Sem a explicação, o botão desabilitado vira
+      chamado. */
+function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
+  const [f,setF]=useState({host:"",token:""});
+  const [aviso,setAviso]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [abrindo,setAbrindo]=useState(false);
+  const [confirmando,setConfirmando]=useState(false);
+  if(!canais) return null;
+  const meu=canais.meu;
+  const liberado=!!canais.liberado;
+  const ligado=!!(meu&&meu.conectado);
+
+  const salvar=async()=>{
+    setAviso(null);setOcupado(true);
+    try{ const r=await acoes.conectarMeuCanal({host:f.host.trim(),token:f.token.trim()});
+      setF({host:"",token:""});setAbrindo(false);
+      setAviso(r.aviso?{ok:false,txt:r.aviso}:{ok:true,txt:"Número ligado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."});
+      aoMudar&&aoMudar();
+    }catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setOcupado(false); }
+  };
+  const desligar=async()=>{
+    setAviso(null);setOcupado(true);
+    try{ const r=await acoes.desligarMeuCanal();
+      setConfirmando(false);
+      setAviso({ok:true,txt:`Número desligado. ${r.devolvidos||0} conversa(s) voltaram para o WhatsApp da imobiliária.`});
+      aoMudar&&aoMudar();
+    }catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setOcupado(false); }
+  };
+  const campo=(rot,k,dica)=><label style={{display:"block",marginBottom:9}}>
+    <span style={{display:"block",color:C.sub,fontSize:11.5,marginBottom:4}}>{rot}</span>
+    <input value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} placeholder={dica}
+      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+        borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",background:C.surface}}/>
+  </label>;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
+      <Icon n="whatsapp" size={17} color={ligado?C.greenDeep:C.faint}/>
+      <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Meu WhatsApp</span>
+      {ligado&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>LIGADO</span>}
+    </div>
+
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6,marginBottom:11}}>
+      Atenda pelo <b>seu número</b> sem sair do CRM. A conversa continua acontecendo aqui —
+      o histórico, o funil e o seu relatório seguem iguais; só muda o número de onde a
+      mensagem sai. Nas mensagens que saem pelo seu número <b>não vai a assinatura</b>{" "}
+      “{first(session.name)}:”, porque o cliente já sabe com quem está falando.
+    </div>
+
+    {aviso&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,lineHeight:1.45,
+      color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
+
+    {!liberado&&!ligado&&<div style={{background:C.surface,borderRadius:11,padding:12,color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+      A gestão da imobiliária ainda não liberou um número para você. <b>Cada número tem um
+      custo mensal</b>, por isso quem libera é quem assina a conta — peça ao gestor em
+      Configurações → Conexão.
+    </div>}
+
+    {liberado&&!ligado&&<React.Fragment>
+      {!abrindo
+        ?<button onClick={()=>setAbrindo(true)}
+          style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:11,
+            padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Ligar o meu número</button>
+        :<React.Fragment>
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+            Você precisa de uma <b>instância só sua</b> na Uazapi — não serve a da imobiliária.
+            Copie o endereço e o token dela no painel da Uazapi e cole aqui.
+          </div>
+          {campo("Endereço (host)","host","https://suainstancia.uazapi.com")}
+          {campo("Token da SUA instância","token","cole aqui")}
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <button onClick={salvar} disabled={ocupado||!f.host.trim()||!f.token.trim()}
+              style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",
+                fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado||!f.host.trim()||!f.token.trim()?.5:1}}>
+              {ocupado?"Ligando…":"Ligar"}</button>
+            <button onClick={()=>{setAbrindo(false);setF({host:"",token:""});}}
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+                padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </React.Fragment>}
+    </React.Fragment>}
+
+    {ligado&&<React.Fragment>
+      <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,marginBottom:11}}>
+        {meu.wa_number&&<div><b style={{color:C.ink}}>Número:</b> {meu.wa_number}</div>}
+        <div><b style={{color:C.ink}}>Onde aparece:</b> Atender → Meu WhatsApp.</div>
+        <div><b style={{color:C.ink}}>Como levar um cliente para cá:</b> abra a conversa dele e toque
+          em “Continuar no meu WhatsApp”, logo acima do campo de escrever.</div>
+      </div>
+
+      {/* O ROBÔ NESTA LINHA. Nasce desligado, e quem liga é o dono do número:
+          decidir que existe uma IA falando pelo seu WhatsApp pessoal não é
+          decisão de gestão. */}
+      <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",marginBottom:11}}>
+        <input type="checkbox" checked={!!meu.robo_ligado} disabled={ocupado}
+          onChange={async e=>{ setOcupado(true);
+            try{ await acoes.roboDoMeuCanal(e.target.checked); aoMudar&&aoMudar(); }
+            catch(err){ setAviso({ok:false,txt:err.message}); } finally{ setOcupado(false); } }}
+          style={{marginTop:2,width:17,height:17,accentColor:C.green,cursor:"pointer"}}/>
+        <span style={{fontSize:12,color:C.sub,lineHeight:1.55}}>
+          Deixar a IA responder o <b>primeiro contato fora do expediente</b> neste número.
+          Ela acolhe e faz perguntas — nunca fala de valor, aprovação nem agenda visita.
+          Assim que você responder, ela sai da conversa.
+        </span>
+      </label>
+
+      {!confirmando
+        ?<button onClick={()=>setConfirmando(true)}
+          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,
+            padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Desligar meu número</button>
+        :<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12}}>
+          <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Desligar o seu número?</div>
+          <div style={{color:C.sub,fontSize:12,lineHeight:1.55,marginBottom:9}}>
+            As conversas que estão nele <b>voltam para o WhatsApp da imobiliária</b> — nenhuma
+            fica sem caminho de resposta, e nada do histórico se perde.
+          </div>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <button onClick={desligar} disabled={ocupado}
+              style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",
+                fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"Desligando…":"Sim, desligar"}</button>
+            <button onClick={()=>setConfirmando(false)}
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+                padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>}
+    </React.Fragment>}
+  </div>;
+}
+
+function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais}){
   const [f,setF]=useState({name:session.name,email:session.email,phone:session.phone||""});
   const [senha,setSenha]=useState({atual:"",nova:"",repetir:""});
   const [avisoDados,setAviso]=useState(null);
@@ -6652,6 +6968,10 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org}){
           {trocando?"Alterando…":"Alterar senha"}
         </button>
       </div>
+      {/* MEU WHATSAPP fica aqui, e não em Configurações, porque o número é
+          dele: quem pareia o aparelho é quem tem o aparelho na mão. E fica
+          acima das notificações porque é o que muda o dia dele. */}
+      <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile} master={!!session.master}
         autonomo={!!org&&org.tipo==="autonomo"}/>}
@@ -10499,7 +10819,100 @@ function ConexaoConfig({acoes,session,isMobile}){
         Sem o webhook o CRM envia, mas as respostas do cliente não aparecem na conversa.
       </div>
     </div>
+
+    {/* OS NÚMEROS DOS CORRETORES. Fica na mesma tela da conexão da casa porque
+        é a mesma pergunta — "por quais números esta imobiliária fala" —, e
+        porque é aqui que o gestor já vem quando o assunto é WhatsApp. */}
+    <NumerosDaEquipe acoes={acoes} isMobile={isMobile}/>
   </React.Fragment>;
+}
+
+/* ===== OS NÚMEROS PESSOAIS DA EQUIPE =====
+
+   Duas coisas numa tela só, e as duas são do gestor porque as duas custam
+   dinheiro: quem PODE ligar o número dele, e quanto isso já está somando.
+
+   A liberação é NOMINAL. "Os cinco primeiros que pedirem" faria a autorização
+   depender de quem clicou primeiro, e o gestor descobriria quem entrou olhando
+   a fatura. Ele escolhe os nomes.
+
+   O CUSTO APARECE ANTES DO BOTÃO, e não depois — é a mesma régua da reanálise
+   em lote: operação que vira dinheiro mostra o valor antes de acontecer. */
+function NumerosDaEquipe({acoes,isMobile}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const rever=()=>acoes.canais().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+  if(!d) return null;
+  const lim=d.limites||{};
+  const pessoais=(d.equipe||[]).filter(c=>c.tipo==="corretor"&&c.ativo);
+
+  const mexer=async(fn,chave)=>{
+    setErro("");setOcupado(chave);
+    try{ await fn(); await rever(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  };
+
+  const caixa=(rot,v,cor)=><div style={{background:C.surface,borderRadius:10,padding:"9px 12px",flex:"1 1 110px"}}>
+    <div style={{fontFamily:MONO,color:cor||C.ink,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
+    <div style={{color:C.faint,fontSize:10,marginTop:3}}>{rot}</div></div>;
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="users" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Números dos corretores</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:11}}>
+      O corretor pode atender pelo <b>número dele</b> sem sair do CRM — a conversa continua
+      aqui, com histórico e relatório iguais. Cada número é uma instância na Uazapi e
+      <b> tem custo mensal</b>, por isso quem libera é você. Ligar o aparelho é com ele,
+      em Minha conta → Meu WhatsApp.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:11}}>
+      {caixa("números ligados",`${lim.usados||0} de ${lim.limite||0}`)}
+      {caixa("inclusos no plano",lim.incluidos||0)}
+      {caixa("cobrados à parte",lim.cobrados||0,lim.cobrados?C.amber:C.ink)}
+      {/* Nulo é "o ConHub ainda não definiu o preço" — e a tela escreve isso.
+          Mostrar R$ 0,00 prometeria de graça o que vai ser cobrado. */}
+      {caixa("por mês",lim.valor_extra!=null?fmtMoeda(lim.valor_extra):"a combinar",lim.valor_extra?C.greenDeep:C.faint)}
+    </div>
+
+    {pessoais.length>0&&<div style={{marginBottom:11}}>
+      {pessoais.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",
+        background:C.surface,borderRadius:10,padding:"9px 11px",marginBottom:6}}>
+        <Icon n="whatsapp" size={13} color={c.conectado?C.greenDeep:C.faint}/>
+        <span style={{color:C.ink,fontSize:12.5,fontWeight:600,flex:1,minWidth:90}}>{c.pessoa||c.nome}</span>
+        <span style={{color:c.conectado?C.greenDeep:C.faint,fontSize:11,fontWeight:600}}>
+          {c.conectado?(c.wa_number||"ligado"):"liberado, ainda não ligou"}</span>
+        <button disabled={!!ocupado} onClick={()=>mexer(()=>acoes.desligarCanalDe(c.id),c.id)}
+          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:8,
+            padding:"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          {ocupado===c.id?"…":"Desligar"}</button>
+      </div>)}
+    </div>}
+
+    {(d.podem||[]).length>0&&<React.Fragment>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>
+        Liberar quem pode ligar o próprio número</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {d.podem.map(u=><button key={u.id} disabled={!!ocupado}
+          onClick={()=>mexer(()=>acoes.liberarCanal(u.id,!u.canal_liberado),u.id)}
+          style={{display:"flex",alignItems:"center",gap:6,minHeight:34,padding:"0 12px",borderRadius:999,cursor:"pointer",
+            border:`1px solid ${u.canal_liberado?C.green:C.line}`,background:u.canal_liberado?C.greenSoft:C.card,
+            color:u.canal_liberado?C.greenDeep:C.sub,fontSize:12,fontWeight:600}}>
+          <Icon n={u.canal_liberado?"check":"userplus"} size={12}/>{first(u.name)}</button>)}
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:8,lineHeight:1.5}}>
+        Liberado, o corretor vê a opção em Minha conta e liga o número dele.
+        Tirar a liberação <b>desliga a linha</b> e devolve as conversas dela para o número da imobiliária.
+      </div>
+    </React.Fragment>}
+  </div>;
 }
 
 /* O passo a passo escrito para quem nunca ouviu falar de API. */

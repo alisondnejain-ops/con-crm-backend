@@ -13,7 +13,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import {
-  canaisDaOrg, canalDaCasa, canalDoUsuario, canalPorId,
+  canaisDaOrg, garantirCasa, canalDoUsuario, canalPorId,
   criarCanalDoCorretor, salvarConexao, desligarCanal, limites,
 } from "../services/canais.js";
 import { instanceStatus, PROVEDORES } from "../services/uazapi.js";
@@ -29,7 +29,7 @@ r.use(authRequired);
 r.get("/", async (req, res) => {
   const orgId = req.user.org_id;
   const meu = canalDoUsuario(orgId, req.user.id);
-  const casa = canalDaCasa(orgId);
+  const casa = garantirCasa(orgId);
   const l = limites(orgId);
 
   const eu = db.prepare("SELECT canal_liberado FROM users WHERE id = ?").get(req.user.id) || {};

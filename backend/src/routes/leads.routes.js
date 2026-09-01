@@ -19,7 +19,7 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
-import { canalDoUsuario, canalDoLead, canalPorId } from "../services/canais.js";
+import { canalDoUsuario, canalPorId } from "../services/canais.js";
 
 const r = Router();
 r.use(authRequired);
@@ -68,27 +68,6 @@ r.get("/", (req, res) => {
     if (fim && isFinite(fim)) { where.push("l.created_at <= ?"); args.push(fim); }
   } else {
     where.push("l.assigned_to = ?"); args.push(id);
-  }
-
-  /* POR QUAL LINHA DE WHATSAPP. As subcategorias de "Atender".
-
-     `linha=casa` é o WhatsApp da imobiliária, `linha=minha` é o número pessoal
-     de quem está olhando. A peneira é aqui e não no navegador porque a caixa do
-     corretor pode ter centenas de conversas e a tela recarrega de 10 em 10
-     segundos — trazer tudo para descartar metade no aparelho é pagar a
-     consulta inteira duas vezes.
-
-     Sem o parâmetro, vem tudo: a tela só separa as linhas para quem TEM duas,
-     e para todo o resto a pergunta não existe. */
-  if (req.query.linha === "casa") where.push("l.canal_id IS NULL");
-  else if (req.query.linha === "minha") {
-    const meu = canalDoUsuario(org_id, id);
-    // Sem linha pessoal, "minha caixa do meu número" é um conjunto vazio, e é
-    // o que se devolve — não a caixa inteira, que seria a resposta de outra
-    // pergunta.
-    where.push("l.canal_id = ?"); args.push(meu ? meu.id : "__sem_linha__");
-  } else if (req.query.linha && req.query.linha !== "todas") {
-    where.push("l.canal_id = ?"); args.push(req.query.linha);
   }
 
   // Atendimento finalizado sai da caixa de entrada, mas continua no funil e nos
@@ -846,7 +825,11 @@ function sugestaoDeTroca(lead, user) {
   const nome = (user.name || "").split(" ")[0];
   const org = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id) || {};
   const primeiro = (lead.name || "").split(" ")[0];
-  return `Oi${primeiro && !/^contato do/i.test(lead.name || "") ? ", " + primeiro : ""}! Aqui é o ${nome}`
+  /* SEM ARTIGO ANTES DO NOME. "Aqui é o Marina" saía errado, e o certo não é
+     trocar por "a": o sistema não sabe o gênero de ninguém e não vai deduzir
+     pelo nome. Em português do Brasil "aqui é Marina" é natural e não erra com
+     pessoa nenhuma. */
+  return `Oi${primeiro && !/^contato do/i.test(lead.name || "") ? ", " + primeiro : ""}! Aqui é ${nome}`
     + `${org.name ? `, da ${org.name}` : ""}. Salva esse número, que a partir de agora eu falo com você por aqui. 😊`;
 }
 

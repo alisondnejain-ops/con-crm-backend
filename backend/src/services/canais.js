@@ -74,6 +74,11 @@ export function ligados(orgId) {
    existir um plano de 25 a regra não pode ser um número escrito no meio de uma
    função. E ele é TETO, não contratação: cada linha ligada é cobrada à parte. */
 export function limites(orgId) {
+  /* Realinha a linha da casa antes de contar. É uma escrita dentro de uma
+     leitura, e vale a troca: `usados` vira dinheiro, e a linha da casa
+     desencontrada de `orgs.uazapi_*` faria a conta dizer que a imobiliária tem
+     um número a menos do que tem. Só escreve quando está fora do lugar. */
+  garantirCasa(orgId);
   const o = db.prepare("SELECT limite_canais, canais_incluidos, valor_canal FROM orgs WHERE id = ?").get(orgId) || {};
   const limite = Number.isFinite(o.limite_canais) ? o.limite_canais : 11;
   const incluidos = Number.isFinite(o.canais_incluidos) ? o.canais_incluidos : 1;
