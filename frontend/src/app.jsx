@@ -974,9 +974,6 @@ function ConCRM(){
     // endereço da tela de pagamento do Asaas, para onde o navegador vai.
     planos:()=>api("/assinatura/planos"),
     contratarPlano:(dados)=>api("/assinatura/plano",{method:"POST",body:dados}),
-    // O QR do Pix da cobrança que está aberta. NUNCA cria cobrança — quem cria
-    // é `contratarPlano`, uma vez. O QR vence, então é sempre buscado na hora.
-    pixDaAssinatura:()=>api("/assinatura/pix"),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -2396,21 +2393,10 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   const [cpf,setCpf]=useState("");
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
-  /* O PAGAMENTO ACONTECE AQUI DENTRO, NO PIX. (02/09/2026, pedido do Ali)
-
-     Até hoje isto guardava o endereço da fatura do Asaas e abria uma aba nova.
-     A tela de lá mostra, no cabeçalho, o nome, o CNPJ, o e-mail e o ENDEREÇO
-     RESIDENCIAL do titular do ConHub para todo cliente que for pagar — e isso
-     não é configurável a ponto de sumir.
-
-     Agora fica o QR Code e o copia-e-cola, desenhados na nossa tela. Dá para
-     trazer porque Pix não é cartão: o copia-e-cola é um código público de
-     cobrança, e quem o tem consegue PAGAR, nunca cobrar. Com cartão o número
-     teria que passar pelo nosso servidor — e o próprio Asaas manda quem faz
-     isso ser certificado SAQ-D, o nível mais pesado do PCI-DSS. */
-  const [pix,setPix]=useState(null);
-  const [copiado,setCopiado]=useState(false);
-  const [buscandoPix,setBuscandoPix]=useState(false);
+  // Fica na tela depois de abrir a fatura: bloqueador de popup é comum, e sem
+  // o endereço à vista o corretor ficava com um plano contratado e nenhum
+  // caminho para pagar.
+  const [fatura,setFatura]=useState("");
 
   /* A TELA JÁ ABRE COM O PLANO QUE A PESSOA ESCOLHEU NO SITE. (02/09/2026)
 
@@ -2428,12 +2414,6 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
       setD(r);
       const sugerido=r.atual||r.escolhido;
       if(sugerido&&r.planos.some(p=>p.id===sugerido)) setEscolhido(sugerido);
-      /* Se já existe cobrança aberta, o QR volta junto — quem fechou a tela no
-         meio do pagamento e voltou precisa reencontrar o mesmo código, não um
-         formulário pedindo para contratar de novo. Falha em silêncio de
-         propósito: sem cobrança aberta a resposta é `pix: null`, e mostrar erro
-         aqui assustaria quem só veio olhar os planos. */
-      if(r.atual) acoes.pixDaAssinatura().then(x=>setPix(x.pix||null)).catch(()=>{});
     }).catch(e=>setErro(e.message));
   },[]);
   if(!d) return null;
@@ -2445,36 +2425,17 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
     setErro("");setOcupado(true);
     try{
       const r=await acoes.contratarPlano({plano_id:escolhido,cpfCnpj:cpf});
-      setPix(r.pix||null);
+      setFatura(r.url);
       if(aoMudar) await aoMudar();
+      /* Aba nova em vez de trocar a página: no celular o CRM roda como
+         aplicativo na tela de início, e mandar a janela para o Asaas tira o
+         corretor de dentro dele. Se o navegador bloquear, o endereço fica no
+         cartão abaixo — recurso que falha calado é indistinguível de recurso
+         que não existe. */
+      const aba=window.open(r.url,"_blank","noopener");
+      if(!aba) window.location.href=r.url;
     }catch(e){ setErro(e.message); }
     finally{ setOcupado(false); }
-  }
-
-  /* Busca o QR de novo. Existe para dois momentos: o cliente que fechou a tela
-     e voltou, e o QR que venceu enquanto ela estava aberta. NÃO cria cobrança —
-     o servidor devolve o Pix da cobrança que já existe. */
-  async function recarregarPix(){
-    setErro("");setBuscandoPix(true);
-    try{
-      const r=await acoes.pixDaAssinatura();
-      setPix(r.pix||null);
-      if(aoMudar) await aoMudar();
-    }catch(e){ setErro(e.message); }
-    finally{ setBuscandoPix(false); }
-  }
-
-  async function copiar(){
-    if(!pix||!pix.copiaecola) return;
-    try{ await navigator.clipboard.writeText(pix.copiaecola); }
-    catch(e){
-      /* `clipboard` não existe fora de HTTPS e em navegador antigo. Selecionar
-         o texto deixa a pessoa copiar na mão — botão que não faz nada e não
-         explica é pior que botão nenhum. */
-      const campo=document.getElementById("pix-copiaecola");
-      if(campo&&campo.select){ campo.select(); document.execCommand&&document.execCommand("copy"); }
-    }
-    setCopiado(true); setTimeout(()=>setCopiado(false),2500);
   }
 
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
@@ -2488,7 +2449,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
             <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
         : d.atual
         ? "Você pode trocar de plano quando quiser. O plano anterior é cancelado na troca."
-        : "Escolha o seu plano. O pagamento é por Pix, aqui mesmo — você não sai do ConHub."}
+        : "Escolha o seu plano. O pagamento é feito na tela do Asaas, com Pix, boleto ou cartão."}
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
@@ -2552,66 +2513,26 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
               color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:13.5,fontWeight:600,
               cursor:cpf.replace(/\D/g,"").length<11?"default":"pointer",display:"flex",
               alignItems:"center",justifyContent:"center",gap:7}}>
-            {ocupado?"Gerando o Pix…":<React.Fragment>Gerar o Pix <Icon n="arrow" size={15}/></React.Fragment>}</button>
-          {/* Dito antes do clique: a pessoa precisa saber o que vai acontecer
-              antes de entregar o CPF. E a frase é curta porque a boa notícia
-              aqui é justamente que NÃO acontece nada — ela não sai do lugar. */}
+            {ocupado?"Abrindo…":<React.Fragment>Ir para o pagamento <Icon n="arrow" size={15}/></React.Fragment>}</button>
+          {/* Dito antes do clique, não depois: o corretor precisa saber para
+              onde vai antes de sair do CRM com o CPF na mão. */}
           <div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.5,display:"flex",gap:6}}>
             <Icon n="lock" size={12}/>
-            <span>O QR Code aparece aqui mesmo, nesta tela. Você não é levado para nenhum site,
-              e o ConHub não pede nem guarda dados de cartão.</span>
+            <span>Abre a tela segura do Asaas, onde você escolhe Pix, boleto ou cartão.
+              Os dados do cartão são digitados lá — o ConHub não recebe nem guarda nenhum deles.</span>
           </div>
         </div>}
 
-        {/* ===== O PIX, DESENHADO AQUI DENTRO ===== */}
-        {pix&&<div style={{marginTop:10,background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:13,padding:14}}>
-          <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>
-            Pague com Pix para liberar {fmtMoeda(pix.valor)}</div>
-          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:11}}>
-            Abra o aplicativo do seu banco, escolha Pix e aponte para o código — ou copie e cole.
-            {pix.vencimento&&<React.Fragment> Vence em <b>{fmtData(pix.vencimento)}</b>.</React.Fragment>}
+        {fatura&&<div style={{marginTop:10,background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12}}>
+          <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Plano contratado — falta pagar</div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
+            A tela de pagamento abriu numa aba nova. Se ela não apareceu, use o link abaixo.
+            Assim que o pagamento for confirmado, o acesso é liberado sozinho.
           </div>
-
-          <div style={{display:"flex",gap:14,alignItems:"flex-start",flexDirection:isMobile?"column":"row"}}>
-            {/* A imagem vem em base64 do Asaas. Sem ela o copia-e-cola sozinho
-                ainda resolve — quem paga pelo computador usa o código, e quem
-                paga pelo celular tem o aplicativo do banco na mão. Por isso o
-                QR não é obrigatório para a tela funcionar. */}
-            {pix.imagem&&<img src={`data:image/png;base64,${pix.imagem}`} alt="QR Code do Pix"
-              style={{width:isMobile?"100%":168,maxWidth:220,borderRadius:11,background:"#fff",
-                padding:8,boxSizing:"border-box",border:`1px solid ${C.line}`}}/>}
-
-            <div style={{flex:1,minWidth:0,width:"100%"}}>
-              <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:4}}>Pix copia e cola</div>
-              {/* Um `input` e não um `div`: dá para selecionar com o dedo e
-                  serve de saída quando `navigator.clipboard` não existe (fora
-                  de HTTPS, navegador antigo). */}
-              <input id="pix-copiaecola" readOnly value={pix.copiaecola}
-                onFocus={e=>e.target.select()}
-                style={{...entrada,fontFamily:MONO,fontSize:11,padding:"9px 10px"}}/>
-              <button onClick={copiar}
-                style={{width:"100%",marginTop:7,background:copiado?C.greenSoft:C.greenDeep,
-                  color:copiado?C.greenDeep:"#fff",border:`1px solid ${copiado?C.green:"transparent"}`,
-                  borderRadius:10,padding:"11px",fontSize:12.5,fontWeight:600,cursor:"pointer",
-                  display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                {copiado?"Código copiado ✓":"Copiar o código"}</button>
-
-              <div style={{color:C.faint,fontSize:10.5,marginTop:9,lineHeight:1.5}}>
-                Assim que o banco confirmar, <b style={{color:C.sub}}>o acesso é liberado sozinho</b> —
-                normalmente em segundos. Não precisa mandar comprovante.
-              </div>
-              {/* Recarregar o QR é diferente de contratar de novo, e a tela diz
-                  isso: sem a frase, quem vê o código vencido tenta contratar
-                  outra vez e acaba com duas cobranças no banco. */}
-              <button onClick={recarregarPix} disabled={buscandoPix}
-                style={{marginTop:8,background:"transparent",border:"none",padding:0,
-                  color:C.greenDeep,fontSize:11,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
-                {buscandoPix?"Atualizando…":"O código venceu? Gerar de novo"}</button>
-              <div style={{color:C.faint,fontSize:10,marginTop:3,lineHeight:1.45}}>
-                Isso atualiza o código da mesma cobrança. Nenhuma cobrança nova é criada.
-              </div>
-            </div>
-          </div>
+          <a href={fatura} target="_blank" rel="noreferrer"
+            style={{display:"inline-flex",alignItems:"center",gap:6,textDecoration:"none",background:C.greenDeep,
+              color:"#fff",borderRadius:10,padding:"10px 15px",fontSize:12.5,fontWeight:600}}>
+            <Icon n="zap" size={13}/> Abrir a tela de pagamento</a>
         </div>}
       </React.Fragment>}
   </div>;

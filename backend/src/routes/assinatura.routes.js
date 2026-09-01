@@ -5,7 +5,6 @@ import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
-  criarCobranca, primeiraCobranca, pixDaCobranca,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
 
@@ -407,44 +406,17 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
     const descricao = plano.meses > 1
       ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
       : `ConHub — Plano ${plano.nome} (${porMes}/mês)`;
-    /* ===== O PAGAMENTO ACONTECE NO PIX, DENTRO DO CONHUB ===== (02/09/2026)
-
-       Pedido do Ali, depois de ver a fatura do Asaas: a tela deles não pode
-       aparecer para o cliente dele, e os dados pessoais do titular (nome, CNPJ,
-       e-mail e ENDEREÇO RESIDENCIAL) muito menos — o cabeçalho daquela página
-       mostra tudo isso para quem vai pagar.
-
-       Pix resolve inteiro porque o que precisa sair de lá é PÚBLICO: a imagem
-       do QR e o copia-e-cola. Quem tem esse código consegue PAGAR a cobrança,
-       nunca cobrar ninguém. Com cartão seria o oposto — o número teria que
-       passar pelo nosso servidor, e o próprio Asaas manda quem faz isso ser
-       certificado SAQ-D, o nível mais pesado do PCI-DSS. Por isso o cartão
-       ficou fora, e não por falta de código.
-
-       O ANUAL VIRA COBRANÇA ÚNICA, não doze. Ele foi vendido como "12x no
-       cartão", e no Pix isso não existe. À vista fecha sozinho: `mesesPagos`
-       divide o valor pago pelo preço mensal do plano (1764 ÷ 147 = 12 meses),
-       sem nenhum caso especial. */
-    let assinaturaId = null, link = null, cobrancaId = null, valorAgora = plano.total;
+    let assinaturaId = null, link = null;
 
     if (plano.forma === "assinatura") {
-      const a = await criarAssinatura({ clienteId, valor: plano.total, vencimento: venc,
-        descricao, ciclo: plano.ciclo, forma: "PIX" });
+      const a = await criarAssinatura({ clienteId, valor: plano.total, vencimento: venc, descricao, ciclo: plano.ciclo });
       assinaturaId = a.id;
-      const c = await primeiraCobranca(a.id);
-      cobrancaId = c && c.id;
-      link = (c && (c.invoiceUrl || c.bankSlipUrl)) || null;
+      link = await linkDaPrimeiraFatura(a.id);
     } else {
-      const c = await criarCobranca({ clienteId, valor: plano.total, vencimento: venc,
-        descricao: `${descricao} — pagamento único`, forma: "PIX" });
-      cobrancaId = c.id;
-      link = c.invoiceUrl || c.bankSlipUrl || null;
+      const p = await criarParcelado({ clienteId, parcelas: plano.parcelas,
+        valorParcela: plano.mensal, vencimento: venc, descricao });
+      link = p.invoiceUrl || p.bankSlipUrl || null;
     }
-
-    /* O QR é buscado agora, mas não é gravado: ele tem validade, e QR vencido
-       desenhado na tela é a pior forma de falhar — parece funcionar. Quem
-       reabrir a tela busca o atual por `GET /assinatura/pix`. */
-    const pix = await pixDaCobranca(cobrancaId);
 
     /* A assinatura ANTERIOR é cancelada depois de a nova existir, e a falha
        aqui não derruba a troca: o plano novo já está contratado, e travar por
@@ -460,60 +432,19 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
        contar. */
     const data = dataDoFormulario(venc);
     db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, asaas_subscription_id = ?,
-                asaas_cobranca_id = ?, vence_em = ?, vence_base = ?, link_pagamento = ?,
-                assinatura_status = NULL WHERE id = ?`)
-      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, cobrancaId, data, data, link, org.id);
+                vence_em = ?, vence_base = ?, link_pagamento = ?, assinatura_status = NULL WHERE id = ?`)
+      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, data, data, link, org.id);
 
-    /* Sem o copia-e-cola o cliente fica com um plano contratado e nenhum jeito
-       de pagar — isso é falha, não detalhe, e responder ok aqui seria dizer que
-       deu certo o que não deu.
+    /* Sem `url` a tela não tem para onde mandar o corretor, e ele ficaria com
+       um plano contratado e nenhum jeito de pagar. Isso é falha, não detalhe:
+       responder ok aqui seria dizer que deu certo o que não deu. */
+    if (!link) return res.status(502).json({
+      error: "O plano foi criado no Asaas, mas a tela de pagamento não veio. Abra a fatura pelo e-mail que o Asaas enviou, ou fale com o ConHub." });
 
-       Mas o 502 vem DEPOIS do UPDATE, de propósito: a cobrança já existe no
-       Asaas quando isto roda. Esquecer o id dela faria a próxima tentativa
-       criar uma segunda cobrança para o mesmo mês, e o cliente veria duas.
-       Gravado, `GET /assinatura/pix` busca o QR de novo sem criar nada. */
-    if (!pix) return res.status(502).json({
-      error: "A cobrança foi criada, mas o código do Pix não veio agora. Recarregue a tela em alguns segundos — nenhuma cobrança a mais será gerada." });
-
-    /* `data` e não `venc`: o vencimento sai daqui em MILISSEGUNDOS, igual ao
-       que `GET /assinatura/pix` devolve. `venc` é o texto "2026-09-15" que o
-       Asaas pede, e devolvê-lo aqui faria as duas rotas responderem tipos
-       diferentes no mesmo campo — a tela formata um e erra o outro, calada. */
-    res.json({ ok: true, pix: { ...pix, valor: valorAgora, vencimento: data },
-      plano: plano.id, ...situacao(org.id) });
+    res.json({ ok: true, url: link, plano: plano.id, ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
-});
-
-/* O PIX DA COBRANÇA ABERTA — busca o QR atual, sem criar nada.
-
-   É a rota que a tela chama ao abrir, e a razão de `asaas_cobranca_id` existir.
-   Ela NUNCA cria cobrança: quem cria é `POST /assinatura/plano`, uma vez. Se
-   esta rota criasse, cada vez que alguém recarregasse a tela de pagamento
-   nasceria mais uma cobrança para o mesmo mês, e o cliente veria uma pilha
-   delas — descobrindo isso do pior jeito, no aplicativo do banco.
-
-   O QR é sempre buscado na hora, nunca guardado: ele vence, e QR vencido
-   desenhado na tela é a pior forma de falhar, porque parece funcionar.
-
-   `soDono` porque é a cobrança de quem paga; nem o outro gestor da conta vê. */
-r.get("/assinatura/pix", authRequired, soDono, async (req, res) => {
-  if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
-  const org = db.prepare("SELECT asaas_cobranca_id, valor_mensal, plano_id, vence_em FROM orgs WHERE id = ?")
-    .get(req.user.org_id);
-  /* Sem cobrança aberta não é erro: é a conta que ainda não contratou nada. A
-     tela precisa distinguir "não há o que pagar" de "deu problema" — trocar um
-     pelo outro manda o cliente procurar defeito onde não tem. */
-  if (!org || !org.asaas_cobranca_id) return res.json({ pix: null, sem_cobranca: true });
-
-  const plano = planoPorId(org.plano_id);
-  const pix = await pixDaCobranca(org.asaas_cobranca_id);
-  if (!pix) return res.status(502).json({
-    error: "O código do Pix não veio do Asaas agora. Tente de novo em alguns segundos — nenhuma cobrança nova é criada por isso." });
-
-  res.json({ pix: { ...pix, valor: plano ? plano.total : org.valor_mensal,
-    vencimento: org.vence_em || null }, ...situacao(req.user.org_id) });
 });
 
 export default r;
