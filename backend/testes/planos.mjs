@@ -1,15 +1,26 @@
-/* OS PLANOS DO CORRETOR AUTÔNOMO — mensal, semestral e anual.
+/* OS PLANOS DE PRATELEIRA — do corretor autônomo E da imobiliária.
 
-   Pedido do Ali (27/08/2026): o corretor escolhe entre R$ 297/mês, R$ 247/mês
-   no semestral e R$ 197/mês no anual em 12x, e vai direto para a tela de
-   pagamento. Sem digitação do ConHub no meio.
+   Pedido do Ali (27/08/2026): o cliente escolhe o ciclo e vai direto para a
+   tela de pagamento, sem digitação do ConHub no meio.
+
+   ATUALIZADO EM 02/09/2026, quando o site passou a publicar Essencial e Plus
+   com preço na vitrine: a partir daí eles são prateleira igual à do autônomo, e
+   a imobiliária DEIXOU de ser recusada aqui. Os preços do autônomo caíram para
+   197/167/147, que é o que o site anuncia — enquanto os dois discordassem,
+   quem visse "R$ 147 no anual" seria cobrado R$ 197, e descobriria pelo
+   extrato.
 
    O que este teste tranca:
 
    - o PREÇO continua não vindo do cliente. Ele manda um `plano_id`; o valor
      sai da tabela do servidor. É a mesma trava de 27/08/2026, e ela precisa
-     valer também no caminho novo, senão foi só mudar de porta;
-   - a IMOBILIÁRIA não tem estes planos. O preço dela é combinado caso a caso;
+     valer também nos caminhos novos, senão foi só mudar de porta;
+   - o plano tem que ser DA FAMÍLIA da conta. Sem isso o autônomo manda
+     `essencial-anual` e paga preço de imobiliária — ou, pior, o contrário, que
+     é mais barato e ninguém reclama de ser cobrado a menos;
+   - os IDs DO AUTÔNOMO são os históricos (`mensal`, `semestral`, `anual`).
+     Estão gravados em `orgs.plano_id` de contas que pagam, e `mesesPagos` vale
+     1 mês para plano não encontrado: renomear bloquearia quem pagou seis meses;
    - QUANTOS MESES cada pagamento compra. Era um por linha, e o semestral
      quebrava isso: quem pagava seis meses era bloqueado no mês seguinte;
    - DAR BAIXA é de quem recebe. As quatro rotas que mexem no vencimento eram
@@ -57,7 +68,7 @@ db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,availab
   VALUES (?,?,'Bruno','bruno@ex.com','87999990000',?,'adm',1,?,'ativo')`).run(uBruno, orgAut, senha, Date.now());
 db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(uBruno, orgAut);
 
-// E uma imobiliária comum, para provar que ela NÃO vê estes planos.
+// E uma imobiliária comum: desde 02/09/2026 ela VÊ os planos dela (Essencial e Plus).
 const orgImob = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,valor_mensal) VALUES (?,?,?,?,?)")
   .run(orgImob, "Horizonte Imóveis", "HOR-1", Date.now(), 890);
@@ -81,20 +92,29 @@ const tBruno = await entrar("bruno@ex.com");
 const tMarta = await entrar("marta@horizonte.com");
 let r, d;
 
-console.log("1. Os três planos que o Ali vendeu, com os preços que ele vendeu");
+console.log("1. Os preços do autônomo são os MESMOS que o site anuncia");
+/* Enquanto o site dizia 147 e o CRM cobrava 197, o cliente descobria a
+   diferença pelo extrato — que é a forma mais cara possível de achar um erro. */
 const porId = Object.fromEntries(PLANOS.map(p => [p.id, p]));
-assert.equal(porId.mensal.mensal, 297);
-assert.equal(porId.semestral.mensal, 247);
-assert.equal(porId.anual.mensal, 197);
-assert.equal(porId.semestral.total, 247 * 6, "o semestral cobra os seis meses de uma vez");
+assert.equal(porId.mensal.mensal, 197);
+assert.equal(porId.semestral.mensal, 167);
+assert.equal(porId.anual.mensal, 147);
+assert.equal(porId.semestral.total, 167 * 6, "o semestral cobra os seis meses de uma vez");
 assert.equal(porId.anual.parcelas, 12, "o anual é 12x no cartão");
 console.log(`   mensal ${porId.mensal.mensal} · semestral ${porId.semestral.mensal} (${porId.semestral.total} a cada 6) · anual ${porId.anual.mensal} em ${porId.anual.parcelas}x`);
+
+console.log("1b. E os IDs do autônomo continuam sendo os históricos");
+/* Estão gravados em `orgs.plano_id` de contas que pagam, e `mesesPagos` devolve
+   1 mês para plano não encontrado: renomear para um esquema mais bonito
+   bloquearia, em silêncio, quem tinha acabado de pagar seis meses. */
+assert.deepEqual(PLANOS.map(p => p.id), ["mensal", "semestral", "anual"]);
+console.log(`   ${PLANOS.map(p => p.id).join(", ")}`);
 
 console.log("2. A economia sai do servidor, não da tela");
 /* Se o frontend calculasse, no dia em que um preço mudasse a tela mostraria
    uma economia que não bate com o preço ao lado dela. */
-const tela = planosParaTela();
-assert.equal(tela.find(p => p.id === "anual").economia_ano, (297 - 197) * 12);
+const tela = planosParaTela("autonomo");
+assert.equal(tela.find(p => p.id === "anual").economia_ano, (197 - 147) * 12);
 assert.equal(tela.find(p => p.id === "mensal").economia_ano, 0);
 console.log(`   anual economiza R$ ${tela.find(p => p.id === "anual").economia_ano} por ano`);
 
@@ -106,15 +126,37 @@ assert.equal(r.status, 200);
 assert.equal(d.planos.length, 3);
 assert.equal(d.atual, null, "ainda não escolheu nenhum");
 
-console.log("4. A IMOBILIÁRIA não vê — o preço dela é outro");
+console.log("4. A IMOBILIÁRIA vê os planos DELA — Essencial e Plus (02/09/2026)");
+/* Mudou de propósito: antes ela levava 404 aqui, porque o preço dela era sempre
+   combinado. Desde que o site publicou Essencial e Plus com preço na vitrine e
+   um botão de teste ao lado, recusar aqui deixaria quem escolheu Essencial no
+   site sem nenhum caminho para pagar por ele. */
 r = await chamar(tMarta, "/assinatura/planos");
 d = await r.json();
-console.log(`   ${r.status} · ${d.error}`);
-assert.equal(r.status, 404);
-assert.ok(/combinado com o ConHub/i.test(d.error), "a recusa explica por quê");
+console.log(`   ${r.status} · ${d.planos.map(p => `${p.id} R$ ${p.mensal}`).join(" · ")}`);
+assert.equal(r.status, 200);
+assert.equal(d.planos.length, 6, "dois planos, três ciclos cada");
+assert.equal(d.planos.find(p => p.id === "essencial-mensal").mensal, 497);
+assert.equal(d.planos.find(p => p.id === "essencial-anual").mensal, 377);
+assert.equal(d.planos.find(p => p.id === "plus-mensal").mensal, 797);
+
+console.log("4b. E a economia dela compara com o MESMO plano, não com o mais barato");
+/* Quem olha o Plus anual quer saber quanto economiza em relação ao Plus mensal.
+   Comparar com o Essencial diria que ele "economiza" trocando de produto. */
+const plus = d.planos.find(p => p.id === "plus-anual");
+assert.equal(plus.economia_ano, (797 - 597) * 12);
+console.log(`   Plus anual economiza R$ ${plus.economia_ano} contra o Plus mensal`);
+
+console.log("5-fam. Plano da OUTRA família é recusado nas duas direções");
+/* Sem esta trava o autônomo manda `essencial-anual` e paga preço de
+   imobiliária; e a imobiliária manda `anual` e paga R$ 147 — este segundo é o
+   perigoso, porque é mais barato e ninguém reclama de ser cobrado a menos. */
+r = await chamar(tBruno, "/assinatura/plano", { method: "POST", body: JSON.stringify({ plano_id: "essencial-anual", cpfCnpj: "11144477735" }) });
+console.log(`   autônomo pedindo plano de imobiliária: ${r.status}`);
+assert.equal(r.status, 400);
 r = await chamar(tMarta, "/assinatura/plano", { method: "POST", body: JSON.stringify({ plano_id: "anual", cpfCnpj: "11144477735" }) });
-console.log(`   e contratar também: ${r.status}`);
-assert.equal(r.status, 404);
+console.log(`   imobiliária pedindo plano de autônomo: ${r.status}`);
+assert.equal(r.status, 400);
 
 console.log("5. Plano que não existe é recusado — o preço NUNCA vem do cliente");
 r = await chamar(tBruno, "/assinatura/plano", { method: "POST", body: JSON.stringify({ plano_id: "camarote", cpfCnpj: "11144477735", valor: 1 }) });
@@ -147,12 +189,12 @@ assert.equal("111.444.777-35".replace(/\D/g, "").length, 11);
 console.log("   14 caracteres, 11 dígitos — e o servidor lê os dígitos");
 
 console.log("9. Quantos MESES cada pagamento compra");
-assert.equal(mesesPagos("mensal", 297), 1);
-assert.equal(mesesPagos("semestral", 1482), 6, "o semestral compra seis de uma vez");
-assert.equal(mesesPagos("anual", 197), 1, "cada parcela do anual compra um mês");
-assert.equal(mesesPagos("anual", 2364), 12, "e à vista compra os doze");
+assert.equal(mesesPagos("mensal", 197), 1);
+assert.equal(mesesPagos("semestral", 167 * 6), 6, "o semestral compra seis de uma vez");
+assert.equal(mesesPagos("anual", 147), 1, "cada parcela do anual compra um mês");
+assert.equal(mesesPagos("anual", 147 * 12), 12, "e à vista compra os doze");
 assert.equal(mesesPagos(null, 890), 1, "sem plano (imobiliária) continua sendo um");
-console.log("   297→1 · 1482→6 · 197→1 · 2364→12 · sem plano→1");
+console.log("   197→1 · 1002→6 · 147→1 · 1764→12 · sem plano→1");
 
 console.log("10. Pagamento a menor ainda vale um mês, nunca zero");
 /* Cortesia de R$ 1 ou pagamento parcial não pode creditar zero: o cliente
@@ -166,9 +208,9 @@ const orgSem = "org_" + randomUUID().slice(0, 8);
 const base = new Date("2026-09-10T12:00:00").getTime();
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,tipo,plano_id,vence_em,vence_base) VALUES (?,?,?,?,'autonomo','semestral',?,?)")
   .run(orgSem, "Semestral", "SEM-1", Date.now(), base, base);
-registrarPagamento(orgSem, { valor: 1482, origem: "asaas", asaasId: "pay_1" });
+registrarPagamento(orgSem, { valor: 167 * 6, origem: "asaas", asaasId: "pay_1" });
 let venc = db.prepare("SELECT vence_em FROM orgs WHERE id=?").get(orgSem).vence_em;
-console.log(`   pagou R$ 1.482 → vence ${new Date(venc).toLocaleDateString("pt-BR")}`);
+console.log(`   pagou R$ 1.002 → vence ${new Date(venc).toLocaleDateString("pt-BR")}`);
 assert.equal(new Date(venc).getMonth(), 2, "setembro + 6 meses = março");
 assert.equal(new Date(venc).getFullYear(), 2027);
 
@@ -183,9 +225,9 @@ console.log("13. O anual em 12 parcelas fecha os doze meses");
 const orgAno = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,tipo,plano_id,vence_em,vence_base) VALUES (?,?,?,?,'autonomo','anual',?,?)")
   .run(orgAno, "Anual", "ANO-1", Date.now(), base, base);
-for (let i = 1; i <= 12; i++) registrarPagamento(orgAno, { valor: 197, origem: "asaas", asaasId: "parc_" + i });
+for (let i = 1; i <= 12; i++) registrarPagamento(orgAno, { valor: 147, origem: "asaas", asaasId: "parc_" + i });
 venc = db.prepare("SELECT vence_em FROM orgs WHERE id=?").get(orgAno).vence_em;
-console.log(`   12 parcelas de R$ 197 → vence ${new Date(venc).toLocaleDateString("pt-BR")}`);
+console.log(`   12 parcelas de R$ 147 → vence ${new Date(venc).toLocaleDateString("pt-BR")}`);
 assert.equal(new Date(venc).getFullYear(), 2027);
 assert.equal(new Date(venc).getMonth(), 8, "setembro do ano seguinte");
 

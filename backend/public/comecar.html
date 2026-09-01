@@ -102,6 +102,26 @@
       <h2>Comece o seu teste</h2>
       <p class="lead">Três campos e você já está dentro. <b>Não pedimos cartão</b> — e ao final do teste
         nada é cobrado automaticamente.</p>
+
+      <!-- O QUE A PESSOA ESCOLHEU NO POPUP DO SITE.
+
+           Nasce escondido e só aparece quando o plano vem no endereço E é
+           reconhecido pelo servidor. O PREÇO MOSTRADO AQUI É BUSCADO DO
+           SERVIDOR, nunca lido do endereço: o endereço é digitável, e um valor
+           vindo dele seria um preço que o visitante escolhe — exatamente o
+           furo que a regra "o valor nunca vem do cliente" existe para fechar.
+           Aqui ele só enganaria os olhos (a cobrança sai da tabela do servidor
+           de qualquer jeito), e enganar os olhos de quem está comprando é
+           pior que não mostrar nada. -->
+      <div id="escolha" style="display:none;margin:0 0 18px;padding:14px 16px;border:1px solid #BFE3D8;background:#F0FAF6;border-radius:12px">
+        <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#0C6B52;font-weight:700">Você escolheu</div>
+        <div id="escolhaNome" style="font-size:18px;font-weight:700;margin-top:4px"></div>
+        <div id="escolhaPreco" style="color:#4A5A55;font-size:14px;margin-top:2px"></div>
+        <div style="color:#4A5A55;font-size:13px;margin-top:8px">
+          Nada é cobrado agora. Você só paga se continuar depois dos 14 dias.
+        </div>
+      </div>
+
       <div class="msg" id="msg"></div>
       <div class="field">
         <label for="name">Seu nome completo</label>
@@ -166,6 +186,51 @@
   var msg = document.getElementById("msg"), btn = document.getElementById("go");
   function erro(html){ msg.className = "msg err"; msg.innerHTML = html; msg.scrollIntoView({block:"nearest"}); }
 
+  /* ===== O QUE VEIO DO POPUP DO SITE ===== (02/09/2026)
+
+     O site manda `?perfil=corretor|imobiliaria&plano=<id>`. "perfil" é a
+     palavra que o visitante lê ("sou corretor"); "tipo" é a palavra do banco
+     ("autonomo"). A tradução acontece aqui, num lugar só — o site não precisa
+     conhecer o vocabulário interno do CRM para funcionar.
+
+     E o `tipo` não é enfeite: ele define o tamanho da casa. Conta de autônomo
+     recusa cadastro de corretor e limita a um atendente. Uma imobiliária que
+     chegasse como autônomo só descobriria isso ao tentar cadastrar o segundo
+     corretor, com a equipe olhando. */
+  var params = new URLSearchParams(location.search);
+  var perfil = (params.get("perfil") || params.get("tipo") || "").trim().toLowerCase();
+  var TIPO = (perfil === "imobiliaria" || perfil === "imobiliária") ? "imobiliaria"
+           : (perfil === "corretor" || perfil === "autonomo") ? "autonomo" : "";
+  var PLANO = (params.get("plano") || "").trim();
+
+  /* A tela muda de acordo com quem chegou. Uma imobiliária lendo "cadastrar
+     minha imobiliária" no rodapé de uma página que já é a dela é a mesma
+     confusão de antes, com um passo a mais. */
+  if (TIPO === "imobiliaria") {
+    var rod = document.querySelector(".rodape");
+    if (rod) rod.innerHTML = 'Você está criando a conta da <b>sua imobiliária</b>. '
+      + 'Depois de entrar, é você quem convida a equipe.<br/><br/>Já tem conta? <a href="/app">Entrar no ConHub</a>';
+  }
+
+  /* O NOME E O PREÇO DO PLANO VÊM DO SERVIDOR. Ver o comentário do bloco
+     #escolha, acima: o endereço diz QUAL plano, nunca QUANTO ele custa.
+
+     Falhar aqui não atrapalha nada — o cartão simplesmente não aparece e o
+     cadastro segue igual. É a parte mais dispensável da tela, e não pode ser a
+     que impede alguém de se cadastrar. */
+  if (PLANO && TIPO) {
+    fetch(API + "/publico/planos").then(function(r){ return r.json(); }).then(function(d){
+      var lista = (TIPO === "imobiliaria" ? d.imobiliaria : d.autonomo) || d.planos || [];
+      var p = lista.filter(function(x){ return x.id === PLANO; })[0];
+      if (!p) return;
+      document.getElementById("escolhaNome").textContent =
+        (TIPO === "imobiliaria" ? p.nome : "Plano " + (p.ciclo_nome || p.nome));
+      document.getElementById("escolhaPreco").textContent =
+        "R$ " + p.mensal.toLocaleString("pt-BR") + "/mês · " + (p.resumo || "");
+      document.getElementById("escolha").style.display = "block";
+    }).catch(function(){});
+  }
+
   var phone = document.getElementById("phone");
   phone.addEventListener("input", function(){
     var d = phone.value.replace(/\D/g, "").slice(0, 11);
@@ -182,6 +247,11 @@
       email: document.getElementById("email").value.trim(),
       telefone: phone.value.trim()
     };
+    /* Só vão quando existem. Mandar `tipo: ""` faria o servidor decidir com
+       base numa string vazia, e a decisão dele (autônomo por padrão) precisa
+       vir de não ter sido informado, não de ter sido informado em branco. */
+    if (TIPO) body.tipo = TIPO;
+    if (PLANO) body.plano = PLANO;
     if (!body.nome || !body.email || !body.telefone)
       return erro("Preencha os três campos para continuar.");
     if (body.telefone.replace(/\D/g,"").length < 10)

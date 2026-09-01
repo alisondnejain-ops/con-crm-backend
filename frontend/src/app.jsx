@@ -2380,8 +2380,13 @@ function FundoDoLogin({acoes,isMobile}){
    de cartão passar pelo nosso servidor, para ganhar uma tela que o Asaas já
    entrega pronta e auditada.
 
-   A IMOBILIÁRIA NÃO VÊ ISTO. O preço dela é negociado caso a caso; três preços
-   de prateleira ao lado do plano dela seriam três ofertas que não existem. */
+   A IMOBILIÁRIA PASSOU A VER ISTO em 02/09/2026, quando o site publicou
+   Essencial e Plus com preço na vitrine: a partir daí eles são prateleira igual
+   à do autônomo, e recusar aqui deixaria quem escolheu Essencial no site sem
+   caminho nenhum para pagar por ele. Quem continua de fora é a conta com preço
+   COMBINADO (a `Rede`, e as imobiliárias negociadas fora da tabela) — para ela
+   o servidor responde 404, porque três preços que não são os dela seriam três
+   ofertas que não existem. */
 function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   const [d,setD]=useState(null);
   const [escolhido,setEscolhido]=useState("");
@@ -2393,7 +2398,24 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   // caminho para pagar.
   const [fatura,setFatura]=useState("");
 
-  useEffect(()=>{acoes.planos().then(setD).catch(e=>setErro(e.message));},[]);
+  /* A TELA JÁ ABRE COM O PLANO QUE A PESSOA ESCOLHEU NO SITE. (02/09/2026)
+
+     `escolhido` é a intenção que ela declarou no popup do "Testar 14 dias
+     grátis", guardada em `orgs.plano_escolhido`. `atual` é o plano contratado,
+     e vem primeiro quando existe — quem já contratou está aqui para trocar, e
+     abrir marcando outra coisa faria a tela sugerir uma troca que ninguém
+     pediu.
+
+     Perguntar de novo o que ela respondeu no primeiro clique parece pequeno,
+     mas isto acontece no fim do teste: é a tela que decide se ela paga ou some.
+     Um passo a mais aqui é caro. */
+  useEffect(()=>{
+    acoes.planos().then(r=>{
+      setD(r);
+      const sugerido=r.atual||r.escolhido;
+      if(sugerido&&r.planos.some(p=>p.id===sugerido)) setEscolhido(sugerido);
+    }).catch(e=>setErro(e.message));
+  },[]);
   if(!d) return null;
 
   const emTeste=atualSituacao&&atualSituacao.status==="teste";
@@ -2447,6 +2469,13 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
                 <span style={{color:C.ink,fontSize:13,fontWeight:700}}>{p.nome}</span>
                 {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,
                   padding:"2px 7px",borderRadius:999}}>SEU PLANO</span>}
+                {/* Só quando NÃO há plano contratado: com um contratado, a
+                    pergunta desta tela é "quer trocar?", e lembrar do que foi
+                    escolhido antes de assinar só atrapalharia a leitura. O
+                    selo existe para a pessoa reconhecer a própria escolha —
+                    sem ele, a tela parece ter adivinhado sozinha. */}
+                {!d.atual&&d.escolhido===p.id&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,
+                  padding:"2px 7px",borderRadius:999}}>VOCÊ ESCOLHEU NO SITE</span>}
                 {/* A economia é a razão de existir do semestral e do anual.
                     Sem ela na frente, os três viram três preços soltos. */}
                 {p.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,

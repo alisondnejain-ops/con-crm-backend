@@ -164,5 +164,79 @@ for (const caminho of ["/leads", "/reports/score", "/config/conexao", "/canais",
 }
 console.log(`   ${fechadas.join(" · ")}`);
 
+console.log("\n===== O QUE VEIO DO POPUP DO SITE (02/09/2026) =====");
+
+console.log("14. Quem diz 'tenho imobiliária' recebe uma conta de IMOBILIÁRIA");
+/* O `tipo` não é preferência de tela: conta de autônomo recusa cadastro de
+   corretor e limita a um atendente. Uma imobiliária que caísse como autônomo só
+   descobriria isso ao cadastrar o segundo corretor, com a equipe olhando. */
+r = await comecar({ nome: "Marta Gestora", email: "marta@imob.com", telefone: "87 99222-0001",
+  tipo: "imobiliaria", plano: "essencial-anual" });
+d = await r.json();
+const oImob = db.prepare(`SELECT o.tipo, o.plano_escolhido, o.plano_id FROM orgs o
+  JOIN users u ON u.id = o.dono_user_id WHERE u.email = 'marta@imob.com'`).get();
+console.log(`   ${r.status} · tipo ${oImob.tipo} · escolheu ${oImob.plano_escolhido}`);
+assert.equal(r.status, 201);
+assert.equal(oImob.tipo, "imobiliaria");
+assert.equal(oImob.plano_escolhido, "essencial-anual");
+assert.equal(d.tipo, "imobiliaria");
+assert.equal(d.plano.mensal, 377, "o preço volta do servidor, não do que o site mandou");
+
+console.log("15. A intenção NÃO vira plano contratado");
+/* `plano_id` é o plano contratado — gravado quando o Asaas confirma a cobrança,
+   e é ele que manda no vencimento. Gravar a intenção lá diria que a conta tem
+   contrato durante os 14 dias de teste. */
+console.log(`   plano_escolhido: ${oImob.plano_escolhido} · plano_id: ${oImob.plano_id}`);
+assert.equal(oImob.plano_id, null);
+
+console.log("16. Corretor escolhendo plano de corretor");
+r = await comecar({ nome: "Caio Corretor", email: "caio@ex.com", telefone: "87 99222-0002",
+  tipo: "corretor", plano: "anual" });
+d = await r.json();
+const oAut = db.prepare(`SELECT o.tipo, o.plano_escolhido FROM orgs o
+  JOIN users u ON u.id = o.dono_user_id WHERE u.email = 'caio@ex.com'`).get();
+console.log(`   ${r.status} · tipo ${oAut.tipo} · escolheu ${oAut.plano_escolhido} · R$ ${d.plano.mensal}`);
+assert.equal(oAut.tipo, "autonomo");
+assert.equal(oAut.plano_escolhido, "anual");
+assert.equal(d.plano.mensal, 147);
+
+console.log("17. Plano da FAMÍLIA ERRADA não vale — mas não derruba o cadastro");
+/* É deliberado, e é o contrário do que este projeto costuma fazer com entrada
+   inválida. O site e o servidor moram em repositórios e hospedagens diferentes
+   e sobem em momentos diferentes: recusar faria a ÚNICA porta de entrada de
+   cliente novo fechar em silêncio no dia em que um id mudasse aqui. Ninguém
+   descobre uma porta que não toca campainha. */
+r = await comecar({ nome: "Trocado", email: "trocado@ex.com", telefone: "87 99222-0003",
+  tipo: "corretor", plano: "essencial-anual" });
+d = await r.json();
+const oTroc = db.prepare(`SELECT o.plano_escolhido FROM orgs o
+  JOIN users u ON u.id = o.dono_user_id WHERE u.email = 'trocado@ex.com'`).get();
+console.log(`   ${r.status} · gravado: ${oTroc.plano_escolhido} · plano_reconhecido: ${d.plano_reconhecido}`);
+assert.equal(r.status, 201, "a conta é criada assim mesmo");
+assert.equal(oTroc.plano_escolhido, null, "e nada errado é gravado");
+assert.equal(d.plano_reconhecido, false, "mas a resposta AVISA que não anotou");
+
+console.log("18. Sem escolha nenhuma, `plano_reconhecido` é nulo — não é `false`");
+/* São coisas diferentes: `false` é "você mandou algo e eu não entendi", nulo é
+   "não havia nada para entender". A tela pergunta de novo só no primeiro caso. */
+r = await comecar({ nome: "Sem Popup", email: "sempopup@ex.com", telefone: "87 99222-0004" });
+d = await r.json();
+console.log(`   ${r.status} · tipo ${d.tipo} · plano ${d.plano} · reconhecido: ${d.plano_reconhecido}`);
+assert.equal(d.tipo, "autonomo", "sem informar, continua sendo o padrão de sempre");
+assert.equal(d.plano, null);
+assert.equal(d.plano_reconhecido, null);
+
+console.log("19. A vitrine serve as DUAS famílias, e mantém o campo antigo");
+/* `planos` continua sendo o do autônomo sozinho: era isso que o campo
+   significava quando o site começou a ler daqui, e os dois lados são publicados
+   por caminhos diferentes — renomear quebraria a vitrine no ar sem aviso. */
+r = await fetch(url("/publico/planos"));
+d = await r.json();
+console.log(`   autônomo: ${d.autonomo.map(p => p.mensal).join("/")} · imobiliária: ${d.imobiliaria.map(p => p.id).join(", ")}`);
+assert.deepEqual(d.planos.map(p => p.id), d.autonomo.map(p => p.id), "o campo antigo continua sendo o do autônomo");
+assert.equal(d.autonomo.length, 3);
+assert.equal(d.imobiliaria.length, 6);
+assert.ok(d.imobiliaria.every(p => p.plano && p.ciclo_nome), "cada um diz o plano e o ciclo, para a tela montar o rótulo");
+
 console.log("\nTudo certo ✅");
 fim(0);

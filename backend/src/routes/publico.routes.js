@@ -39,7 +39,7 @@ import db from "../db.js";
 import { codigoLivre } from "../services/codigo.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
-import { PLANOS } from "../services/planos.js";
+import { planosDe, planoDaFamilia } from "../services/planos.js";
 
 const r = Router();
 
@@ -80,13 +80,23 @@ const TRIAL_DIAS = 14;
    vitrine. E vindo daqui, o dia em que o preço mudar o site muda junto: uma
    tabela copiada no Lovable seria uma segunda verdade sobre dinheiro,
    divergindo no primeiro reajuste e sendo descoberta pelo cliente. */
+const paraVitrine = (p) => ({
+  id: p.id, nome: p.nome, plano: p.plano || null, ciclo_nome: p.ciclo_nome,
+  limite: p.limite, mensal: p.mensal, meses: p.meses,
+  total: p.total, forma: p.forma, resumo: p.resumo,
+});
+
 r.get("/publico/planos", (_req, res) => {
   res.json({
     trial_dias: TRIAL_DIAS,
-    planos: PLANOS.map(p => ({
-      id: p.id, nome: p.nome, mensal: p.mensal, meses: p.meses,
-      total: p.total, forma: p.forma, resumo: p.resumo,
-    })),
+    /* `planos` continua sendo o do autônomo, sozinho, porque era isso que este
+       campo significava quando o site começou a ler daqui. Renomeá-lo agora
+       quebraria a vitrine publicada sem nenhum aviso — e o site é publicado por
+       outro caminho, então os dois lados nunca sobem no mesmo instante. Os
+       novos vêm ao lado, em campos próprios. */
+    planos: planosDe("autonomo").map(paraVitrine),
+    autonomo: planosDe("autonomo").map(paraVitrine),
+    imobiliaria: planosDe("imobiliaria").map(paraVitrine),
   });
 });
 
@@ -114,6 +124,36 @@ r.post("/publico/comecar", async (req, res) => {
   if (!/^55\d{10,11}$/.test(telefone))
     return res.status(400).json({ error: "Informe um WhatsApp válido, com DDD." });
 
+  /* QUEM É E O QUE ESCOLHEU, vindo do popup do site. (02/09/2026)
+
+     O `tipo` não é preferência de tela: ele define o TAMANHO DA CASA. Conta de
+     autônomo recusa cadastro de corretor e limita a um atendente — travas que
+     existem para o link de convite não montar uma equipe inteira dentro de uma
+     assinatura individual. Uma imobiliária que caísse como autônomo por
+     descuido descobriria isso na hora de cadastrar o segundo corretor, com a
+     equipe olhando. Por isso só o valor exato "imobiliaria" muda o tipo;
+     qualquer outra coisa mantém o autônomo, que é o padrão desde sempre. */
+  const tipo = String(req.body?.tipo || "").trim() === "imobiliaria" ? "imobiliaria" : "autonomo";
+
+  /* O PLANO ESCOLHIDO é conferido contra a tabela do servidor, e nada além do
+     id vem do cliente — preço, ciclo e forma de cobrança saem daqui. É a regra
+     de 27/08/2026 valendo num caminho novo, e aqui ela pesa mais: do outro lado
+     não tem nem cliente logado, tem a internet.
+
+     ID QUE NÃO EXISTE NÃO DERRUBA O CADASTRO. É deliberado, e é o contrário do
+     que este projeto costuma fazer com entrada inválida. O motivo é que o site
+     e o servidor moram em repositórios e hospedagens DIFERENTES, e sobem em
+     momentos diferentes: no dia em que um id de plano mudar aqui, o site lá
+     fora continuaria mandando o nome velho por algumas horas. Recusar faria a
+     ÚNICA porta de entrada de cliente novo fechar em silêncio, e ninguém
+     descobre uma porta que não toca campainha. Então o cadastro segue sem a
+     escolha, o log grita, e a resposta diz `plano_reconhecido: false` para a
+     página perguntar de novo em vez de fingir que anotou. */
+  const planoPedido = String(req.body?.plano || "").trim();
+  const plano = planoPedido ? planoDaFamilia(planoPedido, tipo) : null;
+  if (planoPedido && !plano)
+    console.error(`[publico] plano desconhecido vindo do site: "${planoPedido}" para tipo "${tipo}" — cadastro seguiu sem ele`);
+
   /* E-mail que JÁ TEM CONTA ATIVA não cria outra — devolve o caminho de
      entrar. Criar a segunda conta seria a pior resposta possível: a pessoa
      ficaria com duas, cada uma com metade dos leads, e descobriria isso
@@ -132,8 +172,13 @@ r.post("/publico/comecar", async (req, res) => {
   const agora = Date.now();
 
   const criar = db.transaction(() => {
-    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo)
-      VALUES (?,?,?,'',0,0,?,'autonomo')`).run(orgId, marca, codigoLivre(marca), agora);
+    /* `plano_escolhido` guarda a INTENÇÃO, e não vai para `plano_id`: aquele é
+       o plano CONTRATADO, gravado quando o Asaas confirma a cobrança, e é ele
+       que manda no vencimento. Gravar a intenção lá diria que a conta tem plano
+       contratado durante os 14 dias de teste. Ver o comentário em `db.js`. */
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,plano_escolhido)
+      VALUES (?,?,?,'',0,0,?,?,?)`)
+      .run(orgId, marca, codigoLivre(marca), agora, tipo, plano ? plano.id : null);
     /* Conta que existe mas nunca foi ativada (pendente, recusada) é
        reaproveitada: quem tentou uma vez e não terminou não pode ficar preso
        para sempre sem conseguir se cadastrar de novo. */
@@ -164,7 +209,8 @@ r.post("/publico/comecar", async (req, res) => {
       enviado = !!(await sendMail({ to: email, subject, html })).sent;
     } catch (e) { console.error("[publico] e-mail não saiu:", e.message); }
   }
-  console.log(`[publico] conta de teste criada pelo site: ${nome} <${email}> — link: ${link}`);
+  console.log(`[publico] conta de teste criada pelo site: ${nome} <${email}> — ${tipo}`
+    + `${plano ? `, plano pretendido ${plano.id}` : ", sem plano escolhido"} — link: ${link}`);
 
   /* O LINK VOLTA NA RESPOSTA, e não só no e-mail.
 
@@ -173,7 +219,15 @@ r.post("/publico/comecar", async (req, res) => {
      o site manda a pessoa direto para a tela de criar a senha. Um cadastro que
      depende de um e-mail chegar é um cadastro que falha em silêncio para uma
      parte das pessoas, e essa parte nunca reclama: ela desiste. */
-  res.status(201).json({ ok: true, nome, email, link, email_enviado: enviado, dias: TRIAL_DIAS });
+  res.status(201).json({
+    ok: true, nome, email, link, email_enviado: enviado, dias: TRIAL_DIAS,
+    tipo,
+    plano: plano ? { id: plano.id, nome: plano.nome, mensal: plano.mensal } : null,
+    /* Só é `false` quando o site MANDOU um plano e ele não foi reconhecido —
+       não quando ninguém escolheu nada. A tela precisa saber a diferença: no
+       primeiro caso ela pergunta de novo, no segundo não há nada a perguntar. */
+    plano_reconhecido: planoPedido ? !!plano : null,
+  });
 });
 
 export default r;

@@ -6,7 +6,7 @@ import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
-import { planosParaTela, planoPorId, mesesPagos } from "../services/planos.js";
+import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
 
 const r = Router();
 
@@ -301,27 +301,42 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
   }
 });
 
-/* ===== GERENCIAR ASSINATURA — os planos do CORRETOR AUTÔNOMO =====
+/* ===== GERENCIAR ASSINATURA — os planos de prateleira =====
 
-   Aqui o preço é de prateleira e o cliente se contrata sozinho: escolhe entre
-   mensal, semestral e anual, digita o CPF e é mandado para a tela do Asaas
-   para pagar. Nada disso passa pelo ConHub, que é o ponto — cada conta nova
-   deixa de ser uma digitação do Ali.
+   Aqui o preço é público e o cliente se contrata sozinho: escolhe o ciclo,
+   digita o CPF/CNPJ e é mandado para a tela do Asaas para pagar. Nada disso
+   passa pelo ConHub, que é o ponto — cada conta nova deixa de ser uma
+   digitação do Ali.
 
-   A IMOBILIÁRIA NÃO ENTRA AQUI. O preço dela é negociado caso a caso e
-   continua vindo de `orgs.valor_mensal`, gravado pelo master. Mostrar três
-   preços de prateleira para quem negociou outro seria oferecer um plano que
-   não é o dela. */
-const soAutonomo = (req, res, next) => {
+   ATÉ 02/09/2026 ISTO ERA SÓ DO AUTÔNOMO, e o comentário aqui dizia que a
+   imobiliária não entrava porque o preço dela era negociado caso a caso. Isso
+   deixou de ser verdade no dia em que o site publicou Essencial e Plus com
+   preço na vitrine e um botão de teste ao lado: a partir daí eles são
+   prateleira igual, e recusar a contratação aqui deixaria o cliente que
+   escolheu Essencial no site sem nenhum caminho para pagar por ele.
+
+   Quem continua de fora é a conta cujo preço foi COMBINADO (a `Rede`, e
+   qualquer imobiliária com `valor_mensal` negociado fora da tabela): para ela
+   `planosDe` não devolve o plano dela, e mostrar três preços que não são o dela
+   seria oferecer um plano que não existe naquele contrato. */
+const comPrateleira = (req, res, next) => {
   const org = db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(req.user.org_id);
-  if (org && org.tipo === "autonomo") return next();
-  res.status(404).json({ error: "Os planos de assinatura são do corretor autônomo. O seu plano é combinado com o ConHub." });
+  if (org && planosDe(org.tipo).length) { req.tipoDaConta = org.tipo; return next(); }
+  res.status(404).json({ error: "O seu plano é combinado com o ConHub. Fale com a gente para alterá-lo." });
 };
 
-r.get("/assinatura/planos", authRequired, soDono, soAutonomo, (req, res) => {
-  const org = db.prepare("SELECT plano_id FROM orgs WHERE id = ?").get(req.user.org_id);
-  res.json({ planos: planosParaTela(), atual: org.plano_id || null,
-    asaas: asaasConfigurado(), ambiente: ambienteAsaas() });
+r.get("/assinatura/planos", authRequired, soDono, comPrateleira, (req, res) => {
+  const org = db.prepare("SELECT plano_id, plano_escolhido FROM orgs WHERE id = ?").get(req.user.org_id);
+  res.json({
+    planos: planosParaTela(req.tipoDaConta),
+    atual: org.plano_id || null,
+    /* O que a pessoa marcou no popup do site, para a tela já vir com ele
+       escolhido. Perguntar de novo o que ela respondeu no primeiro clique é
+       pequeno, mas é exatamente onde uma contratação se perde: no fim do teste,
+       na tela que decide se ela paga ou some. */
+    escolhido: org.plano_escolhido || null,
+    asaas: asaasConfigurado(), ambiente: ambienteAsaas(),
+  });
 });
 
 /* Contrata o plano escolhido e devolve o endereço da tela de pagamento.
@@ -335,10 +350,14 @@ r.get("/assinatura/planos", authRequired, soDono, soAutonomo, (req, res) => {
    O VALOR CONTINUA NÃO VINDO DO CLIENTE. Ele manda o `plano_id`; o preço sai
    da tabela do servidor. É a mesma trava de 27/08/2026, que existe porque a
    rota é `soDono` e num cliente o dono é ele mesmo. */
-r.post("/assinatura/plano", authRequired, soDono, soAutonomo, async (req, res) => {
+r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res) => {
   if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const { plano_id, cpfCnpj } = req.body || {};
-  const plano = planoPorId(plano_id);
+  /* O plano tem que existir E ser da família desta conta. As duas perguntas
+     juntas: sem a segunda, um autônomo mandaria `essencial-anual` no corpo da
+     requisição e o servidor abriria uma cobrança de imobiliária para ele — ou,
+     pior, o contrário, que é mais barato e ninguém reclama de pagar menos. */
+  const plano = planoDaFamilia(plano_id, req.tipoDaConta);
   if (!plano) return res.status(400).json({ error: "Escolha um dos planos disponíveis." });
 
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);

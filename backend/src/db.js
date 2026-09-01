@@ -733,6 +733,25 @@ addOrgCol("rodizio_ultimo", "TEXT");
    vender 14 dias e entregar menos. */
 addOrgCol("tipo", "TEXT DEFAULT 'imobiliaria'");
 addOrgCol("trial_ate", "INTEGER");
+
+/* O PLANO QUE A PESSOA ESCOLHEU NO SITE, antes de existir cobrança. (02/09/2026)
+
+   É diferente de `plano_id`, e a diferença é a razão de existirem os dois:
+   `plano_id` é o plano CONTRATADO — só é gravado quando o Asaas confirma uma
+   cobrança em curso, e é ele que manda no vencimento (`mesesPagos`).
+   `plano_escolhido` é a INTENÇÃO, declarada no popup do site quando ainda não
+   há cartão, nem cobrança, nem nada para o Asaas saber.
+
+   Guardar a intenção em `plano_id` seria dizer que a conta tem plano contratado
+   durante os 14 dias de teste — e a partir daí `mesesPagos` e a tela de
+   assinatura passariam a descrever uma contratação que não aconteceu.
+
+   O que ele faz de útil: no fim do teste, a tela de pagar já vem com o plano
+   certo marcado, em vez de perguntar de novo o que a pessoa respondeu no
+   primeiro clique do site. E diz, no hub, o que cada conta em teste pretendia
+   pagar — que é a única leitura de intenção que existe antes da primeira
+   fatura. */
+addOrgCol("plano_escolhido", "TEXT");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");
