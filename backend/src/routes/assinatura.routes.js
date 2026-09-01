@@ -376,7 +376,17 @@ r.post("/assinatura/plano", authRequired, soDono, soAutonomo, async (req, res) =
       db.prepare("UPDATE orgs SET asaas_customer_id = ? WHERE id = ?").run(clienteId, org.id);
     }
 
-    const descricao = `ConHub ${plano.nome} — ${org.name}`;
+    /* A DESCRIÇÃO É O QUE O CLIENTE LÊ NO CHECKOUT — e depois na fatura do
+       cartão, meses depois, quando não lembrar mais o que contratou.
+
+       "ConHub Mensal" não diz o que é nem por quanto tempo. A linha abaixo
+       responde as três perguntas que a pessoa faz olhando a cobrança: o que é,
+       quanto tempo compra e quanto custa por mês. É o texto mais barato de
+       escrever e o que mais evita contestação de cartão. */
+    const porMes = plano.mensal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const descricao = plano.meses > 1
+      ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
+      : `ConHub — Plano ${plano.nome} (${porMes}/mês)`;
     let assinaturaId = null, link = null;
 
     if (plano.forma === "assinatura") {

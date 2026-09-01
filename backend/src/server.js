@@ -19,6 +19,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
+import publicoRoutes from "./routes/publico.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
@@ -195,6 +196,17 @@ app.get("/", (req, res) => servirApp(req, res));
 /* Assinatura e webhook do Asaas entram ANTES do porteiro: é esta rota que
    desenha a tela de bloqueio e é por este webhook que o desbloqueio chega.
    Trancá-las junto seria trancar a chave do lado de dentro. */
+/* A PORTA DO SITE, e ela vem ANTES do porteiro da assinatura.
+
+   Quem chega aqui não tem conta nenhuma — é justamente o que ele vem criar.
+   Montada depois de qualquer middleware de cobrança ou de login, esta rota
+   responderia 401 ou 402 para todo visitante do site, e o sintoma seria o pior
+   possível: o botão "Testar 14 dias grátis" falhando calado, sem ninguém de
+   dentro perceber que parou de entrar cliente.
+
+   Caminho explícito no `app.use`, como manda a regra desta casa. */
+app.use("/", publicoRoutes);
+
 app.use("/", assinaturaRoutes);
 
 app.use("/auth", authRoutes);

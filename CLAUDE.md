@@ -274,6 +274,24 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Detalhe de rota que teria falhado calado: `GET /pipelines/entrada` precisou ser registrado **antes** do `r.get("/:id")`, senão o Express procuraria um funil chamado "entrada" e devolveria 404 sem nada no log. Teste: `npm run teste:funil-entrada` (12 casos).
 
+- **A porta de entrada de quem vem do site** (02/09/2026, `routes/publico.routes.js`, `POST /publico/comecar` e `GET /publico/planos`): a conta de corretor autônomo só nascia de um jeito — o Ali criando uma a uma no hub. Isso servia enquanto a venda era conversada, e deixa de servir no minuto em que existe um site com um botão "Testar 14 dias grátis": cada clique viraria uma mensagem para ele responder no dia seguinte.
+
+  **É a ÚNICA rota de escrita da plataforma que a internet chama sem login e sem código.** O `/auth/register` é aberto mas exige o `ADM_CODE`; o `/orgs/autonomos` exige master. Por isso ela mora num arquivo só dela, onde as travas são a primeira coisa que se lê.
+
+  **O freio é por IP** — cinco contas por hora, em memória. Sem ele, um laço de dez linhas cria dez mil imobiliárias numa madrugada e a limpeza é manual. Em memória de propósito: some no reinício, e o objetivo é impedir a enxurrada, não manter cadastro de infrator. O teto é generoso para um escritório inteiro testando passar.
+
+  **E-mail com conta ATIVA não cria outra** — devolve "faça login" e o endereço de entrada. A segunda conta deixaria a pessoa com duas, cada uma com metade dos leads, descoberto semanas depois. Mas quem **começou e não terminou** (pendente) é reaproveitado: sem isso, fechar a aba antes de criar a senha prenderia o e-mail para sempre.
+
+  **O teste começa ao DEFINIR A SENHA, não no cadastro** — regra de 27/08/2026, e aqui pesa mais: quem preenche às 23h e abre o e-mail na segunda não pode chegar com três dias a menos.
+
+  **O link volta na resposta, não só no e-mail.** Cadastro que depende de um e-mail chegar falha em silêncio para uma parte das pessoas — e essa parte não reclama, desiste.
+
+  **`GET /publico/planos` serve a vitrine a partir do servidor.** Preço copiado no site seria uma segunda verdade sobre dinheiro, divergindo no primeiro reajuste e sendo descoberta pelo cliente.
+
+  **Montada com caminho explícito e ANTES do porteiro da assinatura** em `server.js`: quem chega não tem conta nenhuma — é o que vem criar. Depois de qualquer middleware de cobrança, o botão do site responderia 402 e falharia calado. O teste 13 confere que `/leads`, `/reports`, `/config`, `/canais` e `/orgs` continuam fechados.
+
+  **A descrição da cobrança no Asaas mudou junto**: era `ConHub Mensal — Nome`, e virou `ConHub — Plano Anual (12 meses · R$ 197,00/mês)`. É o que o cliente lê no checkout e, meses depois, na fatura do cartão, quando não lembrar o que contratou — o texto mais barato de escrever e o que mais evita contestação. Teste: `npm run teste:porta-do-site` (13 casos, com o servidor de pé).
+
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
