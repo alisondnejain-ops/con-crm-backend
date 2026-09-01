@@ -625,6 +625,18 @@ addOrgCol("ultimo_pagamento_em", "INTEGER");
 addOrgCol("link_pagamento", "TEXT");           // fatura em aberto, para o cliente pagar
 addOrgCol("asaas_customer_id", "TEXT");
 addOrgCol("asaas_subscription_id", "TEXT");
+
+/* A COBRANÇA ABERTA — a que tem o QR Code do Pix. (02/09/2026)
+
+   Diferente de `asaas_subscription_id`, que é a assinatura (a régua que gera
+   uma cobrança por ciclo): esta é a cobrança concreta que está esperando
+   pagamento agora, e é dela que sai o QR.
+
+   Guardada porque o QR NÃO é guardado: ele tem validade, e um QR vencido
+   desenhado na tela é a pior forma de falhar, porque parece funcionar. Cada
+   abertura da tela busca o atual a partir deste id — sem ele, buscar de novo
+   significaria CRIAR outra cobrança, e o cliente veria duas para o mesmo mês. */
+addOrgCol("asaas_cobranca_id", "TEXT");
 /* Dono da conta. A mensalidade é assunto de quem paga: mesmo havendo outro
    gestor com acesso total ao CRM, o valor, o histórico de pagamentos e os
    dados de cobrança só aparecem para ele. Ficando nulo, o bootstrap adota o

@@ -73,9 +73,9 @@ export const criarCliente = ({ nome, cpfCnpj, email, telefone }) =>
    O ciclo é do PLANO (services/planos.js): MONTHLY no mensal, SEMIANNUALLY no
    semestral. Era fixo em MONTHLY, o que estava certo quando só existia um
    plano. */
-export const criarAssinatura = ({ clienteId, valor, vencimento, descricao, ciclo = "MONTHLY" }) =>
+export const criarAssinatura = ({ clienteId, valor, vencimento, descricao, ciclo = "MONTHLY", forma = "UNDEFINED" }) =>
   chamar("/subscriptions", { metodo: "POST", corpo: {
-    customer: clienteId, billingType: "UNDEFINED", value: valor,
+    customer: clienteId, billingType: forma, value: valor,
     nextDueDate: vencimento, cycle: ciclo, description: descricao,
   }});
 
@@ -94,6 +94,61 @@ export const criarParcelado = ({ clienteId, parcelas, valorParcela, vencimento, 
     installmentCount: parcelas, installmentValue: valorParcela,
     dueDate: vencimento, description: descricao,
   }});
+
+/* COBRANÇA ÚNICA NO PIX — o plano anual pago de uma vez.
+
+   O anual foi vendido como "12x no cartão", e no Pix isso não existe: ou são
+   doze cobranças mensais separadas, ou é o ano à vista. À vista é o que faz
+   sentido, e a conta do vencimento já fecha sozinha — `mesesPagos` divide o
+   valor pago pelo preço mensal do plano (1764 ÷ 147 = 12 meses), sem nenhum
+   caso especial. */
+export const criarCobranca = ({ clienteId, valor, vencimento, descricao, forma = "PIX" }) =>
+  chamar("/payments", { metodo: "POST", corpo: {
+    customer: clienteId, billingType: forma, value: valor,
+    dueDate: vencimento, description: descricao,
+  }});
+
+/* O QR CODE DO PIX — a imagem e o copia-e-cola, para desenhar NA NOSSA TELA.
+
+   É o que permite o cliente pagar sem nunca ver o Asaas. A resposta traz a
+   imagem já em base64 (`encodedImage`), o payload do copia-e-cola e a validade.
+
+   Isto é seguro de trazer para cá justamente porque Pix não é cartão: o
+   `payload` é um código público de cobrança — quem o tem consegue PAGAR, nunca
+   cobrar. Cartão é o oposto, e é por isso que ele não faz o mesmo caminho.
+
+   A imagem NÃO é guardada no nosso banco: o QR tem validade e um QR vencido
+   desenhado na tela é a pior forma de falhar, porque parece funcionar. Cada
+   abertura da tela busca o atual. */
+export const qrCodePix = (cobrancaId) =>
+  chamar(`/payments/${cobrancaId}/pixQrCode`);
+
+/* A primeira cobrança de uma assinatura.
+   A criação da assinatura não devolve cobrança nenhuma: ela gera a primeira
+   logo depois, e é essa que tem QR Code e endereço. Daí a segunda chamada. */
+export async function primeiraCobranca(assinaturaId) {
+  const d = await cobrancasDaAssinatura(assinaturaId);
+  return ((d && d.data) || [])[0] || null;
+}
+
+/* Junta as duas pontas: da cobrança ao QR pronto para a tela.
+
+   Devolve `null` em vez de lançar quando o QR não vem. O plano JÁ FOI
+   contratado quando isto roda — derrubar a resposta por causa do QR faria o
+   cliente ver um erro depois de a cobrança existir, e tentar de novo criaria
+   uma segunda. Sem QR, a tela mostra o valor e o vencimento e diz que o código
+   está sendo gerado. */
+export async function pixDaCobranca(cobrancaId) {
+  if (!cobrancaId) return null;
+  try {
+    const q = await qrCodePix(cobrancaId);
+    if (!q || !q.payload) return null;
+    return { imagem: q.encodedImage || null, copiaecola: q.payload, expira: q.expirationDate || null };
+  } catch (e) {
+    console.error("[asaas] QR do Pix não veio:", e.message);
+    return null;
+  }
+}
 
 export const cobrancasDaAssinatura = (assinaturaId) =>
   chamar(`/subscriptions/${assinaturaId}/payments`);
