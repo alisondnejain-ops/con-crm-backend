@@ -4346,12 +4346,32 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:!l.canalId)
     .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
     .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase())
+    /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
+
+       Até 02/09/2026 a última condição era `soNumeros(l.tel).includes(soNumeros(t))`,
+       e ela fazia a busca inteira NÃO FUNCIONAR. Procurando por "Carlos",
+       `soNumeros("Carlos")` vira texto vazio — e em JavaScript
+       `qualquerCoisa.includes("")` é SEMPRE VERDADEIRO. Ou seja: toda busca por
+       nome casava com todo lead, e a lista continuava exatamente como estava.
+
+       O pior é como isso aparecia para quem usa: o campo aceitava o texto, o
+       contador continuava dizendo "60 conversa(s)" e nada mudava na tela. Não
+       parecia defeito, parecia que a busca não existia — foi assim que o Ali
+       relatou ("não aparece a opção de pesquisar"). E na conta da atendente
+       funcionava, porque a busca dela vai ao SERVIDOR e nunca passou por aqui.
+
+       Agora o telefone só entra com 4 dígitos ou mais, que é a mesma regra do
+       Kanban (`visiveis`, na tela do Funil) — lá ela estava certa desde o
+       começo, e foi por isso que o defeito nunca apareceu naquela tela.
+
+       `semAcento` dos dois lados: procurar "joao" tem que achar "João", senão a
+       busca falha justamente nos nomes mais comuns da base. */
     .filter(l=>{
-      if(!busca.trim()) return true;
-      const t=busca.trim().toLowerCase();
-      // Telefone comparado só por dígitos: quem digita "87 99999" não deve
-      // perder o lead por causa do parêntese e do traço que a tela desenha.
-      return (l.nome||"").toLowerCase().includes(t)||soNumeros(l.tel).includes(soNumeros(t));
+      const q=semAcento(busca.trim().toLowerCase());
+      if(!q) return true;
+      const digitos=soNumeros(busca);
+      const nome=semAcento(String(l.nome||"").toLowerCase());
+      return nome.includes(q)||(digitos.length>=4&&soNumeros(l.tel).includes(digitos));
     })
     .filter(l=>fEtapa?l.status===fEtapa:true)
     .filter(l=>fPrio?l.prio===fPrio:true)
