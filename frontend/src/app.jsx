@@ -1083,6 +1083,8 @@ function ConCRM(){
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     canais:()=>api("/canais"),
     criarLead:(dados)=>api("/leads",{method:"POST",body:dados}),
+    funilDeEntrada:()=>api("/pipelines/entrada"),
+    definirFunilDeEntrada:(user_id,pipeline_id)=>api("/pipelines/entrada",{method:"POST",body:{user_id,pipeline_id}}),
     canalStatus:(id)=>api(`/canais/${id}/status`),
     criarMeuCanal:()=>api("/canais/meu",{method:"POST",body:{}}),
     conectarMeuCanal:(dados)=>api("/canais/meu/credenciais",{method:"POST",body:dados}),
@@ -10271,6 +10273,70 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
 }
 
 
+
+/* ===== QUEM ENTRA EM QUAL FUNIL =====
+   (01/09/2026, relatado pelo Ali)
+
+   "Os leads da Vanessa precisam cair no funil de SDR; os antigos eu transferi,
+   mas os novos ainda não." A entrada olhava só o funil PADRÃO da imobiliária e
+   não tinha como saber de quem era o lead — então o funil de SDR só existia
+   para quem fosse movido para lá na mão, e a cada lead novo o trabalho
+   recomeçava.
+
+   Fica nesta tela, e não na de Equipe, porque é uma decisão sobre FUNIL: quem
+   está aqui está desenhando o fluxo, e é neste momento que a pergunta "e quem
+   entra em qual?" aparece.
+
+   "Funil padrão" é o comportamento de sempre — quem não escolher nada não vê
+   mudança nenhuma. */
+function QuemEntraOndeFunis({acoes,isMobile}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const rever=()=>acoes.funilDeEntrada().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+  if(!d) return null;
+
+  const trocar=async(userId,pipelineId)=>{
+    setErro("");setOcupado(userId);
+    try{ await acoes.definirFunilDeEntrada(userId,pipelineId); await rever(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  };
+  const padrao=(d.pipelines||[]).find(p=>p.is_default);
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="transfer" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Quem entra em qual funil</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:11}}>
+      O funil em que o lead <b>nasce</b> depende de quem o recebe: o que cai na atendente
+      pode ir para o pré-atendimento, e o do corretor para o comercial. Vale para os leads
+      do WhatsApp, do Meta e dos cadastrados na mão — e <b>o lead troca de funil junto com o
+      responsável</b> quando ele é repassado.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+
+    {(d.pessoas||[]).map(u=><div key={u.id} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",
+      background:C.surface,borderRadius:10,padding:"8px 11px",marginBottom:6}}>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:600,flex:"1 1 110px",minWidth:90}}>
+        {u.name}
+        <span style={{color:C.faint,fontWeight:500,fontSize:11}}> · {PAPEL_PARA_FORM[u.role]||u.role}</span>
+      </span>
+      <select value={u.pipeline_entrada||""} disabled={ocupado===u.id}
+        onChange={e=>trocar(u.id,e.target.value)}
+        style={{flex:"1 1 170px",fontSize:isMobile?16:12.5,border:`1px solid ${u.pipeline_entrada?C.green+"66":C.line}`,
+          background:u.pipeline_entrada?C.greenSoft:C.card,borderRadius:9,padding:"8px 10px",
+          color:u.pipeline_entrada?C.greenDeep:C.sub,outline:"none",cursor:"pointer"}}>
+        <option value="">Funil padrão{padrao?` (${padrao.name})`:""}</option>
+        {(d.pipelines||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>)}
+  </div>;
+}
+
 function FunisConfig({acoes,session,isMobile}){
   const [d,setD]=useState(null);
   const [sel,setSel]=useState("");
@@ -10306,6 +10372,11 @@ function FunisConfig({acoes,session,isMobile}){
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",lineHeight:1.45}}>{erro}</div>}
+
+    {/* Criar um funil não muda nada sozinho enquanto os leads continuarem
+        entrando no de sempre. Por isso esta seção fica ANTES da montagem das
+        etapas: é ela que liga o funil novo à operação. */}
+    <QuemEntraOndeFunis acoes={acoes} isMobile={isMobile}/>
 
     {/* Os funis, em pastilhas. Quem tem um só vê um; quem tem cinco troca aqui. */}
     <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>

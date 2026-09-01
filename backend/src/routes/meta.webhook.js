@@ -4,7 +4,7 @@ import db from "../db.js";
 import { fetchLead } from "../services/meta.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
-import { entradaPadrao } from "../services/pipelines.js";
+import { entradaDe } from "../services/pipelines.js";
 
 const r = Router();
 
@@ -48,8 +48,12 @@ r.post("/meta", async (req, res) => {
              palavra 'Lead' escrita aqui, e isso presumia que toda imobiliaria
              tem uma etapa com esse nome — o que deixou de ser verdade no dia
              em que o funil virou configuravel. Agora o destino e a primeira
-             etapa do pipeline padrao da casa, seja ela qual for. */
-          const entrada = entradaPadrao(org.id);
+             etapa do pipeline padrao da casa, seja ela qual for.
+
+             E desde 01/09/2026 o funil e o de QUEM RECEBE: os leads que caem
+             na atendente pertencem ao funil de pre-atendimento, e os do
+             corretor ao comercial. Quem nao configurou nada segue no padrao. */
+          const entrada = entradaDe(org.id, dono);
           const agora = Date.now();
           db.prepare(`INSERT INTO leads
             (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,

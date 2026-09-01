@@ -316,6 +316,37 @@ export function entradaPadrao(orgId) {
   };
 }
 
+/* ONDE UM LEAD NOVO CAI **DEPENDENDO DE QUEM O RECEBE** (01/09/2026).
+
+   O `entradaPadrao` acima responde "qual é o funil desta casa". A pergunta que
+   faltava é outra: os leads que caem na ATENDENTE pertencem ao funil de
+   pré-atendimento, e os do corretor ao comercial. Quem sabe qual é o funil de
+   um lead é o dono dele — porque é ele quem vai trabalhá-lo.
+
+   Sem isto, o Ali criou o funil de SDR, moveu os leads antigos da Vanessa para
+   lá na mão, e os NOVOS continuaram caindo no comercial: a entrada olhava só o
+   funil padrão da imobiliária e não tinha como saber de quem era o lead.
+
+   `users.pipeline_entrada` vazio é o funil padrão — que é o que todo mundo era
+   antes disto existir. Só quem for configurado muda de comportamento. */
+export function entradaDe(orgId, userId) {
+  if (userId) {
+    const escolhido = db.prepare("SELECT pipeline_entrada FROM users WHERE id = ? AND org_id = ?")
+      .get(userId, orgId)?.pipeline_entrada;
+    if (escolhido) {
+      const p = pipelinePorId(orgId, escolhido);
+      // Funil apagado depois de configurado: cai no padrão em vez de deixar o
+      // lead sem funil nenhum, que é onde ele some de todas as colunas.
+      if (p) {
+        const etapa = primeiraEtapa(orgId, p.id);
+        return { pipeline_id: p.id, stage_id: etapa ? etapa.id : null,
+                 nome: etapa ? etapa.name : "Lead", proprio: true };
+      }
+    }
+  }
+  return { ...entradaPadrao(orgId), proprio: false };
+}
+
 /* ===== CRIAR A PARTIR DE UM TEMPLATE ===== */
 export function criarDoTemplate(orgId, templateId, { name, is_default = false } = {}) {
   const t = templatePorId(templateId);

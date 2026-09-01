@@ -264,6 +264,16 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Junto, um defeito antigo: **a importação em massa não ligava os leads ao funil** (gravava só o nome da etapa, com `pipeline_id`/`stage_id` nulos — certo antes de o funil ser configurável, defeito depois). Trezentos leads importados ficavam **fora de todas as colunas do Kanban**, com o contador ao lado dizendo que existiam; só o reinício seguinte do servidor os ligava. Teste: `npm run teste:lead-manual` (18 casos, com o servidor de pé — as regras que importam são de permissão e de recusa, e permissão testada por dentro do serviço não prova nada sobre a rota).
 
+- **O funil de entrada é o de QUEM RECEBE o lead** (01/09/2026, relatado pelo Ali: *"os leads da Vanessa precisam cair no funil de SDR; os antigos eu transferi, mas os novos ainda não"*; `users.pipeline_entrada`, `entradaDe` em `services/pipelines.js`, `GET/POST /pipelines/entrada`, seção em Configurações → Funis e etapas): o lead sempre nascia no funil **padrão da imobiliária**, fosse de quem fosse. `entradaPadrao` respondia "qual é o funil desta casa", e a pergunta que faltava era outra — os leads que caem na atendente pertencem ao pré-atendimento, os do corretor ao comercial. Sem isso, o funil novo só existia para quem fosse movido para lá **na mão**, e a cada lead que entrava o trabalho recomeçava.
+
+  **São duas metades, e a segunda é a que quase ficou de fora**: (1) o lead **nasce** no funil de quem o recebe — vale nos três caminhos de entrada, WhatsApp, Meta e cadastro manual; e (2) ele **troca de funil junto com o dono** no repasse. Sem a segunda, o lead entrava no pré-atendimento com a atendente e FICAVA lá depois de repassado — o corretor abria o kanban dele, no comercial, e o lead que acabou de receber não estava em coluna nenhuma.
+
+  **Vazio é o funil padrão, e vazio NÃO MOVE NADA.** É a trava que impede a mudança de vazar para quem não pediu: `pipeline_entrada` em branco significa "uso o padrão da casa", e mover por causa disso puxaria de volta ao padrão um lead que alguém pôs de propósito num funil especial. Quem nunca abrir esta configuração não vê diferença nenhuma.
+
+  **A troca de dono passou a ter UM lugar só.** Eram **seis rotas** em `distribution.routes.js` fazendo o mesmo `UPDATE leads SET assigned_to` cada uma por sua conta — a armadilha que este projeto já documentou duas vezes: regra escrita na rota vale para uma e não para as outras cinco, e a esquecida não dá erro nenhum. Agora todas chamam `trocarResponsavel` (`services/movimento.js`), que grava o dono, o `assigned_at` que faz o lead subir na caixa de quem recebeu, a linha do histórico de transferências e a troca de funil. **A fila não tem funil**: devolver o lead para ela não mexe no lugar em que ele está.
+
+  Detalhe de rota que teria falhado calado: `GET /pipelines/entrada` precisou ser registrado **antes** do `r.get("/:id")`, senão o Express procuraria um funil chamado "entrada" e devolveria 404 sem nada no log. Teste: `npm run teste:funil-entrada` (12 casos).
+
 - **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
 
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)

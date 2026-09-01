@@ -572,6 +572,19 @@ addUserCol("available_desde", "INTEGER");
    conta de "os N primeiros que pedirem": autorização deduzida de um número é
    autorização que muda sozinha quando o número muda. */
 addUserCol("canal_liberado", "INTEGER DEFAULT 0");
+/* EM QUE FUNIL OS LEADS DESTA PESSOA ENTRAM.
+
+   O lead sempre nascia no funil PADRÃO da imobiliária, fosse de quem fosse. Com
+   vários funis isso deixou de servir: os leads que caem na atendente pertencem
+   ao funil de pré-atendimento, e os do corretor ao comercial — e é o DONO que
+   diz qual, porque é ele quem trabalha o lead.
+
+   Nulo é o funil padrão da casa, que é o que todo mundo era antes disto
+   existir. Só quem for configurado muda de comportamento: preenchido, este
+   campo também faz o lead TROCAR de funil quando é repassado para a pessoa.
+   Vazio não move nada — senão um lead posto de propósito num funil especial
+   voltaria para o padrão no primeiro repasse, sem ninguém pedir. */
+addUserCol("pipeline_entrada", "TEXT");
 
 /* Registro de ponto da atendente.
 

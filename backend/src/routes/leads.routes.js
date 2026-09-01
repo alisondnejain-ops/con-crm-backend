@@ -20,7 +20,7 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 import { canalDoUsuario, canalPorId } from "../services/canais.js";
-import { entradaPadrao } from "../services/pipelines.js";
+import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 
 const r = Router();
@@ -175,16 +175,11 @@ r.post("/", (req, res) => {
      Sem `stage_id` cai na entrada do funil padrão, que é o começo honesto para
      quem não quer escolher. Etapa de outra imobiliária é recusada — o id chega
      do navegador e não pode ser a única coisa que decide onde o lead entra. */
-  const entrada = entradaPadrao(req.user.org_id);
   let etapa = null;
   if (stage_id) {
     etapa = etapaPorId(req.user.org_id, stage_id);
     if (!etapa) return res.status(400).json({ error: "Essa etapa não é de um funil desta imobiliária." });
   }
-  const pipelineId = etapa ? etapa.pipeline_id : entrada.pipeline_id;
-  const stageId = etapa ? etapa.id : entrada.stage_id;
-  const stageNome = etapa ? etapa.name : entrada.nome;
-
   /* DE QUEM É.
 
      O corretor cadastra para si, SEMPRE — mandar `assigned_to` de outra pessoa
@@ -206,6 +201,15 @@ r.post("/", (req, res) => {
       if (!u) return res.status(400).json({ error: "Escolha alguém da equipe que esteja ativo." });
     }
   }
+
+  /* SEM ETAPA ESCOLHIDA, O FUNIL É O DE QUEM VAI FICAR com o lead — a mesma
+     regra da entrada pelo WhatsApp. Por isso esta conta vem DEPOIS de decidir
+     o dono: com a ordem invertida, o lead cadastrado pela atendente cairia no
+     funil padrão da casa mesmo com ela tendo um funil próprio. */
+  const entrada = entradaDe(req.user.org_id, dono);
+  const pipelineId = etapa ? etapa.pipeline_id : entrada.pipeline_id;
+  const stageId = etapa ? etapa.id : entrada.stage_id;
+  const stageNome = etapa ? etapa.name : entrada.nome;
 
   const agora = Date.now();
   const id = "l_" + randomUUID();

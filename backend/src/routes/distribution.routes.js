@@ -3,6 +3,7 @@ import { filaDaVez, pegarProximo, marcarQueRecebeu } from "../services/rodizio.j
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
+import { trocarResponsavel } from "../services/movimento.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
   lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
 import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
@@ -149,9 +150,9 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(user_id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Atendente não encontrado" });
   if (!u.available) return res.status(409).json({ error: "Atendente indisponível — não entra na catraca" });
-  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(user_id, Date.now(), lead_id, req.user.org_id);
-  if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
-  res.json({ ok: true, assigned_to: user_id, aviso: avisarNovoLead(user_id, lead_id) });
+  const t = repassar(lead_id, req.user.org_id, user_id, req.user.id);
+  if (t.erro) return res.status(404).json({ error: t.erro });
+  res.json({ ok: true, assigned_to: user_id, funil: t.funil, aviso: avisarNovoLead(user_id, lead_id) });
 });
 
 /* A FILA DA VEZ, numerada. `GET /distribution/rodizio`
@@ -171,9 +172,9 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
      A regra escrita já dizia que o repasse nunca volta para a atendente. */
   const chosen = pegarProximo(req.user.org_id);
   if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível na catraca" });
-  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
-  if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
-  res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
+  const t = repassar(lead_id, req.user.org_id, chosen, req.user.id);
+  if (t.erro) return res.status(404).json({ error: t.erro });
+  res.json({ ok: true, assigned_to: chosen, funil: t.funil, aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // Repasse da SDR: ela faz o 1º atendimento e passa o lead para o CORRETOR da vez
@@ -189,13 +190,13 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
     chosen = pegarProximo(req.user.org_id);
     if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível" });
   }
-  const info = db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ? AND org_id = ?").run(chosen, Date.now(), lead_id, req.user.org_id);
-  if (!info.changes) return res.status(404).json({ error: "Lead não encontrado" });
+  const t = repassar(lead_id, req.user.org_id, chosen, req.user.id);
+  if (t.erro) return res.status(404).json({ error: t.erro });
   /* Escolher um corretor a dedo TAMBÉM move a vez: quem acabou de receber vai
      para o fim da fila. Sem isto, a atendente escolhia a Marina na mão e a
      Marina continuava sendo a próxima do rodízio — recebia de novo em seguida. */
   marcarQueRecebeu(req.user.org_id, chosen);
-  res.json({ ok: true, assigned_to: chosen, aviso: avisarNovoLead(chosen, lead_id) });
+  res.json({ ok: true, assigned_to: chosen, funil: t.funil, aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // A ADM assume a negociação: o lead passa a ser dela e sai da lista do corretor.
@@ -210,8 +211,8 @@ r.post("/assumir", roles("adm", "sdr"), (req, res) => {
   const anterior = lead.assigned_to
     ? db.prepare("SELECT name FROM users WHERE id = ?").get(lead.assigned_to)
     : null;
-  db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ?").run(req.user.id, Date.now(), lead.id);
-  res.json({ ok: true, tirado_de: anterior ? anterior.name : "fila" });
+  const t = repassar(lead.id, req.user.org_id, req.user.id, req.user.id);
+  res.json({ ok: true, tirado_de: anterior ? anterior.name : "fila", funil: t.funil });
 });
 
 // Devolve o lead: para um corretor específico, ou de volta à fila da catraca
@@ -222,14 +223,35 @@ r.post("/devolver", roles("adm", "sdr"), (req, res) => {
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
 
   if (!user_id) {
-    db.prepare("UPDATE leads SET assigned_to = NULL, assigned_at = NULL WHERE id = ?").run(lead.id);
+    repassar(lead.id, req.user.org_id, null, req.user.id);
     return res.json({ ok: true, destino: "fila" });
   }
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ? AND role IN ('corretor','sdr')").get(user_id, req.user.org_id);
   if (!u) return res.status(404).json({ error: "Atendente não encontrado" });
-  db.prepare("UPDATE leads SET assigned_to = ?, assigned_at = ? WHERE id = ?").run(u.id, Date.now(), lead.id);
-  res.json({ ok: true, destino: u.name });
+  const t = repassar(lead.id, req.user.org_id, u.id, req.user.id);
+  res.json({ ok: true, destino: u.name, funil: t.funil });
 });
+
+
+/* TODA MUDANÇA DE DONO PASSA POR AQUI.
+
+   Eram SEIS rotas nesta página fazendo o mesmo `UPDATE leads SET assigned_to`
+   cada uma por sua conta — e é exatamente a armadilha que este projeto já
+   documentou duas vezes: regra escrita na rota vale para uma e não para as
+   outras cinco, e a esquecida não dá erro nenhum. Foi assim que o repasse
+   deixou de registrar a transferência em algumas delas, e é assim que o funil
+   deixaria de seguir o novo dono em quatro dos seis caminhos.
+
+   `trocarResponsavel` (services/movimento.js) é quem grava: o dono, o
+   `assigned_at` que faz o lead subir na caixa de quem recebeu, a linha do
+   histórico de transferências e — desde 01/09/2026 — a troca de funil, quando
+   a pessoa que recebe tem um funil de entrada escolhido. */
+function repassar(leadId, orgId, paraUserId, quemMandou) {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
+  if (!lead) return { erro: "Lead não encontrado" };
+  const r = trocarResponsavel(lead, paraUserId, quemMandou);
+  return { ok: true, funil: (r && r.funil) || null };
+}
 
 /* Aviso de lead novo na mão do corretor.
 

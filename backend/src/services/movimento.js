@@ -31,7 +31,7 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { moverEtapa, camposQueFaltam } from "./etapas.js";
-import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa } from "./pipelines.js";
+import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe } from "./pipelines.js";
 import { pegarProximo, marcarQueRecebeu } from "./rodizio.js";
 
 /* Resolve o destino aceitando nome OU id.
@@ -185,7 +185,32 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao") 
       atual.assigned_to, novoUserId, quemMandou, motivo, quando);
   });
   aplicar();
-  return true;
+
+  /* O FUNIL SEGUE QUEM ESTÁ COM O LEAD — quando essa pessoa tem um funil
+     escolhido.
+
+     É a outra metade da regra de 01/09/2026. Sem ela, o lead entrava no funil
+     de pré-atendimento com a atendente e FICAVA lá depois de repassado: o
+     corretor abria o kanban dele, no comercial, e o lead que acabou de receber
+     não estava em coluna nenhuma.
+
+     Só move quando o destinatário tem `pipeline_entrada` ESCRITO. Vazio
+     significa "uso o funil padrão da casa", e mover por causa disso puxaria de
+     volta para o padrão um lead que alguém pôs de propósito num funil especial
+     — uma mudança silenciosa em quem nunca configurou nada. */
+  const funil = novoUserId ? mudarParaOFunilDe(atual, novoUserId, quemMandou) : null;
+  return { trocou: true, funil };
+}
+
+function mudarParaOFunilDe(lead, userId, quemMandou) {
+  const entrada = entradaDe(lead.org_id, userId);
+  if (!entrada.proprio) return null;                       // não escolheu funil
+  if (entrada.pipeline_id === lead.pipeline_id) return null; // já está nele
+  if (!entrada.stage_id) return null;                      // funil sem etapa ativa
+  moverEtapa({ leadId: lead.id, paraEtapaId: entrada.stage_id, motivo: "automatica", userId: quemMandou });
+  const p = db.prepare("SELECT name FROM pipelines WHERE id = ?").get(entrada.pipeline_id);
+  console.log(`[movimento] ${lead.name} foi para o funil "${p?.name}" junto com o novo responsável`);
+  return { pipeline_id: entrada.pipeline_id, pipeline: p?.name || null, etapa: entrada.nome };
 }
 
 /* Por onde o lead passou: funil, etapa e dono, em ordem. É o que a ficha mostra

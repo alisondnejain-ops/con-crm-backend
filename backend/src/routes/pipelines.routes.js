@@ -13,7 +13,7 @@
 
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired, supervisiona } from "../auth.js";
+import { authRequired, supervisiona, semMaster } from "../auth.js";
 import {
   listarPipelines, pipelinePorId, criarPipeline, editarPipeline, duplicarPipeline, apagarPipeline,
   etapasDoPipeline, etapaPorId, criarEtapa, editarEtapa, reordenarEtapas, apagarEtapa,
@@ -51,6 +51,55 @@ r.get("/", (req, res) => {
           para: t.para, etapas: t.etapas.map(e => e.name) }))
       : undefined,
   });
+});
+
+/* ESTE BLOCO PRECISA VIR ANTES DO `r.get("/:id")` LOGO ABAIXO.
+
+   O Express casa as rotas na ordem em que foram registradas, e `/:id` casa com
+   QUALQUER coisa — inclusive com a palavra "entrada". Registrado depois, este
+   endereço nunca seria alcançado: o servidor procuraria um funil chamado
+   "entrada", não acharia e devolveria 404, sem erro nenhum no log. É a mesma
+   armadilha de ordem que o `app.use` sem caminho já custou caro neste projeto.
+*//* ===== EM QUE FUNIL OS LEADS DE CADA PESSOA ENTRAM =====
+   (01/09/2026, pedido do Ali)
+
+   O lead sempre nascia no funil PADRÃO da imobiliária, fosse de quem fosse.
+   Com vários funis isso deixou de servir: o Ali criou o funil de SDR, moveu os
+   leads antigos da atendente para lá na mão, e os NOVOS continuaram caindo no
+   comercial — a entrada olhava só o funil padrão e não tinha como saber de
+   quem era o lead.
+
+   Fica em Configurações → Funis e etapas, e não na tela de Equipe, porque é
+   uma decisão sobre FUNIL: quem abre esta tela está desenhando o fluxo, e é
+   nesse momento que a pergunta "e quem entra em qual?" aparece.
+
+   Vazio é o funil padrão da casa — o comportamento de sempre. Preenchido, vale
+   nos três caminhos de entrada (WhatsApp, Meta e cadastro manual) E no
+   repasse: o lead troca de funil junto com o dono. */
+r.get("/entrada", soGestao, (req, res) => {
+  res.json({
+    pessoas: db.prepare(`SELECT u.id, u.name, u.role, u.pipeline_entrada
+      FROM users u WHERE u.org_id = ? AND u.status = 'ativo'
+        AND u.role IN ('corretor','sdr','adm')${semMaster("u")}
+      ORDER BY (u.role <> 'sdr'), u.name`).all(req.user.org_id),
+    pipelines: listarPipelines(req.user.org_id).map(p => ({ id: p.id, name: p.name, is_default: !!p.is_default })),
+  });
+});
+
+r.post("/entrada", soGestao, (req, res) => {
+  const { user_id, pipeline_id } = req.body || {};
+  const u = db.prepare(`SELECT u.id, u.name FROM users u
+    WHERE u.id = ? AND u.org_id = ? AND u.status = 'ativo'${semMaster("u")}`).get(user_id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Pessoa não encontrada nesta imobiliária." });
+
+  const escolhido = String(pipeline_id || "").trim();
+  /* Funil de OUTRA imobiliária é recusado: o id chega do navegador, e aceitá-lo
+     faria os leads dessa pessoa nascerem num funil que a equipe dela não vê. */
+  if (escolhido && !pipelinePorId(req.user.org_id, escolhido))
+    return res.status(400).json({ error: "Esse funil não é desta imobiliária." });
+
+  db.prepare("UPDATE users SET pipeline_entrada = ? WHERE id = ?").run(escolhido || null, u.id);
+  res.json({ ok: true, user_id: u.id, pipeline_entrada: escolhido || null });
 });
 
 r.get("/:id", (req, res) => {

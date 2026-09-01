@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
 import { proximoAtendente } from "../services/catraca.js";
-import { entradaPadrao } from "../services/pipelines.js";
+import { entradaDe } from "../services/pipelines.js";
 import { guardarMidiaRecebida } from "../services/midia.js";
 import { atender, pararPorGente } from "../services/robo.js";
 import { avisar } from "../services/push.js";
@@ -167,7 +167,12 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
          palavra 'Lead' escrita aqui. Com o funil configuravel, uma operacao de
          locacao chama a primeira etapa de outra coisa — e o lead cairia numa
          etapa que nao existe em coluna nenhuma do kanban. */
-      const entrada = entradaPadrao(orgId);
+      /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa.
+
+         Os leads que caem na atendente pertencem ao funil de pré-atendimento;
+         os do corretor, ao comercial. Quem tem `pipeline_entrada` vazio segue
+         no padrão, que é o que todo mundo era antes disto existir. */
+      const entrada = entradaDe(orgId, dono);
       const quando = Date.now();
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
