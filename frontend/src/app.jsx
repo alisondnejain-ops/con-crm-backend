@@ -1098,6 +1098,9 @@ function ConCRM(){
     importarEscala:(linhas)=>api("/plantoes/importar",{method:"POST",body:{linhas}}),
     subirEscala:(base64,nome,mes,previa)=>api("/plantoes/importar-arquivo",{method:"POST",body:{base64,nome,mes,previa:!!previa}}),
     marcarPresenca:(dados)=>api("/plantoes/presenca",{method:"PUT",body:dados}),
+    // Presenças e faltas do período, por pessoa, por turno e por dia. Só
+    // supervisão: o servidor recusa para o corretor, e a aba nem aparece.
+    relatorioPlantao:(params)=>api("/plantoes/relatorio?"+new URLSearchParams(params||{})),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
     mensagensRapidas:(todas)=>api("/config/mensagens"+(todas?"?todas=1":"")),
     criarMensagem:(dados)=>api("/config/mensagens",{method:"POST",body:dados}),
@@ -1231,6 +1234,148 @@ function ConCRM(){
    gestão, mas saber quem está de plantão amanhã é da operação inteira. */
 const TURNOS_ROT = { manha: "Manhã", tarde: "Tarde" };
 const DIA_SEMANA = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+
+/* ===== O RELATÓRIO DE PLANTÕES ===== (02/09/2026, pedido do Ali)
+
+   O relatório INDIVIDUAL do corretor já mostrava a presença dele. O que faltava
+   era a outra pergunta, que é da gestão: como foi a escala do mês inteiro.
+
+   TRÊS NÚMEROS SEMPRE JUNTOS: veio, faltou e não conferido. O terceiro é o que
+   sustenta os outros dois — "1 falta" num mês em que se conferiram dois turnos
+   parece um mês quase perfeito, e é a mesma armadilha da visita confirmada e do
+   lead sem temperatura.
+
+   E O APROVEITAMENTO DIVIDE PELO QUE FOI CONFERIDO. Dividir pelos turnos
+   passados transformaria o esquecimento da atendente na nota do corretor. Sem
+   conferência nenhuma ele é "—", nunca 0% — zero por cento lê-se como "não
+   apareceu nenhuma vez", que é a acusação mais grave que esta tela pode fazer,
+   e estaria sendo feita justamente onde não se sabe de nada. */
+function RelatorioPlantao({acoes,isMobile,de,ate}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{
+    let vivo=true; setD(null); setErro("");
+    acoes.relatorioPlantao({de,ate}).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};
+  },[de,ate]);
+
+  if(erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"11px 13px"}}>{erro}</div>;
+  if(!d) return <div style={{color:C.faint,fontSize:13,padding:22,display:"flex",gap:8,alignItems:"center"}}>
+    <Icon n="loader" size={15} spin/> Montando o relatório…</div>;
+
+  const pct=(v)=>v===null||v===undefined?"—":v+"%";
+  const corDoAproveitamento=(v)=>v===null?C.faint:v>=80?C.green:v>=50?C.amber:C.hot;
+
+  if(!d.totais.turnos_escalado) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
+    padding:22,color:C.faint,fontSize:13,lineHeight:1.6}}>
+    Nenhum plantão escalado neste mês. Suba a planilha da escala em <b>Mês</b> e o relatório aparece aqui.</div>;
+
+  const bloco={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:12};
+  const num={fontFamily:MONO,fontWeight:700,color:C.ink};
+
+  return <div>
+    {/* O RESUMO DO MÊS, antes da lista de nomes: a primeira pergunta é "como
+        foi o mês", e só depois "de quem é a culpa". */}
+    <div style={bloco}>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:11}}>O mês inteiro</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(5,1fr)",gap:isMobile?10:14}}>
+        {[["Turnos escalados",d.totais.turnos_escalado,C.ink],
+          ["Já aconteceram",d.totais.turnos_passados,C.sub],
+          ["Vieram",d.totais.presencas,C.green],
+          ["Faltaram",d.totais.faltas,C.hot],
+          ["Não conferidos",d.totais.nao_conferidos,C.amber]].map(([r,v,cor])=>
+          <div key={r}>
+            <div style={{...num,fontSize:isMobile?20:23,color:cor}}>{v}</div>
+            <div style={{color:C.faint,fontSize:11,marginTop:2,lineHeight:1.35}}>{r}</div>
+          </div>)}
+      </div>
+      <div style={{marginTop:13,paddingTop:12,borderTop:`1px solid ${C.line}`,display:"flex",
+        alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <span style={{color:C.faint,fontSize:11.5}}>Aproveitamento do mês</span>
+        <span style={{...num,fontSize:19,color:corDoAproveitamento(d.totais.aproveitamento)}}>{pct(d.totais.aproveitamento)}</span>
+        <span style={{color:C.faint,fontSize:11}}>
+          sobre os {d.totais.conferidos} turno(s) conferido(s)</span>
+      </div>
+      {/* A ressalva fica na tela, e não numa nota de rodapé: sem ela o gestor
+          lê "100%" num mês em que quase nada foi conferido e vai para a
+          reunião com um número que a equipe não reconhece. */}
+      {d.totais.nao_conferidos>0&&<div style={{marginTop:9,background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,
+        borderRadius:9,padding:"9px 11px",lineHeight:1.5}}>
+        <b>{d.totais.nao_conferidos} turno(s) ninguém conferiu.</b> Eles não entram na conta acima —
+        não contamos como falta o que ninguém viu. Marque em <b>Mês</b> para o número ficar completo.
+      </div>}
+    </div>
+
+    {/* POR TURNO: se a falta se concentra num deles, o problema é da escala
+        (horário ruim, plantão vazio) e não das pessoas. Somados, a diferença
+        some dentro da média e a conversa vira sobre gente. */}
+    <div style={bloco}>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:10}}>Manhã x tarde</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:10}}>
+        {d.por_turno.map(t=><div key={t.turno} style={{background:C.surface,borderRadius:11,padding:12}}>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:700,textTransform:"capitalize",marginBottom:6}}>{t.rotulo}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:7,flexWrap:"wrap"}}>
+            <span style={{...num,fontSize:18,color:corDoAproveitamento(t.aproveitamento)}}>{pct(t.aproveitamento)}</span>
+            <span style={{color:C.faint,fontSize:11}}>
+              {t.presencas} veio · {t.faltas} faltou · {t.nao_conferidos} não conferido</span>
+          </div>
+        </div>)}
+      </div>
+    </div>
+
+    {/* POR PESSOA, começando por quem mais faltou: quem abre este relatório
+        está procurando problema, e ordenar pelo melhor faria a gestão rolar a
+        lista inteira para achar o que veio ver. */}
+    <div style={bloco}>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:3}}>Por pessoa</div>
+      <div style={{color:C.faint,fontSize:11.5,marginBottom:11,lineHeight:1.5}}>
+        Quem mais faltou aparece primeiro.</div>
+      <div style={{display:"grid",gap:8}}>
+        {d.pessoas.map(p=><div key={p.user_id} style={{background:C.surface,borderRadius:11,padding:12,
+          display:"flex",alignItems:"center",gap:11,flexWrap:"wrap"}}>
+          <Avatar ini={initials(p.nome)} color={C.green} size={32}/>
+          <div style={{flex:1,minWidth:120}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:600}}>{p.nome}</div>
+            <div style={{color:C.faint,fontSize:11,marginTop:2}}>
+              {p.turnos_escalado} turno(s) escalado(s){p.turnos_escalado>p.turnos_passados
+                ?` · ${p.turnos_escalado-p.turnos_passados} ainda não aconteceram`:""}
+            </div>
+          </div>
+          {/* Os três números sempre juntos e sempre com rótulo: "1 falta"
+              sozinho não diz se o mês foi ruim ou se ninguém conferiu. */}
+          <div style={{display:"flex",gap:isMobile?10:16,alignItems:"center"}}>
+            {[["veio",p.presencas,C.green],["faltou",p.faltas,C.hot],["não conf.",p.nao_conferidos,C.amber]].map(([r,v,cor])=>
+              <div key={r} style={{textAlign:"center",minWidth:40}}>
+                <div style={{...num,fontSize:15,color:v?cor:C.faint}}>{v}</div>
+                <div style={{color:C.faint,fontSize:9.5,marginTop:1}}>{r}</div>
+              </div>)}
+            <div style={{textAlign:"center",minWidth:52,paddingLeft:isMobile?0:6,
+              borderLeft:isMobile?"none":`1px solid ${C.line}`}}>
+              <div style={{...num,fontSize:16,color:corDoAproveitamento(p.aproveitamento)}}>{pct(p.aproveitamento)}</div>
+              <div style={{color:C.faint,fontSize:9.5,marginTop:1}}>aproveit.</div>
+            </div>
+          </div>
+        </div>)}
+      </div>
+    </div>
+
+    {/* DIA A DIA no fim: é a leitura de conferência, não a de decisão — serve
+        para achar o dia em que a escala furou, depois de já saber que furou. */}
+    <div style={bloco}>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:10}}>Dia a dia</div>
+      <div style={{display:"grid",gap:5}}>
+        {d.por_dia.map(x=><div key={x.dia} style={{display:"flex",alignItems:"center",gap:10,
+          fontSize:12,padding:"6px 2px",borderBottom:`1px solid ${C.line}`}}>
+          <span style={{...num,fontSize:12,minWidth:64}}>{fmtData(x.dia)}</span>
+          <span style={{color:C.faint,fontSize:11,flex:1}}>{x.turnos_escalado} escalado(s)</span>
+          <span style={{color:x.presencas?C.green:C.faint,fontWeight:600}}>{x.presencas} veio</span>
+          <span style={{color:x.faltas?C.hot:C.faint,fontWeight:600}}>{x.faltas} faltou</span>
+          <span style={{color:x.nao_conferidos?C.amber:C.faint,fontWeight:600}}>{x.nao_conferidos} —</span>
+        </div>)}
+      </div>
+    </div>
+  </div>;
+}
 
 function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const hoje=new Date(); hoje.setHours(0,0,0,0);
@@ -1494,7 +1639,13 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       <AvisoPlantao meu={d.meu} isMobile={isMobile}/>
 
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"]].map(([k,t])=>
+        {/* "Relatório" só para quem supervisiona: as outras abas respondem
+            "quem está de plantão", que é operação e a equipe inteira precisa;
+            esta responde "quem faltou no mês", que é o nome de cada um numa
+            lista ordenada por falta. Mesma régua do ranking do score — número
+            que vira cobrança em reunião não circula pela equipe. O corretor vê
+            os números DELE no relatório individual dele. */}
+        {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"],...(podeEditar?[["relatorio","Relatório"]]:[])].map(([k,t])=>
           <button key={k} onClick={()=>setAba(k)}
             style={{fontSize:12.5,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
               background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
@@ -1632,6 +1783,21 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       </React.Fragment>}
 
       {aba==="semana"&&semana.map(ms=>linhaDoDia(ms,false))}
+
+      {/* O relatório usa o MESMO mês que a aba "Mês" está mostrando, e o
+          seletor de mês vem junto: sem ele a gestão teria que voltar para a
+          outra aba, trocar o mês e voltar — e não teria como saber que era
+          isso que precisava fazer. */}
+      {aba==="relatorio"&&<React.Fragment>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
+          <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center"}}>{nomeMesCap}</span>
+          <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
+        </div>
+        <RelatorioPlantao acoes={acoes} isMobile={isMobile} de={iso(primeiro)} ate={iso(ultimo)}/>
+      </React.Fragment>}
 
       {aba==="mes"&&<React.Fragment>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>

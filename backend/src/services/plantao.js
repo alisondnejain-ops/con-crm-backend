@@ -224,6 +224,91 @@ export function resumoPresenca(orgId, { de, ate }, agora = Date.now()) {
   return por;
 }
 
+/* ===== O RELATÓRIO DE PLANTÕES ===== (02/09/2026, pedido do Ali)
+
+   O bloco de presença já existia no relatório INDIVIDUAL de cada corretor. O
+   que faltava é a outra pergunta, que é da gestão: "como foi a escala do mês?"
+   — quem veio mais, quem faltou, e se a manhã é pior que a tarde.
+
+   ===== APROVEITAMENTO SÓ DIVIDE PELO QUE FOI CONFERIDO =====
+
+   `aproveitamento = presenças ÷ (presenças + faltas)`, e NÃO por turnos
+   passados. É a mesma regra que sustenta o resto deste arquivo: turno que
+   ninguém conferiu não é falta, é ausência de informação. Dividir pelos turnos
+   passados transformaria o esquecimento da atendente na nota do corretor — o
+   relatório inventaria faltas, e num mês de conferência fraca ele reprovaria a
+   equipe inteira por um trabalho que ela fez.
+
+   E quando NADA foi conferido o valor é `null`, nunca 0. Zero por cento lê-se
+   como "não apareceu nenhuma vez", que é a acusação mais grave que esta tela
+   pode fazer — e ela estaria sendo feita justamente onde não se sabe de nada.
+
+   ===== POR TURNO, PORQUE A PERGUNTA É OPERACIONAL =====
+
+   Manhã e tarde separados: se a falta se concentra num turno, o problema é de
+   escala (horário ruim, plantão vazio) e não de pessoa. Somados, essa diferença
+   desaparece dentro da média e a conversa vira sobre gente. */
+export function relatorio(orgId, { de, ate }, agora = Date.now()) {
+  const hoje = meiaNoite(agora);
+  const inicio = meiaNoite(de), fim = meiaNoite(ate);
+
+  const linhas = db.prepare(`
+    SELECT p.dia, p.turno, p.user_id, u.name AS nome, u.role, pr.presente
+    FROM plantoes p
+    LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN plantao_presencas pr
+      ON pr.org_id = p.org_id AND pr.dia = p.dia AND pr.turno = p.turno AND pr.user_id = p.user_id
+    WHERE p.org_id = ? AND p.dia BETWEEN ? AND ?
+    ORDER BY p.dia, p.turno`).all(orgId, inicio, fim);
+
+  const zero = () => ({ turnos_escalado: 0, turnos_passados: 0, presencas: 0, faltas: 0, nao_conferidos: 0 });
+  /* `aproveitamento` fica fora de `zero()` de propósito: ele é calculado no
+     fim, e um campo pré-zerado viraria 0% em quem não teve nada conferido —
+     exatamente o que o comentário acima diz para não fazer. */
+  const juntar = (alvo, l) => {
+    alvo.turnos_escalado++;
+    if (l.dia > hoje) return;                 // ainda não aconteceu
+    alvo.turnos_passados++;
+    if (l.presente === 1) alvo.presencas++;
+    else if (l.presente === 0) alvo.faltas++;
+    else alvo.nao_conferidos++;
+  };
+  const aproveitar = (x) => {
+    const conferidos = x.presencas + x.faltas;
+    return { ...x, conferidos, aproveitamento: conferidos ? Math.round((x.presencas / conferidos) * 100) : null };
+  };
+
+  const pessoas = new Map(), porTurno = new Map(), porDia = new Map();
+  const totais = zero();
+
+  for (const l of linhas) {
+    if (!pessoas.has(l.user_id))
+      pessoas.set(l.user_id, { user_id: l.user_id, nome: l.nome || "—", role: l.role || null, ...zero() });
+    juntar(pessoas.get(l.user_id), l);
+
+    if (!porTurno.has(l.turno)) porTurno.set(l.turno, { turno: l.turno, rotulo: ROTULO_TURNO[l.turno] || l.turno, ...zero() });
+    juntar(porTurno.get(l.turno), l);
+
+    if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, ...zero() });
+    juntar(porDia.get(l.dia), l);
+
+    juntar(totais, l);
+  }
+
+  return {
+    de: inicio, ate: fim,
+    /* Mais faltas primeiro, e não melhor aproveitamento: quem abre este
+       relatório está procurando problema. Ordenar pelo melhor faria a gestão
+       rolar a lista até o fim para achar o que veio ver. */
+    pessoas: [...pessoas.values()].map(aproveitar)
+      .sort((a, b) => b.faltas - a.faltas || b.turnos_escalado - a.turnos_escalado
+        || String(a.nome).localeCompare(String(b.nome), "pt-BR")),
+    por_turno: TURNOS.map(t => aproveitar(porTurno.get(t) || { turno: t, rotulo: ROTULO_TURNO[t], ...zero() })),
+    por_dia: [...porDia.values()].map(aproveitar).sort((a, b) => a.dia - b.dia),
+    totais: aproveitar(totais),
+  };
+}
+
 // Quem está de plantão num dia, separado por turno.
 export function doDia(orgId, dia = Date.now()) {
   const linhas = escala(orgId, { de: dia, ate: dia });

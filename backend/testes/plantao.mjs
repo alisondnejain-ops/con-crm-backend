@@ -366,5 +366,80 @@ const r29 = res.get("u_rafael");
 console.log(`   olhando de dentro do dia 10: ${r29.turnos_escalado} escalado(s), ${r29.turnos_passados} já aconteceram`);
 assert.ok(r29.turnos_escalado > r29.turnos_passados, "o futuro conta como escalado, não como pendente");
 
+console.log("\n===== O RELATÓRIO DE PLANTÕES (02/09/2026) =====");
+
+const SET = new Date(2026, 8, 1).getTime(), SET_FIM = new Date(2026, 8, 30).getTime();
+const FIM_DO_MES = new Date(2026, 8, 30).getTime();
+
+console.log("30. Sai por pessoa, por turno e por dia — e as parcelas fecham");
+const rel = P.relatorio(org, { de: SET, ate: SET_FIM }, FIM_DO_MES);
+console.log(`   ${rel.pessoas.length} pessoa(s) · turnos: ${rel.por_turno.map(t => `${t.rotulo} ${t.turnos_escalado}`).join(", ")} · ${rel.por_dia.length} dia(s)`);
+assert.ok(rel.pessoas.length >= 1);
+assert.equal(rel.totais.presencas + rel.totais.faltas + rel.totais.nao_conferidos, rel.totais.turnos_passados,
+  "as três parcelas têm que fechar com o total, igual no individual");
+/* O total tem que ser a soma das pessoas: se divergir, uma das duas contas
+   está errada e não há como saber qual olhando a tela. */
+const somaPessoas = rel.pessoas.reduce((s, p) => s + p.turnos_escalado, 0);
+assert.equal(somaPessoas, rel.totais.turnos_escalado, "o total é a soma das pessoas");
+assert.equal(rel.por_turno.reduce((s, t) => s + t.turnos_escalado, 0), rel.totais.turnos_escalado,
+  "e a soma dos turnos também");
+
+/* Uma casa montada só para estas duas contas, porque a diferença entre elas só
+   aparece com um arranjo específico: alguém com presença E com turno não
+   conferido no mesmo período. Na Conecta do teste ninguém tem isso — e um caso
+   em que as duas fórmulas dão o mesmo número não prova nada sobre qual delas
+   está sendo usada. */
+const orgConta = "org_relatorio_conta";
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)")
+  .run(orgConta, "Casa da conta", "CONTA-1", Date.now());
+for (const [id, nome] of [["u_ana", "Ana"], ["u_pedro", "Pedro"]])
+  db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+    VALUES (?,?,?,?,'x','corretor',1,?,'ativo')`).run(id, orgConta, nome, id + "@conta.com", Date.now());
+
+// Ana: veio no dia 2, faltou no 3, e o dia 4 ninguém conferiu.
+const d2 = new Date(2026, 8, 2).getTime(), d3 = new Date(2026, 8, 3).getTime(), d4 = new Date(2026, 8, 4).getTime();
+for (const d of [d2, d3, d4])
+  P.definirTurno(orgConta, { dia: d, turno: "manha", userIds: ["u_ana"], autorId: null });
+P.marcarPresenca(orgConta, { dia: d2, turno: "manha", userId: "u_ana", presente: true, agora: FIM_DO_MES });
+P.marcarPresenca(orgConta, { dia: d3, turno: "manha", userId: "u_ana", presente: false, agora: FIM_DO_MES });
+// Pedro: um turno só, e ninguém conferiu.
+P.definirTurno(orgConta, { dia: d2, turno: "tarde", userIds: ["u_pedro"], autorId: null });
+
+const relConta = P.relatorio(orgConta, { de: SET, ate: SET_FIM }, FIM_DO_MES);
+const ana = relConta.pessoas.find(p => p.user_id === "u_ana");
+const pedro = relConta.pessoas.find(p => p.user_id === "u_pedro");
+
+console.log("31. APROVEITAMENTO divide pelo que foi CONFERIDO, não pelos turnos passados");
+/* É a trava mais importante deste relatório. Dividir pelos turnos passados
+   transformaria o esquecimento da atendente na nota do corretor: num mês de
+   conferência fraca, a equipe inteira apareceria reprovada por um trabalho que
+   ela fez. */
+console.log(`   Ana: ${ana.presencas} veio / ${ana.faltas} faltou / ${ana.nao_conferidos} não conferido → ${ana.aproveitamento}%`);
+assert.equal(ana.conferidos, 2);
+assert.equal(ana.aproveitamento, 50, "1 presença em 2 conferidos = 50%");
+assert.ok(ana.nao_conferidos > 0, "e ela TEM turno não conferido — senão este teste não prova nada");
+assert.notEqual(ana.aproveitamento, Math.round((ana.presencas / ana.turnos_passados) * 100),
+  "dividindo pelos turnos passados daria 33% — as duas contas TÊM que dar diferente");
+
+console.log("32. Ninguém conferiu = aproveitamento NULO, nunca 0%");
+/* Zero por cento lê-se como "não apareceu nenhuma vez", que é a acusação mais
+   grave que esta tela pode fazer — e estaria sendo feita onde não se sabe de
+   nada. */
+console.log(`   Pedro: ${pedro.turnos_passados} turno(s) passado(s), ${pedro.conferidos} conferido(s) → aproveitamento ${pedro.aproveitamento}`);
+assert.equal(pedro.aproveitamento, null, "sem conferência nenhuma, é NULO — não é zero");
+assert.equal(pedro.nao_conferidos, 1);
+
+console.log("33. Turno que ainda não aconteceu não entra como pendente aqui também");
+const relCedo = P.relatorio(org, { de: SET, ate: SET_FIM }, new Date(2026, 8, 10).getTime());
+console.log(`   olhando de dentro do dia 10: ${relCedo.totais.turnos_escalado} escalado(s), ${relCedo.totais.turnos_passados} já aconteceram`);
+assert.ok(relCedo.totais.turnos_escalado > relCedo.totais.turnos_passados);
+
+console.log("34. A lista começa por quem MAIS faltou");
+/* Quem abre este relatório está procurando problema. Ordenar pelo melhor faria
+   a gestão rolar a lista até o fim para achar o que veio ver. */
+const faltas = rel.pessoas.map(p => p.faltas);
+console.log(`   faltas na ordem: ${faltas.join(", ")}`);
+assert.deepEqual(faltas, [...faltas].sort((a, b) => b - a), "está em ordem decrescente de falta");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

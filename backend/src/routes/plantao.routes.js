@@ -9,7 +9,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles } from "../auth.js";
-import { escala, doDia, definirTurno, limpar, importarEscala, marcarPresenca,
+import { escala, doDia, definirTurno, limpar, importarEscala, marcarPresenca, relatorio,
   meiaNoite, lerDia, TURNOS } from "../services/plantao.js";
 import { lerXlsx } from "../services/xlsx.js";
 
@@ -84,6 +84,28 @@ r.get("/hoje", (req, res) => res.json({
   ...doDia(req.user.org_id),
   meu: proximoMeu(req.user.org_id, req.user.id),
 }));
+
+/* O RELATÓRIO DE PLANTÕES. (02/09/2026, pedido do Ali)
+
+   SÓ SUPERVISÃO, e por isso não fica junto da escala, que é aberta à equipe
+   inteira. A escala responde "quem está de plantão amanhã" — informação de
+   operação, que o corretor precisa para se planejar. Este responde "quem
+   faltou no mês", que é o nome de cada um numa lista ordenada por falta. É a
+   mesma régua do ranking do score: número que vira cobrança em reunião não
+   circula pela equipe.
+
+   O corretor não fica sem: os números DELE aparecem no relatório individual
+   dele, que é onde ele pode conferir e reclamar se estiver errado. */
+r.get("/relatorio", roles("adm", "sdr"), (req, res) => {
+  const hoje = new Date();
+  const de = req.query.de ? new Date(req.query.de + "T12:00:00").getTime()
+    : new Date(hoje.getFullYear(), hoje.getMonth(), 1).getTime();
+  const ate = req.query.ate ? new Date(req.query.ate + "T12:00:00").getTime()
+    : new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getTime();
+  if (!isFinite(de) || !isFinite(ate)) return res.status(400).json({ error: "Período inválido." });
+  if (de > ate) return res.status(400).json({ error: "A data inicial é depois da final." });
+  res.json(relatorio(req.user.org_id, { de, ate }));
+});
 
 // Define quem fica num turno. Substitui a lista daquele dia+turno.
 r.put("/", roles("adm", "sdr"), (req, res) => {
