@@ -3326,11 +3326,21 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      atendente, de Relatórios e de Base de leads. Com o menu do corretor puro
      ele abriria o CRM sem nenhuma dessas telas e sem entender por quê.
 
-     E ele mantém "Disponib." e "Produção", que são do corretor e não existem
-     no menu do gestor: ele é as duas coisas, então o menu dele é a soma. */
+     E ele mantém "Produção", que é o relatório dele como corretor e não existe
+     no menu do gestor: ele é as duas coisas, então o menu dele é a soma.
+
+     "DISPONIB." NÃO ENTRA, e é uma correção de 02/09/2026 (o Ali abriu a tela
+     e disse que ela não fazia sentido — não fazia mesmo). Ela decide UMA coisa
+     só: quem entra na fila de repasse do rodízio. Na casa de uma pessoa não há
+     rodízio, e a catraca entrega o lead a ele esteja ele marcado ou não; ele
+     também ficou de fora do corte das 18h. Ou seja, o botão não mudava nada —
+     e a tela ainda AFIRMAVA três coisas que não existem ali: que "a SDR pode
+     te transferir", que há uma catraca, e que a prontidão vence às 18:00.
+     Interruptor que não liga nada é pior que interruptor nenhum, porque ensina
+     uma regra falsa sobre o próprio sistema. */
   }[podeGerir(session)?"adm":role]
     .concat(podeGerir(session)&&role==="corretor"
-      ?[["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]]
+      ?[["produtividade","trend","Produção","Minha conta"]]
       :[])
     .concat([["conta","user","Minha conta","Configurações"]])
     /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA SOME.
@@ -5574,8 +5584,12 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
           {ehPonto
             ?(avail?"Seu ponto de hoje está aberto. A gestão acompanha o registro nos relatórios."
                    :"Marque o início do seu atendimento. O registro fica no relatório de ponto.")
-            :(avail?"A SDR pode te transferir novos leads da campanha na catraca de hoje."
-                   :"Enquanto indisponível, você não entra na catraca e não recebe leads novos. Fale com a SDR e ative aqui.")}
+            /* O texto dizia "A SDR" e "a catraca de hoje", como se o repasse
+               fosse sempre manual e sempre dela. Desde 25/08/2026 a fila é um
+               rodízio numerado, e quem repassa é a atendente OU a gestão —
+               dizer só "a SDR" mandava o corretor cobrar a pessoa errada. */
+            :(avail?"Você está na fila de repasse de hoje. A atendente ou a gestão passam o próximo lead para quem está na vez."
+                   :"Fora da fila, você não recebe lead novo por repasse. Os que já são seus continuam com você.")}
         </div>
         {/* Dizer a hora do corte ANTES de ele acontecer é o que evita achar que
             o sistema desligou por conta própria. */}
@@ -5645,7 +5659,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
         <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
           {ehPonto
             ?<React.Fragment>Você atende o expediente inteiro, então aqui não é prontidão e sim <b style={{color:C.ink}}>registro de ponto</b>: a que horas começou, de onde, e a que horas encerrou. A gestão acompanha o diário, o semanal e o mensal nos relatórios.</React.Fragment>
-            :"Só recebe lead quem se prontifica no dia. A SDR confirma a sua disponibilidade e transfere os leads manualmente, um a um, apenas para quem está ativo — mantendo a fila justa."}
+            :"Só entra na fila de repasse quem se prontifica no dia. A atendente ou a gestão passam o lead para o próximo da vez, e quem não se prontificou fica de fora do rodízio — é o que mantém a fila justa."}
           {exp&&exp.fim&&<React.Fragment><br/><br/>
             {ehPonto
               ?<React.Fragment>Se você esquecer de encerrar, o sistema fecha às <b style={{color:C.ink}}>{exp.fim}</b> — e o relatório mostra que foi fechamento automático, não saída marcada por você.</React.Fragment>
