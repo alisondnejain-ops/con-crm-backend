@@ -636,8 +636,27 @@ function Auth({onLogin}){
   const [f,setF]=useState({email:"",pass:""});
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState(false);
+  /* "ESQUECI MINHA SENHA" (02/09/2026, pedido do Ali). Até aqui recuperar senha
+     era pedir ao gestor, que gerava o link em Equipe e repassava no WhatsApp —
+     o que dependia de alguém estar acordado. Com o e-mail ligado, o caminho é
+     o mesmo do resto do mercado: digita o e-mail, o link chega. */
+  const [esqueci,setEsqueci]=useState(false);
+  const [enviandoSenha,setEnviandoSenha]=useState(false);
+  const [avisoSenha,setAvisoSenha]=useState("");
   const isMobile=useIsMobile();
   const set=(k)=>(e)=>setF({...f,[k]:e.target.value});
+  async function pedirSenha(){
+    if(!f.email.trim()) return setErr("Escreva o seu e-mail para receber o link.");
+    setErr(""); setEnviandoSenha(true);
+    try{
+      const d=await api("/auth/esqueci-senha",{method:"POST",body:{email:f.email.trim()}});
+      /* A frase vem DO SERVIDOR e é sempre a mesma, exista a conta ou não —
+         qualquer diferença aqui transformaria a tela num consultor de e-mails
+         cadastrados. Por isso ela não é escrita neste arquivo. */
+      setAvisoSenha(d.mensagem||"Se existir uma conta com esse e-mail, o link acabou de ser enviado.");
+    }catch(e){ setErr(e.message); }
+    finally{ setEnviandoSenha(false); }
+  }
   async function entrar(){
     if(!f.email.trim()||!f.pass) return setErr("Preencha e-mail e senha.");
     setErr(""); setBusy(true);
@@ -740,6 +759,33 @@ function Auth({onLogin}){
           <button onClick={entrar} disabled={busy} style={{background:busy?C.faint:C.green,color:"#fff",fontSize:15,fontWeight:600,padding:"13px",borderRadius:12,border:"none",cursor:busy?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             {busy?<React.Fragment><Icon n="loader" size={16} spin/> Entrando…</React.Fragment>:<React.Fragment>Entrar <Icon n="arrow" size={16}/></React.Fragment>}
           </button>
+
+          {/* Fica ABAIXO do botão e discreto: quem lembra a senha não pode
+              tropeçar nele, e quem não lembra procura exatamente aqui. Usa o
+              e-mail que já está digitado no campo acima — pedir o endereço
+              duas vezes na mesma tela é o passo em que as pessoas desistem. */}
+          {avisoSenha
+            ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,
+                padding:"11px 13px",lineHeight:1.5}}>{avisoSenha}</div>
+            :esqueci
+            ?<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:"12px 13px"}}>
+              <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
+                Confira o e-mail no campo acima e mande o link para criar uma senha nova.
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={pedirSenha} disabled={enviandoSenha}
+                  style={{flex:1,minWidth:150,background:C.greenDeep,color:"#fff",fontSize:13,fontWeight:600,
+                    padding:"11px",borderRadius:10,border:"none",cursor:enviandoSenha?"default":"pointer"}}>
+                  {enviandoSenha?"Enviando…":"Enviar o link por e-mail"}</button>
+                <button onClick={()=>setEsqueci(false)} disabled={enviandoSenha}
+                  style={{background:"transparent",color:C.faint,fontSize:12.5,border:"none",cursor:"pointer",padding:"11px 4px"}}>
+                  Cancelar</button>
+              </div>
+            </div>
+            :<button onClick={()=>{setErr("");setEsqueci(true);}}
+              style={{background:"transparent",border:"none",color:C.greenMid,fontSize:12.5,fontWeight:600,
+                cursor:"pointer",padding:"2px 0",textAlign:"center",textDecoration:"underline"}}>
+              Esqueci minha senha</button>}
         </div>
         {/* Duas portas, e a diferença importa: o corretor SEMPRE entra pelo link
             da imobiliária dele, que já traz o código embutido. Antes este botão

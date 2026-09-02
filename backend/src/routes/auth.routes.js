@@ -4,7 +4,7 @@ import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
-import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
+import { sendMail, mailConfigured, inviteEmail, senhaEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
 import { codigoLivre } from "../services/codigo.js";
@@ -465,6 +465,95 @@ r.post("/users/:id/aprovar", authRequired, roles("adm", "sdr"), (req, res) => {
    Gerar um link novo INVALIDA o anterior — é o mesmo campo. Isso é proposital:
    se o gestor gerou dois por engano, só o último funciona. */
 const REDEFINICAO_HORAS = 24;
+
+/* ===== "ESQUECI MINHA SENHA" ===== (02/09/2026, pedido do Ali)
+
+   Até aqui a única forma de recuperar senha era pedir ao gestor, que gerava um
+   link em Equipe → Nova senha e repassava no WhatsApp. Isso funcionava porque
+   não havia e-mail configurado. Com o Resend ligado, manter o caminho manual
+   seria continuar dependendo de alguém estar acordado — e a pessoa que mais
+   precisa disso é justamente quem tenta entrar às 22h de um domingo.
+
+   ===== A RESPOSTA É SEMPRE A MESMA =====
+
+   Existindo ou não a conta, esta rota responde 200 com a mesma frase. É a
+   trava principal, e ela não é decoração: qualquer diferença — mensagem,
+   código HTTP, até o tempo de resposta — transforma a rota num CONSULTOR DE
+   E-MAILS. Quem quisesse saber quais dos seus clientes usam o ConHub bastaria
+   ir testando endereços aqui até a resposta mudar.
+
+   Pelo mesmo motivo, conta removida, recusada ou que nunca definiu senha
+   também recebe a mesma resposta — e nenhum e-mail.
+
+   ===== O FREIO É DUPLO =====
+
+   Por IP (impede a varredura) e por E-MAIL (impede usar o ConHub para encher a
+   caixa de alguém: sem ele, um laço manda mil e-mails para o mesmo endereço em
+   nome da nossa marca, e quem paga a conta do domínio queimado somos nós).
+   Em memória de propósito, igual ao freio de `/publico/comecar`: some no
+   reinício, e o objetivo é impedir a enxurrada, não guardar cadastro de
+   infrator. */
+const JANELA_SENHA = 60 * 60 * 1000;
+const TETO_IP = 10;      // uma pessoa tentando de verdade não chega perto
+const TETO_EMAIL = 3;    // três links por hora para o mesmo endereço já é muito
+const pedidosDeSenha = new Map();
+
+function podePedirSenha(chave, teto) {
+  const agora = Date.now();
+  const lista = (pedidosDeSenha.get(chave) || []).filter(t => agora - t < JANELA_SENHA);
+  if (lista.length >= teto) { pedidosDeSenha.set(chave, lista); return false; }
+  lista.push(agora);
+  pedidosDeSenha.set(chave, lista);
+  if (pedidosDeSenha.size > 5000)
+    for (const [k, ts] of pedidosDeSenha)
+      if (!ts.some(t => agora - t < JANELA_SENHA)) pedidosDeSenha.delete(k);
+  return true;
+}
+
+r.post("/esqueci-senha", async (req, res) => {
+  const email = norm(req.body?.email);
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+    || req.socket?.remoteAddress || "sem-ip";
+
+  /* A MESMA FRASE PARA TUDO — inclusive para o freio. Dizer "muitas
+     tentativas para este e-mail" já contaria que o e-mail existe. */
+  const resposta = { ok: true, mensagem:
+    "Se existir uma conta com esse e-mail, o link para criar uma senha nova acabou de ser enviado. Confira a caixa de entrada e o spam." };
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return res.status(400).json({ error: "Confira o e-mail: parece que falta alguma coisa." });
+
+  if (!podePedirSenha("ip:" + ip, TETO_IP) || !podePedirSenha("em:" + email, TETO_EMAIL))
+    return res.json(resposta);
+
+  const u = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  /* Sem senha definida a pessoa nunca ativou a conta: o caminho dela é o
+     convite, não a redefinição. Responder igual mantém a rota calada sobre em
+     que estado a conta está — e o convite original continua valendo. */
+  if (!u || u.status !== "ativo" || !u.pass_hash) {
+    console.log(`[senha] pedido de redefinição para ${email} — sem conta ativa, nada enviado`);
+    return res.json(resposta);
+  }
+
+  const token = newToken();
+  const expires = Date.now() + REDEFINICAO_HORAS * 3600000;
+  db.prepare("UPDATE users SET invite_token=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
+    .run(token, expires, u.id);
+
+  const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  if (mailConfigured()) {
+    try {
+      const { subject, html } = senhaEmail({ name: u.name, link, horas: REDEFINICAO_HORAS });
+      await sendMail({ to: u.email, subject, html });
+    } catch (e) { console.error("[senha] não consegui enviar o e-mail:", e.message); }
+  }
+  /* O link vai para o LOG e nunca para a resposta. Devolvê-lo aqui entregaria
+     a chave da conta a quem só digitou o endereço de e-mail de outra pessoa —
+     é exatamente o contrário do que esta rota existe para fazer. Na rota do
+     gestor ele volta porque lá quem pede já está logado e é o dono da casa. */
+  console.log(`[senha] link de redefinição para ${u.email}: ${link}`);
+  res.json(resposta);
+});
 
 r.post("/users/:id/redefinir-senha", authRequired, roles("adm"), async (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);

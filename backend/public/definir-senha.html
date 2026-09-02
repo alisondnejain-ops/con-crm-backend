@@ -17,8 +17,17 @@
   .card{width:100%;max-width:430px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;
         padding:34px;box-shadow:0 20px 60px rgba(0,0,0,.10)}
   .logo{display:flex;align-items:center;gap:10px;margin-bottom:26px}
-  .mark{width:42px;height:42px;border-radius:12px;background:#0E8F6E;display:flex;align-items:center;justify-content:center}
-  .mark span{width:14px;height:14px;border-radius:50%;background:#fff;display:block}
+  .logo{text-decoration:none;color:inherit}
+  .logo:hover .wordmark{opacity:.75}
+  .mark{width:42px;height:42px;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .mark svg{display:block;width:100%;height:100%}
+  /* Botao secundario: mesma altura do principal, sem competir com ele. */
+  .btn-entrar{display:block;width:100%;text-align:center;text-decoration:none;font-size:15px;font-weight:600;
+              color:#fff;background:#0E8F6E;border-radius:12px;padding:14px;margin-top:20px}
+  .btn-entrar:hover{background:#0C6B52}
+  .btn-voltar{display:block;width:100%;text-align:center;text-decoration:none;font-size:14px;font-weight:600;
+              color:#0C6B52;background:#fff;border:1px solid #BFE3D8;border-radius:12px;padding:13px;margin-top:10px}
+  .btn-voltar:hover{background:#F0FAF6}
   .wordmark{font-family:'Sora',sans-serif;font-size:20px;font-weight:700;line-height:1}
   .wordmark em{color:#0E8F6E;font-style:normal}
   .tag{font-size:10px;letter-spacing:.6px;color:#8A93A0;margin-top:2px}
@@ -56,13 +65,32 @@
 </head>
 <body>
 <div class="card">
-  <div class="logo">
-    <div class="mark"><span></span></div>
+  <!-- A LOGO LEVA DE VOLTA AO SITE. (02/09/2026, pedido do Ali)
+
+       Quem chega aqui veio de um e-mail e nao tem menu nenhum na tela: se
+       desistir no meio, ou so quiser saber que empresa e essa antes de criar
+       uma senha, a logo era o unico lugar em que ele instintivamente clicaria —
+       e ela nao levava a lugar nenhum.
+
+       Aponta para o DOMINIO e nao para "/app": hoje os dois caem na mesma
+       porta, mas quando o site ganhar o dominio proprio e o sistema for para o
+       "app.", a logo continua indo para o site e o botao de baixo continua indo
+       para o login, sem ninguem precisar lembrar de trocar. -->
+  <a class="logo" href="https://www.conhubcrm.com.br" title="Ir para o site do ConHub">
+    <div class="mark">
+      <svg width="42" height="42" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect width="128" height="128" rx="30" fill="#0E8F6E"/>
+        <path d="M88.6 48.8A30 30 0 1 0 88.6 83.2" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round"/>
+        <path d="M64 66V46" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+        <circle cx="64" cy="66" r="9" fill="#fff"/>
+        <circle cx="88.6" cy="48.8" r="7.5" fill="#E1553A"/>
+      </svg>
+    </div>
     <div>
       <div class="wordmark">Con<em>Hub</em></div>
       <div class="tag">CRM IMOBILIÁRIO</div>
     </div>
-  </div>
+  </a>
 
   <div id="loading" class="center" style="color:#8A93A0;font-size:14px;padding:30px 0">Verificando seu convite…</div>
 
@@ -81,6 +109,9 @@
       <div class="hint">Guarde bem: é com ela que você entra no CRM todo dia.</div>
     </div>
     <button id="go">Ativar meu acesso</button>
+    <!-- Saida para quem ja tem senha e clicou num link antigo do e-mail: sem
+         ela, a unica opcao e fechar a aba e procurar o endereco de novo. -->
+    <a class="btn-voltar" href="/app">Voltar para a tela de login</a>
   </div>
 
   <div id="errView" style="display:none" class="center">
@@ -92,6 +123,10 @@
     <h2>Não deu certo</h2>
     <p class="lead" id="errText"></p>
     <a class="btn" href="/cadastro">Fazer o cadastro de novo</a>
+    <!-- Link vencido e o erro mais comum aqui, e nesse caso "fazer o cadastro
+         de novo" e conselho errado: quem so esqueceu a senha precisa voltar ao
+         login e pedir outra. -->
+    <a class="btn-voltar" href="/app">Voltar para a tela de login</a>
   </div>
 
   <div id="okView" style="display:none" class="center">
@@ -102,6 +137,15 @@
     </div>
     <h2>Acesso ativado! 🎉</h2>
     <p class="lead" id="okText"></p>
+    <!-- O BOTAO MAIS IMPORTANTE DA PAGINA. (02/09/2026, pedido do Ali)
+
+         Ate aqui esta tela terminava dizendo "pronto, entre no ConHub" e
+         parava — sem nenhum caminho para entrar. A pessoa acabava de criar a
+         senha, estava no minuto exato em que ia usar o sistema pela primeira
+         vez, e a unica saida era digitar o endereco na mao ou procurar o
+         e-mail de novo. E o primeiro login de alguem e justamente onde se
+         perde quem ja tinha decidido entrar. -->
+    <a class="btn-entrar" href="/app">Ir para a tela de login</a>
   </div>
 </div>
 
