@@ -2,13 +2,15 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
-import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo } from "../auth.js";
+import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo,
+         resumoDeConvite, porConvite, encerrarSessoes } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail, senhaEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
 import { codigoLivre } from "../services/codigo.js";
 import { marcaDaOrg } from "../services/marca.js";
+import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -59,7 +61,23 @@ function linkDaEquipe(req, user) {
    O dono NÃO passa por aprovação — não há quem aprove numa imobiliária que
    acabou de nascer. Ele é marcado como fundador no convite, e é o que dá a
    ele o acesso direto lá no set-password. */
-r.post("/criar-imobiliaria", async (req, res) => {
+/* As duas portas ABERTAS de cadastro ganham freio por IP. (02/09/2026)
+
+   Nenhuma das duas tinha: `/criar-imobiliaria` é totalmente aberta e
+   `/register` só exige o código da casa, que circula no grupo da equipe. Um
+   laço de dez linhas criava imobiliárias e convites a noite inteira — e cada
+   um deles DISPARA UM E-MAIL pelo nosso Resend, o que transforma o ConHub numa
+   máquina de spam com o nosso domínio assinando. A limpeza é manual e a
+   reputação do domínio queimado não se limpa.
+
+   Em memória e generoso, como o de `/publico/comecar`: some no reinício, e a
+   ideia é impedir a enxurrada, não pegar quem errou o formulário duas vezes. */
+const TETO_CADASTRO = 10, JANELA_CADASTRO = 60 * 60 * 1000;
+const freioDeCadastro = (req, res, next) =>
+  podeTentar("cadastro:" + ipDe(req), TETO_CADASTRO, JANELA_CADASTRO) ? next()
+    : res.status(429).json({ error: "Muitos cadastros a partir deste acesso. Tente de novo daqui a pouco." });
+
+r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
   const { imobiliaria, name, email, phone } = req.body || {};
   const nomeOrg = String(imobiliaria || "").trim();
   const cleanName = String(name || "").trim();
@@ -91,8 +109,8 @@ r.post("/criar-imobiliaria", async (req, res) => {
   const gravar = db.transaction(() => {
     if (org) {
       db.prepare("UPDATE orgs SET name = ? WHERE id = ?").run(nomeOrg, org.id);
-      db.prepare(`UPDATE users SET name=?, phone=?, role='adm', invite_token=?, invite_expires=?,
-        invite_tipo='fundador' WHERE id=?`).run(cleanName, normalizePhone(phone), token, expires, existente.id);
+      db.prepare(`UPDATE users SET name=?, phone=?, role='adm', invite_hash=?, invite_expires=?,
+        invite_tipo='fundador' WHERE id=?`).run(cleanName, normalizePhone(phone), resumoDeConvite(token), expires, existente.id);
       org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id);
       return;
     }
@@ -103,12 +121,12 @@ r.post("/criar-imobiliaria", async (req, res) => {
     const userId = existente ? existente.id : "u_" + randomUUID();
     if (existente) {
       db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', status='pendente',
-        invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
-        .run(orgId, cleanName, normalizePhone(phone), token, expires, userId);
+        invite_hash=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
+        .run(orgId, cleanName, normalizePhone(phone), resumoDeConvite(token), expires, userId);
     } else {
-      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_token,invite_expires,invite_tipo)
+      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_hash,invite_expires,invite_tipo)
         VALUES (?,?,?,?,'','adm',0,?,?,'pendente',?,?,'fundador')`)
-        .run(userId, orgId, cleanName, mail, Date.now(), normalizePhone(phone), token, expires);
+        .run(userId, orgId, cleanName, mail, Date.now(), normalizePhone(phone), resumoDeConvite(token), expires);
     }
     // Dono da conta: é quem responde pela mensalidade e quem vê a cobrança.
     db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
@@ -119,7 +137,7 @@ r.post("/criar-imobiliaria", async (req, res) => {
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
   const { subject, html } = inviteEmail({ name: cleanName, link, orgName: org.name });
   const out = await sendMail({ to: mail, subject, html });
-  if (!out.sent) console.log(`[imobiliária nova] ${org.name} (${org.adm_code}) — link de senha para ${mail}: ${link}`);
+  if (!out.sent) console.log(`[imobiliária nova] ${org.name} (${org.adm_code}) — o e-mail não saiu; link de senha para ${mascararEmail(mail)}: ${link}`);
 
   res.json({
     ok: true,
@@ -135,7 +153,7 @@ r.post("/criar-imobiliaria", async (req, res) => {
 // ── Cadastro do corretor (link público) ───────────────────────────────────────
 // Cria a conta como PENDENTE e dispara o e-mail com o link para definir a senha.
 // Se o mesmo e-mail já tem convite pendente, apenas reenvia um token novo.
-r.post("/register", async (req, res) => {
+r.post("/register", freioDeCadastro, async (req, res) => {
   const { name, email, phone, adm_code, funcao } = req.body || {};
   if (!name || !email || !phone || !adm_code)
     return res.status(400).json({ error: "Preencha nome, e-mail, telefone e o código da imobiliária." });
@@ -185,19 +203,19 @@ r.post("/register", async (req, res) => {
   const cleanName = String(name).trim();
 
   if (existing) {
-    db.prepare("UPDATE users SET name=?, phone=?, role=?, invite_token=?, invite_expires=?, invite_tipo='convite' WHERE id=?")
-      .run(cleanName, normalizePhone(phone), role, token, expires, existing.id);
+    db.prepare("UPDATE users SET name=?, phone=?, role=?, invite_hash=?, invite_expires=?, invite_tipo='convite' WHERE id=?")
+      .run(cleanName, normalizePhone(phone), role, resumoDeConvite(token), expires, existing.id);
   } else {
-    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_token,invite_expires,invite_tipo)
+    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_hash,invite_expires,invite_tipo)
       VALUES (?,?,?,?,'',?,0,?,?,'pendente',?,?,'convite')`)
-      .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), normalizePhone(phone), token, expires);
+      .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), normalizePhone(phone), resumoDeConvite(token), expires);
   }
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
   const { subject, html } = inviteEmail({ name: cleanName, link, orgName: org.name });
   const out = await sendMail({ to: mail, subject, html });
 
-  if (!out.sent) console.log(`[convite] link para ${mail} (${PAPEIS[role].rotulo}): ${link}`);
+  if (!out.sent) console.log(`[convite] o e-mail não saiu; link para ${mascararEmail(mail)} (${PAPEIS[role].rotulo}): ${link}`);
   // Sem provedor de e-mail configurado, devolvemos o link para a ADM repassar na mão.
   res.json({
     ok: true, emailSent: out.sent,
@@ -209,7 +227,7 @@ r.post("/register", async (req, res) => {
 
 // Valida o token do e-mail e devolve de quem é o convite (para a página mostrar o nome).
 r.get("/invite/:token", (req, res) => {
-  const u = db.prepare("SELECT name,email,role,invite_expires,invite_tipo,status FROM users WHERE invite_token = ?").get(req.params.token);
+  const u = porConvite(req.params.token, "name,email,role,invite_expires,invite_tipo,status");
   if (!u) return res.status(404).json({ error: "Link inválido. Peça um novo cadastro." });
   const redefinicao = u.invite_tipo === "redefinicao";
   // Redefinição vale JUSTAMENTE para conta ativa — é quem esqueceu a senha.
@@ -232,7 +250,7 @@ r.post("/set-password", (req, res) => {
   if (!password || String(password).length < 6)
     return res.status(400).json({ error: "A senha precisa ter pelo menos 6 caracteres." });
 
-  const u = db.prepare("SELECT * FROM users WHERE invite_token = ?").get(token);
+  const u = porConvite(token);
   if (!u) return res.status(404).json({ error: "Link inválido." });
   const redefinicao = u.invite_tipo === "redefinicao";
   if (!redefinicao && u.status === "ativo") return res.status(409).json({ error: "Esse convite já foi usado." });
@@ -244,8 +262,9 @@ r.post("/set-password", (req, res) => {
      direto; quem estava aguardando aprovação continua aguardando — senão a
      redefinição viraria um atalho para pular o aval da gestão. */
   if (redefinicao) {
-    db.prepare("UPDATE users SET pass_hash=?, invite_token=NULL, invite_expires=NULL, invite_tipo=NULL WHERE id=?")
-      .run(bcrypt.hashSync(String(password), 10), u.id);
+    db.prepare(`UPDATE users SET pass_hash=?, invite_token=NULL, invite_hash=NULL, invite_expires=NULL,
+         invite_tipo=NULL, sessoes_desde=? WHERE id=?`)
+      .run(bcrypt.hashSync(String(password), 10), Date.now(), u.id);
     const atual = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
     if (atual.status !== "ativo")
       return res.json({ aguardandoAprovacao: true, funcao: PAPEIS[atual.role].rotulo, user: publicUser(atual) });
@@ -267,7 +286,7 @@ r.post("/set-password", (req, res) => {
      convite que não dá para aceitar nem para recusar. */
   const socio = !!u.master;
   const novoStatus = fundador || socio || !PAPEIS[u.role].precisaAprovacao ? "ativo" : "aguardando_aprovacao";
-  db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_expires=NULL WHERE id=?")
+  db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_hash=NULL, invite_expires=NULL WHERE id=?")
     .run(bcrypt.hashSync(String(password), 10), novoStatus, u.id);
 
   /* O TESTE GRÁTIS DO AUTÔNOMO COMEÇA AQUI, e não na criação da conta.
@@ -297,8 +316,56 @@ r.post("/set-password", (req, res) => {
     fundador, link_equipe: fundador ? linkDaEquipe(req, user) : undefined });
 });
 
+/* ===== O FREIO DA PORTA DE ENTRADA (02/09/2026) =====
+
+   Esta rota não tinha nenhum. Com o e-mail de um corretor — que circula no
+   grupo da equipe e está no rodapé de todo e-mail — dava para tentar senha
+   atrás de senha, sem limite, sem rastro e sem ninguém perceber. Uma senha de
+   seis dígitos cai em minutos assim.
+
+   E havia um agravante que quase ninguém enxerga de primeira: o
+   `bcrypt.compareSync` PARA o servidor enquanto calcula (uns 20 ms). Um laço
+   de tentativas não estava só adivinhando a senha — estava derrubando o CRM da
+   imobiliária inteira ao mesmo tempo. A mesma porta servia de martelo.
+
+   DUAS CHAVES, como em `/esqueci-senha`, e cada uma barra um ataque diferente:
+   por IP (uma máquina martelando uma conta) e por E-MAIL (muitas máquinas
+   martelando a mesma conta). A do e-mail é deliberadamente mais CURTA e mais
+   larga — 10 em 15 minutos —, senão ela vira a arma: bastaria errar a senha do
+   colega vinte vezes para trancá-lo fora do trabalho a manhã inteira.
+
+   O 429 DIZ QUANTOS SEGUNDOS FALTAM. "Tente mais tarde" faz a pessoa tentar
+   de novo agora, e cada tentativa renova o bloqueio dela — o freio passaria a
+   punir quem só errou a senha, que é a maioria absoluta de quem cai aqui. */
+/* OS DOIS NÚMEROS SÃO MUITO DIFERENTES, E ISSO É UMA ESCOLHA.
+
+   Por IP é o freio de trabalho: 20 em 15 minutos. Uma pessoa que esqueceu a
+   senha tenta quatro ou cinco vezes; um laço tenta vinte em dois segundos.
+
+   Por e-mail ele é MUITO mais largo (50 por hora) porque aqui existe um efeito
+   colateral que o freio apertado cria: quem souber o e-mail de um corretor —
+   e ele circula no grupo da equipe — poderia errar a senha dele dez vezes e
+   TRANCÁ-LO FORA DO TRABALHO a manhã inteira, de propósito. O remédio viraria
+   uma arma melhor que a doença.
+
+   Então a divisão de trabalho é essa: o freio de IP para a força bruta comum,
+   e o de e-mail só para o ataque distribuído (muitas máquinas contra uma conta
+   só), onde 50 tentativas por hora é lento demais para servir de alguma coisa.
+   Um usuário de verdade nunca chega perto disso; e ao acertar a senha, as duas
+   contagens zeram. */
+const TETO_LOGIN_IP = 20, JANELA_LOGIN = 15 * 60 * 1000;
+const TETO_LOGIN_EMAIL = 50, JANELA_LOGIN_EMAIL = 60 * 60 * 1000;
+
 r.post("/login", (req, res) => {
   const { email, password } = req.body || {};
+  const chaveIp = "login-ip:" + ipDe(req);
+  const chaveEmail = "login-em:" + norm(email);
+  if (!podeTentar(chaveIp, TETO_LOGIN_IP, JANELA_LOGIN) ||
+      !podeTentar(chaveEmail, TETO_LOGIN_EMAIL, JANELA_LOGIN_EMAIL)) {
+    const s = Math.max(faltamSegundos(chaveIp), faltamSegundos(chaveEmail));
+    return res.status(429).json({ error: `Muitas tentativas de entrada. Tente de novo em ${Math.ceil(s / 60)} minuto(s).` });
+  }
+
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(norm(email));
   if (!user) return res.status(401).json({ error: "E-mail ou senha incorretos." });
   // Convite ainda não confirmado: sem senha definida, a mensagem precisa apontar o caminho certo.
@@ -315,6 +382,10 @@ r.post("/login", (req, res) => {
     };
     return res.status(403).json({ error: motivos[user.status] || "Sua conta não está ativa. Fale com a gestão da sua imobiliária." });
   }
+  /* Acertou: a contagem zera. Sem isto, quem erra quatro vezes, acerta na
+     quinta e volta do almoço encontra a conta bloqueada por um erro que já
+     tinha sido resolvido — o freio atrapalharia justamente quem ele protege. */
+  zerarTentativas(chaveIp, chaveEmail);
   res.json({ token: sign(user), user: publicUser(user), org: orgDoUsuario(user) });
 });
 
@@ -352,7 +423,7 @@ r.patch("/me", authRequired, (req, res) => {
   const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);
   // O nome viaja dentro do token e é ele que assina as mensagens no WhatsApp —
   // então trocar o nome exige um token novo, senão as mensagens sairiam com o antigo.
-  res.json({ token: sign(atualizado), user: publicUser(atualizado) });
+  res.json({ token: sign(atualizado, { orgId: req.user.org_id }), user: publicUser(atualizado) });
 });
 
 /* Recolher ou abrir a barra lateral. `POST /auth/me/barra`
@@ -379,8 +450,23 @@ r.post("/me/senha", authRequired, (req, res) => {
   if (bcrypt.compareSync(String(nova), eu.pass_hash))
     return res.status(400).json({ error: "A nova senha é igual à atual." });
 
-  db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(bcrypt.hashSync(String(nova), 10), eu.id);
-  res.json({ ok: true });
+  /* TROCAR A SENHA DERRUBA OS OUTROS APARELHOS. (02/09/2026)
+
+     Antes não derrubava nada: o crachá dura 30 dias e continuava valendo com a
+     senha antiga. Ou seja, quem troca a senha porque desconfia que alguém a
+     descobriu continuava com o intruso lá dentro — e o gesto universal de "me
+     tira daqui" não fazia absolutamente nada contra ele.
+
+     E o token DESTA sessão é reemitido na resposta: quem trocou a senha não
+     pode ser deslogado pelo próprio ato de trocá-la. */
+  const trocar = db.transaction(() => {
+    db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(bcrypt.hashSync(String(nova), 10), eu.id);
+    encerrarSessoes(eu.id);
+  });
+  trocar();
+  const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);
+  res.json({ ok: true, token: sign(atualizado, { orgId: req.user.org_id }),
+    aviso: "Sua senha foi alterada. Os outros aparelhos onde você estava conectado precisam entrar de novo." });
 });
 
 r.post("/me/foto", authRequired, async (req, res) => {
@@ -531,20 +617,22 @@ r.post("/esqueci-senha", async (req, res) => {
      convite, não a redefinição. Responder igual mantém a rota calada sobre em
      que estado a conta está — e o convite original continua valendo. */
   if (!u || u.status !== "ativo" || !u.pass_hash) {
-    console.log(`[senha] pedido de redefinição para ${email} — sem conta ativa, nada enviado`);
+    console.log(`[senha] pedido de redefinição para ${mascararEmail(email)} — sem conta ativa, nada enviado`);
     return res.json(resposta);
   }
 
   const token = newToken();
   const expires = Date.now() + REDEFINICAO_HORAS * 3600000;
-  db.prepare("UPDATE users SET invite_token=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
-    .run(token, expires, u.id);
+  db.prepare("UPDATE users SET invite_hash=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
+    .run(resumoDeConvite(token), expires, u.id);
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
+  let saiu = false;
   if (mailConfigured()) {
     try {
       const { subject, html } = senhaEmail({ name: u.name, link, horas: REDEFINICAO_HORAS });
       const out = await sendMail({ to: u.email, subject, html });
+      saiu = !!out.sent;
       /* A resposta ao visitante continua a mesma sempre — mas o LOG tem que
          gritar. Sem isto, "o e-mail não chegou" e "o provedor recusou" ficam
          indistinguíveis, e o motivo só existiria dentro do sendMail. O que
@@ -558,7 +646,20 @@ r.post("/esqueci-senha", async (req, res) => {
      a chave da conta a quem só digitou o endereço de e-mail de outra pessoa —
      é exatamente o contrário do que esta rota existe para fazer. Na rota do
      gestor ele volta porque lá quem pede já está logado e é o dono da casa. */
-  console.log(`[senha] link de redefinição para ${u.email}: ${link}`);
+  /* O LINK INTEIRO SÓ VAI PARA O LOG SE O E-MAIL NÃO SAIU. (02/09/2026)
+
+     Ele estava sendo escrito SEMPRE, em texto puro. O log do Railway não é
+     privado — fica retido, quem tem o painel lê tudo, e um dia alguém liga um
+     coletor de terceiros. Era uma lista de links prontos para trocar a senha
+     de contas ativas, num lugar onde ninguém pensaria em procurar.
+
+     Mas apagá-lo de vez tiraria o modo de emergência documentado: sem provedor
+     de e-mail, o log é o único caminho para a pessoa receber o link. Então a
+     régua passa a ser a mesma do convite e do cadastro da imobiliária: SAIU o
+     e-mail, o log só registra que saiu; NÃO saiu, o link aparece — porque aí
+     ele é a única forma de a pessoa voltar a entrar. */
+  if (saiu) console.log(`[senha] link de redefinição enviado por e-mail para ${mascararEmail(u.email)} — ${semSegredo(link)}`);
+  else console.log(`[senha] o e-mail NÃO saiu; link de redefinição para ${mascararEmail(u.email)}: ${link}`);
   res.json(resposta);
 });
 
@@ -572,8 +673,8 @@ r.post("/users/:id/redefinir-senha", authRequired, roles("adm"), async (req, res
 
   const token = newToken();
   const expires = Date.now() + REDEFINICAO_HORAS * 3600000;
-  db.prepare("UPDATE users SET invite_token=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
-    .run(token, expires, u.id);
+  db.prepare("UPDATE users SET invite_hash=?, invite_expires=?, invite_tipo='redefinicao' WHERE id=?")
+    .run(resumoDeConvite(token), expires, u.id);
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
   /* Manda por e-mail SE estiver configurado, e devolve o link de qualquer
@@ -587,7 +688,7 @@ r.post("/users/:id/redefinir-senha", authRequired, roles("adm"), async (req, res
       enviado = !!out.sent;
     } catch (e) { console.error("[senha] não consegui enviar o e-mail:", e.message); }
   }
-  console.log(`[senha] link de nova senha para ${u.email}: ${link}`);
+  console.log(`[senha] link de nova senha gerado para ${mascararEmail(u.email)} — ${semSegredo(link)}`);
   res.json({ ok: true, nome: u.name, email: u.email, link, email_enviado: enviado, horas: REDEFINICAO_HORAS });
 });
 
@@ -597,6 +698,7 @@ r.post("/users/:id/recusar", authRequired, roles("adm", "sdr"), (req, res) => {
   const impedimento = podeMexer(req.user, u);
   if (impedimento) return res.status(403).json({ error: impedimento });
   db.prepare("UPDATE users SET status = 'recusado', available = 0 WHERE id = ?").run(u.id);
+  encerrarSessoes(u.id);   // quem definiu a senha ja recebeu um cracha; ele morre aqui
   res.json({ ok: true, nome: u.name });
 });
 
@@ -616,6 +718,11 @@ r.post("/users/:id/funcao", authRequired, roles("adm", "sdr"), (req, res) => {
   // Gestor não entra na catraca; ao virar gestor, sai da fila de distribuição.
   db.prepare("UPDATE users SET role = ?, available = CASE WHEN ? = 'adm' THEN 0 ELSE available END WHERE id = ?")
     .run(novo, novo, u.id);
+  /* Rebaixar tem que valer AGORA. `authRequired` ja rele o papel do banco a
+     cada chamada, entao o poder cai no mesmo instante; encerrar a sessao junto
+     evita o resto — a tela dela continuaria montada com os botoes do papel
+     antigo ate ela recarregar, oferecendo acoes que o servidor vai recusar. */
+  encerrarSessoes(u.id);
   res.json({ ok: true, nome: u.name, funcao: PAPEIS[novo].rotulo });
 });
 
@@ -697,8 +804,18 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
   db.prepare("UPDATE leads SET assigned_to=? WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')")
     .run(destino ? destino.id : null, u.id);
   db.prepare("UPDATE users SET status='removido', available=0 WHERE id=?").run(u.id);
+  /* E O ACESSO CAI NA HORA. (02/09/2026)
 
-  res.json({ ok: true, nome: u.name, leads_movidos: abertos, destino: destino ? destino.name : "fila da catraca" });
+     Sem esta linha, "Remover da equipe" mudava uma palavra no banco e mais
+     nada: o cracha dura 30 dias e `authRequired` so conferia a assinatura,
+     entao a pessoa demitida continuava entrando, lendo as conversas dos
+     clientes e mandando mensagem pelo WhatsApp da imobiliaria por ate um mes.
+     O gestor clicava no botao, via o nome sumir da tela e ia dormir tranquilo.
+     E o pior caso deste sistema: quem sai brigado sai com a base na mao. */
+  encerrarSessoes(u.id);
+
+  res.json({ ok: true, nome: u.name, leads_movidos: abertos, destino: destino ? destino.name : "fila da catraca",
+    aviso_acesso: "O acesso dela ao CRM foi encerrado imediatamente, em todos os aparelhos." });
 });
 
 function publicUser(u) {

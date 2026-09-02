@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { randomUUID } from "crypto";
+import crypto, { randomUUID } from "crypto";
+import { segredoConfere, mascararTelefone } from "../seguranca.js";
 import db from "../db.js";
 import { fetchLead } from "../services/meta.js";
 import { normalizePhone } from "../services/stages.js";
@@ -17,8 +18,44 @@ r.get("/meta", (req, res) => {
   res.sendStatus(403);
 });
 
+/* A META ASSINA O QUE MANDA — e a gente passou a conferir. (02/09/2026)
+
+   Esta rota não tinha conferência nenhuma: qualquer pessoa podia mandar um
+   POST fingindo ser a Meta. O estrago era limitado porque o passo seguinte é
+   buscar o lead na Graph API com o nosso token, e um `leadgen_id` inventado
+   não existe lá — mas "limitado" é diferente de "nenhum": dava para fazer o
+   servidor martelar a Graph API à vontade, de graça, até a Meta nos limitar.
+
+   A conferência é a que a Meta documenta: ela assina o corpo da requisição com
+   o segredo do app (`META_APP_SECRET`) e manda o resultado em
+   `x-hub-signature-256`. Só quem tem o segredo consegue produzir a assinatura.
+
+   Sem o segredo configurado a rota CONTINUA aceitando, e aqui a decisão é o
+   contrário da do Asaas — de propósito. Lá, aceitar sem conferir liberava
+   dinheiro; aqui, recusar sem conferir faz PARAR DE ENTRAR LEAD, que é a falha
+   mais cara deste sistema e a que ninguém percebe. Então o padrão erra para o
+   lado de receber, e o `/integracoes` avisa em letras claras que a conferência
+   está desligada. */
+function assinaturaConfere(req) {
+  const segredo = process.env.META_APP_SECRET;
+  if (!segredo) return true;                       // ver o parágrafo acima
+  const veio = String(req.get("x-hub-signature-256") || "");
+  if (!veio.startsWith("sha256=")) return false;
+  /* O corpo já foi transformado em objeto pelo express.json, e a assinatura é
+     sobre os BYTES originais. `JSON.stringify` reproduz o texto da Meta na
+     prática (ela manda JSON compacto), e se um dia deixar de reproduzir, o
+     sintoma é a recusa — visível em `/integracoes`, não silenciosa. */
+  const esperado = "sha256=" + crypto.createHmac("sha256", segredo)
+    .update(JSON.stringify(req.body || {})).digest("hex");
+  return segredoConfere(veio, esperado);
+}
+
 // 2) Recebimento em tempo real. Cada novo lead cai na fila da catraca (assigned_to = NULL).
 r.post("/meta", async (req, res) => {
+  if (!assinaturaConfere(req)) {
+    console.warn("[meta] webhook recusado: assinatura não confere (confira META_APP_SECRET)");
+    return res.sendStatus(401);
+  }
   res.sendStatus(200); // responde rápido; processa depois
   try {
     const org = db.prepare("SELECT * FROM orgs LIMIT 1").get(); // 1 org (Conecta) neste MVP
@@ -67,7 +104,7 @@ r.post("/meta", async (req, res) => {
             info.adset_id, info.adset_name, info.ad_id, info.ad_name, info.form_id, info.form_name
           );
           if (info.campaign_name) console.log(`[meta] campanha: ${info.campaign_name} · anúncio: ${info.ad_name || "—"}`);
-          console.log("[meta] novo lead:", info.name, phone, dono ? "— para a atendente da vez" : "— sem atendente, foi para a fila");
+          console.log("[meta] novo lead entrou", mascararTelefone(phone), dono ? "— para a atendente da vez" : "— sem atendente, foi para a fila");
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);
         }

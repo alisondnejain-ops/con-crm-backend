@@ -221,16 +221,47 @@ export function canalDoWhatsapp({ token, numero }) {
     if (org) return garantirCasa(org.id);
   }
 
-  if (numero) {
+  /* ===== O RECONHECIMENTO PELO NÚMERO SAIU DO PADRÃO (02/09/2026) =====
+
+     Este era o furo mais sério da auditoria, e o mais fácil de explorar.
+
+     Quando o token não batia, o webhook aceitava identificar a imobiliária
+     pelos ÚLTIMOS OITO DÍGITOS do WhatsApp dela. Só que o WhatsApp de uma
+     imobiliária é **informação pública** — está no site, no anúncio, na
+     fachada. Ou seja, qualquer pessoa da internet podia mandar um POST para
+     `/webhooks/uazapi` dizendo `{ owner: "8799991234", message: {...} }` e:
+
+       - criar leads falsos na conta daquela imobiliária;
+       - ESCREVER na conversa de um cliente real, se soubesse o telefone dele
+         (e o histórico do CRM é o registro do atendimento, é o que sustenta a
+         cobrança em reunião);
+       - e, com o atendimento automático ligado, fazer a IA da imobiliária
+         MANDAR UMA MENSAGEM DE WHATSAPP para um número escolhido pelo
+         atacante, assinada com o nome dela.
+
+     Pior: um token ERRADO caía aqui também. A conferência do token acontecia
+     antes, mas não recusava — ela só "não achava", e a execução seguia para o
+     número. Uma trava que não recusa não é uma trava.
+
+     Agora o token é o único caminho, e ele é um segredo de verdade (é a
+     credencial da instância na Uazapi). O reconhecimento pelo número continua
+     existindo como SAÍDA DE EMERGÊNCIA, atrás de `UAZAPI_ACEITAR_POR_NUMERO=1`,
+     porque a falha que este projeto mais teme é "parou de entrar lead" — se
+     algum dia a Uazapi mandar um payload sem token, dá para religar em trinta
+     segundos no painel da hospedagem, sem publicar nada.
+
+     E a recusa NÃO é silenciosa: ela aparece em `/integracoes/webhooks` com o
+     que fazer escrito. É a diferença entre "o lead sumiu" e "o lead foi
+     recusado, e o motivo está na tela". */
+  if (numero && process.env.UAZAPI_ACEITAR_POR_NUMERO === "1") {
     const so = String(numero).replace(/\D/g, "");
     if (so.length >= 8) {
       const por = db.prepare(`SELECT * FROM canais WHERE ativo = 1 AND token IS NOT NULL
         AND REPLACE(REPLACE(REPLACE(REPLACE(wa_number,'+',''),'-',''),' ',''),'(','') LIKE ?`).get(`%${so.slice(-8)}%`);
-      if (por) return por;
-      // Mesma rede de segurança, pelo número que a imobiliária cadastrou.
+      if (por) { console.warn("[canais] linha reconhecida pelo NÚMERO (modo de emergência ligado) — o token não bateu"); return por; }
       const org = db.prepare(`SELECT id FROM orgs WHERE
         REPLACE(REPLACE(REPLACE(REPLACE(wa_number,'+',''),'-',''),' ',''),'(','') LIKE ?`).get(`%${so.slice(-8)}%`);
-      if (org) return garantirCasa(org.id);
+      if (org) { console.warn("[canais] imobiliária reconhecida pelo NÚMERO (modo de emergência ligado)"); return garantirCasa(org.id); }
     }
   }
   return null;

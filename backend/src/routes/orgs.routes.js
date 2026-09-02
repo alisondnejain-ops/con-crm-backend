@@ -14,7 +14,7 @@
 import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
-import { authRequired, soMaster, sign, semMaster } from "../auth.js";
+import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSessoes } from "../auth.js";
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao } from "../services/assinatura.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
@@ -153,12 +153,12 @@ r.post("/masters", async (req, res) => {
      qualquer jeito; o `org_id` existe porque toda conta precisa de uma casa, e
      `semMaster` já o mantém fora da lista de equipe dessa imobiliária. */
   if (jaExiste) {
-    db.prepare("UPDATE users SET name=?, invite_token=?, invite_expires=?, invite_tipo='convite', status='pendente' WHERE id=?")
-      .run(nome, token, expira, jaExiste.id);
+    db.prepare("UPDATE users SET name=?, invite_hash=?, invite_expires=?, invite_tipo='convite', status='pendente' WHERE id=?")
+      .run(nome, resumoDeConvite(token), expira, jaExiste.id);
   } else {
-    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,master,invite_token,invite_expires,invite_tipo)
+    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,master,invite_hash,invite_expires,invite_tipo)
       VALUES (?,?,?,?,'','adm',0,?,'pendente',1,?,?,'convite')`)
-      .run("u_" + randomUUID(), req.user.org_id, nome, email, Date.now(), token, expira);
+      .run("u_" + randomUUID(), req.user.org_id, nome, email, Date.now(), resumoDeConvite(token), expira);
   }
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
@@ -199,6 +199,11 @@ r.delete("/masters/:id", (req, res) => {
   if (quantos <= 1 && alvo.status === "ativo")
     return res.status(409).json({ error: "É o único sócio ativo. Convide outro antes de tirar este." });
   db.prepare("UPDATE users SET master = 0, status = 'removido', available = 0 WHERE id = ?").run(alvo.id);
+  /* E o cracha dele morre agora. Este e o caso mais grave dos tres: o cracha
+     de um master abre TODAS as imobiliarias da plataforma, e durava 30 dias.
+     Tirar o acesso de socio sem derrubar a sessao era escrever "removido" no
+     banco enquanto a pessoa continuava com a plataforma inteira aberta. */
+  encerrarSessoes(alvo.id);
   console.log(`[master] ${req.user.name} tirou o acesso de sócio de ${alvo.name} — a conta foi desativada`);
   res.json({ ok: true, nome: alvo.name });
 });
@@ -254,12 +259,12 @@ r.post("/autonomos", async (req, res) => {
        resolvido em `auth.js` → `roles`/`ehDonoAutonomo`. */
     if (jaExiste) {
       db.prepare(`UPDATE users SET org_id=?, name=?, role='corretor', available=1, status='pendente',
-        invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
-        .run(orgId, nome, token, expira, userId);
+        invite_hash=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
+        .run(orgId, nome, resumoDeConvite(token), expira, userId);
     } else {
-      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,invite_token,invite_expires,invite_tipo)
+      db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,invite_hash,invite_expires,invite_tipo)
         VALUES (?,?,?,?,'','corretor',1,?,'pendente',?,?,'fundador')`)
-        .run(userId, orgId, nome, email, Date.now(), token, expira);
+        .run(userId, orgId, nome, email, Date.now(), resumoDeConvite(token), expira);
     }
     // Dono da conta: é quem responde pela mensalidade e vê a cobrança.
     db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);

@@ -198,7 +198,28 @@ export async function salvar({ buffer, mime, prefixo = "produtos" }) {
   // Aceita tanto os tipos do catálogo quanto os recebidos na conversa. Quem
   // decide o que pode entrar é o chamador; aqui só resolvemos a extensão.
   const ext = EXTENSOES_RECEBIDAS[mime] || "";
-  const chave = `${prefixo}/${Date.now()}-${randomUUID().slice(0, 8)}${ext}`;
+  /* O NOME DO ARQUIVO É A ÚNICA FECHADURA QUE ELE TEM. (02/09/2026)
+
+     Era `Date.now()-<8 caracteres>`. Oito caracteres hexadecimais são 32 bits,
+     e o resto do nome é o RELÓGIO — quem sabe mais ou menos quando uma foto
+     foi enviada reduz a busca a algumas horas de milissegundos vezes 4 bilhões.
+     É pouco para chutar de primeira e é MUITO pouco para o que está guardado
+     ali: em `conversas/` moram os arquivos que o CLIENTE mandou no WhatsApp —
+     print de simulação da Caixa (renda, CPF), foto de documento, áudio com a
+     voz da pessoa. Nada disso pede senha para abrir, porque o R2 é público e o
+     `/arquivos` é servido estático (e precisa ser: é assim que o WhatsApp
+     busca a mídia que o corretor envia).
+
+     Enquanto a lista de endereços não vazar, um nome curto parece seguro — e é
+     exatamente esse "enquanto" que não é uma garantia. O UUID inteiro custa
+     nada e leva a adivinhação de "difícil" para "impossível": 122 bits de
+     aleatório de verdade.
+
+     Vale só para arquivo NOVO. Os antigos continuam com o nome curto — trocar
+     exigiria mover tudo e reescrever cada endereço já gravado em `messages`,
+     com risco de perder mídia de conversa antiga. Está na lista do que ficou
+     pendente, com o porquê. */
+  const chave = `${prefixo}/${Date.now()}-${randomUUID().replace(/-/g, "")}${ext}`;
 
   if (usandoR2()) {
     try {

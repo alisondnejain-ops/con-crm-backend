@@ -67,7 +67,16 @@ const pedir = (email, ip) => fetch(url("/auth/esqueci-senha"), {
   method: "POST",
   headers: { "Content-Type": "application/json", "x-forwarded-for": ip || `10.0.1.${++n}` },
   body: JSON.stringify({ email }) });
-const tokenDe = (email) => db.prepare("SELECT invite_token, invite_tipo, invite_expires FROM users WHERE email = ?").get(email);
+/* Desde 02/09/2026 o banco guarda a IMPRESSAO DIGITAL do token, nunca o token
+   — ver `resumoDeConvite` em auth.js. Em claro, a copia de seguranca diaria
+   (que vai para um armazenamento de terceiros) era uma lista de links prontos
+   para trocar a senha de qualquer conta pendente.
+
+   Consequencia para este teste: nao da mais para "descobrir" o link olhando a
+   tabela. O caso 11 passa a pega-lo de onde uma pessoa de verdade o pega — o
+   log do servidor, que e o modo manual documentado quando nao ha provedor de
+   e-mail configurado. E melhor assim: testa o caminho que existe. */
+const tokenDe = (email) => db.prepare("SELECT invite_hash, invite_token, invite_tipo, invite_expires FROM users WHERE email = ?").get(email);
 
 console.log("===== O CAMINHO FELIZ =====");
 
@@ -77,8 +86,9 @@ let d = await r.json();
 console.log(`   ${r.status} · "${d.mensagem.slice(0, 60)}…"`);
 assert.equal(r.status, 200);
 const t1 = tokenDe("marina@teste.com");
-console.log(`   token: ${t1.invite_token ? "gerado" : "NÃO"} · tipo: ${t1.invite_tipo}`);
-assert.ok(t1.invite_token, "sem token não há como criar senha nova");
+console.log(`   token: ${t1.invite_hash ? "gerado" : "NÃO"} · tipo: ${t1.invite_tipo}`);
+assert.ok(t1.invite_hash, "sem token não há como criar senha nova");
+assert.equal(t1.invite_token, null, "e o token em claro NÃO pode ficar guardado");
 assert.equal(t1.invite_tipo, "redefinicao", "é redefinição, não convite — a conta já existe e continua ativa");
 
 console.log("2. E o token vale 24 horas, não 7 dias");
@@ -96,7 +106,7 @@ console.log("3. O LINK NÃO VOLTA na resposta");
    rota do gestor ele volta, porque lá quem pede está logado e é o dono da
    casa. */
 console.log(`   campos da resposta: ${Object.keys(d).join(", ")}`);
-assert.ok(!JSON.stringify(d).includes(t1.invite_token), "o token NÃO pode aparecer na resposta");
+assert.ok(!JSON.stringify(d).includes(t1.invite_hash), "nem o resumo dele pode aparecer na resposta");
 assert.ok(!d.link, "nem o link");
 
 console.log("\n===== O QUE ELA NÃO CONTA =====");
@@ -113,18 +123,18 @@ assert.deepEqual(dNinguem, d, "a resposta tem que ser byte a byte a mesma");
 console.log("5. Conta REMOVIDA também — e não gera token");
 r = await pedir("removido@teste.com");
 assert.deepEqual(await r.json(), d);
-console.log(`   token gerado? ${tokenDe("removido@teste.com").invite_token ? "SIM ✘" : "não ✔"}`);
-assert.equal(tokenDe("removido@teste.com").invite_token, null);
+console.log(`   token gerado? ${tokenDe("removido@teste.com").invite_hash ? "SIM ✘" : "não ✔"}`);
+assert.equal(tokenDe("removido@teste.com").invite_hash, null);
 
 console.log("6. Quem NUNCA definiu senha também — o caminho dela é o convite");
 /* Gerar uma "redefinição" aqui derrubaria o convite original que a pessoa
    ainda tem na caixa de entrada, trocando um link válido por outro sem que
    ninguém tivesse pedido. */
-const antes = tokenDe("nunca@teste.com").invite_token;
+const antes = tokenDe("nunca@teste.com").invite_hash;
 r = await pedir("nunca@teste.com");
 assert.deepEqual(await r.json(), d);
-console.log(`   convite preservado: ${tokenDe("nunca@teste.com").invite_token === antes}`);
-assert.equal(tokenDe("nunca@teste.com").invite_token, antes);
+console.log(`   convite preservado: ${tokenDe("nunca@teste.com").invite_hash === antes}`);
+assert.equal(tokenDe("nunca@teste.com").invite_hash, antes);
 
 console.log("7. E-mail sem formato de e-mail é recusado com frase de gente");
 /* Este é o único 400 da rota, e ele não conta nada sobre contas: "abc" não é
@@ -139,17 +149,17 @@ console.log("8. Três pedidos por E-MAIL por hora; o quarto não manda mais nada
 /* Sem isto, um laço usa o ConHub para encher a caixa de entrada de alguém em
    nome da nossa marca — e quem paga com a reputação do domínio somos nós. */
 const alvo = "marina@teste.com";
-db.prepare("UPDATE users SET invite_token = NULL WHERE email = ?").run(alvo);
+db.prepare("UPDATE users SET invite_hash = NULL WHERE email = ?").run(alvo);
 const respostas = [];
 for (let i = 0; i < 4; i++) {
   const resp = await pedir(alvo, `10.9.9.${i}`);   // IPs diferentes: o freio testado é o do e-mail
   respostas.push(resp.status);
-  if (i === 2) db.prepare("UPDATE users SET invite_token = NULL WHERE email = ?").run(alvo);
+  if (i === 2) db.prepare("UPDATE users SET invite_hash = NULL WHERE email = ?").run(alvo);
 }
 console.log(`   respostas: ${respostas.join(", ")} (todas 200, como tem que ser)`);
 assert.deepEqual(respostas, [200, 200, 200, 200], "o freio NÃO pode aparecer no código HTTP");
-console.log(`   quarto pedido gerou token? ${tokenDe(alvo).invite_token ? "SIM ✘" : "não ✔"}`);
-assert.equal(tokenDe(alvo).invite_token, null, "passado o teto, nada é gerado nem enviado");
+console.log(`   quarto pedido gerou token? ${tokenDe(alvo).invite_hash ? "SIM ✘" : "não ✔"}`);
+assert.equal(tokenDe(alvo).invite_hash, null, "passado o teto, nada é gerado nem enviado");
 
 console.log("9. E o freio responde a MESMA frase — senão ele mesmo entrega o e-mail");
 r = await pedir(alvo, "10.9.9.9");
@@ -169,14 +179,22 @@ console.log("11. O token de redefinição CRIA a senha nova e some depois de usa
    medindo a trava anterior em vez do fluxo de criar senha. */
 criar("Rafael", "rafael@teste.com", "ativo");
 await pedir("rafael@teste.com", "10.5.5.5");
-const bom = tokenDe("rafael@teste.com").invite_token;
-assert.ok(bom, "sem token não há o que testar");
+// O servidor imprime o link inteiro SÓ quando o e-mail não sai — e aqui não há
+// Resend configurado, que é o modo manual documentado. É de lá que ele vem.
+await new Promise(x => setTimeout(x, 120));
+/* O e-mail sai MASCARADO no log (r***l@teste.com), então não dá para casar
+   pelo nome — e é assim que tem que ser. Pego o ÚLTIMO link impresso, que é o
+   do pedido que acabou de acontecer. */
+const links = [...saida.matchAll(/definir-senha\?token=([a-f0-9]+)/g)].map(m => m[1]);
+const bom = links[links.length - 1];
+assert.ok(bom, "sem token não há o que testar (o link deveria estar no log)");
+assert.ok(tokenDe("rafael@teste.com").invite_hash, "e o banco guarda só o resumo dele");
 r = await fetch(url("/auth/set-password"), { method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ token: bom, password: "senhanova9" }) });
 console.log(`   set-password: ${r.status}`);
 assert.equal(r.status, 200);
-console.log(`   token queimado: ${tokenDe("rafael@teste.com").invite_token === null}`);
-assert.equal(tokenDe("rafael@teste.com").invite_token, null, "link usado não pode servir duas vezes");
+console.log(`   token queimado: ${tokenDe("rafael@teste.com").invite_hash === null}`);
+assert.equal(tokenDe("rafael@teste.com").invite_hash, null, "link usado não pode servir duas vezes");
 
 r = await fetch(url("/auth/login"), { method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ email: "rafael@teste.com", password: "senhanova9" }) });

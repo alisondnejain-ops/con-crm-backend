@@ -1,6 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
+import { segredoConfere } from "../seguranca.js";
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
@@ -17,8 +18,35 @@ const r = Router();
    A autenticação é o token que o Asaas manda no cabeçalho, configurado por
    você lá no painel. Sem conferir isso, qualquer um poderia chamar esta rota
    dizendo que a mensalidade foi paga. */
+/* ===== A TRAVA ERA "SE HOUVER TOKEN" — E AGORA É "SÓ COM TOKEN" (02/09/2026)
+
+   Estava escrito `if (TOKEN_WEBHOOK && ...)`. Leia devagar: quando a variável
+   `ASAAS_WEBHOOK_TOKEN` NÃO estava configurada, a condição inteira era falsa e
+   a conferência era PULADA. Ou seja, a proteção existia exatamente enquanto
+   alguém tivesse se lembrado de ligá-la, e sumia em silêncio quando não.
+
+   O que isso permitia: qualquer pessoa da internet mandar um POST dizendo
+   "pagamento recebido" e ganhar mês de mensalidade — na própria conta ou na
+   de qualquer cliente. Um CRM pago, liberado por uma requisição sem senha.
+
+   Trava que falha ABERTA é o pior tipo, porque nada quebra: o sistema continua
+   funcionando, ninguém procura o problema, e a única evidência é a receita que
+   não entra. Agora ela falha FECHADA — sem token configurado, o webhook recusa
+   e explica o que fazer. O custo de errar para o lado seguro é o pagamento
+   demorar a aparecer no CRM, que o "Verificar de novo" da tela já resolve.
+
+   E a comparação é `segredoConfere`, que compara o texto inteiro sempre: `!==`
+   para no primeiro caractere diferente, e o tempo que ele leva conta quantos
+   caracteres iniciais estavam certos — para quem pode tentar à vontade e
+   medir, isso é uma pista de verdade. */
 r.post("/webhooks/asaas", (req, res) => {
-  if (TOKEN_WEBHOOK && req.get("asaas-access-token") !== TOKEN_WEBHOOK) {
+  if (!TOKEN_WEBHOOK) {
+    console.warn("[asaas] webhook RECUSADO: a variável ASAAS_WEBHOOK_TOKEN não está configurada no servidor. " +
+      "Sem ela, qualquer pessoa poderia avisar 'pagamento recebido' e liberar uma conta. " +
+      "Crie a variável no painel da hospedagem com o mesmo valor que está no painel do Asaas.");
+    return res.sendStatus(503);
+  }
+  if (!segredoConfere(req.get("asaas-access-token"), TOKEN_WEBHOOK)) {
     console.warn("[asaas] webhook recusado: token não confere");
     return res.sendStatus(401);
   }

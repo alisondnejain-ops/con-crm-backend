@@ -386,6 +386,59 @@ O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde ca
 
 Testes: `npm run teste:pipelines` (55 casos).
 
+## Segurança e LGPD — a auditoria de 02/09/2026
+
+Pedido do Ali: *"encontre vulnerabilidades do sistema, e espaços que facilitem o acesso a informação interna de outras contas, e corrija todos, criptografe tudo e aumente a segurança seguindo a LGPD"*. O que segue é o que foi encontrado, o que foi corrigido e o que **continua aberto de propósito**.
+
+**A regra que liga todas elas:** nenhuma dessas falhas dava erro. O CRM subia, a tela abria, os leads entravam — e a porta estava destrancada. É a mesma família de defeito que este arquivo já documentou três vezes (o `app.use` sem caminho, a busca do corretor, o robô mudo), e é por isso que agora existe `npm run teste:seguranca`: **23 casos que sobem o servidor inteiro** e conferem cada trava de fora, porque trava conferida por dentro do serviço não prova nada sobre a rota.
+
+### As três que deixavam entrar ou escrever na conta alheia
+
+**1. `JWT_SECRET` caía num valor escrito no código** (`auth.js`). Era `process.env.JWT_SECRET || "dev-secret"`. O `||` parece cuidado e era a pior linha do sistema: sem a variável, o segredo que assina os crachás virava uma palavra pública, e **qualquer pessoa fabricava um crachá de master** e lia todas as imobiliárias. Agora **o servidor se recusa a subir** em produção sem ela, com o passo a passo no log. Servidor que não sobe é um problema de dez minutos; servidor que sobe destrancado é um problema que ninguém descobre.
+
+**2. O webhook do WhatsApp aceitava o NÚMERO como identificação** (`canalDoWhatsapp`). O número de uma imobiliária é **público** — site, anúncio, fachada. Com ele, qualquer um mandava um POST e criava lead falso, escrevia na conversa de um cliente real e, com o atendimento automático ligado, **fazia a IA da casa mandar WhatsApp para um número escolhido por ele**. E um token ERRADO caía no mesmo caminho: a conferência não recusava, só "não achava". Agora o token é o único caminho; o número vira saída de emergência atrás de `UAZAPI_ACEITAR_POR_NUMERO=1`, porque a falha que este sistema mais teme é "parou de entrar lead" e religar tem que custar trinta segundos, não uma publicação. A recusa **diz qual das duas coisas faltou** — token que não bate e token ausente pedem remédios opostos.
+
+**3. O webhook do Asaas falhava ABERTO.** `if (TOKEN_WEBHOOK && ...)`: sem a variável, a conferência era pulada e qualquer pessoa avisava "pagamento recebido" em qualquer conta. Agora falha **fechado** (503) e explica. O custo de errar para o lado seguro é o pagamento demorar a aparecer, que o "Verificar de novo" já resolve.
+
+### O crachá durava 30 dias e não tinha como derrubar
+
+`authRequired` só conferia a assinatura. Consequências, todas reais numa imobiliária: **corretor demitido continuava entrando por um mês** (o gestor clicava em "Remover", a pessoa sumia da tela e nada acontecia de fato); gestor rebaixado mantinha o poder; e **trocar a senha não derrubava ninguém** — o gesto universal de "me tira daqui" não fazia nada contra o intruso.
+
+Agora o crachá é conferido contra o BANCO a cada chamada (um `SELECT` por id em SQLite dentro do processo — microssegundos): status, papel fresco e o carimbo `users.sessoes_desde`. **A comparação é exata, não "emitido antes de"**: a primeira versão comparava com o `iat` do JWT, que tem precisão de SEGUNDO, e o crachá emitido no mesmo segundo da troca sobrevivia — o teste 3 pegou isso na primeira execução, que num teste é o caso normal e na vida real é o caso raro, o pior tipo de defeito para uma trava. O carimbo viaja no crachá (`sd`); ausente vale zero, então **publicar não desloga a equipe**. E o front trata o 401: volta para o login **com o motivo escrito**, senão a pessoa concluiria que o CRM quebrou.
+
+### O que a internet podia saber e o que ficava no log
+
+- **`/integracoes` era público e contava tudo**: nome do cliente, quantas imobiliárias existem, quantos usuários, leads e mensagens, e o registro de tentativas de e-mail. Continua **abrindo sem login** — é o primeiro passo de "parou de chegar lead", e exigir login ali seria pedir o CRM justamente quando a dúvida é se o servidor está de pé —, mas os números e os nomes agora são só do master. Ganhou um bloco **`seguranca`** que responde "esqueci alguma variável?" em português.
+- **O link de redefinição de senha ia para o log SEMPRE**, em texto puro. O log do Railway não é privado: era uma lista de contas prontas para serem tomadas, num lugar onde ninguém procuraria. Agora vale a régua do convite: **saiu o e-mail, o log só registra que saiu; não saiu, o link aparece** — porque aí ele é a única forma de a pessoa voltar a entrar.
+- **Telefone e nome de cliente saíam no log** a cada lead. Dado pessoal fora do banco, sem prazo e fora de qualquer pedido de exclusão. Passou a `5587****01`: dá para achar a linha no banco, não dá para discar.
+- **O token do link de senha era guardado em claro** (`users.invite_token`). Agora vai como **impressão digital** (`invite_hash`, sha-256) — resumo e não criptografia, porque segredo que o servidor consegue reverter é segredo que quem tem o banco também reverte. O campo antigo ainda é lido, para os links que já estão em caixas de entrada, e é apagado no primeiro uso.
+
+### O resto
+
+Sem freio nenhum em `/auth/login` — e como o `bcrypt.compareSync` PARA o servidor, o mesmo laço que adivinhava a senha derrubava o CRM junto: a porta servia de martelo. Agora **20 tentativas por IP em 15 min** e **50 por e-mail em 1 hora**, e a diferença é uma escolha: o freio por e-mail apertado viraria uma arma melhor que a doença (bastaria errar dez vezes a senha do colega para trancá-lo fora do trabalho a manhã inteira). A resposta **diz quantos minutos faltam** — "tente mais tarde" faz a pessoa tentar agora e renovar o próprio bloqueio. Junto: freio nas duas portas abertas de cadastro (cada uma dispara um e-mail nosso, e um laço transformaria o ConHub numa máquina de spam com o nosso domínio assinando).
+
+Mais: **CORS deixou de ser `*`** (hoje a tela vem deste servidor — mesma origem não precisa de permissão); **o corpo de 30 MB ficou só onde sobe foto**, e o resto caiu para 1 MB (30 MB nas rotas abertas é o jeito mais barato de derrubar um CRM); **cabeçalhos de segurança** em toda resposta, escritos à mão em vez de instalar o `helmet` — cada dependência nova é mais uma coisa que pode quebrar o `npm install` numa hospedagem que o Ali administra sozinho; **`/arquivos` marca `nosniff` e `attachment`** (guarda arquivo que veio de fora, e "documento" com HTML dentro abriria como página no endereço do CRM, onde consegue ler o crachá de quem estiver logado); **o nome dos arquivos ganhou o UUID inteiro** — eram 8 caracteres mais o relógio, e ali moram os prints de simulação com renda e CPF; **`/push/cancelar` confere de quem é a inscrição** (qualquer pessoa logada desligava o aviso de lead de um corretor, e ele só descobriria nos leads que deixou esfriar); e o webhook da Meta confere a assinatura quando `META_APP_SECRET` existe — aqui o padrão erra para o lado de RECEBER, ao contrário do Asaas, porque lá aceitar sem conferir libera dinheiro e aqui recusar sem conferir para de entrar lead.
+
+### O que foi criptografado, e o que não foi
+
+`services/cofre.js`, AES-256-GCM com `CRYPTO_KEY` (64 hex), **separada do `JWT_SECRET` de propósito**: aquele pode e deve ser trocado quando houver suspeita — trocá-lo só derruba as sessões; se a mesma chave abrisse os dados, trocá-la destruiria o banco. Chave que não se pode trocar é chave que nunca vai ser trocada.
+
+**A cópia de segurança diária passou a subir fechada.** É a criptografia que mais vale a pena aqui e a razão é o destino: a cópia SAI do nosso servidor para um armazenamento de terceiros, e é o CRM inteiro de todos os clientes num arquivo só. Compacta antes de fechar (texto cifrado não comprime). GCM porque **autentica além de cifrar**: um byte trocado faz a abertura falhar em vez de devolver lixo — num backup, é a diferença entre "está corrompido" e "restauramos um banco embaralhado sem ninguém perceber". Sem a chave o backup **continua acontecendo, em claro**, e o `/integracoes` diz isso em vermelho: o primeiro risco da lista é não ter cópia nenhuma, e proteção que se desliga em silêncio é pior que não existir.
+
+**O que NÃO foi criptografado, e é decisão consciente: os tokens de WhatsApp na tabela `canais`.** O ganho seria real mas secundário (protege contra quem já tem o arquivo do banco — e a exposição principal disso era justamente a cópia sem criptografia, que acabou de ser fechada), e o risco é o maior de todos: a busca do webhook é `WHERE token = ?`, e cifra aleatorizada exige uma coluna de índice determinística, migração de todas as linhas e um caminho de volta. Fazer isso no mesmo deploy de treze outras mudanças de segurança, no CRM que a operação usa, é como se derruba o WhatsApp de uma imobiliária inteira. Fica para uma mudança isolada, com teste próprio. `cofre.abrir()` já devolve valor em claro como veio — a migração está pronta para acontecer sem janela de indisponibilidade.
+
+### LGPD: os direitos do titular
+
+O "titular" é o **cliente da imobiliária**, não o corretor. A lei dá a ele duas coisas que o CRM não tinha como atender (`services/lgpd.js`, `GET /leads/:id/lgpd`, `POST /leads/:id/lgpd/anonimizar`, cartão recolhido no fim da ficha, **só do gestor**):
+
+**Acesso** (art. 18) — um arquivo com tudo: cadastro, conversas, ligações, observações, simulações, histórico de etapas e **as leituras que a IA fez sobre ele** (art. 20: esconder análise automatizada num pedido de acesso é o que a lei não permite).
+
+**Eliminação** — e aqui **anonimizar, não apagar** (art. 12). São duas obrigações que puxam para lados opostos e as duas são reais: o titular tem direito de sumir, e a imobiliária precisa do registro do atendimento. Apagar a linha faria o relatório de agosto mudar em setembro, e a comissão de uma pessoa depender do pedido de outra. Então sai tudo que aponta para a PESSOA (nome, telefone, e-mail, o texto das conversas, arquivos, observações, simulações) e fica o ESQUELETO (datas, etapas, quem atendeu, **quantas** mensagens houve — que é o tempo de resposta do relatório). Irreversível, com confirmação escrita nos dois lados: na tela e no servidor.
+
+**O que continua sendo decisão da imobiliária, e está escrito no `DEPLOY.md`:** prazo de guarda (hoje nada some sozinho), aviso de privacidade no anúncio da Meta, e o fato de as conversas passarem pela Uazapi — um fornecedor terceiro, fora do WhatsApp oficial.
+
+Testes: `npm run teste:seguranca` (23 casos, com o servidor de pé). É o segundo da suíte, logo depois do `teste:webhook`, pela mesma razão: se a porta está destrancada, nada mais importa.
+
 ## Identidade visual
 
 Verde-esmeralda (`#0E8F6E`), verde profundo (`#0A3D30`), base clara, coral (`#E1553A`) para urgência. Fontes: Sora (títulos), Inter (texto), IBM Plex Mono (números). Elemento-assinatura: cronômetro de espera que "esquenta" (verde→âmbar→vermelho) conforme o lead aguarda. Se o usuário mandar logo/cores oficiais da Conecta, aplicar.

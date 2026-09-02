@@ -52,9 +52,42 @@ uaz.salvarCredenciais(place,{host:"https://place.uazapi.com",token:"token-da-pla
 assert.equal(uaz.orgDoWhatsapp({token:"token-da-place"}),place);
 assert.equal(uaz.orgDoWhatsapp({token:"token-de-ninguem"}),null,"token desconhecido não pode cair em ninguém");
 
-console.log("6. Com o número (owner) em vez do token, também acha");
+console.log("6. Só o NÚMERO não abre mais a porta — e o modo de emergência abre");
+/* MUDOU EM 02/09/2026, na auditoria de segurança, e é a correção mais séria
+   dela. Este caso testava que a mensagem entrava quando reconhecida pelo
+   NÚMERO da imobiliária. O problema: o número de uma imobiliária é PÚBLICO —
+   está no site, no anúncio, na fachada. Quem soubesse o número podia mandar um
+   POST para /webhooks/uazapi e criar lead falso, escrever na conversa de um
+   cliente real e, com o atendimento automático ligado, fazer a IA da casa
+   mandar WhatsApp para um número escolhido por ele.
+
+   O token é a credencial de verdade (é o segredo da instância na Uazapi) e
+   passou a ser o único caminho. O reconhecimento pelo número continua como
+   SAÍDA DE EMERGÊNCIA atrás de UAZAPI_ACEITAR_POR_NUMERO=1, porque a falha que
+   este sistema mais teme é "parou de entrar lead" — e religar tem que custar
+   trinta segundos no painel da hospedagem, não uma publicação.
+
+   Os dois lados são testados de propósito: sem o par, uma versão que ignorasse
+   a variável passaria em metade do teste e ninguém saberia qual metade. */
 db.prepare("UPDATE orgs SET wa_number = ? WHERE id = ?").run("5587996546848",conecta);
-assert.equal(uaz.orgDoWhatsapp({numero:"5587996546848@s.whatsapp.net"}),conecta);
+delete process.env.UAZAPI_ACEITAR_POR_NUMERO;
+console.log("   só com o número, no padrão:",uaz.orgDoWhatsapp({numero:"5587996546848@s.whatsapp.net"}));
+assert.equal(uaz.orgDoWhatsapp({numero:"5587996546848@s.whatsapp.net"}),null,
+  "o número da imobiliária é público — sozinho ele não pode identificar a casa");
+
+process.env.UAZAPI_ACEITAR_POR_NUMERO="1";
+assert.equal(uaz.orgDoWhatsapp({numero:"5587996546848@s.whatsapp.net"}),conecta,
+  "com o modo de emergência ligado, o caminho antigo volta");
+delete process.env.UAZAPI_ACEITAR_POR_NUMERO;
+
+console.log("6b. E o token continua sendo o caminho normal");
+assert.equal(uaz.orgDoWhatsapp({token:"token-da-conecta"}),conecta);
+/* Token ERRADO acompanhado do número certo também não entra. Era o furo
+   dentro do furo: a conferência do token não RECUSAVA, ela só "não achava", e
+   a execução seguia para o número logo abaixo. Trava que não recusa não é
+   trava. */
+assert.equal(uaz.orgDoWhatsapp({token:"token-inventado",numero:"5587996546848@s.whatsapp.net"}),null,
+  "token errado não pode ser salvo pelo número");
 
 console.log("7. Cliente com o mesmo telefone nas duas casas não mistura conversa");
 const lead=(o,nome)=>{const id="l_"+randomUUID();

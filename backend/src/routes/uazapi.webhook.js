@@ -9,6 +9,7 @@ import { atender, pararPorGente } from "../services/robo.js";
 import { avisar } from "../services/push.js";
 import { advanceStage } from "./messages.routes.js";
 import { canalDoWhatsapp } from "../services/canais.js";
+import { mascararTelefone } from "../seguranca.js";
 
 const r = Router();
 
@@ -98,10 +99,27 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       token: p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token,
       numero: p.owner || p.instance?.owner || p.instanceOwner || p.me || "",
     });
-    if (!canal) return lembrar({ em: Date.now(), evento,
-      resultado: "ignorado: não identifiquei de qual linha de WhatsApp é esta mensagem",
-      dica: "Conecte a instância em Configurações → Conexão (linha da imobiliária) ou em Minha conta → Meu WhatsApp (linha do corretor).",
-      campos: Object.keys(p) });
+    if (!canal) {
+      /* A RECUSA PRECISA DIZER QUAL DAS DUAS COISAS FALTOU. (02/09/2026)
+
+         Desde que o reconhecimento pelo número saiu do padrão (ver
+         `canalDoWhatsapp`), existem dois motivos diferentes para cair aqui, e
+         eles pedem remédios opostos: "a instância não está conectada" se
+         resolve conectando; "o payload veio sem token" se resolve ligando o
+         modo de emergência ou acertando a configuração da Uazapi. Uma frase só
+         para os dois mandaria metade das pessoas consertar o que não está
+         quebrado — que é exatamente o erro que este projeto já cometeu com o
+         403 do R2. */
+      const tinhaToken = !!(p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token);
+      return lembrar({ em: Date.now(), evento,
+        resultado: tinhaToken
+          ? "RECUSADO: veio um token, mas ele não corresponde a nenhuma linha conectada"
+          : "RECUSADO: a mensagem chegou SEM o token da instância",
+        dica: tinhaToken
+          ? "Confira o token em Configurações → Conexão (linha da imobiliária) ou em Minha conta → Meu WhatsApp (linha do corretor). Ele precisa ser o mesmo da instância na Uazapi."
+          : "O reconhecimento pelo NÚMERO foi desligado por segurança: o número da imobiliária é público, e qualquer pessoa poderia mandar mensagem falsa para o CRM sabendo ele. Se a sua Uazapi realmente não manda o token, crie a variável UAZAPI_ACEITAR_POR_NUMERO=1 no painel da hospedagem para religar o caminho antigo — e avise o ConHub.",
+        campos: Object.keys(p) });
+    }
     const orgId = canal.org_id;
     const ehPessoal = canal.tipo === "corretor";
 
@@ -181,7 +199,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
              entrada.pipeline_id, entrada.stage_id, quando, quando,
              ehPessoal ? canal.id : null, dono ? quando : null);
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
-      console.log(`[uazapi] lead NOVO pelo WhatsApp: ${lead.name} (${phone}) — ${
+      console.log(`[uazapi] lead NOVO pelo WhatsApp (${mascararTelefone(phone)}) — ${
         ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
         dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
     }

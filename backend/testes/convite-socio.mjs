@@ -96,7 +96,13 @@ const convidada = db.prepare("SELECT * FROM users WHERE email = ?").get("socia@c
 console.log(`   ${convidada.name} · master=${convidada.master} · status=${convidada.status}`);
 assert.equal(convidada.master, 1);
 assert.equal(convidada.status, "pendente", "ainda não é conta: é convite");
-assert.ok(convidada.invite_token, "com token de uso único");
+/* A coluna guarda a IMPRESSAO DIGITAL do token (sha-256), nao o token — ver
+   `resumoDeConvite` em auth.js. Em claro, uma copia do banco era uma lista de
+   links prontos para tomar contas pendentes, e a copia diaria vai para um
+   armazenamento de terceiros. */
+assert.ok(convidada.invite_hash, "com token de uso único (guardado como resumo)");
+assert.equal(convidada.invite_token, null, "o token em claro NAO pode ficar no banco");
+assert.notEqual(convidada.invite_hash, token, "o que esta gravado nao pode ser o proprio token do link");
 
 console.log("4. E-mail de quem JÁ é da equipe é recusado, não promovido");
 /* O pior desfecho possível seria digitar o e-mail da Marina e transformar a

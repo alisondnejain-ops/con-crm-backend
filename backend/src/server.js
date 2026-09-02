@@ -30,6 +30,8 @@ import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
 import { authRequired } from "./auth.js";
+import { cabecalhosDeSeguranca } from "./seguranca.js";
+import { cofreLigado } from "./services/cofre.js";
 import { porteiro } from "./services/assinatura.js";
 import { agendarCorte } from "./services/expediente.js";
 import { backupSePassouDaHora } from "./services/backup.js";
@@ -37,9 +39,49 @@ import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
-// 30mb porque as fotos e vídeos dos imóveis sobem em base64 no corpo da requisição.
-app.use(express.json({ limit: "30mb" }));
+
+/* Atrás do Railway/Cloudflare o endereço de quem chamou vem no cabeçalho
+   `x-forwarded-for`, e o `req.ip` é o do proxy — igual para todo mundo. Sem
+   isto, os freios por IP (login, esqueci-senha, cadastro pelo site) veriam UM
+   IP só e bloqueariam a internet inteira junto na primeira tentativa errada. */
+app.set("trust proxy", 1);
+app.use(cabecalhosDeSeguranca);
+
+/* CORS: por padrão, SÓ A PRÓPRIA ORIGEM. (02/09/2026)
+
+   Estava `origin: "*"` — qualquer site do mundo podia chamar esta API do
+   navegador de quem o visitasse. O estrago era limitado porque o crachá vai
+   num cabeçalho e não num cookie (o site de terceiro não consegue lê-lo), mas
+   "limitado" não é "nenhum", e `*` também abre as rotas públicas de escrita
+   para automação a partir de qualquer página.
+
+   Hoje a tela é servida por ESTE servidor (`/app`), então mesma origem: não há
+   CORS nenhum a permitir. `FRONTEND_ORIGIN` continua existindo para o dia em
+   que o CRM voltar a ser hospedado à parte, e aceita uma lista separada por
+   vírgula — `https://www.conhubcrm.com.br,https://app.conhubcrm.com.br` — que
+   é justamente o que a separação de domínios planejada vai precisar. */
+const ORIGENS = String(process.env.FRONTEND_ORIGIN || "").split(",").map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: ORIGENS.length ? ORIGENS : false,
+  credentials: false,
+}));
+
+/* O CORPO GRANDE VALE SÓ ONDE ELE É NECESSÁRIO. (02/09/2026)
+
+   Era `express.json({ limit: "30mb" })` para o sistema inteiro — inclusive
+   para as rotas que a internet chama sem login: o login, o cadastro pelo site
+   e os dois webhooks. Ou seja, qualquer pessoa podia mandar 30 MB de JSON
+   repetidas vezes e fazer o servidor gastar memória e CPU só para analisar o
+   que ia jogar fora. É o jeito mais barato de derrubar um CRM.
+
+   Os 30 MB continuam onde eles existem por um motivo real — foto e vídeo de
+   imóvel sobem em base64 no corpo —, e o resto passa a caber em 1 MB, que é
+   muito para uma mensagem de WhatsApp e pouco para servir de ataque. */
+const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs"];
+const jsonGrande = express.json({ limit: "30mb" });
+const jsonNormal = express.json({ limit: "1mb" });
+app.use((req, res, next) =>
+  (CORPO_GRANDE.some(p => req.path.startsWith(p)) ? jsonGrande : jsonNormal)(req, res, next));
 
 // Três vezes hoje a gente perdeu tempo sem saber se o servidor já estava
 // rodando o código novo ou ainda o antigo. A lista de recursos responde isso
@@ -251,7 +293,18 @@ app.use("/painel", cobrando, painelRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.
-app.use("/arquivos", express.static(pastaLocal(), { maxAge: "7d" }));
+/* O `nosniff` e o `Content-Disposition` aqui não são zelo repetido: esta pasta
+   guarda arquivo que veio de FORA (o cliente manda no WhatsApp, o corretor
+   sobe do celular). Sem eles, um "documento" com HTML dentro abriria como
+   página no MESMO endereço do CRM — e uma página que roda no endereço do CRM
+   consegue ler o crachá de quem estiver logado. `attachment` faz o navegador
+   baixar em vez de abrir, que é o comportamento certo para arquivo alheio. */
+app.use("/arquivos", (req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (!/\.(jpe?g|png|gif|webp|mp4|webm|ogg|mp3|m4a|wav)$/i.test(req.path))
+    res.setHeader("Content-Disposition", "attachment");
+  next();
+}, express.static(pastaLocal(), { maxAge: "7d" }));
 // Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
 // Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages

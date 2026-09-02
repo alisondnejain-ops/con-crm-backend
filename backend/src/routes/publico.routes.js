@@ -40,6 +40,7 @@ import { codigoLivre } from "../services/codigo.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
 import { planosDe, planoDaFamilia } from "../services/planos.js";
+import { resumoDeConvite } from "../auth.js";
 
 const r = Router();
 
@@ -201,12 +202,12 @@ r.post("/publico/comecar", async (req, res) => {
     const prontidao = tipo === "autonomo" ? 1 : 0;
     if (jaExiste) {
       db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role=?, available=?, status='pendente',
-        invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
-        .run(orgId, nome, telefone, papel, prontidao, token, expira, userId);
+        invite_hash=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
+        .run(orgId, nome, telefone, papel, prontidao, resumoDeConvite(token), expira, userId);
     } else {
-      db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status,invite_token,invite_expires,invite_tipo)
+      db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status,invite_hash,invite_expires,invite_tipo)
         VALUES (?,?,?,?,?,'',?,?,?,'pendente',?,?,'fundador')`)
-        .run(userId, orgId, nome, email, telefone, papel, prontidao, agora, token, expira);
+        .run(userId, orgId, nome, email, telefone, papel, prontidao, agora, resumoDeConvite(token), expira);
     }
     db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
   });

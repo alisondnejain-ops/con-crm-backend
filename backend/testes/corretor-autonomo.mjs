@@ -157,6 +157,12 @@ r = await publico("/auth/register", { name: "Ana Atendente", email: "ana@correto
   phone: "87999990000", adm_code: codigo, funcao: "atendente" });
 console.log(`   primeiro atendente: ${r.status}`);
 assert.equal(r.status, 200);
+/* O link vem na RESPOSTA porque nao ha provedor de e-mail configurado — que e
+   o modo manual documentado. Ele precisa ser guardado aqui: desde 02/09/2026 o
+   banco so tem a impressao digital do token, entao nao da mais para "descobrir"
+   o link olhando a tabela. E melhor assim, inclusive como teste: este e o
+   caminho que uma pessoa de verdade percorre. */
+const linkDaAna = (await r.json()).link;
 
 console.log("10. O segundo é recusado, com a razão escrita");
 r = await publico("/auth/register", { name: "Outra", email: "outra@corretor.com",
@@ -195,8 +201,7 @@ assert.ok(d.orgs.some(o => o.nome === "Imobiliária Grande"));
 
 console.log("14. Só o master cria e libera conta de autônomo");
 const tAna = await (async () => {
-  const u = db.prepare("SELECT invite_token FROM users WHERE email='ana@corretor.com'").get();
-  await publico("/auth/set-password", { token: u.invite_token, password: "senhaana1" });
+  await publico("/auth/set-password", { token: linkDaAna.split("token=")[1], password: "senhaana1" });
   db.prepare("UPDATE users SET status='ativo' WHERE email='ana@corretor.com'").run();
   return entrar("ana@corretor.com", "senhaana1");
 })();

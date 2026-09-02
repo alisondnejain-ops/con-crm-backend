@@ -44,6 +44,7 @@ import path from "path";
 import os from "os";
 import Database from "better-sqlite3";
 import { usandoR2, enviarAoR2, listarNoR2, apagarNoR2 } from "./storage.js";
+import { fecharArquivo, cofreLigado } from "./cofre.js";
 
 const PREFIXO = "backups/";
 // Hora do dia (0-23) em que a cópia roda. Madrugada: é quando ninguém atende.
@@ -96,8 +97,25 @@ export async function rodarBackup({ motivo = "automatico" } = {}) {
     const cru = await readFile(temporario);
     const zip = gzipSync(cru, { level: 6 });
 
-    const chave = `${PREFIXO}concrm-${diaDe(comecou)}.db.gz`;
-    await enviarAoR2(chave, zip, "application/gzip");
+    /* 3b. CRIPTOGRAFA. (02/09/2026, pedido do Ali)
+
+       Esta é a criptografia que mais vale a pena no sistema inteiro, e a razão
+       é o destino: a cópia SAI do nosso servidor e vai dormir num
+       armazenamento de terceiros. Ela é o CRM inteiro de todos os clientes num
+       arquivo só — leads, telefones, conversas, tokens de WhatsApp. Quem
+       puser a mão nela tem tudo, de todo mundo, de uma vez; e ninguém do lado
+       de cá fica sabendo que isso aconteceu.
+
+       Compacta ANTES de fechar: texto cifrado é indistinguível de aleatório e
+       não comprime nada. Na ordem inversa a cópia ficaria do tamanho do banco.
+
+       Sem `CRYPTO_KEY` o backup continua acontecendo, em claro — porque o
+       primeiro risco desta lista é não ter cópia nenhuma —, e o `/integracoes`
+       diz, com todas as letras, que ele está sem criptografia. Proteção que se
+       desliga em silêncio é pior do que não existir. */
+    const fechada = fecharArquivo(zip);
+    const chave = `${PREFIXO}concrm-${diaDe(comecou)}.db.gz` + (fechada.criptografado ? ".enc" : "");
+    await enviarAoR2(chave, fechada.buffer, fechada.criptografado ? "application/octet-stream" : "application/gzip");
 
     // 4. Joga fora as mais antigas. Falhar aqui não invalida a cópia que acabou
     //    de subir — é limpeza, não é o backup.
@@ -108,7 +126,8 @@ export async function rodarBackup({ motivo = "automatico" } = {}) {
     const estado = {
       ...lerEstado(),
       ultimo_dia: diaDe(comecou), ultimo_em: comecou, ultimo_motivo: motivo,
-      ultimo_erro: null, chave, bytes: zip.length, bytes_banco: cru.length,
+      ultimo_erro: null, chave, bytes: fechada.buffer.length, bytes_banco: cru.length,
+      criptografada: fechada.criptografado,
       leads: conferido.leads, mensagens: conferido.mensagens,
       duracao_ms: Date.now() - comecou,
     };

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
+import { mascararTelefone } from "../seguranca.js";
+import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa } from "../services/ia.js";
@@ -246,7 +248,7 @@ r.post("/", (req, res) => {
      própria pessoa do lead que ela acabou de digitar seria ruído. */
   const aviso = dono && dono !== req.user.id ? avisarLeadNovo(dono, id, limpo) : null;
 
-  console.log(`[leads] cadastro manual: ${limpo} (${phone}) por ${req.user.name} — ${dono ? "para " + dono : "fila"}`);
+  console.log(`[leads] cadastro manual (${mascararTelefone(phone)}) por ${req.user.name} — ${dono ? "para " + dono : "fila"}`);
   const criado = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(id);
   res.status(201).json({ ...parse(criado), aviso });
 });
@@ -1451,6 +1453,40 @@ r.patch("/:id/venda", (req, res) => {
   // mudança de etapa que mais importa no histórico.
   moverEtapa({ leadId: lead.id, para: "Venda", motivo: "venda", userId: req.user.id });
   res.json({ ok: true, stage: "Venda" });
+});
+
+/* ===== OS DIREITOS DO TITULAR (LGPD, art. 18) =====
+
+   O "titular" aqui é o CLIENTE da imobiliária — a pessoa cujo telefone,
+   conversa e simulação estão guardados. Ele tem direito de perguntar o que
+   existe sobre ele e de pedir que seja apagado, e até 02/09/2026 o CRM não
+   tinha resposta para nenhuma das duas coisas: atender um pedido desses
+   exigiria alguém abrir o banco na mão.
+
+   AS DUAS SÃO SÓ DO GESTOR, e não da supervisão inteira. A exportação despeja
+   a conversa completa de um cliente num arquivo, e a anonimização é
+   irreversível: são as duas ações mais pesadas que existem sobre um lead, e
+   quem responde por elas perante a LGPD é quem responde pela empresa.
+
+   O porquê de anonimizar em vez de apagar está em `services/lgpd.js`. */
+r.get("/:id/lgpd", roles("adm"), (req, res) => {
+  const dados = exportarLGPD(req.user.org_id, req.params.id);
+  if (!dados) return res.status(404).json({ error: "Lead não encontrado" });
+  console.log(`[lgpd] ${req.user.name} exportou os dados do atendimento ${req.params.id}`);
+  res.json(dados);
+});
+
+r.post("/:id/lgpd/anonimizar", roles("adm"), (req, res) => {
+  /* Confirmação ESCRITA, como o "DESCONECTAR" da tela de conexão. Não tem
+     desfazer: depois disto ninguém — nem nós — consegue dizer de quem era
+     aquele atendimento. Um clique só seria pouco para uma ação assim. */
+  if (String(req.body?.confirmar || "").toUpperCase() !== "ANONIMIZAR")
+    return res.status(400).json({
+      error: "Escreva ANONIMIZAR para confirmar. Esta ação apaga em definitivo o nome, o telefone e o conteúdo das conversas deste atendimento — e não tem desfazer." });
+  const out = anonimizarLGPD(req.user.org_id, req.params.id, { por: req.user.id });
+  if (out.erro) return res.status(400).json({ error: out.erro });
+  res.json({ ...out,
+    aviso: "Os dados pessoais foram removidos. O histórico do atendimento (datas, etapas e quem atendeu) continua nos relatórios, sem identificar ninguém." });
 });
 
 export default r;

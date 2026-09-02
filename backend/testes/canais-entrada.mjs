@@ -126,14 +126,41 @@ assert.deepEqual(msgs.map(m => m.canal_id), [null, daMarina.id, null]);
 
 console.log("8. Mensagem de uma linha DESCONHECIDA não entra em ninguém");
 /* Lead na casa errada é pior que lead perdido. E o diagnóstico diz o que
-   chegou, para acertar a configuração em vez de adivinhar. */
+   chegou, para acertar a configuração em vez de adivinhar.
+
+   A FRASE MUDOU EM 02/09/2026, na auditoria de segurança, e a mudança é o
+   ponto: passaram a existir dois motivos diferentes para a mensagem ser
+   recusada — "veio um token e ele não bate" e "não veio token nenhum" —, e
+   eles pedem remédios opostos. O primeiro se resolve conferindo o token na
+   tela de Conexão; o segundo, ligando o modo de emergência
+   (UAZAPI_ACEITAR_POR_NUMERO=1) ou acertando a Uazapi. Uma frase só para os
+   dois mandaria metade das pessoas consertar o que não está quebrado. */
 const antes = db.prepare("SELECT COUNT(*) n FROM leads").get().n;
 await mandar("token-de-ninguem", "5587911110003", "oi"); await esperar();
 assert.equal(db.prepare("SELECT COUNT(*) n FROM leads").get().n, antes, "não pode nascer lead sem dono de linha");
 const diag = await (await fetch(url("/integracoes/webhooks"))).json();
 const ultimo = (diag.eventos || diag.webhooks || [])[0] || {};
 console.log(`   ${ultimo.resultado || "(sem registro)"}`);
-assert.ok(/não identifiquei/i.test(ultimo.resultado || ""), "e o diagnóstico explica o que aconteceu");
+assert.ok(/RECUSADO/.test(ultimo.resultado || ""), "e o diagnóstico explica o que aconteceu");
+assert.ok(/não corresponde a nenhuma linha/i.test(ultimo.resultado || ""),
+  "dizendo QUAL das duas coisas falhou — aqui, token que não bate");
+
+console.log("8b. E sem token nenhum ela também não entra — nem sabendo o número");
+/* Era o furo mais sério da auditoria: a identificação caía para os últimos
+   oito dígitos do WhatsApp da imobiliária, que é informação PÚBLICA. Sabendo
+   o número do anúncio, qualquer pessoa criava lead falso, escrevia na conversa
+   de um cliente real e fazia a IA da casa mandar WhatsApp para quem quisesse. */
+const numeroDaCasa = db.prepare("SELECT wa_number FROM canais WHERE tipo='imobiliaria' LIMIT 1").get()?.wa_number;
+await fetch(url("/webhooks/uazapi"), { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ owner: numeroDaCasa || "5587999990000",
+    message: { chatid: "5587911110004@s.whatsapp.net", text: "invadindo", messageid: "wa_falso" } }) });
+await esperar();
+assert.equal(db.prepare("SELECT COUNT(*) n FROM leads").get().n, antes,
+  "o número da imobiliária é público — sozinho ele não pode abrir a porta");
+const diag2 = await (await fetch(url("/integracoes/webhooks"))).json();
+const ultimo2 = (diag2.eventos || diag2.webhooks || [])[0] || {};
+console.log(`   ${ultimo2.resultado}`);
+assert.ok(/SEM o token/i.test(ultimo2.resultado || ""), "e a recusa diz que faltou o token, não que a linha é desconhecida");
 
 console.log("\nTudo certo ✅");
 fim(0);

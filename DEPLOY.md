@@ -121,10 +121,39 @@ Em **Variables**, adicione uma a uma (a lista completa está em `backend/.env.ex
 | `ADM_CODE` | o código da imobiliária, ex.: `CONECTA-JAZ-2026` |
 | `ADM_EMAIL` | seu e-mail de administrador |
 | `ADM_PASSWORD` | a senha que você vai usar para entrar como ADM |
-| `FRONTEND_ORIGIN` | o endereço do CRM no Netlify |
+| `FRONTEND_ORIGIN` | **deixe em branco** — hoje a tela vem deste mesmo servidor |
+| `CRYPTO_KEY` | a chave que fecha a cópia de segurança (peça que eu gere) |
+| `ASAAS_WEBHOOK_TOKEN` | o mesmo texto que você digitou no painel do Asaas |
 
 Salvou → o Railway reinicia sozinho. Abra `https://SUA-URL/health`:
 tem que responder `{"ok":true,...}`.
+
+### As três variáveis que não dá para esquecer (revisão de segurança, 02/09/2026)
+
+São as três em que **esquecer não dá erro nenhum** — o CRM sobe, a tela abre,
+os leads entram, e alguma coisa fica destrancada em silêncio. Depois de
+publicar, abra `https://SUA-URL/integracoes` e olhe o bloco **`seguranca`**:
+ele responde as três de uma vez, em português.
+
+1. **`JWT_SECRET`** — a chave que assina o crachá de quem entra. Sem ela o
+   servidor agora **se recusa a subir**, e o log diz o que fazer. (Antes ele
+   subia usando uma palavra escrita dentro do código: qualquer pessoa que a
+   conhecesse entrava como dono da plataforma.)
+2. **`CRYPTO_KEY`** — fecha a cópia de segurança diária. Sem ela a cópia
+   continua sendo feita, mas **em claro** — e ela é o CRM inteiro de todos os
+   clientes num arquivo só, guardado fora do nosso servidor.
+   **Guarde uma cópia desta chave fora do Railway.** Perdê-la é perder o
+   acesso a todas as cópias antigas.
+3. **`ASAAS_WEBHOOK_TOKEN`** — sem ele o aviso de pagamento é **recusado** e a
+   conta do cliente não desbloqueia sozinha. (Antes, sem ele a conferência era
+   pulada e qualquer pessoa podia avisar "paguei" por qualquer conta.)
+
+E duas opcionais que valem a pena:
+
+- **`META_APP_SECRET`** — confere se o lead veio mesmo do Facebook.
+- **`UAZAPI_ACEITAR_POR_NUMERO`** — deixe **fora**. É a saída de emergência
+  para o dia em que a Uazapi parar de mandar o token e os leads pararem de
+  entrar; `https://SUA-URL/integracoes/webhooks` diz quando esse dia chegou.
 
 > `ADM_EMAIL` e `ADM_PASSWORD` só são usados **uma vez**, para criar sua conta de
 > administração no primeiro start. Depois disso pode remover as duas se quiser.
@@ -257,6 +286,39 @@ está lá. Por isso o botão **Copiar agora** existe.
 Já existe um `render.yaml` pronto na raiz. É só **New → Blueprint** apontando para o
 repositório. Mesma lógica de variáveis. Atenção: o plano gratuito hiberna e atrasa os
 leads da Meta — para operação real, use o plano pago.
+
+---
+
+## Proteção de dados (LGPD) — o que o sistema faz e o que é decisão sua
+
+O CRM guarda dado pessoal de gente que não é da sua equipe: nome, telefone,
+conversa de WhatsApp, print de simulação com renda e CPF. A lei brasileira
+chama essas pessoas de **titulares**, e dá a elas dois direitos que agora têm
+botão no sistema:
+
+- **"O que vocês têm sobre mim?"** → na ficha do lead, a gestão gera um
+  documento com tudo: cadastro, conversas, ligações, observações, simulações e
+  as leituras que a IA fez.
+- **"Apaguem meus dados"** → o mesmo lugar tem a opção de **anonimizar**. Some
+  o nome, o telefone, o e-mail, o texto das conversas, os arquivos e as
+  observações. **Fica** o esqueleto do atendimento — datas, etapas, quem
+  atendeu, quantas mensagens houve —, porque senão o relatório de agosto
+  mudaria em setembro e a comissão de um corretor passaria a depender do pedido
+  de um cliente. É irreversível e pede confirmação escrita.
+
+**O que continua sendo decisão da imobiliária, não do código:**
+
+1. **Por quanto tempo guardar.** Hoje nada some sozinho. Um lead perdido em
+   2024 continua no sistema em 2027. Defina um prazo (ex.: "lead sem interação
+   há 3 anos é anonimizado") e me peça para ligar isso.
+2. **Aviso de privacidade.** A pessoa que preenche o formulário do Facebook
+   precisa saber que os dados dela vão para um CRM, para quê, e como pedir
+   exclusão. Isso é texto no anúncio e no site, não no código.
+3. **Quem pode ver o quê.** Corretor vê só os leads dele; atendente e gestor
+   veem a casa inteira. Isso é do sistema — mas quem você promove a gestor é
+   sua decisão, e cada gestor enxerga toda a base de clientes.
+4. **A Uazapi.** As conversas do WhatsApp passam por um fornecedor terceiro,
+   fora do WhatsApp oficial. Isso precisa estar no seu aviso de privacidade.
 
 ---
 

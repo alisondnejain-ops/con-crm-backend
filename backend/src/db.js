@@ -541,6 +541,32 @@ addUserCol("invite_expires", "INTEGER");                // validade do token (ms
    senha). O mesmo link e a mesma pagina servem os dois — o que muda e que a
    redefinicao vale para conta JA ATIVA e nao mexe no status dela. */
 addUserCol("invite_tipo", "TEXT");
+
+/* A PARTIR DE QUANDO os crachas desta pessoa valem. (02/09/2026)
+
+   O token dura 30 dias e, ate aqui, nao havia NENHUM jeito de derrubar um:
+   trocar a senha nao derrubava, e "remover da equipe" tambem nao — a pessoa
+   demitida continuava entrando no CRM por ate um mes. Esta coluna e o carimbo
+   que resolve os dois: `authRequired` recusa todo cracha emitido antes dela.
+
+   E um INSTANTE e nao um contador de sessoes porque o que se quer dizer e
+   sempre a mesma coisa — "tudo que foi emitido antes de agora morreu" — e um
+   instante diz isso sem precisar guardar lista de token nenhum. Nulo significa
+   "nunca invalidei nada", que e o estado de todo mundo hoje. */
+addUserCol("sessoes_desde", "INTEGER");
+
+/* O token do link de criar senha guardado como IMPRESSAO DIGITAL (sha-256).
+
+   `invite_token` continua existindo para os links que ja estao na caixa de
+   entrada de alguem — sao conferidos pelos dois campos durante a transicao e
+   o antigo e apagado assim que o link e usado. O novo NASCE so aqui.
+
+   O motivo: em claro, uma copia do banco (e a copia de seguranca diaria vai
+   para um armazenamento de terceiros) era uma lista de links prontos para
+   trocar a senha de qualquer conta pendente. Ver `resumoDeToken` em
+   services/cofre.js — e por que e resumo, e nao criptografia. */
+addUserCol("invite_hash", "TEXT");
+
 addUserCol("avatar_url", "TEXT");
 /* Preferência de tela, por CONTA e não por aparelho.
 
@@ -605,6 +631,7 @@ addDispCol("observacao", "TEXT");   // obrigatória quando o local é 'fora'
    contrário o histórico mudaria sozinho. */
 addDispCol("plantao", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite ON users(invite_token)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_users_invite_hash ON users(invite_hash)");
 
 // Ponteiro do rodízio dos ATENDENTES, separado do distribution_ptr (que é dos
 // corretores). Se os dois compartilhassem o mesmo contador, uma catraca
@@ -833,6 +860,16 @@ addLeadCol("ad_name", "TEXT");
 addLeadCol("ad_id", "TEXT");
 addLeadCol("form_name", "TEXT");
 addLeadCol("form_id", "TEXT");
+/* PEDIDO DE ELIMINACAO ATENDIDO — LGPD, art. 18, VI. (02/09/2026)
+
+   Guarda QUANDO e POR QUEM, e nao o pedido em si: o registro de ter atendido e
+   parte de conseguir provar que a empresa atendeu. Nulo e o normal — a imensa
+   maioria dos leads nunca passa por isto.
+
+   Ver `services/lgpd.js` para o porque de anonimizar em vez de apagar. */
+addLeadCol("anonimizado_em", "INTEGER");
+addLeadCol("anonimizado_por", "TEXT");
+
 addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a conversa
 addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
 addLeadCol("sale_date", "INTEGER");      // data da venda

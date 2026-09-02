@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { authRequired } from "../auth.js";
 import { chavePublica, configurado, inscrever, cancelar, inscricoesDe, avisar, trocar } from "../services/push.js";
+import db from "../db.js";
+import { podeTentar, ipDe } from "../seguranca.js";
 
 const r = Router();
 
@@ -33,6 +35,12 @@ r.post("/push/inscrever", authRequired, (req, res) => {
    só o navegador daquele aparelho conhece — e o serviço só TRANSFERE uma
    inscrição existente, nunca cria uma nova para alguém. */
 r.post("/push/trocar", (req, res) => {
+  /* Sem login, mas COM freio. (02/09/2026)
+     A prova de posse aqui é conhecer o endereço antigo, que é um segredo longo
+     — mas "segredo longo" só vale enquanto ninguém puder ficar tentando. Sem
+     teto, esta rota é o único lugar do sistema onde dá para chutar à vontade. */
+  if (!podeTentar("push-trocar:" + ipDe(req), 60, 60 * 60 * 1000))
+    return res.status(429).json({ error: "Muitas tentativas." });
   const { antigo, nova } = req.body || {};
   const out = trocar(antigo, nova);
   if (!out.trocada) return res.status(404).json({ error: "Inscrição não encontrada." });
@@ -41,7 +49,19 @@ r.post("/push/trocar", (req, res) => {
 
 r.post("/push/cancelar", authRequired, (req, res) => {
   const { endpoint } = req.body || {};
-  if (endpoint) cancelar(endpoint);
+  /* CANCELAR SÓ O QUE É SEU. (02/09/2026)
+
+     Antes esta rota apagava qualquer inscrição cujo endereço fosse enviado, sem
+     conferir de quem ela era. Estar logado bastava — inclusive de outra
+     imobiliária. O estrago é silencioso e é o pior tipo para este sistema:
+     desligar o aviso de lead novo de um corretor não dá erro em lugar nenhum,
+     e ele só descobre nos leads que deixou esfriar. */
+  if (endpoint) {
+    const dona = db.prepare("SELECT user_id FROM push_subs WHERE endpoint = ?").get(endpoint);
+    if (dona && dona.user_id !== req.user.id)
+      return res.status(403).json({ error: "Essa notificação é de outro aparelho." });
+    cancelar(endpoint);
+  }
   res.json({ ok: true, aparelhos: inscricoesDe(req.user.id) });
 });
 

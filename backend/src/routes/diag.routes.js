@@ -1,4 +1,5 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import db from "../db.js";
 import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
@@ -10,14 +11,46 @@ import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from
    "@aws-sdk XML parse error… inspect the hidden field {error}.$response" numa
    tela feita para diagnóstico é entregar o problema sem a pista. */
 import { emPortugues } from "../services/backup.js";
+import { cofreLigado } from "../services/cofre.js";
 
 const r = Router();
 // Quando este processo subiu — a lista de webhooks abaixo só vale a partir daqui.
 const inicio = Date.now();
 
+/* QUEM ESTÁ OLHANDO MUDA O QUE APARECE. (02/09/2026)
+
+   Esta página nasceu pública de propósito, e continua: ela é o primeiro passo
+   de "parou de chegar lead", e exigir login aqui obrigaria a abrir o CRM
+   justamente quando a dúvida é se o servidor está de pé. O `ultima_entrada`,
+   que é o diagnóstico de verdade, segue aberto.
+
+   O que ela NÃO podia continuar contando para a internet inteira:
+
+     - o NOME da primeira imobiliária e QUANTAS existem na plataforma;
+     - quantos usuários, leads e mensagens o ConHub tem no total;
+     - o registro das últimas tentativas de e-mail, com os endereços
+       parcialmente escondidos e o domínio inteiro à mostra.
+
+   Nada disso é segredo técnico — é informação COMERCIAL e é dado pessoal de
+   quem usa. Servia de reconhecimento para quem quisesse atacar (quantas contas
+   valem a pena?) e, no caso do e-mail, de confirmação de que um endereço está
+   cadastrado. Agora essa parte só aparece para o master, que é quem administra
+   a plataforma, e a página abre sem login com o que ela existe para responder. */
+const ehMaster = (req) => {
+  try {
+    const h = String(req.headers.authorization || "");
+    if (!h.startsWith("Bearer ")) return false;
+    const dados = jwt.verify(h.slice(7), process.env.JWT_SECRET || "dev-secret");
+    // No BANCO, como manda a regra: o crachá dura 30 dias e um master
+    // despromovido hoje continuaria abrindo isto por um mês.
+    return !!db.prepare("SELECT master FROM users WHERE id = ? AND status = 'ativo'").get(dados.id)?.master;
+  } catch { return false; }
+};
+
 // Painel de instalação: diz o que já está ligado, SEM devolver nenhum segredo.
 // Tokens e senhas nunca aparecem aqui — só "configurado: true/false" e o estado da conexão.
 r.get("/integracoes", async (_req, res) => {
+  const master = ehMaster(_req);
   /* Painel da INSTALAÇÃO: mostra a imobiliária mais antiga, que é a dona deste
      servidor. Com várias na plataforma, cada uma vê a sua conexão na própria
      tela de Configurações — aqui não daria para escolher, porque esta página
@@ -27,8 +60,12 @@ r.get("/integracoes", async (_req, res) => {
 
   const base = (process.env.APP_URL || "").replace(/\/$/, "");
   res.json({
-    org: org?.name || null,
-    imobiliarias: db.prepare("SELECT COUNT(*) n FROM orgs").get().n,
+    /* Nome da imobiliária e tamanho da plataforma são informação comercial:
+       só para quem administra o ConHub. Para o visitante fica um "sim, o
+       servidor conhece uma imobiliária", que é o que o diagnóstico precisa. */
+    org: master ? (org?.name || null) : (org ? "configurada" : null),
+    imobiliarias: master ? db.prepare("SELECT COUNT(*) n FROM orgs").get().n : undefined,
+    detalhe_completo: master ? true : "entre como ConHub (master) para ver os números da plataforma",
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: await instanceStatus(org?.id),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
@@ -36,7 +73,11 @@ r.get("/integracoes", async (_req, res) => {
        em tela nenhuma — a tela do "esqueci minha senha" responde a mesma frase
        de propósito — então é aqui que se descobre por que o e-mail não chegou.
        Ver `emailDiagnostico` em services/mail.js. */
-    email: emailDiagnostico(),
+    /* O registro de tentativas traz endereços de e-mail (mascarados, mas com o
+       domínio inteiro) e serve para confirmar que um endereço está cadastrado.
+       Público, ele fazia o oposto do que a rota `/esqueci-senha` foi desenhada
+       para não fazer. Sem login sobra o essencial: está configurado ou não. */
+    email: master ? emailDiagnostico() : { configurado: mailConfigured() },
     /* IA: liga a leitura do print da Caixa e o resumo da conversa. A chave
        nunca aparece aqui — só se ela chegou e qual modelo está em uso, que é
        o bastante para saber se falta configurar ou se o problema é outro. */
@@ -67,13 +108,28 @@ r.get("/integracoes", async (_req, res) => {
         mensagem_enviada: desde(q("SELECT MAX(created_at) q FROM messages WHERE direction='out'")),
       };
     })(),
-    banco: {
+    /* SEGURANÇA DA INSTALAÇÃO: sem valor nenhum, só sim/não. É o que responde
+       "publiquei e esqueci de alguma variável?" — e cada linha aqui é uma
+       falha real que a auditoria de 02/09/2026 encontrou aberta. */
+    seguranca: {
+      criptografia_do_backup: cofreLigado() ? "ligada" : "DESLIGADA — a cópia de segurança sobe em claro para o R2 (falta CRYPTO_KEY)",
+      webhook_do_asaas: process.env.ASAAS_WEBHOOK_TOKEN
+        ? "protegido" : "SEM TOKEN — o webhook está recusando tudo (falta ASAAS_WEBHOOK_TOKEN)",
+      webhook_da_meta: process.env.META_APP_SECRET
+        ? "assinatura conferida" : "sem conferência de assinatura (falta META_APP_SECRET)",
+      whatsapp_aceita_por_numero: process.env.UAZAPI_ACEITAR_POR_NUMERO === "1"
+        ? "SIM — modo de emergência ligado; qualquer um que saiba o número pode mandar mensagem falsa" : "não (recomendado)",
+      origens_permitidas: (process.env.FRONTEND_ORIGIN || "só a própria origem"),
+    },
+    banco: master ? {
       caminho: process.env.DB_PATH ? "disco persistente" : "dentro do container (some no deploy)",
       usuarios: n("SELECT COUNT(*) n FROM users"),
       pendentes: n("SELECT COUNT(*) n FROM users WHERE status = 'pendente'"),
       leads: n("SELECT COUNT(*) n FROM leads"),
       leads_na_fila: n("SELECT COUNT(*) n FROM leads WHERE assigned_to IS NULL"),
       mensagens: n("SELECT COUNT(*) n FROM messages"),
+    } : {
+      caminho: process.env.DB_PATH ? "disco persistente" : "dentro do container (some no deploy)",
     },
   });
 });

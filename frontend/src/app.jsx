@@ -75,6 +75,23 @@ async function api(path,{method="GET",body}={}){
      "Falha ao enviar pelo WhatsApp" sozinho não diz nada a quem está na tela
      nem a quem vai consertar — o motivo de verdade vinha no `detail` e era
      jogado fora aqui. Um dia inteiro se perdeu por causa disso. */
+  /* SESSÃO ENCERRADA PELO SERVIDOR → volta para o login, com o motivo escrito.
+     (02/09/2026, junto da revisão de segurança.)
+
+     A partir desta versão o servidor pode encerrar uma sessão a qualquer
+     momento: a pessoa foi removida da equipe, mudou de função, ou trocou a
+     senha em outro aparelho. Sem esta linha o app ficaria montado, com a tela
+     cheia de dados que ele não consegue mais atualizar, mostrando "erro" em
+     cada clique — e a pessoa concluiria que o CRM quebrou, quando na verdade
+     ela só precisa entrar de novo (ou não deveria mais entrar).
+
+     Só no 401. O 403 é "você não pode ISSO" e não derruba ninguém, e o 402 é a
+     tela de bloqueio da mensalidade, que tem desenho próprio. */
+  if(res.status===401&&TOKEN){
+    setToken(null); marcarOrg(null);
+    try{ window.sessionStorage.setItem("conhub_saida",data.error||"Sua sessão foi encerrada."); }catch(e){}
+    if(typeof window!=="undefined") window.location.reload();
+  }
   if(!res.ok){
     const erro=new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
     /* O corpo inteiro vai junto do erro. Uma recusa às vezes traz mais do que
@@ -634,7 +651,19 @@ function Brand({size=44,noEscuro}){
 function Auth({onLogin}){
   usarTitulo("Login");
   const [f,setF]=useState({email:"",pass:""});
-  const [err,setErr]=useState("");
+  /* POR QUE A PESSOA CAIU AQUI. (02/09/2026)
+
+     Quando o servidor encerra uma sessão — removida da equipe, função mudada,
+     senha trocada em outro aparelho — o app se desloga sozinho e recarrega.
+     Sem esta mensagem, a pessoa veria a tela de login do nada, no meio de um
+     atendimento, e a conclusão natural seria "o sistema me derrubou". A frase
+     é a do servidor, que sabe o motivo; aqui ela só é lida uma vez e apagada,
+     senão reapareceria no próximo login normal. */
+  const [err,setErr]=useState(()=>{
+    try{ const m=window.sessionStorage.getItem("conhub_saida");
+      if(m){ window.sessionStorage.removeItem("conhub_saida"); return m; } }catch(e){}
+    return "";
+  });
   const [busy,setBusy]=useState(false);
   /* "ESQUECI MINHA SENHA" (02/09/2026, pedido do Ali). Até aqui recuperar senha
      era pedir ao gestor, que gerava o link em Equipe e repassava no WhatsApp —
@@ -1167,6 +1196,11 @@ function ConCRM(){
     // Presenças e faltas do período, por pessoa, por turno e por dia. Só
     // supervisão: o servidor recusa para o corretor, e a aba nem aparece.
     relatorioPlantao:(params)=>api("/plantoes/relatorio?"+new URLSearchParams(params||{})),
+    /* Os direitos do titular (LGPD). O `confirmar` vai como o usuário digitou:
+       quem decide se a palavra confere é o SERVIDOR, senão a trava valeria só
+       para quem passa pela tela. */
+    dadosDoTitular:(id)=>api(`/leads/${id}/lgpd`),
+    anonimizarTitular:(id,confirmar)=>api(`/leads/${id}/lgpd/anonimizar`,{method:"POST",body:{confirmar}}),
     apagarEscala:(params)=>api("/plantoes?"+new URLSearchParams(params||{}),{method:"DELETE"}),
     mensagensRapidas:(todas)=>api("/config/mensagens"+(todas?"?todas=1":"")),
     criarMensagem:(dados)=>api("/config/mensagens",{method:"POST",body:dados}),
@@ -6960,6 +6994,103 @@ function EtapaIA({lead,acoes,isMobile}){
   </div>;
 }
 
+/* ===== OS DIREITOS DO CLIENTE (LGPD, art. 18) =====
+   (02/09/2026, na revisão de segurança.)
+
+   O "titular" é o CLIENTE — a pessoa cujo telefone, conversa e simulação estão
+   guardados aqui. A lei dá a ela duas coisas, e até agora o CRM não tinha
+   resposta para nenhuma: saber o que existe sobre ela, e pedir que apaguem.
+   Atender um pedido desses exigiria alguém abrir o banco de dados na mão.
+
+   FICA NO FIM DA FICHA, e recolhido. É a parte mais séria da tela e a menos
+   usada: quem abre a ficha está atendendo, não respondendo a um pedido
+   jurídico. Aberto por padrão, o botão de anonimizar ficaria a um clique de
+   distância o dia inteiro.
+
+   SÓ O GESTOR. Exportar despeja a conversa inteira de um cliente num arquivo,
+   e anonimizar não tem desfazer — são as duas ações mais pesadas que existem
+   sobre um lead, e quem responde por elas perante a LGPD é quem responde pela
+   empresa. */
+function DadosDoTitular({lead,acoes,session,isMobile}){
+  const [aberto,setAberto]=useState(false);
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState(false);
+  if(!session||!podeGerir(session)) return null;
+
+  async function exportar(){
+    setErro(""); setOcupado("exportar");
+    try{
+      const d=await acoes.dadosDoTitular(lead.id);
+      /* Baixa como arquivo em vez de abrir na tela: o que sai daqui é para ser
+         entregue à pessoa que pediu, e um JSON de quarenta mensagens numa aba
+         não é entregável. O nome do arquivo leva a data — um pedido de acesso
+         é datado, e dois pedidos do mesmo cliente não podem se confundir. */
+      const blob=new Blob([JSON.stringify(d,null,2)],{type:"application/json"});
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob);
+      a.download=`dados-${(lead.nome||"titular").replace(/[^a-zA-Z0-9]+/g,"-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function anonimizar(){
+    /* Confirmação ESCRITA, como o DESCONECTAR da tela de conexão. Um clique é
+       pouco para uma ação sem desfazer — e o servidor exige a mesma palavra,
+       então a trava vale mesmo que alguém chame a rota por fora. */
+    const dito=window.prompt(
+      "Isto apaga em DEFINITIVO o nome, o telefone, o e-mail e o conteúdo das conversas deste atendimento.\n\n"+
+      "O histórico (datas, etapas e quem atendeu) continua nos relatórios, sem identificar ninguém.\n\n"+
+      "Não tem desfazer. Escreva ANONIMIZAR para confirmar:");
+    if(!dito) return;
+    setErro(""); setOcupado("anonimizar");
+    try{ await acoes.anonimizarTitular(lead.id,dito); setFeito(true); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14}}>
+    <button onClick={()=>setAberto(!aberto)} style={{width:"100%",background:"none",border:"none",padding:0,
+      cursor:"pointer",display:"flex",alignItems:"center",gap:6,textAlign:"left"}}>
+      <Icon n="key" size={13} color={C.faint}/>
+      <span style={{color:C.sub,fontSize:12,fontWeight:700,flex:1}}>Dados pessoais do cliente (LGPD)</span>
+      <span style={{color:C.faint,fontSize:11}}>{aberto?"−":"+"}</span>
+    </button>
+
+    {aberto&&<div style={{marginTop:10}}>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.55,marginBottom:10}}>
+        Use quando o próprio cliente pedir. Ele tem direito de saber o que a imobiliária
+        guarda sobre ele e de pedir que seja apagado.
+      </div>
+
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+
+      {feito||lead.anonimizado_em
+        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,borderRadius:9,padding:"9px 11px",lineHeight:1.5}}>
+          Os dados pessoais deste atendimento já foram apagados a pedido do titular.
+          O histórico continua nos relatórios, sem identificar ninguém.</div>
+        :<React.Fragment>
+          <button onClick={exportar} disabled={!!ocupado}
+            style={{width:"100%",background:C.surface,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,
+              padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:7}}>
+            {ocupado==="exportar"?"Gerando…":"Baixar tudo que temos sobre ele"}</button>
+          <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginBottom:11}}>
+            Cadastro, conversas, ligações, observações, simulações e as leituras da IA,
+            num arquivo só. <b>Contém dados pessoais</b> — entregue apenas ao próprio cliente.
+          </div>
+
+          <button onClick={anonimizar} disabled={!!ocupado}
+            style={{width:"100%",background:"none",color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,
+              padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+            {ocupado==="anonimizar"?"Apagando…":"Apagar os dados pessoais deste cliente"}</button>
+          <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
+            Some o nome, o telefone e o conteúdo das conversas. <b>Não tem desfazer.</b> O
+            atendimento continua nos relatórios — datas, etapa e quem atendeu —, sem nome.
+          </div>
+        </React.Fragment>}
+    </div>}
+  </div>;
+}
+
 function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
   const proximoDaVez=usarProximoDaVez(acoes,lead.id);
   const [simulando,setSimulando]=useState(false);
@@ -6983,6 +7114,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
