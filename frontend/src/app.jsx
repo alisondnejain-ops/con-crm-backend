@@ -2645,21 +2645,35 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
               style={{textAlign:"left",cursor:"pointer",background:sel?C.greenSoft:C.surface,
                 border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:13,
                 padding:sel?"12px 13px":"13px 14px",display:"flex",flexDirection:"column",gap:5}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                <span style={{color:C.ink,fontSize:13,fontWeight:700}}>{p.nome}</span>
+              {/* O SELO FICA AO LADO DO NOME, e não embaixo. (02/09/2026)
+
+                  Antes esta linha quebrava: "Semestral" é mais largo que
+                  "Anual", e o conjunto nome + selo passava da largura do card
+                  por poucos pixels — então o "-R$ 360/ano" descia sozinho para
+                  a segunda linha enquanto o "-R$ 600/ano" do anual ficava ao
+                  lado. Os três cards viravam três alturas diferentes, e a
+                  comparação entre planos, que é o que esta tela existe para
+                  permitir, deixava de acontecer na horizontal.
+
+                  O nome encolhe (`minWidth:0`) antes de o selo descer: o selo é
+                  a razão de existir do semestral e do anual, e "Semestral"
+                  cortado ainda se lê — a economia escondida, não. */}
+              <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                <span style={{color:C.ink,fontSize:13,fontWeight:700,minWidth:0,
+                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nome}</span>
                 {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,
-                  padding:"2px 7px",borderRadius:999}}>SEU PLANO</span>}
+                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>SEU PLANO</span>}
                 {/* Só quando NÃO há plano contratado: com um contratado, a
                     pergunta desta tela é "quer trocar?", e lembrar do que foi
                     escolhido antes de assinar só atrapalharia a leitura. O
                     selo existe para a pessoa reconhecer a própria escolha —
                     sem ele, a tela parece ter adivinhado sozinha. */}
                 {!d.atual&&d.escolhido===p.id&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,
-                  padding:"2px 7px",borderRadius:999}}>VOCÊ ESCOLHEU NO SITE</span>}
+                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>ESCOLHIDO NO SITE</span>}
                 {/* A economia é a razão de existir do semestral e do anual.
                     Sem ela na frente, os três viram três preços soltos. */}
                 {p.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,
-                  padding:"2px 7px",borderRadius:999}}>-{fmtMoeda(p.economia_ano)}/ano</span>}
+                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>-{fmtMoeda(p.economia_ano)}/ano</span>}
               </div>
               <div style={{display:"flex",alignItems:"baseline",gap:4}}>
                 <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:22,fontWeight:700,lineHeight:1}}>{fmtMoeda(p.mensal)}</span>
