@@ -182,14 +182,31 @@ r.post("/publico/comecar", async (req, res) => {
     /* Conta que existe mas nunca foi ativada (pendente, recusada) é
        reaproveitada: quem tentou uma vez e não terminou não pode ficar preso
        para sempre sem conseguir se cadastrar de novo. */
+    /* O AUTÔNOMO NASCE COMO CORRETOR, não como gestor. (02/09/2026)
+
+       Ele é as duas coisas na prática, mas o papel que o sistema precisa
+       enxergar é `corretor`: é ele que faz a catraca entregar lead, o rodízio
+       incluir na fila, e o score e o relatório de produtividade terem o nome
+       dele. Como `adm` ele ficava fora de todos esses — pagava por um CRM cujo
+       relatório principal nunca teria o nome dele.
+
+       O acesso de gestor vem de ser o DONO da conta, resolvido num lugar só em
+       `auth.js` → `roles`/`ehDonoAutonomo`.
+
+       E `available = 1`: numa casa de uma pessoa, esperar que ele marque
+       prontidão para receber o próprio lead é uma catraca de uma fila só que
+       começa vazia. A imobiliária continua começando em 0, porque lá a
+       prontidão é a declaração de quem entra no rodízio do dia. */
+    const papel = tipo === "autonomo" ? "corretor" : "adm";
+    const prontidao = tipo === "autonomo" ? 1 : 0;
     if (jaExiste) {
-      db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', status='pendente',
+      db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role=?, available=?, status='pendente',
         invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
-        .run(orgId, nome, telefone, token, expira, userId);
+        .run(orgId, nome, telefone, papel, prontidao, token, expira, userId);
     } else {
       db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status,invite_token,invite_expires,invite_tipo)
-        VALUES (?,?,?,?,?,'','adm',0,?,'pendente',?,?,'fundador')`)
-        .run(userId, orgId, nome, email, telefone, agora, token, expira);
+        VALUES (?,?,?,?,?,'',?,?,?,'pendente',?,?,'fundador')`)
+        .run(userId, orgId, nome, email, telefone, papel, prontidao, agora, token, expira);
     }
     db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
   });

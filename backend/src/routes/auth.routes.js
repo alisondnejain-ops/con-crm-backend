@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
-import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster } from "../auth.js";
+import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
@@ -575,6 +575,21 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
     if (gestores <= 1) return res.status(409).json({ error: "Esse é o único gestor ativo. Promova ou aprove outro antes de remover." });
   }
 
+  /* E O TITULAR DA CONTA NUNCA SAI. (02/09/2026)
+
+     A trava acima conta GESTORES ativos, e ela deixou de cobrir o titular no
+     dia em que o corretor autônomo passou a ser `corretor`: numa casa dessas
+     não existe nenhum `adm`, então a contagem dá zero e a trava nem dispara.
+     Removê-lo deixaria a conta sem dono — sem quem responda pela mensalidade,
+     sem quem configure e sem caminho de volta pela tela.
+
+     Vale para os dois tipos de conta: numa imobiliária o titular também é quem
+     paga, e perdê-lo é o mesmo estrago com outro nome. */
+  const casa = db.prepare("SELECT dono_user_id FROM orgs WHERE id = ?").get(req.user.org_id);
+  if (casa && casa.dono_user_id && casa.dono_user_id === u.id)
+    return res.status(409).json({
+      error: "Essa pessoa é a titular da conta — é quem responde pela mensalidade. Para trocar o titular, fale com o ConHub." });
+
   let destino = null;
   if (destino_leads) {
     destino = db.prepare(`SELECT * FROM users u WHERE u.id=? AND u.org_id=? AND u.status='ativo' AND u.role IN ('corretor','sdr')${semMaster("u")}`).get(destino_leads, req.user.org_id);
@@ -596,6 +611,17 @@ function publicUser(u) {
            available: !!u.available, avatar_url: u.avatar_url || null,
            // Preferência de tela: a barra lateral nasce recolhida ou aberta.
            barra_recolhida: !!u.barra_recolhida,
+           /* PODE GERIR A PRÓPRIA CASA sem ser `adm`. (02/09/2026)
+
+              É o corretor autônomo: o papel dele é `corretor`, porque é isso
+              que faz a catraca entregar lead e o nome dele aparecer no score —
+              mas ele é o dono e precisa configurar o WhatsApp, o funil e a
+              assinatura, porque não existe mais ninguém na conta.
+
+              Vem do SERVIDOR e não é deduzido na tela: quem decide permissão é
+              quem a aplica, e uma segunda dedução no navegador seria uma
+              segunda verdade sobre quem pode o quê. */
+           gestor: u.role === "adm" || ehDonoAutonomo({ id: u.id, org_id: u.org_id }),
            // A própria pessoa sabe que é master; a equipe nunca a vê na lista.
            master: !!u.master };
 }

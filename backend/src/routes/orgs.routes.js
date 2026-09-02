@@ -248,13 +248,17 @@ r.post("/autonomos", async (req, res) => {
     db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo)
       VALUES (?,?,?,'',0,0,?,'autonomo')`).run(orgId, marca, codigoLivre(marca), Date.now());
     if (valor) db.prepare("UPDATE orgs SET valor_mensal = ? WHERE id = ?").run(valor, orgId);
+    /* `corretor`, e não `adm` — mesma decisão de `publico.routes.js`: é o papel
+       que faz a catraca entregar lead a ele e o nome dele aparecer no score e
+       no relatório de produtividade. O acesso de gestor vem de ser o DONO,
+       resolvido em `auth.js` → `roles`/`ehDonoAutonomo`. */
     if (jaExiste) {
-      db.prepare(`UPDATE users SET org_id=?, name=?, role='adm', status='pendente',
+      db.prepare(`UPDATE users SET org_id=?, name=?, role='corretor', available=1, status='pendente',
         invite_token=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
         .run(orgId, nome, token, expira, userId);
     } else {
       db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,invite_token,invite_expires,invite_tipo)
-        VALUES (?,?,?,?,'','adm',0,?,'pendente',?,?,'fundador')`)
+        VALUES (?,?,?,?,'','corretor',1,?,'pendente',?,?,'fundador')`)
         .run(userId, orgId, nome, email, Date.now(), token, expira);
     }
     // Dono da conta: é quem responde pela mensalidade e vê a cobrança.

@@ -778,9 +778,23 @@ function toSession(u){
              servidor e é jogada fora em silêncio — a barra voltava aberta a
              cada login sem nenhum erro aparecer. */
           barra_recolhida:!!u.barra_recolhida,
+          /* PODE GERIR A PRÓPRIA CASA sem ser `adm` — é o corretor autônomo.
+             Mesma armadilha do `master` e do `barra_recolhida` acima: sem estar
+             listado aqui, o campo chega do servidor e é jogado fora em
+             silêncio, e o dono da conta abriria o CRM sem Configurações,
+             Equipe, Conexão nem Assinatura, sem nenhum erro aparecer. */
+          gestor:!!u.gestor,
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
+
+/* QUEM MANDA NA CONTA. Use isto no lugar de `role==="adm"` sempre que a
+   pergunta for "esta pessoa pode configurar / ver dinheiro / mexer na equipe".
+
+   `role` continua servindo para dizer O QUE A PESSOA É (e é por isso que o
+   autônomo aparece como "Corretor(a)" na tela e nos relatórios). Esta função
+   responde outra coisa: o que ela pode fazer na casa dela. */
+const podeGerir=(s)=>!!s&&(s.role==="adm"||!!s.gestor);
 const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
 function ConCRM(){
@@ -843,7 +857,7 @@ function ConCRM(){
     return novos.map(l=>adaptLead(l,antes.get(l.id)));
   });
 
-  const supervisiona=session&&(session.role==="adm"||session.role==="sdr");
+  const supervisiona=session&&(podeGerir(session)||session.role==="sdr");
 
   async function recarregar(){
     if(!session) return;
@@ -2980,9 +2994,9 @@ function PainelAssinatura({acoes,isMobile,master,autonomo}){
 function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
   const master=!!session.master;
   // O corretor autônomo assina daqui mesmo. Ver o bloco logo abaixo.
-  const autonomo=!!org&&org.tipo==="autonomo"&&session.role==="adm";
+  const autonomo=!!org&&org.tipo==="autonomo"&&podeGerir(session);
   const [baixando,setBaixando]=useState(false);
-  const gestor=session.role==="adm";
+  const gestor=podeGerir(session);
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:24,maxWidth:440,width:"100%"}}>
       <div style={{width:44,height:44,borderRadius:13,background:C.hotSoft,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
@@ -3105,7 +3119,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
-  const supervisor=role==="adm"||role==="sdr";
+  const supervisor=podeGerir(session)||role==="sdr";
   /* A aba aberta também é escolha da pessoa. Sem guardar, voltar do segundo
      plano no celular jogava todo mundo de volta na tela inicial do papel dele,
      no meio do atendimento. */
@@ -3290,7 +3304,21 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
     corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
-  }[role].concat([["conta","user","Minha conta","Configurações"]])
+  /* O MENU SEGUE O QUE A PESSOA PODE, não o papel dela. (02/09/2026)
+
+     O corretor autônomo é `corretor` — é o papel que faz a catraca entregar
+     lead a ele e o nome dele aparecer no score. Mas a casa é dele: ele precisa
+     de Configurações para ligar o WhatsApp, de Equipe para convidar o
+     atendente, de Relatórios e de Base de leads. Com o menu do corretor puro
+     ele abriria o CRM sem nenhuma dessas telas e sem entender por quê.
+
+     E ele mantém "Disponib." e "Produção", que são do corretor e não existem
+     no menu do gestor: ele é as duas coisas, então o menu dele é a soma. */
+  }[podeGerir(session)?"adm":role]
+    .concat(podeGerir(session)&&role==="corretor"
+      ?[["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]]
+      :[])
+    .concat([["conta","user","Minha conta","Configurações"]])
     /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA SOME.
 
        Ela distribui leads entre corretores disponíveis, e ali existe um
@@ -3379,7 +3407,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
-        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:role==="adm"}}/>}
+        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session)}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {supervisor&&view==="dashboard"&&<React.Fragment>
           <FaixaTeste assinatura={assinatura} isMobile={isMobile}/>
@@ -3401,8 +3429,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
         {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile}
           aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
-        {role==="adm"&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
-        {role==="adm"&&view==="conexao"&&<Conexao conecta={conecta}/>}
+        {podeGerir(session)&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
+        {podeGerir(session)&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
     {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
@@ -4302,7 +4330,7 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fácil seria cadastrar com o número trocado, e aí o cliente fica com duas
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
-  const supervisor=session.role==="adm"||session.role==="sdr";
+  const supervisor=podeGerir(session)||session.role==="sdr";
   const [f,setF]=useState({nome:"",telefone:"",stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   const [equipe,setEquipe]=useState([]);
@@ -4462,7 +4490,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
   const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
-  const podeSupervisionar=session.role==="adm"||session.role==="sdr";
+  const podeSupervisionar=podeGerir(session)||session.role==="sdr";
   const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   // Trocar de conversa descarta o que estava para enviar: imagem colada na
@@ -4854,7 +4882,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [novoFunil,setNovoFunil]=useState({template:"",nome:""});
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
-  const podeCriarFunil=session&&(session.role==="adm"||session.role==="sdr");
+  const podeCriarFunil=session&&(podeGerir(session)||session.role==="sdr");
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -6372,7 +6400,7 @@ function Observacoes({lead,acoes,session,isMobile}){
   useEffect(()=>{setTexto("");setEscrevendo(false);},[lead.id]);
 
   async function salvar(){ if(await o.anotar(texto)){ setTexto(""); setEscrevendo(false); } }
-  const podeApagar=(obs)=>obs.autor_id===session.id||session.role==="adm"||session.role==="sdr";
+  const podeApagar=(obs)=>obs.autor_id===session.id||podeGerir(session)||session.role==="sdr";
 
   return <div style={{background:"#FFF8E6",border:`1px solid #E8D9A8`,borderRadius:12,padding:12,marginBottom:12}}>
     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
@@ -7352,7 +7380,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           acima das notificações porque é o que muda o dia dele. */}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
-      {session.role==="adm"&&<PainelAssinatura acoes={acoes} isMobile={isMobile} master={!!session.master}
+      {podeGerir(session)&&<PainelAssinatura acoes={acoes} isMobile={isMobile} master={!!session.master}
         autonomo={!!org&&org.tipo==="autonomo"}/>}
       <VersaoDoApp/>
     </div>
@@ -9608,7 +9636,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
   const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
 
   // Um gestor só é mexido por outro gestor; ninguém se remove sozinho.
-  const podeMexer=(u)=>u.id!==session.id&&(u.role!=="adm"||session.role==="adm");
+  const podeMexer=(u)=>u.id!==session.id&&(u.role!=="adm"||podeGerir(session));
   const candidatos=(u)=>users.filter(p=>p.status==="ativo"&&p.id!==u.id&&(p.role==="corretor"||p.role==="sdr"));
 
   const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13}}>
@@ -9637,18 +9665,18 @@ function Equipe({acoes,session,org,isMobile,versao}){
           style={{fontSize:isMobile?16:12,fontWeight:600,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px",outline:"none",cursor:"pointer"}}>
           <option value="corretor">Corretor(a)</option>
           <option value="atendente">Atendente</option>
-          {session.role==="adm"&&<option value="gestor">Gestor(a)</option>}
+          {podeGerir(session)&&<option value="gestor">Gestor(a)</option>}
         </select>}
         {/* Esqueceu a senha: só o gestor gera, porque com este link se entra na
             conta da pessoa. Enquanto o e-mail não está ligado, é a única saída. */}
-        {session.role==="adm"&&u.status!=="removido"&&u.status!=="recusado"&&u.id!==session.id&&
+        {podeGerir(session)&&u.status!=="removido"&&u.status!=="recusado"&&u.id!==session.id&&
           <button onClick={()=>novaSenha(u)} disabled={gerando===u.id} title="Gerar link para a pessoa criar uma senha nova"
             style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n={gerando===u.id?"loader":"link"} size={12} spin={gerando===u.id}/>{gerando===u.id?"Gerando…":"Nova senha"}</button>}
         {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
         {!comBotoes&&u.status==="removido"&&<React.Fragment>
           <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
-          {session.role==="adm"&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
+          {podeGerir(session)&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
         </React.Fragment>}
         {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar</button>}
         {/* CONVITE QUE NUNCA VIROU CONTA: sai direto, sem passar por "Remover".
@@ -9662,7 +9690,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
             Aqui apagar é seguro justamente porque a pessoa nunca entrou: não
             atendeu ninguém, não tem conversa nem relatório apontando para ela.
             O que "Remover" protege não existe neste caso. */}
-        {!comBotoes&&session.role==="adm"&&(u.status==="pendente"||u.status==="recusado")&&
+        {!comBotoes&&podeGerir(session)&&(u.status==="pendente"||u.status==="recusado")&&
           <button onClick={()=>apagar(u)} title="Apagar este cadastro — a pessoa nunca confirmou o e-mail"
             style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,
               padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar cadastro</button>}
@@ -9689,7 +9717,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
       {/* Disponibilidade da equipe: é aqui que o gestor cobra quem não se
           prontificou e ajusta o horário em que a prontidão é encerrada. */}
       <div style={{marginBottom:18}}>
-        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={session.role==="adm"}/>
+        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeGerir(session)}/>
       </div>
 
       {aguardando.length>0&&<div style={{marginBottom:18}}>
@@ -9728,7 +9756,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
      o arquivo da marca está no notebook, não no celular; escolher cor é olhar
      o resultado numa tela grande. É a mesma régua de recolher a barra: coisa
      que se faz sentado, uma vez, não em pé com o cliente esperando. */
-  const podeMarca=session&&session.role==="adm"&&!isMobile;
+  const podeMarca=session&&podeGerir(session)&&!isMobile;
   const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],["ia","Uso da IA"]];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
@@ -9741,7 +9769,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
       {/* No celular a aba não existe. Sem esta linha, o gestor que mexeu na
           identidade no notebook procuraria a aba no celular e concluiria que
           alguma coisa quebrou — recurso que some sem explicação vira chamado. */}
-      {isMobile&&session&&session.role==="adm"&&<div style={{background:C.card,border:`1px solid ${C.line}`,
+      {isMobile&&session&&podeGerir(session)&&<div style={{background:C.card,border:`1px solid ${C.line}`,
         borderRadius:12,padding:"11px 13px",marginBottom:14,color:C.faint,fontSize:11.5,lineHeight:1.55}}>
         A logo e a cor do menu ficam em <b style={{color:C.sub}}>Identidade</b>, no computador — é lá que
         está o arquivo da sua marca e a tela para conferir o resultado.
@@ -9972,7 +10000,7 @@ function RoboConfig({acoes,session,isMobile}){
   const [novaLinha,setNovaLinha]=useState("");
   const [erro,setErro]=useState("");
   const [salvando,setSalvando]=useState(false);
-  const ehAdm=session.role==="adm";
+  const ehAdm=podeGerir(session);
 
   const carregar=()=>{ acoes.robo().then(setCfg).catch(e=>setErro(e.message));
     acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{});
@@ -11119,7 +11147,7 @@ function ConexaoConfig({acoes,session,isMobile}){
   const [cred,setCred]=useState({host:"",token:""});
   const [salvandoCred,setSalvandoCred]=useState(false);
   const [avisoCred,setAvisoCred]=useState("");
-  const ehGestor=session.role==="adm";
+  const ehGestor=podeGerir(session);
 
   const rever=()=>acoes.conexao().then(setD).catch(e=>setErro(e.message));
   useEffect(()=>{rever();},[]);
@@ -12009,7 +12037,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
     <div style={{maxWidth:920,margin:"0 auto"}}>
       {/* Ponto das atendentes. Fica no topo dos relatórios porque é a primeira
           coisa que a gestão confere de manhã: quem abriu, a que horas e de onde. */}
-      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={session.role==="adm"}/>
+      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:14,marginBottom:16}}>
         <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
           {atalho("7 dias",7)}{atalho("30 dias",30)}{atalho("90 dias",90)}

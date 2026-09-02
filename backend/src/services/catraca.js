@@ -19,9 +19,24 @@ export function proximoAtendente(orgId) {
   const fila = db.prepare(
     `SELECT u.id FROM users u WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo'${semMaster("u")} ORDER BY u.created_at, u.name`
   ).all(orgId);
-  // Sem atendente cadastrado (ou todos ainda pendentes de aprovação), o lead
-  // cai na fila sem dono, como era antes. Melhor do que sumir na conta errada.
-  if (!fila.length) return null;
+  if (!fila.length) {
+    /* CORRETOR AUTÔNOMO: o lead cai NELE. (02/09/2026)
+
+       Numa imobiliária, lead sem atendente fica na fila sem dono — melhor do
+       que sumir na conta errada, porque existem várias contas possíveis e
+       escolher uma seria chutar.
+
+       Na casa de uma pessoa só não há chute nenhum: só existe ele. Deixar o
+       lead na fila ali é deixá-lo parado esperando um repasse que nunca vem,
+       de alguém que não existe — e essa casa nasce sem atendente, então era o
+       caso NORMAL e não a exceção. */
+    const org = db.prepare("SELECT tipo, dono_user_id FROM orgs WHERE id = ?").get(orgId);
+    if (org && org.tipo === "autonomo" && org.dono_user_id) {
+      const dono = db.prepare("SELECT id FROM users WHERE id = ? AND status = 'ativo'").get(org.dono_user_id);
+      if (dono) return dono.id;
+    }
+    return null;
+  }
 
   const org = db.prepare("SELECT atendente_ptr FROM orgs WHERE id = ?").get(orgId);
   const ptr = (org && org.atendente_ptr) || 0;

@@ -69,7 +69,12 @@ const org = db.prepare(`SELECT o.tipo, o.dono_user_id, u.name, u.role, u.status,
   FROM orgs o JOIN users u ON u.id = o.dono_user_id WHERE u.email = 'marcos@teste.com'`).get();
 console.log(`   tipo ${org.tipo} · ${org.name} é ${org.role} (${org.status}, ${org.invite_tipo}) · tel ${org.phone}`);
 assert.equal(org.tipo, "autonomo");
-assert.equal(org.role, "adm");
+/* CORRETOR, e não `adm` (mudou em 02/09/2026). Como `adm` ele ficava fora de
+   tudo que o sistema procura por papel — a catraca que entrega o lead, o
+   rodízio, o score, o relatório de produtividade — e pagava por um CRM cujo
+   relatório principal nunca teria o nome dele. O poder de gestor vem de ser o
+   DONO, e está trancado no teste `corretor-autonomo`. */
+assert.equal(org.role, "corretor");
 assert.equal(org.invite_tipo, "fundador", "fundador entra direto ao definir a senha, sem fila de aprovação");
 
 console.log("3. O telefone é normalizado igual ao do WhatsApp");

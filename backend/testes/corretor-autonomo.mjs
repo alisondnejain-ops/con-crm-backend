@@ -78,13 +78,38 @@ console.log("2. O relógio do teste NÃO começou ainda");
 console.log(`   trial_ate: ${db.prepare("SELECT trial_ate FROM orgs WHERE id=?").get(orgId).trial_ate}`);
 assert.equal(db.prepare("SELECT trial_ate FROM orgs WHERE id=?").get(orgId).trial_ate, null);
 
-console.log("3. Ele define a senha e entra DIRETO como gestor da própria conta");
+console.log("3. Ele define a senha e entra DIRETO — como CORRETOR que manda na casa");
+/* Mudou em 02/09/2026, e é o ponto mais importante desta conta.
+
+   Ele nascia `adm`, e com isso ficava fora de TUDO que o sistema procura por
+   papel: a catraca (que entrega o lead), o rodízio, o score e o relatório de
+   produtividade. Na prática pagava por um CRM cujo relatório principal nunca
+   teria o nome dele.
+
+   Agora o papel é `corretor` — o que o sistema mede — e o poder de gestor vem
+   de ser o DONO (`gestor: true`, resolvido em `auth.js` → `ehDonoAutonomo`).
+   As duas asserções andam juntas de propósito: sozinha, a primeira passaria
+   numa versão que o transformasse num corretor sem acesso à própria conta. */
 r = await publico("/auth/set-password", { token, password: "senhaboa1" });
 d = await r.json();
-console.log(`   ${r.status} · papel: ${d.user.funcao} · aguardando aprovação? ${!!d.aguardandoAprovacao}`);
+console.log(`   ${r.status} · papel: ${d.user.funcao} · manda na conta? ${d.user.gestor} · aguardando aprovação? ${!!d.aguardandoAprovacao}`);
 assert.equal(r.status, 200);
-assert.equal(d.user.role, "adm", "ele é o gestor da casa dele");
+assert.equal(d.user.role, "corretor", "é como corretor que a catraca e o score o enxergam");
+assert.equal(d.user.gestor, true, "e ele continua mandando na casa dele");
 assert.ok(!d.aguardandoAprovacao, "não há quem aprove numa casa que acabou de nascer");
+
+console.log("3b. Sendo corretor, ele ENTRA no rodízio e recebe lead");
+/* O furo que o papel `adm` causava: `proximoAtendente` procura `sdr` e a casa
+   nasce sem atendente nenhum, então o lead ficava na fila sem dono, esperando
+   um repasse de alguém que não existe. */
+const { proximoAtendente } = await import("../src/services/catraca.js");
+const donoId = db.prepare("SELECT dono_user_id FROM orgs WHERE id=?").get(orgId).dono_user_id;
+const escolhido = proximoAtendente(orgId);
+console.log(`   lead novo cai em: ${escolhido === donoId ? "nele mesmo ✔" : escolhido || "NINGUÉM ✘"}`);
+assert.equal(escolhido, donoId, "numa casa de uma pessoa só, o lead novo é dela");
+console.log(`   e ele nasce disponível: ${db.prepare("SELECT available FROM users WHERE id=?").get(donoId).available === 1}`);
+assert.equal(db.prepare("SELECT available FROM users WHERE id=?").get(donoId).available, 1,
+  "esperar prontidão para receber o próprio lead seria uma fila de um que começa vazia");
 
 console.log("4. AGORA o teste começou, e a conta sabe quantos dias faltam");
 const s1 = situacao(orgId);

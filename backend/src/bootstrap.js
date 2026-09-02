@@ -153,5 +153,29 @@ export function bootstrap() {
   try { migrarCanais(); }
   catch (e) { console.error("[canais] não consegui preparar as linhas de WhatsApp:", e.message); }
 
+  /* O DONO DE CONTA AUTÔNOMA VIRA CORRETOR. (02/09/2026)
+
+     Ele nascia `adm`, e com isso ficava fora de tudo que o sistema procura por
+     papel: a catraca (que entrega lead ao atendente ou, agora, a ele), o
+     rodízio, o score e o relatório de produtividade. Na prática ele pagava por
+     um CRM cujo relatório principal nunca teria o nome dele.
+
+     O acesso de gestor não se perde: vem de ser o dono, resolvido em `auth.js`
+     → `roles`/`ehDonoAutonomo`.
+
+     `available = 1` junto: numa casa de uma pessoa, esperar que ele marque
+     prontidão para receber o próprio lead é uma fila de um que começa vazia.
+
+     Idempotente — a segunda execução não acha ninguém. E mexe SÓ no dono: o
+     atendente que ele contratou continua atendente. */
+  try {
+    const r = db.prepare(`UPDATE users SET role = 'corretor', available = 1
+      WHERE role = 'adm' AND master IS NOT 1
+        AND id IN (SELECT dono_user_id FROM orgs WHERE tipo = 'autonomo' AND dono_user_id IS NOT NULL)`).run();
+    if (r.changes) console.log(`Corretor autônomo: ${r.changes} dono(s) de conta passaram de gestor para corretor.`);
+  } catch (e) {
+    console.error("[autonomo] não consegui ajustar o papel do dono:", e.message);
+  }
+
   return org;
 }

@@ -100,9 +100,18 @@ export function aplicarCorte(orgId, agora = Date.now()) {
   const org = db.prepare("SELECT ultimo_corte FROM orgs WHERE id = ?").get(orgId);
   if (org && org.ultimo_corte >= corte) return { aplicado: false, desligados: 0 };
 
+  /* O DONO DA CONTA AUTÔNOMA NÃO ENTRA NO CORTE. (02/09/2026)
+
+     O corte existe para o corretor declarar todo dia que está no ar — é ele
+     que diz quem entra no rodízio da imobiliária naquele dia. Na casa de uma
+     pessoa não há rodízio nem quem repasse: desligá-lo ao fim do expediente
+     seria fazer o dono da conta remarcar prontidão toda manhã para receber o
+     próprio lead, e esquecer disso não o tiraria de fila nenhuma — só o
+     deixaria contando como indisponível nos números dele mesmo. */
   const alvos = db.prepare(`SELECT u.id FROM users u
-    WHERE u.org_id = ? AND u.available = 1 AND COALESCE(u.available_desde, 0) < ?${semMaster("u")}`)
-    .all(orgId, corte);
+    WHERE u.org_id = ? AND u.available = 1 AND COALESCE(u.available_desde, 0) < ?${semMaster("u")}
+      AND u.id IS NOT (SELECT dono_user_id FROM orgs WHERE id = ? AND tipo = 'autonomo')`)
+    .all(orgId, corte, orgId);
 
   const rodar = db.transaction(() => {
     for (const { id } of alvos) {
