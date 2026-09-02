@@ -695,6 +695,23 @@ addOrgCol("robo_teto", "INTEGER DEFAULT 12");       // máximo de mensagens por 
    semana não existe "fora do expediente", existe "não tem expediente". */
 addOrgCol("robo_dias", "TEXT DEFAULT '1,2,3,4,5'");
 
+/* O robô atende A QUALQUER HORA, sem janela nenhuma? (02/09/2026, pedido do Ali)
+
+   NULO É UM ESTADO VÁLIDO e é o estado da maioria das linhas: significa
+   "ninguém escolheu ainda", e a resposta sai do TIPO da conta —
+   `configDoRobo` resolve nulo como ligado no corretor autônomo e desligado na
+   imobiliária. É o que faz a mudança valer para as contas que já existem sem
+   nenhuma migração de dados, e sem mexer no que uma imobiliária configurou.
+
+   A razão é a diferença entre as duas casas. A imobiliária tem expediente: o
+   robô cobre a ausência da atendente e se cala às 09:00 justamente para o
+   tempo de resposta DELA continuar sendo o número do relatório. O corretor
+   autônomo não tem turno nem tempo de resposta de outra pessoa para preservar
+   — ele atende quando pode, e o lead que chega às 22h esfria até ele ver. Ali
+   pediu o contrário do padrão: a IA atende sempre, e o horário fica como
+   OPÇÃO para quem quiser se organizar como uma imobiliária. */
+addOrgCol("robo_sempre", "INTEGER");
+
 /* Quem foi o ÚLTIMO corretor a receber lead pelo rodízio.
 
    Substitui o `distribution_ptr`, que era um contador e virava outra pessoa

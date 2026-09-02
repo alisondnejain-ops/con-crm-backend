@@ -13,7 +13,7 @@ import { configDoRobo, dentroDaJanela, paraConferir, conferir, orientacoes } fro
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, roles } from "../auth.js";
+import { authRequired, roles, soMaster } from "../auth.js";
 import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
@@ -109,17 +109,29 @@ r.post("/mensagens/:id/mover", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
-/* ===== CONSUMO DA IA =====
+/* ===== CONSUMO DA IA — SÓ DO MASTER (02/09/2026, pedido do Ali) =====
 
    Quem paga a conta pergunta duas coisas: quanto já usamos, e quem usou. A
-   segunda não é fiscalização — é a única forma de saber se o recurso pegou na
-   equipe ou está parado. Por isso a lista vem por pessoa, com o gasto de cada
-   uma ao lado.
+   questão é QUEM paga: a chave da IA é uma só, do ConHub (`ANTHROPIC_API_KEY`
+   no servidor), e não existe chave por imobiliária. O dólar que aparece aqui
+   nunca foi despesa do cliente — é a nossa, e cobrá-la dele não está no plano
+   que ele assinou.
+
+   Mostrá-la ao cliente fazia duas coisas ruins ao mesmo tempo: dava a ele um
+   número de custo que não é dele (e que ele naturalmente leria como conta a
+   pagar, ou como argumento de desconto), e abria a estrutura de custo da
+   plataforma para quem assina a plataforma. No corretor autônomo, que foi o
+   caso que o Ali levantou, ficava ainda mais estranho: uma tela de controle de
+   gasto de IA na conta de quem só quer que a IA responda o lead dele.
+
+   Fica com o master, que é quem paga a Anthropic e quem precisa saber se o
+   recurso pegou na equipe ou está parado. Para o cliente a régua continua
+   sendo a de sempre: o custo estimado aparece ANTES do botão, nas rodadas em
+   lote, que é onde ele decide gastar.
 
    O SALDO da conta não sai daqui: ele mora no painel do provedor de IA, e o
-   CRM não tem como consultá-lo. A tela diz isso em vez de inventar um número.
-   O que temos é o gasto: o que este CRM consumiu. */
-r.get("/ia", roles("adm", "sdr"), (req, res) => {
+   CRM não tem como consultá-lo. A tela diz isso em vez de inventar um número. */
+r.get("/ia", soMaster, (req, res) => {
   if (!iaConfigurada())
     return res.json({ configurada: false, modelo: null });
   const dias = Math.min(Math.max(Number(req.query.dias) || 30, 1), 365);
@@ -227,10 +239,18 @@ r.post("/robo", roles("adm"), (req, res) => {
   const hora = (v, padrao) => (lerHorario(v) ? String(v).trim() : padrao);
   const atual = configDoRobo(req.user.org_id);
 
+  /* Atender a qualquer hora, sem janela nenhuma. (02/09/2026)
+
+     Vem ANTES da conferência da janela de propósito: quem escolheu "a qualquer
+     hora" não tem janela para validar, e recusar o salvamento por causa de dois
+     horários que não valem mais seria barrar a pessoa por um campo que a
+     própria escolha dela desligou. */
+  const sempre = b.sempre === undefined ? atual.sempre : !!b.sempre;
+
   const inicio = hora(b.inicio, atual.inicio), fim = hora(b.fim, atual.fim);
   // Janela de tamanho zero deixaria o robô ligado e mudo — e "ligado e mudo" é
   // exatamente o estado que ninguém consegue diagnosticar olhando a tela.
-  if (inicio === fim) return res.status(400).json({ error: "O início e o fim da janela não podem ser o mesmo horário." });
+  if (!sempre && inicio === fim) return res.status(400).json({ error: "O início e o fim da janela não podem ser o mesmo horário." });
 
   const teto = Math.min(Math.max(Number(b.teto) || atual.teto, 2), 30);
   /* Dias de expediente. Lista vazia é escolha válida ("não temos expediente
@@ -240,11 +260,15 @@ r.post("/robo", roles("adm"), (req, res) => {
     ? [...new Set(b.dias.map(Number).filter(x => Number.isInteger(x) && x >= 0 && x <= 6))].sort()
     : atual.dias;
 
-  db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=?, robo_dias=? WHERE id=?")
-    .run(b.ativo ? 1 : 0, inicio, fim, teto, dias.join(","), req.user.org_id);
+  /* `robo_sempre` sai de nulo no primeiro salvamento e nunca mais volta: a
+     partir daqui a escolha é de quem mexeu, não do tipo da conta. Um corretor
+     autônomo que ligou a janela não pode voltar a atender 24h porque alguém
+     mexeu noutro campo qualquer da tela. */
+  db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=?, robo_dias=?, robo_sempre=? WHERE id=?")
+    .run(b.ativo ? 1 : 0, inicio, fim, teto, dias.join(","), sempre ? 1 : 0, req.user.org_id);
 
   const cfg = configDoRobo(req.user.org_id);
-  console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}], teto ${cfg.teto}`);
+  console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — ${cfg.sempre ? "a QUALQUER hora" : `janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}]`}, teto ${cfg.teto}`);
   res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
 

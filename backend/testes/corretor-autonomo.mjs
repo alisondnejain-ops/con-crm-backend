@@ -294,6 +294,23 @@ r = await chamar(tNaConta, "/leads");
 console.log(`   com o crachá novo, /leads responde ${r.status}`);
 assert.equal(r.status, 200);
 
+console.log("21b. O painel de GASTO DA IA é do ConHub, não do cliente");
+/* Pedido do Ali em 02/09/2026, a partir da conta do corretor autônomo. A chave
+   da IA é uma só, do ConHub — não existe chave por imobiliária —, então o
+   dólar dessa tela nunca foi despesa do cliente: é a nossa. Mostrá-la a ele
+   dava um número de custo que não é dele (e que ele leria como conta a pagar,
+   ou como argumento de desconto) e abria a estrutura de custo da plataforma
+   para quem assina a plataforma.
+
+   O par importa: o master precisa continuar vendo DE DENTRO da conta do
+   cliente, senão a informação some para quem paga a Anthropic. */
+r = await chamar(tBruno, "/config/ia");
+console.log(`   o dono da conta: ${r.status}`);
+assert.equal(r.status, 403, "o cliente não vê o gasto de IA da plataforma");
+r = await chamar(tNaConta, "/config/ia");
+console.log(`   o master, dentro da mesma conta: ${r.status}`);
+assert.equal(r.status, 200, "o master continua vendo — é ele quem paga a conta da IA");
+
 console.log("22. E entra mesmo com a conta TRAVADA — é ele quem libera");
 /* A trava é o "não pagou, CRM travado". Se ela valesse para o master também,
    o único jeito de olhar uma conta travada seria destravá-la antes — ou seja,

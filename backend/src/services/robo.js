@@ -89,9 +89,31 @@ export function orientacoes(orgId, todas = false) {
 
 export function configDoRobo(orgId) {
   const o = db.prepare(
-    "SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias FROM orgs WHERE id = ?").get(orgId) || {};
+    `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo
+       FROM orgs WHERE id = ?`).get(orgId) || {};
+  const autonomo = o.tipo === "autonomo";
+  /* NULO = ninguém escolheu, e aí quem responde é o TIPO da conta.
+
+     No corretor autônomo o padrão é atender a qualquer hora: não há turno de
+     ninguém para cobrir nem tempo de resposta de outra pessoa para preservar,
+     e o lead que chega às 22h esfria até ele ver. Na imobiliária o padrão
+     continua sendo a janela — lá o robô existe para cobrir a ausência da
+     atendente, e se calar às 09:00 é o que mantém o tempo de resposta DELA
+     sendo o número do relatório.
+
+     Escolher grava 0 ou 1 e vale mais que o tipo: quem quiser se organizar
+     como uma imobiliária liga a janela, e quem não tiver expediente fixo
+     desliga. */
+  const sempre = o.robo_sempre === null || o.robo_sempre === undefined
+    ? autonomo : !!o.robo_sempre;
   return {
     ativo: !!o.robo_ativo,
+    sempre,
+    // Quem NÃO escolheu ainda continua vendo o padrão da casa dele. É o que
+    // faz a tela explicar por que o horário está inativo em vez de o gestor
+    // achar que os campos quebraram.
+    escolheu_janela: !(o.robo_sempre === null || o.robo_sempre === undefined),
+    autonomo,
     inicio: o.robo_inicio || "18:00",
     fim: o.robo_fim || "09:00",
     teto: Number(o.robo_teto) > 0 ? Number(o.robo_teto) : TETO_PADRAO,
@@ -116,6 +138,16 @@ export function configDoRobo(orgId) {
    Sexta 18h até segunda 9h vira um bloco contínuo sem nenhum caso especial:
    sexta cai na regra 2, sábado e domingo na regra 1, segunda de novo na 2. */
 export function dentroDaJanela(cfg, agora = Date.now()) {
+  /* "A QUALQUER HORA" curto-circuita as duas perguntas. (02/09/2026)
+
+     Dava para escrever isto como "nenhum dia de expediente" — a regra 1 já
+     devolveria `true` sempre —, e foi o que quase aconteceu. O problema é que
+     o estado ficaria escondido num detalhe: sete botões desmarcados, e um
+     clique acidental em qualquer um deles emudeceria o robô das 09:00 às
+     18:00 sem que ninguém entendesse por quê. Um campo que diz o que é vale a
+     linha de código a mais. */
+  if (cfg.sempre) return true;
+
   const d = new Date(agora);
   const dias = cfg.dias || DIAS_PADRAO;
   if (!dias.includes(d.getDay())) return true;
@@ -150,6 +182,15 @@ export const palavraProibida = (texto) => {
   const t = String(texto || "");
   const achou = PROIBIDAS.find(p => p.padrao.test(t));
   return achou ? achou.palavra : null;
+};
+
+/* Quem é o dono de uma casa de corretor autônomo — ou nulo, se a conta é uma
+   imobiliária. Vai ao BANCO e não ao crachá: é a mesma régua de `ehDonoAutonomo`
+   em `auth.js`, e aqui não existe crachá nenhum (o robô responde a um webhook,
+   sem ninguém logado). */
+const orgDoAutonomo = (orgId) => {
+  const o = db.prepare("SELECT tipo, dono_user_id FROM orgs WHERE id = ?").get(orgId);
+  return o && o.tipo === "autonomo" ? o.dono_user_id || null : null;
 };
 
 /* Quem o robô pode atender AGORA. Devolve o motivo quando não pode: sem isso,
@@ -187,7 +228,27 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   const canal = canalDoLead(lead);
   const pessoal = canal && canal.tipo === "corretor";
   if (pessoal && !canal.robo_ligado) return { pode: false, motivo: "robo_desligado_nesta_linha" };
-  if (!pessoal && lead.dono_papel === "corretor") return { pode: false, motivo: "ja_com_corretor" };
+
+  /* O DONO DA CASA DE UM CORRETOR SÓ NÃO ATIVA ESTA TRAVA. (02/09/2026)
+
+     Furo criado pela mudança de papel de hoje de manhã: o corretor autônomo
+     deixou de ser `adm` e virou `corretor`, que é o que a catraca, o rodízio e
+     o score precisam enxergar. Só que a catraca entrega TODO lead dele a ele
+     — e a trava abaixo lê "já tem corretor" e cala o robô. Resultado: o
+     atendimento automático ficaria ligado e mudo em 100% das conversas da
+     conta, sem erro nenhum em lugar nenhum. Ligado e mudo é justamente o
+     estado que ninguém consegue diagnosticar olhando a tela.
+
+     A trava é a mesma inversão da linha pessoal, e pelo mesmo motivo: no
+     número da CASA de uma imobiliária o robô cobre o vazio entre o lead
+     chegar e alguém assumir, e lead repassado a corretor já tem dono com nome.
+     Na casa de uma pessoa esse vazio não existe — todo lead é dele desde o
+     primeiro segundo —, então manter a trava seria apagar o recurso em vez de
+     protegê-lo. O que sustenta a inversão é o mesmo consentimento: o robô
+     nasce desligado e quem liga é ele, no próprio painel. */
+  const casaDele = !!(lead.assigned_to && orgDoAutonomo(orgId) === lead.assigned_to);
+  if (!pessoal && !casaDele && lead.dono_papel === "corretor")
+    return { pode: false, motivo: "ja_com_corretor" };
   if ((lead.robo_msgs || 0) >= cfg.teto) return { pode: false, motivo: "teto_de_mensagens" };
 
   // Sem retorno = a última mensagem da conversa é do cliente. Uma linha de SQL
@@ -356,8 +417,15 @@ export function estadoNoLead(orgId, leadId, agora = Date.now()) {
     teto: cfg.teto,
     org_ativo: cfg.ativo,
     configurada: cfg.configurada,
-    janela: `${cfg.inicio} às ${cfg.fim}`,
-    dias: cfg.dias,
+    // Sem janela não há horário para escrever: dizer "das 18:00 às 09:00" numa
+    // conta que atende a qualquer hora é a tela afirmando o contrário de si
+    // mesma, e o corretor iria procurar o defeito no horário.
+    sempre: cfg.sempre,
+    // A tela usa isto só para nomear a aba certa ao mandar alguém ligar o
+    // robô: numa casa de um corretor só ela se chama "Atendimento pela IA".
+    autonomo: cfg.autonomo,
+    janela: cfg.sempre ? null : `${cfg.inicio} às ${cfg.fim}`,
+    dias: cfg.sempre ? null : cfg.dias,
     dentro_da_janela: dentroDaJanela(cfg),
     // O que aconteceria se o cliente escrevesse AGORA, e por quê.
     responderia: t.pode,

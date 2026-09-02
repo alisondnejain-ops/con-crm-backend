@@ -876,10 +876,16 @@ function ConCRM(){
     const ver=()=>acoes.assinatura().then(a=>vivo&&setAssinatura(a)).catch(()=>{});
     ver();
     const t=setInterval(ver,60*60*1000);
+    /* Na conta de corretor autônomo não existe escala de plantão — a tela saiu
+       do menu, e com ela o lembrete no alto do sistema. Sem esta linha o app
+       continuaria perguntando de hora em hora por uma escala que ninguém pode
+       montar, só para receber uma resposta vazia. */
+    const semPlantao=!!(org&&org.tipo==="autonomo");
+    if(semPlantao) setPlantao(null);
     const verPlantao=()=>acoes.plantaoDeHoje().then(p=>vivo&&setPlantao(p)).catch(()=>{});
-    verPlantao();
-    const t2=setInterval(verPlantao,60*60*1000);
-    return()=>{vivo=false;clearInterval(t);clearInterval(t2);};
+    if(!semPlantao) verPlantao();
+    const t2=semPlantao?null:setInterval(verPlantao,60*60*1000);
+    return()=>{vivo=false;clearInterval(t);if(t2) clearInterval(t2);};
     /* A imobiliária entra nas dependências junto com a sessão: entrar numa
        conta pelo hub não troca a SESSÃO (é a mesma pessoa), só a casa. Sem
        ela, `entrarNaConta` zerava a assinatura e nada buscava a nova — o
@@ -3389,13 +3395,23 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       ?[["produtividade","trend","Produção","Minha conta"]]
       :[])
     .concat([["conta","user","Minha conta","Configurações"]])
-    /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA SOME.
+    /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA E O PLANTÃO SOMEM.
 
-       Ela distribui leads entre corretores disponíveis, e ali existe um
+       A CATRACA distribui leads entre corretores disponíveis, e ali existe um
        corretor só — a fila teria sempre uma pessoa, e a tela responderia uma
        pergunta que ninguém faz. O atendente dele continua repassando o lead
-       normalmente pela ficha; o que sai é a tela de rodízio, não o repasse. */
-    .filter(item=>!(org&&org.tipo==="autonomo"&&item[0]==="catraca"));
+       normalmente pela ficha; o que sai é a tela de rodízio, não o repasse.
+
+       O PLANTÃO saiu em 02/09/2026, pelo mesmo tipo de motivo (pedido do Ali:
+       "o plantão dele é na hora que ele quiser e puder"). A escala existe para
+       responder quem está na imobiliária em cada turno, e a conferência de
+       presença existe porque é a ATENDENTE quem confere quem veio — nota que a
+       pessoa se dá a si mesma não é conferência, é declaração. Numa casa de um
+       corretor só, ele seria o escalado, o conferente e o conferido ao mesmo
+       tempo: os três números do relatório (veio / faltou / não conferido)
+       deixam de significar qualquer coisa. Some a tela inteira, e some junto o
+       lembrete do plantão no alto do sistema. */
+    .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")));
   const sozinho=!!(org&&org.tipo==="autonomo");
   const TITLES={dashboard:sozinho?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
@@ -3497,7 +3513,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,org,isMobile,versao}}/>}
         {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
-        {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile}
+        {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile} org={org}
           aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
         {podeGerir(session)&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
         {podeGerir(session)&&view==="conexao"&&<Conexao conecta={conecta}/>}
@@ -6712,7 +6728,6 @@ function NomeDoLead({lead,acoes}){
    depois de religar. Botão que não faz nada e não explica por quê é pior do
    que botão nenhum. */
 const MOTIVO_ROBO={
-  desligado:"O atendimento automático está desligado na imobiliária inteira (Configurações → Fora do expediente).",
   ia_nao_configurada:"A IA não está ligada nesta instalação.",
   dentro_do_expediente:"Agora é horário de expediente — quem atende é a equipe.",
   ja_com_corretor:"Este lead já está com um corretor. O robô nunca fala em atendimento de corretor.",
@@ -6755,7 +6770,14 @@ function RoboNoLead({lead,acoes,isMobile}){
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>
       {e.responderia
         ?<span>Se o cliente escrever agora, a IA responde.</span>
-        :<span>{MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
+        /* "Desligado" é o único motivo que manda a pessoa a OUTRA TELA, então
+            precisa dizer o nome que a aba tem NESTA conta — na casa de um
+            corretor só ela se chama "Atendimento pela IA". Mandar procurar
+            "Fora do expediente" numa tela onde essa aba não existe é o mesmo
+            que não dizer nada. */
+        :<span>{e.motivo==="desligado"
+          ?`O atendimento automático está desligado na conta inteira (Configurações → ${e.autonomo?"Atendimento pela IA":"Fora do expediente"}).`
+          :MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
     </div>
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
       Já respondeu {e.mensagens} vez(es) neste lead, de no máximo {e.teto}.</div>}
@@ -6770,10 +6792,14 @@ function RoboNoLead({lead,acoes,isMobile}){
       <Icon n={e.ligado?"x":"spark"} size={13} color={e.ligado?C.sub:"#fff"}/>
       {salvando?"…":e.ligado?"Desligar a IA neste lead":"Ativar a IA neste lead"}</button>
 
+    {/* O texto muda com a configuração da casa. Numa conta que atende a
+        qualquer hora, "dentro do horário" e "nem durante o expediente" são
+        duas afirmações falsas sobre o próprio sistema — e mandariam o corretor
+        procurar um horário que não existe quando a IA não respondesse. */}
     {!e.ligado&&<div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
-      Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente
-      dentro do horário. As regras continuam valendo: ela não fala em lead de corretor
-      nem durante o expediente.</div>}
+      {e.sempre
+        ?"Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente. Nesta conta ela atende a qualquer hora — o que a faz sair da conversa é alguém responder ou ela se despedir."
+        :"Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente dentro do horário. As regras continuam valendo: ela não fala em lead de corretor nem durante o expediente."}</div>}
   </div>;
 }
 
@@ -9819,7 +9845,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
      semana conforme o que converte, e quem sabe isso é quem atende.
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
-function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
+function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
   const [aba,setAba]=useState("funis");
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
@@ -9831,8 +9857,24 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
      o resultado numa tela grande. É a mesma régua de recolher a barra: coisa
      que se faz sentado, uma vez, não em pé com o cliente esperando. */
   const podeMarca=session&&podeGerir(session)&&!isMobile;
-  const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],["robo","Fora do expediente"],
-    ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],["ia","Uso da IA"]];
+  /* "USO DA IA" É SÓ DO MASTER (02/09/2026, pedido do Ali).
+
+     A chave da IA é uma só, do ConHub — não existe chave por imobiliária. O
+     dólar dessa tela nunca foi despesa do cliente, é a nossa; mostrá-la a ele
+     dava um número de custo que não é dele (e que ele leria como conta a pagar
+     ou como argumento de desconto) e abria a estrutura de custo da plataforma
+     para quem assina a plataforma. O cliente continua vendo o custo estimado
+     ANTES do botão, nas rodadas em lote — que é onde ele decide gastar. */
+  /* O NOME DA ABA MUDA NA CONTA DE UM CORRETOR SÓ. Ali a IA atende a qualquer
+     hora por padrão, e "Fora do expediente" seria a aba anunciando um horário
+     que a conta não tem — a pessoa entra procurando o expediente e sai sem
+     entender o que a tela faz. Na imobiliária o nome continua o mesmo: lá ele
+     descreve exatamente o que a seção é. */
+  const sozinho=!!(org&&org.tipo==="autonomo");
+  const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
+    ["robo",sozinho?"Atendimento pela IA":"Fora do expediente"],
+    ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
+    ...(session&&session.master?[["ia","Uso da IA"]]:[])];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
@@ -9853,7 +9895,7 @@ function Configuracoes({acoes,session,isMobile,aoMudarMensagens}){
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="marca"&&podeMarca&&<IdentidadeConfig acoes={acoes} isMobile={isMobile}/>}
       {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
-      {aba==="ia"&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
+      {aba==="ia"&&session&&session.master&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
     </div>
   </div>;
 }
@@ -10116,26 +10158,33 @@ function RoboConfig({acoes,session,isMobile}){
     {cartao(<React.Fragment>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
         <Icon n="spark" size={15} color={C.greenMid}/>
-        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Primeiro atendimento fora do expediente</span>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
+          {cfg.sempre?"Primeiro atendimento automático":"Primeiro atendimento fora do expediente"}</span>
         {cfg.ativo&&<span style={{background:cfg.agora_atenderia?C.greenSoft:C.surface,
           color:cfg.agora_atenderia?C.greenDeep:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:700}}>
           {cfg.agora_atenderia?"atendendo agora":"em silêncio agora"}</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6}}>
-        Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele, acolhe e
-        anota as informações da simulação. Na manhã seguinte a atendente confere e encaminha.
+        {cfg.sempre
+          ?"Quando um lead chama e você não está no celular, a IA conversa com ele, acolhe e anota as informações da simulação. Assim que você responde, ela sai da conversa e não volta."
+          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele, acolhe e anota as informações da simulação. Na manhã seguinte a atendente confere e encaminha."}
       </div>
 
       {/* O que ele NUNCA faz vem antes do interruptor, e não escondido num
           "saiba mais". É a parte que muda a decisão de ligar. */}
       <div style={{background:C.surface,borderRadius:11,padding:"11px 13px",margin:"11px 0"}}>
         <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>O que ele nunca faz</div>
+        {/* Duas linhas mudam na conta de um corretor só, e as duas mudariam de
+            VERDADEIRAS para FALSAS se ficassem como estão: ali todo lead é
+            dele desde o primeiro segundo (então "não atende lead de corretor"
+            silenciaria a IA em 100% das conversas, que é o oposto do que
+            acontece), e não existe atendente para olhar a etapa de manhã. */}
         {[["Falar valor","nada de parcela, entrada mínima, juros ou preço de imóvel"],
-          ["Dizer que aprovou","quem diz se enquadra é o corretor com a simulação"],
+          ["Dizer que aprovou",cfg.autonomo?"quem diz se enquadra é você, com a simulação na mão":"quem diz se enquadra é o corretor com a simulação"],
           ["Marcar visita","nem dia, nem hora, nem promessa de ligação"],
-          ["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"],
+          ...(cfg.autonomo?[]:[["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"]]),
           ["Falar por cima de alguém","na primeira mensagem de uma pessoa, ele sai da conversa e não volta"],
-          ["Mexer no funil","a etapa fica parada até a atendente olhar de manhã"]].map(([t,d])=>
+          ["Mexer no funil",cfg.autonomo?"a etapa fica parada até você olhar a conversa":"a etapa fica parada até a atendente olhar de manhã"]].map(([t,d])=>
           <div key={t} style={{display:"flex",gap:7,marginTop:5,alignItems:"flex-start"}}>
             <span style={{color:C.hot,fontSize:12,fontWeight:700,lineHeight:1.5}}>×</span>
             <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}><b style={{color:C.ink}}>{t}.</b> {d}</div>
@@ -10146,17 +10195,56 @@ function RoboConfig({acoes,session,isMobile}){
         padding:"8px 10px",marginBottom:10,lineHeight:1.5}}>
         A IA não está ligada nesta instalação — sem ela o robô não atende, mesmo ligado aqui.</div>}
 
-      <div style={{display:"flex",gap:9,flexWrap:"wrap",alignItems:"flex-end"}}>
-        <div>
-          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>ELE ASSUME ÀS</div>
-          <input value={cfg.inicio} disabled={!ehAdm} onChange={e=>setCfg({...cfg,inicio:e.target.value})}
-            placeholder="18:00" style={campo}/>
+      {/* ===== QUANDO ELE ATENDE =====
+
+          Duas escolhas de verdade, e não sete botões de dia significando uma
+          delas por tabela. Dava para dizer "a qualquer hora" desmarcando os
+          sete dias — a regra já funciona assim —, mas aí o estado ficaria
+          escondido num detalhe, e um clique errado em qualquer dia emudeceria
+          a IA das 09:00 às 18:00 sem ninguém entender por quê.
+
+          O PADRÃO É DIFERENTE NAS DUAS CASAS (02/09/2026, pedido do Ali).
+          Numa imobiliária o robô cobre a ausência da atendente e se cala às
+          09:00 justamente para o tempo de resposta DELA continuar sendo o
+          número do relatório. Um corretor sozinho não tem turno de ninguém
+          para cobrir nem tempo de resposta de outra pessoa para preservar — o
+          lead que chega às 22h esfria até ele ver o celular. Por isso a conta
+          dele nasce em "a qualquer hora", e a janela fica como opção para quem
+          quiser se organizar como uma imobiliária. */}
+      <div style={{marginTop:12}}>
+        <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>QUANDO A IA ATENDE</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[[true,"A qualquer hora","ela responde sempre que o cliente escreve e você ainda não respondeu"],
+            [false,"Só fora do expediente","ela fica calada no horário em que a equipe atende"]].map(([v,t,d])=>
+            <button key={String(v)} disabled={!ehAdm} onClick={()=>ehAdm&&setCfg({...cfg,sempre:v})}
+              title={d}
+              style={{flex:isMobile?"1 1 100%":"1 1 0",minWidth:isMobile?"100%":190,textAlign:"left",
+                border:`1px solid ${cfg.sempre===v?C.green:C.line}`,background:cfg.sempre===v?C.greenSoft:C.card,
+                borderRadius:11,padding:isMobile?"11px 12px":"10px 12px",cursor:ehAdm?"pointer":"default"}}>
+              <div style={{color:cfg.sempre===v?C.greenDeep:C.sub,fontSize:12,fontWeight:700}}>{t}</div>
+              <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45,marginTop:2}}>{d}</div>
+            </button>)}
         </div>
-        <div>
-          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>A EQUIPE ASSUME ÀS</div>
-          <input value={cfg.fim} disabled={!ehAdm} onChange={e=>setCfg({...cfg,fim:e.target.value})}
-            placeholder="09:00" style={campo}/>
-        </div>
+      </div>
+
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",alignItems:"flex-end",marginTop:11}}>
+        {/* Os horários só existem quando há janela. Deixá-los na tela em cinza,
+            numa conta que atende a qualquer hora, seria manter dois campos que
+            não decidem nada — e o próximo a abrir a tela ajustaria o horário e
+            iria embora achando que mudou alguma coisa. */}
+        {!cfg.sempre&&<React.Fragment>
+          <div>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>ELA ASSUME ÀS</div>
+            <input value={cfg.inicio} disabled={!ehAdm} onChange={e=>setCfg({...cfg,inicio:e.target.value})}
+              placeholder="18:00" style={campo}/>
+          </div>
+          <div>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>
+              {cfg.autonomo?"VOCÊ ASSUME ÀS":"A EQUIPE ASSUME ÀS"}</div>
+            <input value={cfg.fim} disabled={!ehAdm} onChange={e=>setCfg({...cfg,fim:e.target.value})}
+              placeholder="09:00" style={campo}/>
+          </div>
+        </React.Fragment>}
         <div>
           <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>MÁX. DE MENSAGENS</div>
           <input value={cfg.teto} disabled={!ehAdm} onChange={e=>setCfg({...cfg,teto:e.target.value})}
@@ -10167,8 +10255,9 @@ function RoboConfig({acoes,session,isMobile}){
           que evita a pergunta "marco sábado se quero que ele atenda no
           sábado?". Nos dias desmarcados não existe "fora do expediente":
           não tem expediente, e ele atende o dia inteiro. */}
-      <div style={{marginTop:11}}>
-        <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>DIAS EM QUE A EQUIPE TRABALHA</div>
+      {!cfg.sempre&&<div style={{marginTop:11}}>
+        <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>
+          {cfg.autonomo?"DIAS EM QUE VOCÊ TRABALHA":"DIAS EM QUE A EQUIPE TRABALHA"}</div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
           {DIAS_SEMANA.map(([n,rot])=>{
             const tem=(cfg.dias||[]).includes(n);
@@ -10180,12 +10269,17 @@ function RoboConfig({acoes,session,isMobile}){
                 cursor:ehAdm?"pointer":"default"}}>{rot}</button>;
           })}
         </div>
-      </div>
+      </div>}
       <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:8}}>
-        Nos dias marcados ele atende das <b>{cfg.inicio}</b> às <b>{cfg.fim}</b> — a janela
-        atravessa a meia-noite, e no resto do dia ele fica calado para o tempo de resposta da
-        equipe continuar sendo o da equipe. Nos dias <b>desmarcados</b> ele atende o dia inteiro,
-        porque ali não tem expediente para estar fora.
+        {cfg.sempre
+          ?<React.Fragment>Ela atende <b>a qualquer hora, todo dia</b> — inclusive de madrugada e no fim de
+            semana. Continua valendo o resto: ela só fala quando a última mensagem é do cliente,
+            e na primeira mensagem que <b>você</b> escrever ela sai da conversa e não volta
+            (dá para religar na ficha do lead).</React.Fragment>
+          :<React.Fragment>Nos dias marcados ela atende das <b>{cfg.inicio}</b> às <b>{cfg.fim}</b> — a janela
+            atravessa a meia-noite, e no resto do dia ela fica calada para o tempo de resposta
+            {cfg.autonomo?" continuar sendo o seu":" da equipe continuar sendo o da equipe"}. Nos dias <b>desmarcados</b> ela
+            atende o dia inteiro, porque ali não tem expediente para estar fora.</React.Fragment>}
       </div>
 
       {ehAdm?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
@@ -10195,7 +10289,8 @@ function RoboConfig({acoes,session,isMobile}){
           {salvando?"…":cfg.ativo?"Desligar o atendimento automático":"Ligar o atendimento automático"}</button>
         <button onClick={()=>salvar({})} disabled={salvando}
           style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
-            padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar horários</button>
+            padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          {cfg.sempre?"Salvar":"Salvar horários"}</button>
       </div>
       :<div style={{color:C.faint,fontSize:11.5,marginTop:11}}>
         Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
@@ -10209,11 +10304,12 @@ function RoboConfig({acoes,session,isMobile}){
     {cartao(<React.Fragment>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
         <Icon n="msg" size={15} color={C.greenMid}/>
-        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Ensinar a IA a falar como a sua equipe</span>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
+          {cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</span>
         {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
-        Escreva aqui como a equipe fala — o jeito de tratar o cliente, o que explicar quando
+        Escreva aqui como {cfg.autonomo?"você fala":"a equipe fala"} — o jeito de tratar o cliente, o que explicar quando
         perguntarem de um programa, o que sempre perguntar. A IA lê estas linhas antes de cada
         resposta. <b>Elas não desbloqueiam o que é proibido:</b> nada de valor, aprovação ou
         agendamento, mesmo que escrito aqui.
@@ -10274,7 +10370,7 @@ function RoboConfig({acoes,session,isMobile}){
       </div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
         Estes leads têm a última mensagem da imobiliária, então não aparecem como "esperando
-        resposta". Confira o que o robô anotou e encaminhe para o corretor.
+        resposta". Confira o que o robô anotou {cfg.autonomo?"e assuma a conversa.":"e encaminhe para o corretor."}
       </div>
       {!fila&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
       {fila&&!fila.length&&<div style={{color:C.faint,fontSize:12}}>Nada esperando conferência.</div>}

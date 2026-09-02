@@ -16,6 +16,10 @@
    - a mensagem do robô NÃO conta como primeira resposta de ninguém;
    - o lead atendido por ele cai numa lista de conferência.
 
+   E, desde 02/09/2026, o oposto disso numa casa de UM CORRETOR SÓ: lá o que
+   se testa é que ele NÃO fica calado. São dois padrões diferentes na mesma
+   função, e os casos 30 a 33 existem para que mexer num não apague o outro.
+
    A Anthropic e a Uazapi são trocadas por respostas de mentira: roda offline.
 
    Rodar:  npm run teste:robo
@@ -435,5 +439,90 @@ console.log("29. A IA se apresenta com o nome DESTA imobiliária, e não com um 
 console.log(`   ${ultimoPedido.slice(0, 68).replace(/\n/g, " ")}…`);
 assert.ok(/Imobili.ria Aurora/.test(ultimoPedido), "o nome da imobiliária do lead entra no pedido");
 assert.ok(!/Conecta/.test(ultimoPedido), "e nenhum nome de imobiliária fica fixo no código");
+
+/* ===== A CASA DE UM CORRETOR SÓ (02/09/2026, pedido do Ali) =====
+
+   "O plantão dele é na hora que ele quiser e puder" — e o atendimento também.
+   Um corretor sozinho não tem turno de ninguém para cobrir nem tempo de
+   resposta de outra pessoa para preservar; o lead que chega às 22h esfria até
+   ele ver o celular. Por isso o padrão inverte, e a janela vira opção.
+
+   Os quatro casos abaixo testam a inversão inteira: o padrão sai do TIPO da
+   conta, "a qualquer hora" ignora hora E dia, a trava do corretor não vale
+   para o dono da casa, e a escolha explícita vale mais que o tipo. */
+const orgSo = "org_" + randomUUID().slice(0, 8);
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,tipo) VALUES (?,?,?,?,'autonomo')")
+  .run(orgSo, "Rafael Corretor", "R-1", Date.now());
+db.prepare("UPDATE orgs SET robo_ativo=1, uazapi_host=?, uazapi_token=? WHERE id=?")
+  .run(process.env.UAZAPI_HOST, "token-do-rafael", orgSo);
+const rafael = "u_" + randomUUID();
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+  VALUES (?,?,?,?,'x','corretor',1,?,'ativo')`).run(rafael, orgSo, "Rafael", "rafael@x.com", Date.now());
+db.prepare("UPDATE orgs SET dono_user_id=? WHERE id=?").run(rafael, orgSo);
+const leadDoRafael = (nome, dono) => { const id = "l_" + randomUUID();
+  db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,qual_json,stage,assigned_to,created_at)
+    VALUES (?,?,?,?,'WhatsApp','{}','Lead',?,?)`).run(id, orgSo, nome, "558791000" + (1000 + n++), dono, Date.now());
+  return id; };
+
+console.log("30. Sem ninguém configurar nada, os dois padrões são OPOSTOS");
+/* `robo_sempre` é NULO nas duas contas — ninguém escolheu. A resposta sai do
+   tipo: imobiliária tem expediente para estar fora, corretor sozinho não. */
+const cfgSo = configDoRobo(orgSo);
+console.log(`   imobiliária: sempre=${configDoRobo(org).sempre} · corretor sozinho: sempre=${cfgSo.sempre}`);
+assert.equal(configDoRobo(org).sempre, false, "a imobiliária continua com janela — nada mudou para ela");
+assert.equal(cfgSo.sempre, true, "a casa de um corretor só nasce atendendo a qualquer hora");
+assert.equal(cfgSo.escolheu_janela, false, "e a tela precisa saber que isso é o padrão, não uma escolha");
+assert.equal(cfgSo.autonomo, true);
+
+console.log("31. E 'a qualquer hora' ignora a hora E o dia");
+/* Quarta às 14h é o meio do expediente: é exatamente o horário em que a
+   imobiliária fica calada. Se este caso passasse por acaso — testando só a
+   madrugada, por exemplo — a inversão poderia estar quebrada e ninguém saberia
+   até o primeiro lead perdido às duas da tarde. */
+for (const q of ["2026-08-19T14:00:00-03:00", "2026-08-19T03:00:00-03:00",
+                 "2026-08-15T10:00:00-03:00", "2026-08-19T09:00:00-03:00"]) {
+  const t = new Date(q).getTime();
+  console.log(`   ${q.slice(5, 16)} → sozinho: ${dentroDaJanela(cfgSo, t) ? "atende" : "calado"}` +
+              ` · imobiliária: ${dentroDaJanela(cfg, t) ? "atende" : "calado"}`);
+  assert.equal(dentroDaJanela(cfgSo, t), true, `devia atender em ${q}`);
+}
+assert.equal(dentroDaJanela(cfg, new Date("2026-08-19T14:00:00-03:00").getTime()), false,
+  "e no mesmo instante a imobiliária continua calada — senão o teste acima não prova nada");
+
+console.log("32. O DONO da casa não ativa a trava 'já tem corretor'");
+/* Este é o furo que a mudança de papel de 02/09 abriu: o autônomo virou
+   `corretor` (que é o que a catraca e o score precisam ver) e a catraca
+   entrega TODO lead dele a ele. Com a trava valendo, o robô ficaria ligado e
+   mudo em 100% das conversas da conta, sem erro nenhum em lugar nenhum. */
+const doDono = leadDoRafael("Chamou 22h", rafael);
+doCliente(doDono, "boa noite, vi o anúncio");
+const rDono = podeAtender(orgSo, doDono, new Date("2026-08-19T14:00:00-03:00").getTime());
+console.log(`   lead do próprio dono, 14h de quarta: ${rDono.pode ? "a IA responde" : "calado (" + rDono.motivo + ")"}`);
+assert.equal(rDono.pode, true, "na casa dele não existe vazio entre o lead chegar e alguém assumir");
+
+/* E a trava continua de pé onde ela nasceu. Sem esta metade, apagar a regra
+   inteira passaria no teste acima. */
+const daMarina = lead({ nome: "Já é da Marina", dono: marina });
+doCliente(daMarina, "oi, boa noite");
+console.log(`   e na imobiliária, lead da Marina: ${podeAtender(org, daMarina, NOITE).motivo}`);
+assert.equal(podeAtender(org, daMarina, NOITE).motivo, "ja_com_corretor");
+
+console.log("33. Escolher a janela vale MAIS que o tipo da conta");
+/* Ali pediu que o horário continuasse existindo como opção, para quem quiser
+   se organizar como uma imobiliária. Se o tipo ganhasse da escolha, o botão
+   estaria na tela sem fazer nada — que é o defeito da tela de disponibilidade
+   que ele mesmo apontou hoje de manhã. */
+db.prepare("UPDATE orgs SET robo_sempre=0, robo_inicio='18:00', robo_fim='09:00', robo_dias='1,2,3,4,5' WHERE id=?").run(orgSo);
+const cfgEscolhido = configDoRobo(orgSo);
+console.log(`   depois de ligar a janela: sempre=${cfgEscolhido.sempre} · escolheu=${cfgEscolhido.escolheu_janela}`);
+assert.equal(cfgEscolhido.sempre, false, "a escolha dele manda, mesmo sendo uma casa de um corretor só");
+assert.equal(cfgEscolhido.escolheu_janela, true);
+assert.equal(dentroDaJanela(cfgEscolhido, new Date("2026-08-19T14:00:00-03:00").getTime()), false,
+  "e agora ele fica calado às 14h, como uma imobiliária");
+/* E o inverso também: uma imobiliária pode escolher atender a qualquer hora. */
+db.prepare("UPDATE orgs SET robo_sempre=1 WHERE id=?").run(org);
+assert.equal(dentroDaJanela(configDoRobo(org), new Date("2026-08-19T14:00:00-03:00").getTime()), true,
+  "a opção vale nos dois sentidos");
+db.prepare("UPDATE orgs SET robo_sempre=NULL WHERE id=?").run(org);
 
 console.log("\nTudo certo ✅");
