@@ -9,9 +9,58 @@ export function mailConfigured() {
   return !!(process.env.RESEND_API_KEY && process.env.MAIL_FROM);
 }
 
+/* ===== AS ÚLTIMAS TENTATIVAS DE ENVIO ===== (02/09/2026)
+
+   E-mail é o exemplo perfeito de recurso que falha calado: quem pediu a senha
+   vê "se existir uma conta, o link foi enviado" — e essa frase é assim DE
+   PROPÓSITO, porque contar o contrário entregaria quais e-mails têm conta. O
+   resultado é que uma recusa do provedor não aparece em tela nenhuma, e o
+   único registro fica no log do Railway, que ninguém abre.
+
+   Então o que voltou do provedor fica guardado aqui, na memória, e aparece em
+   `/integracoes` — o mesmo caminho que a citação e a edição de mensagem já
+   usavam pelo mesmo motivo. É o que separa "o e-mail não chegou" de "o
+   provedor recusou porque o remetente não bate com o domínio verificado".
+
+   O DESTINATÁRIO VAI MASCARADO. `/integracoes` é público: mostrar a lista de
+   para quem o CRM manda e-mail transformaria o painel de diagnóstico numa
+   lista de clientes. Máscara guarda o suficiente para a pessoa reconhecer o
+   próprio teste ("foi para o meu Gmail?") sem servir a mais ninguém. */
+const ULTIMOS = [];
+const MAX_ULTIMOS = 8;
+
+const mascarar = (email) => {
+  const [antes, dominio] = String(email || "").split("@");
+  if (!dominio) return "—";
+  const visivel = antes.length <= 2 ? antes[0] || "" : antes[0] + "***" + antes[antes.length - 1];
+  return `${visivel}@${dominio}`;
+};
+
+function anotar(registro) {
+  ULTIMOS.unshift({ quando: new Date().toISOString(), ...registro });
+  if (ULTIMOS.length > MAX_ULTIMOS) ULTIMOS.length = MAX_ULTIMOS;
+}
+
+export function emailDiagnostico() {
+  /* O DOMÍNIO do remetente aparece inteiro, e é de propósito: é exatamente o
+     que precisa ser comparado com o domínio verificado no Resend, e é a causa
+     nº 1 de o envio ser recusado. Não é segredo — ele vai em todo e-mail que
+     sai. A chave nunca aparece. */
+  const de = String(process.env.MAIL_FROM || "");
+  const dominio = (de.match(/@([^>\s]+)/) || [])[1] || null;
+  return {
+    configurado: mailConfigured(),
+    remetente: de ? de.replace(/<.*@/, "<***@") : null,
+    dominio_do_remetente: dominio,
+    ultimos: ULTIMOS.length ? ULTIMOS : "nenhuma tentativa desde que o servidor subiu",
+  };
+}
+
 export async function sendMail({ to, subject, html }) {
   if (!mailConfigured()) {
     console.log(`[mail] não configurado — e-mail para ${to} não enviado. Assunto: ${subject}`);
+    anotar({ para: mascarar(to), assunto: subject, ok: false,
+      motivo: "RESEND_API_KEY ou MAIL_FROM não estão configurados no servidor" });
     return { sent: false, reason: "não configurado" };
   }
   try {
@@ -26,13 +75,41 @@ export async function sendMail({ to, subject, html }) {
     if (!res.ok) {
       const body = await res.text();
       console.error(`[mail] falha ao enviar para ${to}: ${res.status} ${body}`);
+      anotar({ para: mascarar(to), assunto: subject, ok: false,
+        motivo: explicar(res.status, body), resposta_do_provedor: body.slice(0, 300) });
       return { sent: false, reason: `provedor respondeu ${res.status}` };
     }
+    anotar({ para: mascarar(to), assunto: subject, ok: true,
+      motivo: "aceito pelo Resend — se não chegou, confira o spam" });
     return { sent: true };
   } catch (e) {
     console.error(`[mail] erro de rede ao enviar para ${to}:`, e.message);
+    anotar({ para: mascarar(to), assunto: subject, ok: false,
+      motivo: "não consegui falar com o Resend: " + e.message });
     return { sent: false, reason: "erro de rede" };
   }
+}
+
+/* Traduz a recusa do provedor para o que fazer.
+
+   A resposta crua do Resend é em inglês e técnica, e quem lê `/integracoes`
+   administra a plataforma — não escreveu o cliente HTTP. Os casos conhecidos
+   ganham frase própria com o próximo passo; o que não se sabe nomear passa
+   cru, porque esconder some com a única pista. */
+function explicar(status, body) {
+  const t = String(body || "").toLowerCase();
+  if (status === 401 || t.includes("api key is invalid"))
+    return "a RESEND_API_KEY não foi aceita. Gere outra no Resend e atualize no Railway.";
+  if (t.includes("domain is not verified") || t.includes("not verified"))
+    return "o domínio do remetente ainda NÃO está verificado no Resend. Abra Domains lá e confira se os três registros de DNS estão verdes.";
+  if (status === 403 && t.includes("testing emails"))
+    return "conta do Resend em modo de teste: sem domínio verificado ela só entrega para o SEU próprio e-mail de cadastro. Verifique o domínio para mandar para qualquer pessoa.";
+  if (status === 403)
+    return "o Resend recusou o remetente. Quase sempre é o MAIL_FROM usando um domínio diferente do que foi verificado lá — compare os dois.";
+  if (status === 422)
+    return "o Resend não entendeu o pedido. Confira o formato do MAIL_FROM: precisa ser Nome <endereco@dominio>.";
+  if (status === 429) return "muitos e-mails em pouco tempo — o Resend está segurando. Espere alguns minutos.";
+  return `o Resend respondeu ${status}.`;
 }
 
 // E-mail de convite: o corretor clica e define a própria senha.

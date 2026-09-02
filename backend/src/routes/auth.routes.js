@@ -544,8 +544,15 @@ r.post("/esqueci-senha", async (req, res) => {
   if (mailConfigured()) {
     try {
       const { subject, html } = senhaEmail({ name: u.name, link, horas: REDEFINICAO_HORAS });
-      await sendMail({ to: u.email, subject, html });
+      const out = await sendMail({ to: u.email, subject, html });
+      /* A resposta ao visitante continua a mesma sempre — mas o LOG tem que
+         gritar. Sem isto, "o e-mail não chegou" e "o provedor recusou" ficam
+         indistinguíveis, e o motivo só existiria dentro do sendMail. O que
+         voltou do provedor também fica em /integracoes. */
+      if (!out.sent) console.error(`[senha] o e-mail para ${u.email} NÃO saiu: ${out.reason}`);
     } catch (e) { console.error("[senha] não consegui enviar o e-mail:", e.message); }
+  } else {
+    console.warn("[senha] RESEND_API_KEY/MAIL_FROM não configurados — nenhum e-mail foi enviado.");
   }
   /* O link vai para o LOG e nunca para a resposta. Devolvê-lo aqui entregaria
      a chave da conta a quem só digitou o endereço de e-mail de outra pessoa —

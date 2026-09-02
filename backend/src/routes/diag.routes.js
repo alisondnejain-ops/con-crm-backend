@@ -1,7 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
-import { mailConfigured } from "../services/mail.js";
+import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "./uazapi.webhook.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
@@ -32,7 +32,11 @@ r.get("/integracoes", async (_req, res) => {
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: await instanceStatus(org?.id),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
-    email: { configurado: mailConfigured() },
+    /* E-MAIL: não basta dizer "configurado". A recusa do provedor não aparece
+       em tela nenhuma — a tela do "esqueci minha senha" responde a mesma frase
+       de propósito — então é aqui que se descobre por que o e-mail não chegou.
+       Ver `emailDiagnostico` em services/mail.js. */
+    email: emailDiagnostico(),
     /* IA: liga a leitura do print da Caixa e o resumo da conversa. A chave
        nunca aparece aqui — só se ela chegou e qual modelo está em uso, que é
        o bastante para saber se falta configurar ou se o problema é outro. */
