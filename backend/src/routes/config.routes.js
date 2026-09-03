@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, soMaster } from "../auth.js";
 import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
-import { canalDaCasa, salvarConexao } from "../services/canais.js";
+import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
@@ -140,22 +140,70 @@ r.get("/ia", soMaster, (req, res) => {
 
 /* ===== CONEXÃO =====
 
-   Hoje só a Uazapi, e ela é API NÃO OFICIAL — isso fica escrito na tela, não
-   escondido: quem assina a conta precisa saber que o número pode ser banido
-   pelo WhatsApp. Quando entrar outro provedor, ele vira mais um item da mesma
-   lista. */
+   Uazapi (não oficial) e, desde 03/09/2026, a API oficial da Meta — os dois
+   ficam na mesma lista de provedores, cada um com o próprio risco escrito na
+   tela: quem assina a conta precisa saber que o número da Uazapi pode ser
+   banido pelo WhatsApp, e que na Meta oficial não dá para editar mensagem
+   nem mandar texto livre fora da janela de 24h. */
 r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  const casa = garantirCasa(req.user.org_id);
   res.json({
     provedores: PROVEDORES,
-    ativo: uazapiConfigured(req.user.org_id) ? "uazapi" : null,
+    ativo: (casa?.provider === "meta" && casa.token) ? "meta" : (uazapiConfigured(req.user.org_id) ? "uazapi" : null),
     whatsapp: await instanceStatus(req.user.org_id),
     webhook: {
-      url: `${base}/webhooks/uazapi`,
-      // O que precisa estar ligado do lado da Uazapi para a conversa chegar.
-      eventos: ["Mensagens (messages)"],
-      observacao: "Cole esta URL no campo de Webhook da instância. Sem ela, o CRM envia mas não recebe.",
+      uazapi: {
+        url: `${base}/webhooks/uazapi`,
+        // O que precisa estar ligado do lado da Uazapi para a conversa chegar.
+        eventos: ["Mensagens (messages)"],
+        observacao: "Cole esta URL no campo de Webhook da instância. Sem ela, o CRM envia mas não recebe.",
+      },
+      meta: {
+        url: `${base}/webhooks/whatsapp-oficial`,
+        /* Gerado (e guardado) na hora, mesmo que a linha ainda não tenha
+           nenhum outro dado da Meta preenchido — é o que o gestor precisa
+           colar na tela de Webhook do aplicativo ANTES de acabar de
+           preencher o resto, porque a Meta pede os dois juntos para
+           verificar. */
+        verify_token: verificadorDaCasa(req.user.org_id),
+        observacao: "Cole esta URL e este Verify Token na tela de Webhook do seu aplicativo (Configurações do WhatsApp, no Gerenciador de Negócios da Meta) e marque o campo \"messages\" para inscrever.",
+      },
     },
+  });
+});
+
+/* Conectar a API OFICIAL da Meta, na linha da casa.
+
+   Diferente da Uazapi: aqui não há endereço para conferir formato, e sim
+   quatro campos que só a própria Meta valida de verdade (o primeiro envio,
+   ou o `instanceStatus` logo abaixo, é quem avisa se algum está errado).
+   Só o gestor — é quem assina o aplicativo na Meta e responde pela conta. */
+r.post("/conexao/oficial", roles("adm"), async (req, res) => {
+  const phoneNumberId = String(req.body?.phone_number_id || "").trim();
+  const wabaId = String(req.body?.waba_id || "").trim();
+  const token = String(req.body?.token || "").trim();
+  const appSecret = String(req.body?.app_secret || "").trim();
+  if (!phoneNumberId || !wabaId || !token || !appSecret)
+    return res.status(400).json({ error: "Preencha o Phone Number ID, o WABA ID, o token de acesso permanente e o App Secret." });
+
+  const casa = garantirCasa(req.user.org_id);
+  /* Phone Number ID repetido apontaria duas linhas do ConHub para o MESMO
+     número da Meta — o índice do banco já barra a gravação; a mensagem aqui
+     é só para dizer o motivo, em vez de um erro genérico de banco. */
+  const emUso = db.prepare(`SELECT o.name AS imobiliaria FROM canais c JOIN orgs o ON o.id = c.org_id
+    WHERE c.phone_number_id = ? AND c.id <> ?`).get(phoneNumberId, casa.id);
+  if (emUso) return res.status(409).json({ error: `Esse Phone Number ID já está ligado a outra conta (${emUso.imobiliaria}). Cada imobiliária precisa do próprio número registrado na Meta.` });
+
+  try {
+    salvarConexaoOficial(casa.id, { phoneNumberId, wabaId, token, appSecret });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  const whatsapp = await instanceStatus(req.user.org_id);
+  res.json({
+    ok: true, whatsapp,
+    aviso: whatsapp.ok ? null : "Salvei, mas a Meta não respondeu com esses dados. Confira o Phone Number ID e o token de acesso.",
   });
 });
 

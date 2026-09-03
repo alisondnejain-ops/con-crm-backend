@@ -176,7 +176,14 @@ export function desligarCanal(canalId) {
     return { erro: "A linha da imobiliária se desconecta em Configurações → Conexão." };
 
   const rodar = db.transaction(() => {
-    salvarConexao(canalId, { host: c.host, token: null });
+    /* O índice único de `phone_number_id` não olha `ativo` — igual ao de
+       `token` da Uazapi. Sem limpar aqui, um número desligado ficaria
+       "ocupado" para sempre, e reconectar o mesmo número (ou religar a linha)
+       esbarraria numa constraint que ninguém entenderia olhando a tela. */
+    if (c.provider === "meta")
+      db.prepare("UPDATE canais SET token = NULL, phone_number_id = NULL, conectado_em = NULL WHERE id = ?").run(canalId);
+    else
+      salvarConexao(canalId, { host: c.host, token: null });
     db.prepare("UPDATE canais SET ativo = 0 WHERE id = ?").run(canalId);
     const n = db.prepare("UPDATE leads SET canal_id = NULL WHERE canal_id = ?").run(canalId).changes;
     return n;
@@ -267,6 +274,100 @@ export function canalDoWhatsapp({ token, numero }) {
   return null;
 }
 
+/* ===== CONEXÃO OFICIAL (META) — 03/09/2026 =====
+
+   Na Uazapi cada linha é dona da própria credencial (host+token — é o par que
+   `salvarConexao` grava). Na API oficial da Meta o TOKEN, o APP SECRET, o
+   WABA ID e o VERIFY TOKEN são do "aplicativo" que o gestor criou na Meta —
+   são os MESMOS em toda linha da imobiliária, casa e corretores. O que muda
+   de linha para linha é só o `phone_number_id`, que a Meta atribui a cada
+   número registrado.
+
+   Por isso esta função tem dois caminhos, e não é o mesmo para os dois tipos:
+
+   - Na linha da CASA, ela GRAVA as credenciais do WABA e as REPETE em toda
+     linha pessoal já ligada da mesma imobiliária — copiar aqui é a mesma
+     decisão de `orgs.uazapi_*` ao lado de `canais`: cada linha responde
+     sozinha, sem JOIN, e o preço da cópia se paga NUM lugar só.
+   - Na linha de um CORRETOR, ela recebe só o `phoneNumberId` dele e busca o
+     resto na linha da casa — o corretor nunca vê nem digita o token que fala
+     em nome da imobiliária inteira, do mesmo jeito que ele nunca via o token
+     da Uazapi da casa. */
+export function salvarConexaoOficial(canalId, { phoneNumberId, wabaId, token, appSecret, verifyToken, waNumber = null } = {}) {
+  const c = canalPorId(canalId);
+  if (!c) throw new Error("Canal não encontrado.");
+
+  let waba = wabaId, tok = token, secret = appSecret, verify = verifyToken;
+
+  if (c.tipo === "corretor") {
+    const casa = canalDaCasa(c.org_id);
+    if (!casa || casa.provider !== "meta" || !casa.token)
+      throw new Error("A imobiliária ainda não conectou a API oficial da Meta. Isso é feito pelo gestor, em Configurações → Conexão.");
+    waba = casa.waba_id; tok = casa.token; secret = casa.app_secret; verify = casa.verify_token;
+  } else {
+    if (!waba || !tok || !secret)
+      throw new Error("Faltam dados da conexão com a Meta (WABA ID, token ou app secret).");
+    /* Reaproveita o verify_token que JÁ EXISTE na linha, e só gera um novo se
+       não houver nenhum. Gerar de novo a cada troca de token/app secret
+       derrubaria um webhook que a Meta já validou: a Meta só confere o
+       verify_token na hora da verificação (o GET com hub.challenge) — não a
+       cada mensagem — e trocá-lo por baixo faria a PRÓXIMA reverificação
+       (o gestor mexendo no app, por exemplo) falhar sem ele ter mudado nada
+       na tela do ConHub. */
+    if (!verify) verify = c.verify_token || gerarVerifyToken();
+  }
+
+  const pnid = String(phoneNumberId || "").trim() || null;
+
+  const gravar = db.transaction(() => {
+    db.prepare(`UPDATE canais SET provider = 'meta', phone_number_id = ?, waba_id = ?, token = ?,
+      app_secret = ?, verify_token = ?, host = NULL, wa_number = COALESCE(?, wa_number),
+      conectado_em = CASE WHEN ? IS NULL THEN NULL ELSE ? END WHERE id = ?`)
+      .run(pnid, waba, tok, secret, verify, waNumber, pnid, Date.now(), canalId);
+
+    if (c.tipo === "imobiliaria")
+      db.prepare(`UPDATE canais SET waba_id = ?, token = ?, app_secret = ?, verify_token = ?
+        WHERE org_id = ? AND tipo = 'corretor' AND provider = 'meta'`).run(waba, tok, secret, verify, c.org_id);
+  });
+  gravar();
+  console.log(`[canais] ${c.tipo === "imobiliaria" ? "linha da casa" : "linha de " + (c.nome || c.user_id)} conectada à API oficial da Meta`);
+  return canalPorId(canalId);
+}
+
+// A linha que aquele número da Meta (`phone_number_id`) representa — é assim
+// que o webhook oficial identifica de quem é a mensagem que chegou.
+export function canalPorPhoneNumberId(phoneNumberId) {
+  const id = String(phoneNumberId || "").trim();
+  if (!id) return null;
+  return db.prepare("SELECT * FROM canais WHERE phone_number_id = ? AND ativo = 1").get(id) || null;
+}
+
+// Gerado uma vez, na primeira conexão da casa, e colado na tela de
+// configuração do webhook lá na Meta — é o que prova que a chamada de
+// verificação (`hub.verify_token`) veio de quem configurou, e não de um chute.
+export function gerarVerifyToken() {
+  return "vt_" + randomUUID().replace(/-/g, "");
+}
+
+/* O verificador da casa, pronto ANTES de a Meta pedir credencial nenhuma.
+
+   A ordem real de quem configura é: primeiro cola a URL do webhook e um
+   verify_token NA TELA DA META — e só depois (ou antes, tanto faz) preenche
+   token/app secret/WABA aqui. Se o token só nascesse dentro de
+   `salvarConexaoOficial`, o gestor não teria o que colar na Meta até ter
+   terminado de preencher tudo, e a verificação do lado de lá aconteceria às
+   cegas. Por isso a tela de conexão pode chamar isto a qualquer momento —
+   inclusive antes de qualquer dado da Meta existir — e sempre recebe um
+   token estável (gerado uma vez, guardado, nunca trocado sozinho). */
+export function verificadorDaCasa(orgId) {
+  const casa = garantirCasa(orgId);
+  if (!casa) return null;
+  if (casa.verify_token) return casa.verify_token;
+  const vt = gerarVerifyToken();
+  db.prepare("UPDATE canais SET verify_token = ? WHERE id = ?").run(vt, casa.id);
+  return vt;
+}
+
 /* A linha da casa desta imobiliária, criada agora se ainda não existir e sempre
    alinhada com `orgs.uazapi_*`. É a função que impede o pior desfecho: uma
    imobiliária criada entre dois starts ficaria sem canal e PARARIA DE RECEBER
@@ -276,7 +377,16 @@ export function garantirCasa(orgId) {
   if (!o) return null;
   const casa = canalDaCasa(orgId);
   if (casa) {
-    if ((casa.token || null) !== (o.uazapi_token || null) || (casa.host || null) !== (o.uazapi_host || null))
+    /* O realinhamento com `orgs.uazapi_*` só vale para uma linha Uazapi —
+       são exatamente as duas colunas que `salvarConexao` mantém em par. Numa
+       linha oficial da Meta, `orgs.uazapi_token` fica para sempre vazio (a
+       Meta não escreve ali; ver `salvarConexaoOficial`), e sincronizar aqui
+       apagaria o token de verdade a cada leitura — foi o bug real que
+       apareceu ao testar isto: conectar a Meta funcionava, e a PRÓXIMA
+       leitura de status (que passa por aqui) devolvia a linha desconectada,
+       sem erro nenhum aparecer. */
+    if (casa.provider !== "meta" &&
+        ((casa.token || null) !== (o.uazapi_token || null) || (casa.host || null) !== (o.uazapi_host || null)))
       db.prepare("UPDATE canais SET host = ?, token = ? WHERE id = ?").run(o.uazapi_host || null, o.uazapi_token || null, casa.id);
     if (!casa.wa_number && o.wa_number)
       db.prepare("UPDATE canais SET wa_number = ? WHERE id = ?").run(o.wa_number, casa.id);

@@ -1,22 +1,9 @@
 import { Router } from "express";
-import { randomUUID } from "crypto";
-import db from "../db.js";
 import { normalizePhone } from "../services/stages.js";
-import { proximoAtendente } from "../services/catraca.js";
-import { entradaDe } from "../services/pipelines.js";
-import { guardarMidiaRecebida } from "../services/midia.js";
-import { atender, pararPorGente } from "../services/robo.js";
-import { avisar } from "../services/push.js";
-import { advanceStage } from "./messages.routes.js";
 import { canalDoWhatsapp } from "../services/canais.js";
-import { mascararTelefone } from "../seguranca.js";
+import { processarMensagemRecebida, lembrar } from "../services/mensageria.js";
 
 const r = Router();
-
-// Guarda os últimos webhooks recebidos, só em memória, para diagnóstico.
-// Não persiste e some a cada reinício — é ferramenta de instalação, não de operação.
-export const ultimosEventos = [];
-const lembrar = (e) => { ultimosEventos.unshift(e); if (ultimosEventos.length > 15) ultimosEventos.pop(); };
 
 // Extrai número e texto de um payload da Uazapi. O formato varia entre versões
 // e tipos de mensagem, então tentamos os caminhos conhecidos em ordem.
@@ -78,11 +65,11 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     if (!ehMensagemNova)
       // Guardamos só a FORMA do payload (nomes de campos), nunca o conteúdo das
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
-      return lembrar({ em: Date.now(), evento, resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
+      return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
     const { phone, texto, tipo, content, messageid, nome, fromMe, citada, ignorar } = extrair(p);
-    if (ignorar) return lembrar({ em: Date.now(), evento, resultado: "ignorado: " + ignorar });
-    if (!phone) return lembrar({ em: Date.now(), evento, resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
+    if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
+    if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
     /* DE QUAL imobiliária é esta mensagem?
 
@@ -111,7 +98,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
          quebrado — que é exatamente o erro que este projeto já cometeu com o
          403 do R2. */
       const tinhaToken = !!(p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token);
-      return lembrar({ em: Date.now(), evento,
+      return lembrar({ em: Date.now(), evento, provider: "uazapi",
         resultado: tinhaToken
           ? "RECUSADO: veio um token, mas ele não corresponde a nenhuma linha conectada"
           : "RECUSADO: a mensagem chegou SEM o token da instância",
@@ -120,176 +107,13 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
           : "O reconhecimento pelo NÚMERO foi desligado por segurança: o número da imobiliária é público, e qualquer pessoa poderia mandar mensagem falsa para o CRM sabendo ele. Se a sua Uazapi realmente não manda o token, crie a variável UAZAPI_ACEITAR_POR_NUMERO=1 no painel da hospedagem para religar o caminho antigo — e avise o ConHub.",
         campos: Object.keys(p) });
     }
-    const orgId = canal.org_id;
-    const ehPessoal = canal.tipo === "corretor";
 
-    /* Mensagem que o CRM mandou volta como webhook. Ela já está na conversa —
-       gravar de novo seria a mesma mensagem duas vezes. O `wa_id` é o que
-       diferencia isso do corretor digitando no celular. */
-    if (fromMe && messageid && db.prepare(`SELECT 1 FROM messages m JOIN leads l ON l.id = m.lead_id
-      WHERE m.wa_id = ? AND l.org_id = ?`).get(messageid, orgId))
-      return lembrar({ em: Date.now(), evento, resultado: "ignorado: eco da mensagem enviada pelo próprio CRM" });
-
-    // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
-    // mensagem, para a conversa já nascer com a mídia. Se não der, `midia` volta
-    // nulo e a mensagem entra como antes — o marcador de texto, sem travar nada.
+    // Em mensagem de mídia, `content` é um objeto com URL — em mensagem de
+    // texto ele é nulo ou não tem esses campos, daí a checagem aqui e não
+    // dentro de services/mensageria.js (que não sabe o formato da Uazapi).
     const temMidia = !!(content && (content.URL || content.url));
-    const midia = temMidia ? await guardarMidiaRecebida({ content, messageid, tipo, canal }) : null;
 
-    // Legenda da foto, ou o nome do documento. Sem nenhum dos dois, um rótulo
-    // curto em português: é ele que aparece na prévia da lista de conversas
-    // ("Foto" lê melhor que "[ImageMessage]"). O balão esconde esse rótulo, já
-    // que a imagem está logo ali — mas a lista precisa de alguma palavra.
-    const rotulo = midia
-      ? (/^image\//.test(midia.mime) ? "Foto"
-        : /^video\//.test(midia.mime) ? "Vídeo"
-        : /^audio\//.test(midia.mime) ? "Áudio"
-        : midia.nome || "Documento")
-      : "";
-    const corpo = texto || rotulo || (tipo ? `[${tipo}]` : "[mensagem sem texto]");
-
-    if (temMidia) lembrar({ em: Date.now(), evento, tipo, resultado: midia ? "mídia guardada" : "MÍDIA NÃO BAIXOU — ver log do servidor" });
-
-    let lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId);
-    const ehNovo = !lead;
-
-    /* Saiu do celular para um número que ainda não é lead: não cria lead.
-       O número da Conecta também fala com colega, fornecedor e parente — e
-       cada uma dessas conversas viraria um lead na fila da atendente. Quando
-       for cliente de verdade, ele responde, e aí o lead nasce pelo caminho
-       normal, na regra da catraca. */
-    if (!lead && fromMe)
-      return lembrar({ em: Date.now(), evento, resultado: "ignorado: enviada para um número que ainda não é lead" });
-
-    /* Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para a
-       atendente da vez, exatamente como um lead vindo da Meta.
-
-       SEM TEMPERATURA. Todo lead do WhatsApp nascia "MORNO", e isso não era
-       leitura de nada — era o padrão da coluna. A tela mostrava a marcação como
-       se alguém tivesse avaliado o cliente, e o funil inteiro ficou morno. Lead
-       sem temperatura é honesto: quem sabe a temperatura é quem conversou. */
-    if (!lead) {
-      const id = "l_" + randomUUID();
-      /* LEAD QUE CHEGA NUMA LINHA PESSOAL JÁ NASCE DO DONO DA LINHA.
-
-         A catraca das atendentes existe para repartir o que chega no número da
-         CASA, que é de todo mundo e de ninguém. O cliente que escreveu para o
-         número da Marina escolheu a Marina — sortear esse lead para outra
-         pessoa seria o CRM desfazendo uma decisão do cliente, e a Marina
-         descobriria isso vendo o próprio WhatsApp ser atendido por um colega.
-
-         O gestor não fica sem ver: `leads.canal_id` diz por onde ele entrou, e
-         o painel separa o que veio da casa do que veio das linhas pessoais. */
-      const dono = ehPessoal ? canal.user_id : proximoAtendente(orgId);
-      /* A etapa de entrada vem do PIPELINE PADRAO da imobiliaria, e nao da
-         palavra 'Lead' escrita aqui. Com o funil configuravel, uma operacao de
-         locacao chama a primeira etapa de outra coisa — e o lead cairia numa
-         etapa que nao existe em coluna nenhuma do kanban. */
-      /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa.
-
-         Os leads que caem na atendente pertencem ao funil de pré-atendimento;
-         os do corretor, ao comercial. Quem tem `pipeline_entrada` vazio segue
-         no padrão, que é o que todo mundo era antes disto existir. */
-      const entrada = entradaDe(orgId, dono);
-      const quando = Date.now();
-      db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
-                  pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
-        VALUES (?,?,?,?,'WhatsApp',NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
-        .run(id, orgId, nome || "Contato do WhatsApp", phone, entrada.nome, dono, quando,
-             entrada.pipeline_id, entrada.stage_id, quando, quando,
-             ehPessoal ? canal.id : null, dono ? quando : null);
-      lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
-      console.log(`[uazapi] lead NOVO pelo WhatsApp (${mascararTelefone(phone)}) — ${
-        ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
-        dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
-    }
-
-    /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
-       único e o WhatsApp não diz qual corretor digitou. A tela mostra
-       "enviada pelo WhatsApp" — melhor um autor honesto em branco do que
-       assinar com o nome errado. */
-    // A citada chega pelo id do WhatsApp; aqui vira o id local, que é o que a
-    // tela usa para desenhar o trecho citado.
-    const citadaLocal = citada
-      ? (db.prepare("SELECT id FROM messages WHERE wa_id = ? AND lead_id = ?").get(citada, lead.id) || {}).id || null
-      : null;
-
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
-        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now(),
-        /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`.
-
-           Uma convenção só nas duas colunas. Gravar o id da casa aqui e nulo
-           lá faria a MESMA linha ser dois valores diferentes conforme quem
-           escreveu — e "por onde essa mensagem foi" passaria a depender de a
-           mensagem ter entrado pelo webhook ou saído pelo CRM. */
-        canal.tipo === "corretor" ? canal.id : null);
-
-    /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
-
-       É a regra que fecha o buraco mais fácil de abrir aqui. O cliente escreve
-       para o número que ele tem salvo — se o CRM responder por outro, a
-       resposta chega no celular dele como mensagem de um desconhecido, fora da
-       conversa que ele estava tendo, e ninguém de dentro vê nada de errado.
-
-       Vale para os dois sentidos, inclusive quando o corretor volta a falar
-       pelo número da casa: quem manda é a última linha usada, não a última
-       escolha feita numa tela. */
-    const canalAtual = lead.canal_id || null;
-    const canalNovo = canal.tipo === "corretor" ? canal.id : null;
-    if (canalAtual !== canalNovo) {
-      db.prepare("UPDATE leads SET canal_id = ? WHERE id = ?").run(canalNovo, lead.id);
-      lead.canal_id = canalNovo;
-      console.log(`[uazapi] ${lead.name} agora fala pela linha ${canalNovo ? canal.nome : "da imobiliária"}`);
-    }
-
-    // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
-    // relatório contaria como "nunca atendido" quem atendeu fora do CRM.
-    if (fromMe && !lead.first_resp_at)
-      db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-
-    // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
-    // mensagem cairia numa conversa escondida e ninguém responderia.
-    if (lead.closed_at) {
-      db.prepare("UPDATE leads SET closed_at = NULL WHERE id = ?").run(lead.id);
-      console.log(`[uazapi] atendimento de ${lead.name} reaberto: o cliente respondeu`);
-    }
-
-    /* O funil NÃO anda enquanto o robô está atendendo.
-
-       A regra da palavra-chave lê a conversa inteira, e a conversa do robô é
-       conversa: bastaria o cliente escrever "quero agendar" às 3h da manhã
-       para o lead amanhecer em Agendamento sem ninguém ter agendado nada. Com
-       o robô no meio, quem decide a etapa é a atendente de manhã. */
-    const roboFalando = lead.robo_msgs > 0 && !lead.robo_parado;
-    if (!roboFalando) advanceStage(lead.id);
-
-    /* Mensagem que saiu do celular é gente atendendo: o robô sai da conversa.
-       Vale para a Vanessa respondendo às 19h pelo WhatsApp Web — o robô não
-       pode voltar a falar por cima dela na treplica do cliente. */
-    if (fromMe) pararPorGente(lead.id);
-
-    // Aviso no celular de quem está com o lead. Lead que acabou de entrar e
-    // cliente que respondeu são situações diferentes — e a pressa também.
-    if (lead.assigned_to && !fromMe) {
-      const resumo = corpo.length > 90 ? corpo.slice(0, 90) + "…" : corpo;
-      avisar(lead.assigned_to, ehNovo
-        ? { titulo: "Novo lead no WhatsApp", corpo: `${lead.name} acabou de chamar. Responda agora — os primeiros minutos decidem.`, leadId: lead.id }
-        : { titulo: `${lead.name} respondeu`, corpo: resumo, leadId: lead.id });
-    }
-
-    lembrar({ em: Date.now(), evento, resultado: fromMe ? "ok (enviada pelo celular)" : "ok", lead: lead.name, tipo });
-    console.log(`[uazapi] mensagem ${fromMe ? "enviada pelo celular para" : "recebida de"} ${lead.name}`);
-
-    /* Primeiro atendimento automático, fora do expediente.
-
-       SEM `await`, e é o ponto mais importante desta linha. A resposta da IA
-       leva alguns segundos; o webhook da Uazapi tem que responder na hora. Se
-       ele demorar, ela desiste de chamar — e o CRM PARA DE RECEBER LEAD, que é
-       o pior estrago possível aqui e já aconteceu uma vez por outro motivo.
-
-       `atender` nunca lança: erro dele vira log, nunca derruba o processo. */
-    if (!fromMe) atender(orgId, lead.id);
+    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, messageid, nome });
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);

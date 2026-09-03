@@ -4,7 +4,7 @@ import db from "../db.js";
 import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
-import { ultimosEventos } from "./uazapi.webhook.js";
+import { ultimosEventos } from "../services/mensageria.js";
 import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
 /* A tradução dos erros do R2 mora no backup.js porque foi lá que ela nasceu.
    Aqui ela vale igual: este teste é a prova de fogo do armazenamento, e devolver

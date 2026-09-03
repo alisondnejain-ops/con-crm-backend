@@ -12,6 +12,7 @@ import msgRoutes from "./routes/messages.routes.js";
 import tarefasRoutes, { tarefasPorId } from "./routes/tarefas.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
+import whatsappOficialWebhook from "./routes/whatsapp-oficial.webhook.js";
 import pushRoutes from "./routes/push.routes.js";
 import assinaturaRoutes from "./routes/assinatura.routes.js";
 import diagRoutes from "./routes/diag.routes.js";
@@ -126,6 +127,7 @@ const RECURSOS = [
   "previa-da-colagem",    // imagem colada aparece antes de ir para o cliente
   "resultado-da-ligacao", // popup depois de ligar: o que aconteceu na chamada
   "configuracoes",        // aba Configuracoes: mensagens automaticas + conexao
+  "whatsapp-oficial",     // API oficial da Meta (Cloud API) como segundo provedor de WhatsApp
 ];
 app.get("/health", (_req, res) => res.json({
   ok: true,
@@ -316,8 +318,9 @@ app.use("/leads", msgRoutes);         // POST /leads/:id/messages
    401 e ia para o lixo. É o mesmo tropeço que o comentário acima já descreve. */
 app.use("/leads", cobrando, tarefasRoutes);      // /leads/:id/tarefas
 app.use("/tarefas", cobrando, tarefasPorId);     // /tarefas/:id
-app.use("/webhooks", metaWebhook);    // GET/POST /webhooks/meta
-app.use("/webhooks", uazapiWebhook);  // POST /webhooks/uazapi
+app.use("/webhooks", metaWebhook);              // GET/POST /webhooks/meta (Lead Ads)
+app.use("/webhooks", uazapiWebhook);            // POST /webhooks/uazapi
+app.use("/webhooks", whatsappOficialWebhook);   // GET/POST /webhooks/whatsapp-oficial (Cloud API)
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/orgs", orgsRoutes);         // hub de contas (só o master)
 app.use("/", diagRoutes);             // GET /integracoes

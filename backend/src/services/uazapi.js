@@ -25,6 +25,27 @@
    primeira subida (ver bootstrap.js). Ninguém precisa reconectar nada. */
 import db from "../db.js";
 import { canalPorId, canalDaCasa, canalDoWhatsapp } from "./canais.js";
+import * as oficial from "./whatsapp_oficial.js";
+
+/* ===== DESPACHO PARA A API OFICIAL DA META (03/09/2026) =====
+
+   Este arquivo virou o PONTO ÚNICO de envio/diagnóstico — todo o resto do
+   sistema (routes/messages.routes.js, o robô, o webhook) chama `sendText`,
+   `sendMedia` etc. daqui, sem saber se a linha é Uazapi ou Meta. Cada função
+   resolve o CANAL DE ENVIO primeiro e, se ele for `provider === 'meta'`,
+   desvia para `services/whatsapp_oficial.js` sem tocar em `credenciais()` —
+   que continua sendo só do mundo Uazapi (host+token), do jeito que já estava
+   testado.
+
+   Escolhida esta forma, e não reescrever `credenciais()` para entender os
+   dois provedores, porque `credenciais()` é lida em vários pontos com uma
+   suposição implícita (host+token da Uazapi) que não faz sentido para a
+   Meta — misturar os dois mundos numa função só trocaria um caminho testado
+   por um caminho novo em cima do fluxo que já está em produção. */
+function resolverCanalDoEnvio(orgId, canalId) {
+  if (canalId) return canalPorId(canalId);
+  return orgId ? canalDaCasa(orgId) : null;
+}
 
 /* AS CREDENCIAIS SÃO DE UMA LINHA, NÃO DA IMOBILIÁRIA (31/08/2026).
 
@@ -89,6 +110,21 @@ export const PROVEDORES = [
     site: "https://uazapi.com",
     disponivel: true,
   },
+  {
+    id: "meta",
+    nome: "API oficial da Meta (WhatsApp Cloud API)",
+    oficial: true,
+    descricao: "Conecta direto com a Meta, dona do WhatsApp — sem QR Code, sem risco de bloqueio. Exige verificar a empresa no Gerenciador de Negócios e criar um aplicativo.",
+    risco: null,
+    /* O que é verdade aqui e não é verdade na Uazapi: mensagem enviada fora
+       das 24h desde a última mensagem do cliente só sai como MODELO
+       aprovado pela Meta, e não existe editar mensagem já enviada — são
+       limitações da própria plataforma, e a tela precisa dizer isso antes de
+       alguém trocar de provedor achando que ganha tudo que já tinha. */
+    aviso: "Fora de 24h desde a última mensagem do cliente, só sai mensagem de modelo (aprovado antes pela Meta) — texto livre é recusado. Também não dá para editar mensagem já enviada.",
+    site: "https://business.facebook.com",
+    disponivel: true,
+  },
 ];
 
 /* Desconecta a instância — o WhatsApp da imobiliária inteira sai do ar.
@@ -100,6 +136,8 @@ export const PROVEDORES = [
 const CAMINHOS_DESCONECTAR = ["/instance/disconnect", "/instance/logout", "/instance/close"];
 
 export async function desconectarInstancia(orgId, canalId = null) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.desconectarInstanciaOficial();
   if (!uazapiConfigured(orgId, canalId)) throw new Error("Esta linha não tem WhatsApp conectado.");
   const tentativas = [];
   for (const caminho of CAMINHOS_DESCONECTAR) {
@@ -196,6 +234,8 @@ let ultimaEdicao = null;
 export const edicaoDiagnostico = () => ultimaEdicao;
 
 export async function editMessage({ orgId, canalId = null, messageid, text }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.editMessage();
   if (!uazapiConfigured(orgId, canalId)) return { ok: false, simulated: true };
   const tentativas = [];
 
@@ -253,6 +293,9 @@ function assinar(text, signedBy, canal) {
    sabendo do que se está falando — e o corretor não perde a mensagem por
    causa de um recurso que a API não tem. */
 export async function sendText({ orgId, canalId = null, toPhone, text, signedBy, replyTo, quotedText }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.sendText({ canal: canalAlvo, toPhone, text, signedBy, replyTo });
+
   const assinado = assinar(text, signedBy, credenciais(orgId, canalId).canal);
   if (!replyTo) return call(orgId, "/send/text", { number: toPhone, text: assinado }, canalId);
 
@@ -315,6 +358,9 @@ export async function sendText({ orgId, canalId = null, toPhone, text, signedBy,
    `bytes` pode ser o Buffer ou uma função que devolve o Buffer — assim o
    arquivo só é lido do disco/R2 se a primeira tentativa falhar. */
 export async function sendMedia({ orgId, canalId = null, toPhone, type, file, caption, signedBy, docName, bytes, mime }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.sendMedia({ canal: canalAlvo, toPhone, type, caption, signedBy, docName, bytes, mime });
+
   const canal = credenciais(orgId, canalId).canal;
   const corpo = (arquivo) => ({
     number: toPhone, type, file: arquivo,
@@ -341,12 +387,17 @@ export async function sendMedia({ orgId, canalId = null, toPhone, type, file, ca
 }
 
 export function sendLocation({ orgId, canalId = null, toPhone, latitude, longitude, name, address }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.sendLocation({ canal: canalAlvo, toPhone, latitude, longitude, name, address });
   return call(orgId, "/send/location", { number: toPhone, latitude, longitude, name, address }, canalId);
 }
 
 // Estado da instância — usado pelo diagnóstico, para conferir a conexão sem expor o token.
 // Reporta endereço e token separadamente: "não configurado" sozinho não diz qual faltou.
 export async function instanceStatus(orgId, canalId = null) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.instanceStatus(canalAlvo);
+
   const { host, token } = credenciais(orgId, canalId);
   if (!host || !token) {
     return {

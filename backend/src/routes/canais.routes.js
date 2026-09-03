@@ -14,7 +14,7 @@ import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import {
   canaisDaOrg, garantirCasa, canalDoUsuario, canalPorId,
-  criarCanalDoCorretor, salvarConexao, desligarCanal, limites,
+  criarCanalDoCorretor, salvarConexao, salvarConexaoOficial, desligarCanal, limites,
 } from "../services/canais.js";
 import { instanceStatus, PROVEDORES } from "../services/uazapi.js";
 
@@ -37,6 +37,12 @@ r.get("/", async (req, res) => {
     limites: l,
     provedores: PROVEDORES,
     casa_conectada: !!(casa && casa.token),
+    /* O corretor não escolhe provedor: ele segue o da CASA. Numa linha
+       oficial, `/canais/meu/oficial` já recusa se a casa não estiver na
+       Meta — mas a tela precisa saber ANTES de mostrar o formulário
+       errado, senão o corretor preenche host+token da Uazapi numa conta
+       que só aceita Phone Number ID, e só descobre no erro do envio. */
+    casa_provider: casa?.provider || "uazapi",
     /* O corretor só pede a linha dele se o gestor tiver liberado. `liberado`
        é uma coluna do USUÁRIO e não uma conta feita aqui: é uma autorização
        nominal, e autorização que se deduz de um número é autorização que muda
@@ -163,6 +169,43 @@ r.post("/meu/credenciais", async (req, res) => {
   res.json({
     ok: true, meu: enxuto(canalPorId(meu.id)), whatsapp,
     aviso: whatsapp.ok ? null : "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da SUA instância.",
+  });
+});
+
+/* A MINHA linha, na API oficial da Meta.
+
+   Aqui o corretor digita SÓ o Phone Number ID dele — nunca o token do
+   aplicativo, que fala em nome da imobiliária inteira. O resto
+   (WABA/token/app secret/verify token) vem sozinho da linha da casa, dentro
+   de `salvarConexaoOficial`; se a casa ainda não estiver na API oficial, a
+   própria função recusa com a explicação. */
+r.post("/meu/oficial", async (req, res) => {
+  const phoneNumberId = String(req.body?.phone_number_id || "").trim();
+  if (!phoneNumberId) return res.status(400).json({ error: "Informe o Phone Number ID da sua linha (cadastrado no mesmo aplicativo da Meta que a imobiliária usa)." });
+
+  const u = db.prepare("SELECT canal_liberado FROM users WHERE id = ?").get(req.user.id) || {};
+  if (!u.canal_liberado)
+    return res.status(403).json({ error: "O gestor da imobiliária ainda não liberou um número de WhatsApp para você. Cada número tem um custo mensal, por isso a liberação é dele." });
+
+  let meu = canalDoUsuario(req.user.org_id, req.user.id);
+  if (!meu) {
+    const criado = criarCanalDoCorretor(req.user.org_id, req.user.id, { quem: req.user.id });
+    if (criado.erro) return res.status(409).json({ error: criado.erro });
+    meu = criado.canal;
+  }
+
+  const jaUsado = db.prepare("SELECT id FROM canais WHERE phone_number_id = ? AND id <> ?").get(phoneNumberId, meu.id);
+  if (jaUsado) return res.status(409).json({ error: "Esse Phone Number ID já está em uso por outra linha." });
+
+  try {
+    salvarConexaoOficial(meu.id, { phoneNumberId });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  const whatsapp = await instanceStatus(req.user.org_id, meu.id);
+  res.json({
+    ok: true, meu: enxuto(canalPorId(meu.id)), whatsapp, limites: limites(req.user.org_id),
+    aviso: whatsapp.ok ? null : "Salvei, mas a Meta não respondeu com esses dados. Confira o Phone Number ID.",
   });
 });
 

@@ -1,4 +1,5 @@
 import { salvar } from "./storage.js";
+import { baixarMidiaOficial } from "./whatsapp_oficial.js";
 
 /* Mídia que o CLIENTE manda pelo WhatsApp (foto, áudio, documento).
 
@@ -70,18 +71,30 @@ async function viaUazapi(messageid, canal) {
   throw new Error("resposta sem arquivo nem link");
 }
 
-/* Devolve { url, mime, nome } ou null. Nunca lança: mídia que não desce não
-   pode derrubar o recebimento da mensagem — o texto e o lead importam mais. */
+/* NA LINHA OFICIAL DA META, o download é outra coisa (03/09/2026): não há
+   URL nem base64 no payload — só um `media_id` que precisa de duas chamadas
+   autenticadas com o token do WABA (ver `baixarMidiaOficial` em
+   services/whatsapp_oficial.js). `content.mediaId` é o que o extrator do
+   webhook oficial põe ali para dizer isso; nas linhas Uazapi esse campo
+   nunca existe, e por isso a escolha de caminho é só olhar o provedor do
+   canal — content por si só não diferencia os dois formatos. */
+
+// Devolve { url, mime, nome } ou null. Nunca lança: mídia que não desce não
+// pode derrubar o recebimento da mensagem — o texto e o lead importam mais.
 export async function guardarMidiaRecebida({ content, messageid, tipo, canal = null }) {
   if (!content || typeof content !== "object") return null;
   const mimeDeclarado = content.mimetype || content.mimeType || "";
   const nome = content.fileName || content.title || "";
   const tentativas = [];
 
-  for (const [via, fn] of [
-    ["uazapi /message/download", () => viaUazapi(messageid, canal)],
-    ["link direto do payload", () => baixarDe(content.URL || content.url, {})],
-  ]) {
+  const vias = canal?.provider === "meta"
+    ? [["Meta (download autenticado)", () => baixarMidiaOficial(content.mediaId, canal)]]
+    : [
+        ["uazapi /message/download", () => viaUazapi(messageid, canal)],
+        ["link direto do payload", () => baixarDe(content.URL || content.url, {})],
+      ];
+
+  for (const [via, fn] of vias) {
     try {
       const r = await fn();
       if (!ehMidia(r.buffer)) throw new Error("veio vazio");

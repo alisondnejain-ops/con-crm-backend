@@ -1183,6 +1183,7 @@ function ConCRM(){
     canalStatus:(id)=>api(`/canais/${id}/status`),
     criarMeuCanal:()=>api("/canais/meu",{method:"POST",body:{}}),
     conectarMeuCanal:(dados)=>api("/canais/meu/credenciais",{method:"POST",body:dados}),
+    conectarMeuCanalOficial:(phoneNumberId)=>api("/canais/meu/oficial",{method:"POST",body:{phone_number_id:phoneNumberId}}),
     roboDoMeuCanal:(ligado)=>api("/canais/meu/robo",{method:"POST",body:{ligado}}),
     desligarMeuCanal:()=>api("/canais/meu",{method:"DELETE"}),
     liberarCanal:(user_id,liberado)=>api("/canais/liberar",{method:"POST",body:{user_id,liberado}}),
@@ -1211,6 +1212,7 @@ function ConCRM(){
     usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
+    conectarWhatsOficial:(dados)=>api("/config/conexao/oficial",{method:"POST",body:dados}),
     robo:()=>api("/config/robo"),
     salvarRobo:(dados)=>api("/config/robo",{method:"POST",body:dados}),
     roboConferir:()=>api("/config/robo/conferir"),
@@ -7393,6 +7395,7 @@ async function atualizarConHub(){
       chamado. */
 function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [f,setF]=useState({host:"",token:""});
+  const [fMeta,setFMeta]=useState({phone_number_id:""});
   const [aviso,setAviso]=useState(null);
   const [ocupado,setOcupado]=useState(false);
   const [abrindo,setAbrindo]=useState(false);
@@ -7401,11 +7404,24 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const meu=canais.meu;
   const liberado=!!canais.liberado;
   const ligado=!!(meu&&meu.conectado);
+  // O corretor não escolhe provedor — ele segue o da CASA. Mostrar o
+  // formulário errado (host+token numa casa oficial, ou o contrário) só
+  // faria a pessoa preencher algo que a rota certa nunca aceitaria.
+  const casaOficial=canais.casa_provider==="meta";
 
   const salvar=async()=>{
     setAviso(null);setOcupado(true);
     try{ const r=await acoes.conectarMeuCanal({host:f.host.trim(),token:f.token.trim()});
       setF({host:"",token:""});setAbrindo(false);
+      setAviso(r.aviso?{ok:false,txt:r.aviso}:{ok:true,txt:"Número ligado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."});
+      aoMudar&&aoMudar();
+    }catch(e){ setAviso({ok:false,txt:e.message}); }
+    finally{ setOcupado(false); }
+  };
+  const salvarMeta=async()=>{
+    setAviso(null);setOcupado(true);
+    try{ const r=await acoes.conectarMeuCanalOficial(fMeta.phone_number_id.trim());
+      setFMeta({phone_number_id:""});setAbrindo(false);
       setAviso(r.aviso?{ok:false,txt:r.aviso}:{ok:true,txt:"Número ligado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."});
       aoMudar&&aoMudar();
     }catch(e){ setAviso({ok:false,txt:e.message}); }
@@ -7455,7 +7471,23 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
         ?<button onClick={()=>setAbrindo(true)}
           style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:11,
             padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Ligar o meu número</button>
-        :<React.Fragment>
+        :casaOficial?<React.Fragment>
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+            Sua imobiliária usa a <b>API oficial da Meta</b>. Registre o seu número no mesmo
+            aplicativo dela (o gestor sabe onde) e cole aqui só o <b>Phone Number ID</b> —
+            o token do aplicativo não passa por você.
+          </div>
+          {campo("Phone Number ID","phone_number_id","ex.: 109876543210987")}
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <button onClick={salvarMeta} disabled={ocupado||!fMeta.phone_number_id.trim()}
+              style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",
+                fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado||!fMeta.phone_number_id.trim()?.5:1}}>
+              {ocupado?"Ligando…":"Ligar"}</button>
+            <button onClick={()=>{setAbrindo(false);setFMeta({phone_number_id:""});}}
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+                padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </React.Fragment>:<React.Fragment>
           <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
             Você precisa de uma <b>instância só sua</b> na Uazapi — não serve a da imobiliária.
             Copie o endereço e o token dela no painel da Uazapi e cole aqui.
@@ -11442,11 +11474,15 @@ function ConexaoConfig({acoes,session,isMobile}){
   const [palavra,setPalavra]=useState("");
   const [saindo,setSaindo]=useState(false);
   const [copiado,setCopiado]=useState(false);
-  /* Ligar a instância DESTA imobiliária. Antes o endereço e o token viviam no
-     servidor e valiam para todas — a imobiliária nova abria esta tela e via o
-     WhatsApp da vizinha como se fosse dela. */
+  /* `ligando` guarda QUAL provedor está com o formulário de credenciais
+     aberto (false | "uazapi" | "meta") — cada provedor mora dentro do
+     próprio cartão agora, em vez de um botão único no topo que só sabia
+     abrir o formulário da Uazapi. Antes o "Conectar" do topo estava certo
+     porque só existia um provedor; com dois, ele precisaria adivinhar qual
+     formulário abrir. */
   const [ligando,setLigando]=useState(false);
   const [cred,setCred]=useState({host:"",token:""});
+  const [credMeta,setCredMeta]=useState({phone_number_id:"",waba_id:"",token:"",app_secret:""});
   const [salvandoCred,setSalvandoCred]=useState(false);
   const [avisoCred,setAvisoCred]=useState("");
   const ehGestor=podeGerir(session);
@@ -11471,6 +11507,21 @@ function ConexaoConfig({acoes,session,isMobile}){
     }catch(e){ setErro(e.message); }
     finally{ setSalvandoCred(false); }
   }
+  async function conectarMeta(){
+    const falta=!credMeta.phone_number_id.trim()||!credMeta.waba_id.trim()||!credMeta.token.trim()||!credMeta.app_secret.trim();
+    if(falta||salvandoCred) return;
+    setSalvandoCred(true); setErro(""); setAvisoCred("");
+    try{
+      const r=await acoes.conectarWhatsOficial({
+        phone_number_id:credMeta.phone_number_id.trim(), waba_id:credMeta.waba_id.trim(),
+        token:credMeta.token.trim(), app_secret:credMeta.app_secret.trim(),
+      });
+      setCredMeta({phone_number_id:"",waba_id:"",token:"",app_secret:""}); setLigando(false);
+      if(r.aviso) setAvisoCred(r.aviso);
+      await rever();
+    }catch(e){ setErro(e.message); }
+    finally{ setSalvandoCred(false); }
+  }
   async function desconectar(){
     setSaindo(true); setErro("");
     try{ await acoes.desconectarWhats(palavra); setConfirmando(false); setPalavra(""); await rever(); }
@@ -11480,6 +11531,13 @@ function ConexaoConfig({acoes,session,isMobile}){
   if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
   const w=d.whatsapp||{};
   const ligado=w.configurado&&w.ok;
+  const provedorAtivo=d.provedores.find(p=>p.id===d.ativo);
+  const campo=(label,valor,onChange,tipo)=><React.Fragment>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}</label>
+    <input value={valor} onChange={onChange} type={tipo} placeholder="cole aqui"
+      style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:9,fontSize:isMobile?16:13,fontFamily:MONO,
+        border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+  </React.Fragment>;
 
   return <React.Fragment>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>{erro}</div>}
@@ -11494,52 +11552,21 @@ function ConexaoConfig({acoes,session,isMobile}){
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>
             {ligado?"WhatsApp conectado":w.configurado?"WhatsApp desconectado":"Nenhum WhatsApp conectado"}</div>
           <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
-            {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via Uazapi</React.Fragment>
+            {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via {provedorAtivo?provedorAtivo.nome:"—"}</React.Fragment>
               :w.configurado?(w.erro||w.status||"a instância não respondeu")
-              :"Contrate a Uazapi e conecte para a equipe atender pelo CRM."}
+              :"Escolha uma das opções abaixo para a equipe atender pelo CRM."}
           </div>
         </div>
         {ehGestor&&w.configurado&&<button onClick={()=>{setConfirmando(c=>!c);setPalavra("");}}
           style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"8px 14px",
             fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Desconectar</button>}
-        {ehGestor&&<button onClick={()=>{setLigando(l=>!l);setAvisoCred("");}}
-          style={{background:w.configurado?C.card:C.greenDeep,color:w.configurado?C.greenDeep:"#fff",
-            border:w.configurado?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"8px 14px",
-            fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{w.configurado?"Trocar a instância":"Conectar"}</button>}
       </div>
-
-      {avisoCred&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginTop:10}}>{avisoCred}</div>}
-
-      {ligando&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,marginTop:12}}>
-        <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Conectar a instância da sua imobiliária</div>
-        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
-          Os dois campos estão no painel da Uazapi, na <b>sua</b> instância — o tutorial aqui embaixo mostra onde.
-          Use o <b>token da instância</b>, nunca o de administrador. Cada imobiliária precisa da própria instância:
-          duas contas no mesmo número misturam as conversas.
-        </div>
-        <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Endereço (host)</label>
-        <input value={cred.host} onChange={e=>setCred({...cred,host:e.target.value})} placeholder="https://suaempresa.uazapi.com"
-          style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:9,fontSize:isMobile?16:13,fontFamily:MONO,
-            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
-        <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Token da instância</label>
-        <input value={cred.token} onChange={e=>setCred({...cred,token:e.target.value})} placeholder="cole aqui" type="password"
-          style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:10,fontSize:isMobile?16:13,fontFamily:MONO,
-            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          <button onClick={conectar} disabled={salvandoCred||!cred.host.trim()||!cred.token.trim()}
-            style={{background:cred.host.trim()&&cred.token.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",
-              borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
-            {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
-          <button onClick={()=>{setLigando(false);setCred({host:"",token:""});}} disabled={salvandoCred}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-        </div>
-      </div>}
 
       {confirmando&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:12}}>
         <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:3}}>Desconectar o WhatsApp da imobiliária?</div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
-          <b>A equipe inteira</b> para de enviar e de receber até alguém parear o número de novo lendo o QR Code.
-          As conversas ficam guardadas. Escreva <b>DESCONECTAR</b> para confirmar.
+          <b>A equipe inteira</b> para de enviar e de receber até alguém parear o número de novo (lendo o QR Code, na
+          Uazapi) ou trocar as credenciais (na API oficial). As conversas ficam guardadas. Escreva <b>DESCONECTAR</b> para confirmar.
         </div>
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           <input value={palavra} onChange={e=>setPalavra(e.target.value.toUpperCase())} placeholder="DESCONECTAR"
@@ -11552,7 +11579,7 @@ function ConexaoConfig({acoes,session,isMobile}){
       </div>}
     </div>
 
-    {/* Provedores */}
+    {/* Provedores — cada um com o próprio tutorial e o próprio formulário. */}
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9}}>Como conectar o WhatsApp</div>
     {d.provedores.map(p=><div key={p.id} style={{background:C.card,border:`1px solid ${d.ativo===p.id?C.green+"66":C.line}`,
       borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
@@ -11564,39 +11591,69 @@ function ConexaoConfig({acoes,session,isMobile}){
         {d.ativo===p.id&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>em uso</span>}
       </div>
       <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:8}}>{p.descricao}</div>
-      {/* O risco vem antes do botão, não em letra miúda no rodapé. */}
-      <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>
-        <b>Atenção:</b> {p.risco}
+      {/* O risco (Uazapi) ou o aviso de limitação (Meta) vem antes do botão,
+          não em letra miúda no rodapé. */}
+      {(p.risco||p.aviso)&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>
+        <b>Atenção:</b> {p.risco||p.aviso}
+      </div>}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        <button onClick={()=>setTutorial(t=>t===p.id?false:p.id)}
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
+            padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{display:"inline-flex",transform:tutorial===p.id?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+          Como contratar e conectar a {p.nome}</button>
+        {ehGestor&&<button onClick={()=>{setLigando(l=>l===p.id?false:p.id);setAvisoCred("");}}
+          style={{background:d.ativo===p.id?C.card:C.greenDeep,color:d.ativo===p.id?C.greenDeep:"#fff",
+            border:d.ativo===p.id?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"8px 14px",
+            fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{d.ativo===p.id?"Trocar as credenciais":"Conectar esta opção"}</button>}
       </div>
-      <button onClick={()=>setTutorial(t=>t===p.id?false:p.id)}
-        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
-          padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-        <span style={{display:"inline-flex",transform:tutorial===p.id?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
-        Como contratar e conectar a {p.nome}</button>
 
-      {tutorial===p.id&&<TutorialUazapi webhook={d.webhook} site={p.site} copiar={copiar} copiado={copiado} isMobile={isMobile}/>}
+      {tutorial===p.id&&(p.id==="meta"
+        ?<TutorialMeta webhook={d.webhook.meta} site={p.site} copiar={copiar} copiado={copiado} isMobile={isMobile}/>
+        :<TutorialUazapi webhook={d.webhook.uazapi} site={p.site} copiar={copiar} copiado={copiado} isMobile={isMobile}/>)}
+
+      {avisoCred&&ligando===p.id&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"9px 11px",marginTop:11}}>{avisoCred}</div>}
+
+      {ligando==="uazapi"&&p.id==="uazapi"&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,marginTop:11}}>
+        <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Conectar a instância da sua imobiliária</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+          Os dois campos estão no painel da Uazapi, na <b>sua</b> instância — o tutorial acima mostra onde.
+          Use o <b>token da instância</b>, nunca o de administrador. Cada imobiliária precisa da própria instância:
+          duas contas no mesmo número misturam as conversas.
+        </div>
+        {campo("Endereço (host)",cred.host,e=>setCred({...cred,host:e.target.value}))}
+        {campo("Token da instância",cred.token,e=>setCred({...cred,token:e.target.value}),"password")}
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <button onClick={conectar} disabled={salvandoCred||!cred.host.trim()||!cred.token.trim()}
+            style={{background:cred.host.trim()&&cred.token.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",
+              borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
+          <button onClick={()=>{setLigando(false);setCred({host:"",token:""});}} disabled={salvandoCred}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
+
+      {ligando==="meta"&&p.id==="meta"&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,marginTop:11}}>
+        <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Conectar a API oficial da Meta</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+          Os quatro campos estão no painel do seu aplicativo na Meta — o tutorial acima mostra onde. O <b>token</b> precisa
+          ser o <b>permanente</b> (de um usuário do sistema), não o de teste de 24h — senão a conexão cai sozinha no dia seguinte.
+        </div>
+        {campo("Phone Number ID",credMeta.phone_number_id,e=>setCredMeta({...credMeta,phone_number_id:e.target.value}))}
+        {campo("WABA ID",credMeta.waba_id,e=>setCredMeta({...credMeta,waba_id:e.target.value}))}
+        {campo("Token de acesso permanente",credMeta.token,e=>setCredMeta({...credMeta,token:e.target.value}),"password")}
+        {campo("App Secret",credMeta.app_secret,e=>setCredMeta({...credMeta,app_secret:e.target.value}),"password")}
+        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+          <button onClick={conectarMeta}
+            disabled={salvandoCred||!credMeta.phone_number_id.trim()||!credMeta.waba_id.trim()||!credMeta.token.trim()||!credMeta.app_secret.trim()}
+            style={{background:(credMeta.phone_number_id.trim()&&credMeta.waba_id.trim()&&credMeta.token.trim()&&credMeta.app_secret.trim())?C.greenDeep:C.faint,
+              color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
+          <button onClick={()=>{setLigando(false);setCredMeta({phone_number_id:"",waba_id:"",token:"",app_secret:""});}} disabled={salvandoCred}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
     </div>)}
-
-    {/* Webhook */}
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-        <Icon n="link" size={14} color={C.greenMid}/>
-        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Webhook — para o CRM RECEBER as mensagens</span>
-      </div>
-      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:10}}>{d.webhook.observacao}</div>
-      <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-        <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,
-          padding:"10px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{d.webhook.url}</div>
-        <button onClick={()=>copiar(d.webhook.url)}
-          style={{background:copiado?C.card:C.greenDeep,color:copiado?C.greenMid:"#fff",
-            border:copiado?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"10px 16px",
-            fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
-      </div>
-      <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
-        Na Uazapi, marque o evento <b style={{color:C.sub}}>{d.webhook.eventos.join(", ")}</b>.
-        Sem o webhook o CRM envia, mas as respostas do cliente não aparecem na conversa.
-      </div>
-    </div>
 
     {/* OS NÚMEROS DOS CORRETORES. Fica na mesma tela da conexão da casa porque
         é a mesma pergunta — "por quais números esta imobiliária fala" —, e
@@ -11710,13 +11767,59 @@ function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
       <div style={{flex:1,minWidth:0}}>
         <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>{titulo}</div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
-        {i===4&&<div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
-          <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
-            padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
-          <button onClick={()=>copiar(webhook.url)}
-            style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
-              fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar"}</button>
-        </div>}
+        {i===4&&<React.Fragment>
+          <div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+              padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
+            <button onClick={()=>copiar(webhook.url)}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+                fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar"}</button>
+          </div>
+          <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.5}}>
+            Marque o evento <b style={{color:C.sub}}>{webhook.eventos.join(", ")}</b>. Sem o webhook o CRM envia, mas as respostas do cliente não aparecem na conversa.
+          </div>
+        </React.Fragment>}
+      </div>
+    </div>)}
+  </div>;
+}
+
+/* Mesmo formato do tutorial da Uazapi, com os passos da API oficial da
+   Meta — que é outro tipo de conta (Gerenciador de Negócios, verificação da
+   empresa) e por isso não cabe reaproveitar o texto, só a moldura visual. */
+function TutorialMeta({webhook,site,copiar,copiado,isMobile}){
+  const passos=[
+    ["Crie (ou use) um Gerenciador de Negócios",<React.Fragment>Acesse <b>{site.replace("https://","")}</b> e crie um Gerenciador de Negócios da sua imobiliária. A Meta pode pedir a <b>verificação da empresa</b> (CNPJ e documentos) — isso pode levar alguns dias, então vale começar antes de precisar.</React.Fragment>],
+    ["Crie um aplicativo e adicione o WhatsApp",<React.Fragment>Dentro do Gerenciador, crie um <b>App</b> do tipo Empresa e adicione o produto <b>WhatsApp</b>. É lá que aparecem o <b>App Secret</b> e, depois de registrar o número, o <b>Phone Number ID</b> e o <b>WABA ID</b>.</React.Fragment>],
+    ["Registre o número da imobiliária",<React.Fragment>No produto WhatsApp, registre o número que vai atender. Ele precisa estar <b>livre</b> — não pode já estar em uso no WhatsApp comum ou no Business App, e a Meta explica na tela como liberar um número que já usa.</React.Fragment>],
+    ["Gere um token de acesso PERMANENTE",<React.Fragment>O token que a tela mostra de início dura só 24h e cai sozinho. Crie um <b>usuário do sistema</b> (System User) no Gerenciador de Negócios e gere para ele um token <b>permanente</b>, com a permissão <b>whatsapp_business_messaging</b>.</React.Fragment>],
+    ["Cole o webhook e o Verify Token",<React.Fragment>Na configuração do WhatsApp do aplicativo, procure <b>Webhook</b> e cole os dois campos abaixo. Marque a inscrição no campo <b>messages</b> — sem isso a Meta não avisa o CRM quando o cliente responde.</React.Fragment>],
+    ["Cole os quatro dados aqui no ConHub",<React.Fragment>Phone Number ID, WABA ID, o token permanente e o App Secret — os quatro ficam no painel do aplicativo, na configuração do WhatsApp.</React.Fragment>],
+  ];
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:11}}>
+    {passos.map(([titulo,texto],i)=><div key={i} style={{display:"flex",gap:10,marginBottom:i===passos.length-1?0:12}}>
+      <div style={{width:22,height:22,borderRadius:99,background:C.greenDeep,color:"#fff",fontSize:11,fontWeight:700,
+        display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>{titulo}</div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
+        {i===4&&<React.Fragment>
+          <div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+              padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
+            <button onClick={()=>copiar(webhook.url)}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+                fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar URL"}</button>
+          </div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginTop:9,marginBottom:4}}>Verify Token</div>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+              padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.verify_token}</div>
+            <button onClick={()=>copiar(webhook.verify_token)}
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+                fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar token"}</button>
+          </div>
+        </React.Fragment>}
       </div>
     </div>)}
   </div>;

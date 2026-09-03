@@ -1104,12 +1104,61 @@ CREATE TABLE IF NOT EXISTS canais (
   created_at INTEGER NOT NULL,
   conectado_em INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_token ON canais(token) WHERE token IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_canal_org ON canais(org_id, tipo);
 -- Uma linha pessoal por pessoa: duas seriam duas caixas de entrada para a
 -- mesma pessoa, e a tela "Meu WhatsApp" não teria como escolher entre elas.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_user ON canais(org_id, user_id) WHERE user_id IS NOT NULL;
 `);
+
+/* ===== API OFICIAL DA META (WhatsApp Cloud API) — 03/09/2026 =====
+
+   Até aqui só existia a Uazapi, que é API NÃO OFICIAL: cada linha é uma
+   instância que se identifica por HOST (o endereço da instância) + TOKEN (a
+   credencial dela), e um token pertence a UMA linha só — daí o índice único
+   antigo em `token`.
+
+   A API OFICIAL da Meta funciona diferente, e o schema precisa refletir isso:
+
+   - Não existe "host": o endereço é sempre o mesmo (graph.facebook.com), e o
+     que identifica CADA NÚMERO é o `phone_number_id`, que a Meta atribui.
+   - O TOKEN é do APP/WABA (a "empresa" cadastrada na Meta), não da linha. Uma
+     imobiliária pode ter várias linhas (a da casa + a de cada corretor) sob o
+     MESMO WABA — na prática, várias pessoas registrando o próprio número
+     dentro do mesmo "aplicativo" que o gestor criou. Isso significa que o
+     MESMO token aparece em VÁRIAS linhas — o oposto do que a Uazapi permitia,
+     e é por isso que o índice único antigo (`idx_canal_token`) tinha que sair:
+     ele proibiria a segunda linha oficial de existir.
+   - `app_secret` e `verify_token` também são do WABA/App, e por isso ficam
+     copiados em toda linha oficial da mesma imobiliária (mesma filosofia de
+     `orgs.uazapi_*` ao lado de `canais`: duplicação que se paga num lugar só,
+     em `services/canais.js`, para toda leitura poder confiar só na própria
+     linha sem precisar de um JOIN).
+   - `waba_id` é o identificador da conta comercial, usado para listar os
+     modelos de mensagem aprovados (necessários fora da janela de 24h).
+
+   `provider` decide qual código de envio/recebimento uma linha usa. Nasce
+   'uazapi' em toda linha que já existe — é o comportamento de sempre, sem
+   migração nenhuma precisar rodar. */
+const canalCols = db.prepare("PRAGMA table_info(canais)").all().map(c => c.name);
+const addCanalCol = (name, ddl) => { if (!canalCols.includes(name)) db.exec(`ALTER TABLE canais ADD COLUMN ${name} ${ddl}`); };
+addCanalCol("provider", "TEXT DEFAULT 'uazapi'");
+addCanalCol("phone_number_id", "TEXT");
+addCanalCol("waba_id", "TEXT");
+addCanalCol("app_secret", "TEXT");
+addCanalCol("verify_token", "TEXT");
+
+/* O índice único de TOKEN só vale para a Uazapi — é lá que token = uma linha.
+   Precisa de DROP e recriação porque um banco já publicado criou o antigo sem
+   a condição de provider, e `CREATE INDEX IF NOT EXISTS` não troca a definição
+   de um índice que já existe com esse nome. */
+db.exec("DROP INDEX IF EXISTS idx_canal_token");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_token ON canais(token) WHERE token IS NOT NULL AND provider = 'uazapi'");
+/* E o de `phone_number_id` é o equivalente para a linha oficial: um número da
+   Meta só pode estar registrado numa linha do ConHub por vez — não porque duas
+   imobiliárias possam disputar o mesmo número (a Meta já impede isso do lado
+   dela), mas porque é a mesma garantia que o token dava: a coluna que aponta
+   para "qual linha é esta" tem que ser única. */
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_phone ON canais(phone_number_id) WHERE phone_number_id IS NOT NULL");
 
 /* Por qual linha esta conversa está acontecendo AGORA.
 
