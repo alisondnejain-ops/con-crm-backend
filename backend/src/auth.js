@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import db from "./db.js";
 import { resumoDeToken } from "./services/cofre.js";
 
@@ -108,23 +109,62 @@ const SECRET = (() => {
     return s;
   }
 
-  if (producao) {
-    console.error(
-      "\n=====================================================================\n" +
-      "  O SERVIDOR NÃO VAI SUBIR: falta a variável JWT_SECRET.\n\n" +
-      "  Ela é a chave que assina o crachá de quem entra no CRM. Sem ela, o\n" +
-      "  sistema usaria uma palavra escrita no código — e qualquer pessoa da\n" +
-      "  internet que a conhecesse entraria como gestor e leria os leads de\n" +
-      "  todas as imobiliárias.\n\n" +
-      "  Como resolver, no painel do Railway (Variables), crie:\n" +
-      "      JWT_SECRET = (um texto longo e aleatório)\n\n" +
-      "  Para gerar um, rode no seu computador:\n" +
-      '      node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"\n\n' +
-      "  Aviso: trocar esse valor desconecta todo mundo (é só entrar de novo).\n" +
-      "=====================================================================\n");
-    process.exit(1);
+  /* ===== SEM A VARIÁVEL, O SERVIDOR GERA A PRÓPRIA CHAVE (03/09/2026) =====
+
+     Terceira versão desta trava, e a segunda queda do CRM por causa dela. Vale
+     escrever o raciocínio inteiro, porque ele mudou duas vezes:
+
+     1ª versão (o defeito original): `process.env.JWT_SECRET || "dev-secret"`.
+        Sem a variável, o segredo do sistema virava uma palavra escrita no
+        código-fonte. Um sistema aberto se passando por fechado.
+     2ª versão (ontem): derrubar o servidor. Resolvia a segurança e criou um
+        problema pior — uma variável de ambiente ausente passou a ser capaz de
+        parar a operação de uma imobiliária inteira. E parou, duas vezes.
+     3ª versão (esta): o servidor GERA uma chave aleatória no primeiro start e
+        a guarda em `config_plataforma`.
+
+     Por que isto é melhor que as duas anteriores, e não um meio-termo:
+
+     - Contra a 1ª: a chave é aleatória de 64 bytes e ÚNICA desta instalação.
+       Ninguém a conhece por ter lido o projeto. O risco que a trava existia
+       para cobrir simplesmente não acontece.
+     - Contra a 2ª: nada precisa estar configurado para o CRM funcionar.
+       Esquecer uma variável no painel da hospedagem deixa de ser capaz de
+       derrubar a operação — e essa é a regra que estas duas quedas ensinaram:
+       **falha de segurança e falha de disponibilidade têm o mesmo peso.**
+
+     Guardar no BANCO em vez do ambiente é a troca central, e ela é honesta:
+     quem tiver o arquivo do banco consegue forjar um crachá. Só que quem tem o
+     arquivo do banco já tem os leads, as conversas e os telefones de todo
+     mundo — não há o que proteger a mais. E a cópia de segurança, que era o
+     jeito realista de esse arquivo sair daqui, agora sobe criptografada.
+
+     A VARIÁVEL CONTINUA MANDANDO quando existe: é o caminho recomendado (a
+     chave não fica no mesmo lugar que os dados) e é como se troca a chave
+     quando há suspeita de vazamento. O que muda é que ela deixou de ser
+     obrigatória para o sistema existir. */
+  const guardada = db.prepare("SELECT valor FROM config_plataforma WHERE chave = 'jwt_secret'").get()?.valor;
+  if (guardada) {
+    if (producao) console.warn(
+      "[auth] usando a chave de sessão gerada pelo próprio servidor (não há JWT_SECRET no ambiente). " +
+      "Funciona, mas o recomendado é definir JWT_SECRET no painel da hospedagem.");
+    return guardada;
   }
-  console.warn("[auth] JWT_SECRET não definida — usando a chave de desenvolvimento. NUNCA publique assim.");
+
+  const nova = crypto.randomBytes(48).toString("hex");
+  db.prepare(`INSERT INTO config_plataforma (chave,valor,atualizado_em) VALUES ('jwt_secret',?,?)
+              ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, atualizado_em = excluded.atualizado_em`)
+    .run(nova, Date.now());
+  console.warn(
+    "\n---------------------------------------------------------------------\n" +
+    "  Não havia JWT_SECRET no ambiente, então o servidor GEROU uma chave de\n" +
+    "  sessão própria e a guardou no banco. O CRM está funcionando.\n\n" +
+    "  Ela é aleatória e exclusiva desta instalação — ninguém de fora a\n" +
+    "  conhece. Quem já estava logado precisa entrar de novo, uma vez.\n\n" +
+    "  O recomendado ainda é definir JWT_SECRET no painel da hospedagem: lá a\n" +
+    "  chave fica separada dos dados, e dá para trocá-la quando quiser.\n" +
+    "---------------------------------------------------------------------\n");
+  return nova;
   return "dev-secret";
 })();
 
