@@ -56,33 +56,71 @@ export const encerrarSessoes = (userId) =>
    possível: nada quebra, nenhum erro aparece, o CRM funciona perfeitamente —
    só está destrancado.
 
-   Por isso a falta agora DERRUBA O START, em vez de virar um padrão. Servidor
-   que não sobe é um problema de dez minutos, com a causa escrita na tela.
-   Servidor que sobe destrancado é um problema que ninguém descobre.
+   Por isso a AUSÊNCIA derruba o start, em vez de virar um padrão. Servidor que
+   não sobe é um problema de dez minutos, com a causa escrita na tela. Servidor
+   que sobe destrancado é um problema que ninguém descobre.
+
+   ===== MAS CHAVE CURTA NÃO DERRUBA NADA (03/09/2026) =====
+
+   A primeira versão desta trava, publicada ontem, também derrubava o servidor
+   quando a variável EXISTIA mas tinha menos de 16 caracteres. E foi exatamente
+   isso que aconteceu: o CRM da Conecta saiu do ar na publicação seguinte,
+   porque a chave que estava lá — a mesma que vinha funcionando havia meses —
+   era curta.
+
+   O erro de julgamento é claro quando se separa as duas situações:
+
+   - SEM a variável, o segredo virava uma palavra escrita no código-fonte,
+     pública para qualquer pessoa que olhasse o projeto. É um sistema aberto
+     se passando por fechado, e derrubar é a resposta certa.
+   - COM uma variável curta, o segredo é FRACO, mas é dele — ninguém de fora
+     sabe qual é. Isso é um risco a corrigir com calma, não uma porta aberta.
+
+   Trocar uma imobiliária inteira parada por um risco que não estava sendo
+   explorado é um péssimo negócio, e a régua vale para qualquer trava futura:
+   **derrubar o sistema só quando ficar de pé é pior do que não funcionar.**
+
+   Agora a chave curta sobe com um aviso gritado no log a cada start — que é o
+   que faz o problema continuar visível sem custar a operação de ninguém.
 
    Fora de produção o padrão continua, porque `npm run dev` e os testes não
    podem exigir configuração — e ali o "vazamento" é o meu próprio computador. */
+const MINIMO_SECRET = 16;
 const SECRET = (() => {
   const s = process.env.JWT_SECRET;
   const producao = process.env.NODE_ENV === "production" || !!process.env.RAILWAY_ENVIRONMENT;
-  /* A exigência de TAMANHO vale só em produção. Os testes assinam com "teste",
-     e transformar isso em erro trocaria uma trava de produção por vinte testes
-     quebrados — o tipo de rigor que faz a suíte ser desligada em vez de a
-     regra ser cumprida. Fora de produção, vale o que estiver definido. */
-  if (s && (!producao || s.length >= 16)) return s;
+
+  if (s) {
+    /* Curta demais: avisa alto e SEGUE. O aviso repete a cada reinício de
+       propósito — ele tem que continuar incomodando até alguém trocar, e não
+       sumir depois da primeira vez. */
+    if (producao && s.length < MINIMO_SECRET)
+      console.warn(
+        "\n---------------------------------------------------------------------\n" +
+        `  ATENÇÃO: a JWT_SECRET tem só ${s.length} caracteres (o recomendado é ${MINIMO_SECRET}+).\n\n` +
+        "  Ela é a chave que assina o crachá de quem entra no CRM. Curta, ela é\n" +
+        "  mais fácil de descobrir por tentativa — e quem a descobrir entra como\n" +
+        "  qualquer pessoa, sem senha.\n\n" +
+        "  O sistema CONTINUA FUNCIONANDO. Quando puder, troque no Railway:\n" +
+        '      node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"\n' +
+        "  Trocar desconecta todo mundo uma vez — é só entrar de novo.\n" +
+        "---------------------------------------------------------------------\n");
+    return s;
+  }
+
   if (producao) {
     console.error(
       "\n=====================================================================\n" +
       "  O SERVIDOR NÃO VAI SUBIR: falta a variável JWT_SECRET.\n\n" +
-      "  Ela é a chave que assina o crachá de quem entra no CRM. Sem ela,\n" +
-      "  qualquer pessoa da internet consegue fabricar um crachá de gestor e\n" +
-      "  ler os leads de todas as imobiliárias.\n\n" +
+      "  Ela é a chave que assina o crachá de quem entra no CRM. Sem ela, o\n" +
+      "  sistema usaria uma palavra escrita no código — e qualquer pessoa da\n" +
+      "  internet que a conhecesse entraria como gestor e leria os leads de\n" +
+      "  todas as imobiliárias.\n\n" +
       "  Como resolver, no painel do Railway (Variables), crie:\n" +
       "      JWT_SECRET = (um texto longo e aleatório)\n\n" +
       "  Para gerar um, rode no seu computador:\n" +
       '      node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"\n\n' +
       "  Aviso: trocar esse valor desconecta todo mundo (é só entrar de novo).\n" +
-      (s ? `  (a variável existe, mas tem só ${s.length} caracteres; o mínimo é 16)\n` : "") +
       "=====================================================================\n");
     process.exit(1);
   }
