@@ -21,6 +21,7 @@ import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../serv
 import { marcaDaOrg } from "../services/marca.js";
 import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
+import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
 
 const r = Router();
 r.use(authRequired, soMaster);
@@ -96,6 +97,16 @@ r.post("/:id/entrar", (req, res) => {
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
   const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   res.json({ token: sign(eu, { orgId: org.id }), org: resumo(req, org) });
+});
+
+/* ===== A CONTA DE DEMONSTRAÇÃO =====
+
+   Renova sozinha de madrugada (ver services/demo.js), mas antes de uma
+   reunião comercial o Ali não pode depender do relógio — este botão faz o
+   mesmo trabalho na hora, sob pedido. */
+r.post("/demo/atualizar", (req, res) => {
+  const out = reseedDemo();
+  res.json({ ok: true, ...out, org_id: DEMO_ORG_ID, credenciais: CREDENCIAIS_DEMO });
 });
 
 /* ===== SÓCIOS E ADMINISTRADORES DA PLATAFORMA =====

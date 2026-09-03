@@ -378,7 +378,15 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Teste: `npm run teste:whatsapp-oficial` (17 casos, com o servidor de pé — inclusive o isolamento entre imobiliárias: a assinatura de uma não pode validar mensagem para o Phone Number ID de outra, mesmo com o payload certo).
 
-- **Vínculo por código**: o corretor se cadastra com o código da imobiliária (`ADM_CODE`, ex.: `CONECTA-JAZ-2026`) para ficar ligado à ADM da Conecta.
+- **A conta de demonstração** (03/09/2026, pedido do Ali para reunião comercial e print; `services/demo.js`, `orgs.demo`, `POST /orgs/demo/atualizar`): uma imobiliária de mentira chamada **"Imobiliária"**, visível na lista do hub do master, com login público próprio (não passa pelo hub — é a experiência exata de um cliente de verdade). Por dentro é uma org como qualquer outra, de propósito: o que aparece na reunião precisa ser o que o cliente vai usar, não uma versão maquiada.
+
+  **Login fixo, sempre o mesmo**: `gestor@imobiliariademo.com.br` / `Demo@2026` (senha igual para a atendente fictícia e os três corretores fictícios, trocando só o e-mail — `atendente@`, `marina@`, `rafael@`, `bruno@`). Isso é INTOCÁVEL a cada renovação: só os LEADS são apagados e recriados, a org/equipe/pipeline ficam de pé, senão o e-mail que o Ali decorou pararia de funcionar de um dia para o outro.
+
+  **Os 22 leads cobrem as 11 etapas do funil**, com temperatura variada, tarefa vencida (mostra o coral), tarefa futura, observação, e duas vendas com valor — é o que faz o Kanban, o "Atender" e o relatório parecerem uma operação de verdade num print, em vez de três exemplos soltos numa tela vazia. Um deles (Ricardo Silva) é a **conversa inteira atendida pela IA fora do expediente**, do acolhimento à despedida — o cartão mais vendável da demonstração, e por isso ganha destaque. As mensagens do robô são **escritas à mão aqui**, não geradas pela Anthropic de verdade: chamar a IA de produção para popular uma conta de demonstração custaria dinheiro toda vez que a base for renovada, e o texto de exemplo já mostra a régua (acolhe, uma pergunta por vez, nunca fala valor de parcela).
+
+  **Todo horário é relativo a `Date.now()` na hora de gerar, nunca uma data fixa.** É a única forma de a conta nunca "envelhecer" — sem isso, o lead "aguardando há 20 minutos" que fica bem numa reunião vira, três semanas depois, um lead esquecido há 21 dias, o oposto do que se quer mostrar. Por isso a base inteira de leads é **apagada e recriada** a cada renovação, em vez de deslocar timestamps de tabelas que se referenciam (mensagens, tarefas, `lead_etapas`, o gatilho de `last_interaction_at`) — deslocar seria replicar a mesma lógica de criação em outro lugar, com chance real de um campo ficar para trás e a conta parecer "meio nova, meio velha".
+
+  **Renova sozinha de madrugada** (`reseedDemoSePassouDaHora`, mesmo padrão do backup diário — registro em `config_plataforma` manda, não o relógio; ver `services/backup.js`). A hora de madrugada (`DEMO_RESEED_HORA`, padrão 4h) não é só higiene: é a trava que impede os leads de sumirem da tela **no meio de uma reunião comercial ao vivo** às 15h. **Antes de uma reunião, o Ali não depende do relógio**: `POST /orgs/demo/atualizar` (só master) faz a mesma renovação na hora.
 
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 

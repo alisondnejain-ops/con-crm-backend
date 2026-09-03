@@ -800,6 +800,16 @@ addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");
 
+/* A CONTA DE DEMONSTRAÇÃO (03/09/2026, pedido do Ali) — uma imobiliária de
+   mentira, sempre com leads e conversas em dia, para reunião comercial e
+   print. `demo=1` é só uma etiqueta: para o resto do sistema (catraca, robô,
+   score) esta org é uma imobiliária como qualquer outra, e é assim que tem
+   que ser — senão o que aparece na reunião não é o que o cliente vai usar.
+   O que a etiqueta muda é UM lugar só: o serviço que apaga e recria os leads
+   dela toda madrugada (`services/demo.js`), para nunca aparecer "3 semanas
+   atrás" numa tela que devia parecer viva. */
+addOrgCol("demo", "INTEGER DEFAULT 0");
+
 /* Quantos MESES de acesso este pagamento comprou.
 
    Era um por linha, contado com COUNT(*), e isso valia enquanto todo plano

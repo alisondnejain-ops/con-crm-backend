@@ -38,6 +38,7 @@ import { agendarCorte } from "./services/expediente.js";
 import { backupSePassouDaHora } from "./services/backup.js";
 import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
+import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js";
 
 const app = express();
 
@@ -364,10 +365,18 @@ app.listen(PORT, () => {
      Sem R2 configurado ela não acontece, de propósito: cópia gravada no disco
      da hospedagem fica no mesmo volume do banco que ela deveria proteger. */
   backupSePassouDaHora().catch(e => console.error("[backup] erro no start:", e.message));
+  /* Conta de demonstração (Configurações comerciais, 03/09/2026): a org e o
+     login existem sempre, sem depender do relógio — é o que sustenta a
+     senha que o Ali já decorou. Os LEADS é que se renovam de madrugada,
+     mesmo batimento do backup e pelo mesmo motivo (registro manda, não o
+     relógio) — ver services/demo.js. */
+  garantirContaDemo();
+  reseedDemoSePassouDaHora();
   setInterval(() => {
     avisarPlantaoEmTodas(); avisarSemRespostaEmTodas();
     // `catch` explícito: é async, e promessa rejeitada solta derruba o Node.
     backupSePassouDaHora().catch(e => console.error("[backup] erro no ciclo:", e.message));
+    reseedDemoSePassouDaHora();
   }, 60000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });
