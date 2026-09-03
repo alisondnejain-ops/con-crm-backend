@@ -4478,7 +4478,8 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
       const lead=await acoes.criarLead({
         nome:f.nome.trim(), telefone:f.telefone.trim(),
         stage_id:f.stage_id||undefined,
-        ...(supervisor?{assigned_to:f.assigned_to,observacao:f.observacao.trim()||undefined}:{}),
+        observacao:f.observacao.trim()||undefined,
+        ...(supervisor?{assigned_to:f.assigned_to}:{}),
       });
       aoCriar&&aoCriar(lead);
       aoFechar();
@@ -4534,27 +4535,28 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
             </optgroup>)}
           </select></div>
 
-        {/* OS DOIS CAMPOS DA SUPERVISÃO. É o caso que motivou o pedido: a
-            atendente recebe a ligação, anota o que descobriu e passa adiante. */}
-        {supervisor&&<React.Fragment>
-          <div>{rotulo("Corretor responsável")}
-            <select value={f.assigned_to} onChange={e=>setF({...f,assigned_to:e.target.value})} style={{...entrada,cursor:"pointer"}}>
-              <option value="">Deixar comigo ({first(session.name)})</option>
-              {equipe.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-              {/* Sem dono é uma escolha, não um campo em branco: a diferença é
-                  grande demais para ficar num vazio que pode significar as
-                  duas coisas. */}
-              <option value="fila">Ninguém ainda — deixar na fila</option>
-            </select></div>
+        {/* Corretor responsável é só da supervisão: um corretor só pode
+            cadastrar para si mesmo, então o campo não teria o que escolher.
+            Observações é de todo mundo — é o corretor que mais liga e mais
+            precisa deixar registrado o que descobriu antes de outra pessoa
+            (ou ele mesmo, depois) assumir a conversa. */}
+        {supervisor&&<div>{rotulo("Corretor responsável")}
+          <select value={f.assigned_to} onChange={e=>setF({...f,assigned_to:e.target.value})} style={{...entrada,cursor:"pointer"}}>
+            <option value="">Deixar comigo ({first(session.name)})</option>
+            {equipe.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+            {/* Sem dono é uma escolha, não um campo em branco: a diferença é
+                grande demais para ficar num vazio que pode significar as
+                duas coisas. */}
+            <option value="fila">Ninguém ainda — deixar na fila</option>
+          </select></div>}
 
-          <div>{rotulo("Observações gerais")}
-            <textarea value={f.observacao} onChange={e=>setF({...f,observacao:e.target.value})} rows={3}
-              placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
-              style={{...entrada,resize:"vertical"}}/>
-            <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
-              Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
-              O cliente <b>não recebe</b> este texto.</div></div>
-        </React.Fragment>}
+        <div>{rotulo("Observações gerais")}
+          <textarea value={f.observacao} onChange={e=>setF({...f,observacao:e.target.value})} rows={3}
+            placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
+            style={{...entrada,resize:"vertical"}}/>
+          <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+            Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
+            O cliente <b>não recebe</b> este texto.</div></div>
       </div>
 
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
@@ -4576,6 +4578,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
   const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
   const [novoLead,setNovoLead]=useState(false);
+  const [simulando,setSimulando]=useState(false);
+  // Trocar de lead fecha a simulação aberta: número de financiamento de um
+  // cliente não pode continuar na tela ao abrir a conversa de outro.
+  useEffect(()=>{setSimulando(false);},[sel&&sel.id]);
   /* Os mesmos filtros que a atendente tem, pedido do Ali em 20/08/2026. Ela
      enxergava a etapa, a temperatura e o período; o corretor tinha cinco
      pastilhas e nem busca por nome — e é ele quem mais precisa achar "quem
@@ -4886,7 +4892,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
-    {showFicha&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
+    {showFicha&&simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:fichaPorBotao?"100%":undefined}}>
+      <Simulacao lead={sel} acoes={acoes} isMobile={fichaPorBotao} aoFechar={()=>setSimulando(false)}/>
+    </div>}
+    {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
       <div style={{padding:16}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
@@ -4917,8 +4926,17 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {[["Renda familiar",sel.qual.renda,"target"],["Entrada",sel.qual.entrada,"check"],["Situação",sel.qual.situacao,"users"],["Restrição CPF",sel.qual.cpf,"award"],["Prazo p/ comprar",sel.qual.prazo,"calendar"]].map(([k,v,n])=><div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
+          {[["Renda familiar",sel.qual.renda,"target","renda"],["Entrada",sel.qual.entrada,"check","entrada"],["Situação",sel.qual.situacao,"users","situacao"],["Restrição CPF",sel.qual.cpf,"award","cpf"],["Prazo p/ comprar",sel.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>
+            <CampoQual key={k} rotulo={k} valor={v} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
         </div>
+        {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
+            do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
+            no cadastro do imóvel. */}
+        <button onClick={()=>setSimulando(true)}
+          style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
+            borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+          <Icon n="chart" size={15}/> Registrar simulação
+        </button>
         <FichaVenda lead={sel} onSalvar={(d)=>acoes.registrarVenda(sel.id,d)}/>
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
