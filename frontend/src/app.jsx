@@ -10722,6 +10722,189 @@ const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cp
    3. separa o funil de conversão do avanço operacional, em dois blocos com
       títulos diferentes — porque são duas perguntas, e juntá-las num gráfico
       só é o que faz etapa administrativa virar métrica falsa de venda. */
+
+/* ===== A ROSCA DO FUNIL ===== (08/09/2026, pedido do Ali)
+
+   "Onde a base está agora", numa figura só — e, ao clicar na fatia, há quanto
+   tempo aquela etapa está segurando o lead.
+
+   POR QUE ROSCA DE DISTRIBUICAO, E NAO DE CONVERSAO
+
+   Pizza só é honesta quando as fatias somam o todo, e cada lead está em
+   exatamente UMA etapa agora. Conversão não soma: quem chegou em Venda também
+   passou por Visita, e desenhar isso em pizza produziria um todo maior que o
+   todo. A conversão continua sendo lida onde ela faz sentido — nas duas taxas
+   do bloco de degraus, logo abaixo.
+
+   A COR NAO IDENTIFICA A FATIA, O ROTULO IDENTIFICA
+
+   As cores são as que a empresa escolheu para as etapas, e é assim que tem que
+   ser: a mesma etapa não pode ter uma cor no Kanban e outra aqui. Só que elas
+   nunca foram desenhadas para virar paleta de gráfico — no funil padrão,
+   "Aprovação" (azul) e "Pasta" (roxo) ficam a ΔE 0.4 sob daltonismo verde,
+   ou seja, a MESMA cor para quem tem deuteranopia; e duas etapas do template
+   nascem literalmente com o mesmo hexadecimal. Por isso toda fatia tem nome
+   escrito ao lado, com número e porcentagem, e o miolo escreve a etapa
+   escolhida. Quem não separa as cores lê a mesma informação na legenda.
+
+   O TETO DE FATIAS existe pela mesma razão: acima de sete, fatias vizinhas
+   viram um borrão mesmo com visão perfeita. O que passa disso vira "Outras
+   etapas", e o detalhe diz quais são. */
+const FATIAS_MAX=7;
+
+function usarAnimacaoSuave(){
+  // Respeitar quem pediu menos movimento no sistema: a animação é enfeite,
+  // a informação não depende dela.
+  const [suave,setSuave]=useState(true);
+  useEffect(()=>{
+    try{ setSuave(!window.matchMedia("(prefers-reduced-motion: reduce)").matches); }catch(e){}
+  },[]);
+  return suave;
+}
+
+function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
+  const suave=usarAnimacaoSuave();
+  // Nasce em zero e cresce depois da montagem: é o "carrega fluido". Sem o
+  // segundo quadro, o navegador pinta já no valor final e não há transição.
+  const [entrou,setEntrou]=useState(false);
+  useEffect(()=>{const t=setTimeout(()=>setEntrou(true),30);return()=>clearTimeout(t);},[]);
+
+  /* `VOLTA` e não `C`: `C` é o objeto de cores do app inteiro, e uma const
+     local com esse nome apagaria C.ink/C.faint dentro deste componente — sem
+     erro de sintaxe, só uma tela cinza sem explicação. */
+  const R=isMobile?74:86, GROSSURA=isMobile?26:30, VOLTA=2*Math.PI*R;
+  const LADO=(R+GROSSURA/2+6)*2;
+
+  if(!etapas.length||!total) return <div style={{color:C.faint,fontSize:12.5,lineHeight:1.6,
+    background:C.surface,borderRadius:12,padding:"18px 16px",textAlign:"center"}}>{vazioTexto}</div>;
+
+  const sel=etapas.find(e=>e.id===escolhida)||null;
+  let acumulado=0;
+  const fatias=etapas.map(e=>{
+    const fracao=e.valor/total;
+    const inicio=acumulado; acumulado+=fracao;
+    return {...e,fracao,inicio,pct:Math.round(fracao*1000)/10};
+  });
+
+  return <div style={{display:"flex",gap:isMobile?14:22,alignItems:"center",
+    flexDirection:isMobile?"column":"row",flexWrap:"wrap"}}>
+
+    <div style={{position:"relative",width:LADO,height:LADO,flexShrink:0}}>
+      <svg width={LADO} height={LADO} viewBox={`0 0 ${LADO} ${LADO}`} role="img"
+        aria-label={`Distribuição de ${total} leads por etapa`}>
+        <g transform={`rotate(-90 ${LADO/2} ${LADO/2})`}>
+          {fatias.map(f=>{
+            const ativa=sel&&sel.id===f.id;
+            /* O vão entre fatias é o que separa duas etapas de cor parecida —
+               e no funil padrão existem duas com o MESMO hexadecimal
+               (Agendamento e Visita nascem ambas #D97706). Com 2px elas ainda
+               liam como uma fatia só; 3px é o que faz a divisa aparecer. */
+            const vao=fatias.length>1?3:0;
+            const comprimento=Math.max(f.fracao*VOLTA-vao,0.5);
+            return <circle key={f.id} cx={LADO/2} cy={LADO/2} r={R} fill="none"
+              stroke={f.cor} strokeWidth={ativa?GROSSURA+8:GROSSURA}
+              strokeDasharray={entrou?`${comprimento} ${VOLTA-comprimento}`:`0 ${VOLTA}`}
+              strokeDashoffset={-f.inicio*VOLTA}
+              onClick={()=>aoEscolher(ativa?null:f.id)}
+              style={{cursor:"pointer",opacity:sel&&!ativa?.42:1,
+                transition:suave?"stroke-dasharray .55s cubic-bezier(.22,.8,.28,1), stroke-width .18s ease, opacity .18s ease":"none"}}>
+              <title>{f.nome}: {f.valor} ({f.pct}%)</title>
+            </circle>;
+          })}
+        </g>
+      </svg>
+
+      {/* O miolo responde a pergunta do momento: sem escolha, o tamanho da
+          base; com escolha, a etapa escolhida escrita por extenso — que é o
+          que garante a leitura de quem não separa as cores. */}
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+        alignItems:"center",justifyContent:"center",pointerEvents:"none",padding:GROSSURA+10}}>
+        <div style={{fontFamily:MONO,fontSize:sel?24:30,fontWeight:700,color:C.ink,lineHeight:1,
+          transition:suave?"font-size .18s ease":"none"}}>{sel?sel.valor:total}</div>
+        <div style={{color:C.faint,fontSize:10,marginTop:4,textAlign:"center",lineHeight:1.3,
+          maxWidth:R*1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+          {sel?sel.nome:total===1?"lead no funil":"leads no funil"}</div>
+      </div>
+    </div>
+
+    {/* A LEGENDA NAO E ENFEITE: é ela que diz qual fatia é qual quando as cores
+        não se separam. Por isso vem com nome, número e porcentagem, e é um
+        botão de verdade — dá para chegar nela pelo teclado. */}
+    {/* Largura travada: esticada na tela do computador, o nome ficava num
+        canto e o número no outro, com um vão de meio metro no meio — e ler
+        "Atendimento" junto com o "5" que é dele virava trabalho. */}
+    <div style={{display:"flex",flexDirection:"column",gap:2,flex:1,
+      minWidth:isMobile?"100%":190,maxWidth:isMobile?"100%":330}}>
+      {fatias.map(f=>{
+        const ativa=sel&&sel.id===f.id;
+        return <button key={f.id} onClick={()=>aoEscolher(ativa?null:f.id)}
+          style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",cursor:"pointer",
+            background:ativa?C.surface:"transparent",border:"none",borderRadius:8,padding:"5px 7px",
+            opacity:sel&&!ativa?.55:1,transition:suave?"opacity .18s ease,background .18s ease":"none"}}>
+          <span style={{width:10,height:10,borderRadius:3,background:f.cor,flexShrink:0}}/>
+          <span style={{color:C.ink,fontSize:11.5,fontWeight:ativa?700:500,flex:1,minWidth:0,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nome}</span>
+          <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700}}>{f.valor}</span>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:10.5,width:38,textAlign:"right"}}>{f.pct}%</span>
+        </button>;
+      })}
+    </div>
+  </div>;
+}
+
+/* Monta as fatias a partir do avanço operacional: só etapa COM lead (não há o
+   que desenhar de uma etapa vazia), da maior para a menor, e o que passa do
+   teto vira uma fatia só. */
+function fatiasDoFunil(operacional){
+  const comLead=(operacional||[]).filter(o=>o.leads_agora>0)
+    .map(o=>({id:o.id,nome:o.name,valor:o.leads_agora,cor:corDaEtapa(o,o.name),fonte:o}))
+    .sort((a,b)=>b.valor-a.valor);
+  if(comLead.length<=FATIAS_MAX) return comLead;
+  const cabem=comLead.slice(0,FATIAS_MAX-1);
+  const resto=comLead.slice(FATIAS_MAX-1);
+  return [...cabem,{id:"__outras",nome:`Outras ${resto.length} etapas`,
+    valor:resto.reduce((s,r)=>s+r.valor,0),cor:C.faint,agrupadas:resto}];
+}
+
+/* O que a fatia escolhida conta além do tamanho: há quanto tempo a etapa
+   segura o lead, quantos estouraram o prazo, e — quando ela é degrau
+   comercial — as duas taxas de conversão que já existiam no bloco de baixo. */
+function DetalheDaFatia({fatia,conversao,isMobile}){
+  if(!fatia) return null;
+  if(fatia.agrupadas) return <div style={{background:C.surface,borderRadius:12,padding:"11px 13px",marginTop:12}}>
+    <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>{fatia.nome}</div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
+      {fatia.agrupadas.map(a=><span key={a.id} style={{color:C.sub,fontSize:11.5}}>
+        {a.nome} <b style={{fontFamily:MONO,color:C.ink}}>{a.valor}</b></span>)}
+    </div>
+  </div>;
+
+  const o=fatia.fonte||{};
+  const conv=(conversao||[]).find(c=>c.id===fatia.id);
+  const item=(rot,valor,cor,sub)=><div style={{minWidth:isMobile?"46%":120}}>
+    <div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rot}</div>
+    <div style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor||C.ink,marginTop:2}}>{valor}</div>
+    {sub&&<div style={{color:C.faint,fontSize:10.5,marginTop:1,lineHeight:1.35}}>{sub}</div>}
+  </div>;
+
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?"12px 13px":"13px 15px",marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+      <span style={{width:10,height:10,borderRadius:3,background:fatia.cor,flexShrink:0}}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{fatia.nome}</span>
+    </div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:isMobile?"12px 8px":"12px 18px"}}>
+      {item("Leads agora",o.leads_agora)}
+      {/* O tempo é MEDIANO, e a tela precisa dizer: um lead esquecido há dois
+          anos puxa a média e faz a etapa inteira parecer parada. */}
+      {item("Parados há",o.tempo_mediano_dias==null?"—":`${o.tempo_mediano_dias}d`,null,"tempo mediano nesta etapa")}
+      {o.sla_minutes
+        ?item("Fora do prazo",o.sla_vencidos,o.sla_vencidos?C.hot:C.ink,`prazo de ${fmtMin(o.sla_minutes)}`)
+        :item("Prazo","—",null,"esta etapa não tem prazo configurado")}
+      {conv&&item("Alcançaram",`${conv.taxa_sobre_entrada}%`,null,`sobre a entrada · seq ${conv.taxa_sequencial}%`)}
+    </div>
+  </div>;
+}
+
 function PainelGestao({acoes,session,isMobile,abrirConversa}){
   const [f,setF]=usarEscolha("painel.filtros",{periodo:"mes"});
   const [d,setD]=useState(null);
@@ -10731,6 +10914,9 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
   const [equipe,setEquipe]=useState(null);
   const [erro,setErro]=useState("");
   const [aba,setAba]=usarEscolha("painel.aba","visao");
+  // Fatia aberta na rosca. Zera quando o filtro muda: a etapa escolhida pode
+  // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
+  const [fatia,setFatia]=useState(null);
 
   useEffect(()=>{acoes.painelOpcoes().then(setOp).catch(e=>setErro(e.message));},[]);
   useEffect(()=>{
@@ -10741,6 +10927,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
     acoes.painelCampanhas(f).then(r=>vivo&&setCamp(r)).catch(()=>{});
     const pipe=f.pipeline_id||(op&&op.pipelines[0]&&op.pipelines[0].id);
     if(pipe) acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil(r)).catch(()=>{});
+    setFatia(null);
     return()=>{vivo=false;};
   },[JSON.stringify(f),op&&op.pipelines.length]);
 
@@ -10838,6 +11025,25 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
 
         {/* ===== FUNIL: CONVERSAO x OPERACIONAL ===== */}
         {aba==="funil"&&funil&&<React.Fragment>
+          {/* A ROSCA VEM PRIMEIRO porque responde a pergunta que se faz de
+              olho: onde a base está agora. As duas leituras de conversão, logo
+              abaixo, respondem a seguinte — quanto disso andou. */}
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde a base está agora</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
+              Cada lead em aberto aparece em uma etapa só, então as fatias somam a base inteira.
+              Toque numa etapa para ver há quanto tempo ela está segurando os leads.
+            </div>
+            {(()=>{const fatias=fatiasDoFunil(funil.operacional);
+              const total=fatias.reduce((s,x)=>s+x.valor,0);
+              return <React.Fragment>
+                <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
+                  escolhida={fatia} aoEscolher={setFatia}
+                  vazioTexto="Nenhum lead em aberto neste funil — nada para desenhar ainda."/>
+                <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={funil.conversao} isMobile={isMobile}/>
+              </React.Fragment>;})()}
+          </div>
+
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de conversão</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
@@ -12539,6 +12745,27 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   const [etapaAberta,setEtapaAberta]=useState(null);
   useEffect(()=>{setEtapaAberta(null);},[sel,periodo.de,periodo.ate]);
 
+  /* A ROSCA DESTA PESSOA (08/09/2026, pedido do Ali).
+
+     Vem da MESMA rota do painel do gestor, só que filtrada por responsável —
+     e não de uma conta paralela montada aqui. É o que garante que a fatia
+     "Pasta" do relatório da Marina e a fatia "Pasta" do painel signifiquem a
+     mesma coisa; duas contas para a mesma pergunta é como o relatório passa a
+     ter dois números certos e nenhum confiável.
+
+     O corretor abrindo o próprio relatório também chega aqui: o servidor
+     sobrescreve o responsável pelo id dele (ver painel.routes.js). */
+  const {padrao:funilPadrao}=usarPipelines(acoes,session);
+  const [rosca,setRosca]=useState(null);
+  const [fatia,setFatia]=useState(null);
+  useEffect(()=>{
+    if(!sel||!funilPadrao){setRosca(null);return;}
+    let vivo=true; setFatia(null); setRosca(null);
+    acoes.painelFunil(funilPadrao,{de:periodo.de,ate:periodo.ate,responsavel:sel})
+      .then(r=>vivo&&setRosca(r)).catch(()=>{});
+    return()=>{vivo=false;};
+  },[sel,periodo.de,periodo.ate,funilPadrao]);
+
   useEffect(()=>{
     let vivo=true; setCarregando(true);
     acoes.relatorio(periodo).then(d=>{if(vivo){setDados(d);setCarregando(false);
@@ -12669,6 +12896,27 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
             colocados ali por uma pessoa. Os outros <b>{linha.agendamentos-(linha.agendamentos_confirmados||0)}</b> vieram
             da regra automática de palavra-chave — e é por isso que a nota conta só os confirmados.
           </div>}
+
+        {/* A ROSCA DE QUEM ESTÁ SELECIONADO. Em cima do avanço por etapas de
+            propósito: esta responde "onde estão os leads dele agora", e a de
+            baixo "por onde eles passaram no período" — perguntas diferentes,
+            e a primeira é a que se faz olhando. */}
+        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
+          padding:16,marginBottom:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão os leads de {first(linha.nome)}</div>
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
+            Leads em aberto com {first(linha.nome)}, por etapa. Toque numa fatia para ver
+            há quanto tempo ela está parada e quantas passaram do prazo.
+          </div>
+          {(()=>{const fatias=fatiasDoFunil(rosca.operacional);
+            const total=fatias.reduce((s,x)=>s+x.valor,0);
+            return <React.Fragment>
+              <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
+                escolhida={fatia} aoEscolher={setFatia}
+                vazioTexto={`${first(linha.nome)} não tem lead em aberto neste funil.`}/>
+              <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={rosca.conversao} isMobile={isMobile}/>
+            </React.Fragment>;})()}
+        </div>}
 
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
