@@ -13,6 +13,7 @@
 import { Router } from "express";
 import { authRequired, supervisiona } from "../auth.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo } from "../services/painel.js";
+import { visaoGeral, metasComRealizado, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
 
 const r = Router();
 r.use(authRequired);
@@ -65,5 +66,30 @@ r.get("/funil/:pipelineId", (req, res) => {
 });
 
 r.get("/campanhas", soGestao, (req, res) => res.json(campanhas(req.user.org_id, filtrosDe(req.query))));
+
+/* A TELA DE ENTRADA — mesma exceção do /funil acima, e pelo mesmo motivo:
+   isto não é "como está a equipe", é "como estão OS MEUS números" quando
+   quem pergunta é o corretor. A trava é a mesma — sobrescreve o filtro que
+   chegou, nunca confia nele. */
+r.get("/geral", (req, res) => {
+  const f = filtrosDe(req.query);
+  if (!supervisiona(req.user)) f.responsavel = req.user.id;
+  const dados = visaoGeral(req.user.org_id, f);
+  const alvo = f.responsavel && f.responsavel !== "fila" ? f.responsavel : null;
+  dados.metas = metasComRealizado(req.user.org_id, alvo, mesAtual());
+  res.json(dados);
+});
+
+/* METAS: LER e ESCREVER são só da gestão — é ela quem combina o número do
+   mês, para a casa inteira ou para um corretor. O corretor vê a PRÓPRIA meta
+   já dentro de `/geral`, sem rota separada: ele não configura, só acompanha. */
+r.get("/metas", soGestao, (req, res) => res.json(metasConfig(req.user.org_id, req.query.mes)));
+
+r.post("/metas", soGestao, (req, res) => {
+  const { user_id, mes, ...dados } = req.body || {};
+  const r1 = salvarMeta(req.user.org_id, user_id || null, mes || mesAtual(), dados);
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
 
 export default r;

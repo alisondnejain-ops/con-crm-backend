@@ -471,6 +471,31 @@ CREATE INDEX IF NOT EXISTS idx_tags_org ON tags(org_id, nome);
 CREATE INDEX IF NOT EXISTS idx_leadtags_lead ON lead_tags(lead_id);
 CREATE INDEX IF NOT EXISTS idx_leadtags_tag ON lead_tags(tag_id);
 
+/* METAS DO MES (08/09/2026): ligacoes, contatos, visitas, propostas e VGV, por
+   mes, para a operacao inteira OU para um corretor especifico.
+
+   user_id igual a string vazia (nao NULL) e a meta DA OPERACAO — sentinela de
+   proposito, e nao NULL, porque o SQLite trata cada NULL como diferente de si
+   mesmo dentro de um UNIQUE: duas linhas com user_id NULL para o mesmo mes nao
+   colidiriam, e a trava "uma meta por alvo por mes" furaria exatamente para a
+   meta da casa. */
+CREATE TABLE IF NOT EXISTS metas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT '',
+  mes TEXT NOT NULL,
+  ligacoes INTEGER,
+  contatos INTEGER,
+  visitas_agendadas INTEGER,
+  visitas_realizadas INTEGER,
+  propostas INTEGER,
+  vgv REAL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(org_id, user_id, mes)
+);
+CREATE INDEX IF NOT EXISTS idx_metas_org_mes ON metas(org_id, mes);
+
 CREATE INDEX IF NOT EXISTS idx_pipelines_org ON pipelines(org_id, ordem);
 CREATE INDEX IF NOT EXISTS idx_stages_pipeline ON pipeline_stages(pipeline_id, ordem);
 CREATE INDEX IF NOT EXISTS idx_stages_org ON pipeline_stages(org_id, is_active);
@@ -928,6 +953,10 @@ addLeadCol("last_read_at", "INTEGER");   // até quando o atendente já leu a co
 addLeadCol("sale_value", "REAL");        // registro da venda: valor do imóvel
 addLeadCol("sale_date", "INTEGER");      // data da venda
 addLeadCol("sale_property", "TEXT");     // qual imóvel/unidade foi vendido
+// Comissão por venda, em percentual (08/09/2026, pedido do Ali: "percentual
+// por venda" — cada venda carrega a própria taxa, não um valor fixo da casa.
+// Nula quando ninguém preencheu: VGC some do card em vez de virar zero falso.
+addLeadCol("sale_commission_pct", "REAL");
 addLeadCol("produto_id", "TEXT");        // imóvel de interesse do lead (opcional)
 addLeadCol("closed_at", "INTEGER");      // atendimento finalizado: sai da caixa de entrada, fica no funil
 addLeadCol("import_id", "TEXT");         // de qual planilha veio, para dar para desfazer a importação

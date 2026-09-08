@@ -1507,16 +1507,17 @@ r.patch("/:id/nome", (req, res) => {
   res.json({ ok: true, nome });
 });
 
-// Registro da venda: valor do imóvel, data e qual unidade. Registrar a venda
-// também move o lead para a etapa "Venda" — as duas coisas andam juntas.
+// Registro da venda: valor do imóvel, data, qual unidade e a comissão desta
+// venda. Registrar a venda também move o lead para a etapa "Venda" — as duas
+// coisas andam juntas.
 r.patch("/:id/venda", (req, res) => {
-  const { valor, data, imovel } = req.body || {};
+  const { valor, data, imovel, comissao } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
 
   // Valor vazio desfaz o registro (correção de engano).
   if (valor === null || valor === "") {
-    db.prepare("UPDATE leads SET sale_value=NULL, sale_date=NULL, sale_property=NULL WHERE id=?").run(lead.id);
+    db.prepare("UPDATE leads SET sale_value=NULL, sale_date=NULL, sale_property=NULL, sale_commission_pct=NULL WHERE id=?").run(lead.id);
     return res.json({ ok: true, removido: true });
   }
   // Mesmo tratamento do catálogo: aceita 285000 e "285.000,50" sem virar 285.
@@ -1526,8 +1527,19 @@ r.patch("/:id/venda", (req, res) => {
   const quando = data ? new Date(data).getTime() : Date.now();
   if (!isFinite(quando)) return res.status(400).json({ error: "Data da venda inválida." });
 
-  db.prepare("UPDATE leads SET sale_value=?, sale_date=?, sale_property=? WHERE id=?")
-    .run(v, quando, (imovel || "").trim() || null, lead.id);
+  /* Comissão é OPCIONAL — nem toda venda tem o percentual à mão na hora do
+     registro, e obrigar o campo travaria o registro da venda em si por causa
+     de um número que dá para completar depois. Vazio/ausente vira NULL: some
+     do VGC (com a cobertura escrita na tela), nunca vira 0% inventado. */
+  let comissaoPct = null;
+  if (comissao !== undefined && comissao !== null && comissao !== "") {
+    comissaoPct = numeroBR(comissao);
+    if (comissaoPct == null || comissaoPct < 0 || comissaoPct > 100)
+      return res.status(400).json({ error: "A comissão deve ser um percentual entre 0 e 100." });
+  }
+
+  db.prepare("UPDATE leads SET sale_value=?, sale_date=?, sale_property=?, sale_commission_pct=? WHERE id=?")
+    .run(v, quando, (imovel || "").trim() || null, comissaoPct, lead.id);
   // A etapa vai junto, mas pelo caminho que deixa rastro — registrar venda é a
   // mudança de etapa que mais importa no histórico.
   moverEtapa({ leadId: lead.id, para: "Venda", motivo: "venda", userId: req.user.id });

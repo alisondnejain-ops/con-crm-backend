@@ -154,7 +154,7 @@ function adaptLead(l,anterior){
     // Quando este lead caiu na mão de quem está com ele. Diferente da data de
     // entrada: o lead pode ter chegado em junho e ter sido repassado hoje.
     assignedAt:l.assigned_at!==undefined?l.assigned_at:(anterior?anterior.assignedAt:null),
-    venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property}:null,
+    venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property,comissao:l.sale_commission_pct??null}:null,
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
     carregado:!!l.messages||(anterior?anterior.carregado:false),
@@ -850,6 +850,10 @@ function Field({n,...p}){return <div style={{display:"flex",alignItems:"center",
 
 /* ===== APP ===== */
 const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
+// As sete cores do funil de atividade da tela de entrada (08/09/2026) — as
+// MESMAS de CORES_TAG no servidor (services/tags.js), reaproveitadas em vez
+// de validar uma paleta nova para mais um gráfico de sete séries.
+const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
@@ -1305,6 +1309,9 @@ function ConCRM(){
     painelEquipe:(f)=>api("/painel/equipe"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelFunil:(id,f)=>api(`/painel/funil/${id}`+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelCampanhas:(f)=>api("/painel/campanhas"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    painelGeral:(f)=>api("/painel/geral"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    metasConfig:(mes)=>api("/painel/metas"+(mes?`?mes=${mes}`:"")),
+    salvarMeta:(dados)=>api("/painel/metas",{method:"POST",body:dados}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
@@ -3427,7 +3434,12 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
-    corretor:[["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
+    /* "Painel" entrou em 08/09/2026: os mesmos indicadores (KPIs, metas, funil
+       de atividade) que o gestor e a atendente veem, só que com os PRÓPRIOS
+       números — o servidor garante o recorte, aqui só é um item de menu a
+       mais. Primeiro na lista pelo mesmo motivo do gestor: é a foto do "como
+       eu estou indo" antes de entrar na caixa de atendimento. */
+    corretor:[["dashboard","grid","Painel","Principal"],["atendimento","msg","Atender","Principal"],["funil","columns","Funil","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["disp","toggleOn","Disponib.","Minha conta"],["produtividade","trend","Produção","Minha conta"]],
   /* O MENU SEGUE O QUE A PESSOA PODE, não o papel dela. (02/09/2026)
 
      O corretor autônomo é `corretor` — é o papel que faz a catraca entregar
@@ -3471,7 +3483,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:sozinho?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -3553,9 +3565,13 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session)}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
-        {supervisor&&view==="dashboard"&&<React.Fragment>
+        {/* O corretor entrou aqui em 08/09/2026: a tela de indicadores (KPIs,
+            metas, funil de atividade) é a mesma para toda conta, cada uma
+            vendo o próprio recorte — pedido do Ali a partir do painel da
+            Confidere Imóveis. */}
+        {(supervisor||role==="corretor")&&view==="dashboard"&&<React.Fragment>
           <FaixaTeste assinatura={assinatura} isMobile={isMobile}/>
-          <Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile,sozinho:org&&org.tipo==="autonomo"}}/>
+          <Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile,sozinho:org&&org.tipo==="autonomo",session,supervisor}}/>
         </React.Fragment>}
         {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}}/>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
@@ -4974,22 +4990,32 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 function FichaVenda({lead,onSalvar}){
   const v=lead.venda;
   const [aberto,setAberto]=useState(false);
-  const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:""});
+  const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:"",comissao:""});
   const [erro,setErro]=useState("");
   useEffect(()=>{ setAberto(false); setErro("");
-    setF({valor:v?String(v.valor):"",data:v&&v.data?new Date(v.data).toISOString().slice(0,10):new Date().toISOString().slice(0,10),imovel:v&&v.imovel||""});
+    setF({valor:v?String(v.valor):"",data:v&&v.data?new Date(v.data).toISOString().slice(0,10):new Date().toISOString().slice(0,10),
+      imovel:v&&v.imovel||"",comissao:v&&v.comissao!=null?String(v.comissao):""});
   },[lead.id]);
 
   async function salvar(){
     const valor=numeroBR(f.valor);
     if(!valor||valor<=0) return setErro("Informe o valor da venda.");
-    setErro(""); await onSalvar({valor,data:f.data,imovel:f.imovel}); setAberto(false);
+    if(f.comissao){
+      const c=numeroBR(f.comissao);
+      if(c==null||c<0||c>100) return setErro("A comissão deve ser um percentual entre 0 e 100.");
+    }
+    setErro(""); await onSalvar({valor,data:f.data,imovel:f.imovel,comissao:f.comissao||undefined}); setAberto(false);
   }
 
   if(v&&!aberto) return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:8}}><Icon n="check" size={13} color={C.greenMid}/> Venda registrada</div>
     <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
     <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||"Imóvel não informado"} · {fmtData(v.data)}</div>
+    {/* Comissão é opcional — sem ela, some do VGC do painel de indicadores em
+        vez de virar 0% inventado, e a tela diz isso em vez de fingir zero. */}
+    <div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
+      {v.comissao!=null?<React.Fragment>Comissão {v.comissao}% · {fmtMoeda(v.valor*v.comissao/100)}</React.Fragment>:"Comissão não informada"}
+    </div>
     <button onClick={()=>setAberto(true)} style={{marginTop:8,border:"none",background:"transparent",color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Editar registro</button>
   </div>;
 
@@ -5004,6 +5030,9 @@ function FichaVenda({lead,onSalvar}){
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Qual imóvel</label>
     <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder="Ex.: Jardim Amazonas — Casa 14"
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Comissão desta venda (%) — opcional</label>
+    <input type="number" min="0" max="100" step="0.1" value={f.comissao} onChange={e=>setF({...f,comissao:e.target.value})} placeholder="Ex.: 5"
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:6}}>
@@ -13166,11 +13195,283 @@ function FaixaTeste({assinatura,isMobile}){
   </div>;
 }
 
-function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho}){
+/* ===== A TELA DE ENTRADA: KPIs, metas e funil de atividade (08/09/2026) =====
+
+   Pedido do Ali a partir do painel da Confidere Imóveis: a MESMA tela para
+   toda conta, cada uma vendo o próprio recorte — "o corretor tem a mesma
+   visão mas apenas com os seus indicadores, gestor ver a visão da operação
+   toda assim como a da atendente". O servidor já resolve isso sozinho
+   (GET /painel/geral sobrescreve `responsavel` de quem não supervisiona,
+   mesma trava do funil do corretor de 08/09/2026) — aqui só se desenha o que
+   chega, sem nenhuma lógica de papel além de esconder os filtros que só a
+   supervisão usa (canal de aquisição, corretor). */
+
+const MESES_PT=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const mesLegivel=(mes)=>{ const [a,m]=String(mes||"").split("-").map(Number); return m?`${MESES_PT[m-1]}/${a}`:(mes||"—"); };
+const mesAtualISO=()=>new Date().toISOString().slice(0,7);
+
+// Zero e "sem dado" são coisas diferentes — a régua de sempre neste painel.
+const naoDisp=(v)=>v===null||v===undefined?"—":v;
+const dinheiro=(v)=>v===null||v===undefined?"—":fmtMoeda(v);
+const variacaoCor=(v)=>v===null?C.faint:v>0?C.green:v<0?C.hot:C.faint;
+const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${v}%`:v<0?`${v}%`:"estável";
+
+function KpiCard({label,valor,comp,sub,isMobile}){
+  const txt=String(valor??"—");
+  const tamanho=txt.length<=9?21:txt.length<=13?17:14;
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 12px":"13px 15px",flex:"1 1 145px",minWidth:0}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+    <div style={{color:C.ink,fontFamily:MONO,fontSize:tamanho,fontWeight:700,lineHeight:1.15,overflowWrap:"anywhere"}}>{txt}</div>
+    <div style={{display:"flex",alignItems:"center",gap:4,marginTop:6,minHeight:14}}>
+      {comp&&<React.Fragment>
+        {comp.variacao_pct!==null&&<span style={{display:"inline-flex",transform:comp.variacao_pct<0?"scaleY(-1)":undefined}}>
+          <Icon n="trend" size={11} color={variacaoCor(comp.variacao_pct)}/>
+        </span>}
+        <span style={{color:variacaoCor(comp.variacao_pct),fontSize:11,fontWeight:700}}>{variacaoTexto(comp.variacao_pct)}</span>
+      </React.Fragment>}
+    </div>
+    {sub&&<div style={{color:C.faint,fontSize:10,marginTop:2,lineHeight:1.3}}>{sub}</div>}
+  </div>;
+}
+
+function LinhaKpis({kpis,isMobile}){
+  const cards=[
+    {label:"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv},
+    {label:"Ticket médio",valor:dinheiro(kpis.ticket_medio.atual),comp:kpis.ticket_medio},
+    {label:"VGC",valor:dinheiro(kpis.vgc.atual),comp:kpis.vgc,
+      sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"},
+    {label:"Vendas",valor:naoDisp(kpis.vendas.atual),comp:kpis.vendas},
+    {label:"Leads",valor:naoDisp(kpis.leads.atual),comp:kpis.leads},
+    {label:"Lead em venda",valor:naoDisp(kpis.lead_em_venda_pct.atual)+(kpis.lead_em_venda_pct.atual!=null?"%":""),comp:kpis.lead_em_venda_pct},
+    {label:"Visitas ao imóvel",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
+  ];
+  return <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+    {cards.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile}/>)}
+  </div>;
+}
+
+const CAMPOS_META=[["ligacoes","Ligações"],["contatos","Contatos"],["visitas_agendadas","Visitas Agendadas"],
+  ["visitas_realizadas","Visitas Realizadas"],["propostas","Propostas"],["vgv","VGV"]];
+
+function MetaCard({item}){
+  const {nome,meta,realizado,pct,campo}=item;
+  const ehDinheiro=campo==="vgv";
+  const valorFmt=ehDinheiro?fmtMoeda(realizado):realizado;
+  const metaFmt=meta==null?null:(ehDinheiro?fmtMoeda(meta):meta);
+  const cor=pct==null?C.faint:pct>=100?C.green:pct>=60?C.amber:C.hot;
+  return <div style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:11.5,color:C.sub,fontWeight:600,marginBottom:6,gap:6}}>
+      <span>Meta {nome}</span>
+      <span style={{color:cor,fontFamily:MONO,fontWeight:700,flexShrink:0}}>{pct==null?"—":pct+"%"}</span>
+    </div>
+    <div style={{height:7,borderRadius:99,background:C.line,overflow:"hidden",marginBottom:6}}>
+      <div style={{height:"100%",width:(pct==null?0:Math.min(100,pct))+"%",background:cor,borderRadius:99}}/>
+    </div>
+    <div style={{color:C.faint,fontSize:11}}>
+      {metaFmt==null?"meta não definida":`${valorFmt} / ${metaFmt}`}
+    </div>
+  </div>;
+}
+
+function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Metas de {mesLegivel(metas.mes)}</div>
+      {podeConfigurar&&<button onClick={onConfigurar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Configurar metas</button>}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
+      {metas.itens.map(m=><MetaCard key={m.campo} item={m}/>)}
+    </div>
+  </div>;
+}
+
+/* Funil de ATIVIDADE — quanta ação aconteceu no período (ligações, contatos,
+   visitas), e não por onde os leads passaram sem repetir contagem (isso já é
+   a rosca do funil de etapas, em Relatórios/Operação). Por isso "Ligações"
+   pode ser MAIOR que "Leads": um corretor liga várias vezes para o mesmo
+   lead, e para leads de antes do período também. As duas leituras respondem
+   perguntas diferentes — misturá-las é o erro que este projeto já corrigiu
+   antes (a taxa sequencial de 300%). */
+function FunilAtividadeViz({passos,isMobile}){
+  const max=Math.max(1,...passos.map(p=>p.valor));
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
+      Volume de ação no período — quanto se trabalhou cada lead, não por onde ele passou.
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {passos.map((p,i)=>{
+        const largura=Math.max(6,Math.round((p.valor/max)*100));
+        return <div key={p.id} style={{display:"flex",alignItems:"center",gap:isMobile?6:10}}>
+          <div style={{width:isMobile?72:120,flexShrink:0,fontSize:11,color:C.sub,fontWeight:600,textAlign:"right",lineHeight:1.2}}>{p.nome}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{height:isMobile?22:26,borderRadius:7,background:PALETA_FUNIL[i%PALETA_FUNIL.length],opacity:.88,
+              width:largura+"%",minWidth:30,display:"flex",alignItems:"center",justifyContent:"flex-end",padding:"0 8px"}}>
+              <span style={{color:"#fff",fontFamily:MONO,fontSize:12,fontWeight:700}}>{p.valor}</span>
+            </div>
+          </div>
+          <div style={{width:isMobile?58:120,flexShrink:0,textAlign:"right",fontSize:10,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
+            {i===0?"—":<React.Fragment><div>{p.taxa_sequencial}% seq.</div><div>{p.taxa_sobre_leads}% do total</div></React.Fragment>}
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+const CHAVES_SERIE=[["leads","Leads"],["ligacoes","Ligações"],["contato","Contato"],["visita_agendada","Visita Agendada"],
+  ["visita_realizada","Visita Realizada"],["proposta","Proposta"],["venda","Vendas"]];
+
+function SerieBarrasEmpilhadas({serie,isMobile}){
+  const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));
+  const altura=isMobile?110:150;
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Análise de funil — últimos 14 dias</div>
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:14}}>Cada barra soma os sete indicadores daquele dia.</div>
+    <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:6,height:altura+22,overflowX:"auto",paddingBottom:2}}>
+      {serie.map((d,i)=>{
+        const total=CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0);
+        const alturaTotal=total?Math.max(2,Math.round((total/maxTotal)*altura)):0;
+        return <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:isMobile?15:24}}>
+          <div style={{width:"100%",height:altura,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+            <div title={`${d.rotulo}: ${CHAVES_SERIE.map(([k,n])=>`${n} ${d[k]||0}`).join(" · ")}`}
+              style={{height:alturaTotal,width:"100%",borderRadius:"3px 3px 0 0",overflow:"hidden",display:"flex",flexDirection:"column-reverse"}}>
+              {total>0&&CHAVES_SERIE.map(([k],j)=><div key={k} style={{height:((d[k]||0)/total*100)+"%",background:PALETA_FUNIL[j],flexShrink:0}}/>)}
+            </div>
+          </div>
+          <div style={{fontSize:8.5,color:C.faint,marginTop:4,whiteSpace:"nowrap"}}>{(!isMobile||i%2===1)?d.rotulo:""}</div>
+        </div>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
+      {CHAVES_SERIE.map(([k,n],j)=><div key={k} style={{display:"flex",alignItems:"center",gap:5}}>
+        <span style={{width:9,height:9,borderRadius:2,background:PALETA_FUNIL[j],flexShrink:0}}/>
+        <span style={{color:C.sub,fontSize:10.5}}>{n}</span>
+      </div>)}
+    </div>
+  </div>;
+}
+
+/* Filtros da tela de entrada: só período é de todo mundo. Canal de aquisição
+   e corretor são leitura de gestão — o corretor já está vendo só o dele
+   (o servidor garante isso), então um seletor "corretor" na tela dele
+   filtraria uma lista de uma pessoa só, e um filtro que só devolve a mesma
+   coisa é um filtro que não serve para nada. */
+function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
+  const set=(k,v)=>setF(a=>({...a,[k]:v||undefined}));
+  const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
+    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+  return <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+    <select value={f.periodo||"mes"} onChange={e=>set("periodo",e.target.value)}
+      style={{...entrada,fontWeight:700,color:C.greenDeep,background:C.greenSoft,border:`1px solid ${C.green}55`}}>
+      {(op?op.periodos:[{id:"mes",rotulo:"Este mês"}]).map(p=><option key={p.id} value={p.id}>{p.rotulo}</option>)}
+    </select>
+    {f.periodo==="custom"&&<React.Fragment>
+      <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={entrada}/>
+      <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={entrada}/>
+    </React.Fragment>}
+    {supervisor&&op&&op.origens.length>0&&<select value={f.origem||""} onChange={e=>set("origem",e.target.value)} style={entrada}>
+      <option value="">Todo canal de aquisição</option>
+      {op.origens.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>}
+    {supervisor&&op&&<select value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)} style={entrada}>
+      <option value="">Toda a equipe</option>
+      <option value="fila">Na fila, sem dono</option>
+      {op.pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>}
+    {Object.keys(f).filter(k=>k!=="periodo"&&f[k]).length>0&&
+      <button onClick={()=>setF({periodo:f.periodo})}
+        style={{...entrada,color:C.hot,border:`1px solid ${C.hot}44`,fontWeight:600}}>Limpar filtros</button>}
+  </div>;
+}
+
+/* Configuração das metas (só gestão): a meta DA OPERAÇÃO (o que a atendente e
+   o gestor acompanham) e a meta PESSOAL de cada corretor, lado a lado. Um
+   "Salvar" por linha — salvar todo mundo de uma vez esconderia qual linha deu
+   erro quando desse. */
+function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
+  const mes=mesAtualISO();
+  const [d,setD]=useState(null);
+  const [form,setForm]=useState({});
+  const [erro,setErro]=useState("");
+  const [status,setStatus]=useState({}); // id -> "salvando" | "ok" | mensagem de erro
+
+  useEffect(()=>{
+    acoes.metasConfig(mes).then(r=>{
+      setD(r);
+      const linhas={"":r.operacao.itens};
+      for(const c of r.corretores) linhas[c.id]=c.itens;
+      const f={};
+      for(const alvo in linhas) f[alvo]=Object.fromEntries(linhas[alvo].map(i=>[i.campo,i.meta??""]));
+      setForm(f);
+    }).catch(e=>setErro(e.message));
+  },[]);
+
+  const mudar=(alvo,campo,v)=>setForm(a=>({...a,[alvo]:{...a[alvo],[campo]:v}}));
+
+  const salvar=async(alvo)=>{
+    setStatus(s=>({...s,[alvo]:"salvando"}));
+    try{ await acoes.salvarMeta({user_id:alvo||undefined,mes,...form[alvo]}); setStatus(s=>({...s,[alvo]:"ok"})); }
+    catch(e){ setStatus(s=>({...s,[alvo]:e.message})); }
+  };
+
+  const inputStyle={width:isMobile?58:64,fontSize:12.5,border:`1px solid ${C.line}`,borderRadius:7,
+    padding:"6px 6px",color:C.ink,outline:"none",textAlign:"right"};
+
+  const Linha=({alvo,nome})=><div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,gap:8}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
+      <button onClick={()=>salvar(alvo)} disabled={status[alvo]==="salvando"}
+        style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+        {status[alvo]==="salvando"?"Salvando…":"Salvar"}
+      </button>
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {CAMPOS_META.map(([campo,rotulo])=><label key={campo} style={{display:"flex",flexDirection:"column",gap:3}}>
+        <span style={{color:C.faint,fontSize:10}}>{rotulo}</span>
+        <input type="number" min="0" placeholder="—" value={form[alvo]?.[campo]??""}
+          onChange={e=>mudar(alvo,campo,e.target.value)} style={inputStyle}/>
+      </label>)}
+    </div>
+    {status[alvo]&&status[alvo]!=="salvando"&&status[alvo]!=="ok"&&
+      <div style={{color:C.hot,fontSize:11,marginTop:6}}>{status[alvo]}</div>}
+    {status[alvo]==="ok"&&<div style={{color:C.green,fontSize:11,marginTop:6}}>Meta salva.</div>}
+  </div>;
+
+  return <div className="tela-cheia" style={{zIndex:50,background:"rgba(0,0,0,.4)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:560,maxHeight:"92%",
+      borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Metas de {mesLegivel(mes)}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>A da operação vale para o gestor e a atendente. Cada corretor tem a própria.</div>
+        </div>
+        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:16}}>
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:20}}>Carregando…</div>}
+        {d&&<React.Fragment>
+          <Linha alvo="" nome="Operação inteira (gestor e atendente)"/>
+          {d.corretores.map(c=><Linha key={c.id} alvo={c.id} nome={c.nome}/>)}
+          {d.corretores.length===0&&<div style={{color:C.faint,fontSize:12.5,textAlign:"center",padding:"10px 0"}}>Nenhum corretor na equipe ainda.</div>}
+        </React.Fragment>}
+      </div>
+    </div>
+  </div>;
+}
+
+function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session,supervisor}){
   /* `sozinho` é a conta de corretor autônomo. Não muda nenhum número — muda o
      que a tela CHAMA as coisas. "Painel da equipe" e "passam a receber leads na
      catraca" são frases escritas para uma casa com gente dentro; para quem
-     trabalha sozinho elas descrevem um sistema que ele não comprou. */
+     trabalha sozinho elas descrevem um sistema que ele não comprou.
+
+     TODOS OS HOOKS PRIMEIRO, sem `return` entre eles — o bloco de baixo
+     (recomendações, comparativo por corretor, ranking) é só da supervisão,
+     mas gating isso com um `if` antes de declarar os hooks do painel novo
+     quebraria a regra dos hooks assim que `supervisor` mudasse de valor. */
   const [d,setD]=useState(null);
   useEffect(()=>{
     let vivo=true;
@@ -13179,9 +13480,23 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho}){
     return()=>{vivo=false;clearInterval(t);};
   },[]);
 
-  if(!d) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Carregando o painel…</div>;
+  const [f,setF]=usarEscolha("painelGeral.filtros",{periodo:"mes"});
+  const [op,setOp]=useState(null);
+  const [dGeral,setDGeral]=useState(null);
+  const [erroGeral,setErroGeral]=useState("");
+  const [metasModal,setMetasModal]=useState(false);
 
-  const team=d.atendentes;
+  // Canal de aquisição e corretor são filtro de gestão — o corretor já vê só
+  // o dele (o servidor garante), então pedir a lista de opções para ele seria
+  // uma requisição a mais para preencher um seletor que nunca aparece.
+  useEffect(()=>{ if(supervisor) acoes.painelOpcoes().then(setOp).catch(()=>{}); },[supervisor]);
+  useEffect(()=>{
+    let vivo=true; setErroGeral("");
+    acoes.painelGeral(f).then(r=>vivo&&setDGeral(r)).catch(e=>vivo&&setErroGeral(e.message));
+    return()=>{vivo=false;};
+  },[JSON.stringify(f)]);
+
+  const team=d?d.atendentes:[];
   const medianas=team.map(a=>a.primeira_resposta_mediana_min).filter(x=>x>0);
   const medianaGeral=medianas.length?Math.round(medianas.reduce((a,b)=>a+b,0)/medianas.length):0;
   const ranked=[...team].sort((a,b)=>b.vendas-a.vendas||b.conversao-a.conversao);
@@ -13192,64 +13507,82 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho}){
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
-      {/* Primeiro do painel: o que precisa de decisão hoje. O resto é retrato,
-          isto é pauta. */}
-      <PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>
-      {fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-        <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
-      </button>}
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        <Metric n="users" label="Leads (30 dias)" value={d.total.leads} accent={C.cool}/>
-        <Metric n="clock" label="1ª resposta (mediana)" value={fmtMin(medianaGeral)} sub="meta: até 10 min" accent={medianaGeral<=10?C.green:C.amber}/>
-        <Metric n="check" label="Vendas" value={d.total.vendas} accent={C.greenDeep}/>
-        <Metric n="award" label="Valor vendido" value={fmtMoeda(d.total.valor_vendido)} accent={C.green}/>
+      {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>setMetasModal(false)}/>}
+
+      {/* ===== A TELA DE ENTRADA — mesma para toda conta, cada uma vendo o
+          próprio recorte (o servidor decide isso, não aqui). ===== */}
+      <div style={{marginBottom:14}}>
+        <FiltrosPainelGeral f={f} setF={setF} op={op} supervisor={supervisor} isMobile={isMobile}/>
       </div>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa{sozinho?"":" (equipe)"}</div>
-        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-          {STAGES.map(st=>{const v=totalPorEtapa(st);
-            return <div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>;})}
+      {erroGeral&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erroGeral}</div>}
+      {!dGeral?<div style={{color:C.faint,fontSize:13,padding:"18px 0",display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Carregando os indicadores…</div>
+      :<React.Fragment>
+        <div style={{marginBottom:16}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile}/></div>
+        <div style={{marginBottom:16}}>
+          <LinhaMetas metas={dGeral.metas} isMobile={isMobile} podeConfigurar={podeGerir(session)} onConfigurar={()=>setMetasModal(true)}/>
         </div>
-      </div>
-      {team.length===0?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center"}}>
-        <Icon n="userplus" size={26} color={C.faint}/>
-        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>
-          {sozinho?"Você ainda não tem atendente":"Nenhum corretor cadastrado ainda"}</div>
-        <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>
-          {sozinho
-            ?<React.Fragment>Sua conta aceita um atendente, que faz o primeiro contato e te repassa o lead.<br/>Ou deixe a IA fazer isso fora do expediente, em Configurações.</React.Fragment>
-            :<React.Fragment>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</React.Fragment>}</div>
-      </div>
-      :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:14}}>Comparativo por corretor</div>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {team.map(a=><div key={a.id}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,gap:8}}><span style={{color:C.ink,fontWeight:600}}>{first(a.nome)}</span><span style={{color:C.faint,fontFamily:MONO}}>{a.recebidos} leads · {a.vendas} vendas</span></div>
-              <div style={{display:"flex",height:16,borderRadius:6,overflow:"hidden",background:C.surface}}>
-                <div style={{width:a.recebidos/maxBar*100+"%",background:C.cool,height:"100%"}} title="recebidos"/>
-                <div style={{width:a.atendidos/maxBar*100+"%",background:C.green,height:"100%"}} title="atendidos"/>
-                <div style={{width:a.vendas/maxBar*100+"%",background:C.greenDeep,height:"100%"}} title="vendas"/>
-              </div>
-            </div>)}
+        <div style={{marginBottom:16}}><FunilAtividadeViz passos={dGeral.funil_atividade} isMobile={isMobile}/></div>
+        <div style={{marginBottom:16}}><SerieBarrasEmpilhadas serie={dGeral.serie} isMobile={isMobile}/></div>
+      </React.Fragment>}
+
+      {/* ===== O RESTO É DA SUPERVISÃO: recomendações da IA, a fila da
+          catraca, e o detalhe por pessoa (comparativo e ranking). O corretor
+          já viu os PRÓPRIOS números acima — repetir isto para ele mostraria
+          "Nenhum corretor cadastrado" ou um ranking de uma pessoa só. ===== */}
+      {supervisor&&<React.Fragment>
+        <PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>
+        {fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+          <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
+        </button>}
+        {d&&<React.Fragment>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa{sozinho?"":" (equipe)"}</div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+              {STAGES.map(st=>{const v=totalPorEtapa(st);
+                return <div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>;})}
+            </div>
           </div>
-          <div style={{display:"flex",gap:14,marginTop:12}}>{[["Recebidos",C.cool],["Atendidos",C.green],["Vendas",C.greenDeep]].map(([l,c])=><div key={l} style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:3,background:c}}/><span style={{color:C.sub,fontSize:11}}>{l}</span></div>)}</div>
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Ranking & tempo de resposta</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {ranked.map((a,i)=><button key={a.id} onClick={()=>setView("relatorios")} style={{width:"100%",display:"flex",alignItems:"center",gap:10,borderRadius:12,padding:10,textAlign:"left",border:"none",cursor:"pointer",background:C.surface}}>
-              <span style={{color:i===0?C.green:C.faint,fontFamily:MONO,fontSize:14,fontWeight:700,width:20}}>{i+1}º</span>
-              <Avatar ini={initials(a.nome)} color={corDe(a.id)} size={30}/>
-              <div style={{minWidth:0,flex:1}}>
-                <div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(a.nome)} <span style={{color:disponivel(a.id)?C.green:C.faint,display:"inline-flex"}}><Icon n={disponivel(a.id)?"toggleOn":"toggleOff"} size={13}/></span></div>
-                <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{fmtMin(a.primeira_resposta_mediana_min)} · {a.conversao}% conv.</div>
-              </div>
-              <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{a.vendas}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
-            </button>)}
+          {team.length===0?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center"}}>
+            <Icon n="userplus" size={26} color={C.faint}/>
+            <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>
+              {sozinho?"Você ainda não tem atendente":"Nenhum corretor cadastrado ainda"}</div>
+            <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>
+              {sozinho
+                ?<React.Fragment>Sua conta aceita um atendente, que faz o primeiro contato e te repassa o lead.<br/>Ou deixe a IA fazer isso fora do expediente, em Configurações.</React.Fragment>
+                :<React.Fragment>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</React.Fragment>}</div>
           </div>
-        </div>
-      </div>}
+          :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
+            <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
+              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:14}}>Comparativo por corretor</div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {team.map(a=><div key={a.id}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,gap:8}}><span style={{color:C.ink,fontWeight:600}}>{first(a.nome)}</span><span style={{color:C.faint,fontFamily:MONO}}>{a.recebidos} leads · {a.vendas} vendas</span></div>
+                  <div style={{display:"flex",height:16,borderRadius:6,overflow:"hidden",background:C.surface}}>
+                    <div style={{width:a.recebidos/maxBar*100+"%",background:C.cool,height:"100%"}} title="recebidos"/>
+                    <div style={{width:a.atendidos/maxBar*100+"%",background:C.green,height:"100%"}} title="atendidos"/>
+                    <div style={{width:a.vendas/maxBar*100+"%",background:C.greenDeep,height:"100%"}} title="vendas"/>
+                  </div>
+                </div>)}
+              </div>
+              <div style={{display:"flex",gap:14,marginTop:12}}>{[["Recebidos",C.cool],["Atendidos",C.green],["Vendas",C.greenDeep]].map(([l,c])=><div key={l} style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:3,background:c}}/><span style={{color:C.sub,fontSize:11}}>{l}</span></div>)}</div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
+              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Ranking & tempo de resposta</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {ranked.map((a,i)=><button key={a.id} onClick={()=>setView("relatorios")} style={{width:"100%",display:"flex",alignItems:"center",gap:10,borderRadius:12,padding:10,textAlign:"left",border:"none",cursor:"pointer",background:C.surface}}>
+                  <span style={{color:i===0?C.green:C.faint,fontFamily:MONO,fontSize:14,fontWeight:700,width:20}}>{i+1}º</span>
+                  <Avatar ini={initials(a.nome)} color={corDe(a.id)} size={30}/>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(a.nome)} <span style={{color:disponivel(a.id)?C.green:C.faint,display:"inline-flex"}}><Icon n={disponivel(a.id)?"toggleOn":"toggleOff"} size={13}/></span></div>
+                    <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{fmtMin(a.primeira_resposta_mediana_min)} · {a.conversao}% conv.</div>
+                  </div>
+                  <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{a.vendas}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
+                </button>)}
+              </div>
+            </div>
+          </div>}
+        </React.Fragment>}
+      </React.Fragment>}
     </div>
   </div>;
 }

@@ -72,7 +72,7 @@ export function resolverPeriodo({ periodo, de, ate } = {}) {
 
    Monta o WHERE a partir dos filtros. Um lugar só, usado por todas as contas —
    é o que garante a regra 3. */
-function peneira(orgId, f = {}) {
+export function peneira(orgId, f = {}) {
   const where = ["l.org_id = ?"], args = [orgId];
   if (f.pipeline_id) { where.push("l.pipeline_id = ?"); args.push(f.pipeline_id); }
   if (f.stage_id) { where.push("l.stage_id = ?"); args.push(f.stage_id); }
