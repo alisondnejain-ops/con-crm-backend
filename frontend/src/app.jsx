@@ -108,6 +108,10 @@ async function api(path,{method="GET",body}={}){
    O backend fala em name/phone/stage; as telas nasceram falando nome/tel/status.
    Traduzimos aqui, num lugar só, em vez de espalhar a mudança por tudo. */
 const QUAL_VAZIA={renda:"—",entrada:"—",situacao:"—",cpf:"—",prazo:"—"};
+// Rótulo, ícone e chave de cada campo de qualificação — fonte única para a
+// ficha do corretor e a da supervisão, que antes tinham a MESMA lista copiada
+// à mão nos dois lugares (um jeito fácil de as duas ficharem diferentes de novo).
+const CAMPOS_QUAL=[["Renda familiar","target","renda"],["Entrada","check","entrada"],["Situação","users","situacao"],["Restrição CPF","award","cpf"],["Prazo p/ comprar","calendar","prazo"]];
 function adaptLead(l,anterior){
   return {
     id:l.id, nome:l.name||"Sem nome", tel:l.phone||"", email:l.email||"",
@@ -870,6 +874,10 @@ function toSession(u){
    autônomo aparece como "Corretor(a)" na tela e nos relatórios). Esta função
    responde outra coisa: o que ela pode fazer na casa dela. */
 const podeGerir=(s)=>!!s&&(s.role==="adm"||!!s.gestor);
+// Quem enxerga e comanda a caixa inteira, não só o próprio nome: gestor + atendente
+// (sdr). Era a mesma expressão `podeGerir(session)||session.role==="sdr"` reescrita
+// à mão em cinco componentes — juntada aqui pra não desalinhar quando um deles mudar.
+const podeSupervisionar=(s)=>!!s&&(podeGerir(s)||s.role==="sdr");
 const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
 function ConCRM(){
@@ -938,7 +946,7 @@ function ConCRM(){
     return novos.map(l=>adaptLead(l,antes.get(l.id)));
   });
 
-  const supervisiona=session&&(podeGerir(session)||session.role==="sdr");
+  const supervisiona=podeSupervisionar(session);
 
   async function recarregar(){
     if(!session) return;
@@ -3465,7 +3473,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      diria isso a ele. Sem este aviso, é fácil esquecer de qual lado da conta
      você está e estranhar não se achar na lista de pessoas. */
   const ehMaster=!!session.master;
-  const roleLabel=ehMaster?"ConHub · master":role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
+  const roleLabel=ehMaster?"ConHub · master":roleParaTexto(role);
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {/* A marca leva para a tela inicial de cada papel — Painel para quem
@@ -4452,7 +4460,7 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fácil seria cadastrar com o número trocado, e aí o cliente fica com duas
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
-  const supervisor=podeGerir(session)||session.role==="sdr";
+  const supervisor=podeSupervisionar(session);
   const [f,setF]=useState({nome:"",telefone:"",stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   const [equipe,setEquipe]=useState([]);
@@ -4618,7 +4626,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
   const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
-  const podeSupervisionar=podeGerir(session)||session.role==="sdr";
   const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   // Trocar de conversa descarta o que estava para enviar: imagem colada na
@@ -4926,8 +4933,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {[["Renda familiar",sel.qual.renda,"target","renda"],["Entrada",sel.qual.entrada,"check","entrada"],["Situação",sel.qual.situacao,"users","situacao"],["Restrição CPF",sel.qual.cpf,"award","cpf"],["Prazo p/ comprar",sel.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>
-            <CampoQual key={k} rotulo={k} valor={v} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
+          {CAMPOS_QUAL.map(([k,n,campo])=>
+            <CampoQual key={k} rotulo={k} valor={sel.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
         </div>
         {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
             do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
@@ -5022,7 +5029,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [novoFunil,setNovoFunil]=useState({template:"",nome:""});
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
-  const podeCriarFunil=session&&(podeGerir(session)||session.role==="sdr");
+  const podeCriarFunil=podeSupervisionar(session);
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -6544,7 +6551,7 @@ function Observacoes({lead,acoes,session,isMobile}){
   useEffect(()=>{setTexto("");setEscrevendo(false);},[lead.id]);
 
   async function salvar(){ if(await o.anotar(texto)){ setTexto(""); setEscrevendo(false); } }
-  const podeApagar=(obs)=>obs.autor_id===session.id||podeGerir(session)||session.role==="sdr";
+  const podeApagar=(obs)=>obs.autor_id===session.id||podeSupervisionar(session);
 
   return <div style={{background:"#FFF8E6",border:`1px solid #E8D9A8`,borderRadius:12,padding:12,marginBottom:12}}>
     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
@@ -7162,8 +7169,8 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <DicaEtapa etapa={lead.status}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {[["Renda familiar",lead.qual.renda,"target","renda"],["Entrada",lead.qual.entrada,"check","entrada"],["Situação",lead.qual.situacao,"users","situacao"],["Restrição CPF",lead.qual.cpf,"award","cpf"],["Prazo p/ comprar",lead.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>
-          <CampoQual key={k} rotulo={k} valor={v} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
+        {CAMPOS_QUAL.map(([k,n,campo])=>
+          <CampoQual key={k} rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
       </div>
 
       {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do

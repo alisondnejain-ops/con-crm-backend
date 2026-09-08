@@ -6,7 +6,7 @@ import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
-import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa } from "../services/ia.js";
+import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
@@ -1323,7 +1323,7 @@ r.delete("/:id/simulacao/:simId", (req, res) => {
 r.patch("/:id/qualificacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const permitidos = ["renda", "entrada", "situacao", "cpf", "prazo"];
+  const permitidos = CAMPOS_SIMULACAO;
   const qual = JSON.parse(lead.qual_json || "{}");
   for (const campo of permitidos) {
     if (!(campo in (req.body || {}))) continue;
