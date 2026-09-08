@@ -13,6 +13,7 @@ import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverLead, transferenciasDoLead } from "../services/movimento.js";
+import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { slaDoLead } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
@@ -93,6 +94,7 @@ r.get("/", (req, res) => {
   const etapasDaCasa = new Map(db.prepare(
     "SELECT * FROM pipeline_stages WHERE org_id = ?").all(org_id)
     .map(e => [e.id, formatarEtapa(e)]));
+  const tagsPorLead = tagsDeLeads(rows.map(l => l.id));
   const agoraMs = Date.now();
   res.json(rows.map(l => ({
     ...parse(l),
@@ -108,6 +110,10 @@ r.get("/", (req, res) => {
        mesmo com a data disponível ao lado. */
     etapa_desde: l.stage_entered_at || desde.get(l.id) || null,
     tarefas: tarefas.get(l.id) || null,
+    /* As tags vêm JUNTO, numa consulta só para a lista inteira. Buscá-las
+       depois, por lead, seriam sessenta requisições a cada dez segundos em
+       todo aparelho da equipe — e o card do funil precisa delas para desenhar. */
+    tags: tagsPorLead.get(l.id) || [],
   })));
 });
 
@@ -788,6 +794,33 @@ r.post("/:id/observacoes", (req, res) => {
   res.json({ observacoes: observacoesDoLead(lead.id) });
 });
 
+/* MARCAR E DESMARCAR TAG NUM LEAD.
+
+   Permissão de OBSERVAÇÃO e não de configuração: quem pode abrir a conversa
+   pode marcar. É de propósito que a atendente marque "investidor" num lead que
+   já é do corretor, e que o corretor marque sozinho o que ele descobriu na
+   ligação — pedir para a gestão marcar seria o mesmo que não ter a tag.
+
+   Criar a tag continua sendo da supervisão (`/tags`): marcar é usar o
+   vocabulário da casa, criar é inventar palavra nova nele. */
+r.post("/:id/tags/:tagId", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const r1 = marcarTag(lead.org_id, lead.id, req.params.tagId, req.user.id);
+  // `erro` vira `error`: é o campo que o navegador lê. Sem isto a recusa chega
+  // na tela como a frase genérica, e a explicação escrita aqui se perde.
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
+
+r.delete("/:id/tags/:tagId", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json(desmarcarTag(lead.org_id, lead.id, req.params.tagId));
+});
+
 r.delete("/:id/observacoes/:obsId", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
@@ -931,6 +964,7 @@ r.get("/:id", (req, res) => {
     // Junto com o lead: a faixa de observações precisa aparecer no mesmo
     // instante em que a conversa abre, e não uma requisição depois.
     observacoes: observacoesDoLead(lead.id),
+    tags: tagsDoLead(lead.id),
     /* POR QUAL NÚMERO ESTA CONVERSA SAI, e se quem está olhando pode mudar.
 
        Vai junto do lead, não numa requisição depois, pelo mesmo motivo da

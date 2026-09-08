@@ -427,6 +427,50 @@ CREATE TABLE IF NOT EXISTS lead_transfers (
   created_at INTEGER NOT NULL
 );
 
+/* ===== TAGS (08/09/2026) =====
+
+   A marcacao livre do lead: "investidor", "indicacao", "so financia", "nao
+   perturbe". O que nao cabe em etapa (que e uma so e anda em ordem), nem em
+   campo (que tem um valor por lead), nem em observacao (que e texto que
+   ninguem consegue filtrar).
+
+   DUAS TABELAS, E NAO UM JSON NO LEAD — ao contrario dos campos
+   personalizados, que guardam o valor em leads.custom_fields. A diferenca e
+   a pergunta que cada um responde. Do campo se pergunta "quanto e o orcamento
+   DESTE lead", sempre a partir do lead. Da tag se pergunta o contrario:
+   "QUAIS leads sao investidores" — e essa e a razao de a tag existir, porque e
+   dela que sai o disparo segmentado e o filtro do funil. Varrer o JSON de
+   todos os leads para responder isso e o tipo de consulta que fica lenta
+   justamente quando a base cresce e a resposta comeca a importar.
+
+   A DEFINICAO E A APLICACAO SAO SEPARADAS de proposito: renomear a tag ou
+   trocar a cor dela vale nos leads que ja a tem, sem varredura nenhuma. */
+CREATE TABLE IF NOT EXISTS tags (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  cor TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  criada_por TEXT
+);
+
+/* A ligacao. A chave primaria composta e a trava que impede a mesma tag
+   de entrar duas vezes no mesmo lead — dois cliques rapidos no mesmo botao, ou
+   a automacao repetindo a acao, viram uma linha so. */
+CREATE TABLE IF NOT EXISTS lead_tags (
+  lead_id TEXT NOT NULL,
+  tag_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  marcada_em INTEGER NOT NULL,
+  marcada_por TEXT,
+  PRIMARY KEY (lead_id, tag_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tags_org ON tags(org_id, nome);
+-- Os dois sentidos da pergunta: as tags de um lead, e os leads de uma tag.
+CREATE INDEX IF NOT EXISTS idx_leadtags_lead ON lead_tags(lead_id);
+CREATE INDEX IF NOT EXISTS idx_leadtags_tag ON lead_tags(tag_id);
+
 CREATE INDEX IF NOT EXISTS idx_pipelines_org ON pipelines(org_id, ordem);
 CREATE INDEX IF NOT EXISTS idx_stages_pipeline ON pipeline_stages(pipeline_id, ordem);
 CREATE INDEX IF NOT EXISTS idx_stages_org ON pipeline_stages(org_id, is_active);

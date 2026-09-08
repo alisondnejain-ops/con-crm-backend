@@ -19,6 +19,7 @@ import diagRoutes from "./routes/diag.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
+import tagsRoutes from "./routes/tags.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
@@ -293,6 +294,7 @@ app.use("/produtos", cobrando, produtosRoutes);
 app.use("/pipelines", cobrando, pipelinesRoutes);
 app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
+app.use("/tags", cobrando, tagsRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.
