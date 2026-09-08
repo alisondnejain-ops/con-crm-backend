@@ -139,6 +139,12 @@ function adaptLead(l,anterior){
     etapaEntrouEm:l.stage_entered_at||null,
     ultimaInteracao:l.last_interaction_at||null,
     campos:l.custom_fields?(()=>{try{return JSON.parse(l.custom_fields);}catch(e){return {};}})():(anterior?anterior.campos:{}),
+    /* As tags PRECISAM estar listadas aqui. Este adaptador copia campo a campo,
+       e o que não é citado chega do servidor e é jogado fora em silêncio — já
+       aconteceu com o `master` e com a barra recolhida. Guardar o valor
+       anterior quando a resposta não traz evita a pastilha piscar a cada
+       atualização de dez segundos. */
+    tags:l.tags!==undefined?l.tags:(anterior?anterior.tags:[]),
     campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
@@ -1287,6 +1293,13 @@ function ConCRM(){
     criarCampo:(dados)=>api("/pipelines/campos",{method:"POST",body:dados}),
     editarCampo:(id,dados)=>api(`/pipelines/campos/${id}`,{method:"PATCH",body:dados}),
     apagarCampo:(id)=>api(`/pipelines/campos/${id}`,{method:"DELETE"}),
+    tags:()=>api("/tags"),
+    criarTag:(dados)=>api("/tags",{method:"POST",body:dados}),
+    editarTag:(id,dados)=>api(`/tags/${id}`,{method:"PATCH",body:dados}),
+    // `confirmar` só vai quando a pessoa já viu em quantos leads a tag está.
+    apagarTag:(id,confirmar)=>api(`/tags/${id}${confirmar?"?confirmar=1":""}`,{method:"DELETE"}),
+    marcarTag:acao((leadId,tagId)=>api(`/leads/${leadId}/tags/${tagId}`,{method:"POST"})),
+    desmarcarTag:acao((leadId,tagId)=>api(`/leads/${leadId}/tags/${tagId}`,{method:"DELETE"})),
     painel:(f)=>api("/painel"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelOpcoes:()=>api("/painel/opcoes"),
     painelEquipe:(f)=>api("/painel/equipe"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
@@ -4912,6 +4925,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 
         <NomeDoLead lead={sel} acoes={acoes}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
+        <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
@@ -5063,9 +5077,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   /* Guardado junto com o texto: voltar com a busca escrita e o alvo trocado
      mostraria um resultado que não é o que a pessoa deixou na tela. */
   const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
-  const [f,setF]=useState({dono:"",prioridade:"",de:"",ate:""});
+  const [f,setF]=useState({dono:"",prioridade:"",tag:"",de:"",ate:""});
+  const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
-  const filtrosAtivos=[f.dono,f.prioridade,f.de,f.ate].filter(Boolean).length;
+  const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.de,f.ate].filter(Boolean).length;
 
   /* SÓ OS LEADS DESTE FUNIL.
 
@@ -5104,6 +5119,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       // radar, e sem esta opção não haveria como listá-los.
       if(f.dono==="fila"?l.assignedTo:f.dono&&l.assignedTo!==f.dono) return false;
       if(f.prioridade&&l.prio!==f.prioridade) return false;
+      // Filtrar por tag é a razão de a tag existir: é daqui que sai o
+      // "mostre os investidores" que ninguém conseguia perguntar ao CRM.
+      if(f.tag&&!(l.tags||[]).some(t=>t.id===f.tag)) return false;
       const quando=l.createdAt||0;
       if(inicio&&quando<inicio) return false;
       if(fim&&quando>fim) return false;
@@ -5342,6 +5360,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
              ...pessoas.map(p=>({v:p.id,t:p.name}))])}
           {selo("Temperatura",f.prioridade,"prioridade",
             [{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          {/* Só aparece quando a casa tem tag: um seletor vazio é um filtro
+              que promete uma peneira que não existe. */}
+          {!!tagsDaCasa.length&&selo("Tag",f.tag,"tag",tagsDaCasa.map(t=>({v:t.id,t:t.nome})))}
           {filtrosAtivos>0&&<button onClick={limpar}
             style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,
               cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
@@ -5659,6 +5680,18 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
         `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
         tar.atrasada?C.hot:C.greenMid)}
+
+      {/* AS TAGS, em pastilha. Não é linha de texto como o resto: a tag existe
+          para ser reconhecida de relance, no meio de sessenta cards — e é isso
+          que a cor faz. O nome vai escrito junto de qualquer jeito, porque
+          duas tags podem ter a mesma cor e porque cor sozinha não é leitura
+          para todo mundo. */}
+      {!!(l.tags||[]).length&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:5}}>
+        {l.tags.map(t=><span key={t.id} title={t.nome}
+          style={{display:"inline-flex",alignItems:"center",gap:3,background:t.cor+"1F",color:t.cor,
+            border:`1px solid ${t.cor}44`,borderRadius:999,padding:"1px 6px",fontSize:8.5,fontWeight:700,
+            maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nome}</span>)}
+      </div>}
 
       {/* Campos personalizados marcados "no card" (Configurações → Funis e
           etapas → Campos do lead). Sem valor, sem linha — mesma régua da
@@ -7152,6 +7185,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
       <NomeDoLead lead={lead} acoes={acoes}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
@@ -7917,6 +7951,54 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{valor}</button>}
+  </div>;
+}
+
+/* A lista de tags DA CASA — o vocabulário disponível para marcar. Muda pouco,
+   como as definições de campo: uma busca por sessão. */
+function usarTags(acoes,session){
+  const [d,setD]=useState({tags:[],cores:[]});
+  const rever=React.useCallback(()=>acoes.tags().then(setD).catch(()=>{}),[acoes]);
+  useEffect(()=>{if(session) rever();},[session,rever]);
+  return {tags:d.tags||[],cores:d.cores||[],rever};
+}
+
+/* AS TAGS DE UM LEAD, na ficha: as que ele tem e o botão de pôr mais.
+
+   Marcar é de quem atende — a permissão é a mesma de abrir a conversa, e o
+   servidor confere de novo. Aqui a tela não esconde nada de ninguém: quem
+   consegue ver a ficha consegue marcar, e é essa a regra. */
+function TagsDoLead({lead,acoes,session,isMobile}){
+  const {tags:todas}=usarTags(acoes,session);
+  const [abrindo,setAbrindo]=useState(false);
+  const minhas=lead.tags||[];
+  const disponiveis=todas.filter(t=>!minhas.some(m=>m.id===t.id));
+
+  const pastilha=(t,aoClicar,titulo)=><button key={t.id} onClick={aoClicar} title={titulo}
+    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${t.cor}55`,background:t.cor+"18",
+      color:t.cor,borderRadius:999,padding:"3px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+    <span style={{width:7,height:7,borderRadius:2,background:t.cor,flexShrink:0}}/>{t.nome}</button>;
+
+  return <div style={{marginBottom:14}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:6}}>
+      <Icon n="award" size={11}/>Tags</div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {minhas.map(t=>pastilha(t,()=>acoes.desmarcarTag(lead.id,t.id),"Tirar esta tag"))}
+      {!minhas.length&&!abrindo&&<span style={{color:C.faint,fontSize:11.5}}>Nenhuma ainda.</span>}
+      {/* Sem tag nenhuma criada, o botão não aparece: ele abriria uma lista
+          vazia, e a criação é da gestão, em Configurações. */}
+      {!!todas.length&&<button onClick={()=>setAbrindo(a=>!a)}
+        style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.sub,borderRadius:999,
+          padding:"3px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+        {abrindo?"Fechar":"+ Tag"}</button>}
+    </div>
+    {abrindo&&<div style={{marginTop:7,background:C.surface,borderRadius:10,padding:"9px 10px"}}>
+      {disponiveis.length
+        ?<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {disponiveis.map(t=>pastilha(t,()=>{acoes.marcarTag(lead.id,t.id);setAbrindo(false);},"Marcar"))}
+        </div>
+        :<span style={{color:C.faint,fontSize:11.5}}>Este lead já tem todas as tags da casa.</span>}
+    </div>}
   </div>;
 }
 
@@ -11378,6 +11460,118 @@ function FunisConfig({acoes,session,isMobile}){
 
     <CamposConfig acoes={acoes} campos={campos} isMobile={isMobile}
       aoMudar={()=>acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{})}/>
+
+    <TagsConfig acoes={acoes} session={session} isMobile={isMobile}/>
+  </div>;
+}
+
+/* AS TAGS DA CASA, em Configurações — ao lado dos campos, porque as duas
+   respondem à mesma pergunta: o que esta operação precisa saber de um lead que
+   o CRM não pergunta sozinho.
+
+   Criar e apagar é da gestão. Marcar no lead é de quem atende, e isso acontece
+   na ficha — aqui só se define o vocabulário. */
+function TagsConfig({acoes,session,isMobile}){
+  const {tags,cores,rever}=usarTags(acoes,session);
+  const [novo,setNovo]=useState({nome:"",cor:""});
+  const [abrindo,setAbrindo]=useState(false);
+  const [erro,setErro]=useState("");
+  // Tag esperando confirmação para ser apagada: {id, nome, leads}.
+  const [confirmar,setConfirmar]=useState(null);
+  const paleta=cores.length?cores:["#0E8F6E"];
+  const corEscolhida=novo.cor||paleta[0];
+
+  const criar=()=>{
+    setErro("");
+    acoes.criarTag({nome:novo.nome.trim(),cor:corEscolhida})
+      .then(()=>{setNovo({nome:"",cor:""});setAbrindo(false);rever();})
+      .catch(e=>setErro(e.message));
+  };
+  /* Apagar em DOIS passos quando a tag está em uso. O servidor recusa a
+     primeira tentativa dizendo em quantos leads ela está, e é esse número que
+     a pergunta mostra — "apagar tira a marca de 40 leads" é uma decisão
+     diferente de "apagar uma tag que ninguém usou". */
+  const pedirParaApagar=(t)=>{
+    setErro("");
+    acoes.apagarTag(t.id,false).then(()=>rever())
+      .catch(e=>{
+        const leads=(e.dados&&e.dados.leads)||0;
+        if(leads) setConfirmar({id:t.id,nome:t.nome,leads});
+        else setErro(e.message);
+      });
+  };
+
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:14}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Tags</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
+      Marcações livres do lead — "investidor", "indicação", "não perturbe". Quem atende marca na
+      ficha e filtra por elas no funil; criar e apagar é da gestão, para a casa não acabar com
+      três jeitos de escrever a mesma coisa.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+
+    <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:11}}>
+      {!tags.length&&<div style={{color:C.faint,fontSize:11.5}}>Nenhuma tag criada ainda.</div>}
+      {tags.map(t=><span key={t.id}
+        style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${t.cor}55`,
+          background:t.cor+"18",borderRadius:999,padding:"4px 6px 4px 11px",fontSize:12,fontWeight:600,color:t.cor}}>
+        {t.nome}
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:500,fontFamily:MONO}}>{t.leads}</span>
+        <button onClick={()=>pedirParaApagar(t)} title={`Apagar "${t.nome}"`}
+          style={{border:"none",background:"transparent",color:C.hot,cursor:"pointer",padding:"0 2px",
+            display:"flex",alignItems:"center"}}><Icon n="trash" size={12}/></button>
+      </span>)}
+    </div>
+
+    {confirmar&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:11,marginBottom:11}}>
+      <div style={{color:C.hot,fontSize:12,fontWeight:700,marginBottom:4}}>Apagar "{confirmar.nome}"?</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:9}}>
+        Ela está em <b>{confirmar.leads} lead(s)</b>. Apagar tira a marca de todos eles — e isso não tem desfazer.
+      </div>
+      <div style={{display:"flex",gap:7}}>
+        <button onClick={()=>acoes.apagarTag(confirmar.id,true).then(()=>{setConfirmar(null);rever();})
+            .catch(e=>{setErro(e.message);setConfirmar(null);})}
+          style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",
+            fontSize:12,fontWeight:700,cursor:"pointer"}}>Apagar mesmo assim</button>
+        <button onClick={()=>setConfirmar(null)}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+            padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
+
+    {abrindo
+      ?<div style={{display:"flex",flexDirection:"column",gap:9}}>
+        <div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Nome da tag</div>
+          <input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})}
+            onKeyDown={e=>{if(e.key==="Enter"&&novo.nome.trim())criar();}} autoFocus={!isMobile}
+            placeholder="ex.: Investidor" style={{width:"100%",boxSizing:"border-box",
+              fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,
+              borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
+        {/* PALETA FECHADA, e não um seletor de cor livre: a tag existe para ser
+            lida de relance, e cor escolhida a esmo produz amarelo ilegível e
+            dois azuis que ninguém distingue. Estas passaram no teste de
+            daltonismo. */}
+        <div>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>Cor</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {paleta.map(c=><button key={c} onClick={()=>setNovo({...novo,cor:c})} aria-label={`Cor ${c}`}
+              style={{width:26,height:26,borderRadius:8,background:c,cursor:"pointer",
+                border:corEscolhida===c?`2px solid ${C.ink}`:`1px solid ${C.line}`}}/>)}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={criar} disabled={!novo.nome.trim()}
+            style={{flex:1,background:novo.nome.trim()?C.green:C.faint,color:"#fff",border:"none",
+              borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Criar tag</button>
+          <button onClick={()=>{setAbrindo(false);setErro("");}}
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+              padding:"11px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>
+      :<button onClick={()=>setAbrindo(true)}
+        style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:10,padding:"10px",
+          fontSize:12.5,fontWeight:600,color:C.sub,cursor:"pointer",width:"100%"}}>+ Criar tag</button>}
   </div>;
 }
 

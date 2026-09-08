@@ -418,6 +418,24 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **A animação respeita `prefers-reduced-motion`** e a informação não depende dela: quem pediu menos movimento no sistema vê a rosca pronta, sem o desenho.
 
+- **Tags do lead** (08/09/2026, primeiro item do roadmap comercial a ser construído; tabelas `tags` e `lead_tags`, `services/tags.js`, `GET/POST/PATCH/DELETE /tags`, `POST/DELETE /leads/:id/tags/:tagId`): a marcação livre que faltava — "investidor", "indicação da Marina", "só financia", "não perturbe". Etapa é uma só e anda em ordem; campo tem um valor por lead; observação é texto que ninguém consegue filtrar. A tag é o que sobra, e é **feita para ser filtrada**.
+
+  **É também a peça que o motor de automação vai pedir primeiro**, e por isso ela veio antes: boa parte das ações que o roadmap descreve para ele ("ao entrar nesta etapa, marque X", "quem tem a tag Y não recebe") não existe sem isto. Construir o motor antes das tags seria entregar metade dos botões desligados.
+
+  **DUAS TABELAS, e não um JSON no lead** — ao contrário dos campos personalizados, que guardam o valor em `leads.custom_fields`. A diferença é a pergunta que cada um responde: do campo se pergunta "quanto é o orçamento DESTE lead", sempre a partir do lead; da tag se pergunta o contrário, "QUAIS leads são investidores" — e é dessa pergunta que sai o filtro do funil e, depois, o disparo segmentado. Varrer o JSON de todos os leads para responder isso fica lento justamente quando a base cresce e a resposta começa a importar. A definição separada também é o que faz **renomear a tag valer nos leads que já a têm, sem varredura** — o oposto de `leads.stage`, que guarda o nome da etapa e obriga a atualizar todos os leads quando alguém renomeia.
+
+  **Quem CRIA não é quem MARCA, e a divisão é diferente da dos campos.** Criar e apagar a definição é da supervisão: tag é o vocabulário da casa, e vocabulário que qualquer um inventa vira três jeitos de escrever a mesma coisa. **Marcar num lead é de quem pode abrir aquela conversa** — o dono e a supervisão, a mesma régua das observações: quem está atendendo é quem descobre que o cliente é investidor, e ter que pedir para a gestão marcar seria o mesmo que não ter a tag.
+
+  **Nome repetido é recusado sem olhar maiúscula nem acento** (`chave()` normaliza): senão "Investidor", "investidor" e "Indicação"/"indicacao" viram tags diferentes, e o filtro passa a devolver metade da resposta.
+
+  **A PALETA É FECHADA — sete cores, e o coral do sistema ficou de fora.** Cor escolhida a esmo num seletor livre produz amarelo ilegível e dois azuis que ninguém distingue, e a tag existe para ser lida de relance. As sete passaram no validador de paleta categórica (pior par adjacente em ΔE 9.1 sob protanopia, acima do piso de 8). O coral (`#E1553A`) é o sinal de urgência do CRM — cronômetro estourado, tarefa vencida —, e uma tag daquela cor faria "não perturbe" parecer alerta; mesma razão pela qual a cor da marca não pinta a tela inteira. **No card e na ficha o nome vai escrito junto da cor**, sempre: duas tags podem ter a mesma cor, e cor sozinha não é leitura para todo mundo.
+
+  **Apagar é DE VEZ e leva as marcações junto** — diferente do campo personalizado, que se desativa guardando o valor. A diferença é o que se perde: o campo guarda algo que alguém digitou, a tag **é** a marcação, e uma tag "desativada" colada em quarenta leads seria uma marca invisível na tela e visível no banco. Por isso o servidor **recusa a primeira tentativa** dizendo em quantos leads ela está, e a tela pergunta com o número na frase — apagar em silêncio tiraria a marca de todos.
+
+  **As tags chegam JUNTO na lista e na ficha**, numa consulta só para a lista inteira (`tagsDeLeads`): buscá-las por lead seriam sessenta requisições a cada dez segundos em todo aparelho da equipe. E `adaptLead` precisou listá-las campo a campo — o que não é citado ali chega do servidor e é jogado fora em silêncio, como já aconteceu com o `master` e a barra recolhida.
+
+  **Um defeito achado pelo próprio teste**: as rotas devolviam a recusa em `erro` (português), e o navegador lê `error`. Toda mensagem escrita com cuidado ("já existe uma tag chamada Investidor") chegava na tela como a frase genérica "erro ao falar com o servidor". Os testes agora conferem a MENSAGEM e não só o código. Teste: `npm run teste:tags` (19 casos, com o servidor de pé, incluindo o isolamento entre imobiliárias: tag de uma casa não cola em lead de outra nem sabendo o id).
+
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 
 O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.
