@@ -108,6 +108,10 @@ async function api(path,{method="GET",body}={}){
    O backend fala em name/phone/stage; as telas nasceram falando nome/tel/status.
    Traduzimos aqui, num lugar só, em vez de espalhar a mudança por tudo. */
 const QUAL_VAZIA={renda:"—",entrada:"—",situacao:"—",cpf:"—",prazo:"—"};
+// Rótulo, ícone e chave de cada campo de qualificação — fonte única para a
+// ficha do corretor e a da supervisão, que antes tinham a MESMA lista copiada
+// à mão nos dois lugares (um jeito fácil de as duas ficharem diferentes de novo).
+const CAMPOS_QUAL=[["Renda familiar","target","renda"],["Entrada","check","entrada"],["Situação","users","situacao"],["Restrição CPF","award","cpf"],["Prazo p/ comprar","calendar","prazo"]];
 function adaptLead(l,anterior){
   return {
     id:l.id, nome:l.name||"Sem nome", tel:l.phone||"", email:l.email||"",
@@ -870,6 +874,10 @@ function toSession(u){
    autônomo aparece como "Corretor(a)" na tela e nos relatórios). Esta função
    responde outra coisa: o que ela pode fazer na casa dela. */
 const podeGerir=(s)=>!!s&&(s.role==="adm"||!!s.gestor);
+// Quem enxerga e comanda a caixa inteira, não só o próprio nome: gestor + atendente
+// (sdr). Era a mesma expressão `podeGerir(session)||session.role==="sdr"` reescrita
+// à mão em cinco componentes — juntada aqui pra não desalinhar quando um deles mudar.
+const podeSupervisionar=(s)=>!!s&&(podeGerir(s)||s.role==="sdr");
 const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
 function ConCRM(){
@@ -938,7 +946,7 @@ function ConCRM(){
     return novos.map(l=>adaptLead(l,antes.get(l.id)));
   });
 
-  const supervisiona=session&&(podeGerir(session)||session.role==="sdr");
+  const supervisiona=podeSupervisionar(session);
 
   async function recarregar(){
     if(!session) return;
@@ -1087,6 +1095,7 @@ function ConCRM(){
     enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
     apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
     salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
+    salvarCampos:acao((leadId,campos)=>api(`/leads/${leadId}/campos`,{method:"PATCH",body:campos})),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
     baixarLeads:async()=>{
@@ -3465,7 +3474,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      diria isso a ele. Sem este aviso, é fácil esquecer de qual lado da conta
      você está e estranhar não se achar na lista de pessoas. */
   const ehMaster=!!session.master;
-  const roleLabel=ehMaster?"ConHub · master":role==="adm"?"Gestor(a)":role==="sdr"?"Atendente":"Corretor(a)";
+  const roleLabel=ehMaster?"ConHub · master":roleParaTexto(role);
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {/* A marca leva para a tela inicial de cada papel — Painel para quem
@@ -4452,7 +4461,7 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fácil seria cadastrar com o número trocado, e aí o cliente fica com duas
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
-  const supervisor=podeGerir(session)||session.role==="sdr";
+  const supervisor=podeSupervisionar(session);
   const [f,setF]=useState({nome:"",telefone:"",stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   const [equipe,setEquipe]=useState([]);
@@ -4478,7 +4487,8 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
       const lead=await acoes.criarLead({
         nome:f.nome.trim(), telefone:f.telefone.trim(),
         stage_id:f.stage_id||undefined,
-        ...(supervisor?{assigned_to:f.assigned_to,observacao:f.observacao.trim()||undefined}:{}),
+        observacao:f.observacao.trim()||undefined,
+        ...(supervisor?{assigned_to:f.assigned_to}:{}),
       });
       aoCriar&&aoCriar(lead);
       aoFechar();
@@ -4534,27 +4544,28 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
             </optgroup>)}
           </select></div>
 
-        {/* OS DOIS CAMPOS DA SUPERVISÃO. É o caso que motivou o pedido: a
-            atendente recebe a ligação, anota o que descobriu e passa adiante. */}
-        {supervisor&&<React.Fragment>
-          <div>{rotulo("Corretor responsável")}
-            <select value={f.assigned_to} onChange={e=>setF({...f,assigned_to:e.target.value})} style={{...entrada,cursor:"pointer"}}>
-              <option value="">Deixar comigo ({first(session.name)})</option>
-              {equipe.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-              {/* Sem dono é uma escolha, não um campo em branco: a diferença é
-                  grande demais para ficar num vazio que pode significar as
-                  duas coisas. */}
-              <option value="fila">Ninguém ainda — deixar na fila</option>
-            </select></div>
+        {/* Corretor responsável é só da supervisão: um corretor só pode
+            cadastrar para si mesmo, então o campo não teria o que escolher.
+            Observações é de todo mundo — é o corretor que mais liga e mais
+            precisa deixar registrado o que descobriu antes de outra pessoa
+            (ou ele mesmo, depois) assumir a conversa. */}
+        {supervisor&&<div>{rotulo("Corretor responsável")}
+          <select value={f.assigned_to} onChange={e=>setF({...f,assigned_to:e.target.value})} style={{...entrada,cursor:"pointer"}}>
+            <option value="">Deixar comigo ({first(session.name)})</option>
+            {equipe.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+            {/* Sem dono é uma escolha, não um campo em branco: a diferença é
+                grande demais para ficar num vazio que pode significar as
+                duas coisas. */}
+            <option value="fila">Ninguém ainda — deixar na fila</option>
+          </select></div>}
 
-          <div>{rotulo("Observações gerais")}
-            <textarea value={f.observacao} onChange={e=>setF({...f,observacao:e.target.value})} rows={3}
-              placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
-              style={{...entrada,resize:"vertical"}}/>
-            <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
-              Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
-              O cliente <b>não recebe</b> este texto.</div></div>
-        </React.Fragment>}
+        <div>{rotulo("Observações gerais")}
+          <textarea value={f.observacao} onChange={e=>setF({...f,observacao:e.target.value})} rows={3}
+            placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
+            style={{...entrada,resize:"vertical"}}/>
+          <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+            Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
+            O cliente <b>não recebe</b> este texto.</div></div>
       </div>
 
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
@@ -4576,6 +4587,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
   const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
   const [novoLead,setNovoLead]=useState(false);
+  const [simulando,setSimulando]=useState(false);
+  // Trocar de lead fecha a simulação aberta: número de financiamento de um
+  // cliente não pode continuar na tela ao abrir a conversa de outro.
+  useEffect(()=>{setSimulando(false);},[sel&&sel.id]);
   /* Os mesmos filtros que a atendente tem, pedido do Ali em 20/08/2026. Ela
      enxergava a etapa, a temperatura e o período; o corretor tinha cinco
      pastilhas e nem busca por nome — e é ele quem mais precisa achar "quem
@@ -4612,7 +4627,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
   const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
-  const podeSupervisionar=podeGerir(session)||session.role==="sdr";
   const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   // Trocar de conversa descarta o que estava para enviar: imagem colada na
@@ -4886,7 +4900,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
-    {showFicha&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
+    {showFicha&&simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:fichaPorBotao?"100%":undefined}}>
+      <Simulacao lead={sel} acoes={acoes} isMobile={fichaPorBotao} aoFechar={()=>setSimulando(false)}/>
+    </div>}
+    {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
       <div style={{padding:16}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
           {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
@@ -4917,8 +4934,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {[["Renda familiar",sel.qual.renda,"target"],["Entrada",sel.qual.entrada,"check"],["Situação",sel.qual.situacao,"users"],["Restrição CPF",sel.qual.cpf,"award"],["Prazo p/ comprar",sel.qual.prazo,"calendar"]].map(([k,v,n])=><div key={k}><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}><Icon n={n} size={11}/>{k}</div><div style={{color:C.ink,fontSize:12.5,fontWeight:500}}>{v}</div></div>)}
+          {CAMPOS_QUAL.map(([k,n,campo])=>
+            <CampoQual key={k} rotulo={k} valor={sel.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
+          <CamposPersonalizadosDoLead lead={sel} acoes={acoes} session={session}/>
         </div>
+        {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
+            do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
+            no cadastro do imóvel. */}
+        <button onClick={()=>setSimulando(true)}
+          style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
+            borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+          <Icon n="chart" size={15}/> Registrar simulação
+        </button>
         <FichaVenda lead={sel} onSalvar={(d)=>acoes.registrarVenda(sel.id,d)}/>
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
@@ -4998,13 +5025,15 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
      Se a busca dos funis falhar, as colunas caem para as etapas de sempre. Um
      kanban vazio parece base perdida — e é a primeira coisa que a pessoa vê. */
   const {pipelines,padrao,templates,rever:reverFunis}=usarPipelines(acoes,session);
+  // Campos personalizados marcados "no card" — ver CardFunil.
+  const camposCard=usarCamposPersonalizados(acoes,session).filter(c=>c.show_on_card);
   const [pipeSel,setPipeSel]=usarEscolha("funil.pipeline","");
   // Criar funil sem sair do quadro. Ver o comentário do seletor, abaixo.
   const [criandoFunil,setCriandoFunil]=useState(false);
   const [novoFunil,setNovoFunil]=useState({template:"",nome:""});
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
-  const podeCriarFunil=session&&(podeGerir(session)||session.role==="sdr");
+  const podeCriarFunil=podeSupervisionar(session);
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -5350,7 +5379,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             {items.map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
               return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
-                opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu}
+                opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
           </div>
@@ -5565,7 +5594,9 @@ function fmtCurto(ms){
   return Math.round(h/24)+"d";
 }
 
-function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
+const fmtCampoCard=(v)=>Array.isArray(v)?v.join(", "):typeof v==="boolean"?(v?"Sim":"Não"):String(v);
+
+function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[]}){
   /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
 
      A faixa já esquentava pela última conversa (regra de 13/08/2026: âmbar em
@@ -5628,6 +5659,16 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
         `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
         tar.atrasada?C.hot:C.greenMid)}
+
+      {/* Campos personalizados marcados "no card" (Configurações → Funis e
+          etapas → Campos do lead). Sem valor, sem linha — mesma régua da
+          temperatura: card cheio de "—" vira ruído que o olho aprende a
+          pular. */}
+      {camposCard.map(def=>{
+        const v=(l.campos||{})[def.key];
+        const vazio=v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
+        return vazio?null:<React.Fragment key={def.id}>{linha("lista",`${def.name}: ${fmtCampoCard(v)}`)}</React.Fragment>;
+      })}
 
       {mostrarDono&&<div style={{color:C.faint,fontSize:9.5,marginTop:4,paddingTop:4,borderTop:`1px solid ${C.line}`,
         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
@@ -6526,7 +6567,7 @@ function Observacoes({lead,acoes,session,isMobile}){
   useEffect(()=>{setTexto("");setEscrevendo(false);},[lead.id]);
 
   async function salvar(){ if(await o.anotar(texto)){ setTexto(""); setEscrevendo(false); } }
-  const podeApagar=(obs)=>obs.autor_id===session.id||podeGerir(session)||session.role==="sdr";
+  const podeApagar=(obs)=>obs.autor_id===session.id||podeSupervisionar(session);
 
   return <div style={{background:"#FFF8E6",border:`1px solid #E8D9A8`,borderRadius:12,padding:12,marginBottom:12}}>
     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
@@ -7144,8 +7185,9 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <DicaEtapa etapa={lead.status}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {[["Renda familiar",lead.qual.renda,"target","renda"],["Entrada",lead.qual.entrada,"check","entrada"],["Situação",lead.qual.situacao,"users","situacao"],["Restrição CPF",lead.qual.cpf,"award","cpf"],["Prazo p/ comprar",lead.qual.prazo,"calendar","prazo"]].map(([k,v,n,campo])=>
-          <CampoQual key={k} rotulo={k} valor={v} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
+        {CAMPOS_QUAL.map(([k,n,campo])=>
+          <CampoQual key={k} rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
+        <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
       </div>
 
       {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do
@@ -7876,6 +7918,83 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{valor}</button>}
   </div>;
+}
+
+/* As DEFINIÇÕES dos campos personalizados (nome, tipo, onde aparecem) mudam
+   pouco — uma vez por sessão, como as pipelines. Buscar de novo em cada ficha
+   aberta seria uma volta ao servidor só para saber o que já sabíamos. */
+function usarCamposPersonalizados(acoes,session){
+  const [lista,setLista]=useState([]);
+  useEffect(()=>{if(session) acoes.camposPersonalizados().then(r=>setLista(r.campos||[])).catch(()=>{});},[session,acoes]);
+  return lista;
+}
+
+/* O valor de UM campo personalizado, num lead. `CampoQual` só sabe editar
+   texto; aqui o tipo do campo decide o controle — é o que faz "obrigatório
+   para entrar na etapa" (configurado em Configurações → Funis e etapas) ter,
+   enfim, um lugar para ser preenchido. */
+function CampoPersonalizado({def,valor,onSalvar}){
+  const [editando,setEditando]=useState(false);
+  const bruto=valor===undefined||valor===null?"":String(valor);
+  const [texto,setTexto]=useState(bruto);
+  useEffect(()=>{setTexto(bruto);},[bruto]);
+  const rotulo=<div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+    <Icon n="lista" size={11}/>{def.name}</div>;
+
+  if(def.type==="boolean") return <div>{rotulo}
+    <button onClick={()=>onSalvar(!valor)}
+      style={{border:`1px solid ${valor?C.green:C.line}`,background:valor?C.greenSoft:C.card,
+        color:valor?C.greenDeep:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      {valor?"Sim":"Não"}</button></div>;
+
+  if(def.type==="select") return <div>{rotulo}
+    <select value={valor||""} onChange={e=>onSalvar(e.target.value)}
+      style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.line}`,background:C.card,
+        borderRadius:7,padding:"5px 7px",color:valor?C.ink:C.faint,outline:"none",cursor:"pointer"}}>
+      <option value="">—</option>
+      {(def.options||[]).map(o=><option key={o} value={o}>{o}</option>)}
+    </select></div>;
+
+  if(def.type==="multiselect"){
+    const atuais=Array.isArray(valor)?valor:[];
+    return <div>{rotulo}
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {(def.options||[]).map(o=>{const on=atuais.includes(o);
+          return <button key={o} onClick={()=>onSalvar(on?atuais.filter(x=>x!==o):[...atuais,o])}
+            style={{border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+              color:on?C.greenDeep:C.faint,borderRadius:999,padding:"3px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+            {o}</button>;})}
+        {!(def.options||[]).length&&<span style={{color:C.faint,fontSize:11.5}}>—</span>}
+      </div></div>;
+  }
+
+  // text, number, currency, date, phone, email: mesmo clique-para-editar do CampoQual.
+  const confirmar=()=>{ setEditando(false); if(texto!==bruto) onSalvar(texto); };
+  return <div>{rotulo}
+    {editando
+      ?<input autoFocus type={def.type==="date"?"date":def.type==="number"?"number":"text"}
+        value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
+        onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
+        style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,
+          borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
+      :<button onClick={()=>setEditando(true)} title="Toque para editar"
+        style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto||"—"}</button>}
+  </div>;
+}
+
+/* O bloco inteiro de campos personalizados de UM lead — usado na ficha do
+   corretor e na da supervisão. Só os marcados para aparecer NA FICHA
+   (`show_on_lead_profile`); os do card e da lateral da conversa são outra
+   pergunta ("onde", não "se existe"). Nada a mostrar não é erro — a conta
+   pode simplesmente não ter criado campo nenhum ainda. */
+function CamposPersonalizadosDoLead({lead,acoes,session}){
+  const defs=usarCamposPersonalizados(acoes,session).filter(c=>c.show_on_lead_profile);
+  if(!defs.length) return null;
+  return <React.Fragment>
+    {defs.map(def=><CampoPersonalizado key={def.id} def={def} valor={(lead.campos||{})[def.key]}
+      onSalvar={(novo)=>acoes.salvarCampos(lead.id,{[def.key]:novo})}/>)}
+  </React.Fragment>;
 }
 
 /* ===== SIMULAÇÃO DE FINANCIAMENTO =====
@@ -10603,6 +10722,189 @@ const ROTULO_SIMULACAO={renda:"Renda",entrada:"Entrada",situacao:"Situação",cp
    3. separa o funil de conversão do avanço operacional, em dois blocos com
       títulos diferentes — porque são duas perguntas, e juntá-las num gráfico
       só é o que faz etapa administrativa virar métrica falsa de venda. */
+
+/* ===== A ROSCA DO FUNIL ===== (08/09/2026, pedido do Ali)
+
+   "Onde a base está agora", numa figura só — e, ao clicar na fatia, há quanto
+   tempo aquela etapa está segurando o lead.
+
+   POR QUE ROSCA DE DISTRIBUICAO, E NAO DE CONVERSAO
+
+   Pizza só é honesta quando as fatias somam o todo, e cada lead está em
+   exatamente UMA etapa agora. Conversão não soma: quem chegou em Venda também
+   passou por Visita, e desenhar isso em pizza produziria um todo maior que o
+   todo. A conversão continua sendo lida onde ela faz sentido — nas duas taxas
+   do bloco de degraus, logo abaixo.
+
+   A COR NAO IDENTIFICA A FATIA, O ROTULO IDENTIFICA
+
+   As cores são as que a empresa escolheu para as etapas, e é assim que tem que
+   ser: a mesma etapa não pode ter uma cor no Kanban e outra aqui. Só que elas
+   nunca foram desenhadas para virar paleta de gráfico — no funil padrão,
+   "Aprovação" (azul) e "Pasta" (roxo) ficam a ΔE 0.4 sob daltonismo verde,
+   ou seja, a MESMA cor para quem tem deuteranopia; e duas etapas do template
+   nascem literalmente com o mesmo hexadecimal. Por isso toda fatia tem nome
+   escrito ao lado, com número e porcentagem, e o miolo escreve a etapa
+   escolhida. Quem não separa as cores lê a mesma informação na legenda.
+
+   O TETO DE FATIAS existe pela mesma razão: acima de sete, fatias vizinhas
+   viram um borrão mesmo com visão perfeita. O que passa disso vira "Outras
+   etapas", e o detalhe diz quais são. */
+const FATIAS_MAX=7;
+
+function usarAnimacaoSuave(){
+  // Respeitar quem pediu menos movimento no sistema: a animação é enfeite,
+  // a informação não depende dela.
+  const [suave,setSuave]=useState(true);
+  useEffect(()=>{
+    try{ setSuave(!window.matchMedia("(prefers-reduced-motion: reduce)").matches); }catch(e){}
+  },[]);
+  return suave;
+}
+
+function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
+  const suave=usarAnimacaoSuave();
+  // Nasce em zero e cresce depois da montagem: é o "carrega fluido". Sem o
+  // segundo quadro, o navegador pinta já no valor final e não há transição.
+  const [entrou,setEntrou]=useState(false);
+  useEffect(()=>{const t=setTimeout(()=>setEntrou(true),30);return()=>clearTimeout(t);},[]);
+
+  /* `VOLTA` e não `C`: `C` é o objeto de cores do app inteiro, e uma const
+     local com esse nome apagaria C.ink/C.faint dentro deste componente — sem
+     erro de sintaxe, só uma tela cinza sem explicação. */
+  const R=isMobile?74:86, GROSSURA=isMobile?26:30, VOLTA=2*Math.PI*R;
+  const LADO=(R+GROSSURA/2+6)*2;
+
+  if(!etapas.length||!total) return <div style={{color:C.faint,fontSize:12.5,lineHeight:1.6,
+    background:C.surface,borderRadius:12,padding:"18px 16px",textAlign:"center"}}>{vazioTexto}</div>;
+
+  const sel=etapas.find(e=>e.id===escolhida)||null;
+  let acumulado=0;
+  const fatias=etapas.map(e=>{
+    const fracao=e.valor/total;
+    const inicio=acumulado; acumulado+=fracao;
+    return {...e,fracao,inicio,pct:Math.round(fracao*1000)/10};
+  });
+
+  return <div style={{display:"flex",gap:isMobile?14:22,alignItems:"center",
+    flexDirection:isMobile?"column":"row",flexWrap:"wrap"}}>
+
+    <div style={{position:"relative",width:LADO,height:LADO,flexShrink:0}}>
+      <svg width={LADO} height={LADO} viewBox={`0 0 ${LADO} ${LADO}`} role="img"
+        aria-label={`Distribuição de ${total} leads por etapa`}>
+        <g transform={`rotate(-90 ${LADO/2} ${LADO/2})`}>
+          {fatias.map(f=>{
+            const ativa=sel&&sel.id===f.id;
+            /* O vão entre fatias é o que separa duas etapas de cor parecida —
+               e no funil padrão existem duas com o MESMO hexadecimal
+               (Agendamento e Visita nascem ambas #D97706). Com 2px elas ainda
+               liam como uma fatia só; 3px é o que faz a divisa aparecer. */
+            const vao=fatias.length>1?3:0;
+            const comprimento=Math.max(f.fracao*VOLTA-vao,0.5);
+            return <circle key={f.id} cx={LADO/2} cy={LADO/2} r={R} fill="none"
+              stroke={f.cor} strokeWidth={ativa?GROSSURA+8:GROSSURA}
+              strokeDasharray={entrou?`${comprimento} ${VOLTA-comprimento}`:`0 ${VOLTA}`}
+              strokeDashoffset={-f.inicio*VOLTA}
+              onClick={()=>aoEscolher(ativa?null:f.id)}
+              style={{cursor:"pointer",opacity:sel&&!ativa?.42:1,
+                transition:suave?"stroke-dasharray .55s cubic-bezier(.22,.8,.28,1), stroke-width .18s ease, opacity .18s ease":"none"}}>
+              <title>{f.nome}: {f.valor} ({f.pct}%)</title>
+            </circle>;
+          })}
+        </g>
+      </svg>
+
+      {/* O miolo responde a pergunta do momento: sem escolha, o tamanho da
+          base; com escolha, a etapa escolhida escrita por extenso — que é o
+          que garante a leitura de quem não separa as cores. */}
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+        alignItems:"center",justifyContent:"center",pointerEvents:"none",padding:GROSSURA+10}}>
+        <div style={{fontFamily:MONO,fontSize:sel?24:30,fontWeight:700,color:C.ink,lineHeight:1,
+          transition:suave?"font-size .18s ease":"none"}}>{sel?sel.valor:total}</div>
+        <div style={{color:C.faint,fontSize:10,marginTop:4,textAlign:"center",lineHeight:1.3,
+          maxWidth:R*1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+          {sel?sel.nome:total===1?"lead no funil":"leads no funil"}</div>
+      </div>
+    </div>
+
+    {/* A LEGENDA NAO E ENFEITE: é ela que diz qual fatia é qual quando as cores
+        não se separam. Por isso vem com nome, número e porcentagem, e é um
+        botão de verdade — dá para chegar nela pelo teclado. */}
+    {/* Largura travada: esticada na tela do computador, o nome ficava num
+        canto e o número no outro, com um vão de meio metro no meio — e ler
+        "Atendimento" junto com o "5" que é dele virava trabalho. */}
+    <div style={{display:"flex",flexDirection:"column",gap:2,flex:1,
+      minWidth:isMobile?"100%":190,maxWidth:isMobile?"100%":330}}>
+      {fatias.map(f=>{
+        const ativa=sel&&sel.id===f.id;
+        return <button key={f.id} onClick={()=>aoEscolher(ativa?null:f.id)}
+          style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",cursor:"pointer",
+            background:ativa?C.surface:"transparent",border:"none",borderRadius:8,padding:"5px 7px",
+            opacity:sel&&!ativa?.55:1,transition:suave?"opacity .18s ease,background .18s ease":"none"}}>
+          <span style={{width:10,height:10,borderRadius:3,background:f.cor,flexShrink:0}}/>
+          <span style={{color:C.ink,fontSize:11.5,fontWeight:ativa?700:500,flex:1,minWidth:0,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nome}</span>
+          <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700}}>{f.valor}</span>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:10.5,width:38,textAlign:"right"}}>{f.pct}%</span>
+        </button>;
+      })}
+    </div>
+  </div>;
+}
+
+/* Monta as fatias a partir do avanço operacional: só etapa COM lead (não há o
+   que desenhar de uma etapa vazia), da maior para a menor, e o que passa do
+   teto vira uma fatia só. */
+function fatiasDoFunil(operacional){
+  const comLead=(operacional||[]).filter(o=>o.leads_agora>0)
+    .map(o=>({id:o.id,nome:o.name,valor:o.leads_agora,cor:corDaEtapa(o,o.name),fonte:o}))
+    .sort((a,b)=>b.valor-a.valor);
+  if(comLead.length<=FATIAS_MAX) return comLead;
+  const cabem=comLead.slice(0,FATIAS_MAX-1);
+  const resto=comLead.slice(FATIAS_MAX-1);
+  return [...cabem,{id:"__outras",nome:`Outras ${resto.length} etapas`,
+    valor:resto.reduce((s,r)=>s+r.valor,0),cor:C.faint,agrupadas:resto}];
+}
+
+/* O que a fatia escolhida conta além do tamanho: há quanto tempo a etapa
+   segura o lead, quantos estouraram o prazo, e — quando ela é degrau
+   comercial — as duas taxas de conversão que já existiam no bloco de baixo. */
+function DetalheDaFatia({fatia,conversao,isMobile}){
+  if(!fatia) return null;
+  if(fatia.agrupadas) return <div style={{background:C.surface,borderRadius:12,padding:"11px 13px",marginTop:12}}>
+    <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>{fatia.nome}</div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
+      {fatia.agrupadas.map(a=><span key={a.id} style={{color:C.sub,fontSize:11.5}}>
+        {a.nome} <b style={{fontFamily:MONO,color:C.ink}}>{a.valor}</b></span>)}
+    </div>
+  </div>;
+
+  const o=fatia.fonte||{};
+  const conv=(conversao||[]).find(c=>c.id===fatia.id);
+  const item=(rot,valor,cor,sub)=><div style={{minWidth:isMobile?"46%":120}}>
+    <div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rot}</div>
+    <div style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor||C.ink,marginTop:2}}>{valor}</div>
+    {sub&&<div style={{color:C.faint,fontSize:10.5,marginTop:1,lineHeight:1.35}}>{sub}</div>}
+  </div>;
+
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?"12px 13px":"13px 15px",marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+      <span style={{width:10,height:10,borderRadius:3,background:fatia.cor,flexShrink:0}}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{fatia.nome}</span>
+    </div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:isMobile?"12px 8px":"12px 18px"}}>
+      {item("Leads agora",o.leads_agora)}
+      {/* O tempo é MEDIANO, e a tela precisa dizer: um lead esquecido há dois
+          anos puxa a média e faz a etapa inteira parecer parada. */}
+      {item("Parados há",o.tempo_mediano_dias==null?"—":`${o.tempo_mediano_dias}d`,null,"tempo mediano nesta etapa")}
+      {o.sla_minutes
+        ?item("Fora do prazo",o.sla_vencidos,o.sla_vencidos?C.hot:C.ink,`prazo de ${fmtMin(o.sla_minutes)}`)
+        :item("Prazo","—",null,"esta etapa não tem prazo configurado")}
+      {conv&&item("Alcançaram",`${conv.taxa_sobre_entrada}%`,null,`sobre a entrada · seq ${conv.taxa_sequencial}%`)}
+    </div>
+  </div>;
+}
+
 function PainelGestao({acoes,session,isMobile,abrirConversa}){
   const [f,setF]=usarEscolha("painel.filtros",{periodo:"mes"});
   const [d,setD]=useState(null);
@@ -10612,6 +10914,9 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
   const [equipe,setEquipe]=useState(null);
   const [erro,setErro]=useState("");
   const [aba,setAba]=usarEscolha("painel.aba","visao");
+  // Fatia aberta na rosca. Zera quando o filtro muda: a etapa escolhida pode
+  // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
+  const [fatia,setFatia]=useState(null);
 
   useEffect(()=>{acoes.painelOpcoes().then(setOp).catch(e=>setErro(e.message));},[]);
   useEffect(()=>{
@@ -10622,6 +10927,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
     acoes.painelCampanhas(f).then(r=>vivo&&setCamp(r)).catch(()=>{});
     const pipe=f.pipeline_id||(op&&op.pipelines[0]&&op.pipelines[0].id);
     if(pipe) acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil(r)).catch(()=>{});
+    setFatia(null);
     return()=>{vivo=false;};
   },[JSON.stringify(f),op&&op.pipelines.length]);
 
@@ -10719,6 +11025,25 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
 
         {/* ===== FUNIL: CONVERSAO x OPERACIONAL ===== */}
         {aba==="funil"&&funil&&<React.Fragment>
+          {/* A ROSCA VEM PRIMEIRO porque responde a pergunta que se faz de
+              olho: onde a base está agora. As duas leituras de conversão, logo
+              abaixo, respondem a seguinte — quanto disso andou. */}
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde a base está agora</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
+              Cada lead em aberto aparece em uma etapa só, então as fatias somam a base inteira.
+              Toque numa etapa para ver há quanto tempo ela está segurando os leads.
+            </div>
+            {(()=>{const fatias=fatiasDoFunil(funil.operacional);
+              const total=fatias.reduce((s,x)=>s+x.valor,0);
+              return <React.Fragment>
+                <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
+                  escolhida={fatia} aoEscolher={setFatia}
+                  vazioTexto="Nenhum lead em aberto neste funil — nada para desenhar ainda."/>
+                <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={funil.conversao} isMobile={isMobile}/>
+              </React.Fragment>;})()}
+          </div>
+
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de conversão</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
@@ -12420,6 +12745,27 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   const [etapaAberta,setEtapaAberta]=useState(null);
   useEffect(()=>{setEtapaAberta(null);},[sel,periodo.de,periodo.ate]);
 
+  /* A ROSCA DESTA PESSOA (08/09/2026, pedido do Ali).
+
+     Vem da MESMA rota do painel do gestor, só que filtrada por responsável —
+     e não de uma conta paralela montada aqui. É o que garante que a fatia
+     "Pasta" do relatório da Marina e a fatia "Pasta" do painel signifiquem a
+     mesma coisa; duas contas para a mesma pergunta é como o relatório passa a
+     ter dois números certos e nenhum confiável.
+
+     O corretor abrindo o próprio relatório também chega aqui: o servidor
+     sobrescreve o responsável pelo id dele (ver painel.routes.js). */
+  const {padrao:funilPadrao}=usarPipelines(acoes,session);
+  const [rosca,setRosca]=useState(null);
+  const [fatia,setFatia]=useState(null);
+  useEffect(()=>{
+    if(!sel||!funilPadrao){setRosca(null);return;}
+    let vivo=true; setFatia(null); setRosca(null);
+    acoes.painelFunil(funilPadrao,{de:periodo.de,ate:periodo.ate,responsavel:sel})
+      .then(r=>vivo&&setRosca(r)).catch(()=>{});
+    return()=>{vivo=false;};
+  },[sel,periodo.de,periodo.ate,funilPadrao]);
+
   useEffect(()=>{
     let vivo=true; setCarregando(true);
     acoes.relatorio(periodo).then(d=>{if(vivo){setDados(d);setCarregando(false);
@@ -12550,6 +12896,27 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
             colocados ali por uma pessoa. Os outros <b>{linha.agendamentos-(linha.agendamentos_confirmados||0)}</b> vieram
             da regra automática de palavra-chave — e é por isso que a nota conta só os confirmados.
           </div>}
+
+        {/* A ROSCA DE QUEM ESTÁ SELECIONADO. Em cima do avanço por etapas de
+            propósito: esta responde "onde estão os leads dele agora", e a de
+            baixo "por onde eles passaram no período" — perguntas diferentes,
+            e a primeira é a que se faz olhando. */}
+        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
+          padding:16,marginBottom:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão os leads de {first(linha.nome)}</div>
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
+            Leads em aberto com {first(linha.nome)}, por etapa. Toque numa fatia para ver
+            há quanto tempo ela está parada e quantas passaram do prazo.
+          </div>
+          {(()=>{const fatias=fatiasDoFunil(rosca.operacional);
+            const total=fatias.reduce((s,x)=>s+x.valor,0);
+            return <React.Fragment>
+              <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
+                escolhida={fatia} aoEscolher={setFatia}
+                vazioTexto={`${first(linha.nome)} não tem lead em aberto neste funil.`}/>
+              <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={rosca.conversao} isMobile={isMobile}/>
+            </React.Fragment>;})()}
+        </div>}
 
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>

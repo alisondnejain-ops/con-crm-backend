@@ -6,7 +6,7 @@ import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { salvar } from "../services/storage.js";
-import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa } from "../services/ia.js";
+import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
@@ -1323,7 +1323,7 @@ r.delete("/:id/simulacao/:simId", (req, res) => {
 r.patch("/:id/qualificacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const permitidos = ["renda", "entrada", "situacao", "cpf", "prazo"];
+  const permitidos = CAMPOS_SIMULACAO;
   const qual = JSON.parse(lead.qual_json || "{}");
   for (const campo of permitidos) {
     if (!(campo in (req.body || {}))) continue;
@@ -1332,6 +1332,51 @@ r.patch("/:id/qualificacao", (req, res) => {
   }
   db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(qual), lead.id);
   res.json({ ok: true, qual });
+});
+
+/* Valor dos campos personalizados de UM lead (28/08/2026 criou a definição e o
+   "campo obrigatório para entrar na etapa" — mas nunca ganhou onde preencher o
+   valor. Sem esta rota, marcar um campo como obrigatório numa etapa travava o
+   lead com "preencha: Orçamento máximo" sem nenhum lugar no CRM que
+   escrevesse nesse campo: a trava existia, a porta para passar por ela não. */
+r.patch("/:id/campos", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+
+  const definicoes = db.prepare(
+    "SELECT key, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1").all(req.user.org_id);
+  const porChave = new Map(definicoes.map(d => [d.key, d]));
+
+  const campos = JSON.parse(lead.custom_fields || "{}");
+  for (const chave of Object.keys(req.body || {})) {
+    const def = porChave.get(chave);
+    if (!def) continue; // campo que não existe (ou foi desativado) não entra
+    const bruto = req.body[chave];
+    const opcoes = (() => { try { return JSON.parse(def.options || "[]"); } catch (e) { return []; } })();
+
+    if (bruto === "" || bruto === null || bruto === undefined || (Array.isArray(bruto) && !bruto.length)) {
+      delete campos[chave];
+      continue;
+    }
+    if (def.type === "number" || def.type === "currency") {
+      const n = Number(String(bruto).replace(",", "."));
+      if (!Number.isFinite(n)) return res.status(400).json({ error: `"${chave}" precisa ser um número.` });
+      campos[chave] = n;
+    } else if (def.type === "boolean") {
+      campos[chave] = !!bruto;
+    } else if (def.type === "multiselect") {
+      const v = (Array.isArray(bruto) ? bruto : [bruto]).map(String).filter(x => opcoes.includes(x));
+      if (v.length) campos[chave] = v; else delete campos[chave];
+    } else if (def.type === "select") {
+      if (!opcoes.includes(String(bruto)))
+        return res.status(400).json({ error: `"${chave}" precisa ser uma das opções.` });
+      campos[chave] = String(bruto);
+    } else {
+      campos[chave] = String(bruto).trim().slice(0, 200);
+    }
+  }
+  db.prepare("UPDATE leads SET custom_fields = ? WHERE id = ?").run(JSON.stringify(campos), lead.id);
+  res.json({ ok: true, campos });
 });
 
 // Ajuste manual de etapa. NÃO existe mais avanço automático: desde 26/08/2026 a
