@@ -1095,6 +1095,7 @@ function ConCRM(){
     enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
     apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
     salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
+    salvarCampos:acao((leadId,campos)=>api(`/leads/${leadId}/campos`,{method:"PATCH",body:campos})),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
     baixarLeads:async()=>{
@@ -4935,6 +4936,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {CAMPOS_QUAL.map(([k,n,campo])=>
             <CampoQual key={k} rotulo={k} valor={sel.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
+          <CamposPersonalizadosDoLead lead={sel} acoes={acoes} session={session}/>
         </div>
         {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
             do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
@@ -5023,6 +5025,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
      Se a busca dos funis falhar, as colunas caem para as etapas de sempre. Um
      kanban vazio parece base perdida — e é a primeira coisa que a pessoa vê. */
   const {pipelines,padrao,templates,rever:reverFunis}=usarPipelines(acoes,session);
+  // Campos personalizados marcados "no card" — ver CardFunil.
+  const camposCard=usarCamposPersonalizados(acoes,session).filter(c=>c.show_on_card);
   const [pipeSel,setPipeSel]=usarEscolha("funil.pipeline","");
   // Criar funil sem sair do quadro. Ver o comentário do seletor, abaixo.
   const [criandoFunil,setCriandoFunil]=useState(false);
@@ -5375,7 +5379,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             {items.map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
               return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
-                opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu}
+                opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
           </div>
@@ -5590,7 +5594,9 @@ function fmtCurto(ms){
   return Math.round(h/24)+"d";
 }
 
-function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
+const fmtCampoCard=(v)=>Array.isArray(v)?v.join(", "):typeof v==="boolean"?(v?"Sim":"Não"):String(v);
+
+function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[]}){
   /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
 
      A faixa já esquentava pela última conversa (regra de 13/08/2026: âmbar em
@@ -5653,6 +5659,16 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir}){
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
         `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
         tar.atrasada?C.hot:C.greenMid)}
+
+      {/* Campos personalizados marcados "no card" (Configurações → Funis e
+          etapas → Campos do lead). Sem valor, sem linha — mesma régua da
+          temperatura: card cheio de "—" vira ruído que o olho aprende a
+          pular. */}
+      {camposCard.map(def=>{
+        const v=(l.campos||{})[def.key];
+        const vazio=v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
+        return vazio?null:<React.Fragment key={def.id}>{linha("lista",`${def.name}: ${fmtCampoCard(v)}`)}</React.Fragment>;
+      })}
 
       {mostrarDono&&<div style={{color:C.faint,fontSize:9.5,marginTop:4,paddingTop:4,borderTop:`1px solid ${C.line}`,
         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
@@ -7171,6 +7187,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {CAMPOS_QUAL.map(([k,n,campo])=>
           <CampoQual key={k} rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
+        <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
       </div>
 
       {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do
@@ -7901,6 +7918,83 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{valor}</button>}
   </div>;
+}
+
+/* As DEFINIÇÕES dos campos personalizados (nome, tipo, onde aparecem) mudam
+   pouco — uma vez por sessão, como as pipelines. Buscar de novo em cada ficha
+   aberta seria uma volta ao servidor só para saber o que já sabíamos. */
+function usarCamposPersonalizados(acoes,session){
+  const [lista,setLista]=useState([]);
+  useEffect(()=>{if(session) acoes.camposPersonalizados().then(r=>setLista(r.campos||[])).catch(()=>{});},[session,acoes]);
+  return lista;
+}
+
+/* O valor de UM campo personalizado, num lead. `CampoQual` só sabe editar
+   texto; aqui o tipo do campo decide o controle — é o que faz "obrigatório
+   para entrar na etapa" (configurado em Configurações → Funis e etapas) ter,
+   enfim, um lugar para ser preenchido. */
+function CampoPersonalizado({def,valor,onSalvar}){
+  const [editando,setEditando]=useState(false);
+  const bruto=valor===undefined||valor===null?"":String(valor);
+  const [texto,setTexto]=useState(bruto);
+  useEffect(()=>{setTexto(bruto);},[bruto]);
+  const rotulo=<div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+    <Icon n="lista" size={11}/>{def.name}</div>;
+
+  if(def.type==="boolean") return <div>{rotulo}
+    <button onClick={()=>onSalvar(!valor)}
+      style={{border:`1px solid ${valor?C.green:C.line}`,background:valor?C.greenSoft:C.card,
+        color:valor?C.greenDeep:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      {valor?"Sim":"Não"}</button></div>;
+
+  if(def.type==="select") return <div>{rotulo}
+    <select value={valor||""} onChange={e=>onSalvar(e.target.value)}
+      style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.line}`,background:C.card,
+        borderRadius:7,padding:"5px 7px",color:valor?C.ink:C.faint,outline:"none",cursor:"pointer"}}>
+      <option value="">—</option>
+      {(def.options||[]).map(o=><option key={o} value={o}>{o}</option>)}
+    </select></div>;
+
+  if(def.type==="multiselect"){
+    const atuais=Array.isArray(valor)?valor:[];
+    return <div>{rotulo}
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {(def.options||[]).map(o=>{const on=atuais.includes(o);
+          return <button key={o} onClick={()=>onSalvar(on?atuais.filter(x=>x!==o):[...atuais,o])}
+            style={{border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+              color:on?C.greenDeep:C.faint,borderRadius:999,padding:"3px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+            {o}</button>;})}
+        {!(def.options||[]).length&&<span style={{color:C.faint,fontSize:11.5}}>—</span>}
+      </div></div>;
+  }
+
+  // text, number, currency, date, phone, email: mesmo clique-para-editar do CampoQual.
+  const confirmar=()=>{ setEditando(false); if(texto!==bruto) onSalvar(texto); };
+  return <div>{rotulo}
+    {editando
+      ?<input autoFocus type={def.type==="date"?"date":def.type==="number"?"number":"text"}
+        value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
+        onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
+        style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,
+          borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
+      :<button onClick={()=>setEditando(true)} title="Toque para editar"
+        style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto||"—"}</button>}
+  </div>;
+}
+
+/* O bloco inteiro de campos personalizados de UM lead — usado na ficha do
+   corretor e na da supervisão. Só os marcados para aparecer NA FICHA
+   (`show_on_lead_profile`); os do card e da lateral da conversa são outra
+   pergunta ("onde", não "se existe"). Nada a mostrar não é erro — a conta
+   pode simplesmente não ter criado campo nenhum ainda. */
+function CamposPersonalizadosDoLead({lead,acoes,session}){
+  const defs=usarCamposPersonalizados(acoes,session).filter(c=>c.show_on_lead_profile);
+  if(!defs.length) return null;
+  return <React.Fragment>
+    {defs.map(def=><CampoPersonalizado key={def.id} def={def} valor={(lead.campos||{})[def.key]}
+      onSalvar={(novo)=>acoes.salvarCampos(lead.id,{[def.key]:novo})}/>)}
+  </React.Fragment>;
 }
 
 /* ===== SIMULAÇÃO DE FINANCIAMENTO =====
