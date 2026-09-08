@@ -10,6 +10,7 @@ import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
 import { codigoLivre } from "../services/codigo.js";
 import { marcaDaOrg } from "../services/marca.js";
+import { trocarResponsavel } from "../services/movimento.js";
 import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 
 const r = Router();
@@ -799,10 +800,18 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
     if (!destino) return res.status(404).json({ error: "Escolha um atendente ativo para receber os leads." });
   }
 
-  const abertos = db.prepare("SELECT COUNT(*) n FROM leads WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')").get(u.id).n;
-  // Leads fechados ficam com ele, para o histórico e os relatórios continuarem certos.
-  db.prepare("UPDATE leads SET assigned_to=? WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')")
-    .run(destino ? destino.id : null, u.id);
+  /* Passa por `trocarResponsavel`, lead a lead — não um UPDATE em massa.
+     Era a mesma armadilha que este arquivo já documentou (seis rotas fazendo
+     esse UPDATE antes de existir `trocarResponsavel`, 01/09/2026): sem ele,
+     o destino não ganha `assigned_at` (o selo "novo com você" some), o lead
+     não segue o funil de quem recebeu, e a transferência não fica no
+     histórico — como se o repasse nunca tivesse acontecido.
+     Leads fechados ficam com ele, para o histórico e os relatórios
+     continuarem certos. */
+  const abertosIds = db.prepare(
+    "SELECT id FROM leads WHERE assigned_to=? AND stage NOT IN ('Venda','Perdido')").all(u.id).map(l => l.id);
+  for (const leadId of abertosIds) trocarResponsavel(leadId, destino ? destino.id : null, req.user.id, "saida_equipe");
+  const abertos = abertosIds.length;
   db.prepare("UPDATE users SET status='removido', available=0 WHERE id=?").run(u.id);
   /* E O ACESSO CAI NA HORA. (02/09/2026)
 
