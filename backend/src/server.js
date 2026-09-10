@@ -328,6 +328,24 @@ app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/orgs", orgsRoutes);         // hub de contas (só o master)
 app.use("/", diagRoutes);             // GET /integracoes
 
+/* CORPO MAIOR QUE O TETO NÃO PODE FALHAR CALADO (09/09/2026, relatado pelo
+   Ali: "os vídeos carregam e não vai"). Quando o `express.json` recusa um
+   corpo maior que o limite, ele lança ANTES de chegar em qualquer rota — a
+   mensagem 413 escrita à mão em `messages.routes.js` nunca dispara, porque o
+   arquivo nem chegou lá. Sem este bloco, o Express respondia com texto puro
+   (não `{error:...}`), o `api()` do navegador não sabia ler aquilo, e o
+   corretor via o anexo "carregando" para sempre, sem explicação nenhuma.
+
+   O limite de vídeo em `storage.js` foi ajustado para nunca esbarrar aqui de
+   novo (ver o comentário lá) — isto é a rede de segurança para quando alguém
+   tentar mandar algo grande demais mesmo assim. */
+app.use((err, req, res, next) => {
+  if (err && err.type === "entity.too.large") {
+    return res.status(413).json({ error: "O arquivo é grande demais para o servidor aceitar." });
+  }
+  next(err);
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   const org = bootstrap();

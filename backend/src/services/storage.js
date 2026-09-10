@@ -163,10 +163,25 @@ const EXTENSOES_RECEBIDAS = {
 export const tipoPermitido = (mime) => !!EXTENSOES[mime];
 export const ehVideo = (mime) => String(mime).startsWith("video/");
 
-// Limites por tipo de mídia. Vídeo no disco é o que mais dói, então é mais apertado
-// enquanto o R2 não estiver ligado.
+/* Limites por tipo de mídia.
+
+   VÍDEO PRECISA CABER NO CORPO DA REQUISIÇÃO, NÃO SÓ NO ARMAZENAMENTO
+   (09/09/2026, relatado pelo Ali: "os vídeos carregam e não vai"). O upload
+   sobe em base64 dentro do JSON — `POST /leads/:id/anexo` e `POST /produtos`
+   caem em `jsonGrande` (30 MB, `server.js`), e base64 infla o arquivo em
+   ~33%. O limite de vídeo aqui dizia 60 MB quando o R2 estava ligado, mas
+   60 MB em base64 vira ~80 MB: a requisição nunca chegava a esta função, o
+   Express já tinha recusado o corpo antes — o corretor via o vídeo
+   "carregando" e nada saía, sem nenhuma mensagem de erro amigável (o 413
+   escrito na rota nunca disparava, porque o corpo morria antes de chegar
+   nela).
+
+   20 MB é o que sobra depois do base64 (~26,7 MB) dentro do teto de 30 MB, com
+   folga para o resto do JSON. E parou de depender do R2: o gargalo real nunca
+   foi o disco da hospedagem, foi sempre o transporte — R2 guardaria um vídeo
+   de 60 MB sem problema, mas ele não chega vivo até lá. */
 export const limiteBytes = (mime) =>
-  ehVideo(mime) ? (usandoR2() ? 60 * 1024 * 1024 : 20 * 1024 * 1024) : 8 * 1024 * 1024;
+  ehVideo(mime) ? 20 * 1024 * 1024 : 8 * 1024 * 1024;
 
 let clienteR2 = null;
 async function s3() {
