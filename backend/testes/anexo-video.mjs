@@ -1,18 +1,21 @@
 /* VÍDEO PRECISA CABER NO CORPO DA REQUISIÇÃO, NÃO SÓ NO ARMAZENAMENTO
-   (09/09/2026, relatado pelo Ali: "os vídeos carregam e não vai").
+   (09/09/2026, relatado pelo Ali: "os vídeos carregam e não vai"; limite
+   AUMENTADO em 14/09/2026, pedido do Ali depois de continuar ouvindo a
+   mesma reclamação mesmo com o conserto de 09/09 no ar).
 
    O upload de anexo sobe em base64 dentro do JSON (`POST /leads/:id/anexo`),
-   que cai em `jsonGrande` — 30 MB (server.js). Base64 infla o arquivo em
-   ~33%. O limite de vídeo em `storage.js` dizia 60 MB quando o R2 estava
-   ligado — e 60 MB em base64 vira ~80 MB, quase o triplo do teto. A
-   requisição nunca chegava a verificar `limiteBytes()`: o Express já tinha
-   recusado o corpo antes, com uma resposta em texto puro (não JSON) que o
-   navegador não sabia interpretar — o corretor via o vídeo "carregando" e
-   nada saía, sem nenhuma mensagem de erro.
+   que cai em `jsonGrande` — 45 MB (server.js). Base64 infla o arquivo em
+   ~33%. O limite de vídeo em `storage.js` é 30 MB — em base64 vira ~40 MB,
+   dentro do teto de 45 MB com folga para o resto do JSON. Os dois números
+   (limite do ARQUIVO em `storage.js`, limite do CORPO em `server.js`)
+   precisam andar sempre juntos: sem isso, a requisição nunca chega a
+   verificar `limiteBytes()` — o Express recusa o corpo antes, com uma
+   resposta em texto puro (não JSON) que o navegador não sabe interpretar —
+   e o corretor vê o vídeo "carregando" com nada saindo, sem erro nenhum.
 
    Este teste prova as duas metades do conserto:
-   1. O limite de vídeo (20 MB) agora cabe dentro do teto de 30 MB depois do
-      base64, então um vídeo de tamanho normal nem chega perto do problema.
+   1. O limite de vídeo (30 MB) cabe dentro do teto do corpo (45 MB) depois
+      do base64, então um vídeo de tamanho normal nem chega perto do problema.
    2. Se AINDA ASSIM alguém mandar um corpo grande demais, a resposta é um
       413 em JSON legível — não mais um texto que quebra o front.
 
@@ -55,21 +58,21 @@ const enviar = (base64, mime = "video/mp4") => fetch(`${BASE}/leads/${leadId}/an
   body: JSON.stringify({ arquivos: [{ mime, nome: "video.mp4", base64 }] }),
 });
 
-console.log("1. Vídeo de 15MB (tamanho normal de celular) passa da checagem de tamanho");
-let resp = await enviar(fakeBase64(15));
+console.log("1. Vídeo de 25MB (tamanho de celular, perto do novo limite) passa da checagem de tamanho");
+let resp = await enviar(fakeBase64(25));
 let d = await resp.json();
 console.log(`   ${resp.status} · ${JSON.stringify(d).slice(0, 120)}`);
-assert.notEqual(resp.status, 413, "15MB está dentro do limite de 20MB — não pode ser recusado por tamanho");
+assert.notEqual(resp.status, 413, "25MB está dentro do limite de 30MB — não pode ser recusado por tamanho");
 
-console.log("2. Vídeo de 21MB — passou do limite de 20MB, mas cabe no corpo de 30MB: 413 da ROTA, com o motivo escrito");
-resp = await enviar(fakeBase64(21));
+console.log("2. Vídeo de 31MB — passou do limite de 30MB, mas cabe no corpo de 45MB: 413 da ROTA, com o motivo escrito");
+resp = await enviar(fakeBase64(31));
 d = await resp.json();
 console.log(`   ${resp.status} · ${d.error}`);
 assert.equal(resp.status, 413);
-assert.ok(d.error.includes("20 MB"), "a mensagem tem que citar o limite, não ser genérica");
+assert.ok(d.error.includes("30 MB"), "a mensagem tem que citar o limite, não ser genérica");
 
-console.log("3. Vídeo de 60MB — o limite ANTIGO (quando havia R2): estoura o teto de 30MB do corpo inteiro");
-resp = await enviar(fakeBase64(60));
+console.log("3. Vídeo de 40MB — estoura o teto de 45MB do corpo inteiro depois do base64 (~53MB)");
+resp = await enviar(fakeBase64(40));
 d = await resp.json().catch(() => null);
 console.log(`   ${resp.status} · ${JSON.stringify(d)}`);
 assert.equal(resp.status, 413, "tem que recusar, não travar nem devolver 500");

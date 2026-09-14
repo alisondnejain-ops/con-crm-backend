@@ -3990,11 +3990,29 @@ const FechoAtendimento=({lead})=><div style={{alignSelf:"center",display:"flex",
 /* ===== ANEXAR NA CONVERSA =====
    O clipe do WhatsApp: fotos (até 10), vídeo (1), áudio gravado na hora e a
    localização de onde o corretor está. Os limites vêm do backend também — aqui
-   eles existem para avisar antes de subir 40 MB à toa no 4G do corretor.
+   eles existem para avisar antes de subir MB à toa no 4G do corretor.
 
    O áudio é gravado pelo próprio navegador. No Android sai em webm, no iPhone em
    mp4; os dois são aceitos e a Uazapi manda como mensagem de voz. */
 const LIMITE_FOTOS=10;
+/* ESTE COMENTÁRIO DIZIA UMA COISA QUE O CÓDIGO NÃO FAZIA (14/09/2026, achado
+   verificando a reclamação "o vídeo não normalizou" mesmo depois do conserto
+   de 09/09 no tamanho aceito pelo servidor). `escolheuFotos` só conferia a
+   QUANTIDADE (`LIMITE_FOTOS`) e `escolheuVideo` não conferia NADA — o arquivo
+   ia direto para `mandar`, que já entra lendo em base64 e chamando o
+   servidor. Um vídeo grande demais só descobria isso depois de terminar de
+   subir os MB inteiros pela rede do corretor — no 4G da rua, isso pode levar
+   minutos, e se a conexão cair no meio (comum em rede fraca), o erro que
+   aparece é genérico de rede, não "vídeo grande demais". Para quem está
+   olhando a tela, os dois casos são indistinguíveis de "carrega e não vai":
+   o defeito que o conserto de 09/09 devia ter resolvido continuava
+   acontecendo, só que por um caminho diferente.
+
+   Os números espelham `limiteBytes()` em `storage.js` — se um mudar sem o
+   outro, o aviso daqui erra (cedo demais ou tarde demais) mas o servidor
+   continua sendo quem decide de verdade; este é só o aviso ANTES de gastar
+   dado e tempo à toa. */
+const LIMITE_MB_FOTO=8, LIMITE_MB_VIDEO=30;
 const lerArquivo=(f)=>new Promise((ok,erro)=>{
   const r=new FileReader();
   r.onload=()=>ok({mime:f.type,nome:f.name,base64:String(r.result).split(",")[1]});
@@ -4246,11 +4264,18 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
     const lista=[...e.target.files]; e.target.value="";
     if(!lista.length) return;
     if(lista.length>LIMITE_FOTOS) return aviso(`Dá para mandar até ${LIMITE_FOTOS} fotos por vez. Você escolheu ${lista.length}.`);
+    const grande=lista.find(f=>f.size>LIMITE_MB_FOTO*1024*1024);
+    if(grande) return aviso(`"${grande.name}" passa de ${LIMITE_MB_FOTO} MB — não vai dar para enviar.`);
     mandar(lista,"fotos");
   }
   function escolheuVideo(e){
     const f=e.target.files[0]; e.target.value="";
-    if(f) mandar([f],"vídeo");
+    if(!f) return;
+    // Confere ANTES de gastar tempo e dado do corretor subindo um vídeo que o
+    // servidor vai recusar de qualquer jeito — ver o comentário lá em cima.
+    if(f.size>LIMITE_MB_VIDEO*1024*1024)
+      return aviso(`Esse vídeo tem ${(f.size/1048576).toFixed(1)} MB — o limite é ${LIMITE_MB_VIDEO} MB. Tente um vídeo mais curto ou comprimido.`);
+    mandar([f],"vídeo");
   }
 
   async function local(){

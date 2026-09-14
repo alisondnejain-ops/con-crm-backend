@@ -176,12 +176,21 @@ export const ehVideo = (mime) => String(mime).startsWith("video/");
    escrito na rota nunca disparava, porque o corpo morria antes de chegar
    nela).
 
-   20 MB é o que sobra depois do base64 (~26,7 MB) dentro do teto de 30 MB, com
-   folga para o resto do JSON. E parou de depender do R2: o gargalo real nunca
-   foi o disco da hospedagem, foi sempre o transporte — R2 guardaria um vídeo
-   de 60 MB sem problema, mas ele não chega vivo até lá. */
+   20 MB era o que sobrava depois do base64 (~26,7 MB) dentro do teto de
+   30 MB, com folga para o resto do JSON. E parou de depender do R2: o
+   gargalo real nunca foi o disco da hospedagem, foi sempre o transporte —
+   R2 guardaria um vídeo de 60 MB sem problema, mas ele não chega vivo até
+   lá.
+
+   SUBIU PARA 30 MB (14/09/2026, pedido do Ali depois de continuar ouvindo
+   reclamação de corretor mesmo com o limite de 09/09 já no ar): a régua
+   virou o teto do CORPO (`jsonGrande`, `server.js`), que subiu junto para
+   45 MB — 30 MB em base64 cabem em ~40 MB, com a mesma folga proporcional
+   de antes. Os dois números SEMPRE andam juntos: mexer neste sem mexer no
+   `jsonGrande` de lá volta a ter um limite de rota que nunca dispara porque
+   o corpo já foi recusado antes. */
 export const limiteBytes = (mime) =>
-  ehVideo(mime) ? 20 * 1024 * 1024 : 8 * 1024 * 1024;
+  ehVideo(mime) ? 30 * 1024 * 1024 : 8 * 1024 * 1024;
 
 let clienteR2 = null;
 async function s3() {

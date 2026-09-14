@@ -77,11 +77,17 @@ app.use(cors({
    repetidas vezes e fazer o servidor gastar memória e CPU só para analisar o
    que ia jogar fora. É o jeito mais barato de derrubar um CRM.
 
-   Os 30 MB continuam onde eles existem por um motivo real — foto e vídeo de
+   Os MB continuam onde eles existem por um motivo real — foto e vídeo de
    imóvel sobem em base64 no corpo —, e o resto passa a caber em 1 MB, que é
-   muito para uma mensagem de WhatsApp e pouco para servir de ataque. */
+   muito para uma mensagem de WhatsApp e pouco para servir de ataque.
+
+   SUBIU DE 30 PARA 45 MB (14/09/2026, pedido do Ali): junto do limite de
+   vídeo em `storage.js`, que subiu de 20 para 30 MB. Os dois números têm
+   que andar juntos sempre — este é o teto do TRANSPORTE, aquele é o teto do
+   ARQUIVO depois de decodificado; 30 MB em base64 pedem uns 40 MB de corpo,
+   e o resto é folga para o JSON em volta. */
 const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs"];
-const jsonGrande = express.json({ limit: "30mb" });
+const jsonGrande = express.json({ limit: "45mb" });
 const jsonNormal = express.json({ limit: "1mb" });
 app.use((req, res, next) =>
   (CORPO_GRANDE.some(p => req.path.startsWith(p)) ? jsonGrande : jsonNormal)(req, res, next));
