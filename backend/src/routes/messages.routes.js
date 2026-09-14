@@ -1,9 +1,9 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
-import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl } from "../services/storage.js";
+import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
 
@@ -210,6 +210,79 @@ r.post("/:id/anexo", async (req, res) => {
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
+});
+
+/* VÍDEO GRANDE SOBE CRU, NÃO EM base64. (14/09/2026, pedido do Ali: "aumenta
+   o limite do vídeo para 150mb".)
+
+   O `/anexo` de cima manda o arquivo como texto (base64) dentro de um JSON —
+   e é exatamente esse formato que tornava 150 MB inviável: em base64 vira
+   ~200 MB de TEXTO, e o servidor precisa juntar esse texto inteiro na
+   memória e rodar `JSON.parse` nele ANTES de fazer qualquer outra coisa.
+   Node roda numa thread só: enquanto isso acontece, o processo INTEIRO fica
+   ocupado — inclusive o webhook que recebe lead novo, que desiste de
+   chamar se demorar. Um corretor subindo um vídeo grande atrasaria a
+   entrada de leads da imobiliária inteira.
+
+   Esta rota é separada de propósito, e só ela usa `express.raw()` — como
+   middleware de ROTA, não `app.use()` sem caminho (a armadilha que este
+   projeto já documentou em 13/08/2026: middleware sem caminho vale para
+   TUDO que vem depois). O corpo chega como Buffer puro, nunca vira texto,
+   e o servidor só precisa guardá-lo — sem juntar string gigante, sem
+   `JSON.parse`.
+
+   O middleware global de corpo grande (`jsonGrande`/`jsonNormal`, em
+   `server.js`) só reage a `Content-Type: application/json`; o navegador
+   manda este upload como `video/...` puro, então aquele middleware passa
+   direto sem tocar no corpo — quem decide o teto aqui é só o
+   `express.raw()` logo abaixo, com folga de 5 MB sobre o limite real para
+   não cortar um vídeo exatamente no tamanho permitido por causa de
+   arredondamento.
+
+   `mime`/`nome`/`legenda` vão na QUERY, não no corpo — aqui o corpo é só o
+   arquivo, sem lugar para mais nada.
+
+   150 MB é o que foi pedido, NÃO uma garantia de entrega: o WhatsApp tem
+   limite PRÓPRIO para mensagem do tipo "vídeo", que não temos como saber
+   de antemão. Se a Uazapi recusar por tamanho do lado dela, a resposta
+   chega como erro de verdade (`sendMedia` repassa a mensagem do provedor),
+   nunca como silêncio — é a mesma diferença de sempre entre "não sei se
+   coube" e "não coube, e aqui está o porquê". */
+r.post("/:id/anexo/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type: () => true }), async (req, res) => {
+  const mime = String(req.query.mime || "video/mp4");
+  if (!ehVideo(mime)) return res.status(400).json({ error: "Esta rota é só para vídeo." });
+
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead))
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+  if (buffer.length > limiteVideoBinario())
+    return res.status(413).json({ error: `O vídeo passa do limite de ${LIMITE_VIDEO_MB} MB.` });
+
+  const nome = String(req.query.nome || "video.mp4").replace(/[\r\n]/g, "").slice(0, 200);
+  const legenda = req.query.legenda ? String(req.query.legenda).trim() : "";
+  const firstName = (req.user.name || "").split(" ")[0];
+
+  let resultado;
+  try {
+    const { url } = await salvar({ buffer, mime, prefixo: "conversas" });
+    // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
+    // conseguir baixar pela URL, ele vai embutido, sem reler nada.
+    const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: "video", file: url, bytes: buffer, mime,
+      caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
+    resultado = { url, mime, nome, legenda, wa_id: envio?.messageid || null };
+  } catch (e) {
+    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
+  }
+
+  gravarSaida(lead, req.user, firstName, resultado);
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  advanceStage(lead.id);
+  res.json({ ok: true, enviados: 1 });
 });
 
 /* BAIXAR UM ANEXO DA CONVERSA. (14/09/2026, relatado pelo Ali: o botão de

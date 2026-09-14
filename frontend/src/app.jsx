@@ -1133,6 +1133,46 @@ function ConCRM(){
     pushTeste:()=>api("/push/teste",{method:"POST"}),
     // Anexos e localização saem pelo número da Conecta, como qualquer mensagem.
     anexar:acao((leadId,arquivos,texto)=>api(`/leads/${leadId}/anexo`,{method:"POST",body:{arquivos,texto}})),
+    /* VÍDEO SOBE CRU, NÃO PELO `api()`. (14/09/2026, pedido do Ali: "aumenta
+       o limite do vídeo para 150mb".)
+
+       `api()` só sabe mandar JSON — e o `anexar` de cima lê o arquivo inteiro
+       com FileReader, vira base64 (~33% maior) e empacota tudo num objeto
+       antes de mandar. Pra uma foto isso é rápido; pra um vídeo de 150 MB é
+       ler 150 MB pra memória, transformar em ~200 MB de TEXTO e só então
+       começar a subir — no celular do corretor, isso pode travar a aba.
+
+       Aqui o `File` vai DIRETO como corpo do `fetch` (o navegador manda os
+       bytes originais, sem reescrever nada) pra `/leads/:id/anexo/video`, a
+       rota nova que recebe o arquivo cru (ver `messages.routes.js`).
+       `mime`/`nome`/`legenda` vão na URL porque o corpo aqui é só o arquivo.
+
+       Usa XMLHttpRequest, não `fetch`, porque só o XHR avisa o PROGRESSO do
+       upload (`xhr.upload.onprogress`) — sem isso, um vídeo grande levando
+       minutos numa rede fraca pareceria travado, exatamente a queixa que
+       motivou o conserto de 09/09. Não passa pelo `acao()` comum: aquele
+       espera uma Promise de `fetch`, e aqui precisamos do callback de
+       progresso no meio do caminho. */
+    anexarVideo:(leadId,file,legenda,aoProgredir)=>new Promise((ok,falhou)=>{
+      const params=new URLSearchParams({mime:file.type||"video/mp4",nome:file.name||"video.mp4"});
+      if(legenda) params.set("legenda",legenda);
+      const xhr=new XMLHttpRequest();
+      xhr.open("POST",`${API}/leads/${leadId}/anexo/video?${params}`);
+      if(TOKEN) xhr.setRequestHeader("Authorization","Bearer "+TOKEN);
+      xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+      xhr.upload.onprogress=(e)=>{ if(aoProgredir&&e.lengthComputable) aoProgredir(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=async()=>{
+        let dados={}; try{ dados=JSON.parse(xhr.responseText||"{}"); }catch(e){}
+        if(xhr.status>=200&&xhr.status<300){
+          await recarregar(); if(selRef.current) await abrir(selRef.current,true);
+          ok(dados);
+        }else{
+          falhou(new Error([dados.error||`Erro ${xhr.status} ao enviar o vídeo.`,dados.detail].filter(Boolean).join(" — ")));
+        }
+      };
+      xhr.onerror=()=>falhou(new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."));
+      xhr.send(file);
+    }),
     mandarLocal:acao((leadId,latitude,longitude)=>api(`/leads/${leadId}/localizacao`,{method:"POST",body:{latitude,longitude}})),
     finalizar:acao((leadId)=>api(`/leads/${leadId}/finalizar`,{method:"POST"})),
     reabrir:acao((leadId)=>api(`/leads/${leadId}/reabrir`,{method:"POST"})),
@@ -4008,11 +4048,17 @@ const LIMITE_FOTOS=10;
    o defeito que o conserto de 09/09 devia ter resolvido continuava
    acontecendo, só que por um caminho diferente.
 
-   Os números espelham `limiteBytes()` em `storage.js` — se um mudar sem o
-   outro, o aviso daqui erra (cedo demais ou tarde demais) mas o servidor
+   `LIMITE_MB_FOTO` espelha `limiteBytes()` em `storage.js` — se um mudar sem
+   o outro, o aviso daqui erra (cedo demais ou tarde demais) mas o servidor
    continua sendo quem decide de verdade; este é só o aviso ANTES de gastar
-   dado e tempo à toa. */
-const LIMITE_MB_FOTO=8, LIMITE_MB_VIDEO=30;
+   dado e tempo à toa.
+
+   `LIMITE_MB_VIDEO` espelha `LIMITE_VIDEO_MB` de `storage.js`, não mais
+   `limiteBytes()`: desde 14/09/2026 vídeo sobe cru, por uma rota própria
+   (`POST /leads/:id/anexo/video`, ver `acoes.anexarVideo`) — deixou de
+   competir com o teto do corpo em JSON que limitava foto/áudio/documento,
+   e por isso pôde subir bem mais (150 MB, pedido do Ali). */
+const LIMITE_MB_FOTO=8, LIMITE_MB_VIDEO=150;
 const lerArquivo=(f)=>new Promise((ok,erro)=>{
   const r=new FileReader();
   r.onload=()=>ok({mime:f.type,nome:f.name,base64:String(r.result).split(",")[1]});
@@ -4242,6 +4288,11 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
 function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
+  // Progresso do upload de vídeo — só o XHR avisa isso, e só existe pra ele:
+  // com o teto em 150MB, um upload pode levar minutos numa rede fraca, e
+  // ficar sem NENHUM sinal nesse tempo é a cara do "travou" que já foi
+  // relatado duas vezes. `null` = nenhum vídeo subindo agora.
+  const [progressoVideo,setProgressoVideo]=useState(null);
   const [gravando,setGravando]=useState(0); // segundos
   const gravador=useRef(null), pedacos=useRef([]), cronometro=useRef(null);
   // `descartar` marca que a parada foi um cancelamento; `gravadosRef` guarda a
@@ -4275,7 +4326,15 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
     // servidor vai recusar de qualquer jeito — ver o comentário lá em cima.
     if(f.size>LIMITE_MB_VIDEO*1024*1024)
       return aviso(`Esse vídeo tem ${(f.size/1048576).toFixed(1)} MB — o limite é ${LIMITE_MB_VIDEO} MB. Tente um vídeo mais curto ou comprimido.`);
-    mandar([f],"vídeo");
+    enviarVideo(f);
+  }
+  // Vídeo NÃO passa por `mandar`/`lerArquivo`: vai cru, pela rota própria
+  // (`acoes.anexarVideo`) — ver o comentário de `LIMITE_MB_VIDEO` acima.
+  async function enviarVideo(f){
+    setAberto(false); setOcupado("vídeo"); setProgressoVideo(0);
+    try{ await acoes.anexarVideo(lead.id,f,undefined,setProgressoVideo); }
+    catch(e){ aviso(e.message); }
+    finally{ setOcupado(""); setProgressoVideo(null); }
   }
 
   async function local(){
@@ -4365,7 +4424,14 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
         {item("pin","Minha localização",local)}
       </div>
     </React.Fragment>}
-    <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado} title="Anexar"
+    {/* Sem isto, um vídeo de 150MB levando minutos numa rede fraca não dá
+        NENHUM sinal — e "sem sinal nenhum por minutos" é exatamente a cara
+        do "travou" que já foi relatado duas vezes por causa disto. */}
+    {progressoVideo!=null&&<div style={{position:"absolute",bottom:isMobile?48:50,left:0,zIndex:21,background:C.greenDeep,color:"#fff",
+        fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:8,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.18)"}}>
+      Enviando vídeo… {progressoVideo}%</div>}
+    <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado}
+      title={progressoVideo!=null?`Enviando vídeo… ${progressoVideo}%`:"Anexar"}
       style={{width:isMobile?40:42,height:isMobile?40:42,borderRadius:12,border:`1px solid ${C.line}`,background:C.surface,
         color:ocupado?C.faint:C.sub,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <Icon n={ocupado?"loader":"link"} size={18} spin={!!ocupado}/></button>

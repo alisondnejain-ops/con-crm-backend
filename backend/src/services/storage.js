@@ -192,6 +192,35 @@ export const ehVideo = (mime) => String(mime).startsWith("video/");
 export const limiteBytes = (mime) =>
   ehVideo(mime) ? 30 * 1024 * 1024 : 8 * 1024 * 1024;
 
+/* VÍDEO GRANDE (150 MB) SAIU DO CAMINHO DO base64. (14/09/2026, pedido do
+   Ali: *"aumenta o limite do vídeo para 150mb"*.)
+
+   30 MB já era o máximo defensável dentro do formato antigo: em base64 vira
+   ~40 MB, e um corpo de JSON desse tamanho obriga o servidor a carregar o
+   texto inteiro na memória e rodar `JSON.parse` nele antes de processar
+   qualquer coisa — com o processo TRAVADO enquanto isso acontece, porque
+   Node é de uma thread só. Um vídeo de 150 MB em base64 viraria ~200 MB de
+   texto: tempo suficiente de `JSON.parse` para atrasar webhook da Uazapi
+   (que desiste de chamar se demorar) enquanto UM corretor sobe UM vídeo.
+
+   Por isso vídeo GRANDE (`POST /leads/:id/anexo/video`, em
+   `messages.routes.js`) passou a subir como CORPO CRU — o arquivo puro,
+   sem virar texto, com `express.raw()` só nessa rota. Sem base64, o limite
+   deixa de ser "quanto cabe depois de inflar 33%" e vira só "quanto o
+   servidor aguenta guardar" — bem mais folgado. `limiteBytes()` (30 MB)
+   continua valendo para o caminho ANTIGO (`POST /leads/:id/anexo`, ainda
+   usado por foto/áudio/documento, que continuam pequenos o bastante para o
+   JSON) — os dois nunca precisam bater no mesmo número, porque não competem
+   pelo mesmo corpo de requisição.
+
+   150 MB É O QUE O ALI PEDIU, NÃO UMA GARANTIA DE ENTREGA: o WhatsApp tem
+   limite PRÓPRIO para mensagem do tipo "vídeo", independente do nosso — se
+   a Uazapi recusar por tamanho do lado dela, a resposta chega como erro de
+   verdade (`sendMedia` já repassa a mensagem do provedor), nunca como
+   silêncio. */
+export const LIMITE_VIDEO_MB = 150;
+export const limiteVideoBinario = () => LIMITE_VIDEO_MB * 1024 * 1024;
+
 let clienteR2 = null;
 async function s3() {
   if (clienteR2) return clienteR2;
