@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
-import { salvar, limiteBytes, bytesDoArquivo } from "../services/storage.js";
+import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl } from "../services/storage.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
 
@@ -210,6 +210,51 @@ r.post("/:id/anexo", async (req, res) => {
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
+});
+
+/* BAIXAR UM ANEXO DA CONVERSA. (14/09/2026, relatado pelo Ali: o botão de
+   baixar estava abrindo o arquivo em outra aba em vez de baixar.)
+
+   O botão fazia `fetch()` direto na URL pública do arquivo — funciona no
+   disco (mesma origem do CRM), mas metade das contas guarda no Cloudflare
+   R2, que é OUTRO domínio. Link cross-origin sem o R2 mandar cabeçalho de
+   CORS faz o navegador BLOQUEAR o fetch antes do JS conseguir ler a
+   resposta — o `catch` engolia o erro e caía no `window.open`, exatamente o
+   "abre numa aba" que o Ali viu, para foto, áudio E documento ao mesmo tempo
+   (todos passam pelo mesmo `BotaoBaixar`).
+
+   O conserto é o navegador nunca falar direto com o R2: ele baixa DESTA
+   rota, que é sempre a mesma origem do CRM — CORS não existe entre a página
+   e o próprio servidor dela — e É O SERVIDOR quem busca o arquivo, com
+   `bytesDoArquivo`, que já sabe ler do disco ou do R2 (foi escrita para o
+   envio ao WhatsApp, pelo mesmo motivo: não depender de a URL pública estar
+   alcançável). */
+r.get("/:id/anexo/:messageId/baixar", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead))
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  const msg = db.prepare("SELECT * FROM messages WHERE id = ? AND lead_id = ?")
+    .get(req.params.messageId, lead.id);
+  if (!msg || !msg.media_url) return res.status(404).json({ error: "Arquivo não encontrado." });
+
+  const chave = chaveDaUrl(msg.media_url);
+  const nome = (msg.media_name || "arquivo").replace(/[\r\n"]/g, "");
+  try {
+    // `chave` cobre disco e R2. Se a URL for de outro formato (arquivo bem
+    // antigo, ou um provedor ainda não previsto), busca a própria URL — pior
+    // que o caminho de cima, mas melhor que recusar o download.
+    const buffer = chave ? await bytesDoArquivo(chave)
+      : Buffer.from(await (await fetch(msg.media_url)).arrayBuffer());
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Type", msg.media_mime || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${nome}"`);
+    res.setHeader("Content-Length", buffer.length);
+    res.send(buffer);
+  } catch (e) {
+    res.status(502).json({ error: "Não consegui buscar o arquivo para baixar." });
+  }
 });
 
 // Localização de onde o corretor está agora (GPS do celular). Vai como ponto no

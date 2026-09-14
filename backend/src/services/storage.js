@@ -301,6 +301,22 @@ export async function bytesDoArquivo(chave) {
 
 export const pastaLocal = () => PASTA;
 
+/* Volta da URL pública guardada em `messages.media_url` para a CHAVE do
+   arquivo (o `Key` do R2, ou o caminho dentro de PASTA no disco) — é o
+   inverso de `salvar()`. Existe para a rota de download (14/09/2026, ver
+   `messages.routes.js`): o navegador baixa pelo endereço do PRÓPRIO CRM, e o
+   servidor busca o arquivo de verdade com `bytesDoArquivo`, que já sabe ler
+   dos dois lugares. Sem isto a rota teria que reconstruir a lógica de R2 x
+   disco que já existe aqui. */
+export function chaveDaUrl(url) {
+  if (!url) return null;
+  const porArquivos = url.match(/\/arquivos\/(.+)$/);
+  if (porArquivos) return decodeURIComponent(porArquivos[1]);
+  if (R2.publico && url.startsWith(R2.publico + "/"))
+    return decodeURIComponent(url.slice(R2.publico.length + 1));
+  return null;
+}
+
 /* ===== R2 DIRETO, SEM REDE DE SEGURANÇA =====
 
    `salvar()` cai para o disco quando o R2 recusa, e está certo: foto que não

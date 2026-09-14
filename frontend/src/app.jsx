@@ -4365,14 +4365,30 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
    origem da página — funciona igual em disco e em R2. Se a busca falhar
    (rede, CORS num provedor que não libera), cai para abrir numa aba: pior
    que baixar, melhor que um botão que não faz nada. */
-function BotaoBaixar({url,nome,corner}){
+function BotaoBaixar({url,nome,corner,leadId,messageId}){
   const [ocupado,setOcupado]=useState(false);
+  /* BAIXA PELO PRÓPRIO SERVIDOR DO CRM, NÃO PELA URL DA MÍDIA. (14/09/2026,
+     relatado pelo Ali: o botão abria o arquivo numa aba em vez de baixar.)
+
+     A primeira versão buscava `url` direto — funciona quando o arquivo mora
+     no disco (mesma origem do CRM), mas metade das contas guarda no
+     Cloudflare R2, OUTRO domínio, que não manda cabeçalho de CORS. O
+     navegador bloqueia esse fetch cross-origin antes do JS conseguir ler a
+     resposta, o `catch` engolia o erro e caía no `window.open` — para foto,
+     áudio e documento, sempre, porque os três passam por aqui.
+
+     Com `leadId`/`messageId`, a busca vai para `/leads/:id/anexo/:msgId/baixar`,
+     que é SEMPRE a mesma origem da página (CORS não existe entre um site e
+     ele mesmo) — quem fala com o R2 é o servidor, imune a CORS. Sem os dois
+     ids (mídia fora de uma conversa, se algum dia existir) cai no caminho
+     antigo, que ainda serve quando o arquivo é local. */
   async function baixar(e){
     e.preventDefault(); e.stopPropagation();
     if(ocupado) return;
     setOcupado(true);
+    const alvo=leadId&&messageId?`${API}/leads/${leadId}/anexo/${messageId}/baixar`:url;
     try{
-      const r=await fetch(url);
+      const r=await fetch(alvo,leadId&&messageId?{headers:TOKEN?{Authorization:"Bearer "+TOKEN}:{}}:undefined);
       if(!r.ok) throw new Error("falhou");
       const blob=await r.blob();
       const urlLocal=URL.createObjectURL(blob);
@@ -4399,7 +4415,7 @@ function BotaoBaixar({url,nome,corner}){
    gente mostra. Clicar na imagem abre o tamanho real em outra aba — é como o
    corretor confere um comprovante sem sair do CRM; o botão no canto BAIXA de
    verdade, como o clipe de baixar do WhatsApp. */
-function Midia({m,mine,isMobile}){
+function Midia({m,mine,isMobile,leadId}){
   const {url,mime,nome}=m.midia;
   const larguraMax=isMobile?220:260;
   if(/^image\//.test(mime))
@@ -4408,19 +4424,19 @@ function Midia({m,mine,isMobile}){
         <img src={url} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
           style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
       </a>
-      <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner/>
+      <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner leadId={leadId} messageId={m.id}/>
     </div>;
   if(/^video\//.test(mime))
     return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
       <video src={url} controls preload="metadata"
         style={{maxWidth:larguraMax,borderRadius:10,display:"block",background:"#000"}}/>
-      <BotaoBaixar url={url} nome={nome||"video.mp4"} corner/>
+      <BotaoBaixar url={url} nome={nome||"video.mp4"} corner leadId={leadId} messageId={m.id}/>
     </div>;
   if(/^audio\//.test(mime))
     // O áudio de voz é o formato que mais chega: o cliente responde falando.
     return <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:m.text?6:0}}>
       <audio src={url} controls preload="metadata" style={{maxWidth:isMobile?190:230,display:"block"}}/>
-      <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"}/></span>
+      <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"} leadId={leadId} messageId={m.id}/></span>
     </div>;
   // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.
   return <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:m.text?6:0,
@@ -4433,7 +4449,7 @@ function Midia({m,mine,isMobile}){
         <span style={{color:mine?"rgba(255,255,255,.75)":C.faint,fontSize:10.5}}>Abrir arquivo</span>
       </span>
     </a>
-    <span style={{color:mine?"#fff":C.greenMid}}><BotaoBaixar url={url} nome={nome||"documento"}/></span>
+    <span style={{color:mine?"#fff":C.greenMid}}><BotaoBaixar url={url} nome={nome||"documento"} leadId={leadId} messageId={m.id}/></span>
   </div>;
 }
 
@@ -4938,7 +4954,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
               <Citacao c={m.citada} claro={mine}/>
-              {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile}/>}
+              {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile} leadId={sel.id}/>}
               {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
@@ -6582,7 +6598,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
               <Citacao c={m.citada} claro={meu}/>
-              {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile}/>}
+              {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile} leadId={sel.id}/>}
               {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
