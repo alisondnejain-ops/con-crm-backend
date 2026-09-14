@@ -608,6 +608,8 @@ const ICO={
   edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
   trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
+  // Baixar: a seta descendo até a bandeja, o desenho que todo mundo reconhece.
+  download:<React.Fragment><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></React.Fragment>,
   // O par do `check`: mesmo círculo, para "veio" e "não veio" se lerem juntos.
   xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
 };
@@ -1316,6 +1318,15 @@ function ConCRM(){
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
   };
+
+  /* CONSERTA A INSCRIÇÃO DE PUSH UMA VEZ NO LOGIN, PARA TODO MUNDO — não só
+     quem abre Minha conta (14/09/2026, relatado pelo Ali: "as notificações
+     estão desativando sozinhas"). `curarInscricaoPush` já existia dentro da
+     tela de Notificações; o corretor não mora naquela tela, mora em Atender,
+     então a inscrição podia morrer e ficar morta até alguém abrir Minha
+     conta por outro motivo — às vezes nunca. Roda uma vez por sessão aberta,
+     sem pedir nada: só reaproveita a permissão que a pessoa já deu. */
+  useEffect(()=>{ if(session) curarInscricaoPush(acoes); },[session&&session.id]);
 
   function sair(){ setToken(null); marcarOrg(null); setSession(null); setOrg(null); setLeads([]); setFila([]); }
 
@@ -4336,37 +4347,94 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
   </div>;
 }
 
+/* BAIXAR DE VERDADE, não só "abrir numa aba" (14/09/2026, pedido do Ali: "eu
+   preciso que tenha a opção de baixar os documentos e fotos enviadas na
+   conversa igual é no WhatsApp").
+
+   Um `<a download>` apontando direto para a URL do arquivo funciona quando o
+   arquivo mora no PRÓPRIO domínio do CRM (armazenamento em disco) — mas
+   metade das contas guarda no Cloudflare R2, que é OUTRO domínio, e o
+   atributo `download` é ignorado pelo navegador em link de origem diferente
+   sem cabeçalho `Content-Disposition: attachment` (que as fotos/vídeos não
+   têm de propósito, para abrirem inline quando alguém só quer ver). Sem
+   isso, o botão "baixar" numa conta com R2 só abriria o arquivo numa aba nova
+   — exatamente o comportamento que já existia, com uma roupa de botão novo.
+
+   Por isso o download busca o arquivo primeiro (`fetch` + `blob`) e salva a
+   partir de uma URL local (`URL.createObjectURL`), que é SEMPRE da mesma
+   origem da página — funciona igual em disco e em R2. Se a busca falhar
+   (rede, CORS num provedor que não libera), cai para abrir numa aba: pior
+   que baixar, melhor que um botão que não faz nada. */
+function BotaoBaixar({url,nome,corner}){
+  const [ocupado,setOcupado]=useState(false);
+  async function baixar(e){
+    e.preventDefault(); e.stopPropagation();
+    if(ocupado) return;
+    setOcupado(true);
+    try{
+      const r=await fetch(url);
+      if(!r.ok) throw new Error("falhou");
+      const blob=await r.blob();
+      const urlLocal=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=urlLocal; a.download=nome||"arquivo";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(urlLocal),4000);
+    }catch(err){ window.open(url,"_blank"); }
+    finally{ setOcupado(false); }
+  }
+  return <button onClick={baixar} disabled={ocupado} title="Baixar" aria-label="Baixar arquivo" style={corner
+    ? {position:"absolute",bottom:7,right:7,width:28,height:28,borderRadius:"50%",border:"none",
+       background:"rgba(20,24,31,.6)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",
+       cursor:ocupado?"default":"pointer"}
+    : {border:"none",background:"transparent",color:"inherit",display:"flex",alignItems:"center",justifyContent:"center",
+       cursor:ocupado?"default":"pointer",padding:4,flexShrink:0}}>
+    <Icon n={ocupado?"loader":"download"} size={corner?13:15} spin={ocupado}/>
+  </button>;
+}
+
 /* ===== MÍDIA NA CONVERSA =====
    Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
    descartado e sobrava "[ImageMessage]" na tela; agora o backend guarda e aqui a
    gente mostra. Clicar na imagem abre o tamanho real em outra aba — é como o
-   corretor confere um comprovante sem sair do CRM. */
+   corretor confere um comprovante sem sair do CRM; o botão no canto BAIXA de
+   verdade, como o clipe de baixar do WhatsApp. */
 function Midia({m,mine,isMobile}){
   const {url,mime,nome}=m.midia;
   const larguraMax=isMobile?220:260;
   if(/^image\//.test(mime))
-    return <a href={url} target="_blank" rel="noreferrer" style={{display:"block",marginBottom:m.text?6:0}}>
-      <img src={url} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
-        style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
-    </a>;
+    return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
+      <a href={url} target="_blank" rel="noreferrer" style={{display:"block"}}>
+        <img src={url} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
+          style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
+      </a>
+      <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner/>
+    </div>;
   if(/^video\//.test(mime))
-    return <video src={url} controls preload="metadata"
-      style={{maxWidth:larguraMax,borderRadius:10,display:"block",marginBottom:m.text?6:0,background:"#000"}}/>;
+    return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
+      <video src={url} controls preload="metadata"
+        style={{maxWidth:larguraMax,borderRadius:10,display:"block",background:"#000"}}/>
+      <BotaoBaixar url={url} nome={nome||"video.mp4"} corner/>
+    </div>;
   if(/^audio\//.test(mime))
     // O áudio de voz é o formato que mais chega: o cliente responde falando.
-    return <audio src={url} controls preload="metadata"
-      style={{maxWidth:isMobile?200:240,display:"block",marginBottom:m.text?6:0}}/>;
+    return <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:m.text?6:0}}>
+      <audio src={url} controls preload="metadata" style={{maxWidth:isMobile?190:230,display:"block"}}/>
+      <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"}/></span>
+    </div>;
   // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.
-  return <a href={url} target="_blank" rel="noreferrer" download={nome||undefined}
-    style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none",marginBottom:m.text?6:0,
+  return <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:m.text?6:0,
       background:mine?"rgba(255,255,255,.16)":C.surface,border:`1px solid ${mine?"rgba(255,255,255,.25)":C.line}`,
       borderRadius:10,padding:"9px 11px",maxWidth:larguraMax}}>
-    <Icon n="mail" size={17} color={mine?"#fff":C.greenMid}/>
-    <span style={{minWidth:0}}>
-      <span style={{display:"block",color:mine?"#fff":C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome||"Documento"}</span>
-      <span style={{color:mine?"rgba(255,255,255,.75)":C.faint,fontSize:10.5}}>Abrir arquivo</span>
-    </span>
-  </a>;
+    <a href={url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none",minWidth:0,flex:1}}>
+      <Icon n="mail" size={17} color={mine?"#fff":C.greenMid}/>
+      <span style={{minWidth:0}}>
+        <span style={{display:"block",color:mine?"#fff":C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome||"Documento"}</span>
+        <span style={{color:mine?"rgba(255,255,255,.75)":C.faint,fontSize:10.5}}>Abrir arquivo</span>
+      </span>
+    </a>
+    <span style={{color:mine?"#fff":C.greenMid}}><BotaoBaixar url={url} nome={nome||"documento"}/></span>
+  </div>;
 }
 
 /* ===== CONTROLE DA CONVERSA =====
@@ -7773,6 +7841,42 @@ const base64ParaBytes=(b64)=>{
 const ehIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent);
 const naTelaDeInicio=()=>window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
 
+/* CONSERTA A INSCRIÇÃO SOZINHO, sem pedir nada de novo (14/09/2026, relatado
+   pelo Ali: "as notificações estão desativando sozinhas").
+
+   Esta função já existia — vivia só dentro do efeito de `Notificacoes`, e por
+   isso só rodava quando a pessoa abria Minha conta. O corretor não mora
+   naquela tela, mora em Atender: a inscrição podia morrer (o navegador revoga
+   notificação de site que ninguém visita, o sistema troca a chave sozinho —
+   as duas causas já documentadas em 17/08/2026) e ficava morta até alguém
+   abrir Minha conta por outro motivo, às vezes nunca. Compartilhada agora
+   entre a tela e o boot do app, para rodar uma vez em todo login — sem
+   duplicar a lógica em dois lugares que divergem com o tempo.
+
+   NÃO PEDE PERMISSÃO — só reaproveita a que a pessoa já deu. Se
+   `Notification.permission` não for "granted", não faz nada: reinscrever sem
+   ação da pessoa é higiene; pedir permissão sem ação da pessoa seria o site
+   abrindo um popup sozinho. */
+async function curarInscricaoPush(acoes){
+  const suportado=typeof window!=="undefined"&&"serviceWorker" in navigator&&"PushManager" in window;
+  if(!suportado) return {suportado,sub:null,situacao:null};
+  try{
+    const situacao=await acoes.pushSituacao();
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub&&situacao.configurado&&Notification.permission==="granted"){
+      try{
+        const {chave}=await acoes.pushChave();
+        sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ParaBytes(chave)});
+        const r=await acoes.pushInscrever(sub.toJSON());
+        situacao.aparelhos=r.aparelhos;
+        console.log("[push] inscrição refeita sozinha neste aparelho");
+      }catch(e){ console.warn("[push] não consegui refazer a inscrição:",e.message); }
+    }
+    return {suportado,sub,situacao};
+  }catch(e){ return {suportado,sub:null,situacao:null}; }
+}
+
 function Notificacoes({acoes,isMobile}){
   const [estado,setEstado]=useState({carregando:true,configurado:false,aparelhos:0});
   const [ativoAqui,setAtivoAqui]=useState(false);
@@ -7780,41 +7884,17 @@ function Notificacoes({acoes,isMobile}){
   const [recado,setRecado]=useState(null);
   const suportado=typeof window!=="undefined"&&"serviceWorker" in navigator&&"PushManager" in window;
 
+  /* O conserto sozinho é o `curarInscricaoPush` compartilhado — já roda uma
+     vez no login (ver `ConCRM`), então ao chegar aqui é raro haver algo para
+     consertar. Esta chamada continua existindo porque é ela que preenche o
+     estado que a TELA mostra ("ativo neste aparelho", quantos aparelhos). */
   useEffect(()=>{
     let vivo=true;
-    (async()=>{
-      try{
-        const s=await acoes.pushSituacao();
-        if(suportado){
-          const reg=await navigator.serviceWorker.ready;
-          let sub=await reg.pushManager.getSubscription();
-
-          /* CONSERTA SOZINHO o aparelho que perdeu a inscrição.
-
-             A pessoa AUTORIZOU as notificações no navegador — essa permissão
-             continua lá. O que sumiu foi a inscrição, e sumia por motivos que
-             não são escolha de ninguém: o botão de atualizar derrubava o
-             service worker, o navegador rotacionava a chave. Se ainda temos
-             permissão, reinscrever não pergunta nada e não incomoda: é
-             refazer em silêncio o que a pessoa já tinha pedido.
-
-             Sem isto, todo corretor que já perdeu teria que descobrir a tela
-             e apertar "ativar" de novo — e ninguém descobre sozinho que parou
-             de receber aviso. */
-          if(!sub&&Notification.permission==="granted"&&s.configurado){
-            try{
-              const {chave}=await acoes.pushChave();
-              sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ParaBytes(chave)});
-              const r=await acoes.pushInscrever(sub.toJSON());
-              s.aparelhos=r.aparelhos;
-              console.log("[push] inscrição refeita sozinha neste aparelho");
-            }catch(e){ console.warn("[push] não consegui refazer a inscrição:",e.message); }
-          }
-          if(vivo) setAtivoAqui(!!sub);
-        }
-        if(vivo) setEstado({carregando:false,...s});
-      }catch(e){ if(vivo) setEstado({carregando:false,configurado:false,aparelhos:0}); }
-    })();
+    curarInscricaoPush(acoes).then(({sub,situacao})=>{
+      if(!vivo) return;
+      if(suportado) setAtivoAqui(!!sub);
+      setEstado({carregando:false,...(situacao||{configurado:false,aparelhos:0})});
+    });
     return()=>{vivo=false;};
   },[]);
 
