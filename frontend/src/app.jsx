@@ -4426,12 +4426,19 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
     </React.Fragment>}
     {/* Sem isto, um vídeo de 150MB levando minutos numa rede fraca não dá
         NENHUM sinal — e "sem sinal nenhum por minutos" é exatamente a cara
-        do "travou" que já foi relatado duas vezes por causa disto. */}
+        do "travou" que já foi relatado duas vezes por causa disto.
+
+        Ao chegar em 100%, o upload em si terminou, mas a resposta ainda não
+        chegou: o servidor pode estar CONVERTENDO o vídeo (HEVC → H.264,
+        14/09/2026 — ver services/video.js) antes de mandar pro WhatsApp, e
+        isso não tem barra de progresso possível (é processamento no
+        servidor, não transferência). "100%" parado por mais tempo pareceria
+        travado de novo — por isso o texto muda sozinho nesse ponto. */}
     {progressoVideo!=null&&<div style={{position:"absolute",bottom:isMobile?48:50,left:0,zIndex:21,background:C.greenDeep,color:"#fff",
         fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:8,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.18)"}}>
-      Enviando vídeo… {progressoVideo}%</div>}
+      {progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"}</div>}
     <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado}
-      title={progressoVideo!=null?`Enviando vídeo… ${progressoVideo}%`:"Anexar"}
+      title={progressoVideo!=null?(progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"):"Anexar"}
       style={{width:isMobile?40:42,height:isMobile?40:42,borderRadius:12,border:`1px solid ${C.line}`,background:C.surface,
         color:ocupado?C.faint:C.sub,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <Icon n={ocupado?"loader":"link"} size={18} spin={!!ocupado}/></button>

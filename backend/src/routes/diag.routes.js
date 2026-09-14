@@ -12,6 +12,7 @@ import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from
    tela feita para diagnóstico é entregar o problema sem a pista. */
 import { emPortugues } from "../services/backup.js";
 import { cofreLigado } from "../services/cofre.js";
+import { ffmpegConfigurado } from "../services/video.js";
 
 const r = Router();
 // Quando este processo subiu — a lista de webhooks abaixo só vale a partir daqui.
@@ -84,6 +85,12 @@ r.get("/integracoes", async (_req, res) => {
     ia: { configurada: iaConfigurada(), modelo: iaConfigurada() ? modeloIA() : null,
       recursos: iaConfigurada() ? ["resumo da conversa", "leitura do print da Caixa"] : [] },
     arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2() },
+    /* Conversão de vídeo (14/09/2026): confere que o `ffmpeg`/`ffprobe`
+       (pacotes `ffmpeg-static`/`ffprobe-static`) existem e respondem, sem
+       converter nada — é só "a ferramenta está instalada?". Sem isso,
+       vídeo em HEVC (padrão do iPhone) volta a falhar sem explicação, do
+       jeito que o Ali relatou antes deste recurso existir. */
+    conversao_video: { configurado: await ffmpegConfigurado() },
     // Última tentativa de citar uma mensagem: o que foi mandado e o que voltou.
     // A citação falha calada, então é aqui que se descobre o motivo.
     citacao: citacaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",

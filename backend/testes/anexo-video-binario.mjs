@@ -25,8 +25,18 @@
    5. mime que não é vídeo é recusado antes de gastar tempo com o arquivo;
    6. o corpo grande NÃO passa pelos limites globais de JSON — a prova é
       mandar mais que o teto de `jsonNormal`/`jsonGrande` (45 MB) com
-      Content-Type de vídeo e confirmar que a rota (não o `server.js`)
-      responde, com a mensagem certa.
+      Content-Type de vídeo e confirmar que quem responde é a ROTA (não o
+      `server.js`): 60 MB de bytes que não são vídeo de verdade chegam até
+      o `ffprobe` (`services/video.js`, 14/09/2026) e voltam 422 — se o
+      teto global de JSON estivesse no caminho, a resposta seria um 413
+      genérico ANTES disso.
+
+   Testes 1 e 2 usam bytes crus (não é vídeo de verdade) porque a checagem
+   de TAMANHO roda ANTES da checagem de CONTEÚDO na rota — o motivo de
+   cada recusa continua sendo só o que o teste diz que é. O teste de
+   conteúdo de vídeo de verdade (HEVC→H.264, arquivo corrompido) mora em
+   `npm run teste:video-hevc`, para não duplicar aqui o que já está coberto
+   lá.
 
    Rodar:  npm run teste:anexo-video-binario
 */
@@ -34,6 +44,7 @@ import assert from "node:assert";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 process.env.DB_PATH = path.join(os.tmpdir(), "concrm-teste-anexo-video-binario.db");
 process.env.JWT_SECRET = "teste";
 process.env.PORT = "4642";
@@ -41,9 +52,21 @@ for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH 
 
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
+const ffmpegPath = (await import("ffmpeg-static")).default;
 await import("../src/server.js");
 const BASE = "http://localhost:4642";
 await new Promise(r => setTimeout(r, 700));
+
+// Um vídeo H.264 de verdade, minúsculo — para o teste 1, que precisa passar
+// pelo `ffprobe` dentro da rota (services/video.js) como um vídeo de verdade.
+const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), "concrm-video-teste-"));
+const arqVideo = path.join(dirTmp, "video.mp4");
+{
+  const r = spawnSync(ffmpegPath, ["-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=5",
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", arqVideo]);
+  if (r.status !== 0) throw new Error("falha ao gerar vídeo de teste: " + r.stderr.toString().slice(-300));
+}
+const videoReal = fs.readFileSync(arqVideo);
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Conecta", "AV-3", Date.now());
@@ -80,8 +103,8 @@ const enviar = (leadId, bytes, { mime = "video/mp4", nome = "video.mp4", token =
 };
 const fakeBytes = (mb) => Buffer.alloc(mb * 1024 * 1024, 1);
 
-console.log("1. Vídeo de 8MB (tamanho normal) sobe e fica registrado na conversa");
-let resp = await enviar(leadId, fakeBytes(8));
+console.log("1. Vídeo de tamanho normal (h264 de verdade) sobe e fica registrado na conversa");
+let resp = await enviar(leadId, videoReal);
 let d = await resp.json();
 console.log(`   ${resp.status} · ${JSON.stringify(d)}`);
 assert.equal(resp.status, 200);
@@ -114,14 +137,17 @@ d = await resp.json();
 console.log(`   ${resp.status} · ${d.error}`);
 assert.equal(resp.status, 400);
 
-console.log("6. O corpo grande NÃO passa pelo teto global de JSON — 60MB de vídeo cru chega até a ROTA");
+console.log("6. O corpo grande NÃO passa pelo teto global de JSON — 60MB chegam até a ROTA (que recusa por não ser vídeo de verdade, não por tamanho)");
 resp = await enviar(leadId, fakeBytes(60));
 d = await resp.json().catch(() => null);
 console.log(`   ${resp.status} · ${JSON.stringify(d)}`);
 // 60MB > 45MB (jsonGrande) mas < 150MB (limite do vídeo): se o corpo global
-// estivesse envolvido, isso teria voltado 413 genérico do server.js. Como
-// não está, a rota processa normalmente.
-assert.equal(resp.status, 200, "60MB deveria passar — está dentro do limite de vídeo e fora do alcance do teto de JSON");
+// estivesse envolvido, isso teria voltado um 413 genérico do server.js,
+// ANTES de qualquer rota rodar. Chegando 422 do ffprobe (services/video.js),
+// a prova está feita — o corpo passou pelo teto de JSON inteiro sem ser
+// barrado por ele.
+assert.equal(resp.status, 422, "422 do ffprobe prova que o corpo chegou até a rota — 413 aqui seria o teto global de JSON no meio do caminho");
 
+fs.rmSync(dirTmp, { recursive: true, force: true });
 console.log("\nTudo certo ✅");
 process.exit(0);

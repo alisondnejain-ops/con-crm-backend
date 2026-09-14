@@ -4,6 +4,7 @@ import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
+import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
 
@@ -266,14 +267,33 @@ r.post("/:id/anexo/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type
   const legenda = req.query.legenda ? String(req.query.legenda).trim() : "";
   const firstName = (req.user.name || "").split(" ")[0];
 
+  /* HEVC (o padrão do iPhone) VIRA H.264 AQUI, antes de salvar e de mandar
+     pro WhatsApp. (14/09/2026, pedido do Ali: "o vídeo... é em formato
+     HEVC e não tá carregando".) O CRM sempre aceitou o arquivo — o filtro
+     é "começa com video/", não o codec por dentro —, e quem recusava era
+     o WhatsApp, do outro lado, em silêncio: ele só entende vídeo em
+     H.264/AAC. Ver `services/video.js`: só converte quando o codec não é
+     h264, então a maioria dos vídeos (Android, iPhone em "Mais
+     compatível") passa direto, sem gastar o tempo da conversão à toa. */
+  let bufferFinal = buffer, mimeFinal = mime, nomeFinal = nome, convertido = false;
+  try {
+    const processado = await garantirH264(buffer);
+    bufferFinal = processado.buffer; mimeFinal = processado.mime; convertido = processado.convertido;
+    // O nome muda de extensão junto com o conteúdo — um arquivo ".mov" com
+    // H.264 por dentro confundiria quem baixasse e tentasse abrir depois.
+    if (convertido) nomeFinal = nome.replace(/\.\w+$/, "") + ".mp4";
+  } catch (e) {
+    return res.status(422).json({ error: e.message });
+  }
+
   let resultado;
   try {
-    const { url } = await salvar({ buffer, mime, prefixo: "conversas" });
+    const { url } = await salvar({ buffer: bufferFinal, mime: mimeFinal, prefixo: "conversas" });
     // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
     // conseguir baixar pela URL, ele vai embutido, sem reler nada.
-    const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: "video", file: url, bytes: buffer, mime,
+    const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: "video", file: url, bytes: bufferFinal, mime: mimeFinal,
       caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
-    resultado = { url, mime, nome, legenda, wa_id: envio?.messageid || null };
+    resultado = { url, mime: mimeFinal, nome: nomeFinal, legenda, wa_id: envio?.messageid || null };
   } catch (e) {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
@@ -282,7 +302,7 @@ r.post("/:id/anexo/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
-  res.json({ ok: true, enviados: 1 });
+  res.json({ ok: true, enviados: 1, convertido });
 });
 
 /* BAIXAR UM ANEXO DA CONVERSA. (14/09/2026, relatado pelo Ali: o botão de
