@@ -134,6 +134,19 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   const citadaLocal = citada
     ? (db.prepare("SELECT id FROM messages WHERE wa_id = ? AND lead_id = ?").get(citada, lead.id) || {}).id || null
     : null;
+  /* O CAMPO FOI RECONHECIDO, MAS NÃO ACHOU A MENSAGEM. (17/09/2026)
+
+     Duas causas possíveis, e são diferentes: (1) a mensagem citada é de
+     ANTES de 08/08/2026, quando `wa_id` começou a ser gravado — aí não tem
+     conserto, é limitação conhecida; (2) a mensagem citada foi ENVIADA por
+     este CRM e a resposta da Uazapi para aquele envio não trouxe nenhum id
+     reconhecido (ver `envioSemIdDiagnostico` em services/uazapi.js) — aí
+     `wa_id` nunca foi gravado nela, e citar essa mensagem específica nunca
+     vai casar. Registrar os dois lados (achou o id do WhatsApp, não achou
+     a mensagem local) é o que separa "não reconheci o campo" de "reconheci
+     o campo, mas o alvo nunca teve o dele guardado". */
+  if (citada && !citadaLocal)
+    lembrar({ em: Date.now(), evento, provider, resultado: "AVISO: a mensagem cita outra, mas nenhuma mensagem desta conversa tem esse id do WhatsApp guardado (mensagem antiga sem wa_id, ou o envio dela nunca recebeu id — ver 'envio_sem_id' em /integracoes)" });
 
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,

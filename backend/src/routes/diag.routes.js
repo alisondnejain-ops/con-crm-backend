@@ -1,7 +1,7 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import db from "../db.js";
-import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico } from "../services/uazapi.js";
+import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "../services/mensageria.js";
@@ -95,6 +95,12 @@ r.get("/integracoes", async (_req, res) => {
     // A citação falha calada, então é aqui que se descobre o motivo.
     citacao: citacaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
     edicao: edicaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
+    /* A mesma pergunta, para o caso mais comum: um ENVIO NORMAL (sem citar
+       nada) cuja resposta não trouxe id nenhum reconhecido. Mensagem sem
+       `wa_id` guardado nunca poderá ser citada depois pelo cliente — é a
+       explicação mais provável para "o cliente respondeu uma mensagem e não
+       apareceu ligada a ela" no CRM. */
+    envio_sem_id: envioSemIdDiagnostico() || "nenhum envio sem id desde que o servidor subiu",
     /* QUANDO foi a última vez que entrou alguma coisa.
 
        É a pergunta que se faz quando alguém diz "parou de chegar lead", e o

@@ -270,6 +270,93 @@ function usarPipelines(acoes,session){
    para os funis que nasceram antes de a cor existir. */
 const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
 
+/* AS ETAPAS DO FUNIL DESTE LEAD — não a lista fixa `STAGES`. (17/09/2026,
+   relatado pelo Ali: "quando eu atualizo uma nova etapa no funil ela não
+   aparece na conversa pra atualizar".) Os dois seletores "Etapa do funil"
+   na conversa (o embutido em `Atendimento` e o da `FichaLead`) mostravam a
+   lista de 11 etapas do funil PADRÃO original, escrita em `STAGES` —
+   sempre a mesma, não importa em que funil o lead está de verdade. Etapa
+   nova criada num funil (ou um funil novo inteiro, como o de Locação)
+   nunca vivia ali: o seletor não sabia que ela existia. Um lugar só
+   resolve isso para os dois seletores, e para o `MoverParaOutroFunil`
+   abaixo, que precisa da mesma lista para escolher a primeira etapa do
+   destino. Quando o pipeline do lead ainda não carregou (ou o lead é de
+   antes de existir pipeline configurável), cai para `STAGES` — o
+   comportamento de sempre, não um quadro vazio. */
+function usarEtapasDoLead(lead,acoes,session){
+  const {pipelines}=usarPipelines(acoes,session);
+  const pipe=pipelines.find(p=>p.id===lead.pipelineId);
+  return (pipe&&pipe.stages&&pipe.stages.length)?pipe.stages:STAGES.map(n=>({id:null,name:n}));
+}
+
+/* MOVER O LEAD PARA OUTRO FUNIL. (17/09/2026, pedido do Ali: uma seção do
+   Kanban só para aluguéis — o funil "Locação" já existe como modelo pronto
+   desde 28/08/2026, `PATCH /leads/:id/stage` já aceita `stage_id` de
+   QUALQUER funil da empresa (não só o do lead), e o Kanban já mostra um
+   quadro por funil. O que faltava era só isto: um jeito de tirar UM lead do
+   funil em que ele nasceu e pôr no certo, no momento em que alguém descobre
+   "ah, isso aqui é aluguel" no meio da conversa — sem precisar da ferramenta
+   em lote da ADM (Base de leads → Arrumar a base), que move todos os leads
+   de uma PESSOA de uma vez, não um só.
+
+   Some sozinho quando só existe um funil — é o caso de quase toda conta, e
+   mostrar "mover para outro funil" sem ter para onde mover é oferecer um
+   botão que não faz nada.
+
+   O responsável NÃO muda — mover de funil é trocar o fluxo, não repassar o
+   lead (mesma regra da ferramenta em lote). Entra sempre na PRIMEIRA etapa
+   do destino: é o mesmo chute da ferramenta em lote, e pelo mesmo motivo —
+   o lead está sendo reclassificado agora, não vem qualificado do funil
+   antigo.
+
+   NOME "MoverParaOutroFunil", não "MoverFunil": já existe um `MoverFunil`
+   (a ferramenta em lote da ADM, dentro de `ArrumarBase`) — dois componentes
+   com o mesmo nome no mesmo módulo é o segundo sobrescrever o primeiro em
+   silêncio, sem erro de build nenhum, e foi exatamente o que aconteceu
+   entre a criação deste componente e agora: a ficha renderizava o de
+   dentro de `ArrumarBase`, com as props erradas. */
+function MoverParaOutroFunil({lead,acoes,session}){
+  const {pipelines}=usarPipelines(acoes,session);
+  const [aberto,setAberto]=useState(false);
+  const [alvo,setAlvo]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  useEffect(()=>{setAberto(false);setAlvo("");},[lead.id]);
+
+  const outros=pipelines.filter(p=>p.id!==lead.pipelineId&&(p.stages||[]).length>0);
+  if(outros.length<1) return null;
+  const atual=pipelines.find(p=>p.id===lead.pipelineId);
+  const destino=pipelines.find(p=>p.id===alvo);
+  const primeiraEtapa=destino&&destino.stages&&destino.stages[0];
+
+  if(!aberto) return <button onClick={()=>setAberto(true)}
+    style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:C.sub,fontSize:11.5,cursor:"pointer",padding:"2px 0 10px",width:"100%",textAlign:"left"}}>
+    <Icon n="transfer" size={12} color={C.faint}/> Funil: {atual?atual.name:"—"} — mover para outro
+  </button>;
+
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:10,marginBottom:10}}>
+    <div style={{color:C.ink,fontSize:11.5,fontWeight:700,marginBottom:6}}>Mover para outro funil</div>
+    <select value={alvo} onChange={e=>setAlvo(e.target.value)}
+      style={{width:"100%",fontSize:13,borderRadius:8,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
+      <option value="">Escolher…</option>
+      {outros.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+    {primeiraEtapa&&<div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>
+      Entra em "{primeiraEtapa.name}" — o responsável não muda.</div>}
+    <div style={{display:"flex",gap:6}}>
+      <button onClick={()=>setAberto(false)}
+        style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+      <button disabled={!primeiraEtapa||ocupado} onClick={async()=>{
+          setOcupado(true);
+          await acoes.mudarEtapa(lead.id,null,{stage_id:primeiraEtapa.id});
+          setOcupado(false); setAberto(false);
+        }}
+        style={{flex:1,border:"none",background:primeiraEtapa?C.green:C.coolSoft,color:primeiraEtapa?"#fff":C.faint,borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,cursor:primeiraEtapa?"pointer":"default"}}>
+        {ocupado?"Movendo…":"Mover"}
+      </button>
+    </div>
+  </div>;
+}
+
 /* O cronômetro do SLA, desenhado. Verde não existe de propósito — mesma regra
    da faixa de urgência do card (13/08/2026): quadro cheio de verde vira
    enfeite, e o que precisa saltar é o que está atrasado. */
@@ -5143,7 +5230,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </div>
         </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
-        <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        {(()=>{
+          const etapasFunil=usarEtapasDoLead(sel,acoes,session);
+          const etapaAtual=etapasFunil.find(s=>(sel.stageId&&s.id===sel.stageId)||s.name===sel.status);
+          return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):sel.status}
+            onChange={e=>{
+              const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
+              setStatus(sel.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
+            }}
+            style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,sel.status),background:C.surface}}>
+            {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
+          </select>;
+        })()}
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {CAMPOS_QUAL.map(([k,n,campo])=>
@@ -7423,11 +7521,20 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
-      <select value={lead.status} onChange={e=>acoes.mudarEtapa(lead.id,e.target.value)}
-        style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[lead.status],background:C.surface}}>
-        {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
-      </select>
+      {(()=>{
+        const etapasFunil=usarEtapasDoLead(lead,acoes,session);
+        const etapaAtual=etapasFunil.find(s=>(lead.stageId&&s.id===lead.stageId)||s.name===lead.status);
+        return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):lead.status}
+          onChange={e=>{
+            const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
+            acoes.mudarEtapa(lead.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
+          }}
+          style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,lead.status),background:C.surface}}>
+          {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
+        </select>;
+      })()}
       <DicaEtapa etapa={lead.status}/>
+      <MoverParaOutroFunil lead={lead} acoes={acoes} session={session}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {CAMPOS_QUAL.map(([k,n,campo])=>

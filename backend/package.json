@@ -54,7 +54,8 @@
     "teste:anexo-video": "node testes/anexo-video.mjs",
     "teste:baixar-anexo": "node testes/baixar-anexo.mjs",
     "teste:anexo-video-binario": "node testes/anexo-video-binario.mjs",
-    "teste:video-hevc": "node testes/video-hevc.mjs"
+    "teste:video-hevc": "node testes/video-hevc.mjs",
+    "teste:citacao-recebida": "node testes/citacao-recebida.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",

@@ -5,6 +5,26 @@ import { processarMensagemRecebida, lembrar } from "../services/mensageria.js";
 
 const r = Router();
 
+/* Nomes de campo que PARECEM guardar referência a uma mensagem respondida,
+   em qualquer profundidade do objeto — sem olhar o VALOR, só o nome da
+   chave. Existe para o caso em que `citada` (abaixo) não reconhece nenhum
+   dos nomes conhecidos: sem isto, a falha é muda — a mensagem entra "solta"
+   e ninguém descobre por quê. Com isto, `/integracoes/webhooks` mostra o
+   nome real do campo que a Uazapi usou, e dá pra corrigir no mesmo dia em
+   vez de adivinhar mais um nome às cegas. Nunca inclui o VALOR do campo
+   (poderia ser o texto da mensagem citada). */
+function pistasDeResposta(obj, prefixo = "", profundidade = 0) {
+  if (!obj || typeof obj !== "object" || profundidade > 3) return [];
+  let achadas = [];
+  for (const k of Object.keys(obj)) {
+    const caminho = prefixo ? `${prefixo}.${k}` : k;
+    if (/quot|reply|context|stanza|cited|refer/i.test(k)) achadas.push(caminho);
+    const v = obj[k];
+    if (v && typeof v === "object" && !Array.isArray(v)) achadas = achadas.concat(pistasDeResposta(v, caminho, profundidade + 1));
+  }
+  return achadas;
+}
+
 // Extrai número e texto de um payload da Uazapi. O formato varia entre versões
 // e tipos de mensagem, então tentamos os caminhos conhecidos em ordem.
 function extrair(p) {
@@ -44,6 +64,8 @@ function extrair(p) {
       || m.contextInfo?.stanzaId || m.context?.id || m.replyid || "",
     messageid: m.messageid || m.id || m.key?.id || "",
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
+    // Só usado quando `citada` acima não achou nada — ver `pistasDeResposta`.
+    pistasReply: pistasDeResposta(m),
   };
 }
 
@@ -67,9 +89,21 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, pistasReply, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
+
+    /* A MENSAGEM PARECE RESPONDER OUTRA, MAS NENHUM NOME CONHECIDO BATEU.
+       (17/09/2026, relatado pela SDR via Ali: "o cliente marca a mensagem
+       que respondeu mas no CRM não mostra, só aparece a mensagem solta".)
+
+       Isto não impede a mensagem de entrar — ela segue normal, como sempre
+       entrou. É só o registro de que existe uma pista não reconhecida, para
+       a PRÓXIMA vez que isto acontecer aparecer aqui com o nome real do
+       campo em vez de continuar invisível. */
+    if (!citada && pistasReply.length)
+      lembrar({ em: Date.now(), evento, provider: "uazapi",
+        resultado: "AVISO: a mensagem parece responder outra, mas nenhum campo conhecido trouxe o id — pistas: " + pistasReply.join(", ") });
 
     /* DE QUAL imobiliária é esta mensagem?
 
