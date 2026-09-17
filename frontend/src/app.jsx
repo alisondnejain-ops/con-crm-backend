@@ -270,6 +270,25 @@ function usarPipelines(acoes,session){
    para os funis que nasceram antes de a cor existir. */
 const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
 
+/* AS ETAPAS DO FUNIL DESTE LEAD — não a lista fixa `STAGES`. (17/09/2026,
+   relatado pelo Ali: "quando eu atualizo uma nova etapa no funil ela não
+   aparece na conversa pra atualizar".) Os dois seletores "Etapa do funil"
+   na conversa (o embutido em `Atendimento` e o da `FichaLead`) mostravam a
+   lista de 11 etapas do funil PADRÃO original, escrita em `STAGES` —
+   sempre a mesma, não importa em que funil o lead está de verdade. Etapa
+   nova criada num funil (ou um funil novo inteiro, como o de Locação)
+   nunca vivia ali: o seletor não sabia que ela existia. Um lugar só
+   resolve isso para os dois seletores, e para o `MoverParaOutroFunil`
+   abaixo, que precisa da mesma lista para escolher a primeira etapa do
+   destino. Quando o pipeline do lead ainda não carregou (ou o lead é de
+   antes de existir pipeline configurável), cai para `STAGES` — o
+   comportamento de sempre, não um quadro vazio. */
+function usarEtapasDoLead(lead,acoes,session){
+  const {pipelines}=usarPipelines(acoes,session);
+  const pipe=pipelines.find(p=>p.id===lead.pipelineId);
+  return (pipe&&pipe.stages&&pipe.stages.length)?pipe.stages:STAGES.map(n=>({id:null,name:n}));
+}
+
 /* MOVER O LEAD PARA OUTRO FUNIL. (17/09/2026, pedido do Ali: uma seção do
    Kanban só para aluguéis — o funil "Locação" já existe como modelo pronto
    desde 28/08/2026, `PATCH /leads/:id/stage` já aceita `stage_id` de
@@ -288,8 +307,15 @@ const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
    lead (mesma regra da ferramenta em lote). Entra sempre na PRIMEIRA etapa
    do destino: é o mesmo chute da ferramenta em lote, e pelo mesmo motivo —
    o lead está sendo reclassificado agora, não vem qualificado do funil
-   antigo. */
-function MoverFunil({lead,acoes,session}){
+   antigo.
+
+   NOME "MoverParaOutroFunil", não "MoverFunil": já existe um `MoverFunil`
+   (a ferramenta em lote da ADM, dentro de `ArrumarBase`) — dois componentes
+   com o mesmo nome no mesmo módulo é o segundo sobrescrever o primeiro em
+   silêncio, sem erro de build nenhum, e foi exatamente o que aconteceu
+   entre a criação deste componente e agora: a ficha renderizava o de
+   dentro de `ArrumarBase`, com as props erradas. */
+function MoverParaOutroFunil({lead,acoes,session}){
   const {pipelines}=usarPipelines(acoes,session);
   const [aberto,setAberto]=useState(false);
   const [alvo,setAlvo]=useState("");
@@ -5204,7 +5230,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </div>
         </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
-        <select value={sel.status} onChange={e=>setStatus(sel.id,e.target.value)} style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[sel.status],background:C.surface}}>{STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select>
+        {(()=>{
+          const etapasFunil=usarEtapasDoLead(sel,acoes,session);
+          const etapaAtual=etapasFunil.find(s=>(sel.stageId&&s.id===sel.stageId)||s.name===sel.status);
+          return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):sel.status}
+            onChange={e=>{
+              const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
+              setStatus(sel.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
+            }}
+            style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,sel.status),background:C.surface}}>
+            {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
+          </select>;
+        })()}
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {CAMPOS_QUAL.map(([k,n,campo])=>
@@ -7484,12 +7521,20 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
-      <select value={lead.status} onChange={e=>acoes.mudarEtapa(lead.id,e.target.value)}
-        style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:STAGE_C[lead.status],background:C.surface}}>
-        {STAGES.map(s=><option key={s} value={s}>{s}</option>)}
-      </select>
+      {(()=>{
+        const etapasFunil=usarEtapasDoLead(lead,acoes,session);
+        const etapaAtual=etapasFunil.find(s=>(lead.stageId&&s.id===lead.stageId)||s.name===lead.status);
+        return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):lead.status}
+          onChange={e=>{
+            const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
+            acoes.mudarEtapa(lead.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
+          }}
+          style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,lead.status),background:C.surface}}>
+          {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
+        </select>;
+      })()}
       <DicaEtapa etapa={lead.status}/>
-      <MoverFunil lead={lead} acoes={acoes} session={session}/>
+      <MoverParaOutroFunil lead={lead} acoes={acoes} session={session}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {CAMPOS_QUAL.map(([k,n,campo])=>
