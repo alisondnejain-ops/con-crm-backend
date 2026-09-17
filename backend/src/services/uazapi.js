@@ -193,9 +193,26 @@ async function call(orgId, path, payload, canalId = null) {
   }
   // O id que o WhatsApp deu à mensagem. É com ele que o webhook de volta é
   // reconhecido como eco do próprio CRM — sem isso, toda mensagem enviada
-  // apareceria duas vezes na conversa.
-  return { ok: true, data, bruto, messageid: idDaMensagem(data) };
+  // apareceria duas vezes na conversa, E o cliente nunca conseguirá citar
+  // esta mensagem depois (o webhook de resposta chega com o id do WhatsApp,
+  // e sem `wa_id` guardado aqui não há com o que casar — ver `envioDiagnostico`).
+  const messageid = idDaMensagem(data);
+  if (!messageid) {
+    /* NENHUM dos nomes conhecidos apareceu na resposta. Isto não é "erro" —
+       a Uazapi respondeu 200 —, é a mesma categoria de falha silenciosa da
+       citação: sem guardar a FORMA da resposta (nomes de campo, nunca
+       conteúdo), não há como descobrir o nome certo depois. Sobrescreve a
+       cada envio de propósito — só a ÚLTIMA tentativa importa aqui. */
+    ultimoEnvioSemId = { em: Date.now(), path, campos: Object.keys(data || {}),
+      campos_message: Object.keys((data && (data.message || data.data)) || {}) };
+  }
+  return { ok: true, data, bruto, messageid };
 }
+
+// Registro da última vez que a Uazapi respondeu SEM nenhum id reconhecido —
+// ver o comentário acima de `idDaMensagem`. Só nomes de campo, nunca conteúdo.
+let ultimoEnvioSemId = null;
+export const envioSemIdDiagnostico = () => ultimoEnvioSemId;
 
 /* Registro da última tentativa de citação, para o diagnóstico.
 
