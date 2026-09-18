@@ -285,7 +285,10 @@ const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
    comportamento de sempre, não um quadro vazio. */
 function usarEtapasDoLead(lead,acoes,session){
   const {pipelines}=usarPipelines(acoes,session);
-  const pipe=pipelines.find(p=>p.id===lead.pipelineId);
+  // `lead` pode ser nulo aqui (nenhuma conversa aberta ainda) — o hook
+  // precisa ser chamado do mesmo jeito em toda renderização; só o valor
+  // devolvido muda quando não há lead.
+  const pipe=lead?pipelines.find(p=>p.id===lead.pipelineId):null;
   return (pipe&&pipe.stages&&pipe.stages.length)?pipe.stages:STAGES.map(n=>({id:null,name:n}));
 }
 
@@ -4914,6 +4917,15 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravarDeNovo=useRef(null);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id);
+  /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
+     embaixo dentro do `{showFicha&&...}`. (18/09/2026, relatado pelo Ali:
+     "Algo quebrou nesta tela" / React error #310.) `usarEtapasDoLead` chama
+     hooks por dentro, e `showFicha` é falso sempre que não há lead
+     selecionado — chamar o hook só quando `showFicha` é verdadeiro faz o
+     React contar um hook a mais ou a menos conforme a tela, que é
+     exatamente o que a regra dos hooks proíbe. Aqui ela roda em toda
+     renderização, e o valor é só IGNORADO quando a ficha não aparece. */
+  const etapasFunilDoLead=usarEtapasDoLead(sel,acoes,session);
   const [colando,setColando]=useState(false);
   /* Mensagem em edição: {id, texto}. O texto vai para o campo de baixo, então
      guardamos o rascunho de antes para devolver se a pessoa desistir. */
@@ -5231,7 +5243,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
         {(()=>{
-          const etapasFunil=usarEtapasDoLead(sel,acoes,session);
+          const etapasFunil=etapasFunilDoLead;
           const etapaAtual=etapasFunil.find(s=>(sel.stageId&&s.id===sel.stageId)||s.name===sel.status);
           return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):sel.status}
             onChange={e=>{
@@ -7479,6 +7491,21 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
 function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
   const proximoDaVez=usarProximoDaVez(acoes,lead.id);
   const [simulando,setSimulando]=useState(false);
+  /* AS ETAPAS DO FUNIL DESTE LEAD, buscadas AQUI — antes do `if(simulando)
+     return` logo abaixo. (18/09/2026, relatado pelo Ali com um print de
+     "React error #310": clicar em "Registrar simulação" quebrava a tela.)
+
+     `usarEtapasDoLead` chama hooks (`useState`/`useEffect`, dentro de
+     `usarPipelines`). Regra do React: TODA chamada de hook tem que acontecer
+     em TODA renderização do componente, na MESMA ordem — não pode ficar
+     atrás de um `return` condicional. Antes esta chamada morava mais abaixo,
+     depois do `if(simulando) return`: com a ficha normal (`simulando=false`)
+     o React contava um hook a mais do que contava com a simulação aberta
+     (`simulando=true`, que sai por aquele `return` sem nunca chegar lá) — e
+     alternar entre as duas é exatamente o clique em "Registrar simulação".
+     Buscando aqui, ANTES do `return`, a chamada acontece sempre, e só o que
+     é FEITO com o resultado muda de acordo com a tela. */
+  const etapasFunil=usarEtapasDoLead(lead,acoes,session);
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
   // não há barra do celular por cima nem disputa de camada.
   if(simulando) return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:"100%"}}>
@@ -7522,7 +7549,6 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
       {(()=>{
-        const etapasFunil=usarEtapasDoLead(lead,acoes,session);
         const etapaAtual=etapasFunil.find(s=>(lead.stageId&&s.id===lead.stageId)||s.name===lead.status);
         return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):lead.status}
           onChange={e=>{
