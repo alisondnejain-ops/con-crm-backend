@@ -546,6 +546,18 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Confirmado com Playwright: criada uma etapa nova via API num pipeline já em uso, o seletor da conversa mostra ela na hora, sem precisar de mais nada além de abrir o lead — e o `MoverParaOutroFunil` aparece corretamente abaixo, sem os dois se atropelarem.
 
+- **"Algo quebrou nesta tela" ao clicar em "Registrar simulação" — React error #310** (18/09/2026, relatado pelo Ali com um print da tela de erro, um dia depois do conserto acima). O conserto da etapa do funil (item anterior) tinha um bug próprio, achado só em produção: `usarEtapasDoLead` chama hooks do React por dentro (`useState`/`useEffect`, dentro de `usarPipelines`), e as duas chamadas estavam no lugar ERRADO.
+
+  **A regra dos hooks: toda chamada tem que acontecer em TODA renderização do componente, na mesma ordem — nunca atrás de um `if`/`return` condicional, nunca dentro de um bloco que às vezes não é desenhado.** As duas chamadas que eu tinha escrito quebravam essa regra de dois jeitos diferentes, e os dois batiam bem com "algo quebrou" sem padrão óbvio:
+
+  Em `FichaLead`, a chamada vinha DEPOIS do `if(simulando) return <Simulacao .../>`. Com a ficha normal (`simulando=false`) o React contava um hook a mais do que contava com a simulação aberta (`simulando=true`, que sai por aquele `return` antes de chegar na chamada) — e alternar entre as duas é exatamente o clique em **"Registrar simulação"**.
+
+  Em `Atendimento` (a tela do corretor), a chamada morava dentro de `{showFicha&&!simulando&&<div>...}` — e `showFicha` é falso sempre que não há lead selecionado. Selecionar um lead, ou entrar/sair da simulação, muda quantos hooks o React viu naquela renderização, pelo mesmo motivo.
+
+  **O conserto não foi mudar O QUE o hook faz — foi mudar ONDE ele é chamado.** As duas chamadas subiram para o topo de cada componente, ANTES de qualquer `if`/`return`, e passaram a rodar em TODA renderização — só o que é FEITO com o resultado (`etapasFunil`) continua condicionado à tela certa. `usarEtapasDoLead` ganhou uma guarda para `lead` nulo (`Atendimento` pode chamá-la sem lead nenhum selecionado ainda), devolvendo a lista `STAGES` de sempre nesse caso.
+
+  **Por que isso não apareceu no teste do dia anterior**: o Playwright de ontem abriu um lead e leu o `<select>` — nunca clicou em "Registrar simulação" nem trocou de lead depois de aberto, os dois gestos que expõem a mudança na contagem de hooks. Confirmado agora com os dois gestos de propósito: abrir um lead, clicar em "Registrar simulação" (o gatilho exato do relato), fechar e trocar de lead — sem erro nenhum no console e sem a tela de "algo quebrou".
+
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 
 O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.
