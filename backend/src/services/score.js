@@ -1,5 +1,6 @@
 import db from "../db.js";
 import { semMaster } from "../auth.js";
+import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
 
 /* Score de performance e recomendação de direcionamento.
 
@@ -147,21 +148,28 @@ export const quantosRespondeu = (leads, userId) => primeirasRespostas(leads, use
      quem tem poucos casos encerrados. Agora as duas dividem pelos recebidos.
    - PERÍODO. A tela usa o intervalo que o gestor escolheu; o score usava
      "últimos 90 dias" fixos. Agora o score recebe o mesmo intervalo. */
-function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, orgId, de, ate) {
+function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate) {
   const meus = leads.filter(l => l.assigned_to === u.id);
   const ids = meus.map(l => l.id);
-  /* "RECEBIDOS" É A DATA EM QUE O LEAD FICOU COM ELE (`assigned_at`), NÃO A
-     DATA EM QUE O LEAD NASCEU NO CRM (`created_at`, o que `meus` acima
-     mede). Mesmo conserto e mesmo motivo do `reports.routes.js` (18/09/2026,
-     relatado pelo Ali): nesta casa todo lead nasce com a atendente e é
-     repassado depois, então um lead repassado hoje, criado há três dias,
-     tinha que contar como recebido hoje — e não contava, porque `meus` só
-     enxerga quem NASCEU no período. `meus` continua certo para o resto desta
-     função (conversão, visitas, temperatura — tudo de COORTE, de propósito),
-     só o "recebidos" muda de pergunta. */
-  const recebidosPeriodo = orgId ? db.prepare(`SELECT COUNT(*) n FROM leads
-    WHERE org_id=? AND assigned_to=? AND COALESCE(assigned_at, created_at) BETWEEN ? AND ?`)
-    .get(orgId, u.id, de, ate).n : meus.length;
+  /* "RECEBIDOS" É O EVENTO — o instante em que o lead ficou com ele —, não a
+     data em que o lead nasceu no CRM (`created_at`, o que `meus` acima mede)
+     nem o dono ATUAL (`leads.assigned_to`, que muda sozinho quando o lead é
+     repassado de novo). Duas queixas do Ali, corrigidas juntas: (18/09) "ele
+     recebe 4 leads no dia, aparece que recebeu 2 ou 7"; (19/09) "se eu
+     transferir um lead, ele não pode sair do relatório do antigo — teve um
+     atendimento feito por aquele antigo". `eventosDeAtribuicao`
+     (services/movimento.js) é o REGISTRO de cada troca de dono, não o
+     estado de agora — por isso o "recebidos" de um período já fechado não
+     muda mais depois que o lead é repassado adiante. `meus` continua certo
+     para o resto desta função (conversão, visitas, temperatura — tudo de
+     COORTE, de propósito), só o "recebidos" muda de pergunta. */
+  const recebidosEventos = eventos ? noPeriodo(eventos.recebidos, u.id, de, ate) : meus;
+  /* "LEADS PERDIDOS PARA OUTRO CORRETOR" (19/09/2026, pedido do Ali): quantos
+     leads SAÍRAM da mão dele no período, por decisão de gente (`motivo ===
+     "mao"` — não a redistribuição automática de uma etapa nem a saída de um
+     colega da equipe: nenhuma das duas é desempenho DELE). Vira PENALIDADE
+     no componente "leads_perdidos" logo abaixo. */
+  const perdidosEventos = eventos ? noPeriodo(eventos.perdidos, u.id, de, ate).filter(e => e.motivo === "mao") : [];
   const fechados = meus.filter(resolvido);
   // Mesma conta da tela: venda é a que FECHOU no período, venha o lead de quando vier.
   const vendas = vendasDoPeriodo.filter(l => l.assigned_to === u.id);
@@ -214,7 +222,11 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, orgId, de, ate)
 
   return {
     id: u.id, nome: u.name, papel: u.role,
-    recebidos: recebidosPeriodo,
+    recebidos: recebidosEventos.length,
+    /* Nome com "_para_outro" de propósito: "perdidos" (abaixo) já significa
+       negócio que caiu na etapa "Perdido" — isto é sobre DONO, não sobre
+       negócio. Mesma coluna que a tela de Relatórios mostra. */
+    leads_perdidos_para_outro: perdidosEventos.length,
     resposta_min: mediana(primeiras),
     // Quantos leads ele de fato respondeu — sem isso, "mediana de 4 min" com
     // dois leads respondidos parece o mesmo que com trinta.
@@ -269,6 +281,28 @@ const COMPONENTES = [
   { chave: "perda", rotulo: "Perda", peso: 15, unidade: "%", bom: 0, ruim: 60,
     como: "Dos atendimentos já encerrados (venda ou perdido), quantos foram perdidos.",
     regua: "0% = 100. 60% ou mais = 0." },
+  /* PENALIDADE NOVA (19/09/2026, pedido do Ali): "se ele teve leads que foi
+     transferido dele para outro corretor, isso gera uma penalidade... uma
+     diminuição no score dele de performance."
+
+     Em PORCENTAGEM dos recebidos, não em contagem crua — a mesma régua da
+     "Perda" logo acima. Contagem crua penalizaria quem recebe mais leads só
+     por receber mais; quem recebeu 20 e perdeu 2 (10%) não pode tirar a
+     mesma nota de quem recebeu 4 e perdeu 2 (50%).
+
+     Só entra o repasse por MOTIVO "mao" (decisão de gente tirando o lead da
+     mão dele) — ver o filtro em `metricas()`, alguns parágrafos acima. A
+     redistribuição automática de uma etapa e a saída de um colega da equipe
+     não são desempenho DELE, e contá-las aqui inventaria uma culpa.
+
+     30% é o teto escolhido para este primeiro corte — sem histórico da
+     Conecta com este número ainda, é um chute deliberadamente conservador
+     (fácil de perder nota por isto de verdade, não por um limiar apertado
+     demais). Ajustável aqui, num lugar só, se a régua se mostrar errada na
+     prática. */
+  { chave: "leads_perdidos", rotulo: "Leads perdidos para outro corretor", peso: 10, unidade: "%", bom: 0, ruim: 30,
+    como: "Dos leads que ele recebeu no período, quantos saíram da mão dele por repasse manual para outro corretor — não pela regra automática de uma etapa, nem pela saída de um colega da equipe.",
+    regua: "0% = 100. 30% ou mais = 0." },
   { chave: "vendas", rotulo: "Vendas fechadas", peso: 10, comparativo: true,
     como: "Vendas com data DENTRO do período, venha o lead de quando vier. Mesma conta da tela.",
     regua: "Comparativo: quem mais vendeu na equipe = 100." },
@@ -282,6 +316,7 @@ const VALOR_DA_PARTE = {
   resposta: (m) => m.resposta_min,
   visitas: (m) => m.visitas_pct,
   perda: (m) => m.perda,
+  leads_perdidos: (m) => pct(m.leads_perdidos_para_outro, m.recebidos),
   vendas: (m) => m.vendas,
   ligacoes: (m) => m.ligacoes,
 };
@@ -342,6 +377,10 @@ export function ranking(orgId, periodo = 90) {
   // Exatamente a mesma busca da tela de Relatórios — de propósito.
   const vendasDoPeriodo = db.prepare(
     "SELECT * FROM leads WHERE org_id=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?").all(orgId, de, ate);
+  // Uma vez para a imobiliária inteira, não uma consulta por corretor dentro
+  // do `.map` abaixo — mesma razão de `leads`/`vendasDoPeriodo` também serem
+  // calculados aqui fora do laço.
+  const eventos = eventosDeAtribuicao(orgId);
 
   /* As ligações são filtradas pela imobiliária. Antes a busca varria a tabela
      inteira e só depois pegava as linhas dos usuários desta casa: dava o
@@ -353,7 +392,7 @@ export function ranking(orgId, periodo = 90) {
       WHERE u.org_id = ? AND g.created_at BETWEEN ? AND ? GROUP BY g.user_id`).all(orgId, de, ate))
     ligacoesPorUsuario[r.user_id] = r.n;
 
-  const brutas = equipe.map(u => metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, orgId, de, ate));
+  const brutas = equipe.map(u => metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate));
   const teto = {
     vendas: Math.max(0, ...brutas.map(m => m.vendas)),
     ligacoes: Math.max(0, ...brutas.map(m => m.ligacoes)),

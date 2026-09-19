@@ -77,6 +77,7 @@ for (const linha of tela.atendentes) {
   console.log(`   ${linha.nome.padEnd(8)} recebidos ${linha.recebidos}/${s.recebidos} · vendas ${linha.vendas}/${s.vendas}` +
     ` · conversão ${linha.conversao}%/${s.conversao}% · 1ª resposta ${linha.primeira_resposta_mediana_min}/${s.resposta_min ?? 0} min`);
   assert.equal(s.recebidos, linha.recebidos, `${linha.nome}: recebidos`);
+  assert.equal(s.leads_perdidos_para_outro, linha.leads_perdidos_para_outro, `${linha.nome}: leads perdidos para outro corretor`);
   assert.equal(s.vendas, linha.vendas, `${linha.nome}: vendas`);
   assert.equal(s.conversao, linha.conversao, `${linha.nome}: conversão`);
   assert.equal(s.valor_vendido, linha.valor_vendido, `${linha.nome}: valor vendido`);
@@ -96,8 +97,11 @@ assert.equal(mScore.recebidos, 3, "e o lead antigo NÃO entra em recebidos");
 console.log("3. A nota vem aberta: valor, régua e peso de cada parte");
 const partes = mScore.partes;
 console.log("   ", partes.map(p => `${p.rotulo} ${p.valor_texto} → ${p.nota}/100 (peso ${p.peso})`).join("\n    "));
-assert.equal(partes.length, 6);
+assert.equal(partes.length, 7);
 assert.ok(partes.every(p => p.como && p.regua), "toda parte explica de onde veio");
+const partePerdidos = partes.find(p => p.chave === "leads_perdidos");
+assert.ok(partePerdidos, "o componente novo (leads perdidos para outro corretor) está na nota aberta");
+assert.equal(partePerdidos.nota, 100, "Marina não perdeu nenhum lead para outro corretor neste teste");
 const soma = partes.reduce((s, p) => s + p.nota * p.peso, 0) / partes.reduce((s, p) => s + p.peso, 0);
 assert.equal(Math.round(soma), mScore.score, "a nota final é a soma ponderada das partes mostradas");
 console.log(`    nota final: ${mScore.score}`);
