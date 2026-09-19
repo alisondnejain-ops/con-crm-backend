@@ -1524,7 +1524,16 @@ r.patch("/:id/venda", (req, res) => {
   const v = numeroBR(valor);
   if (!v || v <= 0) return res.status(400).json({ error: "Informe um valor de venda válido." });
 
-  const quando = data ? new Date(data).getTime() : Date.now();
+  /* `data` vem do CRM como "AAAA-MM-DD" (o `<input type="date">` do
+     navegador nunca manda outra coisa). `new Date("2026-09-19")`, sem hora,
+     é interpretado como MEIA-NOITE EM UTC — e Recife é UTC-3, então virava
+     "2026-09-18 21:00" local: a venda de HOJE gravava com data de ONTEM.
+     Os relatórios filtram `sale_date BETWEEN` os limites do dia em hora
+     LOCAL (`inicioDoDia`/`fimDoDia`, `resolverPeriodo`), então a venda
+     ficava fora de "hoje" bem na tela que devia mostrá-la — o "registrei a
+     venda e não apareceu" relatado pelo Ali. Mesmo ajuste que essas duas
+     funções já fazem: ancorar em meia-noite LOCAL, não em UTC. */
+  const quando = data ? new Date(`${data}T00:00:00`).getTime() : Date.now();
   if (!isFinite(quando)) return res.status(400).json({ error: "Data da venda inválida." });
 
   /* Comissão é OPCIONAL — nem toda venda tem o percentual à mão na hora do

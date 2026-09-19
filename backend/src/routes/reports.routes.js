@@ -101,19 +101,41 @@ r.get("/", (req, res) => {
 
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);
+    /* "RECEBIDOS" É A DATA EM QUE O LEAD FICOU COM ELE, NÃO A DATA EM QUE O
+       LEAD NASCEU NO CRM. (18/09/2026, relatado pelo Ali: "quando ele recebe
+       4 leads no dia, aparece que recebeu 2 ou 7".)
+
+       `meus` acima é o filtro certo para "dos leads que entraram no período,
+       onde eles estão hoje" (por_etapa, agendamentos, conversão — todos de
+       COORTE, de propósito, ver KPIs no CLAUDE.md). Mas "recebidos" é outra
+       pergunta: NESTA casa todo lead nasce com a atendente e é REPASSADO
+       depois — é a regra, não a exceção —, então filtrar por `created_at`
+       fazia dois estragos ao mesmo tempo. (1) Lead repassado hoje, criado
+       há três dias, não contava como recebido hoje — o corretor recebia 4
+       leads de verdade e o relatório mostrava 2. (2) Pior: `assigned_to`
+       é o dono ATUAL, não uma foto de quando o relatório foi olhado — se
+       um lead do dia 4 fosse repassado para outra pessoa no dia 6, o
+       "recebidos" do dia 4 MUDAVA sozinho pra quem tinha visto o relatório
+       antes, porque a conta reflete o dono de agora, não um fato gravado.
+       Um lead com `assigned_at` no período resolve os dois: é a mesma
+       coluna que já carimba "toda atribuição" (`leads.assigned_at`, o selo
+       "novo com você") e é o que `painel.js` → `atividades()` já usa para a
+       mesma pergunta — as duas telas passam a concordar. */
+    const recebidosPeriodo = db.prepare(`SELECT * FROM leads WHERE org_id=? AND assigned_to=?
+      AND COALESCE(assigned_at, created_at) BETWEEN ? AND ?`).all(req.user.org_id, u.id, de, ate);
     /* Leads recebidos DIA A DIA. É a pergunta direta do gestor: "no dia 4,
        quantos exatamente ele recebeu?". Com o total do período só dá para
        responder puxando um relatório por dia, um de cada vez. */
     const porDiaMapa = new Map();
-    for (const l of meus) {
-      const k = meiaNoitePlantao(l.created_at);
+    for (const l of recebidosPeriodo) {
+      const k = meiaNoitePlantao(l.assigned_at || l.created_at);
       porDiaMapa.set(k, (porDiaMapa.get(k) || 0) + 1);
     }
     const por_dia = [...porDiaMapa.entries()].sort((a, b) => a[0] - b[0])
       .map(([dia, recebidos]) => ({ dia, recebidos }));
 
     const escalados = diasDePlantao.get(u.id) || new Set();
-    const emPlantao = meus.filter(l => escalados.has(meiaNoitePlantao(l.created_at)));
+    const emPlantao = recebidosPeriodo.filter(l => escalados.has(meiaNoitePlantao(l.assigned_at || l.created_at)));
     /* ATENDIDOS e 1ª RESPOSTA são DELE, não do lead.
 
        Antes usavam `leads.first_resp_at`, que guarda a primeira resposta de
@@ -132,7 +154,7 @@ r.get("/", (req, res) => {
 
     return {
       id: u.id, nome: u.name, papel: u.role,
-      recebidos: meus.length,
+      recebidos: recebidosPeriodo.length,
       atendidos: atendidos.length,
       taxa_atendimento: pct(atendidos.length, meus.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
