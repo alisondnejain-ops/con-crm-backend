@@ -147,9 +147,21 @@ export const quantosRespondeu = (leads, userId) => primeirasRespostas(leads, use
      quem tem poucos casos encerrados. Agora as duas dividem pelos recebidos.
    - PERÍODO. A tela usa o intervalo que o gestor escolheu; o score usava
      "últimos 90 dias" fixos. Agora o score recebe o mesmo intervalo. */
-function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
+function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, orgId, de, ate) {
   const meus = leads.filter(l => l.assigned_to === u.id);
   const ids = meus.map(l => l.id);
+  /* "RECEBIDOS" É A DATA EM QUE O LEAD FICOU COM ELE (`assigned_at`), NÃO A
+     DATA EM QUE O LEAD NASCEU NO CRM (`created_at`, o que `meus` acima
+     mede). Mesmo conserto e mesmo motivo do `reports.routes.js` (18/09/2026,
+     relatado pelo Ali): nesta casa todo lead nasce com a atendente e é
+     repassado depois, então um lead repassado hoje, criado há três dias,
+     tinha que contar como recebido hoje — e não contava, porque `meus` só
+     enxerga quem NASCEU no período. `meus` continua certo para o resto desta
+     função (conversão, visitas, temperatura — tudo de COORTE, de propósito),
+     só o "recebidos" muda de pergunta. */
+  const recebidosPeriodo = orgId ? db.prepare(`SELECT COUNT(*) n FROM leads
+    WHERE org_id=? AND assigned_to=? AND COALESCE(assigned_at, created_at) BETWEEN ? AND ?`)
+    .get(orgId, u.id, de, ate).n : meus.length;
   const fechados = meus.filter(resolvido);
   // Mesma conta da tela: venda é a que FECHOU no período, venha o lead de quando vier.
   const vendas = vendasDoPeriodo.filter(l => l.assigned_to === u.id);
@@ -202,7 +214,7 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo) {
 
   return {
     id: u.id, nome: u.name, papel: u.role,
-    recebidos: meus.length,
+    recebidos: recebidosPeriodo,
     resposta_min: mediana(primeiras),
     // Quantos leads ele de fato respondeu — sem isso, "mediana de 4 min" com
     // dois leads respondidos parece o mesmo que com trinta.
@@ -341,7 +353,7 @@ export function ranking(orgId, periodo = 90) {
       WHERE u.org_id = ? AND g.created_at BETWEEN ? AND ? GROUP BY g.user_id`).all(orgId, de, ate))
     ligacoesPorUsuario[r.user_id] = r.n;
 
-  const brutas = equipe.map(u => metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo));
+  const brutas = equipe.map(u => metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, orgId, de, ate));
   const teto = {
     vendas: Math.max(0, ...brutas.map(m => m.vendas)),
     ligacoes: Math.max(0, ...brutas.map(m => m.ligacoes)),
