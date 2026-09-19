@@ -213,6 +213,90 @@ function mudarParaOFunilDe(lead, userId, quemMandou) {
   return { pipeline_id: entrada.pipeline_id, pipeline: p?.name || null, etapa: entrada.nome };
 }
 
+/* ===== HISTÓRICO DE ATRIBUIÇÃO, FIEL AO QUE ACONTECEU =====
+
+   (19/09/2026, relatado pelo Ali: "se eu transferir um lead de um corretor
+   para o outro, ele não pode sair do relatório do antigo, porque ele teve um
+   atendimento feito por aquele antigo... o relatório tem que ser fiel a tudo
+   que foi feito.")
+
+   Um relatório de período responde duas perguntas que o estado ATUAL do lead
+   não sabe responder:
+
+     "quantos leads PASSARAM pela mão de X entre `de` e `ate`" (recebidos)
+     "quantos leads SAÍRAM da mão de X entre `de` e `ate`" (perdidos)
+
+   Filtrar `leads.assigned_to` (o dono de AGORA) errava as duas: um lead
+   recebido dia 4 e repassado dia 6 saía do "recebidos" de dia 4 assim que
+   alguém abrisse o relatório DEPOIS do repasse — o número de um dia já
+   fechado mudava sozinho, para trás, sem ninguém ter mexido em nada naquele
+   dia. O relatório deixava de ser um registro do que aconteceu e virava uma
+   foto do que é verdade agora.
+
+   `lead_transfers` já registra toda troca de dono — `trocarResponsavel`
+   grava uma linha em CADA chamada, e é o único caminho por onde o dono muda
+   depois que o lead já tem um (ver o cabeçalho deste arquivo: era 6 rotas
+   duplicando o mesmo UPDATE até 01/09/2026, depois uma 7ª achada em
+   08/09/2026 — hoje é uma só). Mas `lead_transfers` só nasce a partir da
+   SEGUNDA vez que o lead tem dono: a PRIMEIRA atribuição acontece no
+   `INSERT` que cria o lead (a catraca já entrega com dono; o cadastro manual
+   escolhe um responsável) — é criação, não troca, e não tem "de onde" para
+   registrar.
+
+   Por isso o dono de NASCENÇA de cada lead não mora numa coluna própria: ele
+   é o `from_user_id` da mais ANTIGA linha de `lead_transfers` do lead, se ele
+   já trocou de mão alguma vez — ou o `assigned_to` de agora, se nunca trocou
+   (nesse caso "agora" e "no nascimento" são a mesma resposta, porque nada
+   mudou desde então). */
+/* Com histórico em lead_transfers, o evento de nascença é a CRIAÇÃO do lead
+   (é quando o dono de nascença o recebeu). Sem histórico nenhum, cai no mesmo
+   COALESCE que o sistema inteiro já usa para "desde quando é dele"
+   (assigned_at — carimbado mesmo sem troca de mão registrada, ex.: lead que
+   nasce direto com dono; se não tiver, created_at). É o que mantém compatível
+   o lead que nunca passou por trocarResponsavel: sem essa segunda metade, um
+   assigned_at mais recente que created_at sem linha de transferência (uma
+   atribuição direta, sem passar pelo caminho que grava histórico) ficaria
+   invisível — o evento voltaria para a data de criação do lead, e não para a
+   data em que ele de fato ficou com essa pessoa. */
+export function eventosDeAtribuicao(orgId) {
+  const recebidos = db.prepare(`
+    SELECT l.id AS lead_id,
+      CASE WHEN EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
+        THEN l.created_at
+        ELSE COALESCE(l.assigned_at, l.created_at)
+      END AS quando,
+      COALESCE(
+        (SELECT t.from_user_id FROM lead_transfers t
+         WHERE t.lead_id = l.id ORDER BY t.created_at ASC LIMIT 1),
+        l.assigned_to
+      ) AS user_id
+    FROM leads l WHERE l.org_id = ?
+    UNION ALL
+    SELECT lead_id, created_at AS quando, to_user_id AS user_id
+    FROM lead_transfers WHERE org_id = ? AND to_user_id IS NOT NULL
+  `).all(orgId, orgId).filter(e => e.user_id);
+
+  /* "Perdido" aqui é ownership saindo da mão de alguém — nada a ver com a
+     etapa "Perdido" do funil (aquilo é negócio que não fechou; isto é lead
+     que foi para outra pessoa, vendido ou não). `motivo` vai junto porque nem
+     toda saída é a mesma coisa: `trocarResponsavel` grava `mao` (decisão de
+     gente), `automatica` (a etapa configurada redistribuiu sozinha) e
+     `saida_equipe` (a pessoa saiu da imobiliária e os leads dela foram
+     redistribuídos) — quem lê decide o que entra em cada pergunta. */
+  const perdidos = db.prepare(`
+    SELECT lead_id, created_at AS quando, from_user_id AS user_id, trigger_reason AS motivo
+    FROM lead_transfers WHERE org_id = ? AND from_user_id IS NOT NULL
+  `).all(orgId);
+
+  return { recebidos, perdidos };
+}
+
+// Conta os eventos de uma lista (recebidos OU perdidos) para uma pessoa, num
+// intervalo — a mesma pergunta, feita várias vezes por `reports.routes.js` e
+// `services/score.js`. Função só para as duas nunca voltarem a divergir.
+export const noPeriodo = (eventos, userId, de, ate) =>
+  eventos.filter(e => e.user_id === userId && e.quando >= de && e.quando <= ate);
+
 /* Por onde o lead passou: funil, etapa e dono, em ordem. É o que a ficha mostra
    quando alguém pergunta "de onde veio este atendimento". */
 export const transferenciasDoLead = (leadId) => db.prepare(`

@@ -116,7 +116,43 @@ export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", u
    Só vale para ENTRAR na etapa. Exigir na saída travaria o lead dentro de uma
    etapa por causa de um dado que a etapa seguinte é que precisa. */
 export function camposQueFaltam(orgId, etapa, lead) {
-  const exigidos = (etapa && etapa.required_fields) || [];
+  const exigidos = [...((etapa && etapa.required_fields) || [])];
+
+  /* ENTRAR NUMA ETAPA "GANHO" SEM VALOR DE VENDA. (19/09/2026, relatado pelo
+     Ali: "se atualiza no Kanban uma venda, ela não entra no relatório da
+     imobiliária nem no relatório do corretor.")
+
+     Arrastar o card para "Venda" no Kanban chama `moverLead` — não a rota
+     `PATCH /leads/:id/venda`, a ÚNICA que grava `sale_value`/`sale_date`. É
+     esse par de colunas que todo relatório de venda lê (VGV, comissão,
+     ranking, "vendas" da tela de Relatórios) — não a etapa. Sem esta trava,
+     o card ia para a coluna certa, a operação parecia concluída, e a venda
+     simplesmente não existia em nenhuma conta de dinheiro: o Kanban dizia
+     uma coisa e todo relatório dizia outra.
+
+     NÃO é um `required_fields` que o gestor precisa lembrar de marcar — é a
+     etapa de destino (`status_type === "ganho"`, o que separa "isto é uma
+     venda" de qualquer outro nome que a empresa dê à etapa, inclusive em
+     funis que não se chamam "Venda", como "Locado"). Toda etapa `ganho` já
+     nasce assim, nos templates e no funil migrado (28/08/2026) — não precisa
+     de configuração nova em conta nenhuma.
+
+     MAS NEM TODO "GANHO" É DINHEIRO. `status_type` também marca o desfecho
+     de sucesso de funis que não vendem nada — "Lead qualificado" no funil do
+     SDR (o "ganho" dela é entregar ao comercial) e "Reativado" na
+     Recaptação (o "ganho" é o lead voltar a responder). Exigir valor de
+     venda ali bloquearia a automação de distribuição (o SDR qualifica e o
+     lead vai sozinho para o comercial, `services/movimento.js`) por um dado
+     que aquela etapa nunca teve — o teste 35 de `pipelines.mjs` pegou isso
+     na primeira rodada: automação de SDR passou a "trocar de funil sozinho"
+     nunca acontecer. Só os tipos de pipeline onde "ganho" É literalmente uma
+     venda ou um contrato de aluguel exigem o valor. */
+  const pipeline = etapa && db.prepare("SELECT type FROM pipelines WHERE id = ?").get(etapa.pipeline_id);
+  const TIPOS_SEM_VENDA = new Set(["sdr", "recapture"]);
+  if (etapa && pipeline && etapa.status_type === "ganho" && !TIPOS_SEM_VENDA.has(pipeline.type)
+    && !exigidos.includes("sale_value"))
+    exigidos.push("sale_value");
+
   if (!exigidos.length) return [];
 
   const valores = (() => {
@@ -136,7 +172,12 @@ export function camposQueFaltam(orgId, etapa, lead) {
     responsavel: lead.assigned_to,
     produto: lead.produto_id,
     ticket: lead.sale_value,
+    sale_value: lead.sale_value,
   };
+  // Rótulo próprio para o campo intrínseco — ele não tem definição em
+  // `custom_fields`, e "sale_value" cru na mensagem não diria à pessoa que
+  // atende que existe um botão "Registrar venda" na ficha para isso.
+  const ROTULOS_NATIVOS = { sale_value: "Valor da venda (use \"Registrar venda\" na ficha)" };
 
   const definicoes = db.prepare(
     "SELECT key, name FROM custom_fields WHERE org_id = ? AND is_active = 1").all(orgId);
@@ -147,7 +188,7 @@ export function camposQueFaltam(orgId, etapa, lead) {
 
   return exigidos
     .filter(k => vazio(valores[k]) && vazio(nativos[k]))
-    .map(k => ({ key: k, label: rotulo.get(k) || k }));
+    .map(k => ({ key: k, label: ROTULOS_NATIVOS[k] || rotulo.get(k) || k }));
 }
 
 /* ===== SLA DA ETAPA =====
