@@ -227,23 +227,27 @@ export function sign(user, { orgId } = {}) {
    e não a dele. Por isso a linha logo abaixo: se o crachá aponta para uma casa
    diferente da da pessoa, ela precisa SER master no banco agora — senão um
    crachá emitido quando ela era vira passe livre para a casa alheia. */
-export function authRequired(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "Não autenticado" });
+/* O NÚCLEO DE `authRequired`, SEM ESCREVER RESPOSTA NENHUMA.
 
+   Extraído em 21/09/2026 para a rota de download por token (`baixar`, em
+   messages.routes.js) poder aceitar o MESMO crachá de sempre pelo cabeçalho
+   Authorization, sem duplicar a lógica de conferência — só o jeito de
+   devolver o resultado muda (aqui, `{erro, status}` ou `{user}`; em
+   `authRequired`, a resposta HTTP direto). Continua sendo o único lugar que
+   sabe verificar um crachá de sessão. */
+export function conferirCrachaDeSessao(token) {
   let dados;
   try {
     dados = jwt.verify(token, SECRET);
   } catch {
-    return res.status(401).json({ error: "Token inválido" });
+    return { erro: "Token inválido", status: 401 };
   }
 
   const u = db.prepare(
     "SELECT id, org_id, role, status, master, sessoes_desde FROM users WHERE id = ?").get(dados.id);
-  if (!u) return res.status(401).json({ error: "Sua conta não existe mais. Fale com a gestão da sua imobiliária." });
+  if (!u) return { erro: "Sua conta não existe mais. Fale com a gestão da sua imobiliária.", status: 401 };
   if (u.status !== "ativo")
-    return res.status(401).json({ error: "Seu acesso foi encerrado. Fale com a gestão da sua imobiliária." });
+    return { erro: "Seu acesso foi encerrado. Fale com a gestão da sua imobiliária.", status: 401 };
 
   /* O carimbo do crachá tem que ser IGUAL ao do banco. Trocar a senha, sair da
      equipe ou mudar de função move o carimbo, e todo crachá emitido antes fica
@@ -252,13 +256,55 @@ export function authRequired(req, res, next) {
      Comparação exata, e não "emitido antes de": o `iat` do JWT tem precisão de
      segundo, e o crachá emitido no mesmo segundo da troca sobrevivia a ela. */
   if ((dados.sd || 0) !== (u.sessoes_desde || 0))
-    return res.status(401).json({ error: "Sua sessão foi encerrada. Entre de novo." });
+    return { erro: "Sua sessão foi encerrada. Entre de novo.", status: 401 };
 
   if (dados.org_id !== u.org_id && !u.master)
-    return res.status(403).json({ error: "Este acesso não vale mais para esta conta." });
+    return { erro: "Este acesso não vale mais para esta conta.", status: 403 };
 
-  req.user = { ...dados, role: u.role, master: !!u.master };
+  return { user: { ...dados, role: u.role, master: !!u.master } };
+}
+
+export function authRequired(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Não autenticado" });
+
+  const r = conferirCrachaDeSessao(token);
+  if (r.erro) return res.status(r.status).json({ error: r.erro });
+
+  req.user = r.user;
   next();
+}
+
+/* ===== O TOKEN DO BOTÃO "BAIXAR" NO CELULAR (21/09/2026) =====
+
+   O clique em "Baixar" precisa navegar DE VERDADE para a URL do arquivo —
+   não buscar com `fetch` e simular um clique num link, que é o truque que o
+   Safari do iPhone ignora para a maioria dos tipos de arquivo (ver
+   `BotaoBaixar` em app.jsx). Só uma navegação de verdade faz o celular usar
+   o mecanismo NATIVO de download, que é o que lê o `Content-Disposition:
+   attachment` da resposta.
+
+   O problema: uma navegação não consegue levar o cabeçalho `Authorization`
+   — só a URL. E o crachá normal dura 30 dias; colocar ELE numa URL deixaria
+   um crachá de um mês inteiro no histórico do navegador do celular, o tipo
+   de exposição que a auditoria de segurança de 02/09/2026 evitou em toda
+   parte deste sistema.
+
+   Por isso este token é outra coisa: vive 2 MINUTOS e só serve para UM
+   anexo — leadId e messageId vão dentro dele e são conferidos na hora de
+   usar. Mesmo capturado de um histórico de navegador, expira antes de
+   alguém conseguir fazer algo com ele, e mesmo dentro da janela só abre
+   esse único arquivo. */
+export function emitirTokenAnexo(user, leadId, messageId) {
+  return jwt.sign({ uid: user.id, leadId, messageId, escopo: "anexo" }, SECRET, { expiresIn: "2m" });
+}
+export function verificarTokenAnexo(token, leadId, messageId) {
+  try {
+    const d = jwt.verify(token, SECRET);
+    if (d.escopo !== "anexo" || d.leadId !== leadId || d.messageId !== messageId) return null;
+    return { id: d.uid };
+  } catch { return null; }
 }
 
 /* O CORRETOR AUTÔNOMO É AS DUAS COISAS. (02/09/2026)

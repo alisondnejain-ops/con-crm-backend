@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.routes.js";
 import leadsRoutes from "./routes/leads.routes.js";
 import distRoutes from "./routes/distribution.routes.js";
 import msgRoutes from "./routes/messages.routes.js";
+import anexoDownloadRoutes from "./routes/anexo-download.routes.js";
 import tarefasRoutes, { tarefasPorId } from "./routes/tarefas.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
@@ -319,6 +320,14 @@ app.use("/arquivos", (req, res, next) => {
 // Montado no mesmo prefixo de leadsRoutes — os dois routers se completam.
 // Antes ficava em "/", e como ele exige login, bloqueava toda rota registrada depois.
 app.use("/leads", msgRoutes);         // POST /leads/:id/messages
+/* FORA de `/leads` DE PROPÓSITO — não seria só mais uma rota sem caminho
+   explícito (a armadilha de 13/08/2026): `cobrando`, logo acima, protege
+   TODO o prefixo `/leads` com `authRequired` antes de qualquer rota deste
+   arquivo rodar, e esta é a única do sistema que PRECISA aceitar um pedido
+   SEM o cabeçalho Authorization (é a navegação de verdade que o download
+   no celular exige — ver o comentário grande em anexo-download.routes.js).
+   Ela faz a própria conferência, com um crachá de 2 minutos só seu. */
+app.use("/anexo-baixar", anexoDownloadRoutes);
 /* Tarefas, com CAMINHO EXPLÍCITO nos dois casos.
 
    Estava como `app.use(cobrando, tarefasRoutes)` — sem caminho. Sem caminho, o
