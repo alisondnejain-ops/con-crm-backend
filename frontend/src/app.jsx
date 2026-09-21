@@ -4555,46 +4555,50 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
    que baixar, melhor que um botão que não faz nada. */
 function BotaoBaixar({url,nome,corner,leadId,messageId}){
   const [ocupado,setOcupado]=useState(false);
-  /* NAVEGAÇÃO DE VERDADE, NÃO fetch+blob. (21/09/2026, relatado pelo Ali: o
-     botão "não está funcionando corretamente no celular".)
+  /* IFRAME ESCONDIDO, NÃO ABA NOVA. (21/09/2026, relatado pelo Ali DE NOVO
+     no mesmo dia: "ainda abre uma tela em branco, não baixar direto no
+     aparelho".)
 
-     A versão de 14/09 buscava o arquivo com `fetch` (para não esbarrar no
-     CORS do R2, ver a entrada de 14/09 no CLAUDE.md) e depois simulava um
-     clique num link `<a download>` apontando para um blob local. Isso
-     funciona em computador — mas o Safari do iPhone IGNORA o atributo
-     `download` em URLs de blob para a maioria dos tipos de arquivo: o link
-     só ABRE o arquivo, não salva nada. É a mesma cara do "abre numa aba"
-     que já tinha sido corrigida para desktop, só que reaparecendo no
-     aparelho que o corretor mais usa em campo.
+     A versão anterior (a navegação de verdade explicada abaixo) estava
+     certa sobre a PARTE difícil — precisa ser uma navegação real, com
+     `Content-Disposition: attachment`, porque é isso que faz o sistema
+     operacional usar o mecanismo NATIVO de salvar arquivo — mas errou no
+     COMO: `window.open(alvo,"_blank")` abre uma aba/janela nova de verdade,
+     e o corretor usa o CRM instalado na Tela de Início (PWA em modo
+     standalone). Um app standalone não tem abas: pedir uma aba nova faz o
+     WebKit abrir uma janela sem a "moldura" do Safari — sem barra de
+     downloads, sem lugar para o download aparecer — e o que sobra na tela é
+     literalmente uma página em branco, com o arquivo baixado ou não sem
+     ninguém saber (a tela em branco é exatamente o relato).
 
-     A única forma confiável em celular é uma navegação de verdade para uma
-     URL com `Content-Disposition: attachment` — é aí que o sistema
-     operacional usa o mecanismo NATIVO de salvar arquivo, e nenhum
-     navegador trata isso como "sair da página": ele baixa e continua na
-     tela (mesmo comportamento em desktop, então não precisa de dois
-     caminhos por aparelho). Só que navegação não leva o cabeçalho
-     Authorization — por isso primeiro pede um token de 2 minutos, bom só
-     para ESTE arquivo (`emitirTokenAnexo`, backend/src/auth.js).
+     A troca é não abrir NENHUMA aba ou janela: um `<iframe>` escondido,
+     apontando para a MESMA URL com o MESMO cabeçalho `Content-Disposition`.
+     O navegador intercepta a resposta como download antes de tentar
+     renderizar qualquer coisa dentro do iframe — funciona em computador, no
+     Safari comum do iPhone E dentro do app instalado, porque não depende de
+     existir uma aba para o download aparecer. A tela do corretor nunca sai
+     do atendimento, nem por um instante.
 
-     Abre em ABA NOVA, e não na mesma: se o token falhar ou o arquivo tiver
-     sumido, o erro aparece numa aba descartável, sem tirar o corretor do
-     atendimento — mesma régua já usada no checkout do Asaas (`Assinatura`,
-     mais acima neste arquivo), incluindo o mesmo fallback para
-     `location.href` quando o navegador bloqueia a aba nova. */
+     Continua precisando do token de 2 minutos (`emitirTokenAnexo`,
+     backend/src/auth.js) pelo mesmo motivo de sempre: uma navegação (mesmo
+     dentro de um iframe) não leva o cabeçalho `Authorization`. */
   async function baixar(e){
     e.preventDefault(); e.stopPropagation();
     if(ocupado) return;
     setOcupado(true);
     try{
-      if(leadId&&messageId){
-        const {token}=await api(`/leads/${leadId}/anexo/${messageId}/token-baixar`);
-        const alvo=`${API}/anexo-baixar/${leadId}/${messageId}?t=${encodeURIComponent(token)}`;
-        const aba=window.open(alvo,"_blank","noopener");
-        if(!aba) window.location.href=alvo;
-      }else{
-        window.open(url,"_blank");
-      }
-    }catch(err){ window.open(url,"_blank"); }
+      const alvo = leadId&&messageId
+        ? `${API}/anexo-baixar/${leadId}/${messageId}?t=${encodeURIComponent((await api(`/leads/${leadId}/anexo/${messageId}/token-baixar`)).token)}`
+        : url;
+      const f=document.createElement("iframe");
+      f.style.display="none";
+      f.src=alvo;
+      document.body.appendChild(f);
+      setTimeout(()=>f.remove(),60000);
+    }catch(err){
+      // Não achou o lead, sem permissão, etc. — o erro já foi mostrado
+      // pelo `api()`; não há aba nem tela para sujar de propósito.
+    }
     finally{ setOcupado(false); }
   }
   return <button onClick={baixar} disabled={ocupado} title="Baixar" aria-label="Baixar arquivo" style={corner
