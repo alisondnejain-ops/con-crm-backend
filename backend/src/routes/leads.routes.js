@@ -1491,7 +1491,17 @@ r.post("/:id/sugestao-etapa", (req, res) => {
   }
   if (!STAGES.includes(para)) { limpar(); return res.status(400).json({ error: "Etapa inválida." }); }
 
-  moverEtapa({ leadId: lead.id, para, motivo: "mao", userId: req.user.id, de: lead.stage });
+  /* Passa por `moverLead`, não `moverEtapa` direto — e não é o caminho de
+     sempre: até 19/09/2026 este botão confirmava a leitura da palavra-chave
+     chamando `moverEtapa` sozinho, sem conferir o que a etapa de destino
+     exige. Quase sempre é inofensivo (a maioria das etapas não exige nada) —
+     mas "contrato" é um dos gatilhos (`GATILHOS`, services/stages.js) e ele
+     aponta para "Venda", uma etapa `ganho`: confirmar essa sugestão gravava
+     "Venda" sem `sale_value`, a mesma venda-fantasma do arrasto no Kanban,
+     só que por um caminho diferente. `moverLead` já sabe recusar isso — é a
+     mesma trava, chamada do lugar certo desta vez. */
+  const r1 = moverLead({ leadId: lead.id, para, motivo: "mao", userId: req.user.id });
+  if (r1.bloqueado) { limpar(); return res.status(422).json(r1); }
   limpar();
   console.log(`[etapa] ${req.user.name} confirmou "${lead.name}": ${lead.stage} -> ${para}`);
   res.json({ ok: true, etapa: para });

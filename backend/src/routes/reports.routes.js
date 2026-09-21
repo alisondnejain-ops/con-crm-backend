@@ -5,6 +5,7 @@ import { STAGES } from "../services/stages.js";
 import { ranking, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
+import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
 
 const r = Router();
 r.use(authRequired);
@@ -99,43 +100,58 @@ r.get("/", (req, res) => {
      falta, vira o terceiro número. */
   const presencas = resumoPresenca(req.user.org_id, { de, ate });
 
+  /* HISTÓRICO DE ATRIBUIÇÃO, não o estado atual. (19/09/2026, ver o
+     cabeçalho de `eventosDeAtribuicao` em services/movimento.js — este é o
+     conserto que o Ali pediu depois do de 18/09: "se eu transferir um lead
+     de um corretor para o outro, ele não pode sair do relatório do antigo,
+     porque ele teve um atendimento feito por aquele antigo".)
+
+     Calculado UMA VEZ para a imobiliária inteira (não um SELECT por pessoa
+     dentro do map abaixo) pela mesma razão de `leads`/`vendasDoPeriodo`
+     already serem calculados fora do loop: evitar N consultas onde uma
+     resolve para todo mundo. */
+  const eventos = eventosDeAtribuicao(req.user.org_id);
+
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);
-    /* "RECEBIDOS" É A DATA EM QUE O LEAD FICOU COM ELE, NÃO A DATA EM QUE O
-       LEAD NASCEU NO CRM. (18/09/2026, relatado pelo Ali: "quando ele recebe
-       4 leads no dia, aparece que recebeu 2 ou 7".)
+    /* "RECEBIDOS" É O EVENTO — o instante em que o lead ficou com ele —, não
+       o estado de agora. (18-19/09/2026, relatado pelo Ali em duas partes:
+       primeiro "quando ele recebe 4 leads no dia, aparece que recebeu 2 ou
+       7"; depois "se eu transferir um lead, ele não pode sair do relatório
+       do antigo".)
 
-       `meus` acima é o filtro certo para "dos leads que entraram no período,
-       onde eles estão hoje" (por_etapa, agendamentos, conversão — todos de
-       COORTE, de propósito, ver KPIs no CLAUDE.md). Mas "recebidos" é outra
-       pergunta: NESTA casa todo lead nasce com a atendente e é REPASSADO
-       depois — é a regra, não a exceção —, então filtrar por `created_at`
-       fazia dois estragos ao mesmo tempo. (1) Lead repassado hoje, criado
-       há três dias, não contava como recebido hoje — o corretor recebia 4
-       leads de verdade e o relatório mostrava 2. (2) Pior: `assigned_to`
-       é o dono ATUAL, não uma foto de quando o relatório foi olhado — se
-       um lead do dia 4 fosse repassado para outra pessoa no dia 6, o
-       "recebidos" do dia 4 MUDAVA sozinho pra quem tinha visto o relatório
-       antes, porque a conta reflete o dono de agora, não um fato gravado.
-       Um lead com `assigned_at` no período resolve os dois: é a mesma
-       coluna que já carimba "toda atribuição" (`leads.assigned_at`, o selo
-       "novo com você") e é o que `painel.js` → `atividades()` já usa para a
-       mesma pergunta — as duas telas passam a concordar. */
-    const recebidosPeriodo = db.prepare(`SELECT * FROM leads WHERE org_id=? AND assigned_to=?
-      AND COALESCE(assigned_at, created_at) BETWEEN ? AND ?`).all(req.user.org_id, u.id, de, ate);
+       `meus` acima continua certo para o resto desta função (conversão,
+       visitas, temperatura, por_etapa — tudo de COORTE, de propósito, ver
+       KPIs no CLAUDE.md). "recebidos" é outra pergunta, e agora ela é
+       respondida pelo REGISTRO do evento (`eventosDeAtribuicao`), não por
+       filtrar `leads.assigned_to` — que é o dono de AGORA e muda sozinho
+       quando o lead é repassado de novo, apagando do relatório de um dia já
+       fechado um atendimento que de fato aconteceu naquele dia. */
+    const recebidosEventos = noPeriodo(eventos.recebidos, u.id, de, ate);
+    /* "PERDIDOS PARA OUTRO CORRETOR" — pedido novo do Ali (19/09/2026):
+       "acrescentar a quantidade de leads que foram perdidos pelo corretor
+       anterior... isso gera uma penalidade, uma diminuição no score dele".
+
+       Só conta `motivo === "mao"` — decisão de gente tirando o lead da mão
+       dele — não `automatica` (a etapa redistribuiu sozinha, configuração do
+       gestor, não desempenho do corretor) nem `saida_equipe` (a pessoa saiu
+       da imobiliária; os leads dela foram redistribuídos porque alguém
+       tinha que ficar com eles, não porque ela perdeu nada). Penalizar por
+       um número que não descreve a pessoa seria inventar uma culpa. */
+    const perdidosEventos = noPeriodo(eventos.perdidos, u.id, de, ate).filter(e => e.motivo === "mao");
     /* Leads recebidos DIA A DIA. É a pergunta direta do gestor: "no dia 4,
        quantos exatamente ele recebeu?". Com o total do período só dá para
        responder puxando um relatório por dia, um de cada vez. */
     const porDiaMapa = new Map();
-    for (const l of recebidosPeriodo) {
-      const k = meiaNoitePlantao(l.assigned_at || l.created_at);
+    for (const e of recebidosEventos) {
+      const k = meiaNoitePlantao(e.quando);
       porDiaMapa.set(k, (porDiaMapa.get(k) || 0) + 1);
     }
     const por_dia = [...porDiaMapa.entries()].sort((a, b) => a[0] - b[0])
       .map(([dia, recebidos]) => ({ dia, recebidos }));
 
     const escalados = diasDePlantao.get(u.id) || new Set();
-    const emPlantao = recebidosPeriodo.filter(l => escalados.has(meiaNoitePlantao(l.assigned_at || l.created_at)));
+    const emPlantao = recebidosEventos.filter(e => escalados.has(meiaNoitePlantao(e.quando)));
     /* ATENDIDOS e 1ª RESPOSTA são DELE, não do lead.
 
        Antes usavam `leads.first_resp_at`, que guarda a primeira resposta de
@@ -154,7 +170,15 @@ r.get("/", (req, res) => {
 
     return {
       id: u.id, nome: u.name, papel: u.role,
-      recebidos: recebidosPeriodo.length,
+      recebidos: recebidosEventos.length,
+      /* Visível direto na tabela, não só no detalhe do score — pedido do
+         Ali: "acrescentar a quantidade de leads que foram perdidos pelo
+         corretor anterior em relação àquele mês". Só transferência manual
+         (ver o filtro `motivo === "mao"` acima); a régua completa está no
+         score. Nome com "_para_outro" de propósito: "leads perdidos" já
+         significa outra coisa neste CRM (negócio que caiu na etapa
+         "Perdido") — este é sobre DONO, não sobre negócio. */
+      leads_perdidos_para_outro: perdidosEventos.length,
       atendidos: atendidos.length,
       taxa_atendimento: pct(atendidos.length, meus.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
@@ -218,28 +242,48 @@ r.get("/", (req, res) => {
     ? db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.role='sdr' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
     : db.prepare("SELECT id,name FROM users WHERE id=? AND role='sdr'").all(req.user.id);
 
+  /* Por LEAD, filtrado por imobiliária — a busca varria TODAS as contas
+     antes de cruzar com `leads` (que aí já é só desta imobiliária); o
+     resultado final não vazava dado de outra casa, mas lia mensagem alheia
+     à toa. Ganhou também `lead_criado`, para a espera poder ser calculada
+     sem uma segunda consulta. */
   const primeiroContato = db.prepare(`
-    SELECT m.lead_id, m.from_user_id, MIN(m.created_at) AS quando
-    FROM messages m WHERE m.direction='out' AND m.from_user_id IS NOT NULL
-    GROUP BY m.lead_id`).all();
+    SELECT m.lead_id, m.from_user_id, MIN(m.created_at) AS quando, l.created_at AS lead_criado
+    FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE l.org_id = ? AND m.direction='out' AND m.from_user_id IS NOT NULL
+    GROUP BY m.lead_id`).all(req.user.org_id);
   const porLead = new Map(primeiroContato.map(x => [x.lead_id, x]));
 
   const atendimento = sdrs.map(u => {
-    const dela = leads.filter(l => { const c = porLead.get(l.id); return c && c.from_user_id === u.id; });
-    const esperas = dela.map(l => (porLead.get(l.id).quando - l.created_at) / 60000).filter(n => n >= 0);
-    // Repassado = ela abriu a conversa e hoje o lead está com outra pessoa.
-    const repassados = dela.filter(l => l.assigned_to && l.assigned_to !== u.id);
+    /* "PRIMEIRO CONTATO" e "1ª RESPOSTA" pela data do CONTATO, não pela data
+       em que o lead nasceu — mesma família de bug do bloco de cima: filtrar
+       pela coorte do lead (`leads`, criado no período) fazia a atendente que
+       falou HOJE com um lead criado há 3 dias sumir do "hoje" dela. */
+    const contatosDela = primeiroContato.filter(x => x.from_user_id === u.id && x.quando >= de && x.quando <= ate);
+    const esperas = contatosDela.map(x => (x.quando - x.lead_criado) / 60000).filter(n => n >= 0);
+    /* "RECEBIDOS" e "REPASSADOS" pelo mesmo histórico de eventos do bloco de
+       cima — não pelo estado atual do lead. É a correção direta do relato
+       do Ali: "se é transferido cinco leads para o corretor, identifica que
+       só foi transferido um". O número antigo só contava um lead como
+       "repassado" se ele AINDA estivesse com outra pessoa no instante em
+       que o relatório foi aberto — um lead devolvido à fila (sem dono agora)
+       ou repassado de novo por engano desaparecia da conta, mesmo o repasse
+       original tendo acontecido dentro do período pedido. */
+    const recebidosEventos = noPeriodo(eventos.recebidos, u.id, de, ate);
+    const repassadosEventos = noPeriodo(eventos.perdidos, u.id, de, ate);
     const naFila = leads.filter(l => !l.assigned_to);
     return {
       id: u.id, nome: u.name, papel: "sdr",
-      // Quantos chegaram para ela no período (inclui os que ela já repassou).
-      recebidos: leads.filter(l => l.assigned_to === u.id).length + repassados.length,
-      primeiro_contato: dela.length,
+      recebidos: recebidosEventos.length,
+      primeiro_contato: contatosDela.length,
       primeira_resposta_mediana_min: mediana(esperas) ?? 0,
       // Sem resposta: entrou no período, ninguém falou, e ainda está na fila
-      // ou com ela. É o furo que a gestão precisa ver.
+      // ou com ela. Continua de COORTE de propósito — mesma pergunta de
+      // `por_etapa`/`agendamentos`: "dos que chegaram agora, quantos ainda
+      // não tiveram um primeiro toque". `porLead` aqui só confere SE alguém
+      // já falou, não quando, então não é afetado pela mesma armadilha.
       sem_contato: leads.filter(l => !porLead.get(l.id) && (!l.assigned_to || l.assigned_to === u.id)).length,
-      repassados: repassados.length,
+      repassados: repassadosEventos.length,
       com_ela: leads.filter(l => l.assigned_to === u.id).length,
       na_fila: naFila.length,
     };

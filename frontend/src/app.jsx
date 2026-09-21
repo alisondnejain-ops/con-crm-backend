@@ -13119,6 +13119,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         {numero("Agendados / visitas",linha.agendamentos,`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`)}
         {numero("Vendas",linha.vendas,"fechadas no período")}
         {numero("Valor vendido",fmtMoeda(linha.valor_vendido),null)}
+        {numero("Perdidos p/ outro corretor",linha.leads_perdidos_para_outro,"repasse manual no período")}
       </div>
 
       {meu&&!meu.sem_dados&&<React.Fragment>
@@ -13425,6 +13426,12 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
           <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos}
             sub={`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`} accent="#3B7BC4"/>
           <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
+          {/* Penalidade nova (19/09/2026, pedido do Ali): quantos leads saíram
+              da mão dele por repasse manual para outro corretor. Ao lado de
+              "Recebidos" de propósito — é a mesma pergunta, olhada dos dois
+              lados. */}
+          <Metric n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro}
+            sub="repasse manual no período" accent={C.hot}/>
         </div>
         {/* Cada número responde a uma pergunta diferente, e misturar as duas foi
             o que fez o relatório parecer errado. Dizer isso na tela custa uma
