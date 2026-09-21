@@ -614,6 +614,16 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Teste: `npm run teste:baixar-anexo` (13 casos agora — o caso 13 força a leitura pela chave a falhar de propósito e confere que o arquivo chega mesmo assim, pelo fallback).
 
+- **"Ainda abre uma tela em branco, não baixar direto no aparelho"** (21/09/2026, mesmo dia, mesmo relato — depois do conserto do 502 acima, o erro sumiu mas o sintoma original voltou). O conserto anterior tinha resolvido a metade certa do problema (a leitura do arquivo) e mantido o defeito de verdade: `window.open(alvo,"_blank","noopener")`.
+
+  **O corretor usa o CRM instalado na Tela de Início do iPhone — um PWA em modo standalone, sem barra de abas.** `window.open` pedindo uma aba nova, dentro de um app standalone, faz o WebKit abrir uma janela SEM a moldura do Safari — sem lugar para o download aparecer, sem barra de endereço, nada. O que sobra na tela é uma janela em branco, com o arquivo baixado ou não sem nenhum jeito de saber — é exatamente a "tela em branco" do relato, e explica por que o conserto de 14/09 (que usava a mesma técnica) nunca tinha funcionado de verdade no aparelho instalado, só no Safari comum.
+
+  **A troca é não abrir NENHUMA aba ou janela.** `BotaoBaixar` (`app.jsx`) cria um `<iframe>` escondido (`display:none`) apontando para a mesma URL com token — o navegador intercepta a resposta como download (por causa do `Content-Disposition: attachment`) antes de tentar desenhar qualquer coisa dentro do iframe, e isso funciona em computador, no Safari comum e dentro do app instalado, porque não depende de existir uma aba para o download acontecer. A tela do corretor nunca sai do atendimento — nem por um instante, nem numa janela em branco ao lado.
+
+  **Continua pedindo o token de 2 minutos antes** (`GET /leads/:id/anexo/:messageId/token-baixar`) pelo mesmo motivo do conserto de 14/09: uma navegação — mesmo dentro de um iframe — não carrega o cabeçalho `Authorization`, e colocar o crachá de 30 dias na URL deixaria um crachá de um mês no histórico do navegador do celular.
+
+  Confirmado com Playwright, navegador de verdade: login como corretor, abrir um lead com anexo, clicar em "Baixar" — **zero abas/janelas novas abertas** (`context.on("page")` nunca dispara), o iframe aparece com a URL certa, a requisição para `/anexo-baixar/...` volta 200 com `Content-Disposition: attachment`, e a página principal continua em `/app` o tempo todo, sem navegar para lugar nenhum.
+
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 
 O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.
