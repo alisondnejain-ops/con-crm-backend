@@ -1,7 +1,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { podeVerLead, verificarTokenAnexo } from "../auth.js";
-import { bytesDoArquivo, chaveDaUrl } from "../services/storage.js";
+import { bytesParaBaixar } from "../services/storage.js";
 
 /* BAIXAR UM ANEXO NO CELULAR, DE VERDADE. (21/09/2026, relatado pelo Ali: o
    botão de baixar "não está funcionando corretamente no celular deles".)
@@ -49,20 +49,18 @@ r.get("/:leadId/:messageId", async (req, res) => {
     .get(req.params.messageId, lead.id);
   if (!msg || !msg.media_url) return res.status(404).json({ error: "Arquivo não encontrado." });
 
-  const chave = chaveDaUrl(msg.media_url);
   const nome = (msg.media_name || "arquivo").replace(/[\r\n"]/g, "");
   try {
-    // `chave` cobre disco e R2. Sem reconhecer o formato (arquivo bem
-    // antigo, outro provedor), busca a própria URL — pior que o caminho de
-    // cima, melhor que recusar o download.
-    const buffer = chave ? await bytesDoArquivo(chave)
-      : Buffer.from(await (await fetch(msg.media_url)).arrayBuffer());
+    // `bytesParaBaixar` tenta a chave (disco/R2) e cai para a URL pública se
+    // a leitura pela API falhar (21/09/2026) — ver o comentário na função.
+    const buffer = await bytesParaBaixar(msg.media_url);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Type", msg.media_mime || "application/octet-stream");
     res.setHeader("Content-Disposition", `attachment; filename="${nome}"`);
     res.setHeader("Content-Length", buffer.length);
     res.send(buffer);
   } catch (e) {
+    console.error("[anexo-baixar] falhou para lead", lead.id, "mensagem", msg.id, "—", e.message);
     res.status(502).json({ error: "Não consegui buscar o arquivo para baixar." });
   }
 });

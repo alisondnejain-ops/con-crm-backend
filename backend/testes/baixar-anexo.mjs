@@ -30,6 +30,12 @@ import fs from "node:fs";
 process.env.DB_PATH = path.join(os.tmpdir(), "concrm-teste-baixar-anexo.db");
 process.env.JWT_SECRET = "teste";
 process.env.PORT = "4641";
+// Sem isto, `salvar()` grava a URL do arquivo RELATIVA ("/arquivos/...",
+// sem domínio) — em produção o `APP_URL` sempre está configurado (é ele que
+// monta a URL que vai para o WhatsApp; sem ele o envio de mídia nem
+// funcionaria), e o teste precisa da mesma condição para o caso 13 (a URL
+// que o fallback busca via `fetch()` tem que ser absoluta).
+process.env.APP_URL = "http://localhost:4641";
 for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH + s); } catch (e) {} }
 
 const { default: db } = await import("../src/db.js");
@@ -152,6 +158,29 @@ assert.equal(resp.status, 401);
 console.log("12. Corretor sem acesso a este lead — o token não é dele, então 401 (nunca chega nem a olhar o dono)");
 resp = await fetch(`${BASE}/leads/${leadId}/anexo/${msgId}/token-baixar`, { headers: { authorization: "Bearer " + tokenBruno } });
 assert.equal(resp.status, 403, "Bruno nem consegue emitir token para um lead que não é dele");
+
+/* ===== A REDE DE SEGURANÇA: LEITURA PELA CHAVE FALHA, CAI PARA A URL =====
+   (21/09/2026, relatado pelo Ali DE NOVO no mesmo dia do conserto acima:
+   "esse erro continua aparecendo" — {"error":"Não consegui buscar o arquivo
+   para baixar."} Em produção, ler pela CHAVE (GetObject do R2, ou o caminho
+   exato no disco) é um caminho quase nunca exercitado antes deste recurso
+   existir — um token do R2 sem permissão de LEITURA (só escrita), ou uma
+   chave que não bate mais com R2_PUBLIC_URL depois de trocar de domínio,
+   nunca tinham aparecido. `bytesParaBaixar` agora cai para a URL PÚBLICA
+   quando a leitura pela chave falha, em vez de desistir na hora. */
+console.log("13. Quando ler pela chave falha (chave errada, ou — em produção — R2 sem permissão de leitura), cai para a URL pública");
+const msgFallback = "m_" + randomUUID();
+// `chaveDaUrl` vai extrair "<chave>?forcarFalha=1" — um arquivo que não
+// existe no disco com esse nome exato — mas a URL em si serve o arquivo
+// certo, porque o servidor estático ignora a query string.
+const urlComChaveErrada = `${url}?forcarFalha=1`;
+db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,created_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?)`).run(msgFallback, leadId, "out", marina, "Marina", "Documento", urlComChaveErrada, "application/pdf", "comprovante2.pdf", Date.now());
+resp = await fetch(`${BASE}/leads/${leadId}/anexo/${msgFallback}/baixar`, { headers: { authorization: "Bearer " + tokenMarina } });
+console.log(`   ${resp.status}`);
+assert.equal(resp.status, 200, "a leitura pela chave falha, mas o fallback pela URL pública tem que salvar o download");
+const corpoFallback = Buffer.from(await resp.arrayBuffer());
+assert.ok(corpoFallback.equals(conteudo), "mesmo com a chave errada, o arquivo que chega é o certo");
 
 console.log("\nTudo certo ✅");
 process.exit(0);

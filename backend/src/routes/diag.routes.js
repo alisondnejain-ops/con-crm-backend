@@ -5,7 +5,7 @@ import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico, envioSemIdDiagno
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "../services/mensageria.js";
-import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2 } from "../services/storage.js";
+import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2, falhaDownload } from "../services/storage.js";
 /* A tradução dos erros do R2 mora no backup.js porque foi lá que ela nasceu.
    Aqui ela vale igual: este teste é a prova de fogo do armazenamento, e devolver
    "@aws-sdk XML parse error… inspect the hidden field {error}.$response" numa
@@ -84,7 +84,11 @@ r.get("/integracoes", async (_req, res) => {
        o bastante para saber se falta configurar ou se o problema é outro. */
     ia: { configurada: iaConfigurada(), modelo: iaConfigurada() ? modeloIA() : null,
       recursos: iaConfigurada() ? ["resumo da conversa", "leitura do print da Caixa"] : [] },
-    arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2() },
+    arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2(),
+      /* Falha ao BAIXAR (ler de volta), não ao subir — são caminhos diferentes
+         do R2 (GetObject x PutObject) e um token pode ter um sem o outro
+         (21/09/2026, ver bytesParaBaixar em services/storage.js). */
+      ultima_falha_download: falhaDownload() },
     /* Conversão de vídeo (14/09/2026): confere que o `ffmpeg`/`ffprobe`
        (pacotes `ffmpeg-static`/`ffprobe-static`) existem e respondem, sem
        converter nada — é só "a ferramenta está instalada?". Sem isso,

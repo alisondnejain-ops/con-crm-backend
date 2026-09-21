@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead, emitirTokenAnexo } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
-import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
+import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
@@ -352,20 +352,18 @@ r.get("/:id/anexo/:messageId/baixar", async (req, res) => {
     .get(req.params.messageId, lead.id);
   if (!msg || !msg.media_url) return res.status(404).json({ error: "Arquivo não encontrado." });
 
-  const chave = chaveDaUrl(msg.media_url);
   const nome = (msg.media_name || "arquivo").replace(/[\r\n"]/g, "");
   try {
-    // `chave` cobre disco e R2. Se a URL for de outro formato (arquivo bem
-    // antigo, ou um provedor ainda não previsto), busca a própria URL — pior
-    // que o caminho de cima, mas melhor que recusar o download.
-    const buffer = chave ? await bytesDoArquivo(chave)
-      : Buffer.from(await (await fetch(msg.media_url)).arrayBuffer());
+    // `bytesParaBaixar` tenta a chave (disco/R2) e cai para a URL pública se
+    // a leitura pela API falhar (21/09/2026) — ver o comentário na função.
+    const buffer = await bytesParaBaixar(msg.media_url);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Type", msg.media_mime || "application/octet-stream");
     res.setHeader("Content-Disposition", `attachment; filename="${nome}"`);
     res.setHeader("Content-Length", buffer.length);
     res.send(buffer);
   } catch (e) {
+    console.error("[anexo] baixar falhou para lead", lead.id, "mensagem", msg.id, "—", e.message);
     res.status(502).json({ error: "Não consegui buscar o arquivo para baixar." });
   }
 });
