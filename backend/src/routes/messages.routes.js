@@ -404,8 +404,29 @@ function gravarSaida(lead, user, firstName, m) {
       m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now(), linhaDo(lead));
 }
 
-// Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial
-// primeiro, sem jargão interno. Comissão e captador NUNCA entram aqui.
+/* Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial
+   primeiro, sem jargão interno. Comissão e captador NUNCA entram aqui.
+
+   A CONSTRUTORA/CONSTRUTOR TAMBÉM NÃO. (21/09/2026, pedido do Ali: "não
+   envie automaticamente a construtora ou o construtor... que seja apenas
+   uma informação interna da imobiliária".) `construtor` é dado de
+   CAPTAÇÃO — quem a imobiliária negociou o empreendimento, útil para o
+   corretor e o gestor identificarem o imóvel internamente — nunca foi
+   pensado para o cliente ler. Escrito no WhatsApp, ele dá ao lead um nome
+   e um caminho para pular a imobiliária e negociar direto com a
+   construtora, o oposto do que a captação existe para proteger. O campo
+   continua existindo e aparecendo nas telas internas (busca, formulário
+   de captação, ficha do produto) — só não entra mais no texto que sai
+   para fora.
+
+   Esta função é o ÚNICO lugar que monta o texto que vai pro cliente
+   (`POST /leads/:id/produto`, a única rota que manda um produto pelo
+   WhatsApp) — não há uma segunda cópia por imobiliária nem um jeito de
+   configurar isso por conta. Por ser código compartilhado, e não um dado
+   gravado por lead ou por organização, o conserto vale IMEDIATAMENTE para
+   toda conta existente e futura, sem tocar em nenhum lead, mensagem ou
+   produto já cadastrado — a identidade de cada lead, de cada imobiliária,
+   fica exatamente como estava. */
 export function textoDoProduto(p) {
   const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
   const linhas = [`*${p.titulo}*`];
@@ -416,7 +437,6 @@ export function textoDoProduto(p) {
     if (comodos) linhas.push(`🛏 ${comodos}`);
   }
   if (p.metragem) linhas.push(`📐 ${p.metragem} m² de terreno`);
-  if (p.tipo === "casa" && p.construtor) linhas.push(`🏗 ${p.construtor}`);
   if (p.modalidade) linhas.push(`🏡 Financiamento: ${p.modalidade}`);
   else if (p.morar_bem) linhas.push("🏡 Faz parte do programa Morar Bem Pernambuco");
   if (p.valor) linhas.push(`💰 ${moeda(p.valor)}`);
