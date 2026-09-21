@@ -1,7 +1,7 @@
 import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, supervisiona, podeVerLead } from "../auth.js";
+import { authRequired, supervisiona, podeVerLead, emitirTokenAnexo } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo, chaveDaUrl, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
@@ -41,6 +41,26 @@ import { inferStage } from "../services/stages.js";
 
 const r = Router();
 r.use(authRequired);
+
+/* O TOKEN DE 2 MINUTOS PARA O DOWNLOAD FUNCIONAR NO CELULAR. (21/09/2026,
+   relatado pelo Ali.) Esta rota só EMITE o token — quem de fato serve o
+   arquivo é `GET /anexo-baixar/:leadId/:messageId` (routes/anexo-download.
+   routes.js), fora do prefixo `/leads`.
+
+   TEVE QUE SAIR DAQUI: a primeira tentativa foi deixar a rota de download
+   toda dentro deste arquivo, ANTES de `r.use(authRequired)` acima, para
+   aceitar o token sem cabeçalho — e não funcionou, porque `server.js`
+   protege o prefixo `/leads` inteiro (`cobrando`, que chama `authRequired`)
+   ANTES de qualquer coisa deste router rodar. Uma rota sem cabeçalho só
+   pode viver fora de `/leads`. Esta aqui (emitir o token) fica DENTRO,
+   porque é uma chamada normal do app já logado — o crachá de sempre serve
+   para pedi-lo; só a navegação final é que não pode levar cabeçalho. */
+r.get("/:id/anexo/:messageId/token-baixar", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json({ token: emitirTokenAnexo(req.user, req.params.id, req.params.messageId) });
+});
 
 // Envia mensagem ao lead pelo número único da imobiliária, ASSINADA com o nome
 // de quem envia. Depois relê a conversa e RECOMENDA uma etapa — sem mover nada.

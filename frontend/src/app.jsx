@@ -4555,35 +4555,45 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
    que baixar, melhor que um botão que não faz nada. */
 function BotaoBaixar({url,nome,corner,leadId,messageId}){
   const [ocupado,setOcupado]=useState(false);
-  /* BAIXA PELO PRÓPRIO SERVIDOR DO CRM, NÃO PELA URL DA MÍDIA. (14/09/2026,
-     relatado pelo Ali: o botão abria o arquivo numa aba em vez de baixar.)
+  /* NAVEGAÇÃO DE VERDADE, NÃO fetch+blob. (21/09/2026, relatado pelo Ali: o
+     botão "não está funcionando corretamente no celular".)
 
-     A primeira versão buscava `url` direto — funciona quando o arquivo mora
-     no disco (mesma origem do CRM), mas metade das contas guarda no
-     Cloudflare R2, OUTRO domínio, que não manda cabeçalho de CORS. O
-     navegador bloqueia esse fetch cross-origin antes do JS conseguir ler a
-     resposta, o `catch` engolia o erro e caía no `window.open` — para foto,
-     áudio e documento, sempre, porque os três passam por aqui.
+     A versão de 14/09 buscava o arquivo com `fetch` (para não esbarrar no
+     CORS do R2, ver a entrada de 14/09 no CLAUDE.md) e depois simulava um
+     clique num link `<a download>` apontando para um blob local. Isso
+     funciona em computador — mas o Safari do iPhone IGNORA o atributo
+     `download` em URLs de blob para a maioria dos tipos de arquivo: o link
+     só ABRE o arquivo, não salva nada. É a mesma cara do "abre numa aba"
+     que já tinha sido corrigida para desktop, só que reaparecendo no
+     aparelho que o corretor mais usa em campo.
 
-     Com `leadId`/`messageId`, a busca vai para `/leads/:id/anexo/:msgId/baixar`,
-     que é SEMPRE a mesma origem da página (CORS não existe entre um site e
-     ele mesmo) — quem fala com o R2 é o servidor, imune a CORS. Sem os dois
-     ids (mídia fora de uma conversa, se algum dia existir) cai no caminho
-     antigo, que ainda serve quando o arquivo é local. */
+     A única forma confiável em celular é uma navegação de verdade para uma
+     URL com `Content-Disposition: attachment` — é aí que o sistema
+     operacional usa o mecanismo NATIVO de salvar arquivo, e nenhum
+     navegador trata isso como "sair da página": ele baixa e continua na
+     tela (mesmo comportamento em desktop, então não precisa de dois
+     caminhos por aparelho). Só que navegação não leva o cabeçalho
+     Authorization — por isso primeiro pede um token de 2 minutos, bom só
+     para ESTE arquivo (`emitirTokenAnexo`, backend/src/auth.js).
+
+     Abre em ABA NOVA, e não na mesma: se o token falhar ou o arquivo tiver
+     sumido, o erro aparece numa aba descartável, sem tirar o corretor do
+     atendimento — mesma régua já usada no checkout do Asaas (`Assinatura`,
+     mais acima neste arquivo), incluindo o mesmo fallback para
+     `location.href` quando o navegador bloqueia a aba nova. */
   async function baixar(e){
     e.preventDefault(); e.stopPropagation();
     if(ocupado) return;
     setOcupado(true);
-    const alvo=leadId&&messageId?`${API}/leads/${leadId}/anexo/${messageId}/baixar`:url;
     try{
-      const r=await fetch(alvo,leadId&&messageId?{headers:TOKEN?{Authorization:"Bearer "+TOKEN}:{}}:undefined);
-      if(!r.ok) throw new Error("falhou");
-      const blob=await r.blob();
-      const urlLocal=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=urlLocal; a.download=nome||"arquivo";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(urlLocal),4000);
+      if(leadId&&messageId){
+        const {token}=await api(`/leads/${leadId}/anexo/${messageId}/token-baixar`);
+        const alvo=`${API}/anexo-baixar/${leadId}/${messageId}?t=${encodeURIComponent(token)}`;
+        const aba=window.open(alvo,"_blank","noopener");
+        if(!aba) window.location.href=alvo;
+      }else{
+        window.open(url,"_blank");
+      }
     }catch(err){ window.open(url,"_blank"); }
     finally{ setOcupado(false); }
   }
@@ -9865,6 +9875,9 @@ const SITUACAO_PRODUTO={
   aguardando_aprovacao:{t:"Aguardando aprovação",c:"#8a6d1f",bg:C.amberSoft},
   recusado:{t:"Recusado",c:C.hot,bg:C.hotSoft},
   vendido:{t:"Vendido",c:C.greenDeep,bg:C.greenSoft},
+  // "Vendido" não existe para um imóvel anunciado como aluguel — situação
+  // terminal própria, mesma cor (as duas fecham o negócio do mesmo jeito).
+  alugado:{t:"Alugado",c:C.greenDeep,bg:C.greenSoft},
   inativo:{t:"Inativo",c:C.faint,bg:C.coolSoft},
 };
 const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
@@ -9872,7 +9885,7 @@ const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
 function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   // Mesmo caso das conversas: filtro escolhido é trabalho da pessoa, e voltar
   // do segundo plano não pode desfazê-lo.
-  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
+  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
   const [busca,setBusca]=usarEscolha("imoveis.busca","");
   const [lista,setLista]=useState(null);
   const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
@@ -9882,7 +9895,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [recarga,setRecarga]=useState(0);
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
-  const filtrosAtivos=[f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
+  const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{acoes.produtoOpcoes().then(setOpcoes).catch(()=>{});},[recarga]);
@@ -9891,7 +9904,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.produtos(params).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
     return()=>{vivo=false;};
-  },[f.q,f.tipo,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,recarga]);
+  },[f.q,f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,recarga]);
 
   const atualizar=()=>setRecarga(r=>r+1);
   const decidir=async(p,status)=>{ setErro("");
@@ -9951,12 +9964,16 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
-          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""})}
+          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""})}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
           <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</span>
         </div>
         {filtrosAbertos&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {campo("Casa ou terreno",f.tipo,"tipo",[{v:"casa",t:"Casas"},{v:"terreno",t:"Terrenos"}])}
+          {/* Venda ou aluguel (21/09/2026, pedido do Ali: a captação só tinha
+              venda). Mesmo lugar dos outros filtros — sem filtro, os dois
+              catálogos aparecem juntos, do jeito que sempre apareceram. */}
+          {campo("Venda ou aluguel",f.finalidade,"finalidade",[{v:"venda",t:"Venda"},{v:"aluguel",t:"Aluguel"}])}
           {campo("Cidade",f.cidade,"cidade",opcoes.cidades.map(c=>({v:c,t:c})))}
           {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
           {campo("Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`})))}
@@ -9979,14 +9996,19 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
               <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
-              {p.modalidade&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.modalidade==="Minha Casa Minha Vida"?"MCMV":p.modalidade}</span>}
+              {/* Aluguel ganha selo — venda é o padrão do catálogo desde
+                  sempre, e "sem selo = venda" é a mesma régua de "sem
+                  temperatura = sem pastilha": marcar o padrão gastaria a
+                  linha mais visível do card para dizer o óbvio. */}
+              {p.finalidade==="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>Aluguel</span>}
+              {p.modalidade&&p.finalidade!=="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.modalidade==="Minha Casa Minha Vida"?"MCMV":p.modalidade}</span>}
             </div>
             <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
               <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
               <div style={{color:C.faint,fontSize:11.5}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")||"sem localização"}</div>
               {p.tipo==="casa"&&<div style={{color:C.sub,fontSize:11.5}}>{[p.quartos&&`${p.quartos} quarto(s)`,p.banheiros&&`${p.banheiros} banheiro(s)`,p.metragem&&`${p.metragem} m²`].filter(Boolean).join(" · ")}</div>}
               {p.tipo==="terreno"&&p.metragem&&<div style={{color:C.sub,fontSize:11.5}}>{p.metragem} m²</div>}
-              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.valor?fmtMoeda(p.valor):"valor a combinar"}</div>
+              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
               <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
                 <span style={{color:C.faint,fontSize:10.5}}>captou: {first(p.captador_nome||"—")}</span>
@@ -10033,8 +10055,8 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
 const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
 function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar}){
-  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||""}:{
-    tipo:"casa",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
+  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda"}:{
+    tipo:"casa",finalidade:"venda",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
     cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
   });
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
@@ -10155,6 +10177,20 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
           </div>
         </div>
 
+        {/* Venda ou aluguel (21/09/2026, pedido do Ali: "acrescente a opção
+            de casa para alugar... lá só tem casa pra vender"). Mesmo desenho
+            do seletor de tipo, logo acima — é a mesma categoria de decisão
+            (o que este cadastro É), só que nasce em "Venda" porque é o que
+            o catálogo sempre foi antes de hoje. */}
+        <div>
+          {rotulo("Venda ou aluguel")}
+          <div style={{display:"flex",gap:8}}>
+            {[["venda","Venda"],["aluguel","Aluguel"]].map(([v,t])=>
+              <button key={v} onClick={()=>setF({...f,finalidade:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
+                border:`1px solid ${f.finalidade===v?C.green:C.line}`,background:f.finalidade===v?C.greenSoft:C.surface,color:f.finalidade===v?C.greenDeep:C.sub}}>{t}</button>)}
+          </div>
+        </div>
+
         {f.tipo==="casa"&&<div>
           {rotulo("Empreendimento ou casa solta")}
           <div style={{display:"flex",gap:8}}>
@@ -10166,7 +10202,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
 
         <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
 
-        <div>{rotulo("Valor do imóvel")}<CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder="285.000,00" isMobile={isMobile}/></div>
+        <div>{rotulo(f.finalidade==="aluguel"?"Valor do aluguel (mensal)":"Valor do imóvel")}<CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={f.finalidade==="aluguel"?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
           <div>{rotulo("Terreno (m²)")}<input value={f.metragem} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
           {f.tipo==="casa"&&<React.Fragment>
@@ -10216,10 +10252,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
         </div>
 
         <div>
-          {rotulo("Comissão da venda (%)")}
+          {rotulo(f.finalidade==="aluguel"?"Comissão do aluguel (%)":"Comissão da venda (%)")}
           <input value={f.comissao_pct||""} onChange={set("comissao_pct")} inputMode="decimal" placeholder="6" style={entrada}/>
           {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",marginTop:7,fontSize:12,color:C.sub,lineHeight:1.6}}>
-            Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b><br/>
+            Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b>{f.finalidade==="aluguel"&&"/mês"}<br/>
             Imobiliária (45%): {fmtMoeda(comissao*0.45)} · Corretor (55%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*0.55)}</b>
           </div>}
         </div>
@@ -10282,7 +10318,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       {videos.map(m=><video key={m.id} src={m.url} controls style={{width:"100%",borderRadius:12,marginBottom:12,background:"#000"}}/>)}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:"4px 14px 14px",marginBottom:12}}>
-        {linha("Valor",p.valor?fmtMoeda(p.valor):null)}
+        {linha(p.finalidade==="aluguel"?"Aluguel":"Valor",p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):null)}
         {linha("Tipo",p.tipo==="casa"?(p.formato==="empreendimento"?"Casa em empreendimento":"Casa solta"):"Terreno")}
         {linha("Quartos",p.quartos)}
         {linha("Banheiros",p.banheiros)}
@@ -10300,8 +10336,8 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       </a>}
 
       {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Comissão da venda</div>
-        <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}</div>
+        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>{p.finalidade==="aluguel"?"Comissão do aluguel":"Comissão da venda"}</div>
+        <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}{p.finalidade==="aluguel"&&<span style={{fontSize:13}}>/mês</span>}</div>
         <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
           Imobiliária ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
           Corretor ({p.comissao.split.corretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(p.comissao.corretor)}</b>
@@ -10314,14 +10350,14 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
           <button onClick={()=>{aoMudarSituacao(p,"ativo");aoFechar();}} style={{flex:1,minWidth:130,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
           <button onClick={()=>{aoMudarSituacao(p,"recusado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Recusar</button>
         </React.Fragment>}
-        {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Marcar como vendido</button>}
+        {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
       </div>
       {/* Excluir é só da gestão, e fica separado do resto para não ser clicado sem querer. */}
       {supervisor&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:14}}>
         <button onClick={()=>aoApagar(p)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
           Excluir este {p.tipo==="casa"?"imóvel":"terreno"} do catálogo
         </button>
-        <div style={{color:C.faint,fontSize:11,textAlign:"center",marginTop:7,lineHeight:1.45}}>Apaga o cadastro e as fotos. Não dá para desfazer — se for só tirar do ar, use "Marcar como vendido".</div>
+        <div style={{color:C.faint,fontSize:11,textAlign:"center",marginTop:7,lineHeight:1.45}}>Apaga o cadastro e as fotos. Não dá para desfazer — se for só tirar do ar, use "{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}".</div>
       </div>}
     </div>
   </div>;

@@ -38,7 +38,7 @@ function comValores(p) {
 // grupo de WhatsApp para saber o que está disponível.
 // Filtros: ?q= ?tipo=casa|terreno ?cidade= ?bairro= ?quartos= ?valor_max= ?status=
 r.get("/", (req, res) => {
-  const { q, tipo, cidade, bairro, quartos, valor_min, valor_max, morar_bem, modalidade, captador, status } = req.query;
+  const { q, tipo, finalidade, cidade, bairro, quartos, valor_min, valor_max, morar_bem, modalidade, captador, status } = req.query;
   const where = ["p.org_id = ?"], args = [req.user.org_id];
 
   // Quem não supervisiona só vê o que já foi aprovado — mais o que ele mesmo enviou.
@@ -46,6 +46,7 @@ r.get("/", (req, res) => {
   else { where.push("(p.status = 'ativo' OR p.created_by = ?)"); args.push(req.user.id); }
 
   if (tipo) { where.push("p.tipo = ?"); args.push(tipo); }
+  if (finalidade) { where.push("p.finalidade = ?"); args.push(finalidade); }
   if (cidade) { where.push("p.cidade LIKE ?"); args.push(`%${cidade}%`); }
   if (bairro) { where.push("p.bairro LIKE ?"); args.push(`%${bairro}%`); }
   if (quartos) { where.push("p.quartos >= ?"); args.push(Number(quartos)); }
@@ -101,6 +102,7 @@ export function numero(v) {
 
 function validar(b) {
   if (!["casa", "terreno"].includes(b.tipo)) return "Escolha se é casa ou terreno.";
+  if (b.finalidade && !["venda", "aluguel"].includes(b.finalidade)) return "Escolha se é venda ou aluguel.";
   if (!limpar(b.titulo)) return "Dê um nome ao produto (ex.: Casa 3 quartos no Jardim Amazonas).";
   if (b.tipo === "casa" && !["empreendimento", "solta"].includes(b.formato))
     return "Para casa, informe se é empreendimento ou casa solta.";
@@ -124,11 +126,11 @@ r.post("/", (req, res) => {
 
   const id = "p_" + randomUUID();
   db.prepare(`INSERT INTO produtos
-    (id,org_id,tipo,titulo,formato,quartos,banheiros,construtor,valor,metragem,cidade,bairro,endereco,
+    (id,org_id,tipo,finalidade,titulo,formato,quartos,banheiros,construtor,valor,metragem,cidade,bairro,endereco,
      maps_url,morar_bem,modalidade,comissao_pct,captador_id,captador_nome,observacoes,status,created_by,created_at)
-    VALUES (@id,@org_id,@tipo,@titulo,@formato,@quartos,@banheiros,@construtor,@valor,@metragem,@cidade,@bairro,@endereco,
+    VALUES (@id,@org_id,@tipo,@finalidade,@titulo,@formato,@quartos,@banheiros,@construtor,@valor,@metragem,@cidade,@bairro,@endereco,
      @maps_url,@morar_bem,@modalidade,@comissao_pct,@captador_id,@captador_nome,@observacoes,@status,@created_by,@created_at)`).run({
-    id, org_id: req.user.org_id, tipo: b.tipo, titulo: limpar(b.titulo),
+    id, org_id: req.user.org_id, tipo: b.tipo, finalidade: b.finalidade === "aluguel" ? "aluguel" : "venda", titulo: limpar(b.titulo),
     formato: b.tipo === "casa" ? b.formato : null,
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem),
@@ -144,10 +146,14 @@ r.post("/", (req, res) => {
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(id)));
 });
 
+// Situações terminais: o negócio fechou, de um jeito ou de outro — não
+// existe "vendido" para um imóvel anunciado como aluguel, nem o contrário.
+const FECHADO = new Set(["vendido", "alugado"]);
+
 // Editar: o dono do cadastro enquanto não foi aprovado, ou quem supervisiona.
 function podeEditar(user, p) {
   if (!p) return false;
-  return supervisiona(user) || (p.created_by === user.id && p.status !== "vendido");
+  return supervisiona(user) || (p.created_by === user.id && !FECHADO.has(p.status));
 }
 
 r.patch("/:id", (req, res) => {
@@ -167,12 +173,13 @@ r.patch("/:id", (req, res) => {
     captador = { id: u.id, nome: u.name };
   }
 
-  db.prepare(`UPDATE produtos SET tipo=@tipo,titulo=@titulo,formato=@formato,quartos=@quartos,banheiros=@banheiros,
+  db.prepare(`UPDATE produtos SET tipo=@tipo,finalidade=@finalidade,titulo=@titulo,formato=@formato,quartos=@quartos,banheiros=@banheiros,
     construtor=@construtor,valor=@valor,metragem=@metragem,cidade=@cidade,bairro=@bairro,endereco=@endereco,
     maps_url=@maps_url,morar_bem=@morar_bem,modalidade=@modalidade,comissao_pct=@comissao_pct,
     captador_id=@captador_id,captador_nome=@captador_nome,observacoes=@observacoes WHERE id=@id`).run({
     captador_id: captador.id, captador_nome: captador.nome,
-    id: p.id, tipo: b.tipo, titulo: limpar(b.titulo), formato: b.tipo === "casa" ? b.formato : null,
+    id: p.id, tipo: b.tipo, finalidade: b.finalidade === "aluguel" ? "aluguel" : "venda",
+    titulo: limpar(b.titulo), formato: b.tipo === "casa" ? b.formato : null,
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem), cidade: limpar(b.cidade), bairro: limpar(b.bairro),
     endereco: limpar(b.endereco), maps_url: limpar(b.maps_url),
@@ -185,7 +192,7 @@ r.patch("/:id", (req, res) => {
 
 // Aprovação do produto enviado por corretor.
 r.post("/:id/status", roles("adm", "sdr"), (req, res) => {
-  const permitidos = ["ativo", "recusado", "vendido", "inativo"];
+  const permitidos = ["ativo", "recusado", "vendido", "alugado", "inativo"];
   const { status } = req.body || {};
   if (!permitidos.includes(status)) return res.status(400).json({ error: "Situação inválida." });
   const info = db.prepare("UPDATE produtos SET status=? WHERE id=? AND org_id=?").run(status, req.params.id, req.user.org_id);

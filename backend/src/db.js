@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS produtos (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,
   tipo TEXT NOT NULL CHECK (tipo IN ('casa','terreno')),
+  -- venda ou aluguel (21/09/2026, pedido do Ali: a captação só tinha venda).
+  -- Default 'venda' porque é o que a base inteira já era antes desta coluna
+  -- existir — sem o default, todo produto anterior nasceria sem finalidade.
+  finalidade TEXT NOT NULL DEFAULT 'venda' CHECK (finalidade IN ('venda','aluguel')),
   titulo TEXT NOT NULL,
   formato TEXT,            -- casa: 'empreendimento' ou 'solta'
   quartos INTEGER,
@@ -1068,6 +1072,10 @@ if (!prodCols.includes("modalidade")) {
   db.exec("ALTER TABLE produtos ADD COLUMN modalidade TEXT");
   db.exec("UPDATE produtos SET modalidade = 'Morar Bem PE' WHERE morar_bem = 1");
 }
+// Captação só tinha imóvel para VENDA (21/09/2026, relatado pelo Ali). Toda
+// linha que já existia é venda de verdade — é isso que ela sempre foi, então
+// o default cobre a migração sozinho.
+if (!prodCols.includes("finalidade")) db.exec("ALTER TABLE produtos ADD COLUMN finalidade TEXT NOT NULL DEFAULT 'venda'");
 
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".

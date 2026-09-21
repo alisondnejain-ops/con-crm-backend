@@ -115,5 +115,43 @@ assert.equal(chaveDaUrl(`https://pub-teste.r2.dev/${chave}`), null, "sem R2_PUBL
 assert.equal(chaveDaUrl(null), null);
 assert.equal(chaveDaUrl(""), null);
 
+/* ===== O TOKEN DE 2 MINUTOS, PARA O DOWNLOAD FUNCIONAR NO CELULAR =====
+   (21/09/2026, relatado pelo Ali: "não tá funcionando corretamente no
+   celular deles" — o truque de fetch+blob+<a download> que os casos acima
+   testam é exatamente o que o Safari do iPhone ignora. A correção é uma
+   navegação de verdade para uma URL com token próprio, sem cabeçalho. */
+console.log("8. Pede o token — só quem pode ver o lead recebe um");
+resp = await fetch(`${BASE}/leads/${leadId}/anexo/${msgId}/token-baixar`, { headers: { authorization: "Bearer " + tokenMarina } });
+assert.equal(resp.status, 200);
+const { token } = await resp.json();
+console.log(`   token recebido: ${!!token}`);
+assert.ok(token);
+
+resp = await fetch(`${BASE}/leads/${leadId}/anexo/${msgId}/token-baixar`, { headers: { authorization: "Bearer " + tokenBruno } });
+console.log(`   Bruno (sem acesso a este lead): ${resp.status}`);
+assert.equal(resp.status, 403);
+
+console.log("9. O token baixa o arquivo de verdade — SEM cabeçalho Authorization, só a URL, e FORA de /leads");
+resp = await fetch(`${BASE}/anexo-baixar/${leadId}/${msgId}?t=${encodeURIComponent(token)}`);
+console.log(`   ${resp.status}`);
+assert.equal(resp.status, 200);
+const corpoViaToken = Buffer.from(await resp.arrayBuffer());
+assert.ok(corpoViaToken.equals(conteudo), "o arquivo baixado pelo token tem que ser igual ao original");
+assert.ok((resp.headers.get("content-disposition") || "").includes("attachment"));
+
+console.log("10. O token só serve para ESTE anexo — não abre outro, mesmo de uma mensagem qualquer");
+resp = await fetch(`${BASE}/anexo-baixar/${leadId}/${msgTexto}?t=${encodeURIComponent(token)}`);
+console.log(`   pedindo com o token de outra mensagem: ${resp.status}`);
+assert.equal(resp.status, 401, "token emitido para msgId não pode servir para msgTexto");
+
+console.log("11. Token inventado — 401, não vaza dado nenhum");
+resp = await fetch(`${BASE}/anexo-baixar/${leadId}/${msgId}?t=isto-nao-e-um-token`);
+console.log(`   ${resp.status}`);
+assert.equal(resp.status, 401);
+
+console.log("12. Corretor sem acesso a este lead — o token não é dele, então 401 (nunca chega nem a olhar o dono)");
+resp = await fetch(`${BASE}/leads/${leadId}/anexo/${msgId}/token-baixar`, { headers: { authorization: "Bearer " + tokenBruno } });
+assert.equal(resp.status, 403, "Bruno nem consegue emitir token para um lead que não é dele");
+
 console.log("\nTudo certo ✅");
 process.exit(0);
