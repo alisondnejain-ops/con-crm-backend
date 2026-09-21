@@ -355,6 +355,63 @@ export function chaveDaUrl(url) {
   return null;
 }
 
+/* Última falha ao buscar um anexo para DOWNLOAD (não upload — ver `falhaR2`
+   para isso), com a chave envolvida. Existe pela mesma razão de `falhaR2`:
+   "não consegui baixar" sem mais nada não diz se é chave que não bate, R2
+   sem permissão de LEITURA ou arquivo que sumiu — e o log do Railway não é
+   onde alguém vai procurar. */
+let ultimaFalhaDownload = null;
+export const falhaDownload = () => ultimaFalhaDownload;
+
+/* Busca o arquivo para o corretor BAIXAR, com uma rede de segurança que
+   `bytesDoArquivo` sozinho não tinha. (21/09/2026, relatado pelo Ali: o
+   download continuava falhando com "Não consegui buscar o arquivo para
+   baixar." mesmo depois do conserto de mobile do mesmo dia.)
+
+   `bytesDoArquivo` lê pela API do R2 (GetObject) ou do disco — e API de
+   LEITURA é um caminho que, até este recurso existir, quase nunca era
+   exercitado de verdade: o upload (PutObject) já era usado toda hora, mas
+   ler de volta só acontecia no reenvio de mídia pro WhatsApp quando a URL
+   pública falhava, um caso raro. Um token do R2 com permissão só de
+   ESCREVER (ou uma chave que não bate mais com R2_PUBLIC_URL depois de
+   trocar de domínio) nunca teria aparecido antes — e apareceria agora, toda
+   vez que alguém clicasse em baixar.
+
+   Por isso, se a leitura pela chave falhar, tenta a URL PÚBLICA direto: o
+   bucket é público (é para isso que existe R2_PUBLIC_URL), então mesmo sem
+   permissão de leitura pela API o arquivo costuma abrir por HTTP comum. Só
+   quando as duas falham é que o download realmente não tem como acontecer
+   — e aí o erro de verdade (não o genérico da tela) fica registrado aqui
+   para o próximo diagnóstico, em vez de só sumir num 502. */
+export async function bytesParaBaixar(mediaUrl) {
+  const chave = chaveDaUrl(mediaUrl);
+  if (chave) {
+    try {
+      return await bytesDoArquivo(chave);
+    } catch (e) {
+      ultimaFalhaDownload = { quando: Date.now(), chave, erro: e.message, nome: e.name || null };
+      console.error("[storage] não consegui ler pela chave, tentando a URL pública:", chave, e.message);
+    }
+  }
+  // `mediaUrl` deveria sempre ser absoluta (é o `APP_URL` que a monta em
+  // `gravarNoDisco`, e sem ele o envio pro WhatsApp já não funcionaria) —
+  // mas uma linha muito antiga, salva antes de `APP_URL` estar configurado,
+  // pode ter ficado relativa. `fetch` de uma URL relativa, no servidor
+  // (sem `document.baseURI` nenhum), lança um erro de parse cru; resolver
+  // contra o próprio APP_URL é melhor que deixar essa mensagem crua subir.
+  const alvo = /^https?:\/\//i.test(mediaUrl)
+    ? mediaUrl
+    : `${(process.env.APP_URL || "").replace(/\/$/, "")}${mediaUrl}`;
+  const res = await fetch(alvo);
+  if (!res.ok) {
+    const erro = new Error(`HTTP ${res.status} ao buscar a URL pública`);
+    if (!ultimaFalhaDownload || ultimaFalhaDownload.chave === chave)
+      ultimaFalhaDownload = { quando: Date.now(), chave, erro: erro.message, nome: null };
+    throw erro;
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 /* ===== R2 DIRETO, SEM REDE DE SEGURANÇA =====
 
    `salvar()` cai para o disco quando o R2 recusa, e está certo: foto que não
