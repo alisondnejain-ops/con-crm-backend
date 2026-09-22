@@ -103,10 +103,19 @@ r.get("/publico/planos", (_req, res) => {
 
 /* COMEÇAR O TESTE. É o botão do site.
 
-   Não cobra nada e não pede cartão: cria a conta, começa o teste e devolve o
-   link para a pessoa criar a senha. O pagamento acontece depois, dentro do
-   CRM, quando ela escolher o plano — que é onde o Asaas já está ligado e onde
-   nenhum dado de cartão passa por nós. */
+   Cria a conta e devolve o link para a pessoa criar a senha — isso não
+   cobra nada e não pede cartão AQUI. Mas o teste de 14 dias grátis passou a
+   exigir cartão cadastrado (22/09/2026, pedido do Ali: "sim temos um teste
+   de 14 dias mas precisa SIM cadastrar o cartão de crédito"): depois de
+   criar a senha, a pessoa cai numa tela que pede para escolher o plano e
+   vai para a fatura hospedada pelo Asaas — é lá, no domínio deles, que o
+   cartão é digitado, nunca aqui (a mesma razão de sempre: número de cartão
+   trafegando por este servidor entraria em escopo PCI-DSS pesado à toa).
+
+   `exige_cartao=1` é o que marca essa conta para passar por essa tela —
+   diferente das que o Ali cria na mão no hub (`POST /orgs/autonomos`,
+   `POST /orgs`), que continuam sem essa trava: ali a venda já foi
+   conversada, e o link de convite não precisa de um pedágio no meio. */
 r.post("/publico/comecar", async (req, res) => {
   const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
     || req.socket?.remoteAddress || "sem-ip";
@@ -177,8 +186,8 @@ r.post("/publico/comecar", async (req, res) => {
        o plano CONTRATADO, gravado quando o Asaas confirma a cobrança, e é ele
        que manda no vencimento. Gravar a intenção lá diria que a conta tem plano
        contratado durante os 14 dias de teste. Ver o comentário em `db.js`. */
-    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,plano_escolhido)
-      VALUES (?,?,?,'',0,0,?,?,?)`)
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,plano_escolhido,exige_cartao)
+      VALUES (?,?,?,'',0,0,?,?,?,1)`)
       .run(orgId, marca, codigoLivre(marca), agora, tipo, plano ? plano.id : null);
     /* Conta que existe mas nunca foi ativada (pendente, recusada) é
        reaproveitada: quem tentou uma vez e não terminou não pode ficar preso
@@ -213,11 +222,15 @@ r.post("/publico/comecar", async (req, res) => {
   });
   criar();
 
-  /* O TESTE COMEÇA QUANDO ELE DEFINE A SENHA, não agora.
+  /* O TESTE NÃO COMEÇA NEM AQUI, NEM NO `set-password` (mudou em 22/09/2026).
 
-     A regra é de 27/08/2026 e vale mais ainda aqui: alguém que preenche o
-     formulário às 23h e só abre o e-mail na segunda não pode chegar com três
-     dias a menos. Quem inicia a contagem é o `set-password`. */
+     Até o cartão obrigatório, quem iniciava a contagem era o `set-password` —
+     regra de 27/08/2026, para alguém que preenche o formulário às 23h e só
+     abre o e-mail na segunda não perder três dias de graça. Essa razão
+     continua de pé, só que agora existe um passo a mais antes de haver
+     "teste" para começar: sem cartão cadastrado não há nada rodando ainda.
+     `trial_ate` só é gravado quando o Asaas confirma o cartão anexado (ver
+     `tentarConfirmarCartao` em assinatura.routes.js) — nunca antes disso. */
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
   let enviado = false;

@@ -869,6 +869,30 @@ addOrgCol("trial_ate", "INTEGER");
    pagar — que é a única leitura de intenção que existe antes da primeira
    fatura. */
 addOrgCol("plano_escolhido", "TEXT");
+
+/* CARTÃO OBRIGATÓRIO NO TESTE GRÁTIS (22/09/2026, pedido do Ali: "sim temos um
+   teste de 14 dias mas precisa SIM cadastrar o cartão de crédito"). Até aqui o
+   teste começava liberado, sem cartão nenhum, e a cobrança só existia se a
+   pessoa escolhesse contratar — o que muitas vezes nunca acontecia. Agora
+   quem entra pela porta pública (site) precisa passar pela fatura da Asaas e
+   ANEXAR um cartão antes de o CRM abrir de verdade.
+
+   `exige_cartao`: marca as contas nascidas pela porta pública (autônomo e
+   imobiliária), para o resto do sistema saber que este É o modelo dela.
+   Contas que o Ali cria na mão pelo hub (POST /orgs, /orgs/autonomos) NÃO
+   ganham a marca — ele continua repassando o link de convite do jeito que já
+   faz numa venda conversada, sem essa trava no meio. Default 0: toda conta
+   que já existe hoje continua exatamente como está, sem migração nenhuma.
+
+   `cartao_confirmado_em`: quando o Asaas de fato confirmou que há um cartão
+   anexado à assinatura — NÃO quando ela foi criada (criar só reserva a
+   cobrança futura; o cartão só existe depois que a pessoa abre a fatura
+   hospedada e preenche os dados lá, fora do nosso servidor). É este campo,
+   não `trial_ate`, que separa "ainda não cadastrou" de "já pode entrar" — e
+   é só a partir dele que o relógio de 14 dias passa a contar (ver
+   `situacao()` em services/assinatura.js). */
+addOrgCol("exige_cartao", "INTEGER DEFAULT 0");
+addOrgCol("cartao_confirmado_em", "INTEGER");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");

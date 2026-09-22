@@ -109,15 +109,23 @@ r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
 
   const gravar = db.transaction(() => {
     if (org) {
-      db.prepare("UPDATE orgs SET name = ? WHERE id = ?").run(nomeOrg, org.id);
+      db.prepare("UPDATE orgs SET name = ?, exige_cartao = 1 WHERE id = ?").run(nomeOrg, org.id);
       db.prepare(`UPDATE users SET name=?, phone=?, role='adm', invite_hash=?, invite_expires=?,
         invite_tipo='fundador' WHERE id=?`).run(cleanName, normalizePhone(phone), resumoDeConvite(token), expires, existente.id);
       org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id);
       return;
     }
     const orgId = "org_" + randomUUID().slice(0, 8);
-    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at)
-                VALUES (?,?,?,'',0,0,?)`).run(orgId, nomeOrg, codigoLivre(nomeOrg), Date.now());
+    /* `exige_cartao=1` (22/09/2026, pedido do Ali: teste de 14 dias com
+       cartão obrigatório): esta é a porta MAIS ANTIGA de imobiliária —
+       `/publico/comecar` (02/09/2026) veio depois e passou a cobrir o mesmo
+       caso, mas esta continua de pé e linkada (o rodapé de `comecar.html`
+       manda "tem imobiliária com equipe?" para cá). Sem marcar aqui também,
+       o mesmo cadastro que o cartão obrigatório existe para cobrir passaria
+       batido por uma porta mais velha — a trava vale pelo destino
+       (`orgs.exige_cartao`), não pela porta por onde a pessoa entrou. */
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,exige_cartao)
+                VALUES (?,?,?,'',0,0,?,1)`).run(orgId, nomeOrg, codigoLivre(nomeOrg), Date.now());
 
     const userId = existente ? existente.id : "u_" + randomUUID();
     if (existente) {
@@ -290,17 +298,29 @@ r.post("/set-password", (req, res) => {
   db.prepare("UPDATE users SET pass_hash=?, status=?, invite_token=NULL, invite_hash=NULL, invite_expires=NULL WHERE id=?")
     .run(bcrypt.hashSync(String(password), 10), novoStatus, u.id);
 
-  /* O TESTE GRÁTIS DO AUTÔNOMO COMEÇA AQUI, e não na criação da conta.
+  /* O TESTE GRÁTIS DO AUTÔNOMO COMEÇAVA AQUI — hoje só quando a conta NÃO
+     exige cartão (`exige_cartao`, 22/09/2026).
 
      Pedido do Ali: o relógio só corre depois que a conta está efetivada. Criar
      a conta na segunda e mandar o link na quinta não pode custar três dias de
-     teste a quem ainda não tinha entrado.
+     teste a quem ainda não tinha entrado. Essa razão continua de pé para quem
+     não passa pelo cartão — conta criada na mão pelo Ali (`POST
+     /orgs/autonomos`), sem `exige_cartao`.
+
+     Quem VEIO PELO SITE (`exige_cartao=1`) tem um passo a mais antes de haver
+     teste para começar: sem cartão cadastrado não há nada rodando ainda. Para
+     essa conta, `trial_ate` só é gravado quando o Asaas confirma o cartão
+     anexado (`tentarConfirmarCartao`, assinatura.routes.js) — nunca aqui.
+     Setar os dois de qualquer jeito não quebraria nada sozinho (a checagem de
+     `exige_cartao` em `situacao()` roda ANTES do bloco de teste e bloquearia
+     do mesmo jeito), mas deixaria `trial_ate` com uma data que não corresponde
+     a quando o teste de verdade começou, e o campo perderia o sentido.
 
      Só o FUNDADOR dispara: quem entra depois é o atendente dele, e o teste da
      casa não recomeça porque chegou mais alguém. */
   if (fundador) {
-    const casa = db.prepare("SELECT id, tipo, trial_ate FROM orgs WHERE id = ?").get(u.org_id);
-    if (casa && casa.tipo === "autonomo" && !casa.trial_ate) {
+    const casa = db.prepare("SELECT id, tipo, trial_ate, exige_cartao FROM orgs WHERE id = ?").get(u.org_id);
+    if (casa && casa.tipo === "autonomo" && !casa.trial_ate && !casa.exige_cartao) {
       const ate = Date.now() + TRIAL_DIAS * 86400000;
       db.prepare("UPDATE orgs SET trial_ate = ? WHERE id = ?").run(ate, casa.id);
       console.log(`[autonomo] teste de ${TRIAL_DIAS} dias começou para ${u.name}`);

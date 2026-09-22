@@ -1491,7 +1491,12 @@ function ConCRM(){
      entraria na conta do cliente justamente para ver o que há dentro dela e
      bateria na porta que ele mesmo fechou. A tarja no alto avisa que a conta
      está travada para o cliente. */
-  if(assinatura&&assinatura.status==="bloqueado"&&!session.master)
+  /* `aguardando_cartao` entrou aqui em 22/09/2026 (pedido do Ali: teste de 14
+     dias com cartão obrigatório) — é a MESMA tela do vencimento, porque para
+     quem está vendo é a mesma pergunta ("o sistema não deixa eu trabalhar, o
+     que eu faço"), só o motivo muda. `Bloqueado` já lê `assinatura.status`
+     para adaptar o texto. */
+  if(assinatura&&(assinatura.status==="bloqueado"||assinatura.status==="aguardando_cartao")&&!session.master)
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair} org={org}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
@@ -2166,8 +2171,12 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   const copiar=(c)=>{ try{ navigator.clipboard.writeText(c.link_cadastro);
     setCopiado(c.id); setTimeout(()=>setCopiado(""),1800); }catch(e){} };
 
-  const CORES={ativo:C.greenMid,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot};
-  const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado"};
+  /* `aguardando_cartao` (22/09/2026) entra aqui também — sem ele, o selo
+     virava `undefined18` de fundo e texto em branco: a lista mostrava uma
+     pílula vazia para toda imobiliária que veio pelo site e ainda não
+     cadastrou o cartão. */
+  const CORES={ativo:C.greenMid,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot,aguardando_cartao:C.amber};
+  const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado",aguardando_cartao:"Sem cartão"};
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
 
@@ -2349,7 +2358,11 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
   const SELO={teste:{t:"em teste",c:C.greenMid,bg:C.greenSoft},ativo:{t:"Em dia",c:C.greenMid,bg:C.greenSoft},
     vence_em_breve:{t:"Vence em breve",c:C.amber,bg:C.amberSoft},atrasado:{t:"Em atraso",c:C.hot,bg:C.hotSoft},
-    bloqueado:{t:"Travado",c:C.hot,bg:C.hotSoft}};
+    bloqueado:{t:"Travado",c:C.hot,bg:C.hotSoft},
+    /* Sem este selo, `||SELO.ativo` mostrava "Em dia" em verde para quem
+       nunca nem começou o teste — o oposto do que "aguardando_cartao"
+       (22/09/2026) precisa dizer aqui. */
+    aguardando_cartao:{t:"Sem cartão",c:C.amber,bg:C.amberSoft}};
 
   return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
@@ -2859,6 +2872,12 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   if(!d) return null;
 
   const emTeste=atualSituacao&&atualSituacao.status==="teste";
+  /* O TESTE AINDA NEM COMEÇOU (22/09/2026) — é o estado de quem acabou de se
+     cadastrar pelo site e ainda não anexou um cartão. Diferente de `emTeste`
+     (onde os dias já estão correndo), aqui a escolha do plano é o que FAZ o
+     teste começar — por isso o texto muda: não é "aproveite os dias que
+     faltam", é "escolha para começar". */
+  const aguardandoCartao=atualSituacao&&atualSituacao.status==="aguardando_cartao";
   const plano=d.planos.find(p=>p.id===escolhido);
 
   async function contratar(){
@@ -2884,12 +2903,14 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   return <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Gerenciar assinatura</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      {emTeste
+      {aguardandoCartao
+        ? <React.Fragment>Escolha um plano e cadastre o cartão para <b style={{color:C.sub}}>começar o seu teste de 14 dias grátis</b> — a primeira cobrança só cai quando o teste acabar.</React.Fragment>
+        : emTeste
         ? <React.Fragment>Você está no teste grátis. Escolha um plano agora e a{" "}
             <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
         : d.atual
         ? "Você pode trocar de plano quando quiser. O plano anterior é cancelado na troca."
-        : "Escolha o seu plano. O pagamento é feito na tela do Asaas, com Pix, boleto ou cartão."}
+        : "Escolha o seu plano. O pagamento é feito na tela do Asaas, no cartão de crédito."}
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
@@ -2950,6 +2971,11 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
         </div>
 
         {plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
+          {aguardandoCartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,
+            borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+            Cadastrar o cartão não cobra nada agora — o teste de 14 dias começa
+            assim que o Asaas confirmar, e a primeira cobrança só cai no fim dele.
+          </div>}
           <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>
             Contratar o plano {plano.nome} — {fmtMoeda(plano.total)}
             {plano.forma==="parcelado"?` em ${plano.parcelas}x`:plano.meses>1?` a cada ${plano.meses} meses`:" por mês"}
@@ -2972,16 +2998,18 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
               onde vai antes de sair do CRM com o CPF na mão. */}
           <div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.5,display:"flex",gap:6}}>
             <Icon n="lock" size={12}/>
-            <span>Abre a tela segura do Asaas, onde você escolhe Pix, boleto ou cartão.
+            <span>Abre a tela segura do Asaas, onde você cadastra o cartão de crédito.
               Os dados do cartão são digitados lá — o ConHub não recebe nem guarda nenhum deles.</span>
           </div>
         </div>}
 
         {fatura&&<div style={{marginTop:10,background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12}}>
-          <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>Plano contratado — falta pagar</div>
+          <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>
+            {aguardandoCartao?"Plano escolhido — falta cadastrar o cartão":"Plano contratado — falta pagar"}</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
-            A tela de pagamento abriu numa aba nova. Se ela não apareceu, use o link abaixo.
-            Assim que o pagamento for confirmado, o acesso é liberado sozinho.
+            {aguardandoCartao
+              ?"A tela do Asaas abriu numa aba nova. Se ela não apareceu, use o link abaixo. Assim que o cartão for cadastrado, o seu teste de 14 dias começa sozinho."
+              :"A tela de pagamento abriu numa aba nova. Se ela não apareceu, use o link abaixo. Assim que o pagamento for confirmado, o acesso é liberado sozinho."}
           </div>
           <a href={fatura} target="_blank" rel="noreferrer"
             style={{display:"inline-flex",alignItems:"center",gap:6,textDecoration:"none",background:C.greenDeep,
@@ -3002,260 +3030,122 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
    Só aparece para o TITULAR da conta. Pode haver outro gestor com acesso total
    ao CRM — o que ele paga, quanto e quando não é assunto dele. O servidor
    recusa do mesmo jeito (403); esconder aqui é só não mostrar porta trancada. */
-function PainelAssinatura({acoes,isMobile,master,autonomo}){
+function PainelAssinatura({acoes,isMobile,autonomo}){
+  /* O PAINEL MANUAL DE MENSALIDADE FOI REMOVIDO (22/09/2026, pedido do Ali,
+     depois de continuar vendo a seção antiga num print: "essa seção não faz
+     sentido estar aqui visto que tudo está sendo feito pelo Asaas" — e
+     confirmado de novo, explicitamente, quando a primeira versão deste
+     conserto só escondia os controles em contas que JÁ tinham cliente no
+     Asaas: ele pediu a remoção "de vez, para todas as contas", mesmo as com
+     preço negociado fora do Asaas).
+
+     O que SAIU para sempre, de toda conta: o card "Mensalidade do sistema"
+     com o resumo de vencimento/plano/valor, os campos editáveis de
+     Plano/Valor/Vencimento/Carência, "Salvar", "Registrar pagamento" (baixa
+     manual), e o histórico de pagamentos com corrigir/apagar/reorganizar.
+     Uma imobiliária com preço negociado fora do Asaas (a `Rede`, e qualquer
+     conta que o Ali configure na mão) perde o único jeito de registrar
+     cobrança por aqui — é o custo aceito da decisão; se precisar de novo, é
+     outra ferramenta, mais simples, a construir sob pedido.
+
+     O que CONTINUA, porque não é "painel manual" — é o caminho de ligar a
+     cobrança automática de verdade, e é exatamente o que "tudo está sendo
+     feito pelo Asaas" pede: `GerenciarAssinatura` (prateleira do autônomo) e,
+     para a imobiliária negociada, o formulário de CPF que ativa a assinatura
+     dela no Asaas. */
   const [a,setA]=useState(null);
-  const [f,setF]=useState({plano:"",valor_mensal:"",vence_em:"",dias_carencia:5});
-  const [novo,setNovo]=useState({nome:"",cpfCnpj:"",email:"",telefone:"",valor:"",vencimento:""});
+  const [novo,setNovo]=useState({cpfCnpj:"",vencimento:""});
   const [ocupado,setOcupado]=useState("");
-  const [aviso,setAviso]=useState(null);
-  const [pagos,setPagos]=useState(null);
-  const [lancar,setLancar]=useState(null);     // formulário de baixa manual aberto
-  const [editando,setEditando]=useState(null); // id do pagamento em edição
-  const [rascunho,setRascunho]=useState({pago_em:"",valor:""});
-  const [confirmar,setConfirmar]=useState(null);
+  const [erro,setErro]=useState("");
 
-  const hoje=()=>new Date().toISOString().slice(0,10);
-  const paraInput=(ms)=>ms?new Date(ms-new Date(ms).getTimezoneOffset()*60000).toISOString().slice(0,10):"";
-
-  const rever=()=>acoes.assinatura().then(d=>{
-    setA(d);
-    if(!d.dono) return;
-    setF({plano:d.plano||"",valor_mensal:d.valor||"",
-      vence_em:paraInput(d.vence_em),
-      dias_carencia:d.carencia==null?5:d.carencia});
-    acoes.pagamentos().then(p=>setPagos(p.pagamentos||[])).catch(()=>setPagos([]));
-  }).catch(()=>{});
+  const rever=()=>acoes.assinatura().then(setA).catch(()=>{});
   useEffect(()=>{rever();},[]);
   if(!a||!a.dono) return null;
 
-  const CORES={ativo:C.green,vence_em_breve:C.amber,atrasado:C.hot,bloqueado:C.hot};
-  const ROTULOS={ativo:"Em dia",vence_em_breve:"Vence em breve",atrasado:"Em atraso",bloqueado:"Bloqueado"};
-  const roda=(nome,fn)=>async()=>{ setAviso(null); setOcupado(nome);
-    try{ await fn(); await rever(); }catch(e){ setAviso({ok:false,txt:e.message}); } finally{ setOcupado(""); } };
+  /* `asaas_ligado` (22/09/2026) — a conta já tem cliente no Asaas
+     (`orgs.asaas_customer_id`), pelos três caminhos que criam cobrança de
+     verdade (mensal/semestral de prateleira, anual parcelado, ou a ativação
+     por CPF abaixo). Só decide se o formulário de CPF ainda tem o que fazer
+     — não mostra o formulário de novo para quem já ativou. */
+  const asaasLigado=!!a.asaas_ligado;
 
   const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12};
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
   const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
 
+  /* CORRETOR AUTÔNOMO: compra de prateleira, três planos, sem digitação do
+     ConHub no meio. */
+  if(autonomo)
+    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/></div>;
+
+  /* IMOBILIÁRIA COM PREÇO NEGOCIADO: o único campo que falta é o CPF/CNPJ —
+     nome, e-mail e telefone o CRM já tem, e o valor é o que o master
+     combinou (`orgs.valor_mensal`), nunca editável aqui. */
+  if(!a.asaas) return null; // Asaas não configurado no servidor — nada para ativar.
+
+  async function ativar(){
+    setErro("");setOcupado("asaas");
+    try{ await acoes.criarAssinaturaAsaas({cpfCnpj:novo.cpfCnpj,vencimento:novo.vencimento}); await rever(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(""); }
+  }
+
   return <div style={caixa}>
-    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-      <Icon n="award" size={15} color={C.greenMid}/>
-      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensalidade do sistema</span>
-      {a.cobranca&&<span style={{background:CORES[a.status]+"18",color:CORES[a.status],fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:999}}>
-        {ROTULOS[a.status]}</span>}
-    </div>
-
-    {!a.cobranca
-      ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>Nenhuma cobrança configurada — o sistema está liberado. Defina um vencimento abaixo para ligar o controle.</div>
-      /* NO TESTE A DATA NÃO É UM VENCIMENTO. É a mesma data por dentro — o fim
-         do teste É o primeiro vencimento, e é isso que faz a máquina de
-         cobrança servir para os dois. Mas "Vencimento: 05/09" para quem ainda
-         não contratou nada descreve uma dívida que não existe. */
-      :a.status==="teste"
-      ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.7}}>
-        <div>Teste grátis até <b style={{color:C.ink}}>{fmtData(a.vence_em)}</b>
-          {a.dias!=null?` — ${a.dias===0?"último dia":a.dias===1?"falta 1 dia":`faltam ${a.dias} dias`}`:""}</div>
-        <div style={{color:C.faint,fontSize:11.5,marginTop:3}}>Você tem acesso a tudo até lá.</div>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Cobrança automática (Asaas)</div>
+    {asaasLigado
+      ?<div style={{color:C.greenMid,fontSize:11.5,lineHeight:1.5,display:"flex",alignItems:"center",gap:6}}>
+        <Icon n="check" size={12}/> Cobrança automática ativa — a fatura chega todo mês pelo Asaas.
       </div>
-      :<div style={{color:C.sub,fontSize:12.5,lineHeight:1.7}}>
-        <div>Vencimento: <b style={{color:C.ink}}>{fmtData(a.vence_em)}</b></div>
-        {a.plano_nome?<div>Plano: <b style={{color:C.ink}}>{a.plano_nome}</b>
-          {a.plano_renova===false?<span style={{color:C.faint}}> · não renova sozinho</span>:null}</div>:null}
-        {a.valor?<div>Valor: <b style={{color:C.ink}}>{fmtMoeda(a.valor)}</b></div>:null}
-        {a.ultimo_pagamento_em?<div>Último pagamento: {fmtData(a.ultimo_pagamento_em)}</div>:null}
-        {/* Sem carência definida a frase saía como "Bloqueia dia(s) depois do
-            vencimento" — um aviso com o número faltando assusta sem informar. */}
-        {a.carencia!=null&&<div style={{color:C.faint,fontSize:11.5,marginTop:3}}>Bloqueia {a.carencia} dia(s) depois do vencimento.</div>}
-      </div>}
+      :<React.Fragment>
+        {/* O CLIENTE ATIVA A PRÓPRIA ASSINATURA, e digita UM campo.
 
-    {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
-      color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
+            Nome, e-mail e telefone o CRM já tem — são os da conta de quem
+            está olhando. Sobrou o CPF/CNPJ, que é o único dado que o sistema
+            não tem e que o Asaas exige para emitir cobrança.
 
-    {/* VALOR, VENCIMENTO E CARÊNCIA SÓ APARECEM PARA O MASTER.
-
-        A tela é do titular da conta — que, num cliente, é o próprio cliente. Com
-        os campos à vista ele baixava a mensalidade para R$ 1 e ativava a
-        cobrança com esse valor. O servidor recusa desde 27/08/2026, mas campo
-        que não vale nada é pior que campo nenhum: ele promete uma edição que
-        vai dar erro.
-
-        Sobra o nome do plano, que é rótulo e não vira dinheiro. */}
-    {master
-      ?<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        <div style={{flex:"1 1 130px"}}>{rot("Plano")}<input value={f.plano} onChange={e=>setF({...f,plano:e.target.value})} placeholder="ConHub Mensal" style={entrada}/></div>
-        <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={f.valor_mensal} onChange={e=>setF({...f,valor_mensal:e.target.value})} inputMode="decimal" placeholder="297" style={entrada}/></div>
-        <div style={{flex:"1 1 140px"}}>{rot("Próximo vencimento")}<input type="date" value={f.vence_em} onChange={e=>setF({...f,vence_em:e.target.value})} style={entrada}/></div>
-        <div style={{flex:"1 1 110px"}}>{rot("Carência (dias)")}<input value={f.dias_carencia} onChange={e=>setF({...f,dias_carencia:e.target.value})} inputMode="numeric" style={entrada}/></div>
-      </div>
-      /* Para o AUTÔNOMO esta frase virou mentira no dia em que os planos
-         entraram: ela diz "fale com a gente para mudar de plano" logo acima
-         dos três botões que mudam o plano sozinhos. Tela que ensina uma regra
-         que o sistema não tem mais é pior que tela sem explicação. */
-      :autonomo
-      ?null
-      :<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-        O valor e o vencimento do seu plano são definidos pelo ConHub. Para mudar de plano, fale com a gente.
-      </div>}
-
-    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-      {master&&<button onClick={roda("salvar",()=>acoes.configurarAssinatura(f))} disabled={!!ocupado}
-        style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-        {ocupado==="salvar"?"Salvando…":"Salvar"}</button>}
-      {/* DAR BAIXA É DE QUEM RECEBE. O botão era do dono da conta — que, num
-          cliente, é o próprio cliente: ele clicava e ganhava um mês, quantas
-          vezes quisesse, e bloqueado o mesmo clique destravava a conta. O
-          servidor recusa desde 27/08/2026; aqui ele some, porque botão que
-          sempre dá erro é pior que botão nenhum. */}
-      {master&&<button onClick={()=>{setAviso(null);setLancar(lancar?null:{pago_em:hoje(),valor:a.valor||"",obs:""});}} disabled={!!ocupado}
-        style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-        {lancar?"Cancelar":"Registrar pagamento"}</button>}
-    </div>
-
-    {/* Baixa manual com data: dá para lançar mês antigo que ficou para trás,
-        em vez de ter que corrigir o vencimento na unha depois. */}
-    {lancar&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:9}}>
-      <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>Lançar pagamento</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        <div style={{flex:"1 1 140px"}}>{rot("Pago em")}<input type="date" value={lancar.pago_em} onChange={e=>setLancar({...lancar,pago_em:e.target.value})} style={entrada}/></div>
-        <div style={{flex:"1 1 110px"}}>{rot("Valor (R$)")}<input value={lancar.valor} onChange={e=>setLancar({...lancar,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
-        <div style={{flex:"1 1 160px"}}>{rot("Observação")}<input value={lancar.obs} onChange={e=>setLancar({...lancar,obs:e.target.value})} placeholder="Pix, cortesia…" style={entrada}/></div>
-      </div>
-      <button onClick={roda("pagar",async()=>{ await acoes.marcarMensalidadePaga(lancar); setLancar(null); })} disabled={!!ocupado}
-        style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-        {ocupado==="pagar"?"Registrando…":"Confirmar pagamento"}</button>
-      <div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Cada pagamento vale um mês. O vencimento é recalculado sozinho.</div>
-    </div>}
-
-    {/* Histórico. É o que faltava: sem ele, um clique errado no "Registrar
-        pagamento" empurrava o vencimento um mês e não havia como desfazer. */}
-    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-        <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Pagamentos registrados</span>
-        {master&&pagos&&pagos.length>0&&<button onClick={roda("reorg",()=>acoes.reorganizarCobrancas().then(r=>{setPagos(r.pagamentos||[]);setAviso({ok:true,txt:"Cobranças reorganizadas — vencimento recalculado a partir dos pagamentos."});}))}
-          disabled={!!ocupado} title="Recalcula o vencimento a partir dos pagamentos registrados"
-          style={{background:"transparent",color:C.greenMid,border:`1px solid ${C.green}44`,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
-          {ocupado==="reorg"?"Reorganizando…":"Reorganizar"}</button>}
-      </div>
-
-      {pagos===null?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>
-      :pagos.length===0?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Nenhum pagamento registrado ainda.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {pagos.map(p=>editando===p.id
-          ?<div key={p.id} style={{background:C.surface,border:`1px solid ${C.green}55`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8}}>
+            E o VALOR não é campo: é o preço combinado, mostrado para
+            conferência. Deixá-lo editável aqui seria deixar o cliente
+            escolher quanto paga — o servidor recusa de qualquer forma, mas
+            um campo que não vale nada é pior que campo nenhum. */}
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+          Ative a cobrança automática. Você recebe a fatura todo mês e escolhe entre
+          Pix, boleto ou cartão. Ambiente: <b>{a.ambiente}</b>.
+        </div>
+        {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+        {!(a.valor||a.valor_mensal)
+          ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+            O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano —
+            assim que ele estiver aqui, você ativa a cobrança sozinho.
+          </div>
+          :<React.Fragment>
+            <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",
+              display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+              <span style={{color:C.sub,fontSize:11.5}}>Sua mensalidade</span>
+              <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtMoeda(a.valor||a.valor_mensal)}</span>
+              <span style={{color:C.faint,fontSize:11}}>por mês</span>
+            </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <div style={{flex:"1 1 130px"}}>{rot("Pago em")}<input type="date" value={rascunho.pago_em} onChange={e=>setRascunho({...rascunho,pago_em:e.target.value})} style={entrada}/></div>
-              <div style={{flex:"1 1 100px"}}>{rot("Valor (R$)")}<input value={rascunho.valor} onChange={e=>setRascunho({...rascunho,valor:e.target.value})} inputMode="decimal" style={entrada}/></div>
+              <div style={{flex:"1 1 170px"}}>{rot("Seu CPF ou CNPJ")}
+                <input value={novo.cpfCnpj} onChange={e=>setNovo({...novo,cpfCnpj:e.target.value})}
+                  inputMode="numeric" placeholder="só números" style={entrada}/>
+                <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+                  É o que o Asaas exige para emitir a cobrança no seu nome.
+                </div></div>
+              <div style={{flex:"1 1 140px"}}>{rot("1º vencimento")}
+                <input type="date" value={novo.vencimento} onChange={e=>setNovo({...novo,vencimento:e.target.value})} style={entrada}/>
+                <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
+                  Em branco, cai daqui a 7 dias.
+                </div></div>
             </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={roda("edit",async()=>{ const r=await acoes.editarPagamento(p.id,rascunho); setPagos(r.pagamentos||[]); setEditando(null); })} disabled={!!ocupado}
-                style={{flex:1,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
-              <button onClick={()=>setEditando(null)}
-                style={{flex:1,background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-            </div>
-          </div>
-          :<div key={p.id} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"9px 11px"}}>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>
-                {fmtData(p.pago_em)}{p.valor!=null?` · ${fmtMoeda(p.valor)}`:""}</div>
-              <div style={{color:C.faint,fontSize:10.5}}>
-                {p.origem==="asaas"?"Confirmado pelo Asaas":"Lançado manualmente"}{p.obs?` · ${p.obs}`:""}</div>
-            </div>
-            {/* Corrigir e apagar mexem no vencimento, então são do ConHub
-                pelo mesmo motivo do "Registrar pagamento". O cliente continua
-                VENDO o histórico — é o extrato dele. */}
-            {master&&<React.Fragment>
-              <button onClick={()=>{setEditando(p.id);setRascunho({pago_em:paraInput(p.pago_em),valor:p.valor??""});}}
-                title="Corrigir data ou valor" style={{background:"transparent",border:"none",color:C.sub,cursor:"pointer",padding:4,display:"flex"}}>
-                <Icon n="edit" size={15}/></button>
-              <button onClick={()=>setConfirmar(p)} title="Apagar este pagamento"
-                style={{background:"transparent",border:"none",color:C.hot,cursor:"pointer",padding:4,display:"flex"}}>
-                <Icon n="trash" size={15}/></button>
-            </React.Fragment>}
-          </div>)}
-      </div>}
-
-      {/* Apagar mexe na data de vencimento. Confirmar dizendo o que vai
-          acontecer evita o susto de ver o sistema bloquear depois. */}
-      {confirmar&&<div style={{marginTop:9,background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:11}}>
-        <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Apagar o pagamento de {fmtData(confirmar.pago_em)}?</div>
-        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
-          O vencimento volta um mês — de {fmtData(a.vence_em)} para {fmtData(new Date(new Date(a.vence_em).setMonth(new Date(a.vence_em).getMonth()-1)).getTime())}.
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={roda("apagar",async()=>{ const r=await acoes.apagarPagamento(confirmar.id); setPagos(r.pagamentos||[]); setConfirmar(null); })} disabled={!!ocupado}
-            style={{flex:1,background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            {ocupado==="apagar"?"Apagando…":"Apagar"}</button>
-          <button onClick={()=>setConfirmar(null)}
-            style={{flex:1,background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-        </div>
-      </div>}
-    </div>
-
-    {/* O CORRETOR AUTÔNOMO TEM OUTRA TELA AQUI.
-
-        Ele compra de prateleira e escolhe entre três planos; a imobiliária tem
-        preço combinado e só confirma o que já foi negociado. Eram duas
-        perguntas diferentes espremidas no mesmo formulário de um campo. */}
-    {autonomo
-      ?<GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
-      :<div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
-      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:6}}>Cobrança automática (Asaas)</div>
-      {!a.asaas
-        ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Não configurada no servidor. Falta a variável <b>ASAAS_API_KEY</b>. Enquanto isso, use o "Registrar pagamento" acima.</div>
-        :a.link||a.valor&&a.vence_em&&a.ultimo_pagamento_em!==undefined&&a.status!=="bloqueado"&&false
-        ?null
-        :<React.Fragment>
-          {/* O CLIENTE ATIVA A PRÓPRIA ASSINATURA, e digita UM campo.
-
-              Antes esta tela pedia nome, e-mail, telefone e valor. O nome, o
-              e-mail e o telefone o CRM já tem — são os da conta de quem está
-              olhando —, e pedi-los de novo transformava cada cliente novo numa
-              digitação. Sobrou o CPF/CNPJ, que é o único dado que o sistema
-              não tem e que o Asaas exige para emitir cobrança.
-
-              E o VALOR não é campo: é o preço combinado, mostrado para
-              conferência. Deixá-lo editável aqui seria deixar o cliente
-              escolher quanto paga — o servidor recusa de qualquer forma, mas
-              um campo que não vale nada é pior que campo nenhum. */}
-          <div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
-            Ative a cobrança automática. Você recebe a fatura todo mês e escolhe entre
-            Pix, boleto ou cartão. Ambiente: <b>{a.ambiente}</b>.
-          </div>
-          {!(a.valor||a.valor_mensal)
-            ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
-              O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano —
-              assim que ele estiver aqui, você ativa a cobrança sozinho.
-            </div>
-            :<React.Fragment>
-              <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",marginBottom:10,
-                display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                <span style={{color:C.sub,fontSize:11.5}}>Sua mensalidade</span>
-                <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtMoeda(a.valor||a.valor_mensal)}</span>
-                <span style={{color:C.faint,fontSize:11}}>por mês</span>
-              </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 170px"}}>{rot("Seu CPF ou CNPJ")}
-                  <input value={novo.cpfCnpj} onChange={e=>setNovo({...novo,cpfCnpj:e.target.value})}
-                    inputMode="numeric" placeholder="só números" style={entrada}/>
-                  <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
-                    É o que o Asaas exige para emitir a cobrança no seu nome.
-                  </div></div>
-                <div style={{flex:"1 1 140px"}}>{rot("1º vencimento")}
-                  <input type="date" value={novo.vencimento} onChange={e=>setNovo({...novo,vencimento:e.target.value})} style={entrada}/>
-                  <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.45}}>
-                    Em branco, cai daqui a 7 dias.
-                  </div></div>
-              </div>
-              <button onClick={roda("asaas",()=>acoes.criarAssinaturaAsaas({cpfCnpj:novo.cpfCnpj,vencimento:novo.vencimento}))}
-                disabled={!!ocupado||!String(novo.cpfCnpj||"").trim()}
-                style={{width:"100%",marginTop:11,background:!String(novo.cpfCnpj||"").trim()?C.faint:C.green,
-                  color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,
-                  cursor:!String(novo.cpfCnpj||"").trim()?"default":"pointer"}}>
-                {ocupado==="asaas"?"Ativando…":"Ativar cobrança automática"}</button>
-            </React.Fragment>}
-        </React.Fragment>}
-    </div>}
+            <button onClick={ativar}
+              disabled={!!ocupado||!String(novo.cpfCnpj||"").trim()}
+              style={{width:"100%",background:!String(novo.cpfCnpj||"").trim()?C.faint:C.green,
+                color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,
+                cursor:!String(novo.cpfCnpj||"").trim()?"default":"pointer"}}>
+              {ocupado==="asaas"?"Ativando…":"Ativar cobrança automática"}</button>
+          </React.Fragment>}
+      </React.Fragment>}
   </div>;
 }
 
@@ -3267,41 +3157,68 @@ function PainelAssinatura({acoes,isMobile,master,autonomo}){
    dados é briga que não vale a pena comprar. */
 function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
   const master=!!session.master;
-  // O corretor autônomo assina daqui mesmo. Ver o bloco logo abaixo.
-  const autonomo=!!org&&org.tipo==="autonomo"&&podeGerir(session);
-  const [baixando,setBaixando]=useState(false);
   const gestor=podeGerir(session);
+  /* QUEM TEM PLANO DE PRATELEIRA assina daqui mesmo. Era só o autônomo — mas
+     desde 02/09/2026 a imobiliária que veio pelo site (Essencial/Plus) também
+     tem prateleira (`services/planos.js`), e o backend já libera as duas
+     (`comPrateleira`, em `assinatura.routes.js`, olha `planosDe(org.tipo)` —
+     não o tipo sozinho). Faltava só a TELA saber disso: até aqui só o
+     autônomo via o seletor de planos dentro do bloqueio, e uma imobiliária
+     travada em "aguardando_cartao" (22/09/2026) caía num beco igual ao que
+     este comentário já descrevia para o autônomo. Quem tem preço negociado
+     fora da tabela não perde nada — o servidor recusa e o seletor nem
+     aparece (`GerenciarAssinatura` volta `null` sem planos). */
+  const temPrateleira=!!org&&(org.tipo==="autonomo"||org.tipo==="imobiliaria")&&gestor;
+  /* O TESTE AINDA NEM COMEÇOU (22/09/2026, cartão obrigatório) — é a MESMA
+     tela do vencimento (a pergunta de quem está vendo é a mesma: "o sistema
+     não deixa eu trabalhar"), só que aqui não há nada "vencido" para mostrar:
+     é uma conta nova, sem cobrança, sem pagamento e sem histórico. Por isso
+     o título, a caixa de resumo e a frase de apoio mudam por baixo do mesmo
+     esqueleto, em vez de ganhar uma tela própria. */
+  const aguardandoCartao=assinatura.status==="aguardando_cartao";
+  const [baixando,setBaixando]=useState(false);
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:24,maxWidth:440,width:"100%"}}>
       <div style={{width:44,height:44,borderRadius:13,background:C.hotSoft,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
         <Icon n="lock" size={21} color={C.hot}/></div>
-      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:8}}>Acesso suspenso</div>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,fontWeight:700,marginBottom:8}}>
+        {aguardandoCartao?"Cadastre um cartão para começar":"Acesso suspenso"}</div>
       <div style={{color:C.sub,fontSize:13.5,lineHeight:1.6,marginBottom:16}}>
         {assinatura.motivo||"Mensalidade em atraso."}{" "}
-        {gestor
+        {aguardandoCartao
+          ?"É rápido: escolha um plano logo abaixo e você cai na tela segura do Asaas — a cobrança só acontece depois dos 14 dias de teste."
+          :gestor
           ?"Assim que o pagamento for confirmado, o sistema volta sozinho — não precisa avisar ninguém."
           :"Fale com a gestão da imobiliária. Assim que a mensalidade for regularizada, tudo volta ao normal."}
       </div>
-      <div style={{background:C.surface,borderRadius:11,padding:12,marginBottom:16,fontSize:12.5,color:C.sub,lineHeight:1.7}}>
-        <div><b style={{color:C.ink}}>Venceu em:</b> {fmtData(assinatura.vence_em)}</div>
-        {assinatura.valor?<div><b style={{color:C.ink}}>Valor:</b> {fmtMoeda(assinatura.valor)}</div>:null}
-        <div style={{color:C.greenMid,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
-          <Icon n="check" size={12}/> Nenhum lead foi perdido — tudo continua registrado.
+      {aguardandoCartao
+        ?<div style={{background:C.surface,borderRadius:11,padding:12,marginBottom:16,fontSize:12.5,color:C.sub,lineHeight:1.7}}>
+          <div>Teste grátis de <b style={{color:C.ink}}>14 dias</b> — os dias só começam a contar quando o cartão for cadastrado.</div>
+          <div style={{color:C.greenMid,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="check" size={12}/> Sem cobrança nenhuma agora.
+          </div>
         </div>
-      </div>
+        :<div style={{background:C.surface,borderRadius:11,padding:12,marginBottom:16,fontSize:12.5,color:C.sub,lineHeight:1.7}}>
+          <div><b style={{color:C.ink}}>Venceu em:</b> {fmtData(assinatura.vence_em)}</div>
+          {assinatura.valor?<div><b style={{color:C.ink}}>Valor:</b> {fmtMoeda(assinatura.valor)}</div>:null}
+          <div style={{color:C.greenMid,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="check" size={12}/> Nenhum lead foi perdido — tudo continua registrado.
+          </div>
+        </div>}
 
-      {assinatura.link&&<a href={assinatura.link} target="_blank" rel="noreferrer"
+      {!aguardandoCartao&&assinatura.link&&<a href={assinatura.link} target="_blank" rel="noreferrer"
         style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,textDecoration:"none",background:C.green,color:"#fff",
           borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:9}}>
         <Icon n="zap" size={15}/> Pagar agora</a>}
 
       {/* ASSINAR DE DENTRO DA TELA DE BLOQUEIO.
 
-          Sem isto o corretor autônomo caía num beco: o teste acabava, o CRM
+          Sem isto quem tem plano de prateleira caía num beco: o teste acabava
+          (ou nem tinha começado, no caso do cartão obrigatório), o CRM
           travava, e a única tela que sobrava dizia "fale com a gestão" — mas a
-          gestão é ele. Escolher plano mora em Minha conta, que é justamente o
-          que o bloqueio esconde. Ele teria que ligar para o ConHub para poder
-          pagar, que é o contrário de uma conta que se ativa sozinha.
+          gestão é o próprio titular, num autônomo ou numa imobiliária que veio
+          pelo site. Escolher plano mora em Minha conta, que é justamente o
+          que o bloqueio esconde.
 
           As rotas de plano ficam FORA do porteiro (o roteador da assinatura é
           montado antes dele em server.js), então elas respondem com a conta
@@ -3310,7 +3227,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
 
           `isMobile` vai fixo: o cartão tem 440px, e três planos lado a lado
           aqui ficariam com 130px cada. Empilhado é o certo em qualquer tela. */}
-      {autonomo&&<div style={{marginBottom:9,marginTop:2}}>
+      {temPrateleira&&<div style={{marginBottom:9,marginTop:2}}>
         <GerenciarAssinatura acoes={acoes} isMobile={true} atualSituacao={assinatura} aoMudar={aoRever}/>
       </div>}
 
@@ -3338,9 +3255,15 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
             o "Verificar de novo" logo abaixo já é o que ele precisa depois de
             pagar, e dois botões com o mesmo efeito só fazem duvidar de qual é
             o certo. */}
+        {/* Para `aguardando_cartao` este é o MESMO botão, e ele funciona pelo
+            mesmo caminho: registrar um pagamento manual faz `pagos` deixar de
+            ser zero, e a checagem de cartão em `situacao()` só bloqueia
+            enquanto `!pagos` — é a rede de segurança descrita em
+            `services/assinatura.js`. Só o texto muda, porque "já paguei" não
+            faz sentido para quem nunca foi cobrado. */}
         {master&&<button onClick={()=>acoes.marcarMensalidadePaga().then(aoRever).catch(()=>{})}
           style={{width:"100%",background:"transparent",color:C.faint,border:"none",fontSize:12,cursor:"pointer",marginBottom:9}}>
-          já paguei — liberar acesso</button>}
+          {aguardandoCartao?"liberar sem cartão (master)":"já paguei — liberar acesso"}</button>}
       </React.Fragment>}
 
       <div style={{display:"flex",gap:8}}>
@@ -3359,13 +3282,20 @@ function TarjaMensalidade({assinatura,isMobile,master}){
   /* Conta travada, master dentro. Ele passa pela tela de bloqueio de propósito
      (é ele quem libera, e para liberar precisa ver o que há na conta), mas
      precisa saber o tempo todo que o CLIENTE não está vendo nada disso —
-     senão ele mexe numa conta parada achando que está no ar. */
-  if(master&&status==="bloqueado")
+     senão ele mexe numa conta parada achando que está no ar.
+
+     `aguardando_cartao` (22/09/2026) entra na mesma trava, com texto próprio:
+     não é "travada por falta de pagamento" — é uma conta nova que ainda não
+     cadastrou o cartão do teste, e dizer "pagamento" ali confundiria o master
+     com uma cobrança que não existe. */
+  if(master&&(status==="bloqueado"||status==="aguardando_cartao"))
     return <div style={{background:C.hotSoft,borderBottom:`1px solid ${C.hot}33`,color:C.hot,
       fontSize:isMobile?11.5:12.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
       <Icon n="lock" size={13}/>
-      <span style={{flex:1,lineHeight:1.4}}>Conta travada por falta de pagamento — o cliente vê a tela de bloqueio.
-        Você está dentro porque é master.</span>
+      <span style={{flex:1,lineHeight:1.4}}>
+        {status==="aguardando_cartao"
+          ?"Conta ainda sem cartão cadastrado — o cliente vê a tela pedindo para cadastrar. Você está dentro porque é master."
+          :"Conta travada por falta de pagamento — o cliente vê a tela de bloqueio. Você está dentro porque é master."}</span>
     </div>;
   if(!assinatura.cobranca) return null;
   if(status!=="vence_em_breve"&&status!=="atrasado") return null;
@@ -8111,7 +8041,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           acima das notificações porque é o que muda o dia dele. */}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
-      {podeGerir(session)&&<PainelAssinatura acoes={acoes} isMobile={isMobile} master={!!session.master}
+      {podeGerir(session)&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
         autonomo={!!org&&org.tipo==="autonomo"}/>}
       <VersaoDoApp/>
     </div>
