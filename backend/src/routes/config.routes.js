@@ -14,7 +14,7 @@ import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, soMaster } from "../auth.js";
-import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES } from "../services/uazapi.js";
+import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { resumoDeUso } from "../services/iauso.js";
@@ -145,6 +145,48 @@ r.get("/ia", soMaster, (req, res) => {
    tela: quem assina a conta precisa saber que o número da Uazapi pode ser
    banido pelo WhatsApp, e que na Meta oficial não dá para editar mensagem
    nem mandar texto livre fora da janela de 24h. */
+/* "MARQUEI A MENSAGEM NO CRM E NÃO APARECEU NO WHATSAPP" (22/09/2026,
+   relatado pelo Ali). O código já manda o campo certo (`replyid`, conferido
+   contra a documentação oficial da Uazapi) junto de quatro apelidos — o que
+   falta não é adivinhar mais um nome de campo, é ENXERGAR o que a Uazapi
+   respondeu de verdade na última tentativa, porque essa citação falha
+   CALADA: a conta pode responder 200 e simplesmente ignorar o campo.
+
+   Até aqui esse dado só existia em `/integracoes` — JSON cru, atrás de um
+   token que o Ali não tem como colar numa aba do navegador. Aqui ele lê a
+   MESMA informação, em português, na tela que já abre todo santo dia
+   (Configurações → Conexão), sem precisar de mim para traduzir um payload.
+
+   Não muda o comportamento do envio — é só o que faltava para a próxima
+   tentativa virar evidência em vez de "funciona/não funciona" sem mais
+   detalhe. */
+function diagnosticoCitacao() {
+  const c = citacaoDiagnostico();
+  const semId = envioSemIdDiagnostico();
+  if (!c) {
+    return {
+      status: "sem_tentativa",
+      texto: "Nenhuma tentativa de marcar/citar uma mensagem desde a última vez que o servidor foi religado. Peça para alguém responder uma mensagem agora e recarregue esta tela — a próxima tentativa aparece aqui.",
+    };
+  }
+  const quandoTxt = new Date(c.quando).toLocaleString("pt-BR");
+  if (c.status === "recusado") {
+    return {
+      status: "recusado",
+      texto: `Na última tentativa (${quandoTxt}), a Uazapi RECUSOU marcar a mensagem — motivo: "${c.resposta}". A mensagem foi enviada mesmo assim, com o trecho citado escrito em cima do texto, para não se perder.`,
+    };
+  }
+  // "aceito (200)" não é garantia nenhuma: é exatamente o caso em que a
+  // Uazapi engole o campo sem reclamar e sem aplicar a citação.
+  const avisoSemId = semId
+    ? ` Além disso, pelo menos um envio recente voltou SEM nenhum identificador do WhatsApp (${new Date(semId.em).toLocaleString("pt-BR")}) — mensagens assim nunca poderão ser citadas, porque não existe o que citar.`
+    : "";
+  return {
+    status: "aceito_sem_garantia",
+    texto: `Na última tentativa (${quandoTxt}), a Uazapi aceitou o envio (respondeu 200) — mas isso NÃO garante que a citação apareceu no WhatsApp do cliente. Se o corretor confirmar que não apareceu, o problema é que esta conta da Uazapi usa outro nome de campo para citação, diferente dos que o CRM já tenta.${avisoSemId} Me avise o que o corretor viu (apareceu ou não) que eu sigo a partir daqui.`,
+  };
+}
+
 r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   const casa = garantirCasa(req.user.org_id);
@@ -152,6 +194,9 @@ r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
     provedores: PROVEDORES,
     ativo: (casa?.provider === "meta" && casa.token) ? "meta" : (uazapiConfigured(req.user.org_id) ? "uazapi" : null),
     whatsapp: await instanceStatus(req.user.org_id),
+    // Diagnóstico de "marcar/citar mensagem": em texto simples, para o
+    // gestor ler direto na tela — ver diagnosticoCitacao() logo abaixo.
+    citacao: diagnosticoCitacao(),
     webhook: {
       uazapi: {
         url: `${base}/webhooks/uazapi`,

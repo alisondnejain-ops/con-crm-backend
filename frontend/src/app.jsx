@@ -12525,6 +12525,19 @@ function ConexaoConfig({acoes,session,isMobile}){
       </div>}
     </div>
 
+    {/* "Marquei a mensagem e não apareceu no WhatsApp" (22/09/2026). A
+        Uazapi falha CALADA nisso — aceita e ignora, sem erro nenhum — então
+        sem ver a última tentativa não há como saber se o campo foi
+        reconhecido. Antes esse dado só existia em JSON cru; agora é a mesma
+        informação, em português, direto nesta tela. */}
+    {d.citacao&&<div style={{background:d.citacao.status==="recusado"?C.hotSoft:d.citacao.status==="aceito_sem_garantia"?C.amberSoft:C.card,
+      border:`1px solid ${d.citacao.status==="recusado"?C.hot+"44":d.citacao.status==="aceito_sem_garantia"?"#8a6d1f44":C.line}`,
+      borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+      <div style={{color:d.citacao.status==="recusado"?C.hot:d.citacao.status==="aceito_sem_garantia"?"#8a6d1f":C.ink,
+        fontSize:12.5,fontWeight:700,marginBottom:4}}>Marcar/citar mensagem no WhatsApp</div>
+      <div style={{color:d.citacao.status==="sem_tentativa"?C.faint:C.sub,fontSize:12,lineHeight:1.55}}>{d.citacao.texto}</div>
+    </div>}
+
     {/* Provedores — cada um com o próprio tutorial e o próprio formulário. */}
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9}}>Como conectar o WhatsApp</div>
     {d.provedores.map(p=><div key={p.id} style={{background:C.card,border:`1px solid ${d.ativo===p.id?C.green+"66":C.line}`,
