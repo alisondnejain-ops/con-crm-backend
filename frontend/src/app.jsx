@@ -1404,6 +1404,8 @@ function ConCRM(){
     // Contas de corretor autônomo: criar, e liberar/travar sem esperar vencimento.
     criarAutonomo:(dados)=>api("/orgs/autonomos",{method:"POST",body:dados}),
     liberarAutonomo:(id,dias)=>api(`/orgs/autonomos/${id}/liberar`,{method:"POST",body:{dias}}),
+    // Migrar imobiliária <-> autônomo, quando a conta nasceu com o tipo errado.
+    converterTipoConta:(id,dados)=>api(`/orgs/${id}/tipo`,{method:"POST",body:dados}),
     convidarSocio:(dados)=>api("/orgs/masters",{method:"POST",body:dados}),
     tirarSocio:(id)=>api(`/orgs/masters/${id}`,{method:"DELETE"}),
     // A foto da tela de entrada. É uma só, da plataforma, e vale para todo
@@ -10481,6 +10483,80 @@ function LinkNovaSenha({dados,isMobile,aoFechar}){
   </div>;
 }
 
+/* CORRIGIR O TIPO DA CONTA — imobiliária ⇄ autônomo (22/09/2026, pedido do
+   Ali: um cliente se cadastrou como imobiliária sendo corretor autônomo).
+
+   Só o master vê este cartão: `tipo` decide o papel de quem manda na conta
+   (`ehDonoAutonomo`, backend), a porta de cadastro e o menu — não é um campo
+   que a própria imobiliária deveria poder tocar sozinha.
+
+   Recarrega a página inteira depois de converter, de propósito: `org.tipo`
+   e `session.role` vivem em vários lugares do app (menu, catraca, plantão),
+   e um reload garante que todos leem o estado novo de uma vez — mais simples
+   e mais seguro do que caçar cada pedacinho de estado que precisaria mudar
+   junto. */
+function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
+  const [aberto,setAberto]=useState(false);
+  const [donoId,setDonoId]=useState("");
+  const [enviando,setEnviando]=useState(false);
+  const [erro,setErro]=useState("");
+  const autonomo=org.tipo==="autonomo";
+
+  const converter=async(dados)=>{
+    setEnviando(true); setErro("");
+    try{ await acoes.converterTipoConta(org.id,dados); if(aoMudar) await aoMudar();
+      window.alert("Conta convertida. A página vai recarregar para atualizar o menu e as permissões.");
+      window.location.reload(); }
+    catch(e){ setErro(e.message); setEnviando(false); }
+  };
+  const paraImobiliaria=()=>{
+    if(!window.confirm("Converter esta conta de autônomo para imobiliária?\n\nO titular atual volta a ser gestor da equipe, e a catraca e o plantão voltam a aparecer no menu. A mensalidade não muda."))
+      return;
+    converter({tipo:"imobiliaria"});
+  };
+  const candidatos=(users||[]).filter(u=>u.status==="ativo");
+  const campo={width:"100%",boxSizing:"border-box",marginTop:5,marginBottom:9,fontSize:isMobile?16:13,
+    border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+
+  return <div style={{background:C.card,border:`1px solid ${C.amber}55`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="key" size={14} color={C.amber}/>
+      <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Tipo da conta</span>
+      <Pill c={"#8a6d1f"} bg={C.amberSoft}>só ConHub · master</Pill>
+    </div>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>
+      Hoje é <b>{autonomo?"corretor autônomo":"imobiliária"}</b>. Cadastro errado na origem? Converta aqui — ajusta o papel de quem manda na conta e o que aparece no menu, sem mexer na mensalidade já combinada.
+    </div>
+    {!autonomo&&!aberto&&
+      <button onClick={()=>setAberto(true)}
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        Converter para autônomo</button>}
+    {autonomo&&
+      <button onClick={paraImobiliaria} disabled={enviando}
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        {enviando?"Convertendo…":"Converter para imobiliária"}</button>}
+    {!autonomo&&aberto&&<div style={{marginTop:8}}>
+      <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Quem é o corretor titular?</label>
+      <select value={donoId} onChange={e=>setDonoId(e.target.value)} style={campo}>
+        <option value="">Escolha…</option>
+        {candidatos.map(u=><option key={u.id} value={u.id}>{u.name} — {u.funcao}</option>)}
+      </select>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:9}}>
+        Esta pessoa vira corretor(a) e passa a mandar na conta (como dono). Para converter, a equipe não pode ter mais ninguém além dela e, no máximo, um atendente.
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>donoId&&converter({tipo:"autonomo",dono_user_id:donoId})} disabled={!donoId||enviando}
+          style={{background:donoId?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:donoId?"pointer":"default"}}>
+          {enviando?"Convertendo…":"Confirmar conversão"}</button>
+        <button onClick={()=>{setAberto(false);setDonoId("");setErro("");}}
+          style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          Cancelar</button>
+      </div>
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8,lineHeight:1.5}}>{erro}</div>}
+  </div>;
+}
+
 function Equipe({acoes,session,org,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
@@ -10605,6 +10681,13 @@ function Equipe({acoes,session,org,isMobile,versao}){
           <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
         </div>
       </div>
+
+      {/* Corrigir o TIPO da conta (só master) — pedido do Ali: cliente se
+          cadastrou como imobiliária sendo corretor autônomo, ou vice-versa. */}
+      {session.master&&<div style={{marginBottom:16}}>
+        <TipoDaContaCard acoes={acoes} org={org} users={users} isMobile={isMobile}
+          aoMudar={async()=>{setUsers(await acoes.equipe());}}/>
+      </div>}
 
       {/* Disponibilidade da equipe: é aqui que o gestor cobra quem não se
           prontificou e ajusta o horário em que a prontidão é encerrada. */}
