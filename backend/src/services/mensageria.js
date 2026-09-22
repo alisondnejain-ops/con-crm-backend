@@ -148,12 +148,31 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   if (citada && !citadaLocal)
     lembrar({ em: Date.now(), evento, provider, resultado: "AVISO: a mensagem cita outra, mas nenhuma mensagem desta conversa tem esse id do WhatsApp guardado (mensagem antiga sem wa_id, ou o envio dela nunca recebeu id — ver 'envio_sem_id' em /integracoes)" });
 
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
-      midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now(),
-      /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
-         convenção só nas duas colunas. */
-      canal.tipo === "corretor" ? canal.id : null);
+  /* A CORRIDA DA MÍDIA (22/09/2026, relatado pelo Ali: mensagem duplicada
+     no CRM, o cliente recebeu uma vez só). Entre o SELECT de eco lá em
+     cima e este INSERT existe um `await` de verdade quando há mídia (o
+     download do arquivo) — tempo suficiente para a Uazapi reentregar o
+     MESMO evento e o segundo webhook rodar o próprio SELECT antes deste
+     primeiro terminar de inserir. Os dois SELECTs vêm vazios; sem uma
+     trava no BANCO, os dois inseriam.
+
+     O índice único em `wa_id` (db.js) é essa trava. Se ele recusar,
+     perdemos a corrida — não é erro, é a prova de que o eco de verdade
+     já está gravado por um webhook irmão que chegou primeiro. */
+  try {
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now(),
+        /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
+           convenção só nas duas colunas. */
+        canal.tipo === "corretor" ? canal.id : null);
+  } catch (e) {
+    if (e.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed.*wa_id/i.test(e.message)) {
+      return lembrar({ em: Date.now(), evento, provider, resultado:
+        "ignorado: eco reentregue pela Uazapi (mesmo wa_id de uma mensagem já gravada — perdeu a corrida do índice único)" });
+    }
+    throw e;
+  }
 
   /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
 
