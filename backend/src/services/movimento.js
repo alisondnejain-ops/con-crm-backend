@@ -31,7 +31,7 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { moverEtapa, camposQueFaltam } from "./etapas.js";
-import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe } from "./pipelines.js";
+import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId } from "./pipelines.js";
 import { pegarProximo, marcarQueRecebeu } from "./rodizio.js";
 
 /* Resolve o destino aceitando nome OU id.
@@ -202,11 +202,46 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao") 
   return { trocou: true, funil };
 }
 
+/* SDR NÃO É DESTINO — É SÓ PASSAGEM. (22/09/2026, relatado pelo Ali: "os
+   corretores estão automaticamente na etapa da SDR".)
+
+   A trava original, `if (!entrada.proprio) return null`, tratava TODO
+   pipeline diferente do padrão do mesmo jeito: "a pessoa pôs este lead aqui
+   de propósito, não desfaça". Isso está certo para um lead que o gestor
+   moveu de propósito para "Locação" (`MoverParaOutroFunil`, 17/09/2026) — mas
+   está errado para o funil de SDR, porque SDR não é um lugar onde um lead
+   deveria DESCANSAR: é a sala de espera antes de ir para um corretor. Como
+   quase nenhum corretor configura `pipeline_entrada` pessoal (esse campo foi
+   pensado para a ATENDENTE, que escolhe SDR para si), `entrada.proprio` dava
+   `false` para praticamente todo corretor — e a trava, pensada para proteger
+   Locação, acabava prendendo TODO repasse manual dentro do SDR para sempre.
+   A automação de "Lead qualificado" (que chama `mover_para_pipeline` ANTES
+   de `trocarResponsavel`) escapava dessa doença por acidente; o repasse
+   manual pela ficha ou pelo rodízio — o caminho que a SDR usa todo dia — não.
+
+   A regra fica então: sem funil próprio escolhido, o lead só é FORÇADO para
+   fora do pipeline atual quando esse pipeline é do TIPO `sdr` — aí ele vai
+   para o padrão da casa (`entradaDe` já devolve isso quando `proprio` é
+   falso). Qualquer outro tipo (comercial, locação, recaptação, personalizado)
+   continua intocado: é exatamente o "alguém pôs aqui de propósito" que a
+   trava original queria proteger, só que agora ela sabe distinguir os dois
+   casos em vez de tratar os dois como um só. */
 function mudarParaOFunilDe(lead, userId, quemMandou) {
+  /* O `pipeline_id` vem FRESCO do banco, não do objeto `lead` recebido.
+
+     Na automação de "Lead qualificado", o passo 1 (`mover_para_pipeline`) já
+     escreveu um pipeline novo no banco ANTES deste passo rodar — mas o
+     objeto `lead` que chega até aqui foi lido no início da chamada, antes de
+     qualquer coisa acontecer, e continuaria mostrando o SDR mesmo depois do
+     passo 1 já ter tirado o lead de lá. Confiar nele faria esta função
+     "encontrar" um SDR que já não existe mais e mover o lead uma segunda
+     vez, por cima da escolha explícita que o passo 1 acabou de fazer. */
+  const pipelineAtualId = db.prepare("SELECT pipeline_id FROM leads WHERE id = ?").get(lead.id)?.pipeline_id;
   const entrada = entradaDe(lead.org_id, userId);
-  if (!entrada.proprio) return null;                       // não escolheu funil
-  if (entrada.pipeline_id === lead.pipeline_id) return null; // já está nele
-  if (!entrada.stage_id) return null;                      // funil sem etapa ativa
+  const saiuDoSdr = !!(pipelineAtualId && pipelinePorId(lead.org_id, pipelineAtualId)?.type === "sdr");
+  if (!entrada.proprio && !saiuDoSdr) return null;          // não escolheu funil, e não estava preso no SDR
+  if (entrada.pipeline_id === pipelineAtualId) return null; // já está nele
+  if (!entrada.stage_id) return null;                       // funil sem etapa ativa
   moverEtapa({ leadId: lead.id, paraEtapaId: entrada.stage_id, motivo: "automatica", userId: quemMandou });
   const p = db.prepare("SELECT name FROM pipelines WHERE id = ?").get(entrada.pipeline_id);
   console.log(`[movimento] ${lead.name} foi para o funil "${p?.name}" junto com o novo responsável`);
