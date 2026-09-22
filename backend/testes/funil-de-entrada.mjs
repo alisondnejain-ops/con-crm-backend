@@ -102,26 +102,48 @@ const l1 = lead("Cliente do WhatsApp", "u_vanessa");
 console.log(`   ${funilDe(l1).pipeline_id === sdr.pipeline.id ? sdr.pipeline.name : "?"} · etapa "${funilDe(l1).stage}"`);
 assert.equal(funilDe(l1).pipeline_id, sdr.pipeline.id);
 
-console.log("7. Repassar para quem NÃO configurou funil não mexe no funil");
-/* A trava que impede a mudança de vazar. Vazio significa "uso o padrão da
-   casa", e mover por causa disso puxaria de volta para o padrão um lead que
-   alguém pôs de propósito num funil especial. */
+console.log("7. Repassar do SDR para quem NÃO configurou funil MOVE para o padrão da casa");
+/* (22/09/2026, relatado pelo Ali: "os corretores estão automaticamente na
+   etapa da SDR".) Esta era a trava que causava o bug: "vazio significa uso o
+   padrão, não desfaço o que foi posto de propósito" tratava SDR do mesmo
+   jeito que Locação — mas SDR não é um lugar em que um lead deveria
+   DESCANSAR, é a sala de espera antes do corretor. Como quase nenhum
+   corretor configura `pipeline_entrada` pessoal, o repasse manual (o
+   caminho que a SDR usa todo dia) nunca tirava o lead do SDR. Agora, sem
+   funil próprio escolhido, o lead só fica PRESO se o funil atual não for do
+   tipo `sdr` — SDR sempre solta. */
 M.trocarResponsavel(l1, "u_marina", "u_vanessa");
-console.log(`   continua em ${funilDe(l1).pipeline_id === sdr.pipeline.id ? sdr.pipeline.name : "outro"}`);
-assert.equal(funilDe(l1).pipeline_id, sdr.pipeline.id);
+console.log(`   foi para ${funilDe(l1).pipeline_id === comercial.pipeline.id ? comercial.pipeline.name : "?"}`);
+assert.equal(funilDe(l1).pipeline_id, comercial.pipeline.id);
 
-console.log("8. Com o funil da Marina escolhido, o repasse LEVA o lead junto");
+console.log("8. Mas repassar de um funil ESPECIAL (não-SDR) continua preservado");
+/* A trava original nasceu para proteger EXATAMENTE este caso: o gestor
+   moveu um lead de propósito para "Locação" (`MoverParaOutroFunil`,
+   17/09/2026), e repassá-lo para um corretor sem funil pessoal não pode
+   puxá-lo de volta ao Comercial — perderia a razão de ele estar lá. */
+const locacao = P.criarDoTemplate(org, "locacao", {});
+const l1b = lead("Quer alugar", "u_vanessa");
+// O gestor descobriu no meio da conversa que é aluguel e moveu na mão
+// (MoverParaOutroFunil, 17/09/2026) — o lead continua com a Vanessa.
+db.prepare("UPDATE leads SET pipeline_id=?, stage_id=?, stage=? WHERE id=?")
+  .run(locacao.pipeline.id, locacao.etapas[0].id, locacao.etapas[0].name, l1b);
+const r8b = M.trocarResponsavel(l1b, "u_rafael", "u_ali"); // Rafael não tem funil próprio configurado
+console.log(`   continua em ${funilDe(l1b).pipeline_id === locacao.pipeline.id ? locacao.pipeline.name : "OUTRO"} · funil: ${r8b.funil ? "moveu (ERRADO)" : "não moveu"}`);
+assert.equal(funilDe(l1b).pipeline_id, locacao.pipeline.id);
+assert.equal(r8b.funil, null);
+
+console.log("9. Com o funil da Marina escolhido, o repasse LEVA o lead junto");
 /* É a outra metade da regra. Sem ela, o lead entregue ao corretor ficava no
    funil de pré-atendimento e não aparecia em coluna nenhuma do kanban dele. */
 db.prepare("UPDATE users SET pipeline_entrada = ? WHERE id = 'u_marina'").run(comercial.pipeline.id);
 const l2 = lead("Outro cliente", "u_vanessa");
 assert.equal(funilDe(l2).pipeline_id, sdr.pipeline.id, "nasceu no SDR");
-const r8 = M.trocarResponsavel(l2, "u_marina", "u_vanessa");
-console.log(`   ${sdr.pipeline.name} → ${r8.funil.pipeline}, em "${r8.funil.etapa}"`);
+const r9 = M.trocarResponsavel(l2, "u_marina", "u_vanessa");
+console.log(`   ${sdr.pipeline.name} → ${r9.funil.pipeline}, em "${r9.funil.etapa}"`);
 assert.equal(funilDe(l2).pipeline_id, comercial.pipeline.id);
-assert.equal(r8.funil.pipeline, comercial.pipeline.name);
+assert.equal(r9.funil.pipeline, comercial.pipeline.name);
 
-console.log("9. E a mudança fica no HISTÓRICO do lead");
+console.log("10. E a mudança fica no HISTÓRICO do lead");
 /* "Por onde este atendimento passou" é justamente a pergunta que dois funis
    criam. Um UPDATE em massa não deixaria rastro nenhum. */
 const hist = db.prepare("SELECT de, para, motivo FROM lead_etapas WHERE lead_id = ? ORDER BY created_at").all(l2);
@@ -133,32 +155,32 @@ console.log(`   ${hist.length} linha(s) de etapa · ${transf.length} transferên
 assert.ok(hist.length >= 1);
 assert.equal(transf.length, 2);
 
-console.log("10. Repassar de volta para a Vanessa devolve o lead ao SDR");
+console.log("11. Repassar de volta para a Vanessa devolve o lead ao SDR");
 /* A regra vale nos dois sentidos: o funil é de quem está com o lead, não uma
    viagem de mão única. */
 M.trocarResponsavel(l2, "u_vanessa", "u_ali");
 console.log(`   voltou para ${funilDe(l2).pipeline_id === sdr.pipeline.id ? sdr.pipeline.name : "?"}`);
 assert.equal(funilDe(l2).pipeline_id, sdr.pipeline.id);
 
-console.log("11. Devolver para a FILA não mexe no funil");
+console.log("12. Devolver para a FILA não mexe no funil");
 /* A fila não é uma pessoa e não tem funil de entrada. Mandar o lead para o
    padrão aqui apagaria em silêncio o lugar em que ele estava. */
-const antes11 = funilDe(l2).pipeline_id;
+const antes12 = funilDe(l2).pipeline_id;
 M.trocarResponsavel(l2, null, "u_ali");
-console.log(`   continua em ${funilDe(l2).pipeline_id === antes11 ? "onde estava" : "OUTRO"}`);
-assert.equal(funilDe(l2).pipeline_id, antes11);
+console.log(`   continua em ${funilDe(l2).pipeline_id === antes12 ? "onde estava" : "OUTRO"}`);
+assert.equal(funilDe(l2).pipeline_id, antes12);
 
-console.log("12. Repassar para alguém que JÁ está no funil dele não move nada");
+console.log("13. Repassar para alguém que JÁ está no funil dele não move nada");
 /* Sem esta conferência, cada repasse gravaria uma linha de histórico dizendo
    que o lead mudou de etapa quando ele não mudou. */
 const l3 = lead("Já no comercial", "u_marina");
-const antes12 = db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = ?").get(l3).n;
-const r12 = M.trocarResponsavel(l3, "u_rafael", "u_ali");
+const antes13 = db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = ?").get(l3).n;
+const r13 = M.trocarResponsavel(l3, "u_rafael", "u_ali");
 M.trocarResponsavel(l3, "u_marina", "u_ali");
-const depois12 = db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = ?").get(l3).n;
-console.log(`   ${antes12} → ${depois12} linha(s) de etapa · funil: ${r12.funil ? "moveu" : "não moveu"}`);
-assert.equal(r12.funil, null);
-assert.equal(antes12, depois12);
+const depois13 = db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = ?").get(l3).n;
+console.log(`   ${antes13} → ${depois13} linha(s) de etapa · funil: ${r13.funil ? "moveu" : "não moveu"}`);
+assert.equal(r13.funil, null);
+assert.equal(antes13, depois13);
 
 console.log("\nTudo certo ✅");
 process.exit(0);
