@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="theme-color" content="#0A3D30"/>
 <title>Testar 14 dias grátis — ConHub</title>
-<meta name="description" content="Crie sua conta do ConHub e teste 14 dias grátis. Sem cartão, cancele quando quiser."/>
+<meta name="description" content="Crie sua conta do ConHub e teste 14 dias grátis. Cadastre o cartão para começar — sem cobrança agora, cancele quando quiser."/>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -84,15 +84,16 @@
     <div>
       <div class="selo">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-        14 dias grátis · sem cartão
+        14 dias grátis · cartão necessário para começar
       </div>
       <h1>Nenhum cliente esperando resposta.</h1>
       <p>Seu WhatsApp, seu funil e a sua produtividade num lugar só — do jeito que
          imobiliária grande trabalha, no tamanho de quem trabalha sozinho.</p>
       <ul class="steps">
         <li><b>1</b><span>Você cria a conta agora e entra em seguida.</span></li>
-        <li><b>2</b><span>Conecta o seu WhatsApp e começa a atender pelo sistema.</span></li>
-        <li><b>3</b><span>Depois de 14 dias, você escolhe o plano — ou para, sem custo.</span></li>
+        <li><b>2</b><span>Escolhe um plano e cadastra o cartão — sem cobrança nesse momento. É isso que liga o teste.</span></li>
+        <li><b>3</b><span>Conecta o seu WhatsApp e começa a atender pelo sistema.</span></li>
+        <li><b>4</b><span>Depois de 14 dias, a cobrança acontece sozinha — cancele antes se não quiser continuar.</span></li>
       </ul>
     </div>
   </div>
@@ -100,8 +101,8 @@
   <div class="form">
     <div id="formView">
       <h2>Comece o seu teste</h2>
-      <p class="lead">Três campos e você já está dentro. <b>Não pedimos cartão</b> — e ao final do teste
-        nada é cobrado automaticamente.</p>
+      <p class="lead">Três campos e você já está dentro. No próximo passo você escolhe um plano e
+        <b>cadastra o cartão</b> — sem cobrança agora, só depois dos 14 dias de teste.</p>
 
       <!-- O QUE A PESSOA ESCOLHEU NO POPUP DO SITE.
 
@@ -118,7 +119,8 @@
         <div id="escolhaNome" style="font-size:18px;font-weight:700;margin-top:4px"></div>
         <div id="escolhaPreco" style="color:#4A5A55;font-size:14px;margin-top:2px"></div>
         <div style="color:#4A5A55;font-size:13px;margin-top:8px">
-          Nada é cobrado agora. Você só paga se continuar depois dos 14 dias.
+          Nada é cobrado agora. O cartão é cadastrado no próximo passo, e a primeira cobrança só
+          acontece automaticamente depois dos 14 dias de teste — cancele antes se não quiser continuar.
         </div>
       </div>
 
@@ -168,9 +170,9 @@
       </div>
 
       <ol class="passos">
-        <li><span class="n">1</span><span>Crie sua senha e entre — <b>o teste começa nesse momento</b>, não agora.</span></li>
-        <li><span class="n">2</span><span>Conecte o seu WhatsApp em <b>Minha conta → Meu WhatsApp</b>.</span></li>
-        <li><span class="n">3</span><span>Quando quiser assinar, escolha o plano em <b>Minha conta → Gerenciar assinatura</b>.</span></li>
+        <li><span class="n">1</span><span>Crie sua senha e entre.</span></li>
+        <li><span class="n">2</span><span>Escolha um plano e cadastre o cartão — <b>é isso que liga o seu teste de 14 dias</b>, sem cobrar nada agora.</span></li>
+        <li><span class="n">3</span><span>Conecte o seu WhatsApp em <b>Minha conta → Meu WhatsApp</b> e comece a atender.</span></li>
       </ol>
     </div>
   </div>
@@ -275,7 +277,7 @@
       document.getElementById("doneView").style.display = "block";
       document.getElementById("doneTitulo").textContent = "Tudo pronto, " + data.nome.split(" ")[0] + "!";
       document.getElementById("doneSub").innerHTML =
-        "Falta um passo: criar a sua senha. Seus <b>" + data.dias + " dias de teste</b> começam a contar quando você entrar.";
+        "Falta um passo: criar a sua senha. Depois, escolha um plano e cadastre o cartão — é isso que liga os seus <b>" + data.dias + " dias de teste</b>.";
       document.getElementById("irCriarSenha").href = data.link;
       var a = document.getElementById("manualLink");
       a.href = data.link; a.textContent = data.link;

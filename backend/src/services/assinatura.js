@@ -103,6 +103,33 @@ export function situacao(orgId, { dono = true } = {}) {
   if (org.assinatura_status === "cancelado")
     return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
 
+  /* CARTÃO OBRIGATÓRIO ANTES DE O TESTE COMEÇAR (22/09/2026, pedido do Ali:
+     "sim temos um teste de 14 dias mas precisa SIM cadastrar o cartão de
+     crédito"). Só vale para quem entrou pela porta PÚBLICA (`exige_cartao`)
+     — conta que o Ali cria na mão no hub continua exatamente como sempre foi,
+     sem essa trava no meio de uma venda já conversada.
+
+     Fica ANTES do bloco de teste de propósito: aqui o teste ainda nem
+     começou de verdade. `trial_ate` só é gravado quando o Asaas confirma que
+     um cartão foi anexado (ver GET /assinatura em assinatura.routes.js, que
+     é quem escreve `cartao_confirmado_em`) — nunca no cadastro nem no
+     set-password. Enquanto isso não acontece, a tela é a MESMA de quem está
+     com a mensalidade atrasada (`Bloqueado`, no frontend); só o motivo muda,
+     e é dali mesmo que a pessoa escolhe o plano e vai para a fatura da
+     Asaas — o mesmo caminho de sempre para contratar.
+
+     `pagos` como rede de segurança: se por algum motivo já existe pagamento
+     registrado (o webhook de "pago" chegou antes do de "cartão anexado",
+     por exemplo), o cartão obviamente existe — pagamento nenhum acontece
+     sem um — e não faz sentido continuar pedindo o que já está resolvido. */
+  if (org.exige_cartao && !org.cartao_confirmado_em) {
+    const pagos = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId).n;
+    if (!pagos)
+      return conforme({ status: "aguardando_cartao", cobranca: true,
+        plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
+        motivo: "Cadastre um cartão de crédito para começar o seu teste de 14 dias grátis." });
+  }
+
   /* O TESTE GRÁTIS, que é um estado só do corretor autônomo.
 
      Ele reaproveita a máquina de vencimento em vez de inventar outra: o fim do
@@ -235,7 +262,9 @@ export function porteiro(req, res, next) {
   const eu = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
   if (eu && eu.master) return next();
   const s = situacao(req.user.org_id);
-  if (s.status !== "bloqueado") return next();
+  // "aguardando_cartao" trava igual a "bloqueado" — é a mesma tela do
+  // frontend, só o motivo muda (ver `situacao`, o bloco do cartão obrigatório).
+  if (s.status !== "bloqueado" && s.status !== "aguardando_cartao") return next();
   res.status(402).json({
     error: s.motivo || "Assinatura em atraso.",
     bloqueado: true,

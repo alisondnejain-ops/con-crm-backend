@@ -6,7 +6,7 @@ import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
-  linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, TOKEN_WEBHOOK } from "../services/asaas.js";
+  linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
 
 const r = Router();
@@ -39,7 +39,7 @@ const r = Router();
    para no primeiro caractere diferente, e o tempo que ele leva conta quantos
    caracteres iniciais estavam certos — para quem pode tentar à vontade e
    medir, isso é uma pista de verdade. */
-r.post("/webhooks/asaas", (req, res) => {
+r.post("/webhooks/asaas", async (req, res) => {
   if (!TOKEN_WEBHOOK) {
     console.warn("[asaas] webhook RECUSADO: a variável ASAAS_WEBHOOK_TOKEN não está configurada no servidor. " +
       "Sem ela, qualquer pessoa poderia avisar 'pagamento recebido' e liberar uma conta. " +
@@ -55,7 +55,6 @@ r.post("/webhooks/asaas", (req, res) => {
 
   try {
     const { acao, link, assinatura } = interpretarEvento(req.body || {});
-    if (acao === "ignorar") return;
 
     // Com uma imobiliária só, o evento é dela. Quando abrir para várias, a
     // busca passa a ser pelo asaas_subscription_id — por isso ele já é gravado.
@@ -68,9 +67,21 @@ r.post("/webhooks/asaas", (req, res) => {
     const total = db.prepare("SELECT COUNT(*) n FROM orgs").get().n;
     const alvo = org || (total === 1 ? db.prepare("SELECT * FROM orgs LIMIT 1").get() : null);
     if (!alvo) {
-      console.warn("[asaas] evento sem assinatura reconhecida e mais de uma imobiliária — ignorado.");
+      if (acao !== "ignorar") console.warn("[asaas] evento sem assinatura reconhecida e mais de uma imobiliária — ignorado.");
       return;
     }
+
+    /* CARTÃO OBRIGATÓRIO (22/09/2026): tenta confirmar em QUALQUER evento
+       desta assinatura, não só "pago" — não dá para saber ao certo qual
+       nome de evento a Asaas manda quando alguém anexa um cartão a uma
+       fatura com vencimento futuro (sem cobrar nada ainda), então em vez de
+       apostar num nome, a checagem roda sempre que a assinatura dá
+       qualquer sinal de vida. Barato quando não há nada para confirmar —
+       `tentarConfirmarCartao` sai na hora se o cartão já estava confirmado
+       ou se a conta não é do tipo que exige. */
+    await tentarConfirmarCartao(alvo);
+
+    if (acao === "ignorar") return;
 
     if (acao === "pago") {
       /* Quantos meses esta cobrança comprou. No plano mensal é um; no
@@ -114,11 +125,41 @@ const dataDoFormulario = (v) => {
   return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + "T12:00:00" : s).getTime();
 };
 
+/* TENTA CONFIRMAR O CARTÃO ANTES DE RESPONDER A SITUAÇÃO (22/09/2026).
+
+   `situacao()` só lê o BANCO — é rápida e síncrona, e continua sendo, porque
+   dezenas de chamadas (o porteiro de toda rota, o resumo do hub) dependem
+   dela ser barata. A checagem de verdade contra o Asaas é ASSÍNCRONA e faz
+   uma chamada de rede, então mora aqui na rota, não lá dentro.
+
+   Só vale a pena tentar quando o banco ainda diz "aguardando cartão": para
+   qualquer outro estado, chamar o Asaas a cada carregamento de tela seria
+   gasto à toa. E nunca lança — se o Asaas estiver fora do ar ou a chamada
+   falhar por qualquer motivo, a pessoa continua vendo "aguardando cartão" e
+   tenta de novo pelo botão "Verificar de novo"; a tela não pode quebrar por
+   causa de uma checagem que é só uma segunda chance além do webhook. */
+async function tentarConfirmarCartao(org) {
+  if (!org || !org.exige_cartao || org.cartao_confirmado_em || !org.asaas_subscription_id) return;
+  try {
+    if (await cartaoRegistrado(org.asaas_subscription_id)) {
+      const agora = Date.now();
+      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?")
+        .run(agora, agora + 14 * 86400000, org.id);
+      console.log(`[asaas] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+    }
+  } catch (e) {
+    console.warn(`[asaas] não consegui confirmar o cartão de "${org.name}": ${e.message}`);
+  }
+}
+
 // Situação da assinatura. Todo mundo consulta: é o que desenha a tarja de
 // aviso e a tela de bloqueio, e o corretor precisa saber por que parou.
 // Quem não é o dono recebe só o estado — sem valor, plano ou link.
-r.get("/assinatura", authRequired, (req, res) => {
+r.get("/assinatura", authRequired, async (req, res) => {
   const dono = ehDono(req.user.org_id, req.user.id);
+  const orgAtual = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  if (orgAtual && orgAtual.exige_cartao && !orgAtual.cartao_confirmado_em)
+    await tentarConfirmarCartao(orgAtual);
   const s = situacao(req.user.org_id, { dono });
   /* `valor_mensal` vem separado do `valor` da situação, e é de propósito.
 
@@ -136,7 +177,19 @@ r.get("/assinatura", authRequired, (req, res) => {
      ligar cada uma. Separado, a fatura se explica sozinha. */
   res.json({ ...s, aviso_antes: AVISO_ANTES, valor_mensal: preco ?? undefined,
     canais: limitesDeCanais(req.user.org_id),
-    asaas: dono ? asaasConfigurado() : undefined, ambiente: dono ? ambienteAsaas() : undefined });
+    asaas: dono ? asaasConfigurado() : undefined, ambiente: dono ? ambienteAsaas() : undefined,
+    /* A CONTA TEM CLIENTE NO ASAAS? (22/09/2026, "tudo está sendo feito pelo
+       Asaas" — pedido do Ali para tirar o painel manual de quem já está lá.)
+
+       `asaas_customer_id`, não `asaas_subscription_id`: o plano ANUAL é
+       parcelado (`/payments`), não assinatura, e nunca grava uma
+       `asaas_subscription_id` — só o cliente. Usar a assinatura deixaria
+       quem escolheu o anual com o painel manual de volta, exatamente o
+       cliente que menos precisa dele. `asaas_customer_id` é gravado nos três
+       caminhos que criam cobrança de verdade (mensal, semestral e anual de
+       prateleira, e a ativação por CPF da imobiliária negociada) — é o sinal
+       que sobrevive aos três. */
+    asaas_ligado: dono ? !!orgAtual.asaas_customer_id : undefined });
 });
 
 // Histórico de pagamentos — a lista que dá para conferir, corrigir e apagar.

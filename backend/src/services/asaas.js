@@ -67,15 +67,24 @@ async function chamar(caminho, { metodo = "GET", corpo } = {}) {
 export const criarCliente = ({ nome, cpfCnpj, email, telefone }) =>
   chamar("/customers", { metodo: "POST", corpo: { name: nome, cpfCnpj, email, mobilePhone: telefone } });
 
-/* Assinatura recorrente. `billingType: UNDEFINED` deixa o cliente escolher entre
-   Pix, boleto e cartão na hora de pagar — menos atrito que fixar um só.
+/* Assinatura recorrente. `billingType: CREDIT_CARD` — era `UNDEFINED`, que
+   deixava a pessoa escolher entre Pix, boleto e cartão na hora de pagar.
+
+   Mudou em 22/09/2026, pedido do Ali: o teste de 14 dias passou a exigir
+   cartão cadastrado (a assinatura nasce com o primeiro vencimento no fim do
+   teste — `vencimento` já vem assim de quem chama — e é o cartão anexado
+   agora, na fatura, que garante a cobrança automática lá na frente; Pix e
+   boleto não ficam "guardados" para cobrar sozinhos depois). Fixar o tipo
+   também troca a cara da fatura hospedada: só aparece o formulário de
+   cartão, sem abas de Pix/boleto para escolher — a Asaas escolhe pela gente
+   o único caminho que serve para o que esta cobrança precisa fazer depois.
 
    O ciclo é do PLANO (services/planos.js): MONTHLY no mensal, SEMIANNUALLY no
    semestral. Era fixo em MONTHLY, o que estava certo quando só existia um
    plano. */
 export const criarAssinatura = ({ clienteId, valor, vencimento, descricao, ciclo = "MONTHLY" }) =>
   chamar("/subscriptions", { metodo: "POST", corpo: {
-    customer: clienteId, billingType: "UNDEFINED", value: valor,
+    customer: clienteId, billingType: "CREDIT_CARD", value: valor,
     nextDueDate: vencimento, cycle: ciclo, description: descricao,
   }});
 
@@ -86,17 +95,46 @@ export const criarAssinatura = ({ clienteId, valor, vencimento, descricao, ciclo
    parcela. Aqui o Asaas gera as 12 cobranças e manda um aviso de pago por
    parcela — cada uma comprando um mês de acesso, o que fecha os doze.
 
-   `billingType: UNDEFINED` também aqui: quem preferir Pix ou boleto continua
-   podendo, e quem for de cartão vê o parcelamento. */
+   `billingType: CREDIT_CARD` — o parcelado sempre foi "12x no cartão" na
+   tela (nunca existiu parcelado por Pix ou boleto aqui), então fixar o tipo
+   só deixa a fatura hospedada coerente com o que já era vendido. */
 export const criarParcelado = ({ clienteId, parcelas, valorParcela, vencimento, descricao }) =>
   chamar("/payments", { metodo: "POST", corpo: {
-    customer: clienteId, billingType: "UNDEFINED",
+    customer: clienteId, billingType: "CREDIT_CARD",
     installmentCount: parcelas, installmentValue: valorParcela,
     dueDate: vencimento, description: descricao,
   }});
 
 export const cobrancasDaAssinatura = (assinaturaId) =>
   chamar(`/subscriptions/${assinaturaId}/payments`);
+
+/* O CARTÃO FOI ANEXADO? (22/09/2026)
+
+   A assinatura nasce SEM cartão nenhum — ele só existe depois que a pessoa
+   abre a fatura hospedada pela Asaas e preenche os dados LÁ, fora do nosso
+   servidor (é a mesma razão de `linkDaPrimeiraFatura` existir: número de
+   cartão nunca trafega por aqui). Com o vencimento no futuro (fim do teste),
+   a cobrança fica pendente até a data chegar — o que muda quando o cartão é
+   anexado é a cobrança já trazer o objeto `creditCard` (bandeira, final do
+   número), mesmo sem ter sido debitada ainda.
+
+   Não achei como confirmar isto contra a documentação (o ambiente onde este
+   código roda não alcança docs.asaas.com) — é a leitura mais direta da API,
+   mas vale um teste de verdade no sandbox da Asaas antes de confiar cego
+   nisso em produção: criar uma assinatura com vencimento futuro, abrir a
+   fatura, preencher um cartão de teste, e conferir aqui o que
+   `cobrancasDaAssinatura` devolve para aquela cobrança.
+
+   Por isso NUNCA é o único caminho: o webhook tenta isto a cada evento da
+   assinatura (routes/assinatura.routes.js), o dono pode clicar em "Verificar
+   de novo" a qualquer momento (roda a mesma checagem), e o master sempre tem
+   o "já paguei — liberar acesso" como saída manual se os dois falharem. */
+export async function cartaoRegistrado(assinaturaId) {
+  const d = await cobrancasDaAssinatura(assinaturaId);
+  const primeira = ((d && d.data) || [])[0];
+  if (!primeira) return false;
+  return !!(primeira.creditCard || primeira.creditCardToken || primeira.creditCardNumber);
+}
 
 /* Cancela a assinatura anterior quando o corretor troca de plano.
 
@@ -151,5 +189,14 @@ export function interpretarEvento(corpo) {
   if (["PAYMENT_DELETED", "PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED", "SUBSCRIPTION_DELETED"].includes(evento))
     return { ...base, acao: "cancelado" };
 
-  return { acao: "ignorar", evento };
+  /* `...base` entra aqui também (22/09/2026) — antes este caminho devolvia só
+     `{acao,evento}`, sem o `assinatura`. Não fazia diferença enquanto
+     "ignorar" só servia para não processar pagamento — mas agora o cartão
+     obrigatório (`tentarConfirmarCartao`, assinatura.routes.js) precisa
+     achar a org por QUALQUER evento da assinatura, inclusive os que este
+     sistema sempre ignorou (SUBSCRIPTION_UPDATED e afins, que é onde
+     provavelmente mora o sinal de "cartão anexado sem cobrar ainda"). Sem
+     o id aqui, a busca cairia sempre no consolo de "imobiliária única" e
+     erraria a conta certa em qualquer conta com mais de um cliente. */
+  return { ...base, acao: "ignorar", evento };
 }
