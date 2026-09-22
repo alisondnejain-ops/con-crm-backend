@@ -313,6 +313,89 @@ r.post("/autonomos/:id/liberar", (req, res) => {
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
+/* MIGRAR O TIPO DA CONTA — imobiliária ⇄ autônomo (22/09/2026, pedido do Ali:
+   um cliente se cadastrou como imobiliária, mas é corretor autônomo).
+
+   `tipo` não é um rótulo solto: ele decide o PAPEL de quem manda na casa
+   (dono vira corretor ou gestor — ver `ehDonoAutonomo`, auth.js), o que
+   aparece no menu (catraca e plantão somem no autônomo), as travas da porta
+   de cadastro (autônomo não aceita corretor novo, só um atendente) e o
+   padrão do robô fora do expediente. Virar só a coluna sem acertar o resto
+   deixaria a conta num estado que não é nem um nem outro — por isso a
+   conversão é UMA função que mexe nas duas pontas juntas, não um PATCH solto.
+
+   IMOBILIÁRIA → AUTÔNOMO exige escolher QUEM é o corretor titular
+   (`dono_user_id`, obrigatório — o master decide, não tem como adivinhar) e
+   trava se a equipe for grande demais para caber no plano: mesma régua da
+   porta de cadastro (`auth.routes.js`) — nenhum outro gestor, nenhum outro
+   corretor, no máximo um atendente. Sem essa conferência a conta converteria
+   com gente sobrando, e "o" corretor autônomo ficaria ambíguo.
+
+   AUTÔNOMO → IMOBILIÁRIA devolve o dono ao papel de gestor (`adm`) — sem
+   isso ele ficaria preso no único papel que o autônomo usa (`corretor`),
+   numa casa que agora tem catraca e espera um `adm` de verdade em dezenas
+   de rotas.
+
+   Mensalidade (`valor_mensal`/`plano_id`/`trial_ate`) NÃO é tocada — é
+   correção de categoria, não venda nova; o que já foi combinado com o
+   cliente continua valendo, e o master ajusta preço à parte se precisar.
+
+   `encerrarSessoes` no dono: ele estava numa tela pensada para o papel
+   ANTIGO (menu, botões, rotas). Deixar o crachá de 30 dias valendo faria a
+   tela dele ficar num estado misto até o próximo login sozinho — mesma
+   régua já usada para quem perde acesso de sócio. */
+r.post("/:id/tipo", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
+  const tipoAtual = org.tipo || "imobiliaria";
+  const pedido = req.body?.tipo;
+  const tipoNovo = pedido === "autonomo" ? "autonomo" : pedido === "imobiliaria" ? "imobiliaria" : null;
+  if (!tipoNovo) return res.status(400).json({ error: "Escolha 'autonomo' ou 'imobiliaria'." });
+  if (tipoNovo === tipoAtual)
+    return res.status(409).json({ error: `Esta conta já é ${tipoNovo === "autonomo" ? "autônoma" : "imobiliária"}.` });
+
+  if (tipoNovo === "autonomo") {
+    const donoId = String(req.body?.dono_user_id || "").trim();
+    if (!donoId) return res.status(400).json({ error: "Escolha qual pessoa da equipe é o corretor titular." });
+    const alvo = db.prepare("SELECT id,name,role,status FROM users WHERE id = ? AND org_id = ?").get(donoId, org.id);
+    if (!alvo || alvo.status !== "ativo")
+      return res.status(400).json({ error: "Escolha uma pessoa ativa desta conta para ser o corretor titular." });
+
+    // Mesma régua da porta de cadastro (auth.routes.js): sem ela a conta
+    // converteria com gente sobrando, e "o" corretor autônomo seria ambíguo.
+    const outros = db.prepare(`SELECT role, COUNT(*) n FROM users
+      WHERE org_id = ? AND id <> ? AND status IN ('ativo','pendente','aguardando_aprovacao') AND COALESCE(master,0) = 0
+      GROUP BY role`).all(org.id, alvo.id);
+    const conta = (papel) => outros.find(o => o.role === papel)?.n || 0;
+    const outrosAdm = conta("adm"), outrosCorretor = conta("corretor"), atendentes = conta("sdr");
+    const problemas = [];
+    if (outrosAdm) problemas.push(`${outrosAdm} outro(s) gestor(es)`);
+    if (outrosCorretor) problemas.push(`${outrosCorretor} outro(s) corretor(es)`);
+    if (atendentes > 1) problemas.push(`${atendentes} atendentes (o plano de autônomo aceita só 1)`);
+    if (problemas.length)
+      return res.status(409).json({ error:
+        `Esta equipe é grande demais para virar conta autônoma: ${problemas.join(", ")}. Remova ou transfira essas pessoas antes de converter.` });
+
+    db.transaction(() => {
+      db.prepare("UPDATE orgs SET tipo = 'autonomo', dono_user_id = ? WHERE id = ?").run(alvo.id, org.id);
+      db.prepare("UPDATE users SET role = 'corretor', available = 1 WHERE id = ?").run(alvo.id);
+    })();
+    encerrarSessoes(alvo.id);
+    console.log(`[master] ${req.user.name} converteu "${org.name}" para conta autônoma — titular: ${alvo.name}`);
+    return res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+  }
+
+  // AUTÔNOMO → IMOBILIÁRIA: o dono volta a ser gestor da própria casa.
+  const dono = org.dono_user_id ? db.prepare("SELECT id,name,role FROM users WHERE id = ?").get(org.dono_user_id) : null;
+  db.transaction(() => {
+    db.prepare("UPDATE orgs SET tipo = 'imobiliaria' WHERE id = ?").run(org.id);
+    if (dono && dono.role === "corretor") db.prepare("UPDATE users SET role = 'adm' WHERE id = ?").run(dono.id);
+  })();
+  if (dono) encerrarSessoes(dono.id);
+  console.log(`[master] ${req.user.name} converteu "${org.name}" para imobiliária` + (dono ? ` — ${dono.name} voltou a gestor` : ""));
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
 /* ===== A FOTO DA TELA DE ENTRADA =====
 
    Uma imagem só, igual para todo mundo que abre o sistema — inclusive para
