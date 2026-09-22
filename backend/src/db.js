@@ -1099,6 +1099,58 @@ addMsgCol("media_name", "TEXT");  // nome original, quando é documento
    vezes — é o que permite aceitar as mensagens digitadas direto no celular. */
 addMsgCol("wa_id", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_id)");
+
+/* MESMO wa_id NUNCA MAIS DUAS VEZES (22/09/2026, relatado pelo Ali: "as
+   mensagens estão indo duplicadas para o lead do cliente" — só no CRM, o
+   cliente recebia uma vez só).
+
+   A checagem de eco em `processarMensagemRecebida` (mensageria.js) faz um
+   SELECT por wa_id ANTES de inserir. Para mensagem de TEXTO isso nunca
+   falhava, porque não existe `await` de verdade entre o SELECT e o INSERT.
+   Mensagem de MÍDIA tem: o download do áudio/foto na Uazapi é uma chamada
+   de rede real, com tempo real. Se a Uazapi mandar o MESMO evento duas
+   vezes em sucessão rápida (Baileys, a base da maioria dos provedores como
+   a Uazapi, resincroniza mensagens entre dispositivos e pode reentregar) —
+   o segundo webhook roda o PRÓPRIO SELECT enquanto o primeiro ainda está
+   baixando o arquivo, não acha nada (o primeiro ainda não inseriu) e
+   também insere. Dois SELECTs "ao mesmo tempo", os dois vazios — checagem
+   em JavaScript não fecha essa fresta, só o BANCO fecha, porque a escrita
+   em si é atômica.
+
+   Por isso o índice é ÚNICO, não só de busca: `processarMensagemRecebida`
+   passa a tratar a recusa do banco como "perdi a corrida, é eco" — não
+   como erro. PARCIAL, e em DOIS sentidos:
+
+   - `WHERE wa_id IS NOT NULL`: mensagem sem wa_id é normal (enviada antes
+     de 08/08/2026, ou envio que nunca recebeu id — ver `envio_sem_id`) e
+     não deve competir contra outras sem id;
+   - `AND direction = 'out'`: a corrida só existe para `fromMe` (o
+     download de mídia é o `await` no meio do caminho). Mensagem
+     RECEBIDA do cliente (`direction='in'`) é OUTRA regra, testada de
+     propósito em `teste:whatsapp-oficial` caso 8: a Meta pode reentregar
+     o mesmo `wamid` para uma mensagem que o cliente mandou de novo por
+     conta própria, e as duas contam — travar por `wa_id` aqui apagaria
+     conversa de verdade. Único = só do lado em que "mesmo id duas vezes"
+     SEMPRE significa eco, nunca conteúdo novo.
+
+   LIMPA ANTES DE TRAVAR: se este defeito já duplicou alguma mensagem em
+   produção — e já duplicou —, criar o índice sem limpar faria o SERVIDOR
+   NÃO SUBIR (`CREATE UNIQUE INDEX` falha na hora se já existe violação).
+   Mantém a linha mais ANTIGA de cada grupo (a que chegou primeiro) e
+   apaga as repetidas — nunca a mais nova, porque é a antiga que o
+   cliente viu primeiro e a que uma citação já feita, se houver, aponta.
+   Só entre linhas `direction='out'`, pela mesma razão do índice: apagar
+   uma repetição de mensagem RECEBIDA apagaria histórico de verdade. */
+const waDuplicados = db.prepare(
+  "SELECT wa_id FROM messages WHERE wa_id IS NOT NULL AND direction = 'out' GROUP BY wa_id HAVING COUNT(*) > 1").all();
+if (waDuplicados.length) {
+  const apagarExtras = db.prepare(`DELETE FROM messages WHERE wa_id = ? AND direction = 'out' AND id NOT IN (
+    SELECT id FROM messages WHERE wa_id = ? AND direction = 'out' ORDER BY created_at ASC, rowid ASC LIMIT 1)`);
+  let apagadas = 0;
+  for (const { wa_id } of waDuplicados) apagadas += apagarExtras.run(wa_id, wa_id).changes;
+  console.log(`[messages] ${waDuplicados.length} wa_id duplicado(s) (enviadas) — ${apagadas} mensagem(ns) repetida(s) apagada(s) antes de travar o índice único.`);
+}
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_id_unico ON messages(wa_id) WHERE wa_id IS NOT NULL AND direction = 'out'");
 /* As leituras novas do core de gestao: o kanban por pipeline e o painel de SLA
    filtram leads por etapa e por pipeline dentro da imobiliaria. Sem indice,
    cada um deles varre a tabela de leads da plataforma inteira — foi o que os

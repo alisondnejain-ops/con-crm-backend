@@ -60,7 +60,8 @@
     "teste:historico-fiel": "node testes/historico-fiel.mjs",
     "teste:produtos-aluguel": "node testes/produtos-aluguel.mjs",
     "teste:produto-sem-construtor": "node testes/produto-sem-construtor.mjs",
-    "teste:converter-tipo": "node testes/converter-tipo.mjs"
+    "teste:converter-tipo": "node testes/converter-tipo.mjs",
+    "teste:mensagem-duplicada": "node testes/mensagem-duplicada.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",
