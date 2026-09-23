@@ -13858,6 +13858,68 @@ function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
    o gestor acompanham) e a meta PESSOAL de cada corretor, lado a lado. Um
    "Salvar" por linha — salvar todo mundo de uma vez esconderia qual linha deu
    erro quando desse. */
+/* SÓ DÍGITOS, NUNCA `type="number"` (23/09/2026, relatado pelo Ali: "eu
+   posso configurar as metas mas só consigo ajustar os números na setinha
+   ao lado e eu quero digitar os números").
+
+   O DEFEITO DE VERDADE NÃO ERA O `type="number"` — era esta linha ter sido
+   escrita como um componente declarado DENTRO do corpo de `ConfigurarMetasModal`
+   (um `const Linha=(...)=>...` no meio da função). Toda vez que uma tecla
+   mudava `form` (`setForm` a cada `onChange`), `ConfigurarMetasModal`
+   renderizava de novo e criava uma FUNÇÃO NOVA para `Linha` — identidade
+   diferente da renderização anterior. O React não vê isso como "o mesmo
+   componente com um valor novo": vê como um componente DIFERENTE, desmonta a
+   árvore antiga (o `<input>` incluído) e monta uma nova no lugar — perdendo
+   o foco do campo no processo. A PRIMEIRA tecla digitada disparava esse
+   ciclo, e a segunda tecla já não tinha mais onde cair. Um clique na setinha
+   é uma ação só, então nunca expunha o problema — só a digitação, tecla após
+   tecla, expõe uma remontagem a cada caractere. Confirmado com Playwright:
+   digitar "450" no campo antigo só gravava "4"; digitando letras misturadas
+   com números, nem os dígitos sobreviviam.
+
+   O CONSERTO NÃO É SÓ TROCAR O TIPO DO CAMPO — é tirar `LinhaMeta` do corpo
+   da função pai e torná-lo um componente de verdade, declarado uma vez só,
+   fora de `ConfigurarMetasModal`, recebendo tudo por props. Assim a
+   identidade do componente nunca muda entre renderizações, e o React
+   ATUALIZA o `<input>` existente em vez de trocar de árvore — foco preservado
+   em toda tecla. É a mesma regra de sempre neste projeto: função componente
+   declarada dentro de outra função componente é a armadilha, não o detalhe.
+
+   JUNTO, o campo trocou de `type="number"` para texto com teclado numérico
+   (`inputMode="numeric"`) e uma peneira que descarta tudo que não for dígito
+   — a mesma régua do `soNumeros` usado no telefone do lead. Um
+   `<input type="number">` de 58-64px de largura reserva boa parte do espaço
+   para as setinhas do navegador, deixando pouco para o texto, e `type=
+   "number"` muda de valor sozinho se a roda do mouse passar por cima do
+   campo focado — duas surpresas a mais que um campo de meta não precisa dar,
+   mesmo depois do conserto principal. */
+const soDigitosMeta=(t)=>String(t??"").replace(/\D/g,"");
+
+function LinhaMeta({alvo,nome,valores,status,onCampo,onSalvar,isMobile}){
+  const inputStyle={width:isMobile?68:76,fontSize:13,border:`1px solid ${C.line}`,borderRadius:7,
+    padding:"7px 8px",color:C.ink,outline:"none",textAlign:"right"};
+  const inputStyleVgv={...inputStyle,width:isMobile?100:112};
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,gap:8}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
+      <button onClick={()=>onSalvar(alvo)} disabled={status==="salvando"}
+        style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+        {status==="salvando"?"Salvando…":"Salvar"}
+      </button>
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {CAMPOS_META.map(([campo,rotulo])=><label key={campo} style={{display:"flex",flexDirection:"column",gap:3}}>
+        <span style={{color:C.faint,fontSize:10}}>{rotulo}</span>
+        <input type="text" inputMode="numeric" placeholder="—" value={valores?.[campo]??""}
+          onChange={e=>onCampo(alvo,campo,soDigitosMeta(e.target.value))} style={campo==="vgv"?inputStyleVgv:inputStyle}/>
+      </label>)}
+    </div>
+    {status&&status!=="salvando"&&status!=="ok"&&
+      <div style={{color:C.hot,fontSize:11,marginTop:6}}>{status}</div>}
+    {status==="ok"&&<div style={{color:C.green,fontSize:11,marginTop:6}}>Meta salva.</div>}
+  </div>;
+}
+
 function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
   const mes=mesAtualISO();
   const [d,setD]=useState(null);
@@ -13884,29 +13946,6 @@ function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
     catch(e){ setStatus(s=>({...s,[alvo]:e.message})); }
   };
 
-  const inputStyle={width:isMobile?58:64,fontSize:12.5,border:`1px solid ${C.line}`,borderRadius:7,
-    padding:"6px 6px",color:C.ink,outline:"none",textAlign:"right"};
-
-  const Linha=({alvo,nome})=><div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,gap:8}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
-      <button onClick={()=>salvar(alvo)} disabled={status[alvo]==="salvando"}
-        style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
-        {status[alvo]==="salvando"?"Salvando…":"Salvar"}
-      </button>
-    </div>
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {CAMPOS_META.map(([campo,rotulo])=><label key={campo} style={{display:"flex",flexDirection:"column",gap:3}}>
-        <span style={{color:C.faint,fontSize:10}}>{rotulo}</span>
-        <input type="number" min="0" placeholder="—" value={form[alvo]?.[campo]??""}
-          onChange={e=>mudar(alvo,campo,e.target.value)} style={inputStyle}/>
-      </label>)}
-    </div>
-    {status[alvo]&&status[alvo]!=="salvando"&&status[alvo]!=="ok"&&
-      <div style={{color:C.hot,fontSize:11,marginTop:6}}>{status[alvo]}</div>}
-    {status[alvo]==="ok"&&<div style={{color:C.green,fontSize:11,marginTop:6}}>Meta salva.</div>}
-  </div>;
-
   return <div className="tela-cheia" style={{zIndex:50,background:"rgba(0,0,0,.4)",display:"flex",
     alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:560,maxHeight:"92%",
@@ -13922,8 +13961,10 @@ function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
         {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
         {!d&&!erro&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:20}}>Carregando…</div>}
         {d&&<React.Fragment>
-          <Linha alvo="" nome="Operação inteira (gestor e atendente)"/>
-          {d.corretores.map(c=><Linha key={c.id} alvo={c.id} nome={c.nome}/>)}
+          <LinhaMeta alvo="" nome="Operação inteira (gestor e atendente)" valores={form[""]} status={status[""]}
+            onCampo={mudar} onSalvar={salvar} isMobile={isMobile}/>
+          {d.corretores.map(c=><LinhaMeta key={c.id} alvo={c.id} nome={c.nome} valores={form[c.id]} status={status[c.id]}
+            onCampo={mudar} onSalvar={salvar} isMobile={isMobile}/>)}
           {d.corretores.length===0&&<div style={{color:C.faint,fontSize:12.5,textAlign:"center",padding:"10px 0"}}>Nenhum corretor na equipe ainda.</div>}
         </React.Fragment>}
       </div>
