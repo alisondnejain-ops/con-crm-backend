@@ -1,8 +1,9 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
-import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento } from "../services/storage.js";
+import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
+import { garantirH264 } from "../services/video.js";
 
 const r = Router();
 r.use(authRequired);
@@ -211,15 +212,36 @@ r.delete("/:id", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true });
 });
 
-// Upload de foto/vídeo. O arquivo chega em base64 para não precisar de biblioteca
-// de multipart — simples e suficiente para o volume de uma imobiliária.
-r.post("/:id/midias", async (req, res) => {
+/* Confere produto + permissão + teto de mídia por tipo — usada pelas duas
+   rotas de upload (foto/áudio em base64 e vídeo binário). Regra escrita duas
+   vezes diverge (já custou caro neste projeto antes); ficou num lugar só.
+   Devolve `null` depois de já ter respondido o erro. */
+function podeReceberMidia(req, res, tipo) {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   // Produto inexistente dava "sem permissão", que mandava procurar o erro no
   // lugar errado. São coisas diferentes e a mensagem tem que dizer qual é.
-  if (!p) return res.status(404).json({ error: "Imóvel não encontrado. Salve o cadastro antes de enviar as fotos." });
-  if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Você não pode enviar mídia para este produto." });
+  if (!p) { res.status(404).json({ error: "Imóvel não encontrado. Salve o cadastro antes de enviar as fotos." }); return null; }
+  if (!podeEditar(req.user, p)) { res.status(403).json({ error: "Você não pode enviar mídia para este produto." }); return null; }
+  const max = LIMITES[p.tipo][tipo];
+  const jaTem = db.prepare("SELECT COUNT(*) n FROM produto_midias WHERE produto_id=? AND tipo=?").get(p.id, tipo).n;
+  if (jaTem >= max) {
+    res.status(409).json({ error: `Limite de ${max} ${tipo === "foto" ? "fotos" : "vídeo(s)"} por ${p.tipo} atingido.` });
+    return null;
+  }
+  return { p, jaTem, max };
+}
 
+function gravarMidia({ p, jaTem, max, tipo, url, chave }) {
+  const id = "m_" + randomUUID();
+  db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,chave,ordem,created_at) VALUES (?,?,?,?,?,?,?)")
+    .run(id, p.id, tipo, url, chave, jaTem, Date.now());
+  return { ok: true, midia: { id, tipo, url }, restantes: max - jaTem - 1 };
+}
+
+// Upload de foto (e, historicamente, vídeo pequeno). O arquivo chega em
+// base64 para não precisar de biblioteca de multipart — simples e suficiente
+// para foto. Vídeo tem rota própria, logo abaixo — ver o comentário dela.
+r.post("/:id/midias", async (req, res) => {
   const { mime, base64 } = req.body || {};
   if (!mime || !base64) return res.status(400).json({ error: "Envie o arquivo." });
   if (!tipoPermitido(mime)) return res.status(400).json({ error: "Formato não aceito. Use JPG, PNG, WEBP, MP4 ou MOV." });
@@ -230,17 +252,12 @@ r.post("/:id/midias", async (req, res) => {
     return res.status(413).json({ error: `Arquivo muito grande (${(buffer.length / 1048576).toFixed(1)} MB). O limite é ${Math.round(limite / 1048576)} MB.` });
 
   const tipo = ehVideo(mime) ? "video" : "foto";
-  const max = LIMITES[p.tipo][tipo];
-  const jaTem = db.prepare("SELECT COUNT(*) n FROM produto_midias WHERE produto_id=? AND tipo=?").get(p.id, tipo).n;
-  if (jaTem >= max)
-    return res.status(409).json({ error: `Limite de ${max} ${tipo === "foto" ? "fotos" : "vídeo(s)"} por ${p.tipo} atingido.` });
+  const alvo = podeReceberMidia(req, res, tipo);
+  if (!alvo) return;
 
   try {
-    const { url, chave } = await salvar({ buffer, mime, prefixo: `produtos/${p.id}` });
-    const id = "m_" + randomUUID();
-    db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,chave,ordem,created_at) VALUES (?,?,?,?,?,?,?)")
-      .run(id, p.id, tipo, url, chave, jaTem, Date.now());
-    res.json({ ok: true, midia: { id, tipo, url }, restantes: max - jaTem - 1 });
+    const { url, chave } = await salvar({ buffer, mime, prefixo: `produtos/${alvo.p.id}` });
+    res.json(gravarMidia({ ...alvo, tipo, url, chave }));
   } catch (e) {
     /* "Tente de novo" não ajuda ninguém: se a causa é armazenamento mal
        configurado, tentar de novo dá o mesmo erro para sempre. Devolvemos o
@@ -248,6 +265,54 @@ r.post("/:id/midias", async (req, res) => {
     console.error("[produtos] falha ao salvar mídia:", e.message);
     res.status(500).json({ error: "Não consegui guardar o arquivo: " + e.message,
       onde: modoArmazenamento() });
+  }
+});
+
+/* VÍDEO DE IMÓVEL, à parte — travado em 30 MB e sem converter HEVC até
+   23/09/2026 (achado ao investigar "vídeo não carrega na sessão de
+   imóveis"). Esta rota nasceu junto com a de conversa
+   (`POST /leads/:id/anexo/video`, `messages.routes.js`) mas o upload de
+   PRODUTO ficou parado no desenho antigo: base64 dentro do JSON, preso ao
+   teto de `limiteBytes()` (30 MB) pensado para foto/áudio de conversa — e
+   vídeo de celular hoje passa disso com frequência. O corretor selecionava
+   um vídeo de 60-150 MB, o navegador lia e codificava o arquivo inteiro
+   antes de mandar (minutos em 4G), e só no fim vinha o 413 — indistinguível
+   de "trava e não vai".
+
+   Mesmo desenho da rota de conversa, pelo mesmo motivo (ver o comentário
+   longo lá): `express.raw()` só nesta rota, corpo cru sem base64, sem
+   `JSON.parse` de string gigante travando o processo (Node é de uma thread
+   só). `mime` vai na query — aqui o corpo é só o arquivo. */
+r.post("/:id/midias/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type: () => true }), async (req, res) => {
+  const mime = String(req.query.mime || "video/mp4");
+  if (!ehVideo(mime)) return res.status(400).json({ error: "Esta rota é só para vídeo." });
+
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+  if (buffer.length > limiteVideoBinario())
+    return res.status(413).json({ error: `O vídeo passa do limite de ${LIMITE_VIDEO_MB} MB.` });
+
+  const alvo = podeReceberMidia(req, res, "video");
+  if (!alvo) return;
+
+  /* HEVC (padrão do iPhone) vira H.264 antes de salvar — o mesmo motivo da
+     rota de conversa: o CRM sempre aceitou o arquivo, quem recusa em
+     silêncio é o WhatsApp do outro lado quando o corretor manda o imóvel
+     pro cliente (`POST /leads/:id/produto`, que envia esta mídia crua). */
+  let bufferFinal = buffer, mimeFinal = mime;
+  try {
+    const processado = await garantirH264(buffer);
+    bufferFinal = processado.buffer; mimeFinal = processado.mime;
+  } catch (e) {
+    return res.status(422).json({ error: e.message });
+  }
+
+  try {
+    const { url, chave } = await salvar({ buffer: bufferFinal, mime: mimeFinal, prefixo: `produtos/${alvo.p.id}` });
+    res.json(gravarMidia({ ...alvo, tipo: "video", url, chave }));
+  } catch (e) {
+    console.error("[produtos] falha ao salvar vídeo:", e.message);
+    res.status(500).json({ error: "Não consegui guardar o vídeo: " + e.message, onde: modoArmazenamento() });
   }
 });
 

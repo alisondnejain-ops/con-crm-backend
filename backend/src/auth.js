@@ -165,7 +165,6 @@ const SECRET = (() => {
     "  chave fica separada dos dados, e dá para trocá-la quando quiser.\n" +
     "---------------------------------------------------------------------\n");
   return nova;
-  return "dev-secret";
 })();
 
 /* `orgId` existe para o gestor master trocar de imobiliária sem trocar de

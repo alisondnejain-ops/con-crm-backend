@@ -1285,6 +1285,28 @@ function ConCRM(){
     situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
     apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
     subirMidia:(id,mime,base64)=>api(`/produtos/${id}/midias`,{method:"POST",body:{mime,base64}}),
+    /* VÍDEO DE IMÓVEL, à parte — mesmo motivo do `anexarVideo` de conversa
+       (23/09/2026, achado investigando "vídeo não carrega na sessão de
+       imóveis"): o caminho antigo lia o arquivo inteiro, virava base64 e só
+       aí mandava — para um vídeo de celular isso é minutos em 4G antes de o
+       servidor sequer olhar o tamanho. Aqui o `File` vai CRU no corpo, com
+       XHR pelo mesmo motivo de sempre — é o único jeito de mostrar % do
+       upload no navegador. */
+    subirVideoProduto:(id,file,aoProgredir)=>new Promise((ok,falhou)=>{
+      const params=new URLSearchParams({mime:file.type||"video/mp4"});
+      const xhr=new XMLHttpRequest();
+      xhr.open("POST",`${API}/produtos/${id}/midias/video?${params}`);
+      if(TOKEN) xhr.setRequestHeader("Authorization","Bearer "+TOKEN);
+      xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+      xhr.upload.onprogress=(e)=>{ if(aoProgredir&&e.lengthComputable) aoProgredir(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=()=>{
+        let dados={}; try{ dados=JSON.parse(xhr.responseText||"{}"); }catch(e){}
+        if(xhr.status>=200&&xhr.status<300) ok(dados);
+        else falhou(new Error([dados.error||`Erro ${xhr.status} ao enviar o vídeo.`,dados.detail].filter(Boolean).join(" — ")));
+      };
+      xhr.onerror=()=>falhou(new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."));
+      xhr.send(file);
+    }),
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
     // Minha conta: qualquer alteração precisa refletir na sessão na hora — é o
@@ -10047,18 +10069,16 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
     finally{ setSalvando(false); }
   }
 
-  /* Prepara a foto antes de subir. Resolve três coisas de uma vez:
+  /* Prepara a FOTO antes de subir (vídeo tem caminho próprio, em
+     `enviarArquivo` → `acoes.subirVideoProduto`, e nunca chega aqui desde
+     23/09/2026). Resolve três coisas de uma vez:
 
      - foto de celular passa de 8 MB e batia no limite do servidor. Reduzida
        para 1920px, uma foto de imóvel fica em torno de 300 KB sem perder nada
        na tela nem no WhatsApp
      - iPhone entrega HEIC, que o servidor recusa ("formato não aceito"). O
        canvas devolve JPEG sempre, então o problema deixa de existir
-     - upload no 4G do corretor, na rua, fica dez vezes mais rápido
-
-     Vídeo passa direto: recodificar vídeo no navegador não vale a pena. Se
-     algo der errado na conversão, manda o arquivo original — melhor tentar e
-     o servidor recusar do que travar aqui. */
+     - upload no 4G do corretor, na rua, fica dez vezes mais rápido */
   const LADO_MAX=1920, QUALIDADE=0.82;
   async function prepararArquivo(arq){
     const cru=()=>new Promise((ok,falhou)=>{const fr=new FileReader();
@@ -10106,11 +10126,29 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
     const problemas=[];
     for(let i=0;i<arquivos.length;i++){
       const arq=arquivos[i];
-      setProgresso(`Enviando ${i+1} de ${arquivos.length}…`);
+      const video=String(arq.type||"").startsWith("video/");
+      /* VÍDEO SAI DO CAMINHO DE BASE64 (23/09/2026, achado investigando
+         "vídeo não carrega na sessão de imóveis"): o formulário lia o
+         arquivo inteiro, virava base64 e só então mandava — para um vídeo
+         de celular isso é minutos em 4G antes de o servidor sequer olhar o
+         tamanho, e o limite antigo (30 MB) é menor que a maioria dos
+         vídeos que um corretor grava hoje. Checar o tamanho ANTES de ler o
+         arquivo é a mesma régua já usada no anexo de conversa
+         (`LIMITE_MB_VIDEO`, `Anexar`). */
+      if(video&&arq.size>LIMITE_MB_VIDEO*1024*1024){
+        problemas.push(`${arq.name}: ${(arq.size/1048576).toFixed(1)} MB — o limite é ${LIMITE_MB_VIDEO} MB.`);
+        continue;
+      }
+      setProgresso(video?`Enviando vídeo ${i+1} de ${arquivos.length}… 0%`:`Enviando ${i+1} de ${arquivos.length}…`);
       try{
-        const {mime,base64}=await prepararArquivo(arq);
-        const r=await acoes.subirMidia(alvo,mime,base64);
-        setMidias(m=>[...m,r.midia]);
+        if(video){
+          const r=await acoes.subirVideoProduto(alvo,arq,(pct)=>setProgresso(`Enviando vídeo ${i+1} de ${arquivos.length}… ${pct}%`));
+          setMidias(m=>[...m,r.midia]);
+        }else{
+          const {mime,base64}=await prepararArquivo(arq);
+          const r=await acoes.subirMidia(alvo,mime,base64);
+          setMidias(m=>[...m,r.midia]);
+        }
       }catch(e){
         problemas.push(`${arq.name}: ${e.message}`);
         // Limite atingido não adianta insistir com o resto da fila.

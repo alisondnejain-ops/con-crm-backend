@@ -1,6 +1,6 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
 import db from "../db.js";
+import { conferirCrachaDeSessao } from "../auth.js";
 import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
@@ -37,15 +37,49 @@ const inicio = Date.now();
    valem a pena?) e, no caso do e-mail, de confirmação de que um endereço está
    cadastrado. Agora essa parte só aparece para o master, que é quem administra
    a plataforma, e a página abre sem login com o que ela existe para responder. */
+/* CORRIGIDO EM 23/09/2026 (reauditoria de segurança) — esta função
+   reimplementava `jwt.verify` com a própria cópia do `|| "dev-secret"`, a
+   mesma linha que a auditoria de 02/09/2026 já tinha removido de `auth.js`
+   por ser "a pior linha do sistema" (segredo público quando falta a
+   variável). Só que ela nunca tinha sido removida DAQUI — e como desde
+   03/09/2026 o servidor não recusa mais subir sem `JWT_SECRET` (gera uma
+   chave aleatória e persiste no banco, para não derrubar a operação por
+   variável esquecida — ver `auth.js`), a chave real dos crachás deixou de
+   ser "dev-secret" havia semanas. Só esta função continuava tentando abrir
+   com ela: sem `JWT_SECRET` configurada, qualquer pessoa que soubesse (ou
+   adivinhasse) o id de um usuário master forjava um crachá com
+   `jwt.sign({id}, "dev-secret")` e lia os dados comerciais que a auditoria
+   de 02/09 tirou do público (nome/quantidade de imobiliárias, contagem de
+   usuários/leads/mensagens).
+
+   Regra escrita duas vezes diverge — o mesmo defeito que este projeto já
+   documentou várias vezes. A correção não é trocar a chave aqui de novo, é
+   parar de ter uma segunda implementação: usa a mesma `conferirCrachaDeSessao`
+   que toda rota autenticada já usa, com a MESMA conferência no banco (status
+   ativo, carimbo de sessão). */
+/* CORRIGIDO EM 23/09/2026 (reauditoria de segurança) — `citacao`/`edicao`
+   guardam `resposta`, o CORPO BRUTO que a Uazapi devolveu para um envio real
+   (`services/uazapi.js`). O comentário ao lado daquele campo promete "nada do
+   conteúdo da conversa", mas o corpo cru de uma API de WhatsApp não-oficial
+   costuma ecoar o número do destinatário — e esta rota é pública, sem login,
+   de propósito (é o primeiro passo de "parou de chegar lead"). `envio_sem_id`
+   (ao lado) está certo desde que nasceu: guarda só NOMES de campo
+   (`Object.keys`), nunca valor. `citacao`/`edicao` deveriam seguir a mesma
+   régua e não seguiram. Em vez de mudar o que `services/uazapi.js` guarda
+   (esse registro serve para o master investigar o corpo de verdade depois),
+   a resposta crua só sai daqui para quem já passou por `ehMaster` — mesma
+   trava que já protege nome/contagens da plataforma duas linhas acima. */
+const semRespostaCrua = (diag, master) => {
+  if (!diag || master) return diag;
+  const { resposta, ...resto } = diag;
+  return resto;
+};
+
 const ehMaster = (req) => {
-  try {
-    const h = String(req.headers.authorization || "");
-    if (!h.startsWith("Bearer ")) return false;
-    const dados = jwt.verify(h.slice(7), process.env.JWT_SECRET || "dev-secret");
-    // No BANCO, como manda a regra: o crachá dura 30 dias e um master
-    // despromovido hoje continuaria abrindo isto por um mês.
-    return !!db.prepare("SELECT master FROM users WHERE id = ? AND status = 'ativo'").get(dados.id)?.master;
-  } catch { return false; }
+  const h = String(req.headers.authorization || "");
+  if (!h.startsWith("Bearer ")) return false;
+  const r = conferirCrachaDeSessao(h.slice(7));
+  return !r.erro && !!r.user.master;
 };
 
 // Painel de instalação: diz o que já está ligado, SEM devolver nenhum segredo.
@@ -97,8 +131,8 @@ r.get("/integracoes", async (_req, res) => {
     conversao_video: { configurado: await ffmpegConfigurado() },
     // Última tentativa de citar uma mensagem: o que foi mandado e o que voltou.
     // A citação falha calada, então é aqui que se descobre o motivo.
-    citacao: citacaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
-    edicao: edicaoDiagnostico() || "nenhuma tentativa desde que o servidor subiu",
+    citacao: semRespostaCrua(citacaoDiagnostico(), master) || "nenhuma tentativa desde que o servidor subiu",
+    edicao: semRespostaCrua(edicaoDiagnostico(), master) || "nenhuma tentativa desde que o servidor subiu",
     /* A mesma pergunta, para o caso mais comum: um ENVIO NORMAL (sem citar
        nada) cuja resposta não trouxe id nenhum reconhecido. Mensagem sem
        `wa_id` guardado nunca poderá ser citada depois pelo cliente — é a
