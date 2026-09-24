@@ -143,11 +143,11 @@ try {
   for (const nunca of ["Construtora Segredo", "DONO ACEITA", "comiss", "Comiss", "captador", "Rua das Acácias", "-9.39"])
     assert.ok(!pg.html.includes(nunca), `VAZOU na página pública: ${nunca}`);
 
-  caso("Endereço 'completo' mostra a rua; e o mapa segue a mesma escolha");
+  caso("Endereço 'completo' mostra a rua — e mapa não existe (a localização exata vai pela conversa)");
   await gestor.send("PATCH", `/produtos/${casa.id}`, { exibir_endereco: "completo" });
   pg = await pagina(p1.site_path);
   assert.ok(pg.html.includes("Rua das Acácias, 120"));
-  assert.ok(pg.html.includes("-9.39"), "com endereço completo, o mapa vai ao ponto exato do link do Maps");
+  assert.ok(!pg.html.includes("-9.39") && !/maps\.google|google\.com\/maps/.test(pg.html), "o site não mostra mapa: a localização exata é o corretor quem manda");
 
   caso("Título trocado: o link antigo leva ao novo (301)");
   await gestor.send("PATCH", `/produtos/${casa.id}`, { titulo: "Casa com piscina no Jardim Amazonas" });
