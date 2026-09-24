@@ -1286,6 +1286,11 @@ function ConCRM(){
     linkNovaSenha:(userId)=>api(`/auth/users/${userId}/redefinir-senha`,{method:"POST"}),
     produtos:(params)=>api("/produtos?"+new URLSearchParams(params||{})),
     produtoOpcoes:()=>api("/produtos/opcoes"),
+    produto:(id)=>api(`/produtos/${id}`),
+    // Portais de imóveis (24/09/2026): endereços do feed e dos leads, contato e o que falta em cada anúncio.
+    portais:()=>api("/portais"),
+    salvarPortais:(b)=>api("/portais",{method:"PATCH",body:b}),
+    trocarTokenPortal:(qual)=>api("/portais/token",{method:"POST",body:{qual}}),
     salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
     situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
     apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
@@ -9914,6 +9919,8 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [aberto,setAberto]=useState(null);     // produto em detalhe
   const [recarga,setRecarga]=useState(0);
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
+  const [portais,setPortais]=useState(false);
+  const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
   const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
 
@@ -9933,8 +9940,10 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
     try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
+  if(portais) return <TelaPortais acoes={acoes} isMobile={isMobile} aoFechar={()=>{setPortais(false);atualizar();}}
+    aoAbrirProduto={async(pid)=>{try{const p=await acoes.produto(pid);setPortais(false);setEditando(p);}catch(e){setErro(e.message);}}}/>;
   if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} equipeToda={equipeToda} acoes={acoes}
-    isMobile={isMobile} aoFechar={(mudou)=>{setEditando(null);if(mudou)atualizar();}}/>;
+    supervisor={supervisor} isMobile={isMobile} aoFechar={(mudou)=>{setEditando(null);if(mudou)atualizar();}}/>;
   if(aberto) return <DetalheProduto produto={aberto} acoes={acoes} isMobile={isMobile} supervisor={supervisor} session={session}
     aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir} aoApagar={apagar}/>;
 
@@ -9959,6 +9968,11 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
           <button onClick={()=>setEditando("novo")} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
             <Icon n="userplus" size={15}/> Cadastrar
           </button>
+          {/* Portais é decisão da gestão: pôr anúncio na internet com o nome da
+              imobiliária não é algo que cada corretor liga por conta própria. */}
+          {gestor&&<button onClick={()=>setPortais(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
+            <Icon n="link" size={15}/> Portais
+          </button>}
         </div>
         {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
             conversa com o cliente, sem sair do CRM. */}
@@ -10031,6 +10045,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
               <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
+                {p.publicar_portais&&<Pill c={p.portal&&p.portal.pronto?C.greenDeep:C.amber} bg={p.portal&&p.portal.pronto?C.greenSoft:C.amberSoft}>{p.portal&&p.portal.pronto?"nos portais":"portais: falta dado"}</Pill>}
                 <span style={{color:C.faint,fontSize:10.5}}>captou: {first(p.captador_nome||"—")}</span>
               </div>
             </div>
@@ -10074,11 +10089,217 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
 }
 const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
-function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar}){
-  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda"}:{
+/* Tela de Portais (24/09/2026, só gestor): os dois endereços que a
+   imobiliária cola no painel de cada portal — o do FEED (o portal lê os
+   anúncios) e o dos LEADS (o portal entrega o interessado) — e, antes de
+   tudo, quais anúncios vão de fato e o que falta nos que não vão.
+
+   A lista de pendências vem primeiro de propósito: "colei o endereço e o
+   portal não mostra nada" quase sempre é anúncio incompleto, e sem a lista
+   o gestor culparia a integração. */
+function CopiarEndereco({url,rotulo:rot}){
+  const [ok,setOk]=useState(false);
+  const copiar=()=>{
+    const pronto=()=>{setOk(true);setTimeout(()=>setOk(false),2200);};
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(pronto).catch(()=>{});
+    else{ const a=document.createElement("textarea"); a.value=url; document.body.appendChild(a); a.select();
+      try{document.execCommand("copy");pronto();}catch(e){} document.body.removeChild(a); }
+  };
+  return <div>
+    {rot&&<div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{rot}</div>}
+    <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
+      <input readOnly value={url} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",outline:"none"}}/>
+      <button onClick={copiar} style={{flexShrink:0,border:"none",borderRadius:9,background:ok?C.greenDeep:C.green,color:"#fff",fontSize:12.5,fontWeight:600,padding:"0 13px",cursor:"pointer",minHeight:36}}>{ok?"Copiado":"Copiar"}</button>
+    </div>
+  </div>;
+}
+
+function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [contato,setContato]=useState({email:"",telefone:""}); const [salvando,setSalvando]=useState(false); const [salvo,setSalvo]=useState(false);
+  const carregar=()=>acoes.portais().then(r=>{setD(r);setContato({email:r.email||"",telefone:r.telefone||""});}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  async function salvarContato(){
+    setErro(""); setSalvando(true);
+    try{ const r=await acoes.salvarPortais(contato); setD(r); setSalvo(true); setTimeout(()=>setSalvo(false),2200); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  async function trocar(qual){
+    const msg=qual==="feed"
+      ?"Gerar um endereço NOVO para os anúncios?\n\nO endereço atual para de funcionar na hora. Você vai precisar colar o novo em TODOS os portais, senão seus anúncios saem de lá."
+      :"Gerar um endereço NOVO para os leads?\n\nO atual para de funcionar na hora. Até você colar o novo em cada portal, os leads de lá não entram no CRM.";
+    if(!window.confirm(msg)) return;
+    try{ setD(await acoes.trocarTokenPortal(qual)); }catch(e){ setErro(e.message); }
+  }
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const titulo=(t,sub)=><div style={{marginBottom:10}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>{t}</div>
+    {sub&&<div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.5}}>{sub}</div>}
+  </div>;
+  const passos=(lista)=><ol style={{margin:"10px 0 0",paddingLeft:20,color:C.sub,fontSize:12.5,lineHeight:1.65}}>{lista.map((p,i)=><li key={i}>{p}</li>)}</ol>;
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+    <div style={{maxWidth:760,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Portais de imóveis</div>
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+
+      {d&&<React.Fragment>
+        {/* 1. O que vai */}
+        <div style={cartao}>
+          {titulo("O que vai para os portais",
+            "Vai todo imóvel ativo marcado com “Publicar: sim” no cadastro e com os dados completos. Vendido, alugado ou pausado sai sozinho na próxima leitura.")}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:d.situacao.marcados.length?12:0}}>
+            <Pill c={C.greenDeep} bg={C.greenSoft}>{d.situacao.prontos} indo aos portais</Pill>
+            {d.situacao.marcados.length-d.situacao.prontos>0&&<Pill c={C.amber} bg={C.amberSoft}>{d.situacao.marcados.length-d.situacao.prontos} com dado faltando</Pill>}
+            <Pill c={C.sub} bg={C.surface}>{d.situacao.nao_marcados} ativo(s) não marcado(s)</Pill>
+          </div>
+          {d.situacao.marcados.length===0&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,background:C.surface,borderRadius:10,padding:"10px 12px",marginTop:10}}>
+            Nenhum imóvel marcado ainda. Abra um imóvel do catálogo, clique em editar e, no bloco <b>Anúncio nos portais</b>, escolha <b>Publicar: sim</b>.
+          </div>}
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {d.situacao.marcados.map(m=><button key={m.id} onClick={()=>aoAbrirProduto(m.id)}
+              style={{textAlign:"left",border:`1px solid ${m.pronto?C.line:C.amber+"66"}`,background:m.pronto?C.surface:C.amberSoft,borderRadius:10,padding:"9px 11px",cursor:"pointer",display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{marginTop:1,color:m.pronto?C.greenDeep:C.amber,flexShrink:0}}><Icon n={m.pronto?"check":"clock"} size={15}/></span>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",color:C.ink,fontSize:13,fontWeight:600}}>{m.titulo} <span style={{color:C.faint,fontWeight:500,fontSize:11.5}}>· {m.finalidade==="aluguel"?"aluguel":"venda"} · {m.fotos} foto(s)</span></span>
+                {m.bloqueia.length>0&&<span style={{display:"block",color:"#6b561a",fontSize:11.5,marginTop:2,lineHeight:1.45}}>Falta: {m.bloqueia.join(", ")}</span>}
+                {m.pronto&&m.aviso.length>0&&<span style={{display:"block",color:C.faint,fontSize:11.5,marginTop:2,lineHeight:1.45}}>Melhora: {m.aviso.join(", ")}</span>}
+              </span>
+              <span style={{color:C.faint,flexShrink:0,marginTop:1}}><Icon n="edit" size={14}/></span>
+            </button>)}
+          </div>
+        </div>
+
+        {/* 2. Contato */}
+        <div style={cartao}>
+          {titulo("Contato que aparece no anúncio","Vai dentro do arquivo dos anúncios. Em branco, o portal usa o contato cadastrado na conta de vocês lá.")}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
+            <div>{rotulo("E-mail")}<input value={contato.email} onChange={e=>setContato({...contato,email:e.target.value})} placeholder="contato@suaimobiliaria.com.br" style={entrada}/></div>
+            <div>{rotulo("Telefone / WhatsApp")}<input value={contato.telefone} onChange={e=>setContato({...contato,telefone:e.target.value})} inputMode="tel" placeholder="(87) 99999-0000" style={entrada}/></div>
+          </div>
+          <button onClick={salvarContato} disabled={salvando} style={{marginTop:10,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>
+            {salvando?"Salvando…":salvo?"Salvo":"Salvar contato"}</button>
+        </div>
+
+        {/* 3. Anúncios */}
+        <div style={cartao}>
+          {titulo("1. Endereço dos anúncios (feed)","Cole no painel de cada portal. Quem busca é o portal, algumas vezes por dia — não existe botão “enviar”.")}
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div>
+              <CopiarEndereco rotulo="ZAP Imóveis, VivaReal e OLX (Grupo OLX)" url={d.feeds.grupo_olx}/>
+              {passos(["Entre no Canal Pro (canalpro.grupozap.com) com a conta da imobiliária.",
+                "Procure a área de Integração / Carga de anúncios e escolha o formato VRSync (XML).",
+                "Cole o endereço acima e salve. A primeira leitura pode levar algumas horas.",
+                "Não achou a opção? Mande este endereço ao seu consultor do Grupo OLX pedindo a integração por XML VRSync."])}
+            </div>
+            <div>
+              <CopiarEndereco rotulo="Chaves na Mão" url={d.feeds.chaves_na_mao}/>
+              {passos(["No painel do Chaves na Mão, procure a área de Integração / XML.",
+                "Cole o endereço acima. Se não houver campo para colar, envie o endereço ao atendimento do Chaves na Mão.",
+                "Lá só entram fotos JPG (as fotos do CRM já são convertidas) e vídeo apenas do YouTube."])}
+            </div>
+            <div style={{background:C.surface,borderRadius:10,padding:"10px 12px",color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+              <b style={{color:C.ink}}>Imovelweb:</b> ainda não confirmamos qual formato de arquivo eles aceitam. Envie o endereço do Grupo OLX (VRSync) ao suporte do Imovelweb e pergunte se serve — muitos portais leem esse formato. Se pedirem outro, avise a equipe do ConHub.
+            </div>
+          </div>
+          <button onClick={()=>trocar("feed")} style={{marginTop:12,border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>Gerar endereço novo (se este vazou)</button>
+        </div>
+
+        {/* 4. Leads */}
+        <div style={cartao}>
+          {titulo("2. Endereço dos leads","O interessado que pede contato no portal entra no CRM sozinho, com a atendente da vez, e com o imóvel e a mensagem dele anotados na conversa.")}
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <CopiarEndereco rotulo="ZAP Imóveis, VivaReal e OLX" url={d.leads_url}/>
+            <CopiarEndereco rotulo="Chaves na Mão" url={d.leads_url+"?portal=chavesnamao"}/>
+            <CopiarEndereco rotulo="Imovelweb" url={d.leads_url+"?portal=imovelweb"}/>
+          </div>
+          {passos(["No painel do portal, procure Integração de leads / URL de recebimento de leads (webhook).",
+            "Cole o endereço do portal correspondente. Se não houver onde colar, mande o endereço ao suporte do portal pedindo para enviar os leads por webhook.",
+            "Faça um teste pedindo contato num anúncio seu: o lead deve aparecer em Atender em poucos segundos."])}
+          <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+            Este endereço é diferente do dos anúncios de propósito: o dos anúncios é lido por qualquer um que o tenha; este cria leads — se o primeiro vazar, ninguém consegue criar lead falso com ele.
+          </div>
+          <button onClick={()=>trocar("leads")} style={{marginTop:10,border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>Gerar endereço novo (se este vazou)</button>
+        </div>
+      </React.Fragment>}
+    </div>
+  </div>;
+}
+
+/* O bloco "Anúncio nos portais" do cadastro do imóvel (24/09/2026).
+
+   A descrição é o texto que o CLIENTE lê no portal — e por isso é um campo
+   à parte das "Observações", que são internas (prazo de entrega, chave com
+   quem, condição combinada com o proprietário). Misturar os dois publicaria
+   na internet o que foi escrito para a equipe.
+
+   Só quem supervisiona liga a publicação; o corretor preenche tudo e vê o
+   que falta, mas não põe anúncio na internet sozinho. */
+function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
+  const desc=(f.descricao||"").trim().length;
+  const ligado=!!f.publicar_portais;
+  return <div style={{border:`1px solid ${ligado?C.green+"66":C.line}`,background:ligado?C.greenSoft+"66":C.surface,borderRadius:12,padding:13,display:"flex",flexDirection:"column",gap:11}}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Anúncio nos portais</div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:2,lineHeight:1.45}}>ZAP Imóveis, VivaReal, OLX e Chaves na Mão leem o catálogo sozinhos, algumas vezes por dia.</div>
+      </div>
+      {supervisor
+        ?<button type="button" onClick={()=>setF({...f,publicar_portais:!ligado})} aria-pressed={ligado}
+            style={{flexShrink:0,border:`1px solid ${ligado?C.green:C.line}`,background:ligado?C.green:C.card,color:ligado?"#fff":C.sub,borderRadius:999,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            {ligado&&<Icon n="check" size={13}/>}{ligado?"Publicar: sim":"Publicar: não"}</button>
+        :<span style={{flexShrink:0,color:ligado?C.greenDeep:C.faint,fontSize:11.5,fontWeight:600}}>{ligado?"publicado pela gestão":"a gestão decide"}</span>}
+    </div>
+
+    <div>
+      {rotulo("Descrição do anúncio (o cliente lê)")}
+      <textarea value={f.descricao||""} onChange={e=>setF({...f,descricao:e.target.value.slice(0,3000)})} rows={isMobile?5:4}
+        placeholder="Casa nova com 3 quartos, sendo 1 suíte, sala ampla, cozinha americana e quintal com espaço para área gourmet. Rua calçada, perto de escola e mercado."
+        style={{...entrada,resize:"vertical"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",gap:8,color:desc<50?C.amber:C.faint,fontSize:11,marginTop:4}}>
+        <span>{desc<50?`Os portais pedem pelo menos 50 letras (faltam ${50-desc}).`:"Não use as Observações aqui — elas são internas."}</span>
+        <span style={{fontFamily:MONO,flexShrink:0}}>{desc}/3000</span>
+      </div>
+    </div>
+
+    <div>
+      {rotulo("O que mostrar do endereço")}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {[["bairro","Só o bairro"],["rua","Rua, sem número"],["completo","Endereço completo"]].map(([v,t])=>{
+          const ativo=(f.exibir_endereco||"bairro")===v;
+          return <button key={v} type="button" onClick={()=>setF({...f,exibir_endereco:v})}
+            style={{flex:"1 1 120px",padding:"9px 10px",borderRadius:9,fontSize:12.5,fontWeight:600,cursor:"pointer",
+              border:`1px solid ${ativo?C.green:C.line}`,background:ativo?C.greenSoft:C.card,color:ativo?C.greenDeep:C.sub}}>{t}</button>;})}
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Só o bairro evita que o cliente vá direto ao proprietário sem passar pela imobiliária.</div>
+    </div>
+
+    {portal&&salvo&&(portal.bloqueia.length>0||portal.aviso.length>0)
+      ?<div style={{background:portal.bloqueia.length?C.amberSoft:C.card,borderRadius:9,padding:"9px 11px",fontSize:12,lineHeight:1.55,color:"#6b561a"}}>
+          {portal.bloqueia.length>0&&<div><b>Não vai ao portal enquanto faltar:</b> {portal.bloqueia.join(", ")}.</div>}
+          {portal.aviso.length>0&&<div style={{color:C.sub,marginTop:portal.bloqueia.length?4:0}}><b>Melhora o anúncio:</b> {portal.aviso.join(", ")}.</div>}
+          <div style={{color:C.faint,fontSize:11,marginTop:4}}>Conferido no último salvamento.</div>
+        </div>
+      :portal&&salvo&&portal.pronto&&<div style={{color:C.greenDeep,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+          <Icon n="check" size={13}/>{ligado?"Completo — entra na próxima leitura dos portais.":"Completo — pronto para publicar."}</div>}
+  </div>;
+}
+
+function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,supervisor}){
+  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda",exibir_endereco:produto.exibir_endereco||"bairro"}:{
     tipo:"casa",finalidade:"venda",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
     cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
+    // Portais (24/09/2026): o que os portais pedem e o catálogo interno não tinha.
+    publicar_portais:false,descricao:"",uf:"",cep:"",numero_end:"",complemento:"",vagas:"",suites:"",area_util:"",
+    condominio:"",iptu:"",exibir_endereco:"bairro",
   });
+  // O que falta para ir aos portais — vem do servidor, calculado pela MESMA
+  // regra que monta o feed. Atualiza a cada salvamento.
+  const [portal,setPortal]=useState(produto?produto.portal:null);
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
   const [id,setId]=useState(produto?produto.id:null);
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
@@ -10092,8 +10313,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
     try{
       const salvo=await acoes.salvarProduto({...f,
         valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
-        metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct)}, id);
-      setId(salvo.id); setF({...salvo,modalidade:salvo.modalidade||""});
+        metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct),
+        vagas:numeroBR(f.vagas), suites:numeroBR(f.suites), area_util:numeroBR(f.area_util),
+        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu)}, id);
+      setId(salvo.id); setF({...salvo,modalidade:salvo.modalidade||"",exibir_endereco:salvo.exibir_endereco||"bairro"}); setPortal(salvo.portal||null);
       if(!id) setErro(""); // agora dá para enviar as fotos
       return salvo.id;
     }catch(e){ setErro(e.message); return null; }
@@ -10239,21 +10462,36 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
         <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
 
         <div>{rotulo(f.finalidade==="aluguel"?"Valor do aluguel (mensal)":"Valor do imóvel")}<CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={f.finalidade==="aluguel"?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>{rotulo("Condomínio (mensal)")}<CampoMoeda valor={f.condominio} onChange={v=>setF({...f,condominio:v})} placeholder="opcional" isMobile={isMobile}/></div>
+          <div>{rotulo("IPTU (anual)")}<CampoMoeda valor={f.iptu} onChange={v=>setF({...f,iptu:v})} placeholder="opcional" isMobile={isMobile}/></div>
+        </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
-          <div>{rotulo("Terreno (m²)")}<input value={f.metragem} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
+          <div>{rotulo("Terreno (m²)")}<input value={f.metragem??""} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
           {f.tipo==="casa"&&<React.Fragment>
-            <div>{rotulo("Quartos")}<input value={f.quartos} onChange={set("quartos")} inputMode="numeric" placeholder="3" style={entrada}/></div>
-            <div>{rotulo("Banheiros")}<input value={f.banheiros} onChange={set("banheiros")} inputMode="numeric" placeholder="2" style={entrada}/></div>
+            <div>{rotulo("Área construída (m²)")}<input value={f.area_util??""} onChange={set("area_util")} inputMode="decimal" placeholder="90" style={entrada}/></div>
+            <div>{rotulo("Quartos")}<input value={f.quartos??""} onChange={set("quartos")} inputMode="numeric" placeholder="3" style={entrada}/></div>
+            <div>{rotulo("Suítes")}<input value={f.suites??""} onChange={set("suites")} inputMode="numeric" placeholder="1" style={entrada}/></div>
+            <div>{rotulo("Banheiros")}<input value={f.banheiros??""} onChange={set("banheiros")} inputMode="numeric" placeholder="2" style={entrada}/></div>
+            <div>{rotulo("Vagas de garagem")}<input value={f.vagas??""} onChange={set("vagas")} inputMode="numeric" placeholder="1" style={entrada}/></div>
           </React.Fragment>}
         </div>
 
         {f.tipo==="casa"&&<div>{rotulo("Construtora")}<input value={f.construtor||""} onChange={set("construtor")} placeholder="Nome da construtora" style={entrada}/></div>}
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
           <div>{rotulo("Cidade")}<input value={f.cidade||""} onChange={set("cidade")} placeholder="Petrolina" style={entrada}/></div>
-          <div>{rotulo("Bairro")}<input value={f.bairro||""} onChange={set("bairro")} placeholder="Jardim Amazonas" style={entrada}/></div>
+          <div>{rotulo("Estado (UF)")}<input value={f.uf||""} onChange={e=>setF({...f,uf:e.target.value.replace(/[^a-zA-Z]/g,"").slice(0,2).toUpperCase()})} placeholder="PE" style={entrada}/></div>
         </div>
-        <div>{rotulo("Endereço")}<input value={f.endereco||""} onChange={set("endereco")} placeholder="Rua, número e referência" style={entrada}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
+          <div>{rotulo("Bairro")}<input value={f.bairro||""} onChange={set("bairro")} placeholder="Jardim Amazonas" style={entrada}/></div>
+          <div>{rotulo("CEP")}<input value={f.cep||""} onChange={e=>setF({...f,cep:e.target.value.replace(/\D/g,"").slice(0,8)})} inputMode="numeric" placeholder="56300000" style={entrada}/></div>
+        </div>
+        <div>{rotulo("Rua")}<input value={f.endereco||""} onChange={set("endereco")} placeholder="Rua, avenida e referência" style={entrada}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10}}>
+          <div>{rotulo("Número")}<input value={f.numero_end||""} onChange={set("numero_end")} placeholder="120" style={entrada}/></div>
+          <div>{rotulo("Complemento")}<input value={f.complemento||""} onChange={set("complemento")} placeholder="Quadra, lote, bloco" style={entrada}/></div>
+        </div>
         <div>
           {rotulo("Link do Google Maps")}
           <input value={f.maps_url||""} onChange={set("maps_url")} placeholder="https://maps.app.goo.gl/..." style={entrada}/>
@@ -10297,6 +10535,8 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar})
         </div>
 
         <div>{rotulo("Observações")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Prazo de entrega, condições, o que for útil ao cliente" style={{...entrada,resize:"vertical"}}/></div>
+
+        <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
 
         <div>
           {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}

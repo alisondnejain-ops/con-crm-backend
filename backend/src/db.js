@@ -1101,6 +1101,46 @@ if (!prodCols.includes("modalidade")) {
 // o default cobre a migração sozinho.
 if (!prodCols.includes("finalidade")) db.exec("ALTER TABLE produtos ADD COLUMN finalidade TEXT NOT NULL DEFAULT 'venda'");
 
+/* O ANÚNCIO NOS PORTAIS (24/09/2026, ZAP/VivaReal/OLX e Chaves na Mão).
+   O catálogo nasceu para uso INTERNO — mandar o imóvel no WhatsApp — e por
+   isso guardava só o que o corretor precisa ver. Portal pede o que o
+   COMPRADOR precisa ver: descrição pública (separada de `observacoes`, que
+   é interna e pode ter "dono aceita 10% abaixo"), endereço estruturado, vagas,
+   suítes, área construída (a `metragem` que existe é a do TERRENO),
+   condomínio e IPTU. `publicar_portais` nasce 0: nenhum imóvel vai para a
+   internet porque uma versão nova subiu — alguém escolhe publicar. */
+for (const [col, tipo] of [
+  ["publicar_portais", "INTEGER DEFAULT 0"], ["descricao", "TEXT"], ["uf", "TEXT"], ["cep", "TEXT"],
+  ["numero_end", "TEXT"], ["complemento", "TEXT"], ["latitude", "REAL"], ["longitude", "REAL"],
+  ["vagas", "INTEGER"], ["suites", "INTEGER"], ["area_util", "REAL"], ["condominio", "REAL"], ["iptu", "REAL"],
+  ["exibir_endereco", "TEXT DEFAULT 'bairro'"], ["atualizado_em", "INTEGER"],
+]) if (!prodCols.includes(col)) db.exec(`ALTER TABLE produtos ADD COLUMN ${col} ${tipo}`);
+
+/* Configuração de portais POR IMOBILIÁRIA. Dois tokens, e não um, de
+   propósito: o do FEED é colado no painel de cada portal e circula por lá
+   (é só leitura dos anúncios que a casa já publica); o dos LEADS abre a
+   porta de ESCRITA — com ele se cria lead na conta. Um só token faria de
+   quem viu o endereço do feed alguém capaz de encher o CRM de lead falso. */
+db.exec(`CREATE TABLE IF NOT EXISTS portais_config (
+  org_id TEXT PRIMARY KEY,
+  token_feed TEXT UNIQUE NOT NULL,
+  token_leads TEXT UNIQUE NOT NULL,
+  email TEXT,
+  telefone TEXT,
+  created_at INTEGER NOT NULL
+)`);
+/* Lead que o portal já entregou. O portal REENVIA quando não recebe 200 a
+   tempo — sem esta tabela, cada reenvio viraria uma observação repetida
+   (ou um lead repetido, se o telefone vier diferente). */
+db.exec(`CREATE TABLE IF NOT EXISTS portais_leads (
+  org_id TEXT NOT NULL,
+  portal TEXT NOT NULL,
+  externo_id TEXT NOT NULL,
+  lead_id TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (org_id, portal, externo_id)
+)`);
+
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
 /* Resultado da ligação. A tabela nasceu guardando só a TENTATIVA — o navegador

@@ -21,6 +21,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
+import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
@@ -302,6 +303,7 @@ app.use("/pipelines", cobrando, pipelinesRoutes);
 app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
+app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.
@@ -339,6 +341,10 @@ app.use("/tarefas", cobrando, tarefasPorId);     // /tarefas/:id
 app.use("/webhooks", metaWebhook);              // GET/POST /webhooks/meta (Lead Ads)
 app.use("/webhooks", uazapiWebhook);            // POST /webhooks/uazapi
 app.use("/webhooks", whatsappOficialWebhook);   // GET/POST /webhooks/whatsapp-oficial (Cloud API)
+/* Portais de imóveis: o portal LÊ o feed e ENTREGA o lead, sem login nenhum —
+   quem identifica a imobiliária é o token do endereço (um para cada porta). */
+app.use("/webhooks", portaisWebhook);           // POST /webhooks/portais/:token (lead do ZAP, VivaReal, OLX…)
+app.use("/feeds", portaisFeeds);                // GET /feeds/:token/zap.xml e /chavesnamao.xml
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/orgs", orgsRoutes);         // hub de contas (só o master)
 app.use("/", diagRoutes);             // GET /integracoes
