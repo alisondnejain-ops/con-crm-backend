@@ -1141,6 +1141,28 @@ db.exec(`CREATE TABLE IF NOT EXISTS portais_leads (
   PRIMARY KEY (org_id, portal, externo_id)
 )`);
 
+/* O SITE DA IMOBILIÁRIA (24/09/2026): um portal próprio com o catálogo e uma
+   página por imóvel, em /imoveis/<slug>. Tabela à parte e não colunas em
+   `orgs` porque é um produto com vida própria — endereço, WhatsApp, Pixel —
+   e a linha só existe para quem abriu a tela.
+
+   `ligado` nasce 0 pela mesma régua do `publicar_portais`: o catálogo inteiro
+   não vai para a internet porque uma versão nova subiu. O gestor liga.
+
+   `slug` é o endereço público e é ÚNICO na plataforma inteira: duas
+   imobiliárias com o mesmo endereço seriam um site mostrando o catálogo da
+   outra. */
+db.exec(`CREATE TABLE IF NOT EXISTS sites (
+  org_id TEXT PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  ligado INTEGER NOT NULL DEFAULT 0,
+  whatsapp TEXT,
+  pixel_id TEXT,
+  frase TEXT,
+  created_at INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
 /* Resultado da ligação. A tabela nasceu guardando só a TENTATIVA — o navegador
