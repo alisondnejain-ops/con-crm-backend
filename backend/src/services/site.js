@@ -271,6 +271,7 @@ const ICO = {
   voltar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>',
   seta: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>',
   fechar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  grade: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>',
   casa: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 4l9 7M5 10v10h14V10"/></svg>',
 };
 
@@ -305,7 +306,7 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .topo{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid #E7E7E2}
 .topo .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;height:68px}
 .marca{display:flex;align-items:center;gap:10px;min-width:0}
-.marca img{height:40px;width:auto;max-width:180px;object-fit:contain}
+.marca img{height:48px;width:auto;max-width:210px;object-fit:contain}
 .marca span{font-weight:700;font-size:18px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;transition:filter .15s,transform .15s}
 .btn:hover{filter:brightness(1.12)}
@@ -366,6 +367,31 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .miniaturas button{flex:0 0 auto;width:92px;height:66px;border-radius:10px;overflow:hidden;border:2px solid transparent;padding:0;cursor:pointer;opacity:.7;background:none}
 .miniaturas button.on{border-color:var(--marca);opacity:1}
 .miniaturas img{width:100%;height:100%;object-fit:cover}
+/* No computador a galeria vira MOSAICO: uma foto grande e até quatro menores
+   ao lado, numa altura contida. A foto única de 600px ocupava a tela inteira
+   e empurrava preço, ficha e WhatsApp para baixo da dobra (pedido do Ali,
+   24/09/2026). No celular continua o carrossel, que é o gesto de lá. */
+.mosaico{display:none}
+@media (min-width:901px){
+  .gal,.miniaturas{display:none}
+  .mosaico{display:grid;position:relative;gap:8px;height:clamp(300px,30vw,400px);border-radius:18px;overflow:hidden;
+    grid-template-columns:2fr 1fr 1fr;grid-template-rows:1fr 1fr}
+  .mosaico button{border:0;padding:0;background:#E9E9E4;cursor:zoom-in;overflow:hidden;min-height:0}
+  .mosaico img{width:100%;height:100%;object-fit:cover;transition:transform .35s}
+  .mosaico button:hover img{transform:scale(1.03)}
+  .mosaico button:first-child{grid-row:1/3;grid-column:1/2}
+  /* Uma foto só: inteira, sem corte — foto de celular em pé cortada numa faixa
+     larga mostraria só o meio do cômodo. */
+  .mosaico.m1{grid-template-columns:1fr;background:#1a1a1a}
+  .mosaico.m1 img{object-fit:contain}
+  .mosaico.m1 button{background:#1a1a1a}
+  .mosaico.m1 button:first-child{grid-column:1/2}
+  .mosaico.m2{grid-template-columns:1fr 1fr}
+  .mosaico.m2 button:nth-child(2){grid-row:1/3}
+  .mosaico.m3 button:nth-child(n+2){grid-column:2/4}
+  .mosaico.m4 button:nth-child(2){grid-column:2/4}
+  .mosaico .todas{position:absolute;right:14px;bottom:14px;background:#fff;color:#16181D;border:0;border-radius:10px;padding:9px 14px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.16);display:inline-flex;align-items:center;gap:6px}
+}
 .corpo{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:40px;margin-top:28px;align-items:start}
 .corpo h1{font-size:clamp(24px,3.2vw,32px);line-height:1.2;letter-spacing:-.02em}
 .corpo .onde{font-size:15px;margin-top:8px}
@@ -563,6 +589,8 @@ export function paginaImovel(ctx, i) {
   const galeria = fotos.length
     ? `<div class="gal" id="gal"><div class="trilho">${slides(false)}</div>
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button><span class="cont">1 / ${fotos.length}</span>` : ""}</div>
+       <div class="mosaico m${Math.min(fotos.length, 5)}">${fotos.slice(0, 5).map((u, n) => `<button type="button" data-i="${n}" aria-label="Ampliar foto ${n + 1} de ${fotos.length}"><img src="${esc(u)}" alt="${esc(i.titulo)} — foto ${n + 1}"${n ? ' loading="lazy"' : ""}></button>`).join("")}
+         ${fotos.length > 1 ? `<button type="button" class="todas" data-i="0">${ICO.grade}Ver as ${fotos.length} fotos</button>` : ""}</div>
        ${fotos.length > 1 ? `<div class="miniaturas">${fotos.map((u, n) => `<button type="button" data-i="${n}" class="${n ? "" : "on"}" aria-label="Ver foto ${n + 1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
        <div class="caixa" id="caixa" role="dialog" aria-modal="true" aria-label="Fotos do imóvel"><button class="fecha" type="button" aria-label="Fechar">${ICO.fechar}</button><div class="trilho">${slides(true)}</div>
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button>` : ""}<span class="cont">1 / ${fotos.length}</span></div>`
@@ -610,7 +638,9 @@ export function paginaImovel(ctx, i) {
   mini.forEach(function(b){b.onclick=function(){g.ir(+b.dataset.i)}});
   var cx=document.getElementById('caixa'),z=montar(cx);
   function fechar(){cx.classList.remove('on');document.body.style.overflow=''}
-  if(g&&cx){g.trilho.querySelectorAll('button').forEach(function(b){b.onclick=function(){cx.classList.add('on');document.body.style.overflow='hidden';requestAnimationFrame(function(){z.ir(+b.dataset.i,false)})}});
+  function abrir(k){cx.classList.add('on');document.body.style.overflow='hidden';requestAnimationFrame(function(){z.ir(k,false)})}
+  if(g&&cx){g.trilho.querySelectorAll('button').forEach(function(b){b.onclick=function(){abrir(+b.dataset.i)}});
+    document.querySelectorAll('.mosaico button').forEach(function(b){b.onclick=function(){abrir(+b.dataset.i)}});
     cx.querySelector('.fecha').onclick=fechar;
     document.addEventListener('keydown',function(e){if(!cx.classList.contains('on'))return;if(e.key==='Escape')fechar();if(e.key==='ArrowRight')z.ir(z.atual()+1);if(e.key==='ArrowLeft')z.ir(z.atual()-1)});}
 })();
