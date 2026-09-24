@@ -4,6 +4,7 @@ import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
+import { pendencias } from "../services/portais.js";
 
 const r = Router();
 r.use(authRequired);
@@ -23,11 +24,16 @@ const midiasDe = (id) => db.prepare("SELECT id,tipo,url,ordem FROM produto_midia
 function comValores(p) {
   if (!p) return p;
   const total = p.valor && p.comissao_pct ? (p.valor * p.comissao_pct) / 100 : null;
+  const midias = midiasDe(p.id);
   return {
     ...p,
     morar_bem: !!p.morar_bem,   // mantido para não quebrar cadastro antigo
     modalidade: p.modalidade || null,
-    midias: midiasDe(p.id),
+    publicar_portais: !!p.publicar_portais,
+    midias,
+    // O formulário mostra o que falta para ir ao portal com a MESMA regra que
+    // decide o feed — uma cópia no navegador divergiria na primeira mudança.
+    portal: pendencias(p, midias.filter(m => m.tipo === "foto").map(m => m.url)),
     comissao: total == null ? null : {
       total, imobiliaria: (total * SPLIT.imobiliaria) / 100, corretor: (total * SPLIT.corretor) / 100,
       split: SPLIT,
@@ -101,6 +107,29 @@ export function numero(v) {
   return isFinite(n) ? n : null;
 }
 
+/* Campos do ANÚNCIO nos portais. Gravados por uma função só, chamada no
+   cadastro e na edição — são 14 colunas, e repeti-las nos dois SQL grandes
+   de baixo seria o jeito de uma delas ficar esquecida em um dos lados. */
+const EXIBIR_ENDERECO = ["bairro", "rua", "completo"];
+/* `publicar_portais` só muda por quem supervisiona: pôr um anúncio na internet
+   é decisão da gestão. O corretor que capta edita o resto do anúncio. */
+function gravarCamposPortal(id, b, user, anterior = 0) {
+  const cep = limpar(b.cep) && String(b.cep).replace(/\D/g, "");
+  db.prepare(`UPDATE produtos SET publicar_portais=@publicar_portais, descricao=@descricao, uf=@uf, cep=@cep,
+    numero_end=@numero_end, complemento=@complemento, latitude=@latitude, longitude=@longitude, vagas=@vagas,
+    suites=@suites, area_util=@area_util, condominio=@condominio, iptu=@iptu, exibir_endereco=@exibir_endereco,
+    atualizado_em=@atualizado_em WHERE id=@id`).run({
+    id, publicar_portais: supervisiona(user) ? (b.publicar_portais ? 1 : 0) : (anterior ? 1 : 0), descricao: limpar(b.descricao),
+    uf: limpar(b.uf) ? String(b.uf).trim().toUpperCase() : null, cep: cep || null,
+    numero_end: limpar(b.numero_end), complemento: limpar(b.complemento),
+    latitude: numero(b.latitude), longitude: numero(b.longitude),
+    vagas: numero(b.vagas), suites: numero(b.suites), area_util: numero(b.area_util),
+    condominio: numero(b.condominio), iptu: numero(b.iptu),
+    exibir_endereco: EXIBIR_ENDERECO.includes(b.exibir_endereco) ? b.exibir_endereco : "bairro",
+    atualizado_em: Date.now(),
+  });
+}
+
 function validar(b) {
   if (!["casa", "terreno"].includes(b.tipo)) return "Escolha se é casa ou terreno.";
   if (b.finalidade && !["venda", "aluguel"].includes(b.finalidade)) return "Escolha se é venda ou aluguel.";
@@ -110,6 +139,9 @@ function validar(b) {
   if (!limpar(b.cidade)) return "Informe a cidade.";
   if (b.valor != null && b.valor !== "" && numero(b.valor) == null) return "Valor inválido.";
   if (b.maps_url && !/^https?:\/\//i.test(b.maps_url)) return "O link do Maps precisa começar com https://";
+  if (limpar(b.uf) && !/^[A-Za-z]{2}$/.test(String(b.uf).trim())) return "Estado (UF) são duas letras, ex.: PE.";
+  if (limpar(b.cep) && String(b.cep).replace(/\D/g, "").length !== 8) return "O CEP tem 8 números.";
+  if (limpar(b.descricao) && String(b.descricao).trim().length > 3000) return "A descrição do anúncio passa de 3000 caracteres — os portais cortam o resto.";
   return null;
 }
 
@@ -144,6 +176,7 @@ r.post("/", (req, res) => {
     status: supervisiona(req.user) ? "ativo" : "aguardando_aprovacao",
     created_by: req.user.id, created_at: Date.now(),
   });
+  gravarCamposPortal(id, b, req.user);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(id)));
 });
 
@@ -188,6 +221,7 @@ r.patch("/:id", (req, res) => {
     morar_bem: modalidadeValida(b.modalidade) === "Morar Bem PE" ? 1 : 0,
     comissao_pct: numero(b.comissao_pct), observacoes: limpar(b.observacoes),
   });
+  gravarCamposPortal(p.id, b, req.user, p.publicar_portais);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
 });
 
