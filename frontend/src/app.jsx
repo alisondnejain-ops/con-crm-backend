@@ -3650,8 +3650,30 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       </div>}
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
-            completa, com filtros e acesso a qualquer conversa — é a mesma aba. */}
-        {role==="corretor"&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}}/>}
+            completa, com filtros e acesso a qualquer conversa — é a mesma aba.
+
+            CORRIGIDO EM 24/09/2026 (relatado pelo Ali: "o Alberto parou de
+            receber mensagens" — um corretor autônomo cuja conta tinha sido
+            migrada de imobiliária para autônoma). A condição abaixo nunca
+            excluía `supervisor` — inofensivo para todo mundo, exceto o dono
+            de conta autônoma, que é `role==="corretor"` E supervisiona ao
+            MESMO TEMPO (`ehDonoAutonomo`, auth.js) — o único caso do sistema
+            em que as duas coisas são verdadeiras juntas. As DUAS telas
+            renderizavam ao mesmo tempo nesta mesma aba: <Atendimento>, cuja
+            caixa (`myLeads`) é só `leads.filter(l=>l.assignedTo===session.id)`
+            — sem exceção nenhuma pra quem supervisiona —, por cima de
+            <Conversas>, que é a tela certa (busca TODOS os leads da conta,
+            inclusive sem dono). Numa conta autônoma NATIVA isso não dói muito
+            — todo lead novo já nasce COM ele, então a caixa simples nunca
+            fica vazia de verdade. Mas a conta do Alberto tinha vindo de uma
+            imobiliária sem atendente: leads que chegavam sem ninguém pra
+            distribuir ficavam com `assigned_to` NULO — visíveis para ele como
+            gestor (tela antiga, `Conversas`), invisíveis para ele como
+            corretor (`myLeads` não inclui NULO). Migrar o tipo da conta trocou
+            o papel dele de gestor pra corretor (correto, é a regra do
+            recurso), e a caixa errada passou a ganhar da certa — parecendo
+            que as mensagens simplesmente pararam. */}
+        {role==="corretor"&&!supervisor&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
