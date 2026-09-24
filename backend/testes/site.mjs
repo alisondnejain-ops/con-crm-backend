@@ -68,7 +68,7 @@ try {
   const gestorB = await como("gestorb@site.com");
   const foto = (pid, nome) => db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,ordem,created_at) VALUES (?,?,?,?,0,?)")
     .run("m_" + randomUUID(), pid, "foto", nome, Date.now());
-  const pagina = async (p) => { const r = await fetch(url(p), { redirect: "manual" }); return { status: r.status, local: r.headers.get("location"), html: await r.text() }; };
+  const pagina = async (p) => { const r = await fetch(url(p), { redirect: "manual" }); return { status: r.status, local: r.headers.get("location"), cache: r.headers.get("cache-control"), html: await r.text() }; };
 
   caso("Nasce DESLIGADO, com endereço tirado do nome da imobiliária");
   let cfg = (await gestor.get("/site")).body;
@@ -122,6 +122,14 @@ try {
   assert.match(pg.html, /Casa para alugar no Centro/);
   assert.match(pg.html, /fbq\('init','1234567890123456'\)/);
   assert.match(pg.html, /wa\.me\/5587999112222/);
+
+  caso("Trocar a frase aparece na hora, e a página não fica guardada no navegador");
+  assert.equal(pg.cache, "no-cache");
+  let r2 = await gestor.send("PATCH", "/site", { frase: "O imóvel certo pra você está aqui!" });
+  assert.equal(r2.status, 200);
+  const pg2 = await pagina("/imoveis/conecta-imoveis");
+  assert.match(pg2.html, /O imóvel certo pra você está aqui!/);
+  await gestor.send("PATCH", "/site", { frase: "Seu lar em Petrolina" });
 
   caso("Título com HTML sai escapado, nunca executado");
   assert.ok(!pg.html.includes("<script>alert(1)</script>"), "texto do cadastro virou código na página");

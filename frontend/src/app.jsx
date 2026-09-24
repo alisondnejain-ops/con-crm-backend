@@ -10316,6 +10316,10 @@ function TelaSite({acoes,isMobile,aoFechar}){
             <button onClick={()=>salvar({})} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 18px",fontSize:13.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
             {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
           </div>
+          {/* O erro também aparece AQUI: o do topo fica fora da tela de quem
+              acabou de clicar em Salvar lá embaixo, e a recusa passava como
+              se tivesse salvo. */}
+          {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12}}>{erro}</div>}
         </div>
 
         <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"0 4px 20px"}}>
