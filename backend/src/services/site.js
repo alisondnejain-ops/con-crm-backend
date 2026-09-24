@@ -315,8 +315,8 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .btn-marca svg{font-size:19px}
 .btn-lg{width:100%;padding:15px 20px;font-size:16px}
 .btn-claro{background:#fff;color:#16181D;border:1px solid #DADAD4;padding:10px 16px;font-size:14px}
-.heroi{background:var(--marca);color:#fff;padding:52px 0 92px}
-.heroi h1{font-size:clamp(28px,4.4vw,44px);line-height:1.12;letter-spacing:-.02em;font-weight:700;max-width:760px}
+.heroi{background:var(--marca);color:#fff;padding:40px 0 84px}
+.heroi h1{font-size:clamp(26px,3.6vw,38px);line-height:1.12;letter-spacing:-.02em;font-weight:700;max-width:760px}
 .heroi p{margin-top:12px;font-size:16px;opacity:.82}
 .busca{background:#fff;border-radius:18px;box-shadow:0 12px 40px rgba(16,24,40,.12);padding:18px;margin-top:-62px;position:relative}
 .abas{display:flex;gap:4px;background:#F1F1ED;border-radius:12px;padding:4px;width:max-content;max-width:100%;margin-bottom:14px}
@@ -329,14 +329,14 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .resumo{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:34px 0 16px}
 .resumo h2{font-size:20px;letter-spacing:-.01em}
 .resumo a{font-size:14px;color:#5F6670;text-decoration:underline}
-.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:22px}
+.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:20px}
 .card{background:#fff;border-radius:16px;overflow:hidden;border:1px solid #ECECE7;display:flex;flex-direction:column;transition:box-shadow .2s,transform .2s}
 .card:hover{box-shadow:0 14px 34px rgba(16,24,40,.10);transform:translateY(-2px)}
-.card .foto{position:relative;aspect-ratio:4/3;background:#EDEDE8}
-.card .foto img{width:100%;height:100%;object-fit:cover}
+.card .foto{position:relative;aspect-ratio:3/2;background:#EDEDE8;overflow:hidden}
+.card .foto img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .sem-foto{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#B9BDB5;font-size:44px}
 .selo{position:absolute;top:12px;left:12px;background:rgba(255,255,255,.95);color:#16181D;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px}
-.card .info{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1}
+.card .info{padding:14px 16px 16px;display:flex;flex-direction:column;gap:5px;flex:1}
 .preco{font-size:22px;font-weight:700;letter-spacing:-.01em;color:#16181D}
 .preco small{font-size:14px;font-weight:500;color:#5F6670;margin-left:2px}
 .card h3{font-size:15px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -453,6 +453,25 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
   .volta{margin:14px 0 10px}
   .ficha{grid-template-columns:repeat(2,1fr)}
   .caixa .nav{display:none}
+}
+/* No celular o card vira uma LINHA (foto ao lado do texto), como nas listas
+   dos portais: empilhado, cada imóvel ocupava a tela inteira e um catálogo de
+   40 imóveis virava uma rolagem sem fim (pedido do Ali, 24/09/2026). */
+@media (max-width:560px){
+  .grade{grid-template-columns:1fr;gap:12px}
+  .card{flex-direction:row;border-radius:14px}
+  .card:hover{transform:none}
+  .card .foto{width:40%;flex-shrink:0;aspect-ratio:auto;min-height:128px}
+  .card .info{padding:11px 12px;gap:3px;min-width:0}
+  .card .preco{font-size:17px}
+  .card .preco small{font-size:12px}
+  .card h3{font-size:13.5px}
+  .card .onde{font-size:12px}
+  .card .feats{font-size:12px;gap:4px 10px;padding-top:7px}
+  .card .feats svg{font-size:14px}
+  .selo{top:8px;left:8px;font-size:10.5px;padding:3px 8px}
+  .resumo{margin:24px 0 12px}
+  .resumo h2{font-size:17px}
 }
 .preco-cel{display:none;margin-top:14px}
 .preco-cel .preco{font-size:26px}
