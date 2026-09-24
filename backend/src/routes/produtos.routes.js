@@ -5,6 +5,7 @@ import { authRequired, roles, supervisiona } from "../auth.js";
 import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pendencias } from "../services/portais.js";
+import { caminhoDoImovel } from "../services/site.js";
 
 const r = Router();
 r.use(authRequired);
@@ -34,6 +35,8 @@ function comValores(p) {
     // O formulário mostra o que falta para ir ao portal com a MESMA regra que
     // decide o feed — uma cópia no navegador divergiria na primeira mudança.
     portal: pendencias(p, midias.filter(m => m.tipo === "foto").map(m => m.url)),
+    // Endereço da página do imóvel no site da imobiliária — null com o site desligado.
+    site_path: caminhoDoImovel(p.org_id, p),
     comissao: total == null ? null : {
       total, imobiliaria: (total * SPLIT.imobiliaria) / 100, corretor: (total * SPLIT.corretor) / 100,
       split: SPLIT,

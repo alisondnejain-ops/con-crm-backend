@@ -21,6 +21,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
+import { paginas as sitePaginas, gestao as siteGestao } from "./routes/site.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
@@ -274,6 +275,11 @@ app.get("/", (req, res) => servirApp(req, res));
    dentro perceber que parou de entrar cliente.
 
    Caminho explícito no `app.use`, como manda a regra desta casa. */
+/* O SITE DAS IMOBILIÁRIAS (24/09/2026): público, sem login, e por isso ANTES
+   de qualquer roteador montado na raiz — se um deles um dia ganhar um
+   `r.use(authRequired)`, o visitante do site não pode ser quem descobre. */
+app.use("/imoveis", sitePaginas);
+
 app.use("/", publicoRoutes);
 
 app.use("/", assinaturaRoutes);
@@ -304,6 +310,7 @@ app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
+app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.

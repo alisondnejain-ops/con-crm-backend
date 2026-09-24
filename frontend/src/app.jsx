@@ -1291,6 +1291,9 @@ function ConCRM(){
     portais:()=>api("/portais"),
     salvarPortais:(b)=>api("/portais",{method:"PATCH",body:b}),
     trocarTokenPortal:(qual)=>api("/portais/token",{method:"POST",body:{qual}}),
+    // Site da imobiliária (24/09/2026): portal público e página por imóvel.
+    site:()=>api("/site"),
+    salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
     salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
     situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
     apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
@@ -9920,6 +9923,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [recarga,setRecarga]=useState(0);
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
   const [portais,setPortais]=useState(false);
+  const [site,setSite]=useState(false);
   const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
   const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
@@ -9940,6 +9944,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
     try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
+  if(site) return <TelaSite acoes={acoes} isMobile={isMobile} aoFechar={()=>{setSite(false);atualizar();}}/>;
   if(portais) return <TelaPortais acoes={acoes} isMobile={isMobile} aoFechar={()=>{setPortais(false);atualizar();}}
     aoAbrirProduto={async(pid)=>{try{const p=await acoes.produto(pid);setPortais(false);setEditando(p);}catch(e){setErro(e.message);}}}/>;
   if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} equipeToda={equipeToda} acoes={acoes}
@@ -9972,6 +9977,9 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               imobiliária não é algo que cada corretor liga por conta própria. */}
           {gestor&&<button onClick={()=>setPortais(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
             <Icon n="link" size={15}/> Portais
+          </button>}
+          {gestor&&<button onClick={()=>setSite(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
+            <Icon n="grid" size={15}/> Site
           </button>}
         </div>
         {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
@@ -10224,6 +10232,94 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
             Este endereço é diferente do dos anúncios de propósito: o dos anúncios é lido por qualquer um que o tenha; este cria leads — se o primeiro vazar, ninguém consegue criar lead falso com ele.
           </div>
           <button onClick={()=>trocar("leads")} style={{marginTop:10,border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>Gerar endereço novo (se este vazou)</button>
+        </div>
+      </React.Fragment>}
+    </div>
+  </div>;
+}
+
+/* Tela do site da imobiliária (24/09/2026, só gestor). Poucos campos de
+   propósito — o pedido foi "sem função demais": o conteúdo vem do catálogo, a
+   logo e a cor vêm da Identidade, e o que sobra para decidir aqui é onde o
+   site mora, para qual WhatsApp ele leva e se há Pixel. */
+function TelaSite({acoes,isMobile,aoFechar}){
+  const [d,setD]=useState(null); const [f,setF]=useState(null);
+  const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
+  const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id});};
+  useEffect(()=>{acoes.site().then(carregar).catch(e=>setErro(e.message));},[]);
+  async function salvar(extra,aviso){
+    setErro("");setOk("");setSalvando(true);
+    try{ const r=await acoes.salvarSite({...f,...extra}); carregar(r); setOk(aviso||"Salvo."); setTimeout(()=>setOk(""),2600); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const ajuda=(t)=><div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.5}}>{t}</div>;
+  const slugMudou=d&&f&&d.ligado&&f.slug!==d.slug;
+  const base=window.location.host+"/imoveis/";
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+    <div style={{maxWidth:680,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Site da imobiliária</div>
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+
+      {d&&f&&<React.Fragment>
+        <div style={{...cartao,border:`1px solid ${d.ligado?C.green+"66":C.line}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{color:C.ink,fontSize:15,fontWeight:700}}>{d.ligado?"O site está no ar":"O site está desligado"}</div>
+              <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.5}}>
+                {d.ligado?"Todo imóvel disponível do catálogo aparece nele, com a logo e a cor da imobiliária.":"Ligue para publicar o catálogo num site próprio, com uma página para cada imóvel."}
+              </div>
+            </div>
+            <button onClick={()=>salvar({ligado:!d.ligado},d.ligado?"Site desligado.":"Site no ar!")} disabled={salvando}
+              style={{flexShrink:0,border:"none",borderRadius:999,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:salvando?"default":"pointer",
+                background:d.ligado?C.surface:C.green,color:d.ligado?C.sub:"#fff"}}>{d.ligado?"Desligar":"Ligar o site"}</button>
+          </div>
+          {d.ligado&&<div style={{marginTop:14}}>
+            <CopiarEndereco url={d.url}/>
+            <a href={d.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,color:C.greenMid,fontSize:13,fontWeight:600}}>Abrir o site <Icon n="chevron" size={13}/></a>
+          </div>}
+        </div>
+
+        <div style={cartao}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:12}}>Configuração</div>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div>
+              {rotulo("Endereço do site")}
+              <div style={{display:"flex",alignItems:"center",border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,overflow:"hidden"}}>
+                <span style={{color:C.faint,fontSize:13,padding:"0 0 0 11px",whiteSpace:"nowrap"}}>{isMobile?"…/imoveis/":base}</span>
+                <input value={f.slug} onChange={e=>setF({...f,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"")})} style={{...entrada,border:"none",flex:1,minWidth:0,paddingLeft:2}}/>
+              </div>
+              {slugMudou&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginTop:7,lineHeight:1.5}}>Trocar o endereço faz os links que já foram enviados e os anúncios que apontam para eles pararem de funcionar.</div>}
+            </div>
+            <div>
+              {rotulo("WhatsApp da imobiliária")}
+              <input value={f.whatsapp} onChange={e=>setF({...f,whatsapp:e.target.value})} inputMode="tel" placeholder="(87) 99999-0000" style={entrada}/>
+              {ajuda("Todo botão de contato do site leva para este número. A conversa entra no CRM como qualquer lead do WhatsApp.")}
+            </div>
+            <div>
+              {rotulo("Frase de apresentação")}
+              <input value={f.frase} onChange={e=>setF({...f,frase:e.target.value.slice(0,90)})} placeholder={d.frase_padrao} style={entrada}/>
+              {ajuda(`Aparece no topo da página inicial. Em branco, fica "${d.frase_padrao}".`)}
+            </div>
+            <div>
+              {rotulo("Pixel do Facebook (opcional)")}
+              <input value={f.pixel_id} onChange={e=>setF({...f,pixel_id:e.target.value.replace(/\D/g,"")})} inputMode="numeric" placeholder="Ex.: 1234567890123456" style={entrada}/>
+              {ajuda("Para rodar anúncio direto para o site ou para um imóvel. Fica no Gerenciador de Eventos do Facebook: é o número que aparece abaixo do nome do Pixel. O site registra a visita, o imóvel visto e o clique no WhatsApp (evento Lead).")}
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:16}}>
+            <button onClick={()=>salvar({})} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 18px",fontSize:13.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+            {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
+          </div>
+        </div>
+
+        <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"0 4px 20px"}}>
+          A logo e a cor vêm de <b>Configurações → Identidade</b>. A página de cada imóvel usa a descrição do anúncio e respeita o que foi escolhido em "O que mostrar do endereço". Construtora, comissão, quem captou e as observações internas <b>nunca</b> aparecem no site.
         </div>
       </React.Fragment>}
     </div>
@@ -10610,6 +10706,16 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
         style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,textDecoration:"none",background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenMid,borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:12}}>
         <Icon n="pin" size={16}/> Abrir no Google Maps
       </a>}
+
+      {/* O link do site: é o que o corretor manda ao cliente. Só com o imóvel
+          disponível — o de um vendido abriria "não está mais disponível". */}
+      {p.site_path&&p.status==="ativo"&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Página no site</div>
+          <a href={p.site_path} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Abrir</a>
+        </div>
+        <CopiarEndereco url={window.location.origin+p.site_path}/>
+      </div>}
 
       {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>{p.finalidade==="aluguel"?"Comissão do aluguel":"Comissão da venda"}</div>
