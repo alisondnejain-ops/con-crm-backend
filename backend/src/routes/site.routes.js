@@ -22,10 +22,15 @@ function contexto(req, res) {
   return { ...s, base: baseDe(req) };
 }
 
-/* Cache curto: preço trocado ou imóvel vendido tem que sumir do site em
-   minutos, não no dia seguinte. */
+/* Sem cache: o navegador sempre pergunta ao servidor (24/09/2026). Era
+   `max-age=60`, e o gestor trocava a frase, clicava em "Abrir o site" e via a
+   página VELHA — a aba nova saía da memória do navegador sem perguntar nada,
+   e parecia que o Salvar não tinha funcionado. `no-cache` não é "não guarde":
+   o Express manda ETag, e página que não mudou volta como 304, sem corpo —
+   o custo de sempre conferir é quase nenhum, e preço trocado ou imóvel vendido
+   aparece na hora. */
 const servir = (res, html, status = 200) =>
-  res.status(status).type("html").set("Cache-Control", "public, max-age=60").send(html);
+  res.status(status).type("html").set("Cache-Control", "no-cache").send(html);
 
 paginas.get("/:slug", (req, res) => {
   const ctx = contexto(req, res); if (!ctx) return;
