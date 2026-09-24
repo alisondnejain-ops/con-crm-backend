@@ -1384,6 +1384,7 @@ function ConCRM(){
     conexao:()=>api("/config/conexao"),
     usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
+    qrWhats:(forcar)=>api("/config/conexao/conectar",{method:"POST",body:{forcar:!!forcar}}),
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
     conectarWhatsOficial:(dados)=>api("/config/conexao/oficial",{method:"POST",body:dados}),
     robo:()=>api("/config/robo"),
@@ -12505,9 +12506,41 @@ function ConexaoConfig({acoes,session,isMobile}){
   const [salvandoCred,setSalvandoCred]=useState(false);
   const [avisoCred,setAvisoCred]=useState("");
   const ehGestor=podeGerir(session);
+  /* QR Code dentro do CRM (24/09/2026): antes ele só existia no painel da
+     Uazapi, e quem desconectava por aqui ficava sem caminho de volta. */
+  const [qr,setQr]=useState(null);
+  const [gerandoQr,setGerandoQr]=useState(false);
+  const [falhouDesc,setFalhouDesc]=useState(false);
 
   const rever=()=>acoes.conexao().then(setD).catch(e=>setErro(e.message));
   useEffect(()=>{rever();},[]);
+
+  async function gerarQr(forcar){
+    setGerandoQr(true); setErro("");
+    try{
+      const r=await acoes.qrWhats(forcar);
+      setFalhouDesc(false);
+      if(r.conectado){ setQr(null); await rever(); }
+      else setQr({img:r.qrcode||"",codigo:r.paircode||"",desde:Date.now()});
+    }catch(e){ setErro(e.message); }
+    finally{ setGerandoQr(false); }
+  }
+  /* Enquanto o QR está na tela, confere a cada 3s: quando o celular ler, a
+     tela vira "conectado" sozinha. A Uazapi troca o código a cada ~20s, então
+     a imagem é atualizada junto. Passados 3 minutos, para e pede outro. */
+  useEffect(()=>{
+    if(!qr) return;
+    const t=setInterval(async()=>{
+      if(Date.now()-qr.desde>180000){ setQr(null); setErro("O QR Code expirou. Clique em gerar de novo."); return; }
+      try{
+        const n=await acoes.conexao(); setD(n);
+        const w=n.whatsapp||{};
+        if(w.conectado) setQr(null);
+        else if(w.qrcode) setQr(q=>q&&({...q,img:w.qrcode,codigo:w.paircode||q.codigo}));
+      }catch(e){}
+    },3000);
+    return()=>clearInterval(t);
+  },[qr&&qr.desde]);
 
   const copiar=(t)=>{
     const pronto=()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);};
@@ -12543,13 +12576,19 @@ function ConexaoConfig({acoes,session,isMobile}){
   }
   async function desconectar(){
     setSaindo(true); setErro("");
-    try{ await acoes.desconectarWhats(palavra); setConfirmando(false); setPalavra(""); await rever(); }
-    catch(e){ setErro(e.message); } finally{ setSaindo(false); }
+    try{
+      await acoes.desconectarWhats(palavra); setConfirmando(false); setPalavra(""); await rever();
+      // Desconectou: o próximo passo é sempre parear de novo, então o QR já aparece.
+      await gerarQr(false);
+    }
+    catch(e){ setErro(e.message); setFalhouDesc(true); } finally{ setSaindo(false); }
   }
 
   if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
   const w=d.whatsapp||{};
-  const ligado=w.configurado&&w.ok;
+  // `ok` é só "a Uazapi respondeu"; `conectado` é o WhatsApp pareado de verdade.
+  const ligado=w.configurado&&w.ok&&w.conectado!==false;
+  const podeQr=ehGestor&&d.ativo==="uazapi";
   const provedorAtivo=d.provedores.find(p=>p.id===d.ativo);
   const campo=(label,valor,onChange,tipo)=><React.Fragment>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}</label>
@@ -12572,7 +12611,7 @@ function ConexaoConfig({acoes,session,isMobile}){
             {ligado?"WhatsApp conectado":w.configurado?"WhatsApp desconectado":"Nenhum WhatsApp conectado"}</div>
           <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
             {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via {provedorAtivo?provedorAtivo.nome:"—"}</React.Fragment>
-              :w.configurado?(w.erro||w.status||"a instância não respondeu")
+              :w.configurado?(w.erro||({disconnected:"o número não está pareado — conecte com o QR Code abaixo",connecting:"conectando… leia o QR Code"}[String(w.status||"").toLowerCase()])||w.status||"a instância não respondeu")
               :"Escolha uma das opções abaixo para a equipe atender pelo CRM."}
           </div>
         </div>
@@ -12594,6 +12633,39 @@ function ConexaoConfig({acoes,session,isMobile}){
           <button onClick={desconectar} disabled={saindo||palavra!=="DESCONECTAR"}
             style={{background:palavra==="DESCONECTAR"?C.hot:C.faint,color:"#fff",border:"none",borderRadius:9,
               padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{saindo?"Desconectando…":"Desconectar"}</button>
+        </div>
+      </div>}
+
+      {/* Desconectado (ou o Desconectar falhou numa sessão travada): o caminho
+          de volta é parear de novo, e agora ele mora aqui dentro. */}
+      {podeQr&&!qr&&(!ligado||falhouDesc)&&<div style={{marginTop:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>{setConfirmando(false);setPalavra("");gerarQr(falhouDesc||ligado);}} disabled={gerandoQr}
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"10px 16px",
+            fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          {gerandoQr?"Gerando QR Code…":falhouDesc?"Forçar reconexão com novo QR Code":"Conectar com QR Code"}</button>
+        {falhouDesc&&<span style={{color:C.sub,fontSize:11.5,lineHeight:1.4,flex:"1 1 200px"}}>
+          A sessão antiga está travada na Uazapi. Isto derruba o que sobrou dela e gera um código novo.</span>}
+      </div>}
+
+      {qr&&<div style={{marginTop:14,border:`1px solid ${C.line}`,borderRadius:12,padding:14,
+        display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+        {qr.img
+          ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,background:"#fff",borderRadius:8,padding:6,boxSizing:"border-box"}}/>
+          :<div style={{width:220,height:220,display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:12,
+            textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:8}}>Gerando o código…</div>}
+        <div style={{flex:"1 1 200px",minWidth:0}}>
+          <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:6}}>Leia com o celular do número</div>
+          <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+            No WhatsApp desse número: <b>Configurações → Aparelhos conectados → Conectar aparelho</b>, e aponte para o código.
+            Esta tela vira "conectado" sozinha quando ler.</div>
+          {qr.codigo&&<div style={{marginTop:8,color:C.sub,fontSize:12}}>Ou use o código de pareamento: <b style={{fontFamily:MONO,color:C.ink}}>{qr.codigo}</b></div>}
+          <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>gerarQr(false)} disabled={gerandoQr}
+              style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
+              {gerandoQr?"Gerando…":"Gerar outro código"}</button>
+            <button onClick={()=>setQr(null)}
+              style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
+          </div>
         </div>
       </div>}
     </div>

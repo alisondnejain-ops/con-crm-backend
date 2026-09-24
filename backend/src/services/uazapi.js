@@ -153,6 +153,46 @@ export async function desconectarInstancia(orgId, canalId = null) {
     + CAMINHOS_DESCONECTAR.join(", ") + "). Desconecte pelo painel da Uazapi.");
 }
 
+/* A Uazapi devolve o QR Code como base64, às vezes já com o prefixo
+   `data:image/png;base64,` e às vezes sem. A tela precisa sempre do prefixo. */
+function imagemDoQr(qr) {
+  const s = String(qr || "").trim();
+  if (!s) return "";
+  return s.startsWith("data:") ? s : `data:image/png;base64,${s}`;
+}
+
+/* CONECTAR PELO QR CODE, DE DENTRO DO CRM (24/09/2026).
+
+   Até aqui o CRM não tinha tela de QR Code nenhuma: parear o número só era
+   possível no painel da própria Uazapi. Quem desconectava pelo CRM ficava
+   sem caminho de volta — foi o caso do Alberto, com a sessão travada em
+   "session is not reconnectable" e nenhum lugar no CRM para reconectar.
+
+   `forcar` derruba a sessão velha ANTES de pedir o QR novo, e ignora a falha
+   dessa derrubada: numa sessão já quebrada, desconectar pode falhar
+   justamente porque não há o que desconectar — e isso não pode impedir a
+   única saída, que é parear de novo. */
+export async function conectarInstancia(orgId, canalId = null, { forcar = false, telefone = "" } = {}) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") throw new Error("A API oficial da Meta não usa QR Code.");
+  if (!uazapiConfigured(orgId, canalId)) throw new Error("Cole primeiro o endereço e o token da instância da Uazapi.");
+  if (forcar) {
+    try { await desconectarInstancia(orgId, canalId); }
+    catch (e) { console.warn("[uazapi] reconexão: não consegui derrubar a sessão velha (seguindo assim mesmo):", e.message); }
+  }
+  const tel = String(telefone || "").replace(/\D/g, "");
+  const r = await call(orgId, "/instance/connect", tel ? { phone: tel } : {}, canalId);
+  const data = r.data || {};
+  const inst = data.instance || {};
+  const flags = (data.status && typeof data.status === "object") ? data.status : data;
+  const conectado = !!(flags.connected && flags.loggedIn !== false) || String(inst.status || "").toLowerCase() === "connected";
+  return {
+    conectado,
+    qrcode: conectado ? "" : imagemDoQr(inst.qrcode || data.qrcode),
+    paircode: conectado ? "" : String(inst.paircode || data.paircode || ""),
+  };
+}
+
 /* NENHUMA chamada à Uazapi tinha teto de tempo — achado em 24/09/2026, num
    cliente cuja sessão o próprio provedor já descrevia como "session is not
    reconnectable" (confirmado num envio real, que voltou com esse erro na
@@ -214,7 +254,7 @@ async function call(orgId, path, payload, canalId = null) {
   // esta mensagem depois (o webhook de resposta chega com o id do WhatsApp,
   // e sem `wa_id` guardado aqui não há com o que casar — ver `envioDiagnostico`).
   const messageid = idDaMensagem(data);
-  if (!messageid) {
+  if (!messageid && path.startsWith("/send")) {
     /* NENHUM dos nomes conhecidos apareceu na resposta. Isto não é "erro" —
        a Uazapi respondeu 200 —, é a mesma categoria de falha silenciosa da
        citação: sem guardar a FORMA da resposta (nomes de campo, nunca
@@ -446,11 +486,22 @@ export async function instanceStatus(orgId, canalId = null) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { configurado: true, ok: false, erro: data.message || `HTTP ${res.status}` };
     const inst = data.instance || data;
+    const status = String(inst.status || (typeof data.status === "string" ? data.status : "") || "desconhecido");
+    /* `ok` diz só que a Uazapi RESPONDEU — não que o WhatsApp está pareado.
+       A tela usava `ok` para pintar "WhatsApp conectado", e por isso uma
+       instância desconectada (ou recém-desconectada pelo botão) continuava
+       aparecendo como conectada (24/09/2026). `conectado` é a resposta de
+       verdade; `null` quando a Uazapi não diz, e aí a tela cai no `ok`. */
+    const flags = (data.status && typeof data.status === "object") ? data.status : {};
+    let conectado = null;
+    if (typeof flags.connected === "boolean") conectado = flags.connected && flags.loggedIn !== false;
+    else if (status !== "desconhecido") conectado = ["connected", "open", "online"].includes(status.toLowerCase());
     return {
-      configurado: true, ok: true,
-      status: inst.status || data.status || "desconhecido",
+      configurado: true, ok: true, conectado, status,
       numero: mascarar(inst.owner || inst.number || ""),
       nome: inst.profileName || inst.name || "",
+      qrcode: conectado ? "" : imagemDoQr(inst.qrcode || data.qrcode),
+      paircode: conectado ? "" : String(inst.paircode || data.paircode || ""),
     };
   } catch (e) {
     if (e.name === "TimeoutError" || e.name === "AbortError")
