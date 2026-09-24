@@ -153,6 +153,20 @@ export async function desconectarInstancia(orgId, canalId = null) {
     + CAMINHOS_DESCONECTAR.join(", ") + "). Desconecte pelo painel da Uazapi.");
 }
 
+/* NENHUMA chamada à Uazapi tinha teto de tempo — achado em 24/09/2026, num
+   cliente cuja sessão o próprio provedor já descrevia como "session is not
+   reconnectable" (confirmado num envio real, que voltou com esse erro na
+   hora). Pedir para DESCONECTAR uma sessão nesse estado é o caso em que a API
+   remota mais provavelmente está travada por dentro, e um `fetch` sem `signal`
+   fica pendurado esperando para sempre — provado num teste com um servidor
+   que nunca responde: a requisição fica parada indefinidamente, sem erro e
+   sem sucesso, exatamente a cara do relato ("cliquei em Desconectar e
+   simplesmente não vai"). É a mesma família de defeito que `services/video.js`
+   já documentou para o `ffmpeg`: "melhor um erro claro do que uma espera sem
+   fim". 20s é generoso para uma API de WhatsApp responder e curto o bastante
+   para o botão nunca ficar preso além disso. */
+const TIMEOUT_MS = 20000;
+
 async function call(orgId, path, payload, canalId = null) {
   const { host, token } = credenciais(orgId, canalId);
   if (!host || !token) {
@@ -166,8 +180,11 @@ async function call(orgId, path, payload, canalId = null) {
       headers: { "Content-Type": "application/json", token },
       // track_source identifica no painel da Uazapi o que saiu pelo CRM.
       body: JSON.stringify({ track_source: "con-crm", ...payload }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError")
+      throw new Error(`O WhatsApp (Uazapi) não respondeu em ${TIMEOUT_MS / 1000}s — a instância pode estar travada do lado de lá. Tente de novo em alguns minutos ou confira pelo painel da Uazapi.`);
     throw new Error(`Não consegui falar com o WhatsApp (rede): ${e.message}`);
   }
   /* Lê como TEXTO antes de tentar o JSON.
@@ -425,7 +442,7 @@ export async function instanceStatus(orgId, canalId = null) {
     };
   }
   try {
-    const res = await fetch(`${host}/instance/status`, { headers: { token } });
+    const res = await fetch(`${host}/instance/status`, { headers: { token }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { configurado: true, ok: false, erro: data.message || `HTTP ${res.status}` };
     const inst = data.instance || data;
@@ -436,6 +453,8 @@ export async function instanceStatus(orgId, canalId = null) {
       nome: inst.profileName || inst.name || "",
     };
   } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError")
+      return { configurado: true, ok: false, erro: `A instância não respondeu em ${TIMEOUT_MS / 1000}s (pode estar travada do lado da Uazapi).` };
     return { configurado: true, ok: false, erro: e.message };
   }
 }
