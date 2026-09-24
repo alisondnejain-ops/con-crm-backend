@@ -982,6 +982,11 @@ const podeGerir=(s)=>!!s&&(s.role==="adm"||!!s.gestor);
 const podeSupervisionar=(s)=>!!s&&(podeGerir(s)||s.role==="sdr");
 const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
 
+/* Uma regra só para "o WhatsApp está conectado", usada no selo do topo e na
+   tela de Conexão. Eram duas, e as duas liam `ok` — que só diz que a Uazapi
+   RESPONDEU. Desconectado de verdade, o topo continuava verde (24/09/2026). */
+const whatsConectado=(w)=>!!(w&&w.configurado!==false&&w.ok&&w.conectado!==false);
+
 function ConCRM(){
   const [session,setSession]=useState(null);
   // Em qual imobiliária o crachá está valendo agora. Para quem não é master é
@@ -1082,7 +1087,7 @@ function ConCRM(){
      imobiliária escolhida. Passava sozinho no ciclo seguinte, o que é pior:
      dava para achar que a equipe tinha sumido. */
   useEffect(()=>{ if(!session) return; recarregar();
-    api("/integracoes").then(d=>setConecta({connected:!!(d.whatsapp&&d.whatsapp.ok),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
+    api("/integracoes").then(d=>setConecta({connected:whatsConectado(d.whatsapp),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
     const t=setInterval(()=>{ recarregar(); if(selRef.current) abrir(selRef.current,true); },INTERVALO_ATUALIZACAO);
     return ()=>clearInterval(t);
   },[session,org&&org.id]);
@@ -1381,7 +1386,10 @@ function ConCRM(){
     editarMensagem2:(id,dados)=>api(`/config/mensagens/${id}`,{method:"PATCH",body:dados}),
     apagarMensagem:(id)=>api(`/config/mensagens/${id}`,{method:"DELETE"}),
     moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
-    conexao:()=>api("/config/conexao"),
+    // Toda leitura da tela de Conexão (inclusive a de 3 em 3s do QR Code)
+    // atualiza o selo do topo — antes ele só era lido ao entrar no sistema.
+    conexao:()=>api("/config/conexao").then(d=>{
+      const w=d&&d.whatsapp; setConecta({connected:whatsConectado(w),number:w&&w.numero||""}); return d;}),
     usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     qrWhats:(forcar)=>api("/config/conexao/conectar",{method:"POST",body:{forcar:!!forcar}}),
@@ -12528,19 +12536,32 @@ function ConexaoConfig({acoes,session,isMobile}){
   /* Enquanto o QR está na tela, confere a cada 3s: quando o celular ler, a
      tela vira "conectado" sozinha. A Uazapi troca o código a cada ~20s, então
      a imagem é atualizada junto. Passados 3 minutos, para e pede outro. */
+  /* Quem decide que o código venceu é a Uazapi, não um relógio nosso: a
+     primeira versão cortava em 3 minutos e dizia "expirou" enquanto a Uazapi
+     ainda mostrava "conectando… leia o QR Code". Só some quando ela volta a
+     "disconnected" sem código (ou depois de 10 minutos, por segurança). */
   useEffect(()=>{
     if(!qr) return;
     const t=setInterval(async()=>{
-      if(Date.now()-qr.desde>180000){ setQr(null); setErro("O QR Code expirou. Clique em gerar de novo."); return; }
+      if(Date.now()-qr.desde>600000){ setQr(null); setErro("O QR Code expirou. Clique em gerar de novo."); return; }
       try{
         const n=await acoes.conexao(); setD(n);
         const w=n.whatsapp||{};
-        if(w.conectado) setQr(null);
+        if(whatsConectado(w)){ setQr(null); setErro(""); }
         else if(w.qrcode) setQr(q=>q&&({...q,img:w.qrcode,codigo:w.paircode||q.codigo}));
+        else if(String(w.status||"").toLowerCase()==="disconnected"&&Date.now()-qr.desde>20000){
+          setQr(null); setErro("O QR Code expirou sem ser lido. Clique em \"Conectar com QR Code\" para gerar outro."); }
       }catch(e){}
     },3000);
     return()=>clearInterval(t);
   },[qr&&qr.desde]);
+  // Tela aberta com um código já ativo na Uazapi: mostra direto, sem pedir clique.
+  const [fechouQr,setFechouQr]=useState(false);
+  useEffect(()=>{
+    const w=d&&d.whatsapp;
+    if(!qr&&!fechouQr&&ehGestor&&w&&w.qrcode&&!whatsConectado(w))
+      setQr({img:w.qrcode,codigo:w.paircode||"",desde:Date.now()});
+  },[d]);
 
   const copiar=(t)=>{
     const pronto=()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2200);};
@@ -12587,7 +12608,7 @@ function ConexaoConfig({acoes,session,isMobile}){
   if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
   const w=d.whatsapp||{};
   // `ok` é só "a Uazapi respondeu"; `conectado` é o WhatsApp pareado de verdade.
-  const ligado=w.configurado&&w.ok&&w.conectado!==false;
+  const ligado=whatsConectado(w);
   const podeQr=ehGestor&&d.ativo==="uazapi";
   const provedorAtivo=d.provedores.find(p=>p.id===d.ativo);
   const campo=(label,valor,onChange,tipo)=><React.Fragment>
@@ -12663,7 +12684,7 @@ function ConexaoConfig({acoes,session,isMobile}){
             <button onClick={()=>gerarQr(false)} disabled={gerandoQr}
               style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
               {gerandoQr?"Gerando…":"Gerar outro código"}</button>
-            <button onClick={()=>setQr(null)}
+            <button onClick={()=>{setQr(null);setFechouQr(true);}}
               style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
           </div>
         </div>
