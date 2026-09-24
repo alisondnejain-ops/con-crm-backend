@@ -453,10 +453,21 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
   .marca img{height:34px}
   .topo .btn-marca span{display:none}
   .topo .btn-marca{padding:10px 12px}
-  .heroi{padding:36px 0 84px}
-  .busca{padding:14px;border-radius:16px}
-  .campos,.campos.c3{grid-template-columns:1fr 1fr}
-  .campos .btn{grid-column:1/-1}
+  .marca img{height:40px}
+  .heroi{padding:28px 0 80px}
+  .heroi p{font-size:15px;margin-top:8px}
+  /* Filtros no celular (pedido do Ali, 24/09/2026): as abas ocupam a largura
+     inteira em três partes iguais, e os campos formam uma grade 2×2 sem buraco
+     — sem o filtro de valor, o Buscar entra no 4º lugar ao lado de Quartos;
+     com ele, os quatro campos fecham a grade e o Buscar vai embaixo. Antes o
+     Quartos ficava sozinho numa linha com meia linha vazia ao lado. */
+  .busca{padding:12px;border-radius:16px}
+  .abas{width:100%;display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:10px}
+  .abas a{text-align:center;padding:9px 0}
+  .campos,.campos.c3{grid-template-columns:1fr 1fr;gap:8px}
+  .campos select{min-height:46px;padding:11px 32px 11px 12px;background-position:right 10px center}
+  .campos .btn{grid-column:1/-1;min-height:46px}
+  .campos.c3 .btn{grid-column:auto;padding:0 12px}
   .gal{border-radius:0;margin:0 -16px}
   .gal .trilho{height:75vw}
   .gal .nav{display:none}
