@@ -22,7 +22,6 @@ import db from "../db.js";
 import { normalizePhone } from "./stages.js";
 import { marcaDaOrg } from "./marca.js";
 import { situacao } from "./assinatura.js";
-import { coordenadas } from "./portais.js";
 
 /* ===== CONFIGURAÇÃO ===== */
 
@@ -127,19 +126,18 @@ const videoDe = (id) => (db.prepare("SELECT url FROM produto_midias WHERE produt
 const codigoDe = (id) => String(id).replace(/^p_/, "").replace(/-/g, "").slice(0, 6).toUpperCase();
 
 /* Endereço conforme a escolha do cadastro (`exibir_endereco`). O padrão é só o
-   bairro: endereço completo no anúncio leva o cliente direto ao proprietário,
-   e o mapa segue a mesma régua — mapa do ponto exato com "só o bairro"
-   escrito em cima seria mostrar pela imagem o que o texto escondeu. */
+   bairro: endereço completo no anúncio leva o cliente direto ao proprietário.
+
+   SEM MAPA, de propósito (24/09/2026, decisão do Ali): a localização exata
+   quem manda é o corretor, na conversa, quando achar que é a hora. Mapa na
+   página seria entregar ao visitante — e a quem quer pular a imobiliária —
+   o que a conversa existe para conduzir. */
 function localDe(p) {
   const modo = ["bairro", "rua", "completo"].includes(p.exibir_endereco) ? p.exibir_endereco : "bairro";
   const cidadeUf = [p.cidade, p.uf].filter(Boolean).join(" - ");
   const rua = modo === "completo" ? [p.endereco, p.numero_end].filter(Boolean).join(", ") : modo === "rua" ? (p.endereco || "") : "";
   const linha = [rua, p.bairro, cidadeUf].filter(Boolean).join(" · ");
-  let mapa = null;
-  const ponto = modo === "completo" ? coordenadas(p) : null;
-  if (ponto) mapa = `${ponto.lat},${ponto.lng}`;
-  else mapa = [rua, p.bairro, p.cidade, p.uf].filter(Boolean).join(", ") || null;
-  return { linha, curta: [p.bairro, p.cidade].filter(Boolean).join(" · "), mapa };
+  return { linha, curta: [p.bairro, p.cidade].filter(Boolean).join(" · ") };
 }
 
 export function publico(p) {
@@ -381,8 +379,6 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .secao{margin-top:34px}
 .secao h2{font-size:19px;letter-spacing:-.01em;margin-bottom:12px}
 .texto{white-space:pre-line;color:#30343B;font-size:15.5px;line-height:1.7}
-.mapa{border-radius:16px;overflow:hidden;border:1px solid #ECECE7;height:320px;background:#EDEDE8}
-.mapa iframe{width:100%;height:100%;border:0}
 .video{width:100%;border-radius:16px;background:#000;max-height:520px}
 .lateral{position:sticky;top:92px;background:#fff;border:1px solid #ECECE7;border-radius:18px;padding:24px;box-shadow:0 10px 30px rgba(16,24,40,.06)}
 .lateral .rot{font-size:13px;color:#5F6670;font-weight:600}
@@ -572,10 +568,6 @@ export function paginaImovel(ctx, i) {
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button>` : ""}<span class="cont">1 / ${fotos.length}</span></div>`
     : `<div class="gal"><div class="trilho"><div class="sem-foto" style="flex:1;background:#EDEDE8">${ICO.casa}</div></div></div>`;
 
-  const mapa = i.local.mapa
-    ? `<div class="secao"><h2>Localização</h2>${i.local.linha ? `<p class="onde" style="margin-bottom:12px">${ICO.pino}${esc(i.local.linha)}</p>` : ""}
-       <div class="mapa"><iframe title="Mapa da região" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${encodeURIComponent(i.local.mapa)}&z=${i.local.mapa.includes(",") && /^-?\d/.test(i.local.mapa) ? 16 : 14}&output=embed"></iframe></div></div>`
-    : "";
 
   const corpo = `
 <main class="wrap">
@@ -585,12 +577,11 @@ export function paginaImovel(ctx, i) {
     <article>
       <div class="etiquetas"><span class="etiqueta">${i.finalidade === "aluguel" ? "Para alugar" : "À venda"}</span>${i.modalidade ? `<span class="etiqueta">Aceita ${esc(i.modalidade)}</span>` : ""}</div>
       <h1>${esc(i.titulo)}</h1>
-      ${i.local.curta ? `<p class="onde">${ICO.pino}${esc(i.local.curta)}</p>` : ""}
+      ${i.local.linha ? `<p class="onde">${ICO.pino}${esc(i.local.linha)}</p>` : ""}
       <div class="preco-cel"><div class="preco">${precoDe(i)}</div>${custos ? `<div class="custos">${custos}</div>` : ""}</div>
       ${ficha ? `<div class="ficha">${ficha}</div>` : ""}
       ${i.descricao ? `<div class="secao"><h2>Sobre o imóvel</h2><p class="texto">${esc(i.descricao)}</p></div>` : ""}
       ${i.video ? `<div class="secao"><h2>Vídeo</h2><video class="video" src="${esc(i.video)}" controls preload="metadata" playsinline></video></div>` : ""}
-      ${mapa}
     </article>
     <aside class="lateral">
       <div class="rot">${rotulo}</div>
