@@ -419,15 +419,21 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 .custos b{color:#16181D;font-weight:600}
 .lateral .cod{text-align:center;font-size:12.5px;color:#9AA0A8;margin-top:12px}
 .barra-cel{display:none}
-.caixa{position:fixed;inset:0;background:rgba(10,10,10,.96);z-index:50;display:none;flex-direction:column}
+/* Tela cheia das fotos. O X e o contador moram numa faixa PRÓPRIA no alto,
+   abaixo da área do relógio e da bateria do iPhone (safe-area) — antes o X
+   ficava sobre a barra de status, onde o dedo não acerta, e o fundo meio
+   transparente deixava o preço e o botão da página aparecerem por baixo
+   (pedido do Ali, 24/09/2026). */
+.caixa{position:fixed;inset:0;height:100vh;height:100dvh;background:#000;z-index:100;display:none;flex-direction:column;
+  padding:calc(64px + env(safe-area-inset-top)) 0 calc(16px + env(safe-area-inset-bottom))}
 .caixa.on{display:flex}
-.caixa .trilho{flex:1;height:auto}
+.caixa .trilho{flex:1;height:auto;min-height:0}
 .caixa .trilho img{object-fit:contain}
 .caixa .trilho button{cursor:default}
-.caixa .fecha{position:absolute;top:14px;right:14px;z-index:2;width:44px;height:44px;border-radius:999px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.caixa .fecha{position:absolute;top:calc(10px + env(safe-area-inset-top));right:12px;z-index:2;width:46px;height:46px;border-radius:999px;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .caixa .nav{position:absolute;top:50%;transform:translateY(-50%);width:48px;height:48px;border-radius:999px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .caixa .ant{left:14px}.caixa .prox{right:14px}
-.caixa .cont{position:absolute;left:50%;transform:translateX(-50%);bottom:18px;color:#fff;font-size:14px}
+.caixa .cont{position:absolute;left:18px;top:calc(22px + env(safe-area-inset-top));color:#fff;font-size:15px;font-weight:600}
 .aviso{max-width:560px;margin:72px auto;background:#fff;border:1px solid #ECECE7;border-radius:18px;padding:40px 28px;text-align:center}
 .aviso h1{font-size:24px;letter-spacing:-.01em}
 .aviso p{color:#5F6670;margin:10px 0 24px}
