@@ -14,7 +14,7 @@ import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, soMaster } from "../auth.js";
-import { instanceStatus, desconectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
+import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { resumoDeUso } from "../services/iauso.js";
@@ -311,6 +311,22 @@ r.post("/conexao/desconectar", roles("adm"), async (req, res) => {
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(502).json({ error: "Não consegui desconectar", detail: e.message });
+  }
+});
+
+/* Gerar o QR Code para parear o número de novo, dentro do CRM (24/09/2026).
+   Só o gestor, como desconectar: parear decide qual WhatsApp a imobiliária
+   inteira usa. `forcar` derruba a sessão velha antes — é o caminho para a
+   sessão travada que nem o Desconectar consegue derrubar. */
+r.post("/conexao/conectar", roles("adm"), async (req, res) => {
+  try {
+    const casa = canalDaCasa(req.user.org_id);
+    const out = await conectarInstancia(req.user.org_id, casa ? casa.id : null, {
+      forcar: !!req.body?.forcar, telefone: req.body?.telefone,
+    });
+    res.json({ ok: true, ...out });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
   }
 });
 
