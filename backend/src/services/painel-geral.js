@@ -37,7 +37,8 @@
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
-import { resolverPeriodo, pct, peneira } from "./painel.js";
+import { resolverPeriodo, pct, peneira, recebidosDaPessoa } from "./painel.js";
+import { eventosDeAtribuicao } from "./movimento.js";
 
 const DIA = 86400000;
 
@@ -45,7 +46,8 @@ const DIA = 86400000;
 
    Cada um recebe `filtros` (o mesmo objeto de sempre) e um intervalo
    [de, ate]. `filtros.responsavel` vira a trava de QUEM PRATICOU, exceto em
-   `contarLeads`/`somaVendas`, que usam `peneira()` (dono do lead). "fila" é
+   `contarLeads` (quem RECEBEU, pelo histórico) e `somaVendas` (dono do lead,
+   pela `peneira()`). "fila" é
    sentinela só de dono — não faz sentido como "quem ligou", então nunca entra
    na trava de atividade. */
 function condPessoa(filtros) {
@@ -53,7 +55,12 @@ function condPessoa(filtros) {
   return r && r !== "fila" ? r : null;
 }
 
-function contarLigacoes(orgId, filtros, de, ate, apenasContato = false) {
+/* Cada contador tem duas formas: `momentos*` devolve os INSTANTES em que a
+   coisa aconteceu, e o contador é só o tamanho da lista. Assim o gráfico de 14
+   dias faz UMA consulta por indicador para a janela inteira e separa os dias
+   aqui, em vez de 7 consultas por dia (eram ~100 a cada abertura do Painel, a
+   tela de entrada de todo mundo — 25/09/2026). A conta continua uma só. */
+function momentosDeLigacao(orgId, filtros, de, ate, apenasContato = false) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
   const where = [p.sql, "lg.created_at BETWEEN ? AND ?"];
@@ -61,35 +68,49 @@ function contarLigacoes(orgId, filtros, de, ate, apenasContato = false) {
   if (apenasContato) where.push("lg.resultado = 'falou'");
   const quem = condPessoa(filtros);
   if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
-  return db.prepare(`SELECT COUNT(*) n FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
-    WHERE ${where.join(" AND ")}`).get(...args).n;
+  return db.prepare(`SELECT lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
+    WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
 }
+const contarLigacoes = (...a) => momentosDeLigacao(...a).length;
 
 // paraEtapa é o texto gravado em lead_etapas.para — para Agendamento/Visita/
 // Proposta isso é o NOME da etapa (mesma régua de `funil()`, que também casa
 // por nome); para Venda é sempre literal, porque a rota de registrar venda
 // grava "Venda" fixo, não o nome configurável de etapa alguma.
-function contarEtapa(orgId, paraEtapa, filtros, de, ate) {
+function momentosDeEtapa(orgId, paraEtapa, filtros, de, ate) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
   const where = [p.sql, "le.para = ?", "le.created_at BETWEEN ? AND ?"];
   const args = [...p.args, paraEtapa, de, ate];
   const quem = condPessoa(filtros);
   if (quem) { where.push("le.user_id = ?"); args.push(quem); }
-  return db.prepare(`SELECT COUNT(*) n FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
-    WHERE ${where.join(" AND ")}`).get(...args).n;
+  return db.prepare(`SELECT le.created_at t FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
+    WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
 }
+const contarEtapa = (...a) => momentosDeEtapa(...a).length;
 
-function contarLeads(orgId, filtros, de, ate) {
+/* LEADS: para a casa, os que ENTRARAM no período. Para UMA pessoa, os que
+   CHEGARAM NA MÃO DELA — a mesma conta de Relatórios e da Operação
+   (`recebidosDaPessoa`). Antes era "criado no período e com ela hoje", e o
+   lead repassado hoje, criado no mês passado, sumia do Painel do corretor
+   enquanto aparecia na Produção dele. */
+function momentosDeLeads(orgId, filtros, de, ate, eventos = null) {
+  const quem = condPessoa(filtros);
+  if (quem) return recebidosDaPessoa(orgId, quem, filtros, de, ate, eventos).map(e => e.quando);
   const p = peneira(orgId, filtros);
-  return db.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
-    .get(...p.args, de, ate).n;
+  return db.prepare(`SELECT l.created_at t FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
+    .all(...p.args, de, ate).map(r => r.t);
+}
+const contarLeads = (...a) => momentosDeLeads(...a).length;
+
+function vendasDoPeriodo(orgId, filtros, de, ate) {
+  const p = peneira(orgId, filtros);
+  return db.prepare(`SELECT sale_value, sale_commission_pct, sale_date FROM leads l
+    WHERE ${p.sql} AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, de, ate);
 }
 
 function somaVendas(orgId, filtros, de, ate) {
-  const p = peneira(orgId, filtros);
-  const vendas = db.prepare(`SELECT sale_value, sale_commission_pct FROM leads l
-    WHERE ${p.sql} AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, de, ate);
+  const vendas = vendasDoPeriodo(orgId, filtros, de, ate);
   const vgv = vendas.reduce((s, v) => s + (v.sale_value || 0), 0);
   // VGC só soma vendas COM comissão preenchida — a régua de sempre: número
   // que ninguém mediu não vira zero, e aqui vira "de fora da conta", com a
@@ -105,25 +126,38 @@ function somaVendas(orgId, filtros, de, ate) {
    o que vier primeiro) — é uma janela de tendência de granularidade fixa, não
    o período inteiro do filtro. Trocar o período muda ONDE a janela termina,
    não quantos dias ela mostra. */
-function serieDiaria(orgId, filtros, dias, periodo) {
+function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
   const fimBase = Math.min(periodo.ate, Date.now());
-  const linhas = [];
+  const janelas = [];
   for (let i = dias - 1; i >= 0; i--) {
     const fimDia = new Date(fimBase - i * DIA); fimDia.setHours(23, 59, 59, 999);
     const inicioDia = new Date(fimDia); inicioDia.setHours(0, 0, 0, 0);
-    const de = inicioDia.getTime(), ate = fimDia.getTime();
-    linhas.push({
-      rotulo: `${String(inicioDia.getDate()).padStart(2, "0")}/${String(inicioDia.getMonth() + 1).padStart(2, "0")}`,
-      leads: contarLeads(orgId, filtros, de, ate),
-      ligacoes: contarLigacoes(orgId, filtros, de, ate),
-      contato: contarLigacoes(orgId, filtros, de, ate, true),
-      visita_agendada: contarEtapa(orgId, "Agendamento", filtros, de, ate),
-      visita_realizada: contarEtapa(orgId, "Visita", filtros, de, ate),
-      proposta: contarEtapa(orgId, "Proposta", filtros, de, ate),
-      venda: somaVendas(orgId, filtros, de, ate).quantidade,
-    });
+    janelas.push({ de: inicioDia.getTime(), ate: fimDia.getTime(),
+      rotulo: `${String(inicioDia.getDate()).padStart(2, "0")}/${String(inicioDia.getMonth() + 1).padStart(2, "0")}` });
   }
-  return linhas;
+  const de = janelas[0].de, ate = janelas[janelas.length - 1].ate;
+  // Distribui cada instante no seu dia. As janelas são contíguas e ordenadas.
+  const porDia = (momentos) => {
+    const n = janelas.map(() => 0);
+    for (const t of momentos) {
+      const i = janelas.findIndex(j => t >= j.de && t <= j.ate);
+      if (i >= 0) n[i]++;
+    }
+    return n;
+  };
+  const leads = porDia(momentosDeLeads(orgId, filtros, de, ate, eventos));
+  const ligacoes = porDia(momentosDeLigacao(orgId, filtros, de, ate));
+  const contato = porDia(momentosDeLigacao(orgId, filtros, de, ate, true));
+  const agendada = porDia(momentosDeEtapa(orgId, "Agendamento", filtros, de, ate));
+  const realizada = porDia(momentosDeEtapa(orgId, "Visita", filtros, de, ate));
+  const proposta = porDia(momentosDeEtapa(orgId, "Proposta", filtros, de, ate));
+  const venda = porDia(vendasDoPeriodo(orgId, filtros, de, ate).map(v => v.sale_date));
+  return janelas.map((j, i) => ({
+    rotulo: j.rotulo,
+    leads: leads[i], ligacoes: ligacoes[i], contato: contato[i],
+    visita_agendada: agendada[i], visita_realizada: realizada[i],
+    proposta: proposta[i], venda: venda[i],
+  }));
 }
 
 function variacao(atual, anterior) {
@@ -143,8 +177,10 @@ export function visaoGeral(orgId, filtros = {}) {
   // mesmo quando o gestor escolhe um intervalo customizado.
   const anterior = { de: periodo.de - duracao - 1, ate: periodo.de - 1 };
 
-  const leadsAtual = contarLeads(orgId, filtros, periodo.de, periodo.ate);
-  const leadsAnterior = contarLeads(orgId, filtros, anterior.de, anterior.ate);
+  // O histórico de atribuição é lido uma vez e serve às três contas de leads.
+  const eventos = condPessoa(filtros) ? eventosDeAtribuicao(orgId) : null;
+  const leadsAtual = contarLeads(orgId, filtros, periodo.de, periodo.ate, eventos);
+  const leadsAnterior = contarLeads(orgId, filtros, anterior.de, anterior.ate, eventos);
 
   const vAtual = somaVendas(orgId, filtros, periodo.de, periodo.ate);
   const vAnterior = somaVendas(orgId, filtros, anterior.de, anterior.ate);
@@ -200,7 +236,7 @@ export function visaoGeral(orgId, filtros = {}) {
     periodo, filtros,
     kpis,
     funil_atividade: funilAtividade,
-    serie: serieDiaria(orgId, filtros, 14, periodo),
+    serie: serieDiaria(orgId, filtros, 14, periodo, eventos),
   };
 }
 

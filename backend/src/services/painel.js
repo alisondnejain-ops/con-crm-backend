@@ -28,6 +28,7 @@ import db from "../db.js";
 import { semMaster } from "../auth.js";
 import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js";
 import { slaDoLead } from "./etapas.js";
+import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
 
 const DIA = 86400000;
 
@@ -86,8 +87,35 @@ export function peneira(orgId, f = {}) {
   return { sql: where.join(" AND "), args };
 }
 
+/* "RECEBIDOS" DE UMA PESSOA — a conta única do sistema (25/09/2026).
+
+   Havia três contas para a mesma frase: Relatórios lia o histórico de
+   atribuição (conserto de 19/09), o Painel contava leads CRIADOS no período
+   que estão com a pessoa HOJE, e a aba Equipe da Operação usava a data da
+   última atribuição do dono atual. O lead criado no mês passado e repassado
+   hoje contava em uma tela e não na outra. Agora as três leem daqui: quando o
+   lead chegou na mão desta pessoa, pelo histórico — e os outros filtros
+   (origem, campanha, funil) continuam valendo sobre os leads. */
+export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = null) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const ids = new Set(db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql}`).all(...p.args).map(r => r.id));
+  return noPeriodo((eventos || eventosDeAtribuicao(orgId)).recebidos, userId, de, ate)
+    .filter(e => ids.has(e.lead_id));
+}
+
+// Quem o filtro de responsável aponta — "fila" não é pessoa.
+const pessoaDoFiltro = (f) => (f && f.responsavel && f.responsavel !== "fila" ? f.responsavel : null);
+
 // Leads que ENTRARAM no período (coorte). É a base de "recebidos" e da conversão.
-function coorte(orgId, { de, ate }, f) {
+// Com uma pessoa no filtro, "entrar" é chegar na mão dela (ver acima).
+function coorte(orgId, { de, ate }, f, eventos = null) {
+  const quem = pessoaDoFiltro(f);
+  if (quem) {
+    const ids = [...new Set(recebidosDaPessoa(orgId, quem, f, de, ate, eventos).map(e => e.lead_id))];
+    if (!ids.length) return [];
+    return db.prepare(`SELECT l.* FROM leads l WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})`).all(...ids);
+  }
   const p = peneira(orgId, f);
   return db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
     .all(...p.args, de, ate);
@@ -139,7 +167,14 @@ export const pct = (parte, total) => (total ? Math.round((parte / total) * 1000)
 /* ===== O PAINEL ===== */
 export function painel(orgId, filtros = {}) {
   const periodo = resolverPeriodo(filtros);
-  const recebidos = coorte(orgId, periodo, filtros);
+  const quem = pessoaDoFiltro(filtros);
+  const eventos = quem ? eventosDeAtribuicao(orgId) : null;
+  const recebidos = coorte(orgId, periodo, filtros, eventos);
+  // O número mostrado é o de chegadas, igual ao de Relatórios: um lead que
+  // voltou duas vezes para a mesma pessoa conta duas.
+  const totalRecebidos = quem
+    ? recebidosDaPessoa(orgId, quem, filtros, periodo.de, periodo.ate, eventos).length
+    : recebidos.length;
   const p = peneira(orgId, filtros);
 
   // Foto do agora: onde os leads estão neste instante, sem recorte de período.
@@ -171,7 +206,7 @@ export function painel(orgId, filtros = {}) {
                ate_iso: new Date(periodo.ate).toISOString().slice(0, 10) },
     filtros,
     atendimento: {
-      recebidos: recebidos.length,
+      recebidos: totalRecebidos,
       com_responsavel: comDono,
       na_fila: recebidos.filter(l => !l.assigned_to).length,
       // `null` e não zero: sem ninguém respondido, não há tempo para medir.
@@ -193,7 +228,9 @@ export function painel(orgId, filtros = {}) {
       ticket_medio: vendas.length
         ? Math.round(vendas.reduce((s, v) => s + (v.sale_value || 0), 0) / vendas.length) : null,
     },
-    atividades: atividades(orgId, periodo, filtros),
+    /* `atividades` (a equipe) saiu daqui em 25/09/2026: a tela já busca pela
+       rota /painel/equipe e jogava esta cópia fora — a conta mais pesada do
+       painel feita duas vezes a cada abertura. */
   };
 }
 
@@ -207,6 +244,7 @@ export function atividades(orgId, periodo, filtros = {}) {
   const etapas = new Map(db.prepare("SELECT * FROM pipeline_stages WHERE org_id = ?").all(orgId)
     .map(e => [e.id, formatarEtapa(e)]));
   const agora = Date.now();
+  const eventos = eventosDeAtribuicao(orgId);
 
   return pessoas.map(u => {
     const p = peneira(orgId, { ...filtros, responsavel: u.id });
@@ -227,8 +265,8 @@ export function atividades(orgId, periodo, filtros = {}) {
       WHERE user_id = ? AND created_at BETWEEN ? AND ?`).get(u.id, periodo.de, periodo.ate).n;
     const tarefas = db.prepare(`SELECT COUNT(*) n FROM tarefas
       WHERE user_id = ? AND feito_em IS NOT NULL AND feito_em BETWEEN ? AND ?`).get(u.id, periodo.de, periodo.ate).n;
-    const recebidosNoPeriodo = db.prepare(`SELECT COUNT(*) n FROM leads l WHERE ${p.sql}
-      AND COALESCE(l.assigned_at, l.created_at) BETWEEN ? AND ?`).get(...p.args, periodo.de, periodo.ate).n;
+    // A mesma conta de Relatórios e do Painel (ver recebidosDaPessoa).
+    const recebidosNoPeriodo = recebidosDaPessoa(orgId, u.id, filtros, periodo.de, periodo.ate, eventos).length;
 
     return {
       id: u.id, nome: u.name, papel: u.role,

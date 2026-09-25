@@ -392,11 +392,10 @@ const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprov
 function DicaEtapa({etapa}){
   const i=LINEAR.indexOf(etapa);
   const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
+  // Só a dica que ensina alguma coisa: qual palavra sugere a próxima etapa.
+  if(!prox||!PALAVRA_ETAPA[prox]) return null;
   return <div style={{color:C.faint,fontSize:10.5,marginBottom:12,lineHeight:1.5}}>
-    {prox
-      ?<React.Fragment>Quem move a etapa é você, aqui. Se alguém falar em <b style={{color:C.ink}}>“{PALAVRA_ETAPA[prox]}”</b> na conversa, o CRM sugere <b style={{color:STAGE_C[prox]}}>{prox}</b> para você confirmar.</React.Fragment>
-      :i>=0?"Última etapa do funil. Dá para mudar aqui na mão."
-      :"Etapa marcada na mão — a conversa não mexe mais nela."}
+    “{PALAVRA_ETAPA[prox]}” na conversa sugere <b style={{color:STAGE_C[prox]}}>{prox}</b>.
   </div>;
 }
 
@@ -497,6 +496,75 @@ function usarEscolha(chave,inicial){
   useEffect(()=>{ try{ sessionStorage.setItem(nome,JSON.stringify(v)); }catch(e){} },[nome,v]);
   return [v,setV];
 }
+/* ===== UM PERÍODO SÓ PARA PAINEL, RELATÓRIOS E OPERAÇÃO (25/09/2026) =====
+
+   Cada tela abria num período diferente: o Painel em "este mês", Relatórios
+   em "últimos 30 dias" e a Operação em "este mês" com um filtro à parte. A
+   mesma palavra "Vendas" dava dois números, e ninguém sabia qual estava
+   certo. Agora o período mora numa chave só: trocar numa tela troca nas três.
+
+   O atalho é resolvido no SERVIDOR (`resolverPeriodo`), nunca aqui — o "mês"
+   do aparelho em outro fuso não é o mesmo do relatório. A lista de atalhos é
+   fixa no navegador porque o corretor não tem acesso a /painel/opcoes: antes
+   ele via só "Este mês" no seletor. */
+const PERIODOS=[{id:"hoje",rotulo:"Hoje"},{id:"ontem",rotulo:"Ontem"},{id:"semana",rotulo:"Esta semana"},
+  {id:"mes",rotulo:"Este mês"},{id:"90dias",rotulo:"Últimos 90 dias"},{id:"ano",rotulo:"Este ano"},
+  {id:"custom",rotulo:"Escolher datas"}];
+const CAMPOS_PERIODO=["periodo","de","ate"];
+function usarPeriodo(){ return usarEscolha("periodo",{periodo:"mes"}); }
+// O que vai na URL: atalho sozinho, ou as duas datas quando é "Escolher datas".
+const consultaDoPeriodo=(p)=>p&&p.periodo&&p.periodo!=="custom"
+  ?{periodo:p.periodo}
+  :Object.fromEntries(Object.entries({periodo:"custom",de:p&&p.de,ate:p&&p.ate}).filter(([,v])=>v));
+/* Filtros de uma tela = o período compartilhado + os filtros próprios dela
+   (corretor, canal, funil), que continuam separados por tela. */
+function usarFiltrosComPeriodo(chave){
+  const [per,setPer]=usarPeriodo();
+  const [resto,setResto]=usarEscolha(chave+".v2",{});
+  const f={...resto,...per};
+  const setF=(novo)=>{
+    const v=typeof novo==="function"?novo(f):novo;
+    const p={},r={};
+    for(const [k,x] of Object.entries(v||{})) (CAMPOS_PERIODO.includes(k)?p:r)[k]=x;
+    setPer({periodo:p.periodo||"mes",...(p.de?{de:p.de}:{}),...(p.ate?{ate:p.ate}:{})});
+    setResto(r);
+  };
+  return [f,setF];
+}
+/* Os números se atualizam sozinhos enquanto a tela está aberta: de minuto em
+   minuto e ao voltar para a aba. Uma venda registrada por outra pessoa aparece
+   sem ninguém precisar recarregar. Com a aba escondida não busca nada. */
+function usarAtualizacao(ms=60000){
+  const [tick,setTick]=useState(0);
+  const ultima=useRef(Date.now());
+  useEffect(()=>{
+    const bater=()=>{
+      if(document.visibilityState!=="visible"||Date.now()-ultima.current<5000) return;
+      ultima.current=Date.now(); setTick(t=>t+1);
+    };
+    const t=setInterval(bater,ms);
+    document.addEventListener("visibilitychange",bater);
+    window.addEventListener("focus",bater);
+    return()=>{clearInterval(t);document.removeEventListener("visibilitychange",bater);window.removeEventListener("focus",bater);};
+  },[ms]);
+  return tick;
+}
+/* O seletor de período — o mesmo nas três telas. */
+function SeletorPeriodo({f,set,isMobile,estilo}){
+  return <React.Fragment>
+    <select value={f.periodo||"mes"} onChange={e=>set("periodo",e.target.value)}
+      style={{...estilo,fontWeight:700,color:C.greenDeep,background:C.greenSoft,border:`1px solid ${C.green}55`}}>
+      {PERIODOS.map(p=><option key={p.id} value={p.id}>{p.rotulo}</option>)}
+    </select>
+    {f.periodo==="custom"&&<React.Fragment>
+      <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={estilo}/>
+      <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={estilo}/>
+    </React.Fragment>}
+  </React.Fragment>;
+}
+// Porcentagem como se escreve no Brasil: "12,5%", não "12.5%". Uma régua só
+// para Painel, Relatórios, Operação e Score.
+const pctBR=(v)=>v===null||v===undefined?"—":String(v).replace(".",",")+"%";
 /* Tempo de resposta nos relatórios. O backend devolve minutos crus; passando de
    uma hora, "95 min" não diz nada a ninguém — vira "1h 35min". */
 const fmtMin=(min)=>{
@@ -1178,7 +1246,8 @@ function ConCRM(){
     buscar:(params)=>api("/leads?"+new URLSearchParams(params)).then(r=>r.map(l=>adaptLead(l))),
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     // Aceita {de,ate} — o MESMO intervalo da tela — ou um número de dias.
-    score:(p)=>api("/reports/score"+(p&&p.de?`?${new URLSearchParams(p)}`:p?`?dias=${p}`:"")),
+    // Objeto = o período compartilhado (atalho ou datas); número = ?dias= antigo.
+    score:(p)=>api("/reports/score"+(p&&typeof p==="object"?`?${new URLSearchParams(Object.entries(p).filter(([,v])=>v))}`:p?`?dias=${p}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
     assinatura:()=>api("/assinatura"),
     configurarAssinatura:(dados)=>api("/assinatura",{method:"PATCH",body:dados}),
@@ -1359,7 +1428,7 @@ function ConCRM(){
     removerLogo:async()=>{ const d=await api("/config/marca/logo",{method:"DELETE"});
       setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
-    relatorio:(params)=>api("/reports?"+new URLSearchParams(params||{})),
+    relatorio:(params)=>api("/reports?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
     expediente:()=>api("/distribution/expediente"),
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
@@ -3599,7 +3668,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",gestao:"Operação",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -5012,7 +5081,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
-  const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id);
+  const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff);
   /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
      embaixo dentro do `{showFicha&&...}`. (18/09/2026, relatado pelo Ali:
      "Algo quebrou nesta tela" / React error #310.) `usarEtapasDoLead` chama
@@ -5945,7 +6014,7 @@ function TarefasDoLead({lead,acoes,isMobile}){
     </div>
 
     {abertas.length===0&&!abrindo&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-      Nada marcado. Ligar terça, levar a pasta na Caixa, confirmar a visita — o que ficar combinado some se não for anotado.
+      Nenhuma tarefa.
     </div>}
 
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -6512,11 +6581,13 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 
    Recarrega quando o lead muda: entre abrir uma ficha e outra, alguém pode ter
    recebido e a vez já é de outra pessoa. */
-function usarProximoDaVez(acoes,gatilho){
+function usarProximoDaVez(acoes,gatilho,ativo=true){
   const [p,setP]=useState(null);
-  useEffect(()=>{ let vivo=true;
+  // Quem não repassa (o corretor) não pergunta: a rota é da supervisão e
+  // respondia 403 a cada lead aberto.
+  useEffect(()=>{ if(!ativo) return; let vivo=true;
     acoes.rodizio().then(d=>vivo&&setP(d.proximo)).catch(()=>{});
-    return()=>{vivo=false;}; },[gatilho]);
+    return()=>{vivo=false;}; },[gatilho,ativo]);
   return p;
 }
 
@@ -7025,8 +7096,7 @@ function Observacoes({lead,acoes,session,isMobile}){
     </div>
 
     {!o.lista.length&&!escrevendo&&<div style={{color:"#9a8550",fontSize:11.5,lineHeight:1.5}}>
-      O que quem atender precisa saber antes de falar: melhor horário, quem decide na família,
-      tentativa anterior. Aparece no alto da conversa, para o corretor ler ao abrir.
+      Nenhuma ainda. Aparece no alto da conversa.
     </div>}
 
     {escrevendo&&<React.Fragment>
@@ -7114,9 +7184,7 @@ function ResumoIA({lead,acoes,isMobile}){
     </div>
 
     {!dados&&<React.Fragment>
-      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,margin:"5px 0 9px"}}>
-        A IA lê a conversa e conta em poucas linhas o que o cliente quer, quanto pode pagar e o que ficou combinado.
-      </div>
+      <div style={{height:7}}/>
       <button onClick={gerar} disabled={carregando}
         style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
           padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
@@ -7155,7 +7223,7 @@ function ResumoIA({lead,acoes,isMobile}){
             padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:carregando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
           {carregando?<React.Fragment><Icon n="loader" size={12} spin/> lendo…</React.Fragment>:"Atualizar"}</button>
         <span style={{color:C.faint,fontSize:10.5,lineHeight:1.4,flex:1,minWidth:120}}>
-          Escrito por IA lendo {dados.mensagens_lidas||0} mensagem(ns){dados.em?` · ${fmtClock(dados.em)}`:""}. Confira na conversa antes de agir.
+          Lido em {dados.mensagens_lidas||0} mensagem(ns){dados.em?` · ${fmtClock(dados.em)}`:""}
         </span>
       </div>
     </React.Fragment>}
@@ -7260,7 +7328,7 @@ const MOTIVO_ROBO={
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
-  ele_se_despediu:"A IA já se despediu neste atendimento — ela fecha a conversa quando termina de anotar ou quando chega no limite de mensagens.",
+  ele_se_despediu:"A IA já se despediu neste atendimento.",
   teto_de_mensagens:"Ele já mandou o máximo de mensagens combinado para um lead, e se despediu.",
   nao_esta_esperando:"A última mensagem da conversa não é do cliente — não há o que responder agora.",
   robo_encerrado:"A IA já saiu desta conversa.",
@@ -7322,8 +7390,8 @@ function RoboNoLead({lead,acoes,isMobile}){
         procurar um horário que não existe quando a IA não respondesse. */}
     {!e.ligado&&<div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
       {e.sempre
-        ?"Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente. Nesta conta ela atende a qualquer hora — o que a faz sair da conversa é alguém responder ou ela se despedir."
-        :"Ativar zera a contagem de mensagens e faz a IA voltar a atender este cliente dentro do horário. As regras continuam valendo: ela não fala em lead de corretor nem durante o expediente."}</div>}
+        ?"Ela volta a responder este cliente a qualquer hora."
+        :"Ela volta a responder este cliente fora do expediente."}</div>}
   </div>;
 }
 
@@ -7427,9 +7495,7 @@ function EtapaIA({lead,acoes,isMobile}){
     </div>
 
     {!sug&&<React.Fragment>
-      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
-        A palavra-chave só move o funil quando a palavra é dita. A IA lê a conversa toda e sugere a etapa — você confirma.
-      </div>
+      <div style={{height:7}}/>
       <button onClick={ler} disabled={carregando}
         style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
           padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
@@ -7473,8 +7539,7 @@ function EtapaIA({lead,acoes,isMobile}){
             fontSize:12.5,fontWeight:700,cursor:aplicando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
           {aplicando?<React.Fragment><Icon n="loader" size={12} spin/> movendo…</React.Fragment>
             :<React.Fragment><Icon n="check" size={13}/> Mover para {sug.etapa}</React.Fragment>}</button>
-        <span style={{color:C.faint,fontSize:10.5,lineHeight:1.4,flex:1,minWidth:120}}>
-          Só muda se você confirmar. A IA não mexe no funil sozinha.</span>
+
       </div>}
 
       <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4,marginTop:8}}>
@@ -7547,10 +7612,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
     </button>
 
     {aberto&&<div style={{marginTop:10}}>
-      <div style={{color:C.faint,fontSize:11,lineHeight:1.55,marginBottom:10}}>
-        Use quando o próprio cliente pedir. Ele tem direito de saber o que a imobiliária
-        guarda sobre ele e de pedir que seja apagado.
-      </div>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.55,marginBottom:10}}>Use só a pedido do próprio cliente.</div>
 
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
 
@@ -7564,8 +7626,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
               padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:7}}>
             {ocupado==="exportar"?"Gerando…":"Baixar tudo que temos sobre ele"}</button>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginBottom:11}}>
-            Cadastro, conversas, ligações, observações, simulações e as leituras da IA,
-            num arquivo só. <b>Contém dados pessoais</b> — entregue apenas ao próprio cliente.
+            <b>Contém dados pessoais</b> — entregue só ao próprio cliente.
           </div>
 
           <button onClick={anonimizar} disabled={!!ocupado}
@@ -7573,8 +7634,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
               padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
             {ocupado==="anonimizar"?"Apagando…":"Apagar os dados pessoais deste cliente"}</button>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
-            Some o nome, o telefone e o conteúdo das conversas. <b>Não tem desfazer.</b> O
-            atendimento continua nos relatórios — datas, etapa e quem atendeu —, sem nome.
+            <b>Não tem desfazer.</b> O atendimento continua nos relatórios, sem nome.
           </div>
         </React.Fragment>}
     </div>}
@@ -7625,7 +7685,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
         <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Direcionar para um corretor</div>
-        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>O lead sai da conta atual e passa para o corretor escolhido.</div>
+
         <button onClick={()=>acoes.repassar(lead.id)} disabled={!corretoresDisponiveis.length}
           style={{width:"100%",background:corretoresDisponiveis.length?C.green:C.coolSoft,color:corretoresDisponiveis.length?"#fff":C.faint,border:"none",cursor:corretoresDisponiveis.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
           <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
@@ -7705,7 +7765,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
     <Icon n={meu?"star":"users"} size={13}/>
     <span style={{flex:1,minWidth:isMobile?"100%":160,lineHeight:1.4}}>
       {meu?"Você assumiu esta negociação — o lead está na sua mão."
-          :lead.assignedName?`Em atendimento por ${lead.assignedName}. Você pode responder assim mesmo; para tomar a frente, assuma.`
+          :lead.assignedName?`Em atendimento por ${lead.assignedName}.`
           :"Este lead está na fila, sem atendente."}
     </span>
     {meu
@@ -9654,9 +9714,7 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Recomendações da IA</span>
       {d.total>itens.length&&<span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{d.total} no total</span>}
     </div>
-    <div style={{color:C.faint,fontSize:11,marginBottom:11,lineHeight:1.45}}>
-      Calculado do histórico da equipe: conversão por temperatura do lead e tempo de espera.
-    </div>
+    <div style={{height:8}}/>
     {itens.length===0&&<div style={{color:C.sub,fontSize:12.5,padding:"14px 0",textAlign:"center"}}>
       Nada exigindo decisão agora. 👍</div>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -9688,11 +9746,14 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
    logo abaixo mostrava o mês que o gestor escolheu. Os dois números estavam
    certos e descreviam pedaços diferentes do tempo — que é a pior forma de
    errar, porque ninguém desconfia. */
-function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
+function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
   const [d,setD]=useState(null);
-  useEffect(()=>{let vivo=true; setD(null);
+  const chave=JSON.stringify(periodo);
+  // Troca de período limpa a tabela; a atualização automática, não (sem piscar).
+  useEffect(()=>{setD(null);},[chave]);
+  useEffect(()=>{let vivo=true;
     acoes.score(periodo).then(x=>vivo&&setD(x)).catch(()=>{});
-    return()=>{vivo=false;};},[periodo.de,periodo.ate]);
+    return()=>{vivo=false;};},[chave,tick]);
 
   const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
   const celula={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
@@ -9701,12 +9762,10 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="award" size={16} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Score de performance</span>
-      <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>mesmo período do relatório</span>
+
     </div>
     <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
-      Conversão, tempo de resposta, visitas, perdas, vendas e ligações — pesados nessa ordem.
-      Clique no nome para ver de onde saiu cada ponto. <b>Visitas</b> conta só o que uma pessoa confirmou;
-      <b> 1ª resposta</b> conta da hora em que o lead ficou com ela, e só o que ela mesma escreveu.
+      Clique no nome para ver de onde saiu cada ponto.
     </div>
     {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
 
@@ -9735,7 +9794,7 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
         </button>
         {!m.sem_dados&&<React.Fragment>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
-            {[["Conversão",m.conversao+"%"],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
+            {[["Conversão",pctBR(m.conversao)],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
               ["Atendimento",m.atendimento_min==null?"—":fmtMin(m.atendimento_min)],
               ["Respondeu",`${m.respondidos||0}/${m.recebidos}`],
               ["Visitas",`${m.visitas_confirmadas||0}/${m.visitas}`],["Perdas",m.perdidos],["Vendas",m.vendas],
@@ -9768,7 +9827,7 @@ function ScoreEquipe({acoes,isMobile,periodo,aoAbrirDetalhe}){
           <td style={{...celula,textAlign:"right"}}>
             {m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
               :<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.conversao+"%"}</td>
+          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":pctBR(m.conversao)}</td>
           <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
           {/* Espera média a cada pergunta do cliente, não só a primeira. */}
           <td style={{...celula,textAlign:"right"}}>{m.atendimento_min==null?"—":fmtMin(m.atendimento_min)}</td>
@@ -11827,7 +11886,7 @@ function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
               onClick={()=>aoEscolher(ativa?null:f.id)}
               style={{cursor:"pointer",opacity:sel&&!ativa?.42:1,
                 transition:suave?"stroke-dasharray .55s cubic-bezier(.22,.8,.28,1), stroke-width .18s ease, opacity .18s ease":"none"}}>
-              <title>{f.nome}: {f.valor} ({f.pct}%)</title>
+              <title>{f.nome}: {f.valor} ({pctBR(f.pct)})</title>
             </circle>;
           })}
         </g>
@@ -11864,7 +11923,7 @@ function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
           <span style={{color:C.ink,fontSize:11.5,fontWeight:ativa?700:500,flex:1,minWidth:0,
             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nome}</span>
           <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700}}>{f.valor}</span>
-          <span style={{fontFamily:MONO,color:C.faint,fontSize:10.5,width:38,textAlign:"right"}}>{f.pct}%</span>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:10.5,width:38,textAlign:"right"}}>{pctBR(f.pct)}</span>
         </button>;
       })}
     </div>
@@ -11888,7 +11947,7 @@ function fatiasDoFunil(operacional){
 /* O que a fatia escolhida conta além do tamanho: há quanto tempo a etapa
    segura o lead, quantos estouraram o prazo, e — quando ela é degrau
    comercial — as duas taxas de conversão que já existiam no bloco de baixo. */
-function DetalheDaFatia({fatia,conversao,isMobile}){
+function DetalheDaFatia({fatia,conversao,isMobile,children}){
   if(!fatia) return null;
   if(fatia.agrupadas) return <div style={{background:C.surface,borderRadius:12,padding:"11px 13px",marginTop:12}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>{fatia.nome}</div>
@@ -11919,13 +11978,15 @@ function DetalheDaFatia({fatia,conversao,isMobile}){
       {o.sla_minutes
         ?item("Fora do prazo",o.sla_vencidos,o.sla_vencidos?C.hot:C.ink,`prazo de ${fmtMin(o.sla_minutes)}`)
         :item("Prazo","—",null,"esta etapa não tem prazo configurado")}
-      {conv&&item("Alcançaram",`${conv.taxa_sobre_entrada}%`,null,`sobre a entrada · seq ${conv.taxa_sequencial}%`)}
+      {conv&&item("Alcançaram",pctBR(conv.taxa_sobre_entrada),null,`sobre a entrada · seq ${pctBR(conv.taxa_sequencial)}`)}
     </div>
+    {children}
   </div>;
 }
 
 function PainelGestao({acoes,session,isMobile,abrirConversa}){
-  const [f,setF]=usarEscolha("painel.filtros",{periodo:"mes"});
+  const [f,setF]=usarFiltrosComPeriodo("painel.filtros");
+  const tick=usarAtualizacao();
   const [d,setD]=useState(null);
   const [op,setOp]=useState(null);
   const [funil,setFunil]=useState(null);
@@ -11946,9 +12007,10 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
     acoes.painelCampanhas(f).then(r=>vivo&&setCamp(r)).catch(()=>{});
     const pipe=f.pipeline_id||(op&&op.pipelines[0]&&op.pipelines[0].id);
     if(pipe) acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil(r)).catch(()=>{});
-    setFatia(null);
     return()=>{vivo=false;};
-  },[JSON.stringify(f),op&&op.pipelines.length]);
+  },[JSON.stringify(f),op&&op.pipelines.length,tick]);
+  // A fatia aberta só fecha quando o FILTRO muda, não na atualização automática.
+  useEffect(()=>{setFatia(null);},[JSON.stringify(f)]);
 
   const set=(k,v)=>setF(a=>({...a,[k]:v||undefined}));
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
@@ -11964,21 +12026,16 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
 
   /* "Não disponível" e zero são coisas diferentes, e a tela precisa manter a
      diferença: a primeira é uma lacuna de medição, a segunda é um fato. */
-  const num=(v,suf="")=>v===null||v===undefined?"—":`${v}${suf}`;
+  const num=(v,suf="")=>v===null||v===undefined?"—":`${String(v).replace(".",",")}${suf}`;
+  // Tempo no mesmo formato de Relatórios e do Score ("4 dias 9h", não "6305 min").
+  const tempo=(v)=>v===null||v===undefined?"—":fmtMin(v);
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?12:18}}>
     <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
       {/* ===== FILTROS ===== */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
-        <select value={f.periodo||"mes"} onChange={e=>set("periodo",e.target.value)}
-          style={{...entrada,fontWeight:700,color:C.greenDeep,background:C.greenSoft,border:`1px solid ${C.green}55`}}>
-          {(op?op.periodos:[{id:"mes",rotulo:"Este mês"}]).map(p=><option key={p.id} value={p.id}>{p.rotulo}</option>)}
-        </select>
-        {f.periodo==="custom"&&<React.Fragment>
-          <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={entrada}/>
-          <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={entrada}/>
-        </React.Fragment>}
+        <SeletorPeriodo f={f} set={set} isMobile={isMobile} estilo={entrada}/>
         {op&&op.pipelines.length>1&&<select value={f.pipeline_id||""} onChange={e=>set("pipeline_id",e.target.value)} style={entrada}>
           <option value="">Todos os funis</option>
           {op.pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
@@ -11998,7 +12055,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
       </div>
 
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{erro}</div>}
-      {!d&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+      {!d&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
 
       {d&&<React.Fragment>
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
@@ -12011,20 +12068,14 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
         {aba==="visao"&&<React.Fragment>
           <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
             <Metric rot="Leads recebidos" v={d.atendimento.recebidos} sub={`${d.atendimento.na_fila} na fila`}/>
-            <Metric rot="1ª resposta (mediana)" v={num(d.atendimento.primeira_resposta_mediana_min," min")}
-              sub={d.atendimento.primeira_resposta_mediana_min===null?"ninguém respondeu ainda":"do responsável, não da atendente"}/>
+            <Metric rot="1ª resposta (mediana)" v={tempo(d.atendimento.primeira_resposta_mediana_min)}/>
             <Metric rot="Taxa de 1ª resposta" v={num(d.atendimento.taxa_primeira_resposta,"%")}/>
             <Metric rot="O cliente respondeu" v={num(d.atendimento.taxa_resposta_cliente,"%")}/>
-            <Metric rot="Vendas" v={d.vendas.quantidade} sub={d.vendas.vgv?fmtMoeda(d.vendas.vgv):null}/>
           </div>
 
           {/* ===== ABANDONO ===== */}
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Quem está esperando</div>
-            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-              O prazo conta a partir da última interação, e não da entrada na etapa: lead que
-              entrou ontem e conversou agora está saudável; lead que entrou hoje e ninguém tocou não está.
-            </div>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
             <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
               <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
               <Metric rot="Perto de vencer" v={d.sla.em_aviso} cor={d.sla.em_aviso?C.amber:C.ink}/>
@@ -12036,8 +12087,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
             {d.sla.sem_sla_configurado>0&&<div style={{marginTop:11,background:C.amberSoft,color:"#8a6d1f",
               fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px"}}>
               <b>{d.sla.sem_sla_configurado} de {d.sla.total_em_aberto} leads</b> estão em etapas sem prazo
-              configurado — eles não são contados como atrasados porque ninguém mandou medi-los.
-              O prazo se define em Configurações → Funis e etapas.
+              e não entram na conta de atrasados. Defina em Configurações → Funis e etapas.
             </div>}
           </div>
         </React.Fragment>}
@@ -12048,11 +12098,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
               olho: onde a base está agora. As duas leituras de conversão, logo
               abaixo, respondem a seguinte — quanto disso andou. */}
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde a base está agora</div>
-            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-              Cada lead em aberto aparece em uma etapa só, então as fatias somam a base inteira.
-              Toque numa etapa para ver há quanto tempo ela está segurando os leads.
-            </div>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Onde a base está agora</div>
             {(()=>{const fatias=fatiasDoFunil(funil.operacional);
               const total=fatias.reduce((s,x)=>s+x.valor,0);
               return <React.Fragment>
@@ -12066,10 +12112,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de conversão</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-              Só as etapas marcadas como degrau comercial. <b>Sobre a entrada</b> é quantos dos que chegaram
-              alcançaram a etapa; <b>sequencial</b> é quantos passaram da etapa anterior — é essa que mostra onde trava.
-              O <span style={{color:C.amber,fontWeight:700}}>+N</span> em âmbar são os que chegaram
-              sem passar pela etapa anterior: lead importado direto, ou etapa pulada pela equipe.
+              % sobre quem entrou · <b>seq</b> sobre a etapa anterior · <span style={{color:C.amber,fontWeight:700}}>+N</span> pulou a etapa anterior
             </div>
             {funil.sem_degraus
               ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.55,borderRadius:10,padding:"11px 13px"}}>
@@ -12087,7 +12130,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
                   <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700,width:38,textAlign:"right"}}>{c.alcancaram}</span>
                   <span style={{color:C.faint,fontSize:10.5,width:isMobile?44:112,textAlign:"right"}}
                     title={c.entraram_por_fora?`${c.entraram_por_fora} chegaram aqui sem passar pela etapa anterior — lead importado direto, ou etapa pulada.`:undefined}>
-                    {c.taxa_sobre_entrada}%{!isMobile&&` \u00b7 seq ${c.taxa_sequencial}%`}
+                    {pctBR(c.taxa_sobre_entrada)}{!isMobile&&` \u00b7 seq ${pctBR(c.taxa_sequencial)}`}
                     {/* Quem apareceu sem passar pelo degrau anterior. Sem esta
                         marca, a diferenca entre "5 alcancaram" e "seq 0%" fica
                         inexplicavel e parece defeito. */}
@@ -12097,42 +12140,11 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
               </div>}
           </div>
 
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Avanço operacional</div>
-            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-              Todas as etapas, incluindo as administrativas. Não é conversão: é onde o trabalho está parado agora.
-            </div>
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:420}}>
-                <thead><tr style={{color:C.faint,textAlign:"left"}}>
-                  <th style={{padding:"6px 8px",fontWeight:600}}>Etapa</th>
-                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Agora</th>
-                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Tempo mediano</th>
-                  <th style={{padding:"6px 8px",fontWeight:600,textAlign:"right"}}>Atrasados</th>
-                </tr></thead>
-                <tbody>{funil.operacional.map(o=><tr key={o.id} style={{borderTop:`1px solid ${C.line}`}}>
-                  <td style={{padding:"7px 8px",color:C.ink}}>
-                    <span style={{background:o.color||"#64748B",width:7,height:7,borderRadius:"50%",
-                      display:"inline-block",marginRight:6}}/>{o.name}
-                    {o.counts_as_conversion&&<span style={{color:C.greenMid,fontSize:9.5,marginLeft:5}}>conversão</span>}
-                  </td>
-                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{o.leads_agora}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>
-                    {o.tempo_mediano_dias===null?"—":`${o.tempo_mediano_dias}d`}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:o.sla_vencidos?C.hot:C.faint,fontWeight:o.sla_vencidos?700:400}}>
-                    {o.sla_minutes?o.sla_vencidos:"sem prazo"}</td>
-                </tr>)}</tbody>
-              </table>
-            </div>
-          </div>
         </React.Fragment>}
 
         {/* ===== EQUIPE ===== */}
         {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Equipe</div>
-          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-            "Esperando" é a última mensagem da conversa ser do cliente — a mesma definição do aviso que o corretor recebe.
-          </div>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Equipe</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {equipe.map(p=><div key={p.id} style={{background:C.surface,border:`1px solid ${C.line}`,
               borderRadius:11,padding:"10px 12px"}}>
@@ -12156,10 +12168,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
 
         {/* ===== CAMPANHAS ===== */}
         {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Campanhas e origem</div>
-          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:11}}>
-            O que liga o dinheiro de marketing ao resultado do atendimento.
-          </div>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
           {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
               operação inteira. */}
           {camp.cobertura.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,
@@ -12178,10 +12187,10 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
                   {c.platform&&<span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{c.platform}</span>}</td>
                 <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{c.leads}</td>
                 <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.qualificados}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.taxa_qualificacao}%</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_qualificacao,"%")}</td>
                 <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>
-                  {c.primeira_resposta_mediana_min===null?"—":`${c.primeira_resposta_mediana_min}min`}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.taxa_resposta_cliente}%</td>
+                  {tempo(c.primeira_resposta_mediana_min)}</td>
+                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_resposta_cliente,"%")}</td>
                 <td style={{padding:"7px 8px",textAlign:"right",color:c.vendas?C.greenDeep:C.faint,fontWeight:c.vendas?700:400}}>
                   {c.vendas}{c.vgv?` · ${fmtMoeda(c.vgv)}`:""}</td>
               </tr>)}</tbody>
@@ -13417,8 +13426,6 @@ function Conexao({conecta}){
 }
 
 /* ===== RELATÓRIOS (dados reais, com filtro de período) ===== */
-const hojeISO=()=>new Date().toISOString().slice(0,10);
-const diasAtras=(n)=>new Date(Date.now()-n*86400000).toISOString().slice(0,10);
 
 /* ===== LEADS RECEBIDOS, DIA A DIA =====
 
@@ -13663,7 +13670,7 @@ function BlocoAtendimento({linhas,isMobile}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Primeiro atendimento</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      A função da atendente é falar primeiro e repassar — por isso aqui não tem visita nem venda.
+      Quem falou primeiro com o cliente e repassou.
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {linhas.map(a=><div key={a.id} style={{background:C.surface,borderRadius:12,padding:"12px 13px"}}>
@@ -13691,24 +13698,26 @@ function BlocoAtendimento({linhas,isMobile}){
    Busca no servidor com os MESMOS filtros do relatório (corretor, etapa,
    período). Assim a lista não pode discordar do número que está do lado: é a
    mesma pergunta, feita ao mesmo lugar. */
-function LeadsDaEtapa({acoes,etapa,atendente,periodo,isMobile,abrirConversa}){
+/* QUEM está na fatia aberta da rosca — "3 em Aprovação" e a pergunta seguinte
+   é sempre "quais três?". Casa pelo ID da etapa, não pelo nome: é o que faz a
+   lista valer em qualquer funil (Locação, SDR…), e não só nas 11 etapas do
+   funil antigo. Para o corretor o servidor já devolve só os leads dele. */
+function LeadsDaFatia({acoes,stageId,atendente,abrirConversa}){
   const [lista,setLista]=useState(null);
   useEffect(()=>{let vivo=true; setLista(null);
-    acoes.buscar({etapa,atendente,de:periodo.de,ate:periodo.ate,finalizados:"1"})
-      .then(r=>vivo&&setLista(r)).catch(()=>vivo&&setLista([]));
-    return()=>{vivo=false;};},[etapa,atendente,periodo.de,periodo.ate]);
-
-  return <div style={{background:C.surface,borderRadius:10,padding:"8px 10px",margin:"-2px 0 10px",
-    marginLeft:isMobile?0:12}}>
+    acoes.buscar({atendente,finalizados:"1"})
+      .then(r=>vivo&&setLista(r.filter(l=>l.stageId===stageId))).catch(()=>vivo&&setLista([]));
+    return()=>{vivo=false;};},[stageId,atendente]);
+  return <div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.line}`}}>
     {lista===null
       ?<div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="loader" size={12} spin/> carregando…</div>
       :lista.length===0
-      ?<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead nesta etapa no período.</div>
+      ?<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead nesta etapa.</div>
       :<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
         {lista.map(l=><button key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
           title="Abrir a conversa"
           style={{display:"flex",alignItems:"center",gap:5,background:C.card,border:`1px solid ${C.line}`,
-            borderRadius:999,padding:"4px 11px",cursor:abrirConversa?"pointer":"default",fontSize:11.5,color:C.ink}}>
+            borderRadius:999,padding:"5px 11px",cursor:abrirConversa?"pointer":"default",fontSize:11.5,color:C.ink}}>
           <span style={{width:6,height:6,borderRadius:99,background:prioDe(l.prio).c,flexShrink:0}}/>
           {first(l.nome)}
         </button>)}
@@ -13743,12 +13752,12 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
   const [score,setScore]=useState(null);
   const [erro,setErro]=useState("");
   useEffect(()=>{let vivo=true; setScore(null); setErro("");
-    acoes.score({de:periodo.de,ate:periodo.ate})
+    acoes.score(periodo)
       .then(x=>vivo&&setScore(x))
       .catch(e=>{ if(!vivo) return;
         setScore(false);
         if(!/permiss/i.test(e.message||"")) setErro(e.message); });
-    return()=>{vivo=false;};},[periodo.de,periodo.ate]);
+    return()=>{vivo=false;};},[JSON.stringify(periodo)]);
 
   const meu=score&&score.equipe.find(x=>x.id===linha.id);
   const pronto=score!==null;   // veio a nota, ou veio a recusa: nos dois a folha existe
@@ -13976,48 +13985,42 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   const [nota,setNota]=useState(null);
   // Relatório de reunião do corretor selecionado, aberto em tela cheia.
   const [paraReuniao,setParaReuniao]=useState(false);
-  const [periodo,setPeriodo]=useState({de:diasAtras(30),ate:hojeISO()});
+  /* O MESMO período do Painel e da Operação (25/09/2026) — trocar aqui troca
+     lá. Antes esta tela abria em "últimos 30 dias" e as outras em "este mês". */
+  const [per,setPer]=usarPeriodo();
+  const periodo=consultaDoPeriodo(per);
+  const chavePeriodo=JSON.stringify(periodo);
+  const tick=usarAtualizacao();
   const [dados,setDados]=useState(null);
   const [carregando,setCarregando]=useState(true);
   const [sel,setSel]=useState(null);
-  // Etapa aberta para ver QUEM está nela. Número sozinho não resolve: o gestor
-  // vê "3 em Aprovação" e a pergunta seguinte é sempre "quais três?".
-  const [etapaAberta,setEtapaAberta]=useState(null);
-  useEffect(()=>{setEtapaAberta(null);},[sel,periodo.de,periodo.ate]);
 
-  /* A ROSCA DESTA PESSOA (08/09/2026, pedido do Ali).
-
-     Vem da MESMA rota do painel do gestor, só que filtrada por responsável —
-     e não de uma conta paralela montada aqui. É o que garante que a fatia
-     "Pasta" do relatório da Marina e a fatia "Pasta" do painel signifiquem a
-     mesma coisa; duas contas para a mesma pergunta é como o relatório passa a
-     ter dois números certos e nenhum confiável.
-
-     O corretor abrindo o próprio relatório também chega aqui: o servidor
+  /* A ROSCA DESTA PESSOA vem da MESMA rota do painel do gestor, filtrada por
+     responsável — a fatia "Pasta" daqui e a da Operação são a mesma conta. O
+     corretor abrindo o próprio relatório também chega aqui: o servidor
      sobrescreve o responsável pelo id dele (ver painel.routes.js). */
   const {padrao:funilPadrao}=usarPipelines(acoes,session);
   const [rosca,setRosca]=useState(null);
   const [fatia,setFatia]=useState(null);
+  useEffect(()=>{setFatia(null);},[sel,chavePeriodo]);
   useEffect(()=>{
     if(!sel||!funilPadrao){setRosca(null);return;}
-    let vivo=true; setFatia(null); setRosca(null);
-    acoes.painelFunil(funilPadrao,{de:periodo.de,ate:periodo.ate,responsavel:sel})
+    let vivo=true;
+    acoes.painelFunil(funilPadrao,{...periodo,responsavel:sel})
       .then(r=>vivo&&setRosca(r)).catch(()=>{});
     return()=>{vivo=false;};
-  },[sel,periodo.de,periodo.ate,funilPadrao]);
+  },[sel,chavePeriodo,funilPadrao,tick]);
 
   useEffect(()=>{
     let vivo=true; setCarregando(true);
     acoes.relatorio(periodo).then(d=>{if(vivo){setDados(d);setCarregando(false);
       setSel(p=>p&&d.atendentes.some(a=>a.id===p)?p:(d.atendentes[0]||{}).id);}}).catch(()=>vivo&&setCarregando(false));
     return()=>{vivo=false;};
-  },[periodo.de,periodo.ate]);
+  },[chavePeriodo,tick]);
 
-  /* 6px de altura de padding dá um alvo de 26px. O dedo erra abaixo de ~32,
-     e estes três são os botões mais apertados da tela de relatórios. */
-  const atalho=(label,dias)=><button key={label} onClick={()=>setPeriodo({de:diasAtras(dias),ate:hojeISO()})}
-    style={{fontSize:isMobile?13:12,fontWeight:600,padding:isMobile?"10px 16px":"6px 11px",borderRadius:999,border:"none",cursor:"pointer",
-      background:periodo.de===diasAtras(dias)?C.greenDeep:C.surface,color:periodo.de===diasAtras(dias)?"#fff":C.sub}}>{label}</button>;
+  const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
+    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+  const mudarPeriodo=(k,v)=>setPer(a=>({...a,[k]:v||undefined}));
 
   if(carregando&&!dados) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Calculando…</div>;
   if(!dados) return <div style={{padding:24,color:C.faint}}>Não consegui carregar o relatório.</div>;
@@ -14026,47 +14029,21 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:920,margin:"0 auto"}}>
-      {/* Ponto das atendentes. Fica no topo dos relatórios porque é a primeira
-          coisa que a gestão confere de manhã: quem abriu, a que horas e de onde. */}
+      {/* O período no alto, no mesmo lugar do Painel e da Operação. */}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        <SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>
+      </div>
+      {/* Ponto das atendentes: a primeira coisa que a gestão confere de manhã. */}
       <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:14,marginBottom:16}}>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
-          {atalho("7 dias",7)}{atalho("30 dias",30)}{atalho("90 dias",90)}
-        </div>
-        {/* Cada data com o rótulo colado nela. Numa linha só, o celular quebrava
-            como "De [data] até" / "[data]" — o "até" órfão no fim da primeira
-            linha, longe da data que ele apresenta. */}
-        <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
-          {[["De","de"],["até","ate"]].map(([rot,campo])=>
-            <div key={campo} style={{display:"flex",flexDirection:"column",gap:3,flex:isMobile?"1 1 140px":"0 0 auto",minWidth:0}}>
-              <span style={{color:C.faint,fontSize:11,fontWeight:600}}>{rot}</span>
-              <input type="date" value={periodo[campo]} onChange={e=>setPeriodo({...periodo,[campo]:e.target.value})}
-                style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,
-                  padding:isMobile?"10px 8px":"6px 8px",background:C.surface,color:C.ink,outline:"none",minWidth:0,width:"100%"}}/>
-            </div>)}
-        </div>
-      </div>
 
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-        {/* Total da imobiliária é informação de gestão: faturamento e volume da
-            casa não entram na tela de produtividade do corretor. O backend nem
-            manda mais; aqui a guarda evita quebrar se vier nulo. */}
-        {dados.total&&<Metric n="users" label="Leads no período" value={dados.total.leads} accent={C.cool}/>}
-        {dados.total&&<Metric n="transfer" label="Ainda na fila" value={dados.total.na_fila} accent={dados.total.na_fila?C.hot:C.green}/>}
-        {dados.total&&<Metric n="check" label="Vendas" value={dados.total.vendas} accent={C.greenDeep}/>}
-        {dados.total&&<Metric n="award" label="Valor vendido" value={fmtMoeda(dados.total.valor_vendido)} accent={C.green}/>}
-      </div>
-
-      {/* Só quem supervisiona vê o ranking: é material de decisão sobre pessoas,
-          não painel de auto-avaliação do corretor. */}
-      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
+      {/* Os totais da casa (leads, vendas, valor) moram no Painel. Aqui é
+          cada pessoa — repetir os totais dava a mesma palavra em dois lugares. */}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
       {nota&&<DetalheDaNota m={nota.m} componentes={nota.componentes} periodo={dados.periodo} isMobile={isMobile} aoFechar={()=>setNota(null)}/>}
       {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
-      {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. Rolando,
-          o último corretor aparecia cortado ao meio e nada indicava que havia
-          mais — quem não conhece a lista não descobre que falta gente. */}
+      {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
         ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
         {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
@@ -14078,10 +14055,8 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
       {!linha?((dados.atendimento||[]).length?null
         :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
       :<React.Fragment>
-        {/* No celular isto empilha: nome em cima, o tempo de resposta embaixo e o
-            botão do relatório em largura inteira. Numa linha só, os três se
-            espremiam — o botão ficava minúsculo entre o nome e o número, que é
-            justamente o botão que a gestão procura. */}
+        {/* No celular empilha: nome, tempo de resposta e o botão em largura
+            inteira — numa linha só o botão ficava minúsculo. */}
         <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",
           alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:12,flexWrap:"wrap"}}>
           <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
@@ -14091,9 +14066,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
             <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
           </div>
           </div>
-          {/* O relatório de reunião sai daqui, do lado do nome de quem ele
-              descreve — e não num menu geral, onde daria para imprimir sem
-              reparar de quem é. */}
+          {/* O relatório de reunião sai do lado do nome de quem ele descreve. */}
           <button className="nao-imprimir" onClick={()=>setParaReuniao(true)}
             style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
               padding:isMobile?"12px 13px":"7px 13px",fontSize:isMobile?13.5:12,fontWeight:700,cursor:"pointer",
@@ -14104,83 +14077,49 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
             <div style={{color:C.faint,fontSize:11,marginTop:4}}>1ª resposta (mediana)</div>
             {linha.atendimento_mediana_min!=null&&<div style={{color:C.sub,fontSize:11.5,marginTop:7,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
               Atendimento: <b style={{fontFamily:MONO}}>{fmtMin(linha.atendimento_mediana_min)}</b>
-              <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>espera média a cada pergunta do cliente</div>
+              <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>espera a cada pergunta do cliente</div>
             </div>}
           </div>
         </div>
 
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="entraram no período"/>
+          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>
           <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
-          <Metric n="calendar" label="Agendados / visitas" value={linha.agendamentos}
+          <Metric n="calendar" label="Em agendamento ou visita" value={linha.agendamentos}
             sub={`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`} accent="#3B7BC4"/>
           <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
-          {/* Penalidade nova (19/09/2026, pedido do Ali): quantos leads saíram
-              da mão dele por repasse manual para outro corretor. Ao lado de
-              "Recebidos" de propósito — é a mesma pergunta, olhada dos dois
-              lados. */}
+          {/* Leads que saíram da mão dele por repasse manual — ao lado de
+              "Recebidos" porque é a mesma pergunta, olhada do outro lado. */}
           <Metric n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro}
             sub="repasse manual no período" accent={C.hot}/>
         </div>
-        {/* Cada número responde a uma pergunta diferente, e misturar as duas foi
-            o que fez o relatório parecer errado. Dizer isso na tela custa uma
-            linha e evita a conta de cabeça que ninguém faz igual. */}
-        <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:-8,marginBottom:16}}>
-          <b>Vendas</b> são as fechadas dentro do período, venha o lead de quando vier.
-          <b> Recebidos</b> e as etapas do funil falam de quem entrou no período.
-          <b> Atendidos</b> e <b>1ª resposta</b> contam a partir da hora em que o lead ficou com esta pessoa,
-          e só as mensagens que ela mesma escreveu — o primeiro contato da atendente não entra aqui.
-        </div>
         {/* A diferença entre o que está no funil e o que alguém confirmou É a
-            informação. Enquanto a equipe não usa as palavras-chave, a etapa
-            descreve o palpite da regra, e um ranking montado em cima disso não
-            descreve o trabalho de ninguém. */}
+            informação: a nota conta só os confirmados. */}
         {linha.agendamentos>(linha.agendamentos_confirmados||0)&&
           <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,
             padding:"9px 11px",marginTop:-8,marginBottom:16}}>
-            Dos <b>{linha.agendamentos}</b> em Agendamento/Visita, <b>{linha.agendamentos_confirmados||0}</b> foram
-            colocados ali por uma pessoa. Os outros <b>{linha.agendamentos-(linha.agendamentos_confirmados||0)}</b> vieram
-            da regra automática de palavra-chave — e é por isso que a nota conta só os confirmados.
+            {linha.agendamentos-(linha.agendamentos_confirmados||0)} de {linha.agendamentos} foram movidos pela palavra-chave, não por uma pessoa — a nota conta só os confirmados.
           </div>}
 
-        {/* A ROSCA DE QUEM ESTÁ SELECIONADO. Em cima do avanço por etapas de
-            propósito: esta responde "onde estão os leads dele agora", e a de
-            baixo "por onde eles passaram no período" — perguntas diferentes,
-            e a primeira é a que se faz olhando. */}
+        {/* ONDE ESTÃO OS LEADS DELE AGORA, no funil de verdade. As barras que
+            ficavam aqui embaixo usavam a lista fixa das 11 etapas antigas —
+            lead em Locação ou SDR não aparecia — e repetiam a rosca. A lista de
+            "quem está nesta etapa" veio para dentro da fatia. */}
         {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
           padding:16,marginBottom:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão os leads de {first(linha.nome)}</div>
-          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-            Leads em aberto com {first(linha.nome)}, por etapa. Toque numa fatia para ver
-            há quanto tempo ela está parada e quantas passaram do prazo.
-          </div>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Onde estão os leads de {first(linha.nome)}</div>
           {(()=>{const fatias=fatiasDoFunil(rosca.operacional);
             const total=fatias.reduce((s,x)=>s+x.valor,0);
+            const aberta=fatias.find(x=>x.id===fatia);
             return <React.Fragment>
               <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
                 escolhida={fatia} aoEscolher={setFatia}
                 vazioTexto={`${first(linha.nome)} não tem lead em aberto neste funil.`}/>
-              <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={rosca.conversao} isMobile={isMobile}/>
+              <DetalheDaFatia fatia={aberta} conversao={rosca.conversao} isMobile={isMobile}>
+                {aberta&&!aberta.agrupadas&&<LeadsDaFatia acoes={acoes} stageId={aberta.id} atendente={linha.id} abrirConversa={abrirConversa}/>}
+              </DetalheDaFatia>
             </React.Fragment>;})()}
         </div>}
-
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço pelas etapas do funil</div>
-          {STAGES.map(st=>{const v=linha.por_etapa[st]||0,pct=linha.recebidos?v/linha.recebidos*100:0;
-            const aberta=etapaAberta===st;
-            return <React.Fragment key={st}>
-              <button onClick={()=>v&&setEtapaAberta(aberta?null:st)} disabled={!v}
-                title={v?"Ver quem está nesta etapa":undefined}
-                style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,width:"100%",background:"transparent",
-                  border:"none",padding:0,cursor:v?"pointer":"default",textAlign:"left"}}>
-                <span style={{color:aberta?C.ink:C.sub,fontSize:11.5,fontWeight:aberta?700:400,width:isMobile?104:150,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span>
-                <div style={{height:10,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}><div style={{width:Math.max(pct,v?6:0)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
-                <span style={{color:C.ink,fontFamily:MONO,fontSize:12,fontWeight:600,width:20,textAlign:"right"}}>{v}</span>
-              </button>
-              {aberta&&<LeadsDaEtapa acoes={acoes} etapa={st} atendente={linha.id} periodo={periodo}
-                isMobile={isMobile} abrirConversa={abrirConversa}/>}
-            </React.Fragment>;})}
-        </div>
       </React.Fragment>}
     </div>
   </div>;
@@ -14237,7 +14176,7 @@ const mesAtualISO=()=>new Date().toISOString().slice(0,7);
 const naoDisp=(v)=>v===null||v===undefined?"—":v;
 const dinheiro=(v)=>v===null||v===undefined?"—":fmtMoeda(v);
 const variacaoCor=(v)=>v===null?C.faint:v>0?C.green:v<0?C.hot:C.faint;
-const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${v}%`:v<0?`${v}%`:"estável";
+const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${pctBR(v)}`:v<0?pctBR(v):"estável";
 
 function KpiCard({label,valor,comp,sub,isMobile}){
   const txt=String(valor??"—");
@@ -14265,8 +14204,9 @@ function LinhaKpis({kpis,isMobile}){
       sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"},
     {label:"Vendas",valor:naoDisp(kpis.vendas.atual),comp:kpis.vendas},
     {label:"Leads",valor:naoDisp(kpis.leads.atual),comp:kpis.leads},
-    {label:"Lead em venda",valor:naoDisp(kpis.lead_em_venda_pct.atual)+(kpis.lead_em_venda_pct.atual!=null?"%":""),comp:kpis.lead_em_venda_pct},
-    {label:"Visitas ao imóvel",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
+    {label:"Lead em venda",valor:pctBR(kpis.lead_em_venda_pct.atual),comp:kpis.lead_em_venda_pct},
+    // Mesmo nome do degrau do funil de atividade e da meta: é o mesmo número.
+    {label:"Visitas realizadas",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
   ];
   return <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
     {cards.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile}/>)}
@@ -14285,7 +14225,7 @@ function MetaCard({item}){
   return <div style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
     <div style={{display:"flex",justifyContent:"space-between",fontSize:11.5,color:C.sub,fontWeight:600,marginBottom:6,gap:6}}>
       <span>Meta {nome}</span>
-      <span style={{color:cor,fontFamily:MONO,fontWeight:700,flexShrink:0}}>{pct==null?"—":pct+"%"}</span>
+      <span style={{color:cor,fontFamily:MONO,fontWeight:700,flexShrink:0}}>{pctBR(pct)}</span>
     </div>
     <div style={{height:7,borderRadius:99,background:C.line,overflow:"hidden",marginBottom:6}}>
       <div style={{height:"100%",width:(pct==null?0:Math.min(100,pct))+"%",background:cor,borderRadius:99}}/>
@@ -14320,7 +14260,7 @@ function FunilAtividadeViz({passos,isMobile}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-      Volume de ação no período — quanto se trabalhou cada lead, não por onde ele passou.
+      Quanto se trabalhou no período.
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {passos.map((p,i)=>{
@@ -14334,7 +14274,7 @@ function FunilAtividadeViz({passos,isMobile}){
             </div>
           </div>
           <div style={{width:isMobile?58:120,flexShrink:0,textAlign:"right",fontSize:10,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
-            {i===0?"—":<React.Fragment><div>{p.taxa_sequencial}% seq.</div><div>{p.taxa_sobre_leads}% do total</div></React.Fragment>}
+            {i===0?"—":<React.Fragment><div>{pctBR(p.taxa_sequencial)} seq.</div><div>{pctBR(p.taxa_sobre_leads)} do total</div></React.Fragment>}
           </div>
         </div>;
       })}
@@ -14350,7 +14290,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
   const altura=isMobile?110:150;
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Análise de funil — últimos 14 dias</div>
-    <div style={{color:C.faint,fontSize:11.5,marginBottom:14}}>Cada barra soma os sete indicadores daquele dia.</div>
+    <div style={{height:11}}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:6,height:altura+22,overflowX:"auto",paddingBottom:2}}>
       {serie.map((d,i)=>{
         const total=CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0);
@@ -14385,14 +14325,7 @@ function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
     borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
   return <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
-    <select value={f.periodo||"mes"} onChange={e=>set("periodo",e.target.value)}
-      style={{...entrada,fontWeight:700,color:C.greenDeep,background:C.greenSoft,border:`1px solid ${C.green}55`}}>
-      {(op?op.periodos:[{id:"mes",rotulo:"Este mês"}]).map(p=><option key={p.id} value={p.id}>{p.rotulo}</option>)}
-    </select>
-    {f.periodo==="custom"&&<React.Fragment>
-      <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={entrada}/>
-      <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={entrada}/>
-    </React.Fragment>}
+    <SeletorPeriodo f={f} set={set} isMobile={isMobile} estilo={entrada}/>
     {supervisor&&op&&op.origens.length>0&&<select value={f.origem||""} onChange={e=>set("origem",e.target.value)} style={entrada}>
       <option value="">Todo canal de aquisição</option>
       {op.origens.map(o=><option key={o} value={o}>{o}</option>)}
@@ -14527,58 +14460,49 @@ function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
 }
 
 function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session,supervisor}){
-  /* `sozinho` é a conta de corretor autônomo. Não muda nenhum número — muda o
-     que a tela CHAMA as coisas. "Painel da equipe" e "passam a receber leads na
-     catraca" são frases escritas para uma casa com gente dentro; para quem
-     trabalha sozinho elas descrevem um sistema que ele não comprou.
+  /* A TELA DE ENTRADA, igual para toda conta — cada uma vendo o próprio
+     recorte (o servidor decide isso, não aqui).
 
-     TODOS OS HOOKS PRIMEIRO, sem `return` entre eles — o bloco de baixo
-     (recomendações, comparativo por corretor, ranking) é só da supervisão,
-     mas gating isso com um `if` antes de declarar os hooks do painel novo
-     quebraria a regra dos hooks assim que `supervisor` mudasse de valor. */
-  const [d,setD]=useState(null);
-  useEffect(()=>{
-    let vivo=true;
-    const carregar=()=>acoes.relatorio({de:diasAtras(30),ate:hojeISO()}).then(r=>vivo&&setD(r)).catch(()=>{});
-    carregar(); const t=setInterval(carregar,30000);
-    return()=>{vivo=false;clearInterval(t);};
-  },[]);
-
-  const [f,setF]=usarEscolha("painelGeral.filtros",{periodo:"mes"});
+     Em 25/09/2026 saiu a parte de baixo (avanço por etapa, comparativo e
+     ranking): repetia Relatórios, olhava 30 dias fixos enquanto o filtro de
+     cima dizia outra coisa, e recalculava o relatório inteiro a cada 30
+     segundos em todo aparelho aberto — inclusive no do corretor, que nem via
+     o resultado. O ranking mora no Score, em Relatórios. */
+  const [f,setF]=usarFiltrosComPeriodo("painelGeral.filtros");
+  const tick=usarAtualizacao();
   const [op,setOp]=useState(null);
   const [dGeral,setDGeral]=useState(null);
   const [erroGeral,setErroGeral]=useState("");
   const [metasModal,setMetasModal]=useState(false);
 
-  // Canal de aquisição e corretor são filtro de gestão — o corretor já vê só
-  // o dele (o servidor garante), então pedir a lista de opções para ele seria
-  // uma requisição a mais para preencher um seletor que nunca aparece.
+  // Corretor e canal são filtro de gestão — o corretor já vê só o dele.
   useEffect(()=>{ if(supervisor) acoes.painelOpcoes().then(setOp).catch(()=>{}); },[supervisor]);
   useEffect(()=>{
     let vivo=true; setErroGeral("");
     acoes.painelGeral(f).then(r=>vivo&&setDGeral(r)).catch(e=>vivo&&setErroGeral(e.message));
     return()=>{vivo=false;};
-  },[JSON.stringify(f)]);
+  },[JSON.stringify(f),tick]);
 
-  const team=d?d.atendentes:[];
-  const medianas=team.map(a=>a.primeira_resposta_mediana_min).filter(x=>x>0);
-  const medianaGeral=medianas.length?Math.round(medianas.reduce((a,b)=>a+b,0)/medianas.length):0;
-  const ranked=[...team].sort((a,b)=>b.vendas-a.vendas||b.conversao-a.conversao);
-  const maxBar=Math.max(1,...team.map(a=>a.recebidos));
-  const totalPorEtapa=(st)=>team.reduce((s,a)=>s+(a.por_etapa[st]||0),0);
-  const corDe=(id)=>COLORS[[...id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length];
-  const disponivel=(id)=>(pessoas.find(p=>p.id===id)||{}).available;
+  const semCorretor=supervisor&&!sozinho&&!(pessoas||[]).some(p=>p.role==="corretor");
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:1020,margin:"0 auto"}}>
-      {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>setMetasModal(false)}/>}
+      {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>{setMetasModal(false);
+        acoes.painelGeral(f).then(setDGeral).catch(()=>{});}}/>}
 
-      {/* ===== A TELA DE ENTRADA — mesma para toda conta, cada uma vendo o
-          próprio recorte (o servidor decide isso, não aqui). ===== */}
       <div style={{marginBottom:14}}>
         <FiltrosPainelGeral f={f} setF={setF} op={op} supervisor={supervisor} isMobile={isMobile}/>
       </div>
       {erroGeral&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erroGeral}</div>}
+
+      {/* O que precisa de ação vem antes dos números. */}
+      {supervisor&&fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+        <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
+      </button>}
+      {semCorretor&&<button onClick={()=>setView("equipe")} style={{width:"100%",textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
+        <Icon n="userplus" size={18} color={C.greenMid}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>Nenhum corretor na equipe ainda. Convide pelo link de cadastro.</span><Icon n="chevron" size={15} color={C.faint}/>
+      </button>}
+
       {!dGeral?<div style={{color:C.faint,fontSize:13,padding:"18px 0",display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Carregando os indicadores…</div>
       :<React.Fragment>
         <div style={{marginBottom:16}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile}/></div>
@@ -14589,64 +14513,7 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
         <div style={{marginBottom:16}}><SerieBarrasEmpilhadas serie={dGeral.serie} isMobile={isMobile}/></div>
       </React.Fragment>}
 
-      {/* ===== O RESTO É DA SUPERVISÃO: recomendações da IA, a fila da
-          catraca, e o detalhe por pessoa (comparativo e ranking). O corretor
-          já viu os PRÓPRIOS números acima — repetir isto para ele mostraria
-          "Nenhum corretor cadastrado" ou um ranking de uma pessoa só. ===== */}
-      {supervisor&&<React.Fragment>
-        <PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>
-        {fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-          <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila aguardando distribuição.</span><Icon n="chevron" size={15} color={C.hot}/>
-        </button>}
-        {d&&<React.Fragment>
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Avanço de leads por etapa{sozinho?"":" (equipe)"}</div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-              {STAGES.map(st=>{const v=totalPorEtapa(st);
-                return <div key={st} style={{flexShrink:0,width:92}}><div style={{background:STAGE_C[st]+"14",border:`1px solid ${STAGE_C[st]}40`,borderRadius:12,padding:8,textAlign:"center"}}><div style={{color:STAGE_C[st],fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{v}</div><div style={{color:C.sub,fontSize:10,marginTop:4,lineHeight:1.1}}>{st}</div></div></div>;})}
-            </div>
-          </div>
-          {team.length===0?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center"}}>
-            <Icon n="userplus" size={26} color={C.faint}/>
-            <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>
-              {sozinho?"Você ainda não tem atendente":"Nenhum corretor cadastrado ainda"}</div>
-            <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>
-              {sozinho
-                ?<React.Fragment>Sua conta aceita um atendente, que faz o primeiro contato e te repassa o lead.<br/>Ou deixe a IA fazer isso fora do expediente, em Configurações.</React.Fragment>
-                :<React.Fragment>Mande o link de cadastro para a equipe. Assim que eles criarem a conta,<br/>aparecem aqui e passam a receber leads na catraca.</React.Fragment>}</div>
-          </div>
-          :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:16}} className="dashgrid">
-            <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:14}}>Comparativo por corretor</div>
-              <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                {team.map(a=><div key={a.id}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4,gap:8}}><span style={{color:C.ink,fontWeight:600}}>{first(a.nome)}</span><span style={{color:C.faint,fontFamily:MONO}}>{a.recebidos} leads · {a.vendas} vendas</span></div>
-                  <div style={{display:"flex",height:16,borderRadius:6,overflow:"hidden",background:C.surface}}>
-                    <div style={{width:a.recebidos/maxBar*100+"%",background:C.cool,height:"100%"}} title="recebidos"/>
-                    <div style={{width:a.atendidos/maxBar*100+"%",background:C.green,height:"100%"}} title="atendidos"/>
-                    <div style={{width:a.vendas/maxBar*100+"%",background:C.greenDeep,height:"100%"}} title="vendas"/>
-                  </div>
-                </div>)}
-              </div>
-              <div style={{display:"flex",gap:14,marginTop:12}}>{[["Recebidos",C.cool],["Atendidos",C.green],["Vendas",C.greenDeep]].map(([l,c])=><div key={l} style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:10,height:10,borderRadius:3,background:c}}/><span style={{color:C.sub,fontSize:11}}>{l}</span></div>)}</div>
-            </div>
-            <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16}}>
-              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Ranking & tempo de resposta</div>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {ranked.map((a,i)=><button key={a.id} onClick={()=>setView("relatorios")} style={{width:"100%",display:"flex",alignItems:"center",gap:10,borderRadius:12,padding:10,textAlign:"left",border:"none",cursor:"pointer",background:C.surface}}>
-                  <span style={{color:i===0?C.green:C.faint,fontFamily:MONO,fontSize:14,fontWeight:700,width:20}}>{i+1}º</span>
-                  <Avatar ini={initials(a.nome)} color={corDe(a.id)} size={30}/>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{color:C.ink,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>{first(a.nome)} <span style={{color:disponivel(a.id)?C.green:C.faint,display:"inline-flex"}}><Icon n={disponivel(a.id)?"toggleOn":"toggleOff"} size={13}/></span></div>
-                    <div style={{color:a.primeira_resposta_mediana_min<=10?C.green:C.amber,fontSize:11,fontWeight:500}}>{fmtMin(a.primeira_resposta_mediana_min)} · {a.conversao}% conv.</div>
-                  </div>
-                  <div style={{textAlign:"right"}}><div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{a.vendas}</div><div style={{color:C.faint,fontSize:10}}>vendas</div></div>
-                </button>)}
-              </div>
-            </div>
-          </div>}
-        </React.Fragment>}
-      </React.Fragment>}
+      {supervisor&&<PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>}
     </div>
   </div>;
 }
