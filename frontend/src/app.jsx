@@ -3615,10 +3615,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
-    sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["relatorios","chart","Relatórios","Gestão"],["gestao","trend","Operação","Gestão"],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
+    sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
     /* "Painel" entrou em 08/09/2026: os mesmos indicadores (KPIs, metas, funil
        de atividade) que o gestor e a atendente veem, só que com os PRÓPRIOS
        números — o servidor garante o recorte, aqui só é um item de menu a
@@ -3668,7 +3668,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Relatórios",equipe:"Equipe e aprovações",gestao:"Operação",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -3831,6 +3831,15 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
    agrupado por seção — lá sobra largura, e era justamente onde metade dos
    itens ficava escondida. */
 const LIMITE_NAV=5;      // celular: 4 + o "Mais"
+/* OPERAÇÃO É UM GRUPO (25/09/2026, pedido do Ali): Relatórios deixou de ser
+   item solto e virou uma opção DENTRO de Operação, ao lado da Visão geral.
+   Um item do menu com um 5º elemento é um grupo: [view, ícone, rótulo, seção,
+   filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
+   próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
+const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
+const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
+// O grupo está "ativo" quando a tela aberta é um dos filhos dele.
+const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
 function dividirNav(nav,limite=LIMITE_NAV){
   if(nav.length<=limite) return {cabem:nav,extras:[]};
   return {cabem:nav.slice(0,limite-1),extras:nav.slice(limite-1)};
@@ -3896,6 +3905,10 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
   };
 
   const LARGURA=recolhida?64:(estreita?200:236);
+  /* O grupo abre sozinho quando a tela aberta é um dos filhos; fora isso,
+     segue o clique da pessoa. */
+  const [abertos,setAbertos]=useState({});
+  const aberto=(item)=>abertos[item[0]]??grupoContem(item,view);
 
   // As seções na ordem em que aparecem no menu — sem lista fixa aqui, para
   // quem mexer no NAV não precisar lembrar de mexer aqui também.
@@ -3906,19 +3919,48 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
     if(ja) ja.itens.push(item); else secoes.push({nome:nomeSecao,itens:[item]});
   }
 
-  const linha=([v,n,label])=>{
+  const grupo=(item)=>{
+    const [v,n,label]=item, filhos=filhosDe(item), abre=aberto(item);
+    const contem=grupoContem(item,view);
+    const badge=filhos.reduce((s,[fv])=>s+aviso(fv),0);
+    return <div key={"g-"+v}>
+      <button onClick={()=>setAbertos(a=>({...a,[v]:!abre}))} title={label} aria-expanded={abre}
+        style={{position:"relative",width:"100%",display:"flex",alignItems:"center",
+          gap:recolhida?0:11,justifyContent:recolhida?"center":"flex-start",
+          padding:recolhida?"11px 0":"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
+          background:contem&&!abre?"rgba(255,255,255,.13)":"transparent",
+          color:contem?"#fff":"rgba(255,255,255,.62)",fontWeight:contem?600:500,fontSize:13.5,
+          fontFamily:FONT,marginBottom:2}}>
+        <span style={{position:"absolute",left:0,top:8,bottom:8,width:3,borderRadius:"0 3px 3px 0",
+          background:contem&&!abre?realce:"transparent"}}/>
+        <Icon n={n} size={17}/>
+        {!recolhida&&<span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>}
+        {!recolhida&&<span style={{display:"flex",transform:abre?"rotate(90deg)":"none",transition:"transform .15s ease",opacity:.7}}>
+          <Icon n="chevron" size={13}/></span>}
+        {badge>0&&!abre&&<span style={{position:"absolute",top:6,right:recolhida?11:28,minWidth:8,height:8,borderRadius:999,background:C.hot}}/>}
+      </button>
+      {abre&&<div style={{marginLeft:recolhida?0:19,paddingLeft:recolhida?0:8,
+        borderLeft:recolhida?"none":"1px solid rgba(255,255,255,.14)",marginBottom:4}}>
+        {filhos.map(f=>linha(f,true))}
+      </div>}
+    </div>;
+  };
+
+  const linha=(item,filho=false)=>{
+    if(!filho&&filhosDe(item)) return grupo(item);
+    const [v,n,label]=item;
     const ativo=view===v, badge=aviso(v);
     return <button key={v} onClick={()=>setView(v)} title={label}
       style={{position:"relative",width:"100%",display:"flex",alignItems:"center",
         gap:recolhida?0:11,justifyContent:recolhida?"center":"flex-start",
-        padding:recolhida?"11px 0":"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
+        padding:recolhida?(filho?"8px 0":"11px 0"):(filho?"7px 10px":"9px 11px"),borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
         background:ativo?"rgba(255,255,255,.13)":"transparent",
-        color:ativo?"#fff":"rgba(255,255,255,.62)",fontWeight:ativo?600:500,fontSize:13.5,
+        color:ativo?"#fff":"rgba(255,255,255,.62)",fontWeight:ativo?600:500,fontSize:filho?13:13.5,
         fontFamily:FONT,marginBottom:2}}>
       {/* Marcador na borda: a cor de fundo sozinha some no verde escuro. */}
       <span style={{position:"absolute",left:0,top:8,bottom:8,width:3,borderRadius:"0 3px 3px 0",
         background:ativo?realce:"transparent"}}/>
-      <Icon n={n} size={17}/>
+      <Icon n={n} size={filho?15:17}/>
       {!recolhida&&<span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>}
       {/* Recolhida, o contador vira uma bolinha no canto do ícone: o número
           por extenso não cabe em 64px, mas sumir com ele esconderia o aviso
@@ -3988,7 +4030,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
         borderTop:recolhida&&i?"1px solid rgba(255,255,255,.1)":"none"}}>
         {!recolhida&&<div style={{color:"rgba(255,255,255,.32)",fontSize:9.5,fontWeight:700,letterSpacing:.9,
           textTransform:"uppercase",padding:"0 11px",marginBottom:5}}>{s2.nome}</div>}
-        {s2.itens.map(linha)}
+        {s2.itens.map(it=>linha(it))}
       </div>)}
     </div>
 
@@ -4025,9 +4067,12 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
     return()=>window.removeEventListener("resize",medir);
   },[]);
   const {cabem,extras}=dividirNav(nav);
-  const avisoNoMais=extras.reduce((s,[v])=>s+aviso(v),0);
+  // Um grupo conta como um item só; o aviso dele é a soma dos filhos.
+  const avisoDe=(item)=>filhosDe(item)?filhosDe(item).reduce((s,[v])=>s+aviso(v),0):aviso(item[0]);
+  const ativoEm=(item)=>view===item[0]||grupoContem(item,view);
+  const avisoNoMais=extras.reduce((s,item)=>s+avisoDe(item),0);
   const escolher=(v)=>{setView(v);setMaisAberto(false);};
-  const botao=(v,n,label,badge)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:view===v?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${view===v?realce:"transparent"}`}}>
+  const botao=(v,n,label,badge,ativo=view===v)=><button key={v} onClick={()=>escolher(v)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:ativo?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${ativo?realce:"transparent"}`}}>
     <Icon n={n} size={20}/><span style={{fontSize:9.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{label}</span>
     {badge>0&&<Badge n={badge} top={4} right={"22%"}/>}
   </button>;
@@ -4036,12 +4081,27 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
     {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:20}}/>}
     {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",paddingLeft:14,paddingRight:14,paddingTop:14,paddingBottom:alturaBarra+14,boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
       <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto 12px"}}/>
-      {extras.map(([v,n,label],i)=><ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
-        ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>)}
+      {extras.map((item,i)=>{
+        const [v,n,label]=item, filhos=filhosDe(item);
+        if(!filhos) return <ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
+          ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>;
+        // O grupo vira um rótulo com as opções embaixo, recuadas.
+        return <div key={"g-"+v} style={{borderBottom:i===extras.length-1?"none":`1px solid ${C.line}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"13px 10px 4px",color:C.faint,fontSize:12,fontWeight:700}}>
+            <Icon n={n} size={17}/>{label}</div>
+          <div style={{paddingLeft:22}}>
+            {filhos.map(([fv,fn,fl],j)=><ItemMais key={fv} n={fn} label={fl} ativo={view===fv} badge={aviso(fv)}
+              ultimo={j===filhos.length-1} onClick={()=>escolher(fv)}/>)}
+          </div>
+        </div>;})}
     </div>}
     <nav ref={barra} style={{background:marca.cor,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
-      {cabem.map(([v,n,label])=>botao(v,n,label,aviso(v)))}
-      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(([v])=>v===view)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(([v])=>v===view)?realce:"transparent"}`}}>
+      {cabem.map(item=>{
+        const [v,n,label]=item, filhos=filhosDe(item);
+        return filhos
+          ?botao(filhos[0][0],n,label,avisoDe(item),ativoEm(item))
+          :botao(v,n,label,aviso(v));})}
+      {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(ativoEm)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(ativoEm)?realce:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
         {avisoNoMais>0&&<Badge n={avisoNoMais} top={4} right={"22%"}/>}
       </button>}
@@ -11993,7 +12053,14 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
   const [camp,setCamp]=useState(null);
   const [equipe,setEquipe]=useState(null);
   const [erro,setErro]=useState("");
-  const [aba,setAba]=usarEscolha("painel.aba","visao");
+  /* A Visão geral da Operação (25/09/2026, pedido do Ali): os três números
+     que respondem "como está o atendimento" ficam SEMPRE à vista no alto —
+     leads recebidos, tempo da primeira resposta e quantos clientes
+     responderam à primeira mensagem — e o detalhe fica nas abas Funil,
+     Equipe e Campanhas logo abaixo. "visao" era a aba antiga que continha os
+     números; quem a tinha guardada cai no Funil. */
+  const [abaGuardada,setAba]=usarEscolha("painel.aba","funil");
+  const aba=["funil","equipe","campanhas"].includes(abaGuardada)?abaGuardada:"funil";
   // Fatia aberta na rosca. Zera quando o filtro muda: a etapa escolhida pode
   // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
   const [fatia,setFatia]=useState(null);
@@ -12058,39 +12125,38 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
       {!d&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
 
       {d&&<React.Fragment>
+        {/* ===== OS TRÊS NÚMEROS DO ATENDIMENTO ===== */}
+        <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+          <Metric rot="Leads recebidos" v={d.atendimento.recebidos} sub={`${d.atendimento.na_fila} na fila`}/>
+          <Metric rot="Tempo da 1ª resposta" v={tempo(d.atendimento.primeira_resposta_mediana_min)} sub="mediana"/>
+          <Metric rot="Responderam à 1ª mensagem" v={num(d.atendimento.taxa_resposta_cliente,"%")}
+            sub={d.atendimento.clientes_contatados?`${d.atendimento.clientes_responderam} de ${d.atendimento.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>
+        </div>
+
+        {/* ===== QUEM ESTÁ ESPERANDO ===== */}
+        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
+          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+            <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
+            <Metric rot="Perto de vencer" v={d.sla.em_aviso} cor={d.sla.em_aviso?C.amber:C.ink}/>
+            <Metric rot="Nunca tiveram interação" v={d.sla.sem_interacao}/>
+            <Metric rot="Sem prazo configurado" v={d.sla.sem_sla_configurado}
+              sub={d.sla.sem_sla_configurado?"não entram na conta acima":null}/>
+          </div>
+          {/* A honestidade que faz o número acima significar alguma coisa. */}
+          {d.sla.sem_sla_configurado>0&&<div style={{marginTop:11,background:C.amberSoft,color:"#8a6d1f",
+            fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px"}}>
+            <b>{d.sla.sem_sla_configurado} de {d.sla.total_em_aberto} leads</b> estão em etapas sem prazo
+            e não entram na conta de atrasados. Defina em Configurações → Funis e etapas.
+          </div>}
+        </div>
+
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {[["visao","Visão geral"],["funil","Funil"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
+          {[["funil","Funil"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
             <button key={k} onClick={()=>setAba(k)}
               style={{fontSize:12,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
                 background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
         </div>
-
-        {aba==="visao"&&<React.Fragment>
-          <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
-            <Metric rot="Leads recebidos" v={d.atendimento.recebidos} sub={`${d.atendimento.na_fila} na fila`}/>
-            <Metric rot="1ª resposta (mediana)" v={tempo(d.atendimento.primeira_resposta_mediana_min)}/>
-            <Metric rot="Taxa de 1ª resposta" v={num(d.atendimento.taxa_primeira_resposta,"%")}/>
-            <Metric rot="O cliente respondeu" v={num(d.atendimento.taxa_resposta_cliente,"%")}/>
-          </div>
-
-          {/* ===== ABANDONO ===== */}
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
-            <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
-              <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
-              <Metric rot="Perto de vencer" v={d.sla.em_aviso} cor={d.sla.em_aviso?C.amber:C.ink}/>
-              <Metric rot="Nunca tiveram interação" v={d.sla.sem_interacao}/>
-              <Metric rot="Sem prazo configurado" v={d.sla.sem_sla_configurado}
-                sub={d.sla.sem_sla_configurado?"não entram na conta acima":null}/>
-            </div>
-            {/* A honestidade que faz o número acima significar alguma coisa. */}
-            {d.sla.sem_sla_configurado>0&&<div style={{marginTop:11,background:C.amberSoft,color:"#8a6d1f",
-              fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px"}}>
-              <b>{d.sla.sem_sla_configurado} de {d.sla.total_em_aberto} leads</b> estão em etapas sem prazo
-              e não entram na conta de atrasados. Defina em Configurações → Funis e etapas.
-            </div>}
-          </div>
-        </React.Fragment>}
 
         {/* ===== FUNIL: CONVERSAO x OPERACIONAL ===== */}
         {aba==="funil"&&funil&&<React.Fragment>

@@ -139,5 +139,18 @@ assert.equal(custom.atendentes.find(a => a.id === marina).recebidos, 0, "janeiro
 console.log("6. /painel não calcula mais a equipe em dobro (a tela usa /painel/equipe)");
 assert.equal(operacaoCasa.atividades, undefined);
 
+console.log("7. \"Responderam à 1ª mensagem\" divide só por quem RECEBEU mensagem");
+// antigo: recebeu e respondeu · novoMarina: recebeu e não respondeu · novoRafael: nada enviado
+const msg = (lead, dir, quando) => db.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at)
+  VALUES (?,?,?,?,?)`).run("m_" + randomUUID(), lead, dir, "oi", quando);
+msg(antigo, "out", Date.now() - 60000); msg(antigo, "in", Date.now() - 30000);
+msg(novoMarina, "out", Date.now() - 60000);
+// Filtrado pela Marina: os dois leads dela no período (o antigo repassado conta).
+const resp = (await get(tAli, `/painel?periodo=mes&responsavel=${marina}`)).atendimento;
+console.log(`   ${resp.clientes_responderam} de ${resp.clientes_contatados} · ${resp.taxa_resposta_cliente}%`);
+assert.equal(resp.clientes_contatados, 2, "o lead sem mensagem enviada fica fora da conta");
+assert.equal(resp.clientes_responderam, 1);
+assert.equal(resp.taxa_resposta_cliente, 50);
+
 console.log("\nTudo certo ✅");
 process.exit(0);

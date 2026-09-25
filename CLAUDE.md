@@ -830,6 +830,12 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Teste: `npm run teste:numeros-batem` — monta o caso que divergia (lead antigo repassado hoje) e confere recebidos, vendas, VGV e o período rota por rota. Rodado contra o código antigo, falha no caso 1 (Painel 1, Relatórios 2).
 
+- **Operação virou um grupo na barra: Visão geral e Relatórios** (25/09/2026, pedido do Ali). Relatórios deixou de ser item solto; clicar em **Operação** abre as duas opções embaixo, recuadas, e o grupo já nasce aberto quando a tela aberta é uma delas. No menu, um item com 5º elemento é grupo (`OPERACAO_FILHOS`, `filhosDe`, `grupoContem`) — a barra do computador, a recolhida (os filhos viram ícones próprios, `target` e `chart`: com a barra fechada é só o ícone que distingue) e o "Mais" do celular (o grupo vira um rótulo com as opções recuadas) leem a mesma lista. Os títulos passaram a dizer onde se está: "Operação · Visão geral", "Operação · Relatórios".
+
+  **A Visão geral mostra sempre os três números do atendimento** — leads recebidos, tempo da 1ª resposta (mediana) e **quantos clientes responderam à 1ª mensagem** — e o "Quem está esperando"; o detalhe fica nas abas **Funil, Equipe e Campanhas** logo abaixo. A "Taxa de 1ª resposta" saiu da tela: ao lado de "responderam à 1ª mensagem" as duas se liam como a mesma coisa (uma é a equipe respondendo, a outra é o cliente), e a da equipe já está em Relatórios como "Atendidos · % de resposta".
+
+  **A porcentagem de quem respondeu passou a dividir só por quem RECEBEU mensagem** (`respostaDoCliente` devolve `contatados`/`responderam`, e a tela mostra "5 de 14 clientes"). Dividia por todos os leads recebidos — inclusive os que ninguém tinha escrito ainda, que não tiveram a chance de responder —, e o número caía sem o cliente ter feito nada. Vale também para a tabela de Campanhas. Teste: caso 7 de `npm run teste:numeros-batem`.
+
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 
 O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.
