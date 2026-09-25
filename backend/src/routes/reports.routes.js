@@ -6,6 +6,7 @@ import { ranking, recomendar, recomendacoes, temposDeResposta, primeirasResposta
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
+import { resolverPeriodo } from "../services/painel.js";
 
 const r = Router();
 r.use(authRequired);
@@ -44,8 +45,7 @@ r.get("/ponto", (req, res) => {
 //   ?de=2026-07-01&ate=2026-07-31   (sem parâmetros: últimos 30 dias)
 // A ADM vê a equipe inteira; corretor e SDR veem só a própria linha.
 r.get("/", (req, res) => {
-  const ate = req.query.ate ? fimDoDia(req.query.ate) : Date.now();
-  const de = req.query.de ? inicioDoDia(req.query.de) : ate - 30 * 86400000;
+  const { de, ate } = intervaloDaQuery(req.query);
   if (!isFinite(de) || !isFinite(ate)) return res.status(400).json({ error: "Período inválido." });
 
   /* CORRETORES na tabela do funil. A atendente saía aqui junto, com colunas de
@@ -307,6 +307,22 @@ function confirmadosPorPessoa(leads) {
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
 const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
+
+/* O PERÍODO DAS TRÊS TELAS É UM SÓ (25/09/2026). Painel e Operação mandam um
+   atalho (?periodo=mes) resolvido no servidor por `resolverPeriodo`; Relatórios
+   mandava datas próprias e abria em "últimos 30 dias" enquanto as outras
+   abriam em "este mês" — a mesma palavra "Vendas" dava dois números. Agora
+   Relatórios manda o mesmo atalho e cai na MESMA função. ?de=&ate= continua
+   valendo (o "Escolher datas" e quem já chamava assim). */
+function intervaloDaQuery(q) {
+  if (q.periodo && q.periodo !== "custom") {
+    const p = resolverPeriodo({ periodo: q.periodo });
+    return { de: p.de, ate: p.ate };
+  }
+  const ate = q.ate ? fimDoDia(q.ate) : Date.now();
+  const de = q.de ? inicioDoDia(q.de) : ate - 30 * 86400000;
+  return { de, ate };
+}
 // `pct` vem do score.js: uma conta só, para os dois não divergirem de novo.
 // Score de performance da equipe. Só gestão: é material de decisão sobre
 // pessoas, não painel de auto-avaliação do corretor.
@@ -319,9 +335,10 @@ r.get("/score", (req, res) => {
      descreviam pedaços diferentes do tempo.
 
      ?dias= continua valendo para quem já chamava assim. */
-  const temIntervalo = req.query.de || req.query.ate;
-  const ate = req.query.ate ? fimDoDia(req.query.ate) : Date.now();
-  const de = req.query.de ? inicioDoDia(req.query.de) : null;
+  const atalho = req.query.periodo && req.query.periodo !== "custom";
+  const temIntervalo = atalho || req.query.de || req.query.ate;
+  const ate = atalho ? intervaloDaQuery(req.query).ate : req.query.ate ? fimDoDia(req.query.ate) : Date.now();
+  const de = atalho ? intervaloDaQuery(req.query).de : req.query.de ? inicioDoDia(req.query.de) : null;
   if (temIntervalo && (!isFinite(de) || !isFinite(ate)))
     return res.status(400).json({ error: "Período inválido." });
 
