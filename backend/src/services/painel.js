@@ -150,16 +150,25 @@ function temposDeResposta(leads) {
   };
 }
 
-// Quantos leads o CLIENTE respondeu depois de a imobiliária falar.
+/* Dos clientes que RECEBERAM a primeira mensagem, quantos responderam.
+
+   Até 25/09/2026 a divisão era por todos os leads recebidos — inclusive quem
+   ainda não tinha recebido mensagem nenhuma, que não teve a chance de
+   responder. O número caía sem o cliente ter feito nada, e a pergunta que a
+   tela faz ("responderam à primeira mensagem?") ficava com a resposta de
+   outra. Lead sem nenhuma mensagem enviada fica fora da conta (ele aparece
+   em "Nunca tiveram interação"). */
 function respostaDoCliente(leads) {
-  let responderam = 0;
+  let contatados = 0, responderam = 0;
   for (const l of leads) {
-    const houve = db.prepare(`SELECT 1 FROM messages m WHERE m.lead_id = ? AND m.direction = 'in'
-      AND m.created_at > (SELECT MIN(created_at) FROM messages WHERE lead_id = ? AND direction = 'out')
-      LIMIT 1`).get(l.id, l.id);
+    const primeira = db.prepare("SELECT MIN(created_at) t FROM messages WHERE lead_id = ? AND direction = 'out'").get(l.id)?.t;
+    if (!primeira) continue;
+    contatados++;
+    const houve = db.prepare(`SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at > ? LIMIT 1`)
+      .get(l.id, primeira);
     if (houve) responderam++;
   }
-  return responderam;
+  return { contatados, responderam, taxa: pct(responderam, contatados) };
 }
 
 export const pct = (parte, total) => (total ? Math.round((parte / total) * 1000) / 10 : 0);
@@ -213,7 +222,8 @@ export function painel(orgId, filtros = {}) {
       primeira_resposta_mediana_min: tempos.mediana,
       primeira_resposta_media_min: tempos.media,
       taxa_primeira_resposta: pct(tempos.responderam, comDono),
-      taxa_resposta_cliente: pct(respostaDoCliente(recebidos), recebidos.length),
+      ...(() => { const c = respostaDoCliente(recebidos);
+        return { taxa_resposta_cliente: c.taxa, clientes_contatados: c.contatados, clientes_responderam: c.responderam }; })(),
     },
     sla: {
       vencidos, em_aviso: emAviso, sem_interacao: semInteracao,
@@ -430,7 +440,7 @@ export function campanhas(orgId, filtros = {}) {
       leads: g.leads.length,
       qualificados, taxa_qualificacao: pct(qualificados, g.leads.length),
       primeira_resposta_mediana_min: tempos.mediana,
-      taxa_resposta_cliente: pct(respostaDoCliente(g.leads), g.leads.length),
+      taxa_resposta_cliente: respostaDoCliente(g.leads).taxa,
       vendas: vendidos.length,
       vgv: vendidos.reduce((s, v) => s + (v.sale_value || 0), 0),
     };
