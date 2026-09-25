@@ -1188,6 +1188,10 @@ const addMsgCol = (name, ddl) => { if (!msgCols.includes(name)) db.exec(`ALTER T
 addMsgCol("media_url", "TEXT");   // endereço público do arquivo guardado
 addMsgCol("media_mime", "TEXT");  // image/jpeg, audio/ogg, application/pdf...
 addMsgCol("media_name", "TEXT");  // nome original, quando é documento
+/* O texto da mensagem que o CLIENTE respondeu, quando o WhatsApp o manda junto
+   e a mensagem citada NÃO existe no CRM (anterior ao lead, ou mandada do
+   celular antes). Reserva do `reply_to`: sem ela a resposta aparecia solta. */
+addMsgCol("reply_trecho", "TEXT");
 /* Identificador da mensagem no WhatsApp. Guardado no que o CRM envia para
    reconhecer o webhook de volta como eco e não gravar a mesma mensagem duas
    vezes — é o que permite aceitar as mensagens digitadas direto no celular. */

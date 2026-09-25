@@ -202,7 +202,11 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   citada:m.reply_to?{
     texto:m.reply_body||"", deLead:m.reply_direction==="in",
     autor:m.reply_from_name||"", midia:m.reply_media_mime||"",
-  }:null,
+  }
+    /* A mensagem que o cliente respondeu não está no CRM (anterior ao lead,
+       ou mandada do celular antes), mas o WhatsApp mandou o texto dela junto.
+       Não se sabe de quem era, então o rótulo não chuta um autor. */
+    :m.reply_trecho?{texto:m.reply_trecho,quem:"Mensagem respondida"}:null,
   // Só dá para citar no WhatsApp mensagem que tem id de lá. As anteriores a
   // 08/08/2026 não têm — a citação delas vale só dentro do CRM, e a tela
   // avisa em vez de deixar o corretor achar que o cliente vai ver.
@@ -4216,7 +4220,7 @@ function BotaoResponder({m,aoResponder}){
    colorida à esquerda, autor em cima, um pedaço do texto embaixo. */
 function Citacao({c,claro,aoFechar}){
   if(!c) return null;
-  const quem=c.deLead?"Cliente":(c.autor||"Você");
+  const quem=c.quem||(c.deLead?"Cliente":(c.autor||"Você"));
   const rotulo=c.midia?(/^image\//.test(c.midia)?"Foto":/^video\//.test(c.midia)?"Vídeo":/^audio\//.test(c.midia)?"Áudio":"Arquivo"):"";
   const texto=(c.texto||rotulo||"mensagem").replace(/\s+/g," ").trim();
   return <div style={{display:"flex",alignItems:"center",gap:8,
