@@ -144,5 +144,50 @@ const solta = db.prepare("SELECT * FROM messages WHERE lead_id = ? AND body = 'I
 assert.ok(solta, "a mensagem tinha que ter entrado mesmo sem citação reconhecida");
 assert.equal(solta.reply_to, null);
 
+/* FORMATOS REAIS DA uazapiGO (25/09/2026, o Ali relatou de novo: "a que o
+   cliente marca na conversa não aparece"). A leitura antiga só entendia
+   `quoted` como objeto — e a uazapiGO manda o id como TEXTO. */
+const respostaA = async (msgId, extra, texto) => {
+  const r = await webhook({ messageid: msgId, fromMe: false, sender: "5587900000009@s.whatsapp.net",
+    senderName: "Thassio", text: texto, ...extra });
+  assert.equal(r.status, 200);
+  await new Promise(r => setTimeout(r, 300));
+  return db.prepare("SELECT * FROM messages WHERE lead_id = ? AND body = ?").get(leadId, texto);
+};
+
+console.log("4. uazapiGO: `quoted` vem como TEXTO com o id da mensagem respondida");
+let m4 = await respostaA("wa_cliente_4", { quoted: enviada.wa_id }, "Prefiro 3 quartos");
+console.log(`   reply_to=${m4.reply_to}`);
+assert.equal(m4.reply_to, enviada.id, "com `quoted` em texto a resposta entrava solta — era o defeito relatado");
+
+console.log("5. O id citado com o número da instância na frente (\"5587…:id\") também casa");
+let m5 = await respostaA("wa_cliente_5", { quoted: "558799990000:" + enviada.wa_id }, "Pode ser no Centro");
+assert.equal(m5.reply_to, enviada.id);
+
+console.log("6. E o contrário: guardado com prefixo, citado sem ele");
+db.prepare("UPDATE messages SET wa_id = ? WHERE id = ?").run("558799990000:" + enviada.wa_id, enviada.id);
+let m6 = await respostaA("wa_cliente_6", { quoted: enviada.wa_id }, "Tenho entrada");
+assert.equal(m6.reply_to, enviada.id);
+db.prepare("UPDATE messages SET wa_id = ? WHERE id = ?").run(enviada.wa_id, enviada.id);
+
+console.log("7. `stanzaID` dentro de `content.contextInfo` (grafia do WhatsApp em Go)");
+let m7 = await respostaA("wa_cliente_7", { content: { text: "Sim, pode ser", contextInfo: { stanzaID: enviada.wa_id } } }, "Sim, pode ser");
+assert.equal(m7.reply_to, enviada.id);
+
+console.log("8. Mensagem respondida que NÃO está no CRM: guarda o texto que o WhatsApp mandou junto");
+let m8 = await respostaA("wa_cliente_8", { quoted: "id_de_antes_do_crm",
+  content: { text: "Esse aí mesmo", contextInfo: { stanzaId: "id_de_antes_do_crm", quotedMessage: { conversation: "Temos casas no Dom Avelar" } } } },
+  "Esse aí mesmo");
+assert.equal(m8.reply_to, null);
+assert.equal(m8.reply_trecho, "Temos casas no Dom Avelar");
+resp = await fetch(`${BASE}/leads/${leadId}`, { headers: { authorization: "Bearer " + token } });
+d = await resp.json();
+assert.equal(d.messages.find(m => m.body === "Esse aí mesmo").reply_trecho, "Temos casas no Dom Avelar",
+  "o texto de reserva tem que chegar na tela junto com a mensagem");
+
+console.log("9. Campo com nome PARECIDO não vira citação (continua só pista)");
+let m9 = await respostaA("wa_cliente_9", { xReplyStanza: enviada.wa_id }, "Outra coisa");
+assert.equal(m9.reply_to, null);
+
 console.log("\nTudo certo ✅");
 process.exit(0);

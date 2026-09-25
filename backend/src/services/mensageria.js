@@ -50,7 +50,7 @@ export const lembrar = (e) => { ultimosEventos.unshift(e); if (ultimosEventos.le
      citada    — id (do WhatsApp) da mensagem respondida, ou "".
      messageid — id (do WhatsApp) desta mensagem, para dedup e citação futura.
      nome      — nome de exibição de quem mandou, quando o provedor manda. */
-export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, messageid, nome }) {
+export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome }) {
   const orgId = canal.org_id;
   const ehPessoal = canal.tipo === "corretor";
   const provider = canal.provider || "uazapi";
@@ -131,9 +131,20 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      único e o WhatsApp não diz qual corretor digitou. A tela mostra
      "enviada pelo WhatsApp" — melhor um autor honesto em branco do que
      assinar com o nome errado. */
+  /* O MESMO ID EM DOIS FORMATOS (25/09/2026). A uazapiGO dá a cada mensagem
+     um `messageid` (o id do WhatsApp) e um `id` com o número da instância
+     na frente ("5587…:3EB0…"). O que ficou guardado em `wa_id` e o que chega
+     como citação podem estar cada um num formato — comparar só igual com
+     igual deixava a resposta solta mesmo com os dois ids "certos". Compara
+     também a parte depois dos dois-pontos, nos dois sentidos. */
+  const curto = citada ? String(citada).split(":").pop() : "";
   const citadaLocal = citada
-    ? (db.prepare("SELECT id FROM messages WHERE wa_id = ? AND lead_id = ?").get(citada, lead.id) || {}).id || null
+    ? (db.prepare(`SELECT id FROM messages WHERE lead_id = ? AND wa_id IS NOT NULL
+        AND (wa_id = ? OR wa_id = ? OR wa_id LIKE ?) ORDER BY created_at DESC LIMIT 1`)
+        .get(lead.id, citada, curto, "%:" + curto) || {}).id || null
     : null;
+  // Sem a mensagem no CRM, guarda ao menos o texto que o WhatsApp mandou.
+  const trechoReserva = !citadaLocal && citadaTrecho ? String(citadaTrecho).slice(0, 500) : null;
   /* O CAMPO FOI RECONHECIDO, MAS NÃO ACHOU A MENSAGEM. (17/09/2026)
 
      Duas causas possíveis, e são diferentes: (1) a mensagem citada é de
@@ -145,7 +156,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      vai casar. Registrar os dois lados (achou o id do WhatsApp, não achou
      a mensagem local) é o que separa "não reconheci o campo" de "reconheci
      o campo, mas o alvo nunca teve o dele guardado". */
-  if (citada && !citadaLocal)
+  if (citada && !citadaLocal && !trechoReserva)
     lembrar({ em: Date.now(), evento, provider, resultado: "AVISO: a mensagem cita outra, mas nenhuma mensagem desta conversa tem esse id do WhatsApp guardado (mensagem antiga sem wa_id, ou o envio dela nunca recebeu id — ver 'envio_sem_id' em /integracoes)" });
 
   /* A CORRIDA DA MÍDIA (22/09/2026, relatado pelo Ali: mensagem duplicada
@@ -160,9 +171,9 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      perdemos a corrida — não é erro, é a prova de que o eco de verdade
      já está gravado por um webhook irmão que chegou primeiro. */
   try {
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
-        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, Date.now(),
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,reply_trecho,created_at,canal_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+        midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, trechoReserva, Date.now(),
         /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
            convenção só nas duas colunas. */
         canal.tipo === "corretor" ? canal.id : null);

@@ -25,6 +25,62 @@ function pistasDeResposta(obj, prefixo = "", profundidade = 0) {
   return achadas;
 }
 
+/* O ID DA MENSAGEM QUE O CLIENTE RESPONDEU (25/09/2026, relatado pelo Ali:
+   "quando o lead marca uma mensagem não aparece no CRM qual ele marcou").
+
+   A uazapiGO manda `quoted` como TEXTO — o próprio id —, e a leitura antiga
+   procurava `quoted.id`/`quoted.messageid`, como se fosse um objeto. Num
+   texto isso dá vazio, e a resposta entrava solta, sem erro nenhum. O mesmo
+   id também pode vir dentro do `contextInfo` do WhatsApp (`stanzaId`, ou
+   `stanzaID` na grafia do Go), no nível da mensagem ou dentro de `content`.
+
+   A busca funda olha só NOMES EXATOS de campo que significam "id da
+   respondida" — nunca um nome parecido: `pistasDeResposta` existe para o
+   nome desconhecido, e adivinhar aqui faria um campo qualquer virar citação. */
+const CAMPOS_ID_CITADO = new Set(["quotedmessageid", "quotedmsgid", "stanzaid", "replyid", "quotedid"]);
+function idCitado(m) {
+  if (typeof m.quoted === "string" && m.quoted.trim()) return m.quoted.trim();
+  const direto = m.quotedMessageId || m.quoted?.messageid || m.quoted?.id || m.quoted?.key?.id
+    || m.contextInfo?.stanzaId || m.contextInfo?.stanzaID || m.context?.id || m.replyid;
+  if (direto) return String(direto);
+  const procurar = (obj, prof = 0) => {
+    if (!obj || typeof obj !== "object" || prof > 4) return "";
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === "string" && v.trim() && CAMPOS_ID_CITADO.has(k.toLowerCase())) return v.trim();
+    }
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === "object" && !Array.isArray(v)) { const achou = procurar(v, prof + 1); if (achou) return achou; }
+    }
+    return "";
+  };
+  return procurar(m);
+}
+
+/* O TEXTO da mensagem respondida, quando o WhatsApp o manda junto
+   (`quotedMessage` dentro do `contextInfo`). Serve de reserva: se a mensagem
+   citada não existe no CRM (anterior ao lead, ou mandada do celular antes de
+   ele virar lead), o balão ainda mostra o que o cliente respondeu. */
+function trechoCitado(m) {
+  const achar = (obj, prof = 0) => {
+    if (!obj || typeof obj !== "object" || prof > 5) return null;
+    if (obj.quotedMessage && typeof obj.quotedMessage === "object") return obj.quotedMessage;
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === "object" && !Array.isArray(v)) { const q = achar(v, prof + 1); if (q) return q; }
+    }
+    return null;
+  };
+  const q = achar(m) || (m.quoted && typeof m.quoted === "object" ? m.quoted : null);
+  if (!q) return "";
+  const t = q.conversation || q.extendedTextMessage?.text || q.imageMessage?.caption
+    || q.videoMessage?.caption || q.documentMessage?.fileName || q.text || q.body || q.caption || "";
+  if (t) return String(t).slice(0, 500);
+  if (q.imageMessage) return "Foto";
+  if (q.videoMessage) return "Vídeo";
+  if (q.audioMessage) return "Áudio";
+  if (q.documentMessage) return "Documento";
+  return "";
+}
+
 // Extrai número e texto de um payload da Uazapi. O formato varia entre versões
 // e tipos de mensagem, então tentamos os caminhos conhecidos em ordem.
 function extrair(p) {
@@ -60,8 +116,8 @@ function extrair(p) {
     /* Quando o CLIENTE responde uma mensagem específica, o WhatsApp manda o id
        da citada junto. O campo muda de nome conforme a versão, então tentamos
        os conhecidos — não achando, a mensagem entra sem citação, como antes. */
-    citada: m.quotedMessageId || m.quoted?.messageid || m.quoted?.id
-      || m.contextInfo?.stanzaId || m.context?.id || m.replyid || "",
+    citada: idCitado(m),
+    citadaTrecho: trechoCitado(m),
     messageid: m.messageid || m.id || m.key?.id || "",
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
     // Só usado quando `citada` acima não achou nada — ver `pistasDeResposta`.
@@ -89,7 +145,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, pistasReply, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
@@ -147,7 +203,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     // dentro de services/mensageria.js (que não sabe o formato da Uazapi).
     const temMidia = !!(content && (content.URL || content.url));
 
-    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, messageid, nome });
+    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho, messageid, nome });
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);
