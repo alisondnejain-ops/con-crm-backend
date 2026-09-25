@@ -4601,7 +4601,15 @@ function BotaoBaixar({url,nome,corner,leadId,messageId}){
       const doCabecalho=/filename="?([^";]+)"?/.exec(resp.headers.get("content-disposition")||"")?.[1];
       const nomeFinal=doCabecalho||nome||"arquivo";
       const arquivo=new File([blob],nomeFinal,{type:blob.type||"application/octet-stream"});
-      if(navigator.canShare&&navigator.canShare({files:[arquivo]})){
+      /* SÓ NO CELULAR (25/09/2026, vídeo do Ali): o Chrome e o Edge do
+         WINDOWS também implementam `navigator.share` com arquivo — e lá ele
+         abre o painel "Compartilhar" do Windows (WhatsApp, Teams, Outlook…)
+         em vez de salvar o arquivo. `canShare` dizer "sim" não quer dizer
+         que compartilhar é o gesto certo: no computador existe pasta de
+         Downloads, e baixar é o que a pessoa pediu ao clicar em baixar. */
+      const ehCelular=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+        ||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);   // iPad se dizendo Mac
+      if(ehCelular&&navigator.canShare&&navigator.canShare({files:[arquivo]})){
         await navigator.share({files:[arquivo]});
       }else{
         const blobUrl=URL.createObjectURL(blob);
