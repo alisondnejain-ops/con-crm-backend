@@ -4259,6 +4259,52 @@ function usarMensagensRapidas(acoes,versao){
   return lista||[];
 }
 
+/* A FAIXA DE MENSAGENS PRONTAS ACIMA DO CAMPO (24/09/2026, pedido do Ali:
+   "separar essas mensagens por etapa que o lead se encontra... só pra que o
+   corretor não tenha que puxar lá pro final pra achar").
+
+   Três grupos, nesta ordem: as da ETAPA em que o lead está (com o nome da
+   etapa escrito antes, para ninguém achar que é a lista inteira), as GERAIS
+   (sem etapa marcada — é o que toda mensagem antiga é), e um botão "Outras
+   etapas" que abre o resto no mesmo lugar. Esconder de vez seria o erro
+   contrário: o lead que pulou uma etapa deixaria o corretor sem o texto
+   justamente quando ele precisa.
+
+   Um componente só para os DOIS campos de mensagem (o do corretor e o da
+   supervisão): eles já divergiram antes, e a faixa estava copiada nos dois. */
+function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImovel}){
+  const lista=usarMensagensRapidas(acoes,versao);
+  const etapasDoFunil=usarEtapasDoLead(lead,acoes,session);
+  const [abertas,setAbertas]=useState(false);
+  useEffect(()=>setAbertas(false),[lead&&lead.id]);
+  // Lead antigo pode não ter o id da etapa — casa pelo nome dentro do funil dele.
+  const etapaId=(lead&&lead.stageId)||((etapasDoFunil.find(e=>e.name===(lead&&lead.status))||{}).id)||null;
+  const daEtapa=[],gerais=[],outras=[];
+  for(const m of lista){
+    const ids=m.etapas||[];
+    if(!ids.length) gerais.push(m);
+    else if(etapaId&&ids.includes(etapaId)) daEtapa.push(m);
+    else outras.push(m);
+  }
+  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>onEscolher(tp.corpo)} style={{fontSize:11,fontWeight:destaque?600:500,
+    padding:"4px 10px",borderRadius:999,border:destaque?`1px solid ${C.green}66`:"none",cursor:"pointer",whiteSpace:"nowrap",
+    display:"flex",alignItems:"center",gap:4,color:destaque?C.greenDeep:C.greenMid,background:C.greenSoft,flexShrink:0}}>
+    <Icon n="zap" size={11}/> {tp.titulo}</button>;
+  const rotulo=(t)=><span style={{color:C.faint,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
+  return <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
+    <button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
+    {daEtapa.length>0&&rotulo(`${lead.status}:`)}
+    {daEtapa.map(m=>chip(m,true))}
+    {daEtapa.length>0&&gerais.length>0&&rotulo("Gerais:")}
+    {gerais.map(m=>chip(m,false))}
+    {outras.length>0&&<button onClick={()=>setAbertas(a=>!a)} aria-expanded={abertas}
+      style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px dashed ${C.line}`,cursor:"pointer",
+        whiteSpace:"nowrap",color:C.sub,background:C.card,flexShrink:0}}>
+      {abertas?"Menos":`Outras etapas (${outras.length})`}</button>}
+    {abertas&&outras.map(m=>chip(m,false))}
+  </div>;
+}
+
 function usarColar({lead,aoColar,aoAvisar,aoMudarEstado,quantasJa=0}){
   return async function colar(e){
     const itens=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file"&&/^image\//.test(i.type));
@@ -4982,7 +5028,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // Imagens coladas esperando confirmação. Só saem no botão Enviar.
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
-  const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
   const colar=usarColar({lead:sel,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   // Trocar de conversa descarta o que estava para enviar: imagem colada na
@@ -5217,10 +5262,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         sugerir={(t)=>setDraft(t)}
         aoTrocar={(c)=>{setLinha(c&&c.onde==="corretor"?"minha":"casa");acoes.abrir(sel.id);}}/>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
-        <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-          <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
-          {mensagensProntas.map(tp=><button key={tp.id} onClick={()=>setDraft(tp.corpo)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.titulo}</button>)}
-        </div>
+        <FaixaMensagensProntas lead={sel} acoes={acoes} session={session} versao={versaoMsgs}
+          onEscolher={setDraft} onEnviarImovel={()=>setEnviandoImovel(true)}/>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
         <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
           onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
@@ -7683,7 +7726,6 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const [erroEdicao,setErroEdicao]=useState("");
   const [salvandoEdicao,setSalvandoEdicao]=useState(false);
   const rascunhoAntes=useRef("");
-  const mensagensProntas=usarMensagensRapidas(acoes,versaoMsgs);
   const colar=usarColar({lead,aoAvisar:setErroAnexo,aoMudarEstado:setColando,
     quantasJa:colados.length, aoColar:(novas)=>setColados(a=>[...a,...novas])});
   useEffect(()=>{setColados([]);},[lead.id]);
@@ -7736,10 +7778,8 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     sugerir={(t)=>setDraft(t)}
     aoTrocar={(c)=>{aoMudarLinha&&aoMudarLinha(c);acoes.abrir(lead.id);}}/>
   <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
-    <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-      <button onClick={()=>setEnviandoImovel(true)} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
-      {mensagensProntas.map(tp=><button key={tp.id} onClick={()=>setDraft(tp.corpo)} style={{fontSize:11,fontWeight:500,padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenMid,background:C.greenSoft,flexShrink:0}}><Icon n="zap" size={11}/> {tp.titulo}</button>)}
-    </div>
+    <FaixaMensagensProntas lead={lead} acoes={acoes} session={session} versao={versaoMsgs}
+      onEscolher={setDraft} onEnviarImovel={()=>setEnviandoImovel(true)}/>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
     <PreviaColagem arquivos={colados} legenda={draft} enviando={mandandoColados} isMobile={isMobile}
       onRemover={(i)=>setColados(a=>a.filter((_,k)=>k!==i))}
@@ -11123,7 +11163,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
         está o arquivo da sua marca e a tela para conferir o resultado.
       </div>}
       {aba==="funis"&&<FunisConfig acoes={acoes} session={session} isMobile={isMobile}/>}
-      {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
+      {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="marca"&&podeMarca&&<IdentidadeConfig acoes={acoes} isMobile={isMobile}/>}
       {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
@@ -11299,7 +11339,32 @@ function IdentidadeConfig({acoes,isMobile}){
    Antes o formulário abria sempre no alto — clicar em "Editar" na quarta
    mensagem obrigava a rolar a tela para cima para achar o campo, e ninguém
    sabia qual das quatro estava sendo editada. */
-function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile,aoSalvar,aoCancelar}){
+/* Em que etapa a mensagem aparece primeiro. Pastilhas, uma por etapa ativa,
+   agrupadas por funil quando há mais de um — marcar várias vale (um
+   follow-up serve em Atendimento e em Pasta). "Todas as etapas" é a lista
+   vazia, que é o que toda mensagem antiga já era. */
+function EscolherEtapas({pipelines,etapas,setEtapas,rotulo}){
+  const funis=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
+  const alternar=(id)=>setEtapas(etapas.includes(id)?etapas.filter(x=>x!==id):[...etapas,id]);
+  const pilula=(ativo,texto,onClick,key)=><button key={key} type="button" onClick={onClick} aria-pressed={ativo}
+    style={{border:`1px solid ${ativo?C.green:C.line}`,background:ativo?C.greenSoft:C.card,color:ativo?C.greenDeep:C.sub,
+      borderRadius:999,padding:"6px 11px",fontSize:12,fontWeight:ativo?700:500,cursor:"pointer",minHeight:32}}>{texto}</button>;
+  return <div style={{marginBottom:12}}>
+    <label style={rotulo}>Em que etapa ela aparece primeiro</label>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:6}}>
+      {pilula(!etapas.length,"Todas as etapas",()=>setEtapas([]),"todas")}
+    </div>
+    {funis.map(p=><div key={p.id} style={{marginTop:8}}>
+      {funis.length>1&&<div style={{color:C.faint,fontSize:10.5,marginBottom:4}}>{p.name}</div>}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {(p.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0)
+          .map(e=>pilula(etapas.includes(e.id),e.name,()=>alternar(e.id),e.id))}
+      </div>
+    </div>)}
+  </div>;
+}
+
+function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,pipelines=[],erro,salvando,isMobile,aoSalvar,aoCancelar}){
   /* O formulário é mais alto que o cartão que ele substitui: se ele abre no pé
      da tela, o botão Salvar nasce fora dela. Este empurrãozinho é o mínimo
      para o formulário inteiro caber — quem já estava vendo tudo não sente. */
@@ -11318,6 +11383,7 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobi
     <textarea value={corpo} onChange={e=>setCorpo(e.target.value)} rows={5} maxLength={1200}
       placeholder="Oi {nome}, tudo bem?" style={{...campo,marginBottom:4,resize:"vertical",fontFamily:FONT}}/>
     <div style={{color:C.faint,fontSize:10.5,marginBottom:10}}>{corpo.length}/1200</div>
+    {setEtapas&&<EscolherEtapas pipelines={pipelines} etapas={etapas} setEtapas={setEtapas} rotulo={rotulo}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:10}}>{erro}</div>}
     <div ref={fim} style={{display:"flex",gap:7,flexWrap:"wrap"}}>
       <button onClick={aoSalvar} disabled={salvando||!titulo.trim()||!corpo.trim()}
@@ -12651,26 +12717,31 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
 }
 
 
-function MensagensAutomaticas({acoes,isMobile,aoMudar}){
+function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);
   const [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null);   // id ou "nova"
   const [titulo,setTitulo]=useState("");
   const [corpo,setCorpo]=useState("");
+  const [etapas,setEtapas]=useState([]);         // ids; vazio = todas as etapas
+  const {pipelines}=usarPipelines(acoes,session);
+  // Nome de cada etapa pelo id, para o cartão dizer onde a mensagem aparece.
+  const nomeDaEtapa={};
+  pipelines.forEach(p=>(p.stages||[]).forEach(e=>{nomeDaEtapa[e.id]=pipelines.length>1?`${e.name} (${p.name})`:e.name;}));
   const [salvando,setSalvando]=useState(false);
   const [apagando,setApagando]=useState(null);
 
   const aplicar=(r)=>{ setLista(r.mensagens); aoMudar&&aoMudar(); };
   useEffect(()=>{acoes.mensagensRapidas(true).then(r=>setLista(r.mensagens)).catch(e=>setErro(e.message));},[]);
 
-  const abrir=(m)=>{ setEditando(m?m.id:"nova"); setTitulo(m?m.titulo:""); setCorpo(m?m.corpo:""); setErro(""); };
+  const abrir=(m)=>{ setEditando(m?m.id:"nova"); setTitulo(m?m.titulo:""); setCorpo(m?m.corpo:""); setEtapas(m?(m.etapas||[]):[]); setErro(""); };
   async function salvar(){
     if(!titulo.trim()||!corpo.trim()||salvando) return;
     setSalvando(true); setErro("");
     try{
       const r=editando==="nova"
-        ? await acoes.criarMensagem({titulo,corpo})
-        : await acoes.editarMensagem2(editando,{titulo,corpo});
+        ? await acoes.criarMensagem({titulo,corpo,etapas})
+        : await acoes.editarMensagem2(editando,{titulo,corpo,etapas});
       aplicar(r); setEditando(null);
     }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
@@ -12689,7 +12760,9 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
       </div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55}}>
         São os botões que aparecem acima do campo de conversa. Escreva <b style={{color:C.sub}}>{"{nome}"}</b> onde
-        o primeiro nome do cliente deve entrar. Desligar guarda o texto sem mostrar na conversa.
+        o primeiro nome do cliente deve entrar. Escolha em que <b style={{color:C.sub}}>etapa</b> cada uma
+        aparece primeiro — na conversa, as da etapa do lead vêm na frente e as outras ficam a um toque.
+        Desligar guarda o texto sem mostrar na conversa.
       </div>
     </div>
 
@@ -12699,7 +12772,7 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
 
     {/* Mensagem nova não tem cartão ainda, então nasce aqui em cima. */}
     {editando==="nova"&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
-      <FormMensagem novo {...{titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile}}
+      <FormMensagem novo {...{titulo,setTitulo,corpo,setCorpo,etapas,setEtapas,pipelines,erro,salvando,isMobile}}
         aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
     </div>}
 
@@ -12709,7 +12782,7 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
         /* Editar abre AQUI, no lugar do cartão: o campo nasce onde o dedo
            clicou, sem rolar a tela e sem dúvida sobre qual texto está mudando. */
         ?<div key={m.id} style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:isMobile?12:14}}>
-          <FormMensagem {...{titulo,setTitulo,corpo,setCorpo,erro,salvando,isMobile}}
+          <FormMensagem {...{titulo,setTitulo,corpo,setCorpo,etapas,setEtapas,pipelines,erro,salvando,isMobile}}
             aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
         </div>
         :<div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
@@ -12719,7 +12792,11 @@ function MensagensAutomaticas({acoes,isMobile,aoMudar}){
           <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0}}>{m.titulo}</span>
           {!m.ativo&&<span style={{background:C.coolSoft,color:C.cool,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>desligada</span>}
         </div>
-        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9,whiteSpace:"pre-wrap"}}>{m.corpo}</div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:6,whiteSpace:"pre-wrap"}}>{m.corpo}</div>
+        <div style={{color:C.faint,fontSize:11,marginBottom:9}}>
+          {(m.etapas||[]).length
+            ?<React.Fragment>Aparece primeiro em: <b style={{color:C.sub}}>{m.etapas.map(id=>nomeDaEtapa[id]||"etapa desativada").join(", ")}</b></React.Fragment>
+            :"Geral — aparece em todas as etapas"}</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
           <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}

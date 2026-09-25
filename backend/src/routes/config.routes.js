@@ -13,7 +13,7 @@ import { configDoRobo, dentroDaJanela, paraConferir, conferir, orientacoes } fro
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, roles, soMaster } from "../auth.js";
+import { authRequired, roles, soMaster, supervisiona } from "../auth.js";
 import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
@@ -47,27 +47,57 @@ function semear(orgId) {
   gravar();
 }
 
+/* ETAPAS DA MENSAGEM (24/09/2026, pedido do Ali: "separar essas mensagens
+   por etapa que o lead se encontra... só pra que o corretor não tenha que
+   puxar lá pro final pra achar").
+
+   É ORGANIZAÇÃO, não trava: na conversa as mensagens da etapa do lead vêm
+   primeiro e as outras continuam a um toque. Esconder de vez faria o corretor
+   perder o texto justamente quando o lead pulou uma etapa.
+
+   Guardadas por ID da etapa, e a lista é LIMPA NA LEITURA: etapa apagada ou
+   funil apagado some da lista aqui, num lugar só, em vez de cada caminho de
+   exclusão ter que lembrar de avisar as mensagens. Mensagem que perde todas
+   as etapas vira "todas as etapas" — continua à vista em vez de sumir. */
+function etapasValidas(orgId, bruto) {
+  let ids = bruto;
+  if (typeof ids === "string") { try { ids = JSON.parse(ids); } catch { ids = []; } }
+  if (!Array.isArray(ids) || !ids.length) return [];
+  const existem = new Set(db.prepare(
+    `SELECT s.id FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id
+     WHERE s.org_id = ? AND p.org_id = ?`).all(orgId, orgId).map(x => x.id));
+  return [...new Set(ids.map(String))].filter(id => existem.has(id));
+}
+
 const listar = (orgId, todas) => db.prepare(
-  `SELECT id,titulo,corpo,ordem,ativo FROM mensagens_rapidas
+  `SELECT id,titulo,corpo,ordem,ativo,etapas FROM mensagens_rapidas
    WHERE org_id = ?${todas ? "" : " AND ativo = 1"} ORDER BY ordem, created_at`).all(orgId)
-  .map(m => ({ ...m, ativo: !!m.ativo }));
+  .map(m => ({ ...m, ativo: !!m.ativo, etapas: etapasValidas(orgId, m.etapas) }));
 
 /* A LISTA é para todo mundo: é o corretor que usa os botões na conversa.
-   `?todas=1` traz também as desligadas — só a tela de configuração precisa. */
+   `?todas=1` traz também as desligadas — só a tela de configuração precisa.
+   Quem pode pedir é quem supervisiona, e não só `adm`/`sdr` pelo papel: o
+   dono de uma conta autônoma é `corretor` e edita a tela também — pedindo só
+   as ativas, a mensagem que ele desligasse sumia da tela dele para sempre. */
 r.get("/mensagens", (req, res) => {
   semear(req.user.org_id);
-  const todas = req.query.todas === "1" && ["adm", "sdr"].includes(req.user.role);
+  const todas = req.query.todas === "1" && supervisiona(req.user);
   res.json({ mensagens: listar(req.user.org_id, todas) });
 });
 
 const limpa = (t, max) => String(t || "").trim().slice(0, max);
+const gravarEtapas = (orgId, bruto) => {
+  const ids = etapasValidas(orgId, bruto);
+  return ids.length ? JSON.stringify(ids) : null;
+};
 
 r.post("/mensagens", roles("adm", "sdr"), (req, res) => {
   const titulo = limpa(req.body?.titulo, 40), corpo = limpa(req.body?.corpo, 1200);
   if (!titulo || !corpo) return res.status(400).json({ error: "Preencha o nome do botão e o texto." });
   const ordem = (db.prepare("SELECT MAX(ordem) m FROM mensagens_rapidas WHERE org_id=?").get(req.user.org_id).m ?? -1) + 1;
-  db.prepare(`INSERT INTO mensagens_rapidas (id,org_id,titulo,corpo,ordem,ativo,criado_por,created_at)
-    VALUES (?,?,?,?,?,1,?,?)`).run("mr_" + randomUUID(), req.user.org_id, titulo, corpo, ordem, req.user.id, Date.now());
+  db.prepare(`INSERT INTO mensagens_rapidas (id,org_id,titulo,corpo,ordem,ativo,etapas,criado_por,created_at)
+    VALUES (?,?,?,?,?,1,?,?,?)`).run("mr_" + randomUUID(), req.user.org_id, titulo, corpo, ordem,
+    gravarEtapas(req.user.org_id, req.body?.etapas), req.user.id, Date.now());
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
@@ -82,8 +112,11 @@ r.patch("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
   // `ordem` chega quando a gestão sobe ou desce a mensagem na lista.
   const ordem = req.body?.ordem !== undefined ? Number(req.body.ordem) : m.ordem;
 
-  db.prepare("UPDATE mensagens_rapidas SET titulo=?, corpo=?, ativo=?, ordem=? WHERE id=?")
-    .run(titulo, corpo, ativo, ordem, m.id);
+  // Sem `etapas` no corpo, fica como estava — ligar/desligar e mover não mexem nelas.
+  const etapas = req.body?.etapas !== undefined ? gravarEtapas(req.user.org_id, req.body.etapas) : m.etapas;
+
+  db.prepare("UPDATE mensagens_rapidas SET titulo=?, corpo=?, ativo=?, ordem=?, etapas=? WHERE id=?")
+    .run(titulo, corpo, ativo, ordem, etapas, m.id);
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
