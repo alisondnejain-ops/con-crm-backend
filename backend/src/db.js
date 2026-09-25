@@ -918,6 +918,14 @@ addOrgCol("demo", "INTEGER DEFAULT 0");
 const pagCols = db.prepare("PRAGMA table_info(pagamentos)").all().map(c => c.name);
 if (!pagCols.includes("meses")) db.exec("ALTER TABLE pagamentos ADD COLUMN meses INTEGER");
 
+/* Em que ETAPA do funil cada mensagem pronta aparece primeiro (24/09/2026,
+   pedido do Ali). Lista JSON de ids de `pipeline_stages`; nula ou vazia é
+   "todas as etapas" — que é o que toda mensagem já existente era, então a
+   migração não precisa tocar em nenhuma linha. Id, e não nome: renomear a
+   etapa não pode desligar a mensagem dela. */
+const msgRapCols = db.prepare("PRAGMA table_info(mensagens_rapidas)").all().map(c => c.name);
+if (!msgRapCols.includes("etapas")) db.exec("ALTER TABLE mensagens_rapidas ADD COLUMN etapas TEXT");
+
 const leadCols = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
 const addLeadCol = (name, ddl) => { if (!leadCols.includes(name)) db.exec(`ALTER TABLE leads ADD COLUMN ${name} ${ddl}`); };
 
