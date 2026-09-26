@@ -836,6 +836,12 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **A porcentagem de quem respondeu passou a dividir só por quem RECEBEU mensagem** (`respostaDoCliente` devolve `contatados`/`responderam`, e a tela mostra "5 de 14 clientes"). Dividia por todos os leads recebidos — inclusive os que ninguém tinha escrito ainda, que não tiveram a chance de responder —, e o número caía sem o cliente ter feito nada. Vale também para a tabela de Campanhas. Teste: caso 7 de `npm run teste:numeros-batem`.
 
+- **"the number …@s.whatsapp.net is not on WhatsApp" — o nono dígito** (26/09/2026, print da Vanessa; `call`/`numeroAlternativo` em `services/uazapi.js`, `PATCH /leads/:id/telefone`, `TelefoneDoLead` em `app.jsx`). O CRM grava todo celular COM o 9 (`normalizePhone`) — é o formato certo e é o que casa a resposta do cliente com a conversa. Só que o WhatsApp **não migrou as contas antigas**: quem tem WhatsApp desde antes do nono dígito, sobretudo fora de SP, continua registrado SEM ele. Quando o cliente escreve primeiro, a Uazapi acha o contato; quando o lead nasce digitado na mão, pelo portal ou pela planilha e a imobiliária fala primeiro, ela procura a forma com o 9 e recusa.
+
+  **Recusou por "não está no WhatsApp", o envio tenta a outra forma UMA vez** (sem o 9, ou com ele). A que funcionou fica lembrada para aquele número e os próximos envios vão direto; o número gravado no lead **não muda**. Só esse erro dispara a segunda tentativa — qualquer outro sobe como veio, porque repetir um envio que falhou por outro motivo pode virar mensagem duplicada no celular do cliente. As duas formas falharam, o erro sai em português citando as duas e manda conferir o número.
+
+  **E o telefone passou a ser corrigível na ficha**, ao lado do nome: o erro mandava conferir o número e não havia onde mudá-lo. Mesmas regras do cadastro manual — formato do WhatsApp, DDD obrigatório, e número que já é de outro lead é recusado dizendo qual. O erro aparece no próprio campo, não na faixa do topo. Teste: `npm run teste:nono-digito` (Uazapi de mentira que só aceita a forma sem o 9).
+
 ## Core de gestão: pipelines, etapas, SLA e painel (28/08/2026)
 
 O ConHub deixou de ser um CRM com um funil e passou a ser uma plataforma onde cada empresa monta a própria operação. O funil era uma lista de 11 nomes em `services/stages.js`, igual para todo cliente — servia enquanto o produto era o CRM de uma casa. Locação, lançamento e recaptação não têm as mesmas etapas, e nenhuma delas deveria precisar de mudança de código para existir.

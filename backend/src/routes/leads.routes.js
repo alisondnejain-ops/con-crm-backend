@@ -1507,6 +1507,30 @@ r.post("/:id/sugestao-etapa", (req, res) => {
   res.json({ ok: true, etapa: para });
 });
 
+/* O TELEFONE DO CLIENTE, CORRIGÍVEL (26/09/2026).
+
+   Até aqui só o nome dava para arrumar. Número digitado errado no cadastro na
+   mão, na planilha ou no portal virava um lead com quem ninguém conseguia
+   falar — e o erro "não está no WhatsApp" mandava conferir o número sem haver
+   onde corrigi-lo. Mesmas regras do cadastro manual (POST /leads): o formato
+   do WhatsApp (`normalizePhone`), DDD obrigatório, e número que já é de OUTRO
+   lead desta imobiliária é recusado dizendo qual — dois leads com o mesmo
+   número partem a conversa em duas. */
+r.patch("/:id/telefone", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const phone = normalizePhone(String(req.body?.telefone || "").trim());
+  if (!/^55\d{10,11}$/.test(phone))
+    return res.status(400).json({ error: "Informe um telefone válido, com DDD (ex.: 87 99999-8888)." });
+  if (phone === lead.phone) return res.json({ ok: true, telefone: phone });
+  const outro = db.prepare("SELECT id, name FROM leads WHERE org_id = ? AND phone = ? AND id <> ? LIMIT 1")
+    .get(lead.org_id, phone, lead.id);
+  if (outro) return res.status(409).json({ error: `Esse número já é do lead ${outro.name}.`, lead_id: outro.id, lead_nome: outro.name });
+  db.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(phone, lead.id);
+  console.log(`[lead] ${req.user.name} corrigiu o telefone de "${lead.name}"`);
+  res.json({ ok: true, telefone: phone });
+});
+
 r.patch("/:id/nome", (req, res) => {
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!nome) return res.status(400).json({ error: "Escreva o nome do cliente." });
