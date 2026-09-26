@@ -1219,6 +1219,11 @@ function ConCRM(){
     mudarEtapa:acao((leadId,stage,extra)=>api(`/leads/${leadId}/stage`,
       {method:"PATCH",body:{stage,...(extra||{})}})),
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
+    // Sem o `acao()`: o erro (número repetido, formato) volta para o campo
+    // que está aberto, em vez de ir para a faixa do topo e fechar a edição.
+    corrigirTelefone:async(leadId,telefone)=>{
+      const r=await api(`/leads/${leadId}/telefone`,{method:"PATCH",body:{telefone}});
+      await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
     /* Tarefas: NÃO passam pelo `acao()`. Aquele envelope engole o erro e
        recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
        precisa chegar ao popup para dizer o que faltou preencher. */
@@ -5443,6 +5448,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
 
         <NomeDoLead lead={sel} acoes={acoes}/>
+        <TelefoneDoLead lead={sel} acoes={acoes}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
@@ -7352,6 +7358,53 @@ function NomeDoLead({lead,acoes}){
   </div>;
 }
 
+/* ===== O TELEFONE DO CLIENTE, CORRIGÍVEL (26/09/2026) =====
+
+   Número digitado errado virava um lead com quem ninguém conseguia falar, e o
+   erro "não está no WhatsApp" mandava conferir o número sem haver onde
+   corrigi-lo. Mesmo desenho do nome: um lápis discreto e o campo no lugar. */
+function TelefoneDoLead({lead,acoes}){
+  const [editando,setEditando]=useState(false);
+  const [tel,setTel]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ setEditando(false); setErro(""); },[lead.id]);
+
+  async function salvar(){
+    if(String(tel).replace(/\D/g,"").length<10) return setErro("Informe o número com DDD.");
+    setSalvando(true); setErro("");
+    try{ await acoes.corrigirTelefone(lead.id,tel); setEditando(false); }
+    catch(e){ setErro(e.message); }
+    finally{ setSalvando(false); }
+  }
+
+  if(!editando) return <div style={{display:"flex",alignItems:"center",gap:6,marginTop:-8,marginBottom:12}}>
+    <span style={{color:C.sub,fontSize:12.5,fontFamily:MONO}}>{fmtTel(lead.tel)}</span>
+    <button onClick={()=>{setTel(String(lead.tel||"").replace(/\D/g,"").replace(/^55/,""));setEditando(true);}} title="Corrigir o telefone"
+      aria-label="Corrigir o telefone"
+      style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
+      <Icon n="edit" size={12}/></button>
+  </div>;
+
+  return <div style={{marginTop:-6,marginBottom:12}}>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <input autoFocus value={tel} onChange={e=>setTel(e.target.value)} inputMode="tel" maxLength={20}
+        onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
+        placeholder="DDD + número"
+        style={{flex:1,minWidth:0,fontSize:16,border:`1px solid ${C.green}66`,background:C.surface,
+          borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+      <button onClick={salvar} disabled={salvando}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+          fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
+        {salvando?"…":"Salvar"}</button>
+      <button onClick={()=>setEditando(false)} disabled={salvando}
+        style={{background:"transparent",border:"none",color:C.faint,fontSize:12.5,cursor:"pointer",padding:4,flexShrink:0}}>
+        cancelar</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{erro}</div>}
+  </div>;
+}
+
 /* ===== A IA LÊ A CONVERSA E DIZ A ETAPA (SUGESTÃO) =====
 
    A palavra-chave só pega quando a palavra é dita. "Me manda seus
@@ -7733,6 +7786,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       </div>
 
       <NomeDoLead lead={lead} acoes={acoes}/>
+      <TelefoneDoLead lead={lead} acoes={acoes}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>

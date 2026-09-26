@@ -207,7 +207,61 @@ export async function conectarInstancia(orgId, canalId = null, { forcar = false,
    para o botão nunca ficar preso além disso. */
 const TIMEOUT_MS = 20000;
 
+/* O NONO DÍGITO (26/09/2026, print da Vanessa: "the number 5587996695813
+   @s.whatsapp.net is not on WhatsApp").
+
+   Todo celular brasileiro ganhou o 9 na frente em 2012–2016, mas o WhatsApp
+   NÃO migrou as contas antigas: quem tem WhatsApp desde antes disso,
+   sobretudo fora de SP, continua registrado SEM o 9 (55 87 9669-5813). O CRM
+   grava sempre COM o 9 (`normalizePhone`), que é o formato certo para a
+   pessoa e o que casa as mensagens que chegam. Quando o cliente escreve
+   primeiro, a Uazapi acha o contato sozinha; quando o lead nasce digitado na
+   mão, portal ou planilha e a imobiliária fala primeiro, ela procura a forma
+   com o 9, não acha, e o envio falha.
+
+   Então: recusou por "não tem WhatsApp", tenta a outra forma (sem o 9, ou com
+   ele) UMA vez. Deu certo, a forma que funciona fica lembrada para aquele
+   número e os próximos envios vão direto. O número gravado no lead não muda —
+   é ele que casa a resposta do cliente com a conversa. As duas falharam, o
+   erro diz isso em português e manda conferir o número com o cliente. */
+const formaQueFunciona = new Map();
+const naoTemWhatsapp = (msg) => /not on whatsapp|n[aã]o (est[aá]|possui|tem)[^.]{0,20}whatsapp|not registered|invalid (whatsapp )?number/i.test(String(msg || ""));
+export function numeroAlternativo(numero) {
+  const d = String(numero || "").replace(/\D/g, "");
+  if (/^55\d{2}9\d{8}$/.test(d)) return d.slice(0, 4) + d.slice(5);   // tira o 9
+  if (/^55\d{2}[6-9]\d{7}$/.test(d)) return d.slice(0, 4) + "9" + d.slice(4); // põe o 9
+  return null;
+}
+const telLegivel = (d) => {
+  d = String(d || "").replace(/\D/g, "");
+  return d.length === 13 ? `(${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`
+    : d.length === 12 ? `(${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}` : d;
+};
+
 async function call(orgId, path, payload, canalId = null) {
+  const numero = payload && payload.number ? String(payload.number) : null;
+  if (!numero || !path.startsWith("/send")) return chamar(orgId, path, payload, canalId);
+  const conhecida = formaQueFunciona.get(numero);
+  const primeiro = conhecida || numero;
+  try {
+    return await chamar(orgId, path, { ...payload, number: primeiro }, canalId);
+  } catch (e) {
+    if (!naoTemWhatsapp(e.message)) throw e;
+    const outra = numeroAlternativo(primeiro);
+    if (!outra) throw new Error(`Este número não está no WhatsApp: ${telLegivel(primeiro)}. Confira o número com o cliente e corrija na ficha.`);
+    try {
+      const r = await chamar(orgId, path, { ...payload, number: outra }, canalId);
+      formaQueFunciona.set(numero, outra);
+      console.log(`[uazapi] ${numero.slice(0, 4)}**** respondeu na forma ${outra.length === 12 ? "sem" : "com"} o 9 — lembrado para os próximos envios.`);
+      return r;
+    } catch (e2) {
+      if (!naoTemWhatsapp(e2.message)) throw e2;
+      throw new Error(`Este número não está no WhatsApp — conferimos ${telLegivel(primeiro)} e ${telLegivel(outra)}. Confira o número com o cliente e corrija na ficha.`);
+    }
+  }
+}
+
+async function chamar(orgId, path, payload, canalId = null) {
   const { host, token } = credenciais(orgId, canalId);
   if (!host || !token) {
     console.warn(`[uazapi] imobiliária sem WhatsApp conectado — ${path} não foi enviado de verdade.`);
