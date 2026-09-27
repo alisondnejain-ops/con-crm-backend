@@ -341,7 +341,7 @@ export const DECLARACAO_DISPARO =
 /* A linha de onde o disparo sai mora em services/marketing.js
    (`linhaDeDisparo`): a de contingência, se houver, senão a da casa. */
 
-export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao, agendar_para }, { ip } = {}) {
+export function criarCampanha(orgId, user, { nome, fluxo_id, mensagem, publico, declaracao, agendar_para }, { ip } = {}) {
   exigirPronto(orgId);
   const eu = db.prepare("SELECT id, name, master, org_id FROM users WHERE id = ?").get(user.id);
   if (eu?.master && eu.org_id !== orgId)
@@ -350,10 +350,25 @@ export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao
   if (!linha.canal) throw new ErroMarketing(409, linha.erro);
   const n = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 100);
   if (n.length < 2) throw new ErroMarketing(400, "Dê um nome ao disparo.");
-  const f = fluxo_id && fluxoDaOrg(orgId, fluxo_id);
-  if (!f) throw new ErroMarketing(400, "Escolha o fluxo que será enviado.");
+  /* SÓ UMA MENSAGEM (27/09/2026, pedido do Ali): quem não quer montar um
+     fluxo escreve o texto (e anexa um arquivo, se quiser) direto no disparo.
+     Por dentro vira o fluxo mais simples que existe — início → mensagem —,
+     e daí para frente é o mesmo motor: ritmo, rodapé de SAIR, relatório,
+     resposta entrando na conversa. Um motor só; dois divergiriam. */
+  let f;
+  if (mensagem && !fluxo_id) {
+    const texto = String(mensagem.texto || "").trim();
+    const midia = mensagem.midia && mensagem.midia.url ? mensagem.midia : null;
+    if (!texto && !midia) throw new ErroMarketing(400, "Escreva a mensagem (ou anexe um arquivo) para disparar.");
+    const g = grafoPadrao();
+    g.nos[1].dados = { texto, midia };
+    f = { id: null, nome: "Mensagem única", grafo: JSON.stringify(g) };
+  } else {
+    f = fluxo_id && fluxoDaOrg(orgId, fluxo_id);
+    if (!f) throw new ErroMarketing(400, "Escolha o fluxo que será enviado, ou escreva uma mensagem.");
+  }
   const { grafo, erros } = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
-  if (erros.length) throw new ErroMarketing(422, "O fluxo não está pronto: " + erros[0]);
+  if (erros.length) throw new ErroMarketing(422, (f.id ? "O fluxo não está pronto: " : "A mensagem não está pronta: ") + erros[0]);
   if (declaracao !== true) throw new ErroMarketing(400, "Marque a declaração sobre o público para disparar.");
   const r = resolverPublico(orgId, publico);
   if (!r.total) throw new ErroMarketing(422, "Ninguém no público escolhido pode receber este disparo.");
@@ -434,7 +449,7 @@ function contagens(id) {
 
 export function listarCampanhas(orgId) {
   return db.prepare("SELECT * FROM marketing_campanhas WHERE org_id = ? ORDER BY criado_em DESC LIMIT 100").all(orgId)
-    .map(c => ({ id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, status: c.status, motivo: c.motivo, total: c.total,
+    .map(c => ({ id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, so_mensagem: !c.fluxo_id, status: c.status, motivo: c.motivo, total: c.total,
       criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em, agendada_para: c.agendada_para || null,
       agendado: !!(c.status === "rodando" && c.agendada_para && c.agendada_para > agoraFn()), ...contagens(c.id) }));
 }
@@ -460,7 +475,7 @@ export function relatorio(orgId, id) {
     agendada_para: c.agendada_para || null,
     agendado: !!(c.agendada_para && c.agendada_para > agoraFn() && !contagens(id).mensagens_enviadas),
     espera_motivo: proximo && proximo > agoraFn() + 60000 && !(c.agendada_para && c.agendada_para > agoraFn()) ? motivoDaEspera(orgId, agoraFn()) : null,
-    id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, status: c.status, motivo: c.motivo, total: c.total,
+    id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, so_mensagem: !c.fluxo_id, status: c.status, motivo: c.motivo, total: c.total,
     criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em,
     declaracao: c.declaracao, publico, grafo, ...contagens(id), proximo_envio_em: proximo || null,
     por_bloco: grafo.nos.map(n => ({ id: n.id, tipo: n.tipo, enviados: enviadosPorBloco[n.id] || 0, parados_aqui: paradosPorBloco[n.id] || 0 })),
