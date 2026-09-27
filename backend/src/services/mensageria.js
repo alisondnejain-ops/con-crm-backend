@@ -18,6 +18,7 @@
    o motivo de este arquivo existir em vez de copiar o corpo do handler. */
 
 import { registrarPedidoDeSaida } from "./marketing.js";
+import { mensagemRecebida as respostaAoDisparo } from "./disparo.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -54,6 +55,13 @@ export const lembrar = (e) => { ultimosEventos.unshift(e); if (ultimosEventos.le
 export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome }) {
   const orgId = canal.org_id;
   const ehPessoal = canal.tipo === "corretor";
+  /* A linha em que a conversa passa a acontecer: nula é a da CASA. A do
+     disparo (marketing) conta como linha própria — quem respondeu a um
+     disparo continua a conversa pelo número que recebeu, senão a resposta da
+     equipe chegaria de um número que a pessoa nunca viu. Mas o lead que nasce
+     ali NÃO é de ninguém em especial: vai pela catraca, igual ao da casa. */
+  const linhaDaConversa = canal.tipo === "imobiliaria" ? null : canal.id;
+  const ehDisparo = canal.tipo === "disparo";
   const provider = canal.provider || "uazapi";
 
   /* Mensagem que o CRM mandou volta como webhook. Ela já está na conversa —
@@ -118,13 +126,14 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
     const quando = Date.now();
     db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
                 pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
-      VALUES (?,?,?,?,'WhatsApp',NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
-      .run(id, orgId, nome || "Contato do WhatsApp", phone, entrada.nome, dono, quando,
+      VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
+      .run(id, orgId, nome || "Contato do WhatsApp", phone, ehDisparo ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
            entrada.pipeline_id, entrada.stage_id, quando, quando,
-           ehPessoal ? canal.id : null, dono ? quando : null);
+           linhaDaConversa, dono ? quando : null);
     lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
     console.log(`[mensageria] lead NOVO pelo WhatsApp/${provider} (${mascararTelefone(phone)}) — ${
       ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
+      ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
       dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
   }
 
@@ -173,11 +182,14 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      já está gravado por um webhook irmão que chegou primeiro. */
   try {
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,reply_trecho,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null, null, corpo,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null,
+        // Saiu do número de disparo sem passar pelo CRM: é o eco de um envio
+        // do próprio disparo que chegou antes do registro dele.
+        fromMe && ehDisparo ? "Disparo" : null, corpo,
         midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, trechoReserva, Date.now(),
         /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
            convenção só nas duas colunas. */
-        canal.tipo === "corretor" ? canal.id : null);
+        linhaDaConversa);
   } catch (e) {
     if (e.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed.*wa_id/i.test(e.message)) {
       return lembrar({ em: Date.now(), evento, provider, resultado:
@@ -191,13 +203,18 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      impede disparos futuros —, e a função nunca lança. */
   if (!fromMe) registrarPedidoDeSaida(orgId, lead.phone || phone, texto);
 
+  /* Resposta a um disparo em massa: liga ao lead o que o disparo já tinha
+     mandado e faz o fluxo seguir pelo caminho da resposta (services/disparo.js).
+     Nunca lança. */
+  if (!fromMe) respostaAoDisparo({ orgId, lead, texto: corpo });
+
   /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
 
      O cliente escreve para o número que ele tem salvo — se o CRM responder
      por outro, a resposta chega no celular dele como mensagem de um
      desconhecido, fora da conversa que ele estava tendo. */
   const canalAtual = lead.canal_id || null;
-  const canalNovo = canal.tipo === "corretor" ? canal.id : null;
+  const canalNovo = linhaDaConversa;
   if (canalAtual !== canalNovo) {
     db.prepare("UPDATE leads SET canal_id = ? WHERE id = ?").run(canalNovo, lead.id);
     lead.canal_id = canalNovo;
@@ -207,7 +224,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
   // relatório contaria como "nunca atendido" quem atendeu fora do CRM.
   // (Só acontece na Uazapi — na Meta, `fromMe` nunca é true.)
-  if (fromMe && !lead.first_resp_at)
+  if (fromMe && !ehDisparo && !lead.first_resp_at)
     db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
 
   // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
@@ -225,7 +242,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   if (!roboFalando) advanceStage(lead.id);
 
   // Mensagem que saiu do celular é gente atendendo: o robô sai da conversa.
-  if (fromMe) pararPorGente(lead.id);
+  if (fromMe && !ehDisparo) pararPorGente(lead.id);
 
   // Aviso no celular de quem está com o lead.
   if (lead.assigned_to && !fromMe) {

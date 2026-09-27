@@ -734,6 +734,7 @@ const ICO={
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
+  voltar:<React.Fragment><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></React.Fragment>,
   users:<React.Fragment><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></React.Fragment>,
   /* Uma pessoa só. "Minha conta" e "Equipe" usavam o MESMO desenho de duas
      pessoas — na barra recolhida, onde só sobra o ícone, viravam dois itens
@@ -1530,6 +1531,36 @@ function ConCRM(){
     arquivoListaMarketing:(id)=>api(`/marketing/listas/${id}/arquivo`),
     bloqueioMarketing:()=>api("/marketing/bloqueio"),
     bloquearMarketing:(telefone)=>api("/marketing/bloqueio",{method:"POST",body:{telefone}}),
+    limitesMarketing:(dados)=>api("/marketing/numero/limites",{method:"PUT",body:dados}),
+    // Fluxos, público e disparos (services/disparo.js).
+    fluxosMarketing:()=>api("/marketing/fluxos"),
+    criarFluxoMarketing:(nome)=>api("/marketing/fluxos",{method:"POST",body:{nome}}),
+    fluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`),
+    salvarFluxoMarketing:(id,dados)=>api(`/marketing/fluxos/${id}`,{method:"PUT",body:dados}),
+    apagarFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`,{method:"DELETE"}),
+    midiaMarketing:(dados)=>api("/marketing/midia",{method:"POST",body:dados}),
+    // Vídeo sobe cru (sem base64), com progresso — mesma régua do vídeo da conversa.
+    videoMarketing:(file,aoProgredir)=>new Promise((ok,falhou)=>{
+      const params=new URLSearchParams({mime:file.type||"video/mp4",nome:file.name||"video.mp4"});
+      const xhr=new XMLHttpRequest();
+      xhr.open("POST",`${API}/marketing/midia/video?${params}`);
+      if(TOKEN) xhr.setRequestHeader("Authorization","Bearer "+TOKEN);
+      xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+      xhr.upload.onprogress=(e)=>{ if(aoProgredir&&e.lengthComputable) aoProgredir(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=()=>{
+        let dados={}; try{ dados=JSON.parse(xhr.responseText||"{}"); }catch(e){}
+        if(xhr.status>=200&&xhr.status<300) ok(dados);
+        else falhou(new Error(dados.error||`Erro ${xhr.status} ao enviar o vídeo.`));
+      };
+      xhr.onerror=()=>falhou(new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."));
+      xhr.send(file);
+    }),
+    opcoesPublicoMarketing:()=>api("/marketing/publico/opcoes"),
+    previaPublicoMarketing:(publico)=>api("/marketing/publico/previa",{method:"POST",body:{publico}}),
+    disparosMarketing:()=>api("/marketing/campanhas"),
+    criarDisparoMarketing:(dados)=>api("/marketing/campanhas",{method:"POST",body:dados}),
+    disparoMarketing:(id)=>api(`/marketing/campanhas/${id}`),
+    acaoDisparoMarketing:(id,acao)=>api(`/marketing/campanhas/${id}/${acao}`,{method:"POST"}),
     // Sócios da PLATAFORMA (contas master), não da imobiliária.
     listarSocios:()=>api("/orgs/masters"),
     // Contas de corretor autônomo: criar, e liberar/travar sem esperar vencimento.
@@ -2280,7 +2311,7 @@ function NumeroDoPasso({n,feito}){
     {feito?<Icon n="check" size={13}/>:n}</span>;
 }
 
-function Marketing({acoes,org,isMobile}){
+function Marketing({acoes,org,isMobile,irParaFluxos}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   const rever=()=>acoes.marketing().then(x=>{setD(x);setErro("");}).catch(e=>setErro(e.message));
@@ -2295,20 +2326,20 @@ function Marketing({acoes,org,isMobile}){
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     <div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:16,color:C.sub,fontSize:12.5,fontWeight:600}}>
-      {[["Termo de uso",aceito],["Número de disparo",!!d.numero],["Lista de contatos",d.listas>0]].map(([t,ok],i)=>
+      {[["Termo de uso",aceito],["Número de disparo",!!d.numero],["Primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
         <span key={t} style={{display:"inline-flex",alignItems:"center",gap:6}}><NumeroDoPasso n={i+1} feito={ok}/>{t}</span>)}
     </div>
+    {/* Com o básico pronto, o que se usa todo dia (os disparos) vem primeiro. */}
+    {aceito&&d.numero&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
     <TermoMarketing d={d} org={org} acoes={acoes} aoMudar={setD} isMobile={isMobile}/>
     {aceito&&<NumeroDeDisparo d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
     {aceito&&<ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
     <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
-    <div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
+    {!(aceito&&d.numero)&&<div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
       <div style={TITULO_MKT}><Icon n="send" size={16}/> Disparos</div>
       <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
-        O envio chega na próxima etapa, com limite por dia, intervalo entre mensagens, horário comercial, pausa automática
-        e relatório de cada campanha. Toda mensagem vai sair com o “responda SAIR”.
-      </div>
-    </div>
+        Os disparos aparecem aqui depois do termo aceito e do número de disparo cadastrado.</div>
+    </div>}
   </div>;
 }
 
@@ -2354,6 +2385,7 @@ function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
 function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
   const n=d.numero;
   const [editando,setEditando]=useState(!n);
+  useEffect(()=>{ if(n) setEditando(false); },[!!n]);
   const [f,setF]=useState({host:"",token:""});
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
@@ -2388,6 +2420,8 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
       <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>Trocar</button>
       <button onClick={remover} style={{...botaoLeveMkt,color:C.hot}}>Remover</button>
     </div>}
+    {n&&!editando&&<RitmoDoNumero limites={n.limites} acoes={acoes} aoMudar={aoMudar} isMobile={isMobile}/>}
+    {n&&!editando&&<WebhookDoDisparo url={d.webhook_url}/>}
     {aviso&&<div style={{color:"#8a6d1f",fontSize:12.5,marginTop:10}}>{aviso}</div>}
     {editando&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
       <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Endereço da instância</div>
@@ -2447,9 +2481,9 @@ function ListasDeContatos({d,acoes,aoMudar,isMobile}){
   }
   const rotulo={color:C.sub,fontSize:11,fontWeight:600,marginBottom:4};
   return <div style={CARTAO_MKT}>
-    <div style={TITULO_MKT}><NumeroDoPasso n={3} feito={d.listas>0}/> Listas de contatos</div>
+    <div style={TITULO_MKT}><Icon n="lista" size={16}/> Listas de contatos</div>
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-      Cada lista entra com a origem declarada. O arquivo original fica guardado para prestar contas, e quem pediu para sair fica de fora.</div>
+      Opcional: o disparo também pode ir para os leads do CRM, por etiqueta, etapa ou temperatura. Cada lista entra com a origem declarada. O arquivo original fica guardado para prestar contas, e quem pediu para sair fica de fora.</div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10}}>{erro}</div>}
     {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
       Lista “{feito.nome}” recebida: <b>{feito.validos} contato(s)</b>
@@ -2539,6 +2573,723 @@ function ListaDeBloqueio({acoes,aoMudar,isMobile}){
         <span style={{color:C.faint}}>{fmtData(i.criado_em)}</span>
       </div>)}
     </div>}
+  </div>;
+}
+
+/* ===== DISPAROS: A LISTA, O NOVO DISPARO E O RELATÓRIO (27/09/2026) =====
+   O motor mora em backend/src/services/disparo.js. Aqui a tela: montar o
+   público com a prévia de quantos recebem (e quantos ficam de fora, e por
+   quê), escolher o fluxo, declarar a origem e acompanhar cada disparo. */
+const STATUS_DISPARO={
+  rodando:{rotulo:"Enviando",c:C.greenMid,bg:C.greenSoft},
+  pausada:{rotulo:"Pausado",c:"#8a6d1f",bg:C.amberSoft},
+  concluida:{rotulo:"Concluído",c:C.cool,bg:C.coolSoft},
+  cancelada:{rotulo:"Cancelado",c:C.hot,bg:C.hotSoft},
+};
+const PillDisparo=({status})=>{const s=STATUS_DISPARO[status]||STATUS_DISPARO.concluida;return <Pill c={s.c} bg={s.bg}>{s.rotulo}</Pill>;};
+const ritmoDoNumero=(l)=>l?`até ${l.limite_dia} mensagens por dia, uma a cada ${l.intervalo_min}–${l.intervalo_max} segundos, das ${l.hora_inicio}h às ${l.hora_fim}h${l.domingo?"":", sem domingo"}`:"";
+
+function Disparos({d,acoes,isMobile,irParaFluxos}){
+  const [lista,setLista]=useState(null);
+  const [novo,setNovo]=useState(false);
+  const [aberto,setAberto]=useState(null);
+  const [erro,setErro]=useState("");
+  const rever=()=>acoes.disparosMarketing().then(r=>{setLista(r.campanhas);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+  // Enquanto algum disparo está enviando, os números andam sozinhos na tela.
+  const rodando=!!(lista||[]).some(c=>c.status==="rodando");
+  useEffect(()=>{
+    if(!rodando||aberto||novo) return;
+    const t=setInterval(()=>{ if(!document.hidden) rever(); },15000);
+    return ()=>clearInterval(t);
+  },[rodando,aberto,novo]);
+  if(aberto) return <RelatorioDoDisparo id={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/>;
+  if(novo) return <NovoDisparo d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}
+    aoFechar={()=>setNovo(false)} aoCriar={(c)=>{setNovo(false);setAberto(c.id);}}/>;
+  return <div style={CARTAO_MKT}>
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+      <div style={{...TITULO_MKT,marginBottom:0,flex:1}}><Icon n="send" size={16}/> Disparos</div>
+      <button onClick={irParaFluxos} style={botaoLeveMkt}>Fluxos</button>
+      <button onClick={()=>setNovo(true)} style={botaoMkt()}>+ Novo disparo</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:8}}>{erro}</div>}
+    {lista===null?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
+      :lista.length===0?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+        Nenhum disparo ainda. Monte a sequência de mensagens em <b>Fluxos</b> e depois escolha para quem ela vai em <b>Novo disparo</b>.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {lista.map(c=><button key={c.id} onClick={()=>setAberto(c.id)} style={{textAlign:"left",border:`1px solid ${C.line}`,borderRadius:11,
+          padding:"11px 12px",background:C.card,cursor:"pointer",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",fontFamily:FONT}}>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>{c.nome} <PillDisparo status={c.status}/></div>
+            <div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
+              <b style={{fontFamily:MONO,color:C.ink}}>{c.pessoas_alcancadas}</b> de {c.total} alcançados · {c.responderam} responderam
+              {c.sairam>0&&` · ${c.sairam} pediram para sair`}</div>
+            <div style={{color:C.faint,fontSize:11.5}}>{c.fluxo_nome} · {c.criado_por_nome||"—"} · {fmtDataHoraMkt(c.criado_em)}</div>
+          </div>
+          <Icon n="chevron" size={15} color={C.faint}/>
+        </button>)}
+      </div>}
+  </div>;
+}
+
+function EscolhaMultipla({opcoes,valor,aoMudar}){
+  const marcado=new Set(valor);
+  if(!opcoes.length) return <div style={{color:C.faint,fontSize:12}}>Nada para escolher.</div>;
+  return <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+    {opcoes.map(o=>{const on=marcado.has(o.id);return <button key={o.id} type="button"
+      onClick={()=>aoMudar(on?valor.filter(v=>v!==o.id):[...valor,o.id])}
+      style={{border:`1px solid ${on?(o.cor||C.greenDeep):C.line}`,background:on?(o.cor||C.greenDeep):C.card,color:on?"#fff":C.ink,
+        borderRadius:999,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:34,fontFamily:FONT}}>
+      {o.rotulo}{o.extra!=null&&<span style={{opacity:.7,fontWeight:500}}> · {o.extra}</span>}</button>;})}
+  </div>;
+}
+
+const FILTROS_VAZIOS={todos:false,tags:[],etapas:[],temperaturas:[],responsaveis:[],origens:[]};
+function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
+  const [fluxos,setFluxos]=useState(null);
+  const [op,setOp]=useState(null);
+  const [nome,setNome]=useState("");
+  const [fluxoId,setFluxoId]=useState("");
+  const [listas,setListas]=useState([]);
+  const [usarLeads,setUsarLeads]=useState(false);
+  const [filtros,setFiltros]=useState(FILTROS_VAZIOS);
+  const [declaracao,setDeclaracao]=useState(false);
+  const [previa,setPrevia]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{
+    acoes.fluxosMarketing().then(r=>setFluxos(r.fluxos)).catch(e=>setErro(e.message));
+    acoes.opcoesPublicoMarketing().then(setOp).catch(e=>setErro(e.message));
+  },[]);
+  const publico=useMemo(()=>({listas,leads:usarLeads?(filtros.todos?{...FILTROS_VAZIOS,todos:true}:filtros):null}),[listas,usarLeads,filtros]);
+  const chave=JSON.stringify(publico);
+  useEffect(()=>{
+    setPrevia(null);
+    const t=setTimeout(()=>acoes.previaPublicoMarketing(publico).then(setPrevia).catch(e=>setErro(e.message)),350);
+    return ()=>clearTimeout(t);
+  },[chave]);
+  const filtro=(k,v)=>setFiltros(f=>({...f,[k]:v}));
+  const umFunil=op&&new Set(op.etapas.map(e=>e.funil)).size<=1;
+  const semFiltro=usarLeads&&!filtros.todos&&!["tags","etapas","temperaturas","responsaveis","origens"].some(k=>filtros[k].length);
+  const pronto=nome.trim().length>=2&&fluxoId&&previa&&previa.total>0&&declaracao&&!ocupado;
+  const lim=d.numero&&d.numero.limites;
+  async function comecar(){
+    if(!window.confirm(`Começar o disparo "${nome.trim()}" para ${previa.total} pessoa(s)? As mensagens saem aos poucos, no ritmo do número.`)) return;
+    setErro("");setOcupado(true);
+    try{ aoCriar(await acoes.criarDisparoMarketing({nome,fluxo_id:fluxoId,publico,declaracao:true})); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  const rotulo={color:C.sub,fontSize:11,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.4};
+  const secao={borderTop:`1px solid ${C.line}`,paddingTop:14,marginTop:14};
+  const r=previa&&previa.resumo;
+  const fora=r?[[r.bloqueados,"pediram para sair"],[r.repetidos,"repetidos"],[r.invalidos,"número inválido"],[r.em_andamento,"já estão em outro disparo"]].filter(([n])=>n>0):[];
+  return <div style={CARTAO_MKT}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+      <button onClick={aoFechar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar"><Icon n="voltar" size={14}/></button>
+      <div style={{...TITULO_MKT,marginBottom:0}}>Novo disparo</div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
+      <div><div style={rotulo}>Nome do disparo</div>
+        <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={100} placeholder="ex.: Reativação de setembro" style={campoMkt(isMobile)}/></div>
+      <div><div style={rotulo}>Fluxo</div>
+        {fluxos&&fluxos.length===0
+          ?<div style={{fontSize:12.5,color:C.sub,lineHeight:1.5}}>Nenhum fluxo ainda. <button onClick={irParaFluxos} style={{border:"none",background:"none",color:C.green,fontWeight:700,cursor:"pointer",padding:0}}>Criar um fluxo</button></div>
+          :<select value={fluxoId} onChange={e=>setFluxoId(e.target.value)} style={campoMkt(isMobile)}>
+            <option value="">{fluxos?"Escolha…":"Carregando…"}</option>
+            {(fluxos||[]).map(f=><option key={f.id} value={f.id}>{f.nome} ({f.blocos} blocos)</option>)}
+          </select>}</div>
+    </div>
+
+    <div style={secao}>
+      <div style={rotulo}>Quem recebe — listas de contatos</div>
+      {op&&<EscolhaMultipla opcoes={op.listas.map(l=>({id:l.id,rotulo:l.nome,extra:l.validos}))} valor={listas} aoMudar={setListas}/>}
+    </div>
+    <div style={secao}>
+      <label style={{display:"flex",gap:9,alignItems:"center",fontSize:13.5,color:C.ink,fontWeight:600,cursor:"pointer"}}>
+        <input type="checkbox" checked={usarLeads} onChange={e=>setUsarLeads(e.target.checked)} style={{width:17,height:17}}/>
+        Incluir leads do CRM</label>
+      {usarLeads&&op&&<div style={{display:"flex",flexDirection:"column",gap:12,marginTop:12}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[[true,"Todos os leads"],[false,"Só quem tem…"]].map(([v,t])=><button key={t} onClick={()=>filtro("todos",v)}
+            style={{...botaoLeveMkt,background:filtros.todos===v?C.greenDeep:C.card,color:filtros.todos===v?"#fff":C.sub}}>{t}</button>)}
+        </div>
+        {!filtros.todos&&<React.Fragment>
+          <div style={{color:C.faint,fontSize:11.5}}>Dentro de cada grupo vale qualquer uma das opções; entre grupos, todas ao mesmo tempo.</div>
+          <div><div style={rotulo}>Etiquetas</div>
+            <EscolhaMultipla opcoes={op.tags.map(t=>({id:t.id,rotulo:t.nome,extra:t.leads,cor:t.cor}))} valor={filtros.tags} aoMudar={v=>filtro("tags",v)}/></div>
+          <div><div style={rotulo}>Etapa do funil</div>
+            <EscolhaMultipla opcoes={op.etapas.map(e=>({id:e.id,rotulo:umFunil?e.nome:`${e.funil} · ${e.nome}`,extra:e.leads}))} valor={filtros.etapas} aoMudar={v=>filtro("etapas",v)}/></div>
+          <div><div style={rotulo}>Temperatura</div>
+            <EscolhaMultipla opcoes={[["QUENTE","Quente"],["MORNO","Morno"],["FRIO","Frio"],["SEM","Sem temperatura"]].map(([id,rotulo])=>({id,rotulo}))}
+              valor={filtros.temperaturas} aoMudar={v=>filtro("temperaturas",v)}/></div>
+          <div><div style={rotulo}>Com quem está</div>
+            <EscolhaMultipla opcoes={[...op.responsaveis.map(p=>({id:p.id,rotulo:p.nome})),{id:"fila",rotulo:"Na fila, sem dono"}]}
+              valor={filtros.responsaveis} aoMudar={v=>filtro("responsaveis",v)}/></div>
+          {op.origens.length>0&&<div><div style={rotulo}>Origem</div>
+            <EscolhaMultipla opcoes={op.origens.map(o=>({id:o.nome,rotulo:o.nome,extra:o.leads}))} valor={filtros.origens} aoMudar={v=>filtro("origens",v)}/></div>}
+          {semFiltro&&<div style={{color:"#8a6d1f",fontSize:12}}>Escolha pelo menos um filtro, ou “Todos os leads”.</div>}
+        </React.Fragment>}
+      </div>}
+    </div>
+
+    <div style={{...secao,display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <div style={{minWidth:120}}>
+        <div style={{fontFamily:MONO,fontSize:30,fontWeight:700,color:C.ink,lineHeight:1}}>{previa?previa.total:"…"}</div>
+        <div style={{color:C.sub,fontSize:12}}>pessoa(s) recebem</div>
+      </div>
+      <div style={{flex:1,minWidth:220,fontSize:12.5,color:C.sub,lineHeight:1.55}}>
+        {r&&<div>{r.de_listas} das listas · {r.de_leads} do CRM</div>}
+        {fora.length>0&&<div>Ficam de fora: {fora.map(([n,t])=>`${n} ${t}`).join(" · ")}</div>}
+        {previa&&previa.amostra.length>0&&<div style={{color:C.faint}}>{previa.amostra.join(", ")}{previa.total>previa.amostra.length?"…":""}</div>}
+        {lim&&previa&&previa.total>0&&<div style={{marginTop:4}}>Ritmo do número: {ritmoDoNumero(lim)}
+          {previa.total>lim.limite_dia&&<b style={{color:C.ink}}> — a primeira mensagem leva uns {Math.ceil(previa.total/lim.limite_dia)} dias para chegar a todos.</b>}</div>}
+      </div>
+    </div>
+
+    <div style={secao}>
+      <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.5,cursor:"pointer"}}>
+        <input type="checkbox" checked={declaracao} onChange={e=>setDeclaracao(e.target.checked)} style={{marginTop:3,width:17,height:17,flexShrink:0}}/>
+        <span>{d.declaracao_disparo}</span></label>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>A primeira mensagem de cada pessoa leva o aviso: “{(d.rodape_sair||"").replace(/_/g,"")}”.</div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginTop:10}}>{erro}</div>}
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <button onClick={comecar} disabled={!pronto} style={botaoMkt(!!pronto)}>{ocupado?"Começando…":"Começar disparo"}</button>
+        <button onClick={aoFechar} style={botaoLeveMkt}>Cancelar</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar}){
+  const [c,setC]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const rever=()=>acoes.disparoMarketing(id).then(x=>{setC(x);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[id]);
+  const rodando=c&&c.status==="rodando";
+  useEffect(()=>{
+    if(!rodando) return;
+    const t=setInterval(()=>{ if(!document.hidden) rever(); },15000);
+    return ()=>clearInterval(t);
+  },[rodando,id]);
+  async function agir(acao){
+    if(acao==="cancelar"&&!window.confirm("Cancelar este disparo? Quem ainda não recebeu não recebe mais, e não dá para retomar.")) return;
+    setErro("");setOcupado(acao);
+    try{ setC(await acoes.acaoDisparoMarketing(id,acao)); }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  if(!c) return <div style={CARTAO_MKT}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
+  const contagens=Object.fromEntries((c.por_bloco||[]).map(b=>[b.id,b]));
+  const numeros=[["Público",c.total],["Alcançados",c.pessoas_alcancadas],["Mensagens enviadas",c.mensagens_enviadas],
+    ["Responderam",c.responderam],["Esperando resposta",c.esperando_resposta],["Em andamento",c.em_andamento],
+    ["Terminaram o fluxo",c.concluidas],["Pediram para sair",c.sairam],["Equipe assumiu",c.assumidas],["Falharam",c.falharam]];
+  return <div style={CARTAO_MKT}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+      <button onClick={aoVoltar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar"><Icon n="voltar" size={14}/></button>
+      <div style={{...TITULO_MKT,marginBottom:0,flex:1,minWidth:160}}>{c.nome}</div>
+      <PillDisparo status={c.status}/>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Fluxo {c.fluxo_nome} · começou em {fmtDataHoraMkt(c.criado_em)} por {c.criado_por_nome||"—"}
+      {c.concluida_em&&` · terminou em ${fmtDataHoraMkt(c.concluida_em)}`}</div>
+    {c.status==="rodando"&&c.proximo_envio_em&&c.proximo_envio_em>Date.now()+60000&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+      Próxima mensagem sai {fmtDataHoraMkt(c.proximo_envio_em)} — o número só envia no horário e no limite do dia combinados.</div>}
+    {c.motivo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{c.motivo}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10}}>{erro}</div>}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,1fr)",gap:8,marginBottom:12}}>
+      {numeros.map(([t,n])=><div key={t} style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px"}}>
+        <div style={{fontFamily:MONO,fontSize:19,fontWeight:700,color:C.ink}}>{n}</div>
+        <div style={{color:C.sub,fontSize:11}}>{t}</div></div>)}
+    </div>
+    {(c.status==="rodando"||c.status==="pausada")&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+      {c.status==="rodando"&&<button onClick={()=>agir("pausar")} disabled={!!ocupado} style={botaoMkt(!ocupado,C.amber)}>{ocupado==="pausar"?"Pausando…":"Pausar"}</button>}
+      {c.status==="pausada"&&<button onClick={()=>agir("retomar")} disabled={!!ocupado} style={botaoMkt(!ocupado)}>{ocupado==="retomar"?"Retomando…":"Retomar"}</button>}
+      <button onClick={()=>agir("cancelar")} disabled={!!ocupado} style={{...botaoLeveMkt,color:C.hot}}>Cancelar disparo</button>
+    </div>}
+    <div style={{color:C.sub,fontSize:11,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>Quantos passaram por cada bloco</div>
+    {isMobile
+      ?<div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {(c.grafo.nos||[]).filter(n=>n.tipo!=="inicio").map(n=>{const b=contagens[n.id]||{};return <div key={n.id}
+          style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",fontSize:12.5}}>
+          <b style={{color:TIPO_BLOCO[n.tipo].cor}}>{TIPO_BLOCO[n.tipo].nome}</b> <span style={{color:C.sub}}>{resumoDoBloco(n).slice(0,60)}</span>
+          <div style={{color:C.faint,fontSize:11.5}}>{b.enviados||0} receberam{b.parados_aqui?` · ${b.parados_aqui} aqui agora`:""}</div></div>;})}
+      </div>
+      :<TelaDoFluxo grafo={c.grafo} somenteLeitura contagens={contagens} altura={420}/>}
+    {c.falhas&&c.falhas.length>0&&<div style={{marginTop:12}}>
+      <div style={{color:C.sub,fontSize:11,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.4}}>Últimas falhas</div>
+      {c.falhas.map((f,i)=><div key={i} style={{fontSize:12,color:C.sub,borderBottom:`1px solid ${C.line}`,padding:"6px 0"}}>
+        <span style={{fontFamily:MONO}}>{String(f.telefone).slice(0,4)}****{String(f.telefone).slice(-4)}</span> · {fmtDataHoraMkt(f.enviado_em)} — {f.erro}</div>)}
+    </div>}
+  </div>;
+}
+
+/* Ritmo do número e endereço do webhook — dentro do cartão do número. */
+function RitmoDoNumero({limites,acoes,aoMudar,isMobile}){
+  const [editando,setEditando]=useState(false);
+  const [f,setF]=useState(limites);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  useEffect(()=>{setF(limites);},[JSON.stringify(limites)]);
+  async function salvar(){
+    setErro("");setOcupado(true);
+    try{ await acoes.limitesMarketing(f); setEditando(false); await aoMudar(); }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  const num=(k,props)=><input inputMode="numeric" value={f[k]} onChange={e=>setF({...f,[k]:e.target.value.replace(/\D/g,"")})}
+    style={{...campoMkt(isMobile),width:isMobile?"100%":80,padding:"8px 10px"}} {...props}/>;
+  const rot={color:C.sub,fontSize:11,fontWeight:600,marginBottom:4};
+  if(!editando) return <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:12,fontSize:12.5,color:C.sub,lineHeight:1.5}}>
+    <span style={{flex:1,minWidth:200}}><b style={{color:C.ink}}>Ritmo de envio:</b> {ritmoDoNumero(limites)}.</span>
+    <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>Ajustar</button>
+  </div>;
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:12}}>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>Mais devagar protege o número. Número novo: comece com pouco por dia e aumente aos poucos.</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,auto) 1fr",gap:10,alignItems:"end"}}>
+      <div><div style={rot}>Por dia</div>{num("limite_dia")}</div>
+      <div><div style={rot}>Intervalo mín. (s)</div>{num("intervalo_min")}</div>
+      <div><div style={rot}>Intervalo máx. (s)</div>{num("intervalo_max")}</div>
+      <div><div style={rot}>Começa (h)</div>{num("hora_inicio")}</div>
+      <div><div style={rot}>Termina (h)</div>{num("hora_fim")}</div>
+      <label style={{display:"flex",gap:7,alignItems:"center",fontSize:12.5,color:C.ink,cursor:"pointer",paddingBottom:8}}>
+        <input type="checkbox" checked={!!f.domingo} onChange={e=>setF({...f,domingo:e.target.checked})}/> Envia no domingo</label>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,marginTop:10}}>
+      <button onClick={salvar} disabled={ocupado} style={botaoMkt(!ocupado)}>{ocupado?"Salvando…":"Salvar ritmo"}</button>
+      <button onClick={()=>{setEditando(false);setF(limites);setErro("");}} style={botaoLeveMkt}>Cancelar</button>
+    </div>
+  </div>;
+}
+
+function WebhookDoDisparo({url}){
+  const [copiado,setCopiado]=useState(false);
+  if(!url) return null;
+  return <div style={{marginTop:12,fontSize:12.5,color:C.sub,lineHeight:1.5}}>
+    <b style={{color:C.ink}}>Webhook:</b> na instância de disparo da Uazapi, cole este endereço no Webhook, com o evento de mensagens.
+    Sem ele as respostas não chegam e o fluxo que espera resposta não anda.
+    <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
+      <code style={{fontFamily:MONO,fontSize:11.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 9px",wordBreak:"break-all",flex:1,minWidth:200}}>{url}</code>
+      <button onClick={()=>{try{navigator.clipboard.writeText(url);setCopiado(true);setTimeout(()=>setCopiado(false),2000);}catch(e){}}} style={botaoLeveMkt}>{copiado?"Copiado":"Copiar"}</button>
+    </div>
+  </div>;
+}
+
+/* ===== O CONSTRUTOR DE FLUXOS — TELA LIVRE (27/09/2026) =====
+   Pedido do Ali: "muito parecido com o que o ManyChat faz". Blocos soltos
+   numa tela que se arrasta, ligados por setas: cada saída de um bloco (o
+   "depois", cada botão, cada caminho de resposta, o "não respondeu") puxa
+   uma seta até a entrada de outro bloco. O que vale é o desenho — a ordem em
+   que os blocos foram criados não importa.
+
+   As medidas do bloco são FIXAS (cabeçalho, prévia de duas linhas e uma
+   linha por saída) porque é delas que sai a posição de cada ponta de seta.
+   Medir no navegador faria a seta pular um quadro depois de cada mudança. */
+const TIPO_BLOCO={
+  inicio:{nome:"Início",cor:C.greenDeep,icone:"zap"},
+  mensagem:{nome:"Mensagem",cor:C.green,icone:"msg"},
+  espera:{nome:"Espera",cor:C.cool,icone:"clock"},
+  resposta:{nome:"Esperar resposta",cor:"#2F80C4",icone:"reply"},
+  botoes:{nome:"Botões",cor:"#7A5AD6",icone:"grid"},
+};
+const UNIDADES_FLUXO=[["minutos","minuto(s)"],["horas","hora(s)"],["dias","dia(s)"]];
+const LARG_BLOCO=236, CAB_BLOCO=34, CORPO_BLOCO=50, LINHA_SAIDA=28;
+const fmtPrazo=(p)=>p?`${p.quantidade} ${({minutos:"min",horas:p.quantidade==1?"hora":"horas",dias:p.quantidade==1?"dia":"dias"})[p.unidade]||p.unidade}`:"";
+function saidasDoBloco(no){
+  const d=no.dados||{};
+  switch(no.tipo){
+    case "inicio": return [["proximo","Começa aqui"]];
+    case "mensagem": case "espera": return [["proximo","Depois"]];
+    case "resposta": return [...(d.regras||[]).map((r,i)=>[r.id,r.palavras?`Contém: ${r.palavras}`:`Caminho ${i+1} (sem palavras)`]),
+      ["outra","Qualquer outra resposta"],["sem_resposta",`Não respondeu em ${fmtPrazo(d.prazo)}`]];
+    case "botoes": return [...(d.botoes||[]).map((b,i)=>[b.id,b.rotulo?`${i+1}. ${b.rotulo}`:`Botão ${i+1} (sem texto)`]),
+      ["outra","Outra resposta"],["sem_resposta",`Não respondeu em ${fmtPrazo(d.prazo)}`]];
+    default: return [];
+  }
+}
+const corpoDoBloco=(no)=>no.tipo==="inicio"?0:CORPO_BLOCO;
+const alturaDoBloco=(no)=>CAB_BLOCO+corpoDoBloco(no)+saidasDoBloco(no).length*LINHA_SAIDA+6;
+const pontoDeSaida=(no,saida)=>{const i=Math.max(0,saidasDoBloco(no).findIndex(([id])=>id===saida));
+  return {x:no.x+LARG_BLOCO,y:no.y+CAB_BLOCO+corpoDoBloco(no)+i*LINHA_SAIDA+LINHA_SAIDA/2};};
+const pontoDeEntrada=(no)=>({x:no.x,y:no.y+CAB_BLOCO/2});
+const curvaDaSeta=(a,b)=>{const dx=Math.max(50,Math.abs(b.x-a.x)/2);return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`;};
+function resumoDoBloco(no){
+  const d=no.dados||{};
+  if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
+  if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
+  if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
+  if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
+  return "";
+}
+const idNovoFluxo=(p)=>p+Math.random().toString(36).slice(2,8);
+function blocoNovo(tipo,x,y){
+  const prazo={quantidade:24,unidade:"horas"};
+  const dados=tipo==="mensagem"?{texto:"",midia:null}
+    :tipo==="espera"?{quantidade:1,unidade:"dias"}
+    :tipo==="resposta"?{regras:[{id:idNovoFluxo("r"),palavras:""}],prazo}
+    :{texto:"",botoes:[{id:idNovoFluxo("b"),rotulo:""},{id:idNovoFluxo("b"),rotulo:""}],escrever_opcoes:true,prazo};
+  return {id:idNovoFluxo("n"),tipo,x:Math.round(x),y:Math.round(y),dados};
+}
+// Seta que sai de uma saída que não existe mais (botão apagado) cai fora.
+const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
+  return {...g,ligacoes:g.ligacoes.filter(l=>por.has(l.de)&&por.has(l.para)&&saidasDoBloco(por.get(l.de)).some(([id])=>id===l.saida))};};
+
+function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta}){
+  const t=TIPO_BLOCO[no.tipo]||TIPO_BLOCO.mensagem;
+  // O bloco inteiro agarra (seleciona e arrasta), como no ManyChat; só as
+  // bolinhas de saída puxam seta.
+  return <div onPointerDown={e=>aoAgarrar&&aoAgarrar(e,no.id)} style={{position:"absolute",left:no.x,top:no.y,width:LARG_BLOCO,background:C.card,borderRadius:12,paddingBottom:6,boxSizing:"border-box",cursor:somenteLeitura?"default":"grab",touchAction:"none",
+    border:`${selecionado?2:1}px solid ${selecionado?t.cor:C.line}`,boxShadow:selecionado?"0 8px 22px rgba(10,61,48,.2)":"0 2px 8px rgba(10,61,48,.08)",userSelect:"none"}}>
+    {no.tipo!=="inicio"&&<span style={{position:"absolute",left:-8,top:CAB_BLOCO/2-7,width:14,height:14,borderRadius:"50%",background:C.card,border:`2px solid ${t.cor}`}}/>}
+    <div style={{height:CAB_BLOCO,display:"flex",alignItems:"center",gap:7,padding:"0 10px",
+      background:t.cor,color:"#fff",borderRadius:"10px 10px 0 0",fontSize:12.5,fontWeight:700}}>
+      <Icon n={t.icone} size={14}/><span style={{flex:1}}>{t.nome}</span>
+      {contagem&&no.tipo!=="inicio"&&<span style={{background:"rgba(255,255,255,.22)",borderRadius:999,padding:"2px 8px",fontSize:11,fontFamily:MONO}}
+        title={`${contagem.enviados||0} receberam${contagem.parados_aqui?` · ${contagem.parados_aqui} aqui agora`:""}`}>
+        {contagem.enviados||0}{contagem.parados_aqui?` · ${contagem.parados_aqui} aqui`:""}</span>}
+    </div>
+    {no.tipo!=="inicio"&&<div style={{height:CORPO_BLOCO,padding:"7px 10px",boxSizing:"border-box",borderBottom:`1px solid ${C.line}`}}>
+      <div style={{fontSize:12,color:C.sub,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",wordBreak:"break-word"}}>{resumoDoBloco(no)}</div></div>}
+    {saidasDoBloco(no).map(([id,rot])=><div key={id} style={{height:LINHA_SAIDA,display:"flex",alignItems:"center",justifyContent:"flex-end",
+      padding:"0 16px 0 10px",fontSize:11.5,color:C.sub,position:"relative"}}>
+      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rot}</span>
+      <span onPointerDown={e=>{if(somenteLeitura)return;e.stopPropagation();aoIniciarSeta(e,no.id,id);}} title={somenteLeitura?"":"Arraste até outro bloco"}
+        style={{position:"absolute",right:-9,top:LINHA_SAIDA/2-8,width:16,height:16,borderRadius:"50%",boxSizing:"border-box",touchAction:"none",
+          background:ligadas.has(id)?t.cor:C.card,border:`2px solid ${t.cor}`,cursor:somenteLeitura?"default":"crosshair"}}/>
+    </div>)}
+  </div>;
+}
+
+function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,contagens,altura=560,aoPedirBloco,focar}){
+  const ref=useRef(null);
+  const [vista,setVista]=useState({x:40,y:40,z:1});
+  const [gesto,setGesto]=useState(null);
+  const [setaSel,setSetaSel]=useState(null);
+  const [menu,setMenu]=useState(null);
+  const vistaRef=useRef(vista); vistaRef.current=vista;
+  const porId=useMemo(()=>new Map(grafo.nos.map(n=>[n.id,n])),[grafo]);
+  const noCanvas=(e)=>{const r=ref.current.getBoundingClientRect();const v=vistaRef.current;return {x:(e.clientX-r.left-v.x)/v.z,y:(e.clientY-r.top-v.y)/v.z};};
+  function enquadrar(){
+    if(!ref.current||!grafo.nos.length) return;
+    const xs=grafo.nos.map(n=>n.x), ys=grafo.nos.map(n=>n.y);
+    const x0=Math.min(...xs), y0=Math.min(...ys), x1=Math.max(...grafo.nos.map(n=>n.x+LARG_BLOCO)), y1=Math.max(...grafo.nos.map(n=>n.y+alturaDoBloco(n)));
+    const r=ref.current.getBoundingClientRect();
+    const z=Math.max(0.35,Math.min(1,(r.width-60)/(x1-x0||1),(r.height-60)/(y1-y0||1)));
+    setVista({z,x:(r.width-(x1-x0)*z)/2-x0*z,y:(r.height-(y1-y0)*z)/2-y0*z});
+  }
+  useEffect(()=>{enquadrar();},[]);
+  // Bloco recém-criado fora da parte visível: a tela anda até ele. Sem isso o
+  // botão "Adicionar" criava um bloco que ninguém via.
+  const blocosAntes=useRef(grafo.nos.length);
+  useEffect(()=>{
+    const cresceu=grafo.nos.length>blocosAntes.current; blocosAntes.current=grafo.nos.length;
+    const n=cresceu&&focar&&porId.get(focar); if(!n||!ref.current) return;
+    const r=ref.current.getBoundingClientRect(), v=vistaRef.current;
+    const x0=n.x*v.z+v.x, y0=n.y*v.z+v.y, x1=x0+LARG_BLOCO*v.z, y1=y0+alturaDoBloco(n)*v.z;
+    if(x0>=10&&y0>=10&&x1<=r.width-10&&y1<=r.height-10) return;
+    setVista({...v,x:r.width/2-(n.x+LARG_BLOCO/2)*v.z,y:r.height/2-(n.y+alturaDoBloco(n)/2)*v.z});
+  },[grafo.nos.length]);
+  function capturar(e){try{e.preventDefault();ref.current.setPointerCapture(e.pointerId);}catch(x){}}
+  function aoAgarrar(e,id){
+    if(somenteLeitura) return;
+    e.stopPropagation(); capturar(e); setMenu(null); setSetaSel(null);
+    aoSelecionar&&aoSelecionar(id);
+    const p=noCanvas(e), n=porId.get(id);
+    setGesto({tipo:"mover",id,dx:p.x-n.x,dy:p.y-n.y});
+  }
+  function aoIniciarSeta(e,de,saida){ capturar(e); setMenu(null); const p=noCanvas(e); setGesto({tipo:"seta",de,saida,x:p.x,y:p.y}); }
+  function noFundo(e){
+    if(e.pointerType==="mouse"&&e.button!==0) return;
+    capturar(e); setMenu(null); setSetaSel(null);
+    aoSelecionar&&aoSelecionar(null);
+    setGesto({tipo:"arrastar",x0:e.clientX,y0:e.clientY,vx:vista.x,vy:vista.y});
+  }
+  function aoMover(e){
+    if(!gesto) return;
+    if(gesto.tipo==="arrastar") return setVista(v=>({...v,x:gesto.vx+e.clientX-gesto.x0,y:gesto.vy+e.clientY-gesto.y0}));
+    const p=noCanvas(e);
+    if(gesto.tipo==="mover") return aoMudar({...grafo,nos:grafo.nos.map(n=>n.id===gesto.id?{...n,x:Math.round(p.x-gesto.dx),y:Math.round(p.y-gesto.dy)}:n)});
+    if(gesto.tipo==="seta") setGesto({...gesto,x:p.x,y:p.y});
+  }
+  function aoSoltar(e){
+    if(gesto&&gesto.tipo==="seta"){
+      const p=noCanvas(e);
+      const alvo=grafo.nos.find(n=>n.tipo!=="inicio"&&n.id!==gesto.de&&p.x>=n.x-14&&p.x<=n.x+LARG_BLOCO&&p.y>=n.y-10&&p.y<=n.y+alturaDoBloco(n));
+      if(alvo) aoMudar({...grafo,ligacoes:[...grafo.ligacoes.filter(l=>!(l.de===gesto.de&&l.saida===gesto.saida)),{de:gesto.de,saida:gesto.saida,para:alvo.id}]});
+      // Soltou no vazio: oferece criar o próximo bloco ali mesmo, já ligado.
+      else if(aoPedirBloco) setMenu({x:p.x,y:p.y,de:gesto.de,saida:gesto.saida});
+    }
+    setGesto(null);
+  }
+  function criarAqui(tipo){
+    const b=blocoNovo(tipo,menu.x,menu.y-CAB_BLOCO/2);
+    aoMudar({...grafo,nos:[...grafo.nos,b],ligacoes:[...grafo.ligacoes.filter(l=>!(l.de===menu.de&&l.saida===menu.saida)),{de:menu.de,saida:menu.saida,para:b.id}]});
+    aoSelecionar&&aoSelecionar(b.id); setMenu(null);
+  }
+  const zoom=(f)=>{const r=ref.current.getBoundingClientRect();setVista(v=>{const z=Math.max(0.35,Math.min(1.6,v.z*f));const cx=r.width/2,cy=r.height/2;
+    return {z,x:cx-(cx-v.x)*z/v.z,y:cy-(cy-v.y)*z/v.z};});};
+  const setas=grafo.ligacoes.map(l=>{const a=porId.get(l.de),b=porId.get(l.para);if(!a||!b)return null;
+    const p=pontoDeSaida(a,l.saida),q=pontoDeEntrada(b);return {l,p,q,chave:`${l.de}:${l.saida}`};}).filter(Boolean);
+  const ligadasDe=(id)=>new Set(grafo.ligacoes.filter(l=>l.de===id).map(l=>l.saida));
+  const sel=setaSel&&setas.find(s=>s.chave===setaSel);
+  const botaoZoom={width:32,height:32,border:`1px solid ${C.line}`,background:C.card,borderRadius:8,cursor:"pointer",fontSize:15,fontWeight:700,color:C.sub};
+  return <div ref={ref} onPointerDown={noFundo} onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={()=>setGesto(null)}
+    style={{position:"relative",height:altura,overflow:"hidden",borderRadius:12,border:`1px solid ${C.line}`,touchAction:"none",userSelect:"none",
+      cursor:gesto&&gesto.tipo==="arrastar"?"grabbing":"default",background:C.surface,
+      backgroundImage:`radial-gradient(${C.line} 1px, transparent 1px)`,backgroundSize:`${22*vista.z}px ${22*vista.z}px`,backgroundPosition:`${vista.x}px ${vista.y}px`}}>
+    <div style={{position:"absolute",left:0,top:0,transform:`translate(${vista.x}px,${vista.y}px) scale(${vista.z})`,transformOrigin:"0 0"}}>
+      <svg style={{position:"absolute",left:0,top:0,overflow:"visible",width:1,height:1}}>
+        <defs><marker id="ponta-seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill={C.sub}/></marker></defs>
+        {setas.map(s=><g key={s.chave}>
+          <path d={curvaDaSeta(s.p,s.q)} stroke={setaSel===s.chave?C.hot:C.sub} strokeWidth={2} fill="none" markerEnd="url(#ponta-seta)" opacity={.75}/>
+          {!somenteLeitura&&<path d={curvaDaSeta(s.p,s.q)} stroke="transparent" strokeWidth={14} fill="none" style={{cursor:"pointer",pointerEvents:"stroke"}}
+            onPointerDown={e=>{e.stopPropagation();setSetaSel(s.chave);setMenu(null);}}/>}
+        </g>)}
+        {gesto&&gesto.tipo==="seta"&&porId.get(gesto.de)&&<path d={curvaDaSeta(pontoDeSaida(porId.get(gesto.de),gesto.saida),{x:gesto.x,y:gesto.y})}
+          stroke={C.green} strokeWidth={2} strokeDasharray="6 5" fill="none"/>}
+      </svg>
+      {grafo.nos.map(n=><BlocoDoFluxo key={n.id} no={n} selecionado={selecionado===n.id} somenteLeitura={somenteLeitura}
+        contagem={contagens&&contagens[n.id]} ligadas={ligadasDe(n.id)} aoAgarrar={somenteLeitura?null:aoAgarrar} aoIniciarSeta={aoIniciarSeta}/>)}
+      {sel&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>{aoMudar({...grafo,ligacoes:grafo.ligacoes.filter(l=>`${l.de}:${l.saida}`!==setaSel)});setSetaSel(null);}}
+        title="Apagar esta seta"
+        style={{position:"absolute",left:(sel.p.x+sel.q.x)/2-13,top:(sel.p.y+sel.q.y)/2-13,width:26,height:26,borderRadius:"50%",border:"none",
+          background:C.hot,color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="trash" size={13}/></button>}
+      {menu&&<div onPointerDown={e=>e.stopPropagation()} style={{position:"absolute",left:menu.x,top:menu.y,background:C.card,border:`1px solid ${C.line}`,
+        borderRadius:10,boxShadow:"0 8px 22px rgba(10,61,48,.18)",padding:6,display:"flex",flexDirection:"column",gap:2,minWidth:170}}>
+        <div style={{fontSize:11,color:C.faint,padding:"2px 6px 4px"}}>Criar o próximo bloco:</div>
+        {["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>criarAqui(t)} style={{display:"flex",gap:8,alignItems:"center",
+          border:"none",background:"transparent",padding:"7px 8px",borderRadius:7,cursor:"pointer",fontSize:12.5,color:C.ink,textAlign:"left"}}>
+          <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
+      </div>}
+    </div>
+    <div onPointerDown={e=>e.stopPropagation()} style={{position:"absolute",right:10,bottom:10,display:"flex",gap:6}}>
+      <button onClick={()=>zoom(1/1.2)} style={botaoZoom} title="Afastar">−</button>
+      <button onClick={enquadrar} style={{...botaoZoom,width:"auto",padding:"0 10px",fontSize:12}} title="Mostrar o fluxo inteiro">Ver tudo</button>
+      <button onClick={()=>zoom(1.2)} style={botaoZoom} title="Aproximar">+</button>
+    </div>
+  </div>;
+}
+
+function CampoPrazo({valor,aoMudar,isMobile}){
+  const v=valor||{quantidade:24,unidade:"horas"};
+  return <div style={{display:"flex",gap:6}}>
+    <input inputMode="numeric" value={v.quantidade} onChange={e=>aoMudar({...v,quantidade:Number(e.target.value.replace(/\D/g,""))||""})}
+      style={{...campoMkt(isMobile),width:80}}/>
+    <select value={v.unidade} onChange={e=>aoMudar({...v,unidade:e.target.value})} style={{...campoMkt(isMobile),width:130}}>
+      {UNIDADES_FLUXO.map(([id,t])=><option key={id} value={id}>{t}</option>)}</select>
+  </div>;
+}
+
+const LIMITE_MB_ARQUIVO_MKT=8, LIMITE_MB_VIDEO_MKT=150;
+function EditorDeBloco({no,aoMudar,aoApagar,acoes,isMobile}){
+  const [subindo,setSubindo]=useState("");
+  const [erro,setErro]=useState("");
+  useEffect(()=>{setErro("");},[no.id]);
+  const d=no.dados||{};
+  const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
+  const rot={color:C.sub,fontSize:11,fontWeight:700,marginBottom:5,textTransform:"uppercase",letterSpacing:.4};
+  async function anexar(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+    setErro("");
+    const video=/^video\//.test(f.type);
+    const limite=video?LIMITE_MB_VIDEO_MKT:LIMITE_MB_ARQUIVO_MKT;
+    if(f.size>limite*1024*1024) return setErro(`Arquivo grande demais: o limite é ${limite} MB.`);
+    try{
+      let r;
+      if(video){ setSubindo("0%"); r=await acoes.videoMarketing(f,(p)=>setSubindo(p>=100?"processando…":`${p}%`)); }
+      else{
+        setSubindo("enviando…");
+        const base64=await new Promise((ok,falhou)=>{const l=new FileReader();l.onload=()=>ok(String(l.result));l.onerror=()=>falhou(new Error("Não consegui ler o arquivo."));l.readAsDataURL(f);});
+        r=await acoes.midiaMarketing({base64,mime:f.type||"application/octet-stream",nome:f.name});
+      }
+      dados({midia:{url:r.url,tipo:r.tipo,nome:r.nome,mime:r.mime}});
+    }catch(x){ setErro(x.message); } finally{ setSubindo(""); }
+  }
+  const t=TIPO_BLOCO[no.tipo];
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
+      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
+      {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
+    </div>
+    {no.tipo==="inicio"&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+      É por aqui que cada pessoa do disparo entra. Puxe a seta do “Começa aqui” até o primeiro bloco.</div>}
+    {no.tipo==="mensagem"&&<React.Fragment>
+      <div><div style={rot}>Texto</div>
+        <textarea value={d.texto||""} onChange={e=>dados({texto:e.target.value})} rows={7} maxLength={4000}
+          placeholder="Oi, {nome}! …" style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>{"{nome}"} vira o primeiro nome da pessoa. *negrito* e _itálico_ como no WhatsApp.</div></div>
+      <div><div style={rot}>Arquivo (opcional)</div>
+        {d.midia
+          ?<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center"}}>
+            {d.midia.tipo==="image"&&<img src={d.midia.url} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:8}}/>}
+            <div style={{flex:1,minWidth:0,fontSize:12.5,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.midia.nome||"arquivo"}
+              <div style={{color:C.faint,fontSize:11.5}}>{({image:"Foto",video:"Vídeo",audio:"Áudio",document:"Documento"})[d.midia.tipo]}{d.midia.tipo==="audio"?" · sai antes do texto":" · o texto vai como legenda"}</div></div>
+            <button onClick={()=>dados({midia:null})} style={{...botaoLeveMkt,padding:"6px 10px"}}>Tirar</button>
+          </div>
+          :<label style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,cursor:subindo?"default":"pointer"}}>
+            <Icon n="download" size={14}/>{subindo?`Enviando ${subindo}`:"Anexar foto, vídeo, áudio ou documento"}
+            <input type="file" disabled={!!subindo} onChange={anexar} style={{display:"none"}}
+              accept="image/jpeg,image/png,image/webp,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx"/></label>}
+      </div>
+    </React.Fragment>}
+    {no.tipo==="espera"&&<div><div style={rot}>Esperar</div>
+      <CampoPrazo valor={{quantidade:d.quantidade,unidade:d.unidade}} aoMudar={v=>dados({quantidade:v.quantidade,unidade:v.unidade})} isMobile={isMobile}/>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:6,lineHeight:1.5}}>Depois da espera, a próxima mensagem ainda respeita o ritmo e o horário do número.</div></div>}
+    {no.tipo==="resposta"&&<React.Fragment>
+      <div><div style={rot}>Caminhos por palavra</div>
+        <div style={{color:C.faint,fontSize:11.5,marginBottom:8,lineHeight:1.5}}>Separe as palavras por vírgula. Vale o primeiro caminho que combinar; o resto vai para “Qualquer outra resposta”.</div>
+        {(d.regras||[]).map((r,i)=><div key={r.id} style={{display:"flex",gap:6,marginBottom:6}}>
+          <input value={r.palavras} onChange={e=>dados({regras:d.regras.map(x=>x.id===r.id?{...x,palavras:e.target.value}:x)})} maxLength={300}
+            placeholder={i===0?"sim, quero, pode":"palavras…"} style={campoMkt(isMobile)}/>
+          <button onClick={()=>dados({regras:d.regras.filter(x=>x.id!==r.id)})} title="Tirar caminho" style={{...botaoLeveMkt,padding:"6px 10px"}}>×</button>
+        </div>)}
+        {(d.regras||[]).length<10&&<button onClick={()=>dados({regras:[...(d.regras||[]),{id:idNovoFluxo("r"),palavras:""}]})} style={botaoLeveMkt}>+ Caminho</button>}
+      </div>
+      <div><div style={rot}>Se não responder em</div><CampoPrazo valor={d.prazo} aoMudar={v=>dados({prazo:v})} isMobile={isMobile}/></div>
+    </React.Fragment>}
+    {no.tipo==="botoes"&&<React.Fragment>
+      <div><div style={rot}>Pergunta</div>
+        <textarea value={d.texto||""} onChange={e=>dados({texto:e.target.value})} rows={4} maxLength={1024}
+          placeholder="Quer ver as opções, {nome}?" style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/></div>
+      <div><div style={rot}>Botões (até 3)</div>
+        {(d.botoes||[]).map((b,i)=><div key={b.id} style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,width:14}}>{i+1}</span>
+          <input value={b.rotulo} onChange={e=>dados({botoes:d.botoes.map(x=>x.id===b.id?{...x,rotulo:e.target.value.slice(0,20)}:x)})}
+            placeholder="Texto do botão" style={campoMkt(isMobile)}/>
+          <span style={{color:C.faint,fontSize:11,width:34,textAlign:"right"}}>{(b.rotulo||"").length}/20</span>
+          {d.botoes.length>1&&<button onClick={()=>dados({botoes:d.botoes.filter(x=>x.id!==b.id)})} title="Tirar botão" style={{...botaoLeveMkt,padding:"6px 10px"}}>×</button>}
+        </div>)}
+        {(d.botoes||[]).length<3&&<button onClick={()=>dados({botoes:[...(d.botoes||[]),{id:idNovoFluxo("b"),rotulo:""}]})} style={botaoLeveMkt}>+ Botão</button>}
+      </div>
+      <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.5,cursor:"pointer"}}>
+        <input type="checkbox" checked={d.escrever_opcoes!==false} onChange={e=>dados({escrever_opcoes:e.target.checked})} style={{marginTop:3}}/>
+        <span>Escrever as opções numeradas na mensagem <span style={{color:C.faint}}>— recomendado: no número não oficial os botões nem sempre aparecem. Responder “1”, “2” ou o texto do botão funciona igual.</span></span></label>
+      <div><div style={rot}>Se não responder em</div><CampoPrazo valor={d.prazo} aoMudar={v=>dados({prazo:v})} isMobile={isMobile}/></div>
+    </React.Fragment>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+  </div>;
+}
+
+function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
+  const [nome,setNome]=useState(inicial.nome);
+  const [grafo,setGrafoCru]=useState(inicial.grafo);
+  const [avisos,setAvisos]=useState(inicial.avisos||[]);
+  const [sujo,setSujo]=useState(false);
+  const [sel,setSel]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [salvoEm,setSalvoEm]=useState(null);
+  const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
+  // Sair com alteração pendente pergunta antes: o fluxo inteiro seria perdido.
+  useEffect(()=>{
+    if(!sujo) return;
+    const f=(e)=>{e.preventDefault();e.returnValue="";};
+    window.addEventListener("beforeunload",f); return ()=>window.removeEventListener("beforeunload",f);
+  },[sujo]);
+  async function salvar(){
+    setErro("");setOcupado(true);
+    try{
+      const r=await acoes.salvarFluxoMarketing(inicial.id,{nome,grafo});
+      setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome); setSujo(false); setSalvoEm(Date.now());
+    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  function voltar(){ if(sujo&&!window.confirm("Sair sem salvar? As alterações deste fluxo se perdem.")) return; aoVoltar(); }
+  function adicionar(tipo){
+    const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
+    const b=blocoNovo(tipo,base?base.x+LARG_BLOCO+70:300,base?base.y:120);
+    setGrafo({...grafo,nos:[...grafo.nos,b]}); setSel(b.id);
+  }
+  const noSel=grafo.nos.find(n=>n.id===sel);
+  return <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%"}}>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <button onClick={voltar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar aos fluxos"><Icon n="voltar" size={14}/></button>
+      <input value={nome} onChange={e=>{setNome(e.target.value);setSujo(true);}} maxLength={80}
+        style={{...campoMkt(isMobile),maxWidth:320,fontFamily:DISPLAY,fontWeight:700,fontSize:15}}/>
+      <div style={{flex:1}}/>
+      <span style={{fontSize:12,color:sujo?"#8a6d1f":C.faint}}>{sujo?"Alterações não salvas":salvoEm?"Salvo":""}</span>
+      <button onClick={salvar} disabled={ocupado||!sujo} style={botaoMkt(!ocupado&&sujo)}>{ocupado?"Salvando…":"Salvar"}</button>
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontSize:12,color:C.sub,marginRight:4}}>Adicionar:</span>
+      {["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>adicionar(t)} style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,padding:"7px 12px"}}>
+        <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:12,alignItems:"start"}}>
+      <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura={620} aoPedirBloco focar={sel}/>
+      <div style={{...CARTAO_MKT,marginBottom:0,maxHeight:620,overflowY:"auto",boxSizing:"border-box"}}>
+        {noSel
+          ?<EditorDeBloco no={noSel} acoes={acoes} isMobile={isMobile}
+            aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
+            aoApagar={()=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==noSel.id),ligacoes:grafo.ligacoes.filter(l=>l.de!==noSel.id&&l.para!==noSel.id)});setSel(null);}}/>
+          :<div style={{fontSize:12.5,color:C.sub,lineHeight:1.6}}>
+            <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,marginBottom:6}}>Como montar</div>
+            <div>• Clique num bloco para editar. Arraste para mudar de lugar.</div>
+            <div>• Puxe a bolinha da direita de uma saída até outro bloco para ligar. Soltando no vazio, cria o próximo bloco ali.</div>
+            <div>• Clique numa seta para apagá-la. Arraste o fundo para andar pela tela.</div>
+            <div>• Saída sem seta termina o fluxo daquela pessoa.</div>
+            {avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:12}}>
+              <b>Para disparar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>}
+            {!sujo&&avisos.length===0&&salvoEm&&<div style={{background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"9px 11px",marginTop:12}}>Pronto para disparar.</div>}
+          </div>}
+      </div>
+    </div>
+  </div>;
+}
+
+function FluxosDeMarketing({acoes,org,isMobile}){
+  const [d,setD]=useState(null);
+  const [fluxos,setFluxos]=useState(null);
+  const [aberto,setAberto]=useState(null);
+  const [novoNome,setNovoNome]=useState("");
+  const [criando,setCriando]=useState(false);
+  const [erro,setErro]=useState("");
+  const rever=()=>acoes.fluxosMarketing().then(r=>{setFluxos(r.fluxos);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{acoes.marketing().then(x=>{setD(x);if(x.liberado&&x.termo.aceite) rever();}).catch(e=>setErro(e.message));},[org&&org.id]);
+  const moldura={maxWidth:aberto?1320:880,margin:"0 auto",padding:isMobile?"14px 12px 90px":"20px 22px 40px"};
+  async function abrir(id){ setErro(""); try{ setAberto(await acoes.fluxoMarketing(id)); }catch(e){ setErro(e.message); } }
+  async function criar(){
+    setErro("");
+    try{ const f=await acoes.criarFluxoMarketing(novoNome); setNovoNome(""); setCriando(false); await rever(); if(!isMobile) setAberto(f); }
+    catch(e){ setErro(e.message); }
+  }
+  async function apagar(f){
+    if(!window.confirm(`Apagar o fluxo "${f.nome}"? Os disparos que já usaram este fluxo continuam com a cópia deles.`)) return;
+    try{ await acoes.apagarFluxoMarketing(f.id); await rever(); }catch(e){ setErro(e.message); }
+  }
+  if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
+  if(!d.liberado||!d.termo.aceite) return <div style={moldura}><div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><Icon n="lock" size={16}/> {d.liberado?"Aceite o termo primeiro":"Disparo em massa não liberado"}</div>
+    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>{d.liberado?"O termo de uso fica em Marketing → Disparos em massa.":"Este recurso é liberado pelo ConHub para cada conta."}</div>
+  </div></div>;
+  if(aberto&&!isMobile) return <div style={moldura}><EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
+  return <div style={moldura}>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    <div style={CARTAO_MKT}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
+        <div style={{...TITULO_MKT,marginBottom:0,flex:1}}><Icon n="zap" size={16}/> Fluxos</div>
+        {!criando&&!isMobile&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
+      </div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
+        A sequência de mensagens que cada pessoa do disparo recebe: mensagem, espera, botões e caminhos conforme a resposta.
+        {isMobile&&<b style={{color:C.ink}}> Para montar e editar, abra o ConHub no computador.</b>}</div>
+      {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
+          placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
+        <button onClick={criar} style={botaoMkt()}>Criar</button>
+        <button onClick={()=>{setCriando(false);setNovoNome("");}} style={botaoLeveMkt}>Cancelar</button>
+      </div>}
+      {fluxos===null?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
+        :fluxos.length===0?<div style={{color:C.faint,fontSize:12.5}}>Nenhum fluxo ainda.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {fluxos.map(f=><div key={f.id} style={{border:`1px solid ${C.line}`,borderRadius:11,padding:"11px 12px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{f.nome}</div>
+              <div style={{color:C.faint,fontSize:11.5}}>{f.blocos} blocos · {f.disparos} disparo(s) · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
+            </div>
+            {!isMobile&&<button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>}
+            <button onClick={()=>apagar(f)} title="Apagar fluxo" style={{...botaoLeveMkt,color:C.hot,padding:"8px 10px"}}><Icon n="trash" size={14}/></button>
+          </div>)}
+        </div>}
+    </div>
   </div>;
 }
 
@@ -4087,7 +4838,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // Marketing só existe para a conta que o ConHub liberou.
     .filter(item=>item[0]!=="marketing"||!!(org&&org.marketing_liberado));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",fluxos:"Marketing · Fluxos"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -4206,7 +4957,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
         {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
-        {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile}/>}
+        {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
+        {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
@@ -4260,7 +5012,7 @@ const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart",
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
    o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
-const MARKETING_FILHOS=[["marketing","send","Disparos em massa"]];
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"]];
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 // O grupo está "ativo" quando a tela aberta é um dos filhos dele.
 const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
@@ -5626,12 +6378,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
   const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
-  const daCasa=myLeads.filter(l=>!l.canalId).length;
+  const daCasa=myLeads.filter(l=>!minhaLinha||l.canalId!==minhaLinha.id).length;
   const daMinha=minhaLinha?myLeads.filter(l=>l.canalId===minhaLinha.id).length:0;
   const list=myLeads
     // A linha, antes de tudo: as abas são a divisão mais alta da caixa dele, e
     // os outros filtros valem dentro da que estiver aberta.
-    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:!l.canalId)
+    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
     .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase())
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
@@ -7312,7 +8064,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     .filter(l=>esperando?l.unread>0:true)
     // A linha só peneira quando existe uma segunda: sem número pessoal ligado,
     // "da imobiliária" seria a caixa inteira com outro nome.
-    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:!l.canalId)
+    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha]);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
@@ -7350,7 +8102,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         {/* As duas linhas de WhatsApp. Só para quem tem a segunda: com um número
             só, a chave ocuparia a faixa mais visível da tela para não dizer nada. */}
         {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
-          contarCasa={lista.filter(l=>!l.canalId).length} contarMinha={lista.filter(l=>l.canalId===minhaLinha.id).length}/>}
+          contarCasa={lista.filter(l=>l.canalId!==minhaLinha.id).length} contarMinha={lista.filter(l=>l.canalId===minhaLinha.id).length}/>}
         {session.role==="sdr"&&<div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
           {[["meus","Minha caixa"],["todos","Toda a equipe"]].map(([v,t])=><button key={v} onClick={()=>setEscopo(v)}
             style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:8,border:"none",cursor:"pointer",
@@ -7857,6 +8609,7 @@ const MOTIVO_ROBO={
   ja_com_corretor:"Este lead já está com um corretor. O robô nunca fala em atendimento de corretor.",
   // Na linha pessoal a trava do dono se inverte (todo lead dali é dele), então
   // o que decide é o consentimento: quem liga o robô é o dono do número.
+  linha_de_disparo:"Esta conversa está no número de disparo do marketing — quem conduz ali é o fluxo do disparo, não o robô.",
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",

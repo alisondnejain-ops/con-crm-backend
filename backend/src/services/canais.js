@@ -21,6 +21,14 @@
                            tudo: lead novo, catraca, robô, assinatura.
      tipo 'corretor'     — o número pessoal, ligado pelo próprio corretor na
                            tela dele. Uma por pessoa.
+     tipo 'disparo'      — o número SEPARADO do marketing (27/09/2026), de onde
+                           saem os disparos em massa. Uma por imobiliária,
+                           criada pela tela de Marketing (services/marketing.js).
+                           Recebe como a da casa (a resposta do cliente entra
+                           na conversa do lead, pela catraca se ele for novo),
+                           mas não conta no plano de linhas nem aparece na
+                           lista de linhas da equipe: não é atendimento de
+                           ninguém, é o número da campanha.
 
    ===== POR QUE A LINHA DA CASA CONTINUA EM `orgs.uazapi_*` =====
 
@@ -36,7 +44,7 @@
 import db from "../db.js";
 import { randomUUID } from "crypto";
 
-export const TIPOS = ["imobiliaria", "corretor"];
+export const TIPOS = ["imobiliaria", "corretor", "disparo"];
 
 const limpaHost = (h) => String(h || "").trim().replace(/\/$/, "");
 
@@ -54,7 +62,7 @@ export function canalDoUsuario(orgId, userId) {
 export function canaisDaOrg(orgId) {
   return db.prepare(`SELECT c.*, u.name AS pessoa FROM canais c
     LEFT JOIN users u ON u.id = c.user_id
-    WHERE c.org_id = ? ORDER BY (c.tipo <> 'imobiliaria'), u.name`).all(orgId);
+    WHERE c.org_id = ? AND c.tipo <> 'disparo' ORDER BY (c.tipo <> 'imobiliaria'), u.name`).all(orgId);
 }
 
 /* Quantas linhas estão LIGADAS (com token) — é o número que vira dinheiro.
@@ -63,7 +71,9 @@ export function canaisDaOrg(orgId) {
    ele só cola o token depois. Cobrar por uma linha que nunca pareou seria
    cobrar por uma tela aberta. */
 export function ligados(orgId) {
-  return db.prepare("SELECT COUNT(*) n FROM canais WHERE org_id = ? AND ativo = 1 AND token IS NOT NULL AND token <> ''")
+  // A linha de disparo fica de fora: é a instância do marketing, contratada à
+  // parte pela imobiliária, e não uma linha de atendimento do plano.
+  return db.prepare("SELECT COUNT(*) n FROM canais WHERE org_id = ? AND ativo = 1 AND tipo <> 'disparo' AND token IS NOT NULL AND token <> ''")
     .get(orgId).n;
 }
 
@@ -152,7 +162,7 @@ export function criarCanalDoCorretor(orgId, userId, { quem = null } = {}) {
   // Conta os registros, não os ligados: dez telas abertas e nenhuma pareada
   // ainda são dez pessoas prestes a ligar, e recusar depois de o corretor ter
   // pedido o token à Uazapi é pior do que recusar antes.
-  const registrados = db.prepare("SELECT COUNT(*) n FROM canais WHERE org_id = ? AND ativo = 1").get(orgId).n;
+  const registrados = db.prepare("SELECT COUNT(*) n FROM canais WHERE org_id = ? AND ativo = 1 AND tipo <> 'disparo'").get(orgId).n;
   if (registrados >= l.limite)
     return { erro: `O plano desta imobiliária permite ${l.limite} número(s) de WhatsApp, e todos já estão em uso. Fale com o ConHub para aumentar o limite.` };
 

@@ -27,6 +27,7 @@ import { gzipSync, gunzipSync } from "zlib";
 import { normalizePhone } from "./stages.js";
 import { lerXlsx, lerCSV } from "./xlsx.js";
 import { numeroAlternativo } from "./uazapi.js";
+import { desligarCanal } from "./canais.js";
 
 /* ===== O TERMO =====
 
@@ -37,25 +38,26 @@ import { numeroAlternativo } from "./uazapi.js";
 
    Texto a ser revisado por advogado antes de valer como contrato definitivo;
    trocou o texto, sobe a versão. */
-export const TERMO_VERSAO = "1 — 27/09/2026";
+export const TERMO_VERSAO = "2 — 27/09/2026";
 export const TERMO_TEXTO = `TERMO DE USO DO DISPARO DE MENSAGENS EM MASSA — ConHub
 
 1. O QUE É ESTE RECURSO
-O disparo de mensagens em massa permite que a IMOBILIÁRIA (a empresa titular desta conta no ConHub) envie mensagens pelo WhatsApp a listas de contatos. O envio sai de um número de WhatsApp da própria IMOBILIÁRIA, conectado por uma API não oficial (Uazapi), contratada por ela e em nome dela.
+O disparo de mensagens em massa permite que a IMOBILIÁRIA (a empresa titular desta conta no ConHub) envie mensagens pelo WhatsApp, seguindo fluxos montados por ela, a listas de contatos enviadas por ela ou a leads do próprio CRM escolhidos por etiqueta, etapa do funil ou qualificação. O envio sai de um número de WhatsApp da própria IMOBILIÁRIA, conectado por uma API não oficial (Uazapi), contratada por ela e em nome dela. As respostas dos contatos entram na conversa do lead no CRM.
 
 2. PAPÉIS NA LEI GERAL DE PROTEÇÃO DE DADOS (LGPD)
 A IMOBILIÁRIA é a CONTROLADORA dos dados dos contatos: é ela quem decide quem recebe, o que recebe e com base em qual autorização. O ConHub é OPERADOR: apenas executa as instruções da IMOBILIÁRIA, dentro das travas descritas neste termo.
 
 3. ORIGEM DOS CONTATOS
-A IMOBILIÁRIA declara que só enviará mensagens a pessoas com quem tem base legal para isso — consentimento da pessoa, ou relação anterior com ela (legítimo interesse), sempre com a opção de sair. É PROIBIDO usar lista comprada, alugada, raspada da internet ou obtida de terceiros sem autorização das pessoas. A cada lista enviada, a IMOBILIÁRIA declara a origem dos contatos e a data em que foram coletados; o ConHub guarda essa declaração e o arquivo original para prestação de contas.
+A IMOBILIÁRIA declara que só enviará mensagens a pessoas com quem tem base legal para isso — consentimento da pessoa, ou relação anterior com ela (legítimo interesse), sempre com a opção de sair. É PROIBIDO usar lista comprada, alugada, raspada da internet ou obtida de terceiros sem autorização das pessoas. A cada lista enviada, a IMOBILIÁRIA declara a origem dos contatos e a data em que foram coletados, e a cada disparo declara que as pessoas escolhidas se enquadram nessa regra; o ConHub guarda essas declarações, o arquivo original e o público de cada disparo para prestação de contas.
 
 4. PEDIDO PARA SAIR
-Toda mensagem enviada terá a opção de sair ("responda SAIR"), que não pode ser removida. Quem pedir para sair entra numa lista de bloqueio permanente da IMOBILIÁRIA e não recebe novos disparos, mesmo que apareça em outra lista.
+A primeira mensagem que cada pessoa recebe em cada disparo leva a opção de sair ("responda SAIR"), que não pode ser removida. Quem pedir para sair entra numa lista de bloqueio permanente da IMOBILIÁRIA, sai de qualquer disparo em andamento e não recebe novos disparos, mesmo que apareça em outra lista.
 
 5. RISCOS CONHECIDOS
 a) A API usada NÃO é a API oficial do WhatsApp e o uso para envio em massa contraria os termos do WhatsApp. O número usado pode ser restringido ou banido a qualquer momento, sem aviso.
 b) O ConHub não garante a entrega das mensagens.
 c) O disparo sai de um número SEPARADO do número que recebe os leads, justamente para que um bloqueio não interrompa o atendimento. A IMOBILIÁRIA não deve usar para disparo o número de atendimento nem o WhatsApp pessoal de corretores.
+d) O ConHub aplica limites de envio (quantidade por dia, intervalo entre mensagens e horário comercial) e pausa o disparo quando as falhas se repetem. Os limites reduzem o risco de bloqueio, mas não o eliminam.
 
 6. RESPONSABILIDADE
 A IMOBILIÁRIA responde integralmente pelo conteúdo das mensagens, pela escolha dos destinatários e pela origem dos contatos. Se o ConHub for demandado, multado ou condenado por fato decorrente do uso deste recurso pela IMOBILIÁRIA, a IMOBILIÁRIA se obriga a ressarcir o ConHub de todos os valores e custos, inclusive honorários.
@@ -297,10 +299,16 @@ export function registrarPedidoDeSaida(orgId, telefone, texto) {
   try {
     if (!telefone || !pedidoDeSaida(texto)) return false;
     const f = formas(telefone);
-    const naLista = db.prepare(`SELECT 1 FROM marketing_contatos WHERE org_id = ? AND telefone IN (${f.map(() => "?").join(",")}) LIMIT 1`)
-      .get(orgId, ...f);
+    const em = f.map(() => "?").join(",");
+    /* Está numa lista OU já recebeu (ou vai receber) um disparo — o público
+       pode vir dos leads do CRM, que não passam por lista nenhuma. */
+    const naLista = db.prepare(`SELECT 1 FROM marketing_contatos WHERE org_id = ? AND telefone IN (${em}) LIMIT 1`).get(orgId, ...f)
+      || db.prepare(`SELECT 1 FROM marketing_execucoes WHERE org_id = ? AND telefone IN (${em}) LIMIT 1`).get(orgId, ...f);
     if (!naLista) return false;
     bloquear(orgId, telefone, { motivo: "pediu_sair", texto });
+    // E sai de todo disparo em andamento, na hora.
+    db.prepare(`UPDATE marketing_execucoes SET estado = 'saiu', respondeu = 1, fim_motivo = 'pediu para sair', atualizado_em = ?
+      WHERE org_id = ? AND telefone IN (${em}) AND estado IN ('ativa','aguardando_resposta')`).run(Date.now(), orgId, ...f);
     console.log(`[marketing] ${String(telefone).slice(0, 4)}**** pediu para sair das mensagens de ${orgId}`);
     return true;
   } catch (e) {
@@ -342,7 +350,7 @@ async function consultarInstancia(host, token) {
    linhas pessoais dos corretores. Nenhum deles pode virar número de disparo. */
 function numerosDeAtendimento(orgId) {
   const org = db.prepare("SELECT wa_number FROM orgs WHERE id = ?").get(orgId);
-  const linhas = db.prepare("SELECT wa_number FROM canais WHERE org_id = ? AND wa_number IS NOT NULL").all(orgId);
+  const linhas = db.prepare("SELECT wa_number FROM canais WHERE org_id = ? AND tipo <> 'disparo' AND wa_number IS NOT NULL").all(orgId);
   const set = new Set();
   for (const v of [org?.wa_number, ...linhas.map(l => l.wa_number)]) {
     const t = normalizePhone(soDigitos(v));
@@ -365,7 +373,7 @@ export async function salvarNumero(orgId, user, { host, token }) {
   /* A trava principal desta tela: o token não pode ser de nenhuma linha que
      já existe no ConHub — nem desta conta (seria o número que recebe leads),
      nem de outra (seria o número de outra imobiliária). */
-  const emUso = db.prepare("SELECT 1 FROM canais WHERE token = ? LIMIT 1").get(tk)
+  const emUso = db.prepare("SELECT 1 FROM canais WHERE token = ? AND NOT (org_id = ? AND tipo = 'disparo') LIMIT 1").get(tk, orgId)
     || db.prepare("SELECT 1 FROM orgs WHERE uazapi_token = ? LIMIT 1").get(tk)
     || db.prepare("SELECT 1 FROM marketing_numero WHERE token = ? AND org_id <> ? LIMIT 1").get(tk, orgId);
   if (emUso)
@@ -375,11 +383,30 @@ export async function salvarNumero(orgId, user, { host, token }) {
   if (inst.ok && inst.numero && numerosDeAtendimento(orgId).has(inst.numero))
     throw new ErroMarketing(409, "Esta instância está conectada ao mesmo número que recebe os leads da imobiliária. Use um número separado só para disparo.");
 
-  db.prepare(`INSERT INTO marketing_numero (org_id,host,token,numero,conectado,atualizado_em,atualizado_por)
-    VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET host=excluded.host, token=excluded.token,
-    numero=excluded.numero, conectado=excluded.conectado, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por`)
-    .run(orgId, url.origin + url.pathname.replace(/\/+$/, ""), tk, inst.numero || null,
-      inst.conectado == null ? null : (inst.conectado ? 1 : 0), Date.now(), user.id);
+  const hostFinal = url.origin + url.pathname.replace(/\/+$/, "");
+  db.transaction(() => {
+    db.prepare(`INSERT INTO marketing_numero (org_id,host,token,numero,conectado,atualizado_em,atualizado_por)
+      VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET host=excluded.host, token=excluded.token,
+      numero=excluded.numero, conectado=excluded.conectado, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por`)
+      .run(orgId, hostFinal, tk, inst.numero || null,
+        inst.conectado == null ? null : (inst.conectado ? 1 : 0), Date.now(), user.id);
+    /* A LINHA DE DISPARO VIRA UM CANAL (27/09/2026). É por ela que a
+       resposta do cliente chega: o webhook reconhece o token, a mensagem
+       entra na conversa do lead e o fluxo "escuta" o que ele disse. Um
+       canal por imobiliária, reaproveitado ao trocar a instância. */
+    const existente = db.prepare("SELECT id FROM canais WHERE org_id = ? AND tipo = 'disparo'").get(orgId);
+    let canalId = existente?.id;
+    if (existente)
+      db.prepare(`UPDATE canais SET host = ?, token = ?, wa_number = ?, ativo = 1, provider = 'uazapi', conectado_em = ? WHERE id = ?`)
+        .run(hostFinal, tk, inst.numero || null, Date.now(), canalId);
+    else {
+      canalId = "cn_" + randomUUID();
+      db.prepare(`INSERT INTO canais (id,org_id,tipo,nome,host,token,wa_number,ativo,criado_por,created_at,conectado_em,provider)
+        VALUES (?,?,'disparo','Disparo',?,?,?,1,?,?,?,'uazapi')`)
+        .run(canalId, orgId, hostFinal, tk, inst.numero || null, user.id, Date.now(), Date.now());
+    }
+    db.prepare("UPDATE marketing_numero SET canal_id = ? WHERE org_id = ?").run(canalId, orgId);
+  })();
   return numeroDeDisparo(orgId, inst);
 }
 
@@ -393,10 +420,54 @@ export function numeroDeDisparo(orgId, consulta = null) {
     conectado: n.conectado == null ? null : !!n.conectado,
     atualizado_em: n.atualizado_em,
     consulta: consulta ? { ok: consulta.ok, erro: consulta.erro || null } : undefined,
+    limites: limitesDoNumero(n),
   };
 }
 
-export const removerNumero = (orgId) => db.prepare("DELETE FROM marketing_numero WHERE org_id = ?").run(orgId);
+/* OS LIMITES DO ENVIO. Padrão conservador para número de API não oficial:
+   150 por dia, de 30 a 90 segundos entre uma mensagem e outra, das 8h às 20h,
+   sem domingo. A imobiliária ajusta, dentro de uma régua que não deixa virar
+   metralhadora. */
+export const limitesDoNumero = (n) => ({
+  limite_dia: n?.limite_dia ?? 150, intervalo_min: n?.intervalo_min ?? 30, intervalo_max: n?.intervalo_max ?? 90,
+  hora_inicio: n?.hora_inicio ?? 8, hora_fim: n?.hora_fim ?? 20, domingo: !!n?.domingo,
+});
+
+export function salvarLimites(orgId, dados) {
+  exigirPronto(orgId);
+  const n = db.prepare("SELECT * FROM marketing_numero WHERE org_id = ?").get(orgId);
+  if (!n) throw new ErroMarketing(409, "Cadastre o número de disparo antes de ajustar os limites.");
+  const inteiro = (v, padrao) => (v === undefined || v === null || v === "") ? padrao : Math.round(Number(v));
+  const atual = limitesDoNumero(n);
+  const l = {
+    limite_dia: inteiro(dados.limite_dia, atual.limite_dia),
+    intervalo_min: inteiro(dados.intervalo_min, atual.intervalo_min),
+    intervalo_max: inteiro(dados.intervalo_max, atual.intervalo_max),
+    hora_inicio: inteiro(dados.hora_inicio, atual.hora_inicio),
+    hora_fim: inteiro(dados.hora_fim, atual.hora_fim),
+    domingo: dados.domingo === undefined ? atual.domingo : !!dados.domingo,
+  };
+  if (!(l.limite_dia >= 1 && l.limite_dia <= 1000)) throw new ErroMarketing(400, "O limite por dia vai de 1 a 1000 mensagens.");
+  if (!(l.intervalo_min >= 10 && l.intervalo_min <= 3600)) throw new ErroMarketing(400, "O intervalo mínimo vai de 10 segundos a 1 hora.");
+  if (!(l.intervalo_max >= l.intervalo_min && l.intervalo_max <= 3600)) throw new ErroMarketing(400, "O intervalo máximo precisa ser maior que o mínimo (até 1 hora).");
+  if (!(l.hora_inicio >= 0 && l.hora_inicio <= 23 && l.hora_fim >= 1 && l.hora_fim <= 24 && l.hora_fim > l.hora_inicio))
+    throw new ErroMarketing(400, "Horário inválido: o fim precisa ser depois do começo.");
+  db.prepare(`UPDATE marketing_numero SET limite_dia=?, intervalo_min=?, intervalo_max=?, hora_inicio=?, hora_fim=?, domingo=? WHERE org_id=?`)
+    .run(l.limite_dia, l.intervalo_min, l.intervalo_max, l.hora_inicio, l.hora_fim, l.domingo ? 1 : 0, orgId);
+  return limitesDoNumero({ ...n, ...l, domingo: l.domingo ? 1 : 0 });
+}
+
+/* Tirar o número de disparo desliga a linha (as conversas que estavam nela
+   voltam para o número da casa — ver desligarCanal) e pausa os disparos em
+   andamento: sem número, não há de onde enviar. */
+export function removerNumero(orgId) {
+  const n = db.prepare("SELECT canal_id FROM marketing_numero WHERE org_id = ?").get(orgId);
+  if (n?.canal_id) desligarCanal(n.canal_id);
+  db.prepare("DELETE FROM marketing_numero WHERE org_id = ?").run(orgId);
+  db.prepare(`UPDATE marketing_campanhas SET status = 'pausada', motivo = 'O número de disparo foi removido.'
+    WHERE org_id = ? AND status = 'rodando'`).run(orgId);
+}
+
 
 // ===== ESTADO DA TELA =====
 export function estado(orgId, user) {

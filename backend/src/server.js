@@ -44,6 +44,7 @@ import { backupSePassouDaHora } from "./services/backup.js";
 import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js";
+import { processarDisparos } from "./services/disparo.js";
 
 const app = express();
 
@@ -429,5 +430,12 @@ app.listen(PORT, () => {
     backupSePassouDaHora().catch(e => console.error("[backup] erro no ciclo:", e.message));
     reseedDemoSePassouDaHora();
   }, 60000);
+  /* Disparos em massa (services/disparo.js). Batimento curto porque é ele
+     que respeita o intervalo entre mensagens; quem decide se algo sai é o
+     registro de cada execução ("próxima ação em"), não o relógio — servidor
+     que reiniciou continua de onde parou. `MARKETING_AGENDADOR=0` desliga
+     (os testes controlam o tempo chamando a função direto). */
+  if (process.env.MARKETING_AGENDADOR !== "0")
+    setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });
