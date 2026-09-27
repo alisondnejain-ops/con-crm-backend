@@ -1538,6 +1538,7 @@ function ConCRM(){
     fluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`),
     salvarFluxoMarketing:(id,dados)=>api(`/marketing/fluxos/${id}`,{method:"PUT",body:dados}),
     apagarFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`,{method:"DELETE"}),
+    testarFluxoMarketing:(id,telefone)=>api(`/marketing/fluxos/${id}/teste`,{method:"POST",body:{telefone}}),
     midiaMarketing:(dados)=>api("/marketing/midia",{method:"POST",body:dados}),
     // Vídeo sobe cru (sem base64), com progresso — mesma régua do vídeo da conversa.
     videoMarketing:(file,aoProgredir)=>new Promise((ok,falhou)=>{
@@ -2296,6 +2297,14 @@ function AvisoPlantao({meu,isMobile,compacto}){
    Cada parte é um componente de verdade, declarado aqui fora — componente
    declarado DENTRO de outro perde o foco do campo a cada tecla (foi o defeito
    da tela de metas, 23/09/2026). */
+/* As telas do Marketing rolam SOZINHAS (27/09/2026, relatado pelo Ali: "não
+   consigo rolar a tela para baixo"). A área das telas do CRM tem a altura da
+   janela e não rola — cada tela cuida da própria rolagem, como Relatórios e
+   Equipe. Estas duas nasceram sem isso, e tudo que passava da altura da
+   janela simplesmente não existia. O recuo lateral centraliza o conteúdo em
+   880px sem tirar a barra de rolagem da borda da janela. */
+const molduraMkt=(isMobile)=>({height:"100%",overflowY:"auto",boxSizing:"border-box",
+  padding:isMobile?"14px 12px 90px":"20px max(22px, calc((100% - 836px) / 2)) 40px"});
 const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,marginBottom:14};
 const TITULO_MKT={fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8};
 const campoMkt=(isMobile)=>({width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
@@ -2313,32 +2322,45 @@ function NumeroDoPasso({n,feito}){
 
 function Marketing({acoes,org,isMobile,irParaFluxos}){
   const [d,setD]=useState(null);
+  const [aba,setAba]=useState("disparos");
   const [erro,setErro]=useState("");
   const rever=()=>acoes.marketing().then(x=>{setD(x);setErro("");}).catch(e=>setErro(e.message));
   useEffect(()=>{rever();},[org&&org.id]);
-  const moldura={maxWidth:880,margin:"0 auto",padding:isMobile?"14px 12px 90px":"20px 22px 40px"};
+  const moldura=molduraMkt(isMobile);
   if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
   if(!d.liberado) return <div style={moldura}><div style={CARTAO_MKT}>
     <div style={TITULO_MKT}><Icon n="lock" size={16}/> Disparo em massa não liberado</div>
     <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Este recurso é liberado pelo ConHub para cada conta. Fale com a gente para ativar.</div>
   </div></div>;
   const aceito=!!d.termo.aceite;
+  /* Três abas em vez de uma página comprida (27/09/2026, "não estou
+     conseguindo organizar muito bem"): o que se usa todo dia (disparos), as
+     pessoas (listas e quem pediu para sair) e o que se configura uma vez
+     (termo, de onde sai, ritmo). Sem o termo aceito, abre na configuração. */
+  const abaAtual=aceito?aba:"config";
+  const ABAS=[["disparos","Disparos"],["contatos","Contatos"],["config","Configuração"]];
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
-    <div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:16,color:C.sub,fontSize:12.5,fontWeight:600}}>
-      {[["Termo de uso",aceito],["Primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
+    {(!aceito||!d.fluxos)&&<div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:14,color:C.sub,fontSize:12.5,fontWeight:600}}>
+      {[["Aceitar o termo",aceito],["Criar o primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
         <span key={t} style={{display:"inline-flex",alignItems:"center",gap:6}}><NumeroDoPasso n={i+1} feito={ok}/>{t}</span>)}
-    </div>
-    {/* Com o básico pronto, o que se usa todo dia (os disparos) vem primeiro. */}
-    {aceito&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
-    <TermoMarketing d={d} org={org} acoes={acoes} aoMudar={setD} isMobile={isMobile}/>
-    {aceito&&<NumeroDeDisparo d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
-    {aceito&&<ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
-    <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
-    {!aceito&&<div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
-      <div style={TITULO_MKT}><Icon n="send" size={16}/> Disparos</div>
-      <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Os disparos aparecem aqui depois do termo aceito.</div>
+      {aceito&&!d.fluxos&&<button onClick={irParaFluxos} style={{border:"none",background:"none",color:C.green,fontWeight:700,cursor:"pointer",padding:0,fontSize:12.5}}>Ir para Fluxos →</button>}
     </div>}
+    <div style={{display:"flex",gap:4,marginBottom:14,borderBottom:`1px solid ${C.line}`}}>
+      {ABAS.map(([k,t])=>{const on=abaAtual===k, trava=!aceito&&k!=="config";
+        return <button key={k} onClick={()=>!trava&&setAba(k)} disabled={trava} title={trava?"Aceite o termo primeiro":""}
+          style={{border:"none",background:"transparent",padding:isMobile?"10px 10px":"10px 16px",fontSize:13.5,fontWeight:700,fontFamily:FONT,
+            color:on?C.greenDeep:trava?C.faint:C.sub,borderBottom:`2px solid ${on?C.green:"transparent"}`,marginBottom:-1,cursor:trava?"default":"pointer"}}>{t}</button>;})}
+    </div>
+    {abaAtual==="disparos"&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
+    {abaAtual==="contatos"&&<React.Fragment>
+      <ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
+      <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
+    </React.Fragment>}
+    {abaAtual==="config"&&<React.Fragment>
+      <TermoMarketing d={d} org={org} acoes={acoes} aoMudar={setD} isMobile={isMobile}/>
+      {aceito&&<NumeroDeDisparo d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
+    </React.Fragment>}
   </div>;
 }
 
@@ -2952,6 +2974,46 @@ function blocoNovo(tipo,x,y){
 const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
   return {...g,ligacoes:g.ligacoes.filter(l=>por.has(l.de)&&por.has(l.para)&&saidasDoBloco(por.get(l.de)).some(([id])=>id===l.saida))};};
 
+/* ORGANIZAR: põe os blocos em colunas pela distância do início — o que vem
+   depois fica à direita, e os caminhos de um mesmo bloco (cada botão, cada
+   resposta) empilhados na ordem em que aparecem nele. Bloco solto, sem seta
+   chegando, vai para a última coluna, à vista. */
+function organizarFluxo(g){
+  const porId=new Map(g.nos.map(n=>[n.id,n]));
+  const inicio=g.nos.find(n=>n.tipo==="inicio");
+  const nivel=new Map(), ordem=[];
+  if(inicio){
+    nivel.set(inicio.id,0); const fila=[inicio.id];
+    while(fila.length){
+      const id=fila.shift(); ordem.push(id);
+      for(const [saida] of saidasDoBloco(porId.get(id))){
+        const l=g.ligacoes.find(x=>x.de===id&&x.saida===saida);
+        if(l&&porId.has(l.para)&&!nivel.has(l.para)){nivel.set(l.para,nivel.get(id)+1);fila.push(l.para);}
+      }
+    }
+  }
+  const ultimo=Math.max(0,...nivel.values());
+  g.nos.filter(n=>!nivel.has(n.id)).forEach(n=>{nivel.set(n.id,ultimo+1);ordem.push(n.id);});
+  const colunas=new Map();
+  for(const id of ordem){const k=nivel.get(id); if(!colunas.has(k)) colunas.set(k,[]); colunas.get(k).push(id);}
+  const alturaDe=(ids)=>ids.reduce((a,id)=>a+alturaDoBloco(porId.get(id))+40,-40);
+  const maior=Math.max(...[...colunas.values()].map(alturaDe));
+  const pos=new Map();
+  for(const [k,ids] of colunas){
+    let y=Math.round((maior-alturaDe(ids))/2);
+    for(const id of ids){ pos.set(id,{x:k*(LARG_BLOCO+90),y}); y+=alturaDoBloco(porId.get(id))+40; }
+  }
+  return {...g,nos:g.nos.map(n=>({...n,...pos.get(n.id)}))};
+}
+// Cópia de um bloco, com ids novos (nos botões e caminhos também — senão as
+// setas de um sairiam do outro).
+function copiaDoBloco(no){
+  const d=JSON.parse(JSON.stringify(no.dados||{}));
+  if(d.regras) d.regras=d.regras.map(r=>({...r,id:idNovoFluxo("r")}));
+  if(d.botoes) d.botoes=d.botoes.map(b=>({...b,id:idNovoFluxo("b")}));
+  return {...no,id:idNovoFluxo("n"),x:no.x+40,y:no.y+alturaDoBloco(no)+30,dados:d};
+}
+
 function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta}){
   const t=TIPO_BLOCO[no.tipo]||TIPO_BLOCO.mensagem;
   // O bloco inteiro agarra (seleciona e arrasta), como no ManyChat; só as
@@ -2978,7 +3040,7 @@ function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,
   </div>;
 }
 
-function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,contagens,altura=560,aoPedirBloco,focar}){
+function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,contagens,altura=560,aoPedirBloco,focar,enquadrarSinal=0}){
   const ref=useRef(null);
   const [vista,setVista]=useState({x:40,y:40,z:1});
   const [gesto,setGesto]=useState(null);
@@ -2995,7 +3057,29 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
     const z=Math.max(0.35,Math.min(1,(r.width-60)/(x1-x0||1),(r.height-60)/(y1-y0||1)));
     setVista({z,x:(r.width-(x1-x0)*z)/2-x0*z,y:(r.height-(y1-y0)*z)/2-y0*z});
   }
-  useEffect(()=>{enquadrar();},[]);
+  useEffect(()=>{enquadrar();},[enquadrarSinal]);
+  /* A RODA DO MOUSE. No construtor ela anda pela tela (como no ManyChat) e
+     Ctrl+roda aproxima; no relatório, que fica no meio de uma página que
+     rola, só o Ctrl+roda é da tela — a roda sozinha continua rolando a
+     página, senão quem passasse o mouse por cima ficaria preso ali.
+     Ouvinte nativo com passive:false: o do React não deixa cancelar a
+     rolagem da página. */
+  useEffect(()=>{
+    const el=ref.current; if(!el) return;
+    const roda=(e)=>{
+      if(e.ctrlKey||e.metaKey){
+        e.preventDefault();
+        const r=el.getBoundingClientRect(), cx=e.clientX-r.left, cy=e.clientY-r.top;
+        setVista(v=>{const z=Math.max(0.35,Math.min(1.6,v.z*(e.deltaY<0?1.1:1/1.1)));return {z,x:cx-(cx-v.x)*z/v.z,y:cy-(cy-v.y)*z/v.z};});
+        return;
+      }
+      if(somenteLeitura) return;
+      e.preventDefault();
+      setVista(v=>({...v,x:v.x-e.deltaX,y:v.y-e.deltaY}));
+    };
+    el.addEventListener("wheel",roda,{passive:false});
+    return ()=>el.removeEventListener("wheel",roda);
+  },[somenteLeitura]);
   // Bloco recém-criado fora da parte visível: a tela anda até ele. Sem isso o
   // botão "Adicionar" criava um bloco que ninguém via.
   const blocosAntes=useRef(grafo.nos.length);
@@ -3100,7 +3184,7 @@ function CampoPrazo({valor,aoMudar,isMobile}){
 }
 
 const LIMITE_MB_ARQUIVO_MKT=8, LIMITE_MB_VIDEO_MKT=150;
-function EditorDeBloco({no,aoMudar,aoApagar,acoes,isMobile}){
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile}){
   const [subindo,setSubindo]=useState("");
   const [erro,setErro]=useState("");
   useEffect(()=>{setErro("");},[no.id]);
@@ -3129,6 +3213,7 @@ function EditorDeBloco({no,aoMudar,aoApagar,acoes,isMobile}){
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
       <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
+      {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
       {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
     </div>
     {no.tipo==="inicio"&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
@@ -3199,7 +3284,27 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
   const [salvoEm,setSalvoEm]=useState(null);
+  const [enquadrar,setEnquadrar]=useState(0);
+  const [testando,setTestando]=useState(false);
   const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
+  const apagarBloco=(id)=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
+  function duplicar(){
+    const n=grafo.nos.find(x=>x.id===sel); if(!n||n.tipo==="inicio") return;
+    const c=copiaDoBloco(n); setGrafo({...grafo,nos:[...grafo.nos,c]}); setSel(c.id);
+  }
+  function organizar(){ setGrafo(organizarFluxo(grafo)); setEnquadrar(x=>x+1); }
+  /* Delete apaga o bloco escolhido e Ctrl+S salva — só fora dos campos de
+     texto, senão apagar uma letra apagaria o bloco inteiro. */
+  const salvarRef=useRef(null);
+  useEffect(()=>{
+    const tecla=(e)=>{
+      const alvo=e.target, digitando=alvo&&(/^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)||alvo.isContentEditable);
+      if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); salvarRef.current&&salvarRef.current(); return; }
+      if(digitando) return;
+      if((e.key==="Delete"||e.key==="Backspace")&&sel&&sel!=="inicio"&&grafo.nos.some(n=>n.id===sel&&n.tipo!=="inicio")){ e.preventDefault(); apagarBloco(sel); }
+    };
+    window.addEventListener("keydown",tecla); return ()=>window.removeEventListener("keydown",tecla);
+  });
   // Sair com alteração pendente pergunta antes: o fluxo inteiro seria perdido.
   useEffect(()=>{
     if(!sujo) return;
@@ -3211,8 +3316,10 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     try{
       const r=await acoes.salvarFluxoMarketing(inicial.id,{nome,grafo});
       setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome); setSujo(false); setSalvoEm(Date.now());
-    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+      return true;
+    }catch(e){ setErro(e.message); return false; } finally{ setOcupado(false); }
   }
+  salvarRef.current=()=>{ if(sujo&&!ocupado) salvar(); };
   function voltar(){ if(sujo&&!window.confirm("Sair sem salvar? As alterações deste fluxo se perdem.")) return; aoVoltar(); }
   function adicionar(tipo){
     const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
@@ -3227,26 +3334,38 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
         style={{...campoMkt(isMobile),maxWidth:320,fontFamily:DISPLAY,fontWeight:700,fontSize:15}}/>
       <div style={{flex:1}}/>
       <span style={{fontSize:12,color:sujo?"#8a6d1f":C.faint}}>{sujo?"Alterações não salvas":salvoEm?"Salvo":""}</span>
+      <button onClick={()=>setTestando(!testando)} style={botaoLeveMkt}>Enviar teste</button>
       <button onClick={salvar} disabled={ocupado||!sujo} style={botaoMkt(!ocupado&&sujo)}>{ocupado?"Salvando…":"Salvar"}</button>
     </div>
+    {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
       <span style={{fontSize:12,color:C.sub,marginRight:4}}>Adicionar:</span>
       {["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>adicionar(t)} style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,padding:"7px 12px"}}>
         <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
+      <div style={{flex:1}}/>
+      <button onClick={organizar} title="Arrumar os blocos em colunas, na ordem do fluxo" style={{...botaoLeveMkt,padding:"7px 12px"}}>Organizar</button>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:12,alignItems:"start"}}>
-      <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura={620} aoPedirBloco focar={sel}/>
-      <div style={{...CARTAO_MKT,marginBottom:0,maxHeight:620,overflowY:"auto",boxSizing:"border-box"}}>
+    {/* A tela e o painel ocupam o resto da altura da janela: o construtor não
+        rola a página — quem anda é a tela (arrastando o fundo ou com a roda). */}
+    <div style={{display:"flex",gap:12,flex:1,minHeight:0}}>
+      <div style={{flex:1,minWidth:0,height:"100%"}}>
+        <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" aoPedirBloco focar={sel} enquadrarSinal={enquadrar}/>
+      </div>
+      <div style={{...CARTAO_MKT,marginBottom:0,width:330,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box"}}>
         {noSel
           ?<EditorDeBloco no={noSel} acoes={acoes} isMobile={isMobile}
             aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
-            aoApagar={()=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==noSel.id),ligacoes:grafo.ligacoes.filter(l=>l.de!==noSel.id&&l.para!==noSel.id)});setSel(null);}}/>
+            aoDuplicar={duplicar}
+            aoApagar={()=>apagarBloco(noSel.id)}/>
           :<div style={{fontSize:12.5,color:C.sub,lineHeight:1.6}}>
             <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,marginBottom:6}}>Como montar</div>
             <div>• Clique num bloco para editar. Arraste para mudar de lugar.</div>
             <div>• Puxe a bolinha da direita de uma saída até outro bloco para ligar. Soltando no vazio, cria o próximo bloco ali.</div>
-            <div>• Clique numa seta para apagá-la. Arraste o fundo para andar pela tela.</div>
+            <div>• Clique numa seta para apagá-la.</div>
+            <div>• Para andar pela tela, arraste o fundo ou use a roda do mouse. Ctrl + roda aproxima e afasta.</div>
+            <div>• <b>Organizar</b> arruma os blocos em colunas, na ordem do fluxo.</div>
+            <div>• Delete apaga o bloco escolhido; Ctrl + S salva.</div>
             <div>• Saída sem seta termina o fluxo daquela pessoa.</div>
             {avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:12}}>
               <b>Para disparar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>}
@@ -3254,6 +3373,36 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
           </div>}
       </div>
     </div>
+  </div>;
+}
+
+/* "Enviar teste": o começo do fluxo no celular de quem está montando, antes de
+   mandar para a lista. Salva antes, se houver alteração — testar a versão
+   velha seria conferir uma mensagem que ninguém vai receber. O número fica
+   lembrado neste aparelho (conveniência; sem ele, é só digitar de novo). */
+function TesteDoFluxo({acoes,fluxoId,isMobile,antes,aoFechar}){
+  const lembrado=(()=>{try{return localStorage.getItem("conhub:teste-tel")||"";}catch(e){return "";}})();
+  const [tel,setTel]=useState(lembrado);
+  const [ocupado,setOcupado]=useState(false);
+  const [res,setRes]=useState(null);
+  const [erro,setErro]=useState("");
+  async function enviar(){
+    setErro("");setRes(null);setOcupado(true);
+    try{
+      if(antes&&!(await antes())) return;
+      try{localStorage.setItem("conhub:teste-tel",tel);}catch(e){}
+      setRes(await acoes.testarFluxoMarketing(fluxoId,tel));
+    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={{...CARTAO_MKT,marginBottom:0,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:12}}>
+    <div style={{fontSize:12.5,color:C.sub,flex:"1 1 260px",lineHeight:1.5}}>Manda o começo do fluxo para o seu WhatsApp — até o primeiro bloco que espera resposta. Não conta como disparo.</div>
+    <input value={tel} onChange={e=>setTel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tel.trim()&&!ocupado&&enviar()} inputMode="tel"
+      placeholder="(87) 99999-0000" style={{...campoMkt(isMobile),width:180}}/>
+    <button onClick={enviar} disabled={!tel.trim()||ocupado} style={botaoMkt(!!tel.trim()&&!ocupado)}>{ocupado?"Enviando…":"Enviar"}</button>
+    <button onClick={aoFechar} style={botaoLeveMkt}>Fechar</button>
+    {res&&<div style={{flexBasis:"100%",color:C.greenDeep,fontSize:12.5}}>
+      Enviado: {res.mensagens} mensagem(ns) pelo {res.pelo}{res.parou!=="fim do fluxo"?` — parou em "${res.parou}", que espera a resposta da pessoa`:""}.</div>}
+    {erro&&<div style={{flexBasis:"100%",color:C.hot,fontSize:12.5}}>{erro}</div>}
   </div>;
 }
 
@@ -3266,7 +3415,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
   const [erro,setErro]=useState("");
   const rever=()=>acoes.fluxosMarketing().then(r=>{setFluxos(r.fluxos);setErro("");}).catch(e=>setErro(e.message));
   useEffect(()=>{acoes.marketing().then(x=>{setD(x);if(x.liberado&&x.termo.aceite) rever();}).catch(e=>setErro(e.message));},[org&&org.id]);
-  const moldura={maxWidth:aberto?1320:880,margin:"0 auto",padding:isMobile?"14px 12px 90px":"20px 22px 40px"};
+  const moldura=molduraMkt(isMobile);
   async function abrir(id){ setErro(""); try{ setAberto(await acoes.fluxoMarketing(id)); }catch(e){ setErro(e.message); } }
   async function criar(){
     setErro("");
@@ -3282,7 +3431,8 @@ function FluxosDeMarketing({acoes,org,isMobile}){
     <div style={TITULO_MKT}><Icon n="lock" size={16}/> {d.liberado?"Aceite o termo primeiro":"Disparo em massa não liberado"}</div>
     <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>{d.liberado?"O termo de uso fica em Marketing → Disparos em massa.":"Este recurso é liberado pelo ConHub para cada conta."}</div>
   </div></div>;
-  if(aberto&&!isMobile) return <div style={moldura}><EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
+  if(aberto&&!isMobile) return <div style={{height:"100%",boxSizing:"border-box",padding:"16px 20px",maxWidth:1500,margin:"0 auto"}}>
+    <EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     <div style={CARTAO_MKT}>
