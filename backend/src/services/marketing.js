@@ -307,7 +307,7 @@ export function registrarPedidoDeSaida(orgId, telefone, texto) {
     if (!naLista) return false;
     bloquear(orgId, telefone, { motivo: "pediu_sair", texto });
     // E sai de todo disparo em andamento, na hora.
-    db.prepare(`UPDATE marketing_execucoes SET estado = 'saiu', respondeu = 1, fim_motivo = 'pediu para sair', atualizado_em = ?
+    db.prepare(`UPDATE marketing_execucoes SET estado = 'saiu', respondeu = primeira_enviada, fim_motivo = 'pediu para sair', atualizado_em = ?
       WHERE org_id = ? AND telefone IN (${em}) AND estado IN ('ativa','aguardando_resposta')`).run(Date.now(), orgId, ...f);
     console.log(`[marketing] ${String(telefone).slice(0, 4)}**** pediu para sair das mensagens de ${orgId}`);
     return true;
