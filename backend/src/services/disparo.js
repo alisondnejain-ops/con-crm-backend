@@ -40,6 +40,7 @@ import { randomUUID } from "crypto";
 import { normalizePhone } from "./stages.js";
 import { sendText, sendMedia, sendMenu, numeroAlternativo } from "./uazapi.js";
 import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm } from "./marketing.js";
+import { ROTULO_DISPARO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
 
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
@@ -508,7 +509,7 @@ function registrarEnvio(e, camp, no, { texto, midia, waId }, canalId, agora) {
 function inserirNaConversa(leadId, campanhaNome, { texto, midia, waId }, canalId, quando) {
   try {
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at,canal_id)
-      VALUES (?,?,'out',NULL,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), leadId, `Disparo · ${campanhaNome}`,
+      VALUES (?,?,'out',NULL,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), leadId, `${ROTULO_DISPARO} · ${campanhaNome}`,
       texto || (midia ? midia.nome || "Arquivo" : ""), midia?.url || null, midia?.mime || null, midia?.nome || null, waId || null, quando, canalId);
   } catch (err) {
     // O eco do WhatsApp chegou antes e já gravou esta mensagem (mesmo wa_id).
@@ -589,9 +590,12 @@ async function enviarBloco(e, no, camp, agora, travadas) {
   const canalId = linha.canalId;   // nulo = a linha da casa
   const rodape = !e.primeira_enviada ? `\n\n${RODAPE_SAIR}` : "";
   let enviados = [];
+  // O eco pode chegar antes do registro (ver services/marca-disparo.js).
+  marcarEnvio(org, e.telefone, camp.nome);
   try {
     enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape });
   } catch (err) {
+    desmarcarEnvio(org, e.telefone);
     const erro = String(err.message || err).slice(0, 300);
     db.prepare(`INSERT INTO marketing_envios (id,org_id,campanha_id,execucao_id,telefone,lead_id,no_id,status,erro,enviado_em)
       VALUES (?,?,?,?,?,?,?,'falha',?,?)`).run("mv_" + randomUUID(), org, camp.id, e.id, e.telefone, e.lead_id, no.id, erro, agora);
@@ -607,7 +611,8 @@ async function enviarBloco(e, no, camp, agora, travadas) {
     return "adiado";
   }
 
-  for (const env of enviados) registrarEnvio(e, camp, no, env, canalId, agora);
+  try { for (const env of enviados) registrarEnvio(e, camp, no, env, canalId, agora); }
+  finally { desmarcarEnvio(org, e.telefone); }
   db.prepare("UPDATE marketing_campanhas SET falhas_seguidas = 0 WHERE id = ?").run(camp.id);
   const proximo = agora + aleatorio(lim.intervalo_min, lim.intervalo_max) * 1000;
   marcarProximoEnvio(org, proximo);
@@ -770,8 +775,12 @@ export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
   for (let passos = 0; no && passos < 12; passos++) {
     if (no.tipo === "espera") { no = porId.get(proximoDe(grafo, no.id, "proximo")); continue; }
     if (no.tipo === "resposta") { parou = "esperar resposta"; break; }
-    const env = await enviarConteudo({ org: orgId, canalId: linha.canalId, telefone: tel, nome: nome || "Teste",
-      no, rodape: primeira ? `\n\n${RODAPE_SAIR}` : "" });
+    marcarEnvio(orgId, tel, "teste");
+    let env;
+    try {
+      env = await enviarConteudo({ org: orgId, canalId: linha.canalId, telefone: tel, nome: nome || "Teste",
+        no, rodape: primeira ? `\n\n${RODAPE_SAIR}` : "" });
+    } finally { desmarcarEnvio(orgId, tel); }
     mensagens += env.length; primeira = false;
     if (no.tipo === "botoes") { parou = "botões"; break; }
     no = porId.get(proximoDe(grafo, no.id, "proximo"));
@@ -788,13 +797,63 @@ export function emFluxoDeDisparo(orgId, phone) {
     WHERE e.org_id = ? AND e.telefone IN (${f.map(() => "?").join(",")}) AND e.estado IN ('ativa','aguardando_resposta')
       AND c.status IN ('rodando','pausada') LIMIT 1`).get(orgId, ...f);
 }
-/* Este número já recebeu mensagem de algum disparo? É o que faz o lead que
-   nasce respondendo pela linha da casa entrar com origem "Disparo". */
-export function recebeuDisparo(orgId, phone) {
-  if (!orgId || !phone) return false;
+/* Qual disparo alcançou este número por último (o nome da campanha), ou
+   null. É o que faz o lead que nasce respondendo pela linha da casa entrar
+   com origem "Disparo" — e com a CAMPANHA gravada, para aparecer no
+   relatório de Campanhas e nos filtros de campanha de toda tela, como um
+   lead da Meta aparece com a campanha do anúncio. */
+export function campanhaQueAlcancou(orgId, phone) {
+  if (!orgId || !phone) return null;
   const f = formas(phone);
-  return !!db.prepare(`SELECT 1 FROM marketing_envios WHERE org_id = ? AND status = 'ok'
-    AND telefone IN (${f.map(() => "?").join(",")}) LIMIT 1`).get(orgId, ...f);
+  const r = db.prepare(`SELECT c.nome FROM marketing_envios v JOIN marketing_campanhas c ON c.id = v.campanha_id
+    WHERE v.org_id = ? AND v.status = 'ok' AND v.telefone IN (${f.map(() => "?").join(",")})
+    ORDER BY v.enviado_em DESC LIMIT 1`).get(orgId, ...f);
+  return r ? r.nome : null;
+}
+
+/* Esta mensagem que SAIU do número (webhook com fromMe) é o eco de um envio
+   do disparo? Devolve o nome da campanha, ou null. Dois caminhos: o envio
+   ainda está no ar (o eco chegou antes do registro) ou o registro já existe
+   com o mesmo id do WhatsApp — o contato da lista que também é lead, mas foi
+   alcançado pela lista, não tem a mensagem na conversa para o eco casar. */
+export function ecoDeDisparo(orgId, phone, messageid) {
+  const agora = envioEmCurso(orgId, phone);
+  if (agora) return agora.campanha || ROTULO_DISPARO;
+  if (!messageid) return null;
+  const r = db.prepare(`SELECT c.nome FROM marketing_envios v JOIN marketing_campanhas c ON c.id = v.campanha_id
+    WHERE v.org_id = ? AND v.wa_id = ? LIMIT 1`).get(orgId, messageid);
+  return r ? r.nome : null;
+}
+
+/* ===================== NO RELATÓRIO DA IMOBILIÁRIA =====================
+
+   Os disparos que tiveram envio no período, com o que cada um virou — é o
+   que entra em Operação → Campanhas, ao lado das campanhas da Meta. O
+   período escolhe QUAIS disparos aparecem; os números são do disparo
+   INTEIRO. Cortar pela metade faria "responderam" passar de "alcançados"
+   (a resposta de hoje a uma mensagem de ontem), e um número impossível
+   derruba a confiança na tabela toda. */
+export function resumoDeDisparos(orgId, { de, ate }) {
+  const campanhas = db.prepare(`SELECT DISTINCT c.id, c.nome, c.status, c.criado_em FROM marketing_campanhas c
+    JOIN marketing_envios v ON v.campanha_id = c.id
+    WHERE c.org_id = ? AND v.status = 'ok' AND v.enviado_em BETWEEN ? AND ?
+    ORDER BY c.criado_em DESC`).all(orgId, de, ate);
+  return campanhas.map(c => {
+    const n = contagens(c.id);
+    const leadsNovos = db.prepare(`SELECT COUNT(*) n FROM leads WHERE org_id = ? AND platform = 'disparo'
+      AND campaign_name = ? AND created_at >= ?`).get(orgId, c.nome, c.criado_em).n;
+    /* Venda de quem o disparo alcançou, fechada DEPOIS de ele começar. Não
+       quer dizer que o disparo vendeu — quer dizer que a venda veio de alguém
+       que ele tocou, e é assim que a coluna se chama na tela. */
+    const vendas = db.prepare(`SELECT COUNT(DISTINCT l.id) n, COALESCE(SUM(l.sale_value), 0) vgv FROM (
+        SELECT DISTINCT lead_id FROM marketing_execucoes WHERE campanha_id = ? AND lead_id IS NOT NULL) x
+      JOIN leads l ON l.id = x.lead_id
+      WHERE l.sale_value IS NOT NULL AND l.sale_date >= ?`).get(c.id, c.criado_em);
+    const alcancados = n.pessoas_alcancadas, responderam = n.responderam;
+    return { id: c.id, nome: c.nome, status: c.status, criado_em: c.criado_em,
+      alcancados, mensagens: n.mensagens_enviadas, responderam, taxa_resposta: alcancados ? Math.round(responderam / alcancados * 1000) / 10 : 0,
+      sairam: n.sairam, leads_novos: leadsNovos, vendas: vendas.n, vgv: vendas.vgv };
+  });
 }
 
 /* Chamado pelo caminho de toda mensagem que chega (mensageria.js), depois de

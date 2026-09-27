@@ -15,6 +15,7 @@
 
 import db from "../db.js";
 import { avisar } from "./push.js";
+import { semDisparo } from "./marca-disparo.js";
 
 export const PADRAO_MIN = 30;
 
@@ -42,8 +43,8 @@ export function definirMinutos(orgId, minutos) {
    em "Perdido" é cobrar o que não existe. */
 const SEM_RESPOSTA = `
   SELECT l.id, l.name, l.assigned_to, l.alerta_em,
-         (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS ultima_em,
-         (SELECT m.direction FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
+         (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_em,
+         (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
   FROM leads l
   WHERE l.org_id = ? AND l.assigned_to IS NOT NULL
     AND l.closed_at IS NULL
@@ -122,7 +123,7 @@ export async function cutucar({ orgId, leadId, autor, recado = "" }) {
   if (!lead) return { ok: false, error: "Lead não encontrado." };
   if (!lead.assigned_to) return { ok: false, error: "Este lead ainda está na fila, sem corretor." };
 
-  const ultima = db.prepare("SELECT created_at, direction FROM messages WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1").get(leadId);
+  const ultima = db.prepare(`SELECT created_at, direction FROM messages WHERE lead_id = ? AND ${semDisparo()} ORDER BY created_at DESC LIMIT 1`).get(leadId);
   const min = ultima ? Math.floor((Date.now() - ultima.created_at) / 60000) : 0;
   const quem = (autor && autor.name || "A gestão").split(" ")[0];
   const texto = String(recado || "").trim().slice(0, 200);

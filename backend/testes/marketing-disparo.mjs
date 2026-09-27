@@ -371,6 +371,75 @@ assert.equal(db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE telefone 
 assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "12" })).status, 400);
 assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "87900000099" })).status, 404);
 
+/* ===== O DISPARO NOS RELATÓRIOS (27/09/2026) ===== */
+const hojeISO = new Date().toISOString().slice(0, 10);
+const depoisISO = new Date(Date.now() + 86400000 * 60).toISOString().slice(0, 10);
+const janela = `de=${hojeISO}&ate=${depoisISO}`;
+
+console.log("17. Lead que nasce do disparo entra em Operação → Campanhas, com o disparo e seus números");
+const olgaAgora = db.prepare("SELECT * FROM leads WHERE phone = '5587900000040'").get();
+assert.equal(olgaAgora.platform, "disparo"); assert.equal(olgaAgora.campaign_name, "Pela casa");
+r = await chamar(tGestora, `/painel/campanhas?${janela}`);
+const linhaCamp = r.d.campanhas.find(c => c.campanha === "Pela casa");
+assert.ok(linhaCamp, "o lead aparece na linha do disparo, como a campanha do anúncio");
+assert.equal(linhaCamp.leads, 1); assert.equal(linhaCamp.platform, "disparo");
+const linhaDisp = r.d.disparos.find(d => d.nome === "Pela casa");
+console.log(`   ${JSON.stringify(linhaDisp)}`);
+const doMotor = (await chamar(tGestora, `/marketing/campanhas/${camp5}`)).d;
+assert.equal(linhaDisp.alcancados, doMotor.pessoas_alcancadas, "o mesmo número do relatório do disparo");
+assert.equal(linhaDisp.responderam, doMotor.responderam);
+assert.equal(linhaDisp.leads_novos, 1);
+// Filtrado por campanha, só aquele disparo; filtrado por pessoa, disparo é da casa e não entra.
+assert.deepEqual((await chamar(tGestora, `/painel/campanhas?${janela}&campanha=${encodeURIComponent("Pela casa")}`)).d.disparos.map(d => d.nome), ["Pela casa"]);
+assert.equal((await chamar(tGestora, `/painel/campanhas?${janela}&responsavel=${atendente}`)).d.disparos.length, 0);
+
+console.log("18. Repassado a um corretor, o lead do disparo conta para os dois — e a venda aparece no disparo");
+const corretor = pessoa(orgA, "Marcos", "corretor");
+const dela = async () => (await chamar(tGestora, `/painel?periodo=mes&responsavel=${atendente}&origem=Disparo`)).d.atendimento.recebidos;
+const delaAntes = await dela();
+db.prepare("UPDATE users SET available = 1, available_desde = ? WHERE id = ?").run(Date.now(), corretor);   // prontidão marcada agora: o corte das 18h não a desliga
+r = await chamar(tGestora, "/distribution/transfer", "POST", { lead_id: olgaAgora.id, user_id: corretor });
+assert.equal(r.status, 200, JSON.stringify(r.d));
+const rel = (await chamar(tGestora, "/reports?periodo=mes")).d;
+const recebidosDo = (id) => (rel.atendentes.find(a => a.id === id) || {}).recebidos;
+const operacaoDele = (await chamar(tGestora, `/painel?periodo=mes&responsavel=${corretor}&origem=Disparo`)).d;
+console.log(`   relatórios: corretor ${recebidosDo(corretor)} · operação (origem Disparo): ${operacaoDele.atendimento.recebidos}`);
+assert.equal(recebidosDo(corretor), 1); assert.equal(operacaoDele.atendimento.recebidos, 1);
+assert.ok(delaAntes >= 1);
+assert.equal(await dela(), delaAntes, "quem recebeu primeiro continua com o lead no relatório dela");
+db.prepare("UPDATE leads SET sale_value = 300000, sale_date = ? WHERE id = ?").run(Date.now(), olgaAgora.id);
+const comVenda = (await chamar(tGestora, `/painel/campanhas?${janela}`)).d;
+assert.equal(comVenda.disparos.find(d => d.nome === "Pela casa").vendas, 1);
+assert.equal(comVenda.disparos.find(d => d.nome === "Pela casa").vgv, 300000);
+
+console.log("19. Eco do disparo pela casa antes do registro: não é gente respondendo");
+const { marcarEnvio, desmarcarEnvio } = await import("../src/services/marca-disparo.js");
+const antesL3 = db.prepare("SELECT first_resp_at, last_interaction_at FROM leads WHERE id = ?").get(L3);
+marcarEnvio(orgA, "5587900000003", "Pela casa");
+await fetch(`${BASE}/webhooks/uazapi`, { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: "tok-casa-A", message: { chatid: "5587900000003@s.whatsapp.net", fromMe: true,
+    messageid: "eco_antes_1", messageType: "conversation", text: "Oi, Luan! Temos novidades." } }) });
+await new Promise(r => setTimeout(r, 250));
+desmarcarEnvio(orgA, "5587900000003");
+const eco = db.prepare("SELECT from_name FROM messages WHERE wa_id = 'eco_antes_1'").get();
+assert.equal(eco.from_name, "Disparo · Pela casa");
+const depoisL3 = db.prepare("SELECT first_resp_at, last_interaction_at FROM leads WHERE id = ?").get(L3);
+assert.equal(depoisL3.first_resp_at, antesL3.first_resp_at, "não carimba a primeira resposta");
+assert.equal(depoisL3.last_interaction_at, antesL3.last_interaction_at, "não conta como interação no prazo da etapa");
+
+console.log("20. A campanha não apaga a espera do cliente nem o prazo da etapa");
+const LIA = novoLead("Lia Dantas", "5587900000077", false);
+const perguntou = Date.now() - 3600000;
+db.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at) VALUES (?,?,'in','Tem apartamento no centro?',?)`).run("m_" + randomUUID(), LIA, perguntou);
+const esperando = async () => (await chamar(tGestora, "/painel/equipe?periodo=mes")).d.equipe.find(p => p.id === atendente).aguardando_resposta;
+const antesEspera = await esperando();
+db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at) VALUES (?,?,'out',NULL,'Disparo · Pela casa','Oi, Lia!',?)`)
+  .run("m_" + randomUUID(), LIA, Date.now());
+assert.equal(await esperando(), antesEspera, "ela continua esperando resposta de gente");
+assert.equal(db.prepare("SELECT last_interaction_at FROM leads WHERE id = ?").get(LIA).last_interaction_at, perguntou);
+const { temposDeResposta } = await import("../src/services/score.js");
+assert.equal(temposDeResposta([LIA]).length, 0, "a campanha não conta como resposta à pergunta dela");
+
 console.log("\nTudo certo ✅");
 mock.close();
 process.exit(0);
