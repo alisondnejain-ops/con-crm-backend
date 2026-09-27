@@ -15,7 +15,7 @@ import {
 import {
   listarFluxos, criarFluxo, lerFluxo, salvarFluxo, apagarFluxo,
   opcoesDePublico, previaDoPublico, criarCampanha, listarCampanhas, relatorio,
-  pausar, retomar, cancelar, DECLARACAO_DISPARO, RODAPE_SAIR,
+  pausar, retomar, cancelar, DECLARACAO_DISPARO, RODAPE_SAIR, enviarTeste,
 } from "../services/disparo.js";
 import { salvar, limiteBytes, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
@@ -104,6 +104,9 @@ r.get("/fluxos/:id", trata((req, res) => {
   res.json(lerFluxo(req.user.org_id, req.params.id));
 }));
 r.put("/fluxos/:id", trata((req, res) => res.json(salvarFluxo(req.user.org_id, req.params.id, req.body || {}))));
+r.post("/fluxos/:id/teste", trata(async (req, res) => {
+  res.json(await enviarTeste(req.user.org_id, req.params.id, { telefone: req.body?.telefone, nome: req.user.name }));
+}));
 r.delete("/fluxos/:id", trata((req, res) => {
   exigirPronto(req.user.org_id);
   apagarFluxo(req.user.org_id, req.params.id);

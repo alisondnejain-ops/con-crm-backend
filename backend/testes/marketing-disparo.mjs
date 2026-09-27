@@ -359,6 +359,18 @@ r = await chamar(tOutro, "/marketing/campanhas", "POST", { nome: "X", declaracao
 console.log(`   ${r.status} "${r.d.error}"`);
 assert.equal(r.status, 409); assert.match(r.d.error, /API oficial/);
 
+console.log("16. Enviar teste para mim: o começo do fluxo, sem virar disparo");
+const antesTeste = envios.length;
+r = await chamar(tGestora, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "(87) 90000-0099" });
+console.log(`   ${r.status} ${JSON.stringify(r.d)}`);
+assert.equal(r.status, 200); assert.equal(r.d.mensagens, 2); assert.equal(r.d.parou, "botões");
+const doTeste = envios.slice(antesTeste);
+assert.ok(doTeste.every(e => e.numero === "5587900000099"));
+assert.ok(doTeste[0].texto.startsWith("Oi, Gestora!") && doTeste[0].texto.includes(RODAPE_SAIR));
+assert.equal(db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE telefone = '5587900000099'").get().n, 0, "teste não entra em relatório nem no limite");
+assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "12" })).status, 400);
+assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "87900000099" })).status, 404);
+
 console.log("\nTudo certo ✅");
 mock.close();
 process.exit(0);

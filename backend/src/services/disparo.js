@@ -518,6 +518,52 @@ function inserirNaConversa(leadId, campanhaNome, { texto, midia, waId }, canalId
 
 const naoTemWhatsapp = (m) => /não está no WhatsApp|not on whatsapp/i.test(String(m || ""));
 
+/* O que um bloco manda, e como — uma função só para o disparo de verdade e
+   para o "Enviar teste para mim" do construtor. Se fossem duas, o teste
+   mostraria uma coisa e o disparo mandaria outra. */
+async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "" }) {
+  const enviados = [];
+  const e = { telefone, nome };
+  if (no.tipo === "mensagem") {
+    const corpo = personalizar(no.dados.texto, e.nome).trim();
+    const midia = no.dados.midia;
+    if (midia && midia.tipo !== "audio") {
+      const legenda = (corpo + rodape).trim();
+      const r = await sendMedia({ orgId: org, canalId, toPhone: e.telefone, type: midia.tipo, file: midia.url,
+        caption: legenda || undefined, docName: midia.tipo === "document" ? midia.nome : undefined, mime: midia.mime });
+      enviados.push({ texto: legenda, midia, waId: r?.messageid });
+    } else {
+      if (midia) {
+        const r = await sendMedia({ orgId: org, canalId, toPhone: e.telefone, type: "audio", file: midia.url, mime: midia.mime });
+        enviados.push({ texto: "", midia, waId: r?.messageid });
+      }
+      const t = (corpo + rodape).trim();
+      if (t) {
+        const r = await sendText({ orgId: org, canalId, toPhone: e.telefone, text: t });
+        enviados.push({ texto: t, waId: r?.messageid });
+      }
+    }
+  } else if (no.tipo === "botoes") {
+    const botoes = no.dados.botoes.filter(b => b.rotulo);
+    const opcoes = botoes.map((b, i) => `${i + 1} - ${b.rotulo}`).join("\n");
+    const pergunta = personalizar(no.dados.texto, e.nome).trim();
+    const escrito = `${pergunta}${no.dados.escrever_opcoes ? `\n\n${opcoes}` : ""}${rodape}`;
+    let r;
+    try {
+      r = await sendMenu({ orgId: org, canalId, toPhone: e.telefone, text: escrito,
+        choices: botoes.map(b => ({ id: b.id, rotulo: b.rotulo })) });
+    } catch (err) {
+      if (naoTemWhatsapp(err.message)) throw err;
+      /* Botões recusados pela API: vai o texto com as opções numeradas, e
+         a resposta "1", "2"... é reconhecida do mesmo jeito. */
+      console.warn(`[disparo] botões recusados (${err.message}); enviando as opções escritas.`);
+      r = await sendText({ orgId: org, canalId, toPhone: e.telefone, text: `${pergunta}\n\n${opcoes}${rodape}` });
+    }
+    enviados.push({ texto: escrito, waId: r?.messageid });
+  }
+  return enviados;
+}
+
 /* Envia um bloco para uma pessoa, se os limites deixarem agora.
    Devolve "enviado", "adiado" (tenta depois, sem perder o lugar) ou "parado". */
 async function enviarBloco(e, no, camp, agora, travadas) {
@@ -542,45 +588,9 @@ async function enviarBloco(e, no, camp, agora, travadas) {
 
   const canalId = linha.canalId;   // nulo = a linha da casa
   const rodape = !e.primeira_enviada ? `\n\n${RODAPE_SAIR}` : "";
-  const enviados = [];
+  let enviados = [];
   try {
-    if (no.tipo === "mensagem") {
-      const corpo = personalizar(no.dados.texto, e.nome).trim();
-      const midia = no.dados.midia;
-      if (midia && midia.tipo !== "audio") {
-        const legenda = (corpo + rodape).trim();
-        const r = await sendMedia({ orgId: org, canalId, toPhone: e.telefone, type: midia.tipo, file: midia.url,
-          caption: legenda || undefined, docName: midia.tipo === "document" ? midia.nome : undefined, mime: midia.mime });
-        enviados.push({ texto: legenda, midia, waId: r?.messageid });
-      } else {
-        if (midia) {
-          const r = await sendMedia({ orgId: org, canalId, toPhone: e.telefone, type: "audio", file: midia.url, mime: midia.mime });
-          enviados.push({ texto: "", midia, waId: r?.messageid });
-        }
-        const t = (corpo + rodape).trim();
-        if (t) {
-          const r = await sendText({ orgId: org, canalId, toPhone: e.telefone, text: t });
-          enviados.push({ texto: t, waId: r?.messageid });
-        }
-      }
-    } else if (no.tipo === "botoes") {
-      const botoes = no.dados.botoes.filter(b => b.rotulo);
-      const opcoes = botoes.map((b, i) => `${i + 1} - ${b.rotulo}`).join("\n");
-      const pergunta = personalizar(no.dados.texto, e.nome).trim();
-      const escrito = `${pergunta}${no.dados.escrever_opcoes ? `\n\n${opcoes}` : ""}${rodape}`;
-      let r;
-      try {
-        r = await sendMenu({ orgId: org, canalId, toPhone: e.telefone, text: escrito,
-          choices: botoes.map(b => ({ id: b.id, rotulo: b.rotulo })) });
-      } catch (err) {
-        if (naoTemWhatsapp(err.message)) throw err;
-        /* Botões recusados pela API: vai o texto com as opções numeradas, e
-           a resposta "1", "2"... é reconhecida do mesmo jeito. */
-        console.warn(`[disparo] botões recusados (${err.message}); enviando as opções escritas.`);
-        r = await sendText({ orgId: org, canalId, toPhone: e.telefone, text: `${pergunta}\n\n${opcoes}${rodape}` });
-      }
-      enviados.push({ texto: escrito, waId: r?.messageid });
-    }
+    enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape });
   } catch (err) {
     const erro = String(err.message || err).slice(0, 300);
     db.prepare(`INSERT INTO marketing_envios (id,org_id,campanha_id,execucao_id,telefone,lead_id,no_id,status,erro,enviado_em)
@@ -729,6 +739,44 @@ export function vincularLead(orgId, lead) {
       v.canal_id, v.enviado_em);
     db.prepare("UPDATE marketing_envios SET lead_id = ? WHERE id = ?").run(lead.id, v.id);
   }
+}
+
+/* ENVIAR TESTE PARA MIM (27/09/2026). Antes de mandar para trezentas pessoas,
+   o gestor vê no próprio celular como a mensagem chega — foto, legenda,
+   botões ou opções numeradas, rodapé de saída. Vai o começo do fluxo: as
+   mensagens seguidas desde o início, pulando as esperas, até o primeiro
+   bloco que espera resposta (os botões saem, e o teste para ali). Não vira
+   disparo, não conta no limite do dia e não entra em relatório. Freio: dez
+   testes por hora por conta — o número é o mesmo do disparo. */
+const testes = new Map();
+export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
+  exigirPronto(orgId);
+  const f = fluxoDaOrg(orgId, fluxoId);
+  if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
+  const tel = normalizePhone(String(telefone || "").trim());
+  if (!telefoneValido(tel)) throw new ErroMarketing(400, "Digite o número com DDD, ex.: (87) 99999-0000.");
+  const { grafo, erros } = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
+  if (erros.length) throw new ErroMarketing(422, "Antes do teste: " + erros[0]);
+  const linha = linhaDeDisparo(orgId);
+  if (!linha.canal) throw new ErroMarketing(409, linha.erro);
+  const agora = agoraFn();
+  const recentes = (testes.get(orgId) || []).filter(t => t > agora - 3600000);
+  if (recentes.length >= 10) throw new ErroMarketing(429, "Muitos testes na última hora. Espere um pouco antes do próximo.");
+  testes.set(orgId, [...recentes, agora]);
+
+  const porId = new Map(grafo.nos.map(n => [n.id, n]));
+  let no = porId.get(proximoDe(grafo, grafo.nos.find(n => n.tipo === "inicio").id, "proximo"));
+  let mensagens = 0, primeira = true, parou = "fim do fluxo";
+  for (let passos = 0; no && passos < 12; passos++) {
+    if (no.tipo === "espera") { no = porId.get(proximoDe(grafo, no.id, "proximo")); continue; }
+    if (no.tipo === "resposta") { parou = "esperar resposta"; break; }
+    const env = await enviarConteudo({ org: orgId, canalId: linha.canalId, telefone: tel, nome: nome || "Teste",
+      no, rodape: primeira ? `\n\n${RODAPE_SAIR}` : "" });
+    mensagens += env.length; primeira = false;
+    if (no.tipo === "botoes") { parou = "botões"; break; }
+    no = porId.get(proximoDe(grafo, no.id, "proximo"));
+  }
+  return { mensagens, parou, pelo: linha.propria ? "número de contingência" : "número de atendimento" };
 }
 
 /* A pessoa está no meio de um fluxo de disparo (em andamento ou pausado)?
