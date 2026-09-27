@@ -34,6 +34,7 @@ import { atenderPrimeiroContato, iaConfigurada, camposDa } from "./ia.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { sendText } from "./uazapi.js";
 import { canalDoLead } from "./canais.js";
+import { emFluxoDeDisparo } from "./disparo.js";
 import { lerHorario } from "./expediente.js";
 
 export const TETO_PADRAO = 12;
@@ -230,6 +231,10 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   /* No número de DISPARO quem conduz a conversa é o fluxo do marketing. Dois
      automáticos respondendo a mesma pessoa se atropelariam. */
   if (canal && canal.tipo === "disparo") return { pode: false, motivo: "linha_de_disparo" };
+  /* Pessoa no meio de um fluxo de disparo: é o fluxo que responde. Vale na
+     linha da CASA também — sem número de contingência, o disparo sai por ela,
+     e o robô responderia por cima do botão que a pessoa acabou de apertar. */
+  if (emFluxoDeDisparo(lead.org_id, lead.phone)) return { pode: false, motivo: "fluxo_de_disparo" };
   if (pessoal && !canal.robo_ligado) return { pode: false, motivo: "robo_desligado_nesta_linha" };
 
   /* O DONO DA CASA DE UM CORRETOR SÓ NÃO ATIVA ESTA TRAVA. (02/09/2026)

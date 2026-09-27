@@ -2326,19 +2326,18 @@ function Marketing({acoes,org,isMobile,irParaFluxos}){
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     <div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:16,color:C.sub,fontSize:12.5,fontWeight:600}}>
-      {[["Termo de uso",aceito],["Número de disparo",!!d.numero],["Primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
+      {[["Termo de uso",aceito],["Primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
         <span key={t} style={{display:"inline-flex",alignItems:"center",gap:6}}><NumeroDoPasso n={i+1} feito={ok}/>{t}</span>)}
     </div>
     {/* Com o básico pronto, o que se usa todo dia (os disparos) vem primeiro. */}
-    {aceito&&d.numero&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
+    {aceito&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
     <TermoMarketing d={d} org={org} acoes={acoes} aoMudar={setD} isMobile={isMobile}/>
     {aceito&&<NumeroDeDisparo d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
     {aceito&&<ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
     <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
-    {!(aceito&&d.numero)&&<div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
+    {!aceito&&<div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
       <div style={TITULO_MKT}><Icon n="send" size={16}/> Disparos</div>
-      <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
-        Os disparos aparecem aqui depois do termo aceito e do número de disparo cadastrado.</div>
+      <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Os disparos aparecem aqui depois do termo aceito.</div>
     </div>}
   </div>;
 }
@@ -2382,10 +2381,14 @@ function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
   </div>;
 }
 
+/* DE ONDE O DISPARO SAI (27/09/2026, pedido do Ali): por padrão, do WhatsApp
+   que já está conectado no ConHub — não precisa conectar nada novo. O número
+   próprio de disparo virou OPCIONAL, como contingência: quem quer separar o
+   risco do disparo do número de atendimento cadastra um aqui. */
 function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
   const n=d.numero;
-  const [editando,setEditando]=useState(!n);
-  useEffect(()=>{ if(n) setEditando(false); },[!!n]);
+  const linha=d.linha||{};
+  const [editando,setEditando]=useState(false);
   const [f,setF]=useState({host:"",token:""});
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
@@ -2400,40 +2403,59 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
     }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   async function remover(){
-    if(!window.confirm("Tirar o número de disparo desta conta?")) return;
-    try{ await acoes.removerNumeroMarketing(); setEditando(true); await aoMudar(); }catch(e){ setErro(e.message); }
+    if(!window.confirm("Tirar o número de contingência? Os disparos em andamento ficam pausados; ao retomar, eles saem pelo número de atendimento.")) return;
+    try{ await acoes.removerNumeroMarketing(); await aoMudar(); }catch(e){ setErro(e.message); }
   }
   const pronto=f.host.trim()&&f.token.trim();
+  const rot={color:C.sub,fontSize:11,fontWeight:600,marginBottom:4};
   return <div style={CARTAO_MKT}>
-    <div style={TITULO_MKT}><NumeroDoPasso n={2} feito={!!n}/> Número de disparo</div>
-    <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:12}}>
-      Use um número <b>só para disparo</b>, numa instância da Uazapi separada. Nunca o número que recebe os leads nem o WhatsApp
-      pessoal de um corretor: se o disparo for bloqueado, o atendimento continua de pé.</div>
-    {n&&!editando&&<div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-      <div style={{flex:1,minWidth:200,fontSize:12.5,color:C.sub,lineHeight:1.6}}>
-        <div><b style={{color:C.ink}}>{n.numero||"número ainda não identificado"}</b>{" "}
-          {n.conectado===true?<Pill c={C.greenMid} bg={C.greenSoft}>conectado</Pill>
-            :n.conectado===false?<Pill c={C.hot} bg={C.hotSoft}>desconectado</Pill>
-            :<Pill c={C.cool} bg={C.coolSoft}>não conferido</Pill>}</div>
-        <div style={{fontFamily:MONO,fontSize:11.5}}>{n.host} · token {n.token}</div>
-      </div>
-      <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>Trocar</button>
-      <button onClick={remover} style={{...botaoLeveMkt,color:C.hot}}>Remover</button>
-    </div>}
-    {n&&!editando&&<RitmoDoNumero limites={n.limites} acoes={acoes} aoMudar={aoMudar} isMobile={isMobile}/>}
-    {n&&!editando&&<WebhookDoDisparo url={d.webhook_url}/>}
-    {aviso&&<div style={{color:"#8a6d1f",fontSize:12.5,marginTop:10}}>{aviso}</div>}
-    {editando&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
-      <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Endereço da instância</div>
-        <input value={f.host} onChange={e=>setF({...f,host:e.target.value})} placeholder="https://suaconta.uazapi.com" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
-      <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Token da instância</div>
-        <input value={f.token} onChange={e=>setF({...f,token:e.target.value})} placeholder="cole o token" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
-      {erro&&<div style={{gridColumn:"1/-1",color:C.hot,fontSize:12.5}}>{erro}</div>}
-      <div style={{gridColumn:"1/-1",display:"flex",gap:8}}>
-        <button onClick={salvar} disabled={!pronto||ocupado} style={botaoMkt(pronto&&!ocupado)}>{ocupado?"Conferindo…":"Salvar número"}</button>
-        {n&&<button onClick={()=>{setEditando(false);setErro("");}} style={botaoLeveMkt}>Cancelar</button>}
-      </div>
-    </div>}
+    <div style={TITULO_MKT}><Icon n="whatsapp" size={16}/> De onde o disparo sai</div>
+    {linha.erro
+      ?<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>{linha.erro}</div>
+      :linha.propria
+        ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>Pelo <b style={{color:C.ink}}>número de contingência</b> cadastrado abaixo. O número de atendimento fica de fora.</div>
+        :<React.Fragment>
+          <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>Pelo <b style={{color:C.ink}}>WhatsApp de atendimento</b>, já conectado no ConHub. Não precisa conectar nada.</div>
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>
+            Se o WhatsApp restringir o número por causa do disparo, o atendimento para junto. Para separar os dois, use um número de contingência.</div>
+        </React.Fragment>}
+    <RitmoDoNumero limites={d.limites} acoes={acoes} aoMudar={aoMudar} isMobile={isMobile}/>
+
+    <div style={{borderTop:`1px solid ${C.line}`,marginTop:14,paddingTop:12}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.ink,marginBottom:6}}>Número de contingência <span style={{color:C.faint,fontWeight:500}}>(opcional)</span></div>
+      {n&&!editando&&<React.Fragment>
+        <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:200,fontSize:12.5,color:C.sub,lineHeight:1.6}}>
+            <div><b style={{color:C.ink}}>{n.numero||"número ainda não identificado"}</b>{" "}
+              {n.conectado===true?<Pill c={C.greenMid} bg={C.greenSoft}>conectado</Pill>
+                :n.conectado===false?<Pill c={C.hot} bg={C.hotSoft}>desconectado</Pill>
+                :<Pill c={C.cool} bg={C.coolSoft}>não conferido</Pill>}</div>
+            <div style={{fontFamily:MONO,fontSize:11.5}}>{n.host} · token {n.token}</div>
+          </div>
+          <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>Trocar</button>
+          <button onClick={remover} style={{...botaoLeveMkt,color:C.hot}}>Remover</button>
+        </div>
+        <WebhookDoDisparo url={d.webhook_url}/>
+      </React.Fragment>}
+      {!n&&!editando&&<div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:220,color:C.sub,fontSize:12.5,lineHeight:1.5}}>
+          Um número só para disparo, numa instância da Uazapi separada. Se ele for bloqueado, o atendimento continua de pé.</div>
+        <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>+ Usar um número de contingência</button>
+      </div>}
+      {aviso&&<div style={{color:"#8a6d1f",fontSize:12.5,marginTop:10}}>{aviso}</div>}
+      {erro&&!editando&&<div style={{color:C.hot,fontSize:12.5,marginTop:8}}>{erro}</div>}
+      {editando&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
+        <div><div style={rot}>Endereço da instância</div>
+          <input value={f.host} onChange={e=>setF({...f,host:e.target.value})} placeholder="https://suaconta.uazapi.com" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
+        <div><div style={rot}>Token da instância</div>
+          <input value={f.token} onChange={e=>setF({...f,token:e.target.value})} placeholder="cole o token" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
+        {erro&&<div style={{gridColumn:"1/-1",color:C.hot,fontSize:12.5}}>{erro}</div>}
+        <div style={{gridColumn:"1/-1",display:"flex",gap:8}}>
+          <button onClick={salvar} disabled={!pronto||ocupado} style={botaoMkt(pronto&&!ocupado)}>{ocupado?"Conferindo…":"Salvar número"}</button>
+          <button onClick={()=>{setEditando(false);setErro("");}} style={botaoLeveMkt}>Cancelar</button>
+        </div>
+      </div>}
+    </div>
   </div>;
 }
 
@@ -2672,7 +2694,7 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   const umFunil=op&&new Set(op.etapas.map(e=>e.funil)).size<=1;
   const semFiltro=usarLeads&&!filtros.todos&&!["tags","etapas","temperaturas","responsaveis","origens"].some(k=>filtros[k].length);
   const pronto=nome.trim().length>=2&&fluxoId&&previa&&previa.total>0&&declaracao&&!ocupado;
-  const lim=d.numero&&d.numero.limites;
+  const lim=d.limites;
   async function comecar(){
     if(!window.confirm(`Começar o disparo "${nome.trim()}" para ${previa.total} pessoa(s)? As mensagens saem aos poucos, no ritmo do número.`)) return;
     setErro("");setOcupado(true);
@@ -8610,6 +8632,7 @@ const MOTIVO_ROBO={
   // Na linha pessoal a trava do dono se inverte (todo lead dali é dele), então
   // o que decide é o consentimento: quem liga o robô é o dono do número.
   linha_de_disparo:"Esta conversa está no número de disparo do marketing — quem conduz ali é o fluxo do disparo, não o robô.",
+  fluxo_de_disparo:"Este cliente está no meio de um fluxo de disparo do marketing — enquanto o fluxo estiver conduzindo, o robô fica quieto.",
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",

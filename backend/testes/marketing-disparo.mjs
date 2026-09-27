@@ -311,11 +311,53 @@ await tique(300);   // quem falhou tenta de novo depois de 5 minutos
 for (let i = 0; i < 8; i++) await tique(10);
 assert.ok(envios.some(e => e.numero === "5587900000020"), "retomado, volta a enviar");
 
-console.log("13. Tirar o número de disparo pausa tudo e devolve as conversas para a casa");
+console.log("13. Tirar o número de contingência pausa tudo e devolve as conversas para a casa");
+const lista4 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Obra", origem: "conversaram", coletado_em: ontem, declaracao: true,
+  arquivo: csv(["telefone", "87 90000-0050"]) })).d.lista;
+const camp6 = (await chamar(tGestora, "/marketing/campanhas", "POST", { nome: "No meio", fluxo_id: fluxo3, publico: { listas: [lista4.id] }, declaracao: true })).d.id;
 assert.equal((await chamar(tGestora, "/marketing/numero", "DELETE")).status, 200);
 assert.equal(db.prepare("SELECT canal_id FROM leads WHERE id = ?").get(L1).canal_id, null);
-assert.notEqual(db.prepare("SELECT status FROM marketing_campanhas WHERE id = ?").get(camp4).status, "rodando");
-assert.equal((await chamar(tGestora, "/marketing/campanhas", "POST", { nome: "X", fluxo_id: fluxo3, publico: { listas: [lista2.id] }, declaracao: true })).status, 409);
+const c6 = db.prepare("SELECT status, motivo FROM marketing_campanhas WHERE id = ?").get(camp6);
+assert.equal(c6.status, "pausada", "não segue sozinho pelo número de atendimento");
+assert.match(c6.motivo, /Retome/);
+await chamar(tGestora, `/marketing/campanhas/${camp6}/cancelar`, "POST");
+
+console.log("14. Sem número de contingência, o disparo sai pelo WhatsApp que já está conectado");
+r = await chamar(tGestora, "/marketing");
+assert.equal(r.d.linha.propria, false); assert.equal(r.d.linha.pronta, true);
+assert.equal(r.d.limites.limite_dia, 150, "o ritmo é da conta e continua valendo sem o número");
+const lista3 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Plantão", origem: "conversaram", coletado_em: ontem, declaracao: true,
+  arquivo: csv(["nome;telefone", "Olga Prado;87 90000-0040"]) })).d.lista;
+r = await chamar(tGestora, "/marketing/campanhas", "POST", { nome: "Pela casa", fluxo_id: fluxo, publico: { listas: [lista3.id] }, declaracao: true });
+assert.equal(r.status, 201, JSON.stringify(r.d));
+const camp5 = r.d.id;
+const antesCasa = envios.length;
+for (let i = 0; i < 4; i++) await tique(10);
+const pelaCasa = envios.slice(antesCasa);
+console.log(`   ${pelaCasa.map(e => e.token + ":" + e.texto.split("\n")[0].slice(0, 16)).join(" | ")}`);
+assert.equal(pelaCasa.length, 2);
+assert.ok(pelaCasa.every(e => e.token === "tok-casa-A"), "sai pela instância da casa");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE campanha_id = ? AND canal_id IS NOT NULL").get(camp5).n, 0);
+const { emFluxoDeDisparo } = await import("../src/services/disparo.js");
+assert.equal(emFluxoDeDisparo(orgA, "5587900000040"), true, "esperando resposta = no meio do fluxo (o robô fica quieto)");
+// A resposta chega pelo webhook da CASA e continua o fluxo.
+await fetch(`${BASE}/webhooks/uazapi`, { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: "tok-casa-A", message: { chatid: "5587900000040@s.whatsapp.net", fromMe: false,
+    messageid: "in_casa_1", messageType: "conversation", text: "2", senderName: "Olga" } }) });
+await new Promise(r => setTimeout(r, 300));
+const olga = db.prepare("SELECT * FROM leads WHERE phone = '5587900000040'").get();
+assert.ok(olga); assert.equal(olga.origem, "Disparo", "nasce com origem Disparo mesmo pela linha da casa");
+assert.equal(olga.canal_id, null, "a conversa fica no número de atendimento");
+assert.equal(exec(camp5, "5587900000040").no_atual, "m3");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ? AND from_name = 'Disparo · Pela casa'").get(olga.id).n, 2);
+
+console.log("15. Casa na API oficial da Meta: sem número de contingência não dispara");
+db.prepare("DELETE FROM canais WHERE org_id = ? AND tipo = 'imobiliaria'").run(orgB);
+db.prepare(`INSERT INTO canais (id,org_id,tipo,host,token,wa_number,ativo,created_at,provider,phone_number_id)
+  VALUES (?,?,'imobiliaria','',?,?,1,?,'meta','pn_1')`).run("c_" + randomUUID(), orgB, "tok-meta-B", "5587922223333", Date.now());
+r = await chamar(tOutro, "/marketing/campanhas", "POST", { nome: "X", declaracao: true });
+console.log(`   ${r.status} "${r.d.error}"`);
+assert.equal(r.status, 409); assert.match(r.d.error, /API oficial/);
 
 console.log("\nTudo certo ✅");
 mock.close();
