@@ -18,8 +18,9 @@
 
    ===== OS LIMITES — por que não se envia tudo de uma vez =====
 
-   O número de disparo é de API não oficial. Mandar 500 mensagens em dez
-   minutos é a forma mais rápida de perdê-lo. Por isso cada número tem:
+   O número é de API não oficial. Mandar 500 mensagens em dez minutos é a
+   forma mais rápida de perdê-lo — e, sem número de contingência, o disparo
+   sai pelo MESMO número que recebe os leads. Por isso a conta tem:
    limite por dia, intervalo aleatório entre uma mensagem e outra, horário
    comercial (e domingo desligado por padrão). Entre um envio e outro, NADA
    sai daquele número — nem de outra campanha. E cinco falhas seguidas pausam
@@ -38,7 +39,7 @@ import db from "../db.js";
 import { randomUUID } from "crypto";
 import { normalizePhone } from "./stages.js";
 import { sendText, sendMedia, sendMenu, numeroAlternativo } from "./uazapi.js";
-import { ErroMarketing, exigirPronto, limitesDoNumero } from "./marketing.js";
+import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm } from "./marketing.js";
 
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
@@ -336,20 +337,16 @@ export function previaDoPublico(orgId, publico) {
 export const DECLARACAO_DISPARO =
   "Declaro, em nome da imobiliária, que as pessoas deste disparo autorizaram receber mensagens ou têm relação anterior com a imobiliária, e que nenhuma delas veio de lista comprada ou obtida de terceiros sem autorização.";
 
-/* A linha de onde o disparo sai. Sem ela conectada, nada sai. */
-function linhaDeDisparo(orgId) {
-  const n = db.prepare("SELECT * FROM marketing_numero WHERE org_id = ?").get(orgId);
-  if (!n || !n.canal_id) return null;
-  const canal = db.prepare("SELECT * FROM canais WHERE id = ? AND ativo = 1 AND token IS NOT NULL AND token <> ''").get(n.canal_id);
-  return canal ? { config: n, canal, limites: limitesDoNumero(n) } : null;
-}
+/* A linha de onde o disparo sai mora em services/marketing.js
+   (`linhaDeDisparo`): a de contingência, se houver, senão a da casa. */
 
 export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao }, { ip } = {}) {
   exigirPronto(orgId);
   const eu = db.prepare("SELECT id, name, master, org_id FROM users WHERE id = ?").get(user.id);
   if (eu?.master && eu.org_id !== orgId)
     throw new ErroMarketing(403, "O disparo precisa ser feito pelo gestor desta imobiliária, não pelo ConHub.");
-  if (!linhaDeDisparo(orgId)) throw new ErroMarketing(409, "Cadastre e conecte o número de disparo antes de disparar.");
+  const linha = linhaDeDisparo(orgId);
+  if (!linha.canal) throw new ErroMarketing(409, linha.erro);
   const n = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 100);
   if (n.length < 2) throw new ErroMarketing(400, "Dê um nome ao disparo.");
   const f = fluxo_id && fluxoDaOrg(orgId, fluxo_id);
@@ -390,7 +387,8 @@ export function retomar(orgId, id) {
   const c = campanhaDaOrg(orgId, id);
   if (!c) throw new ErroMarketing(404, "Disparo não encontrado.");
   if (c.status !== "pausada") throw new ErroMarketing(409, "Só dá para retomar um disparo pausado.");
-  if (!linhaDeDisparo(orgId)) throw new ErroMarketing(409, "Conecte o número de disparo antes de retomar.");
+  const linha = linhaDeDisparo(orgId);
+  if (!linha.canal) throw new ErroMarketing(409, linha.erro);
   db.prepare("UPDATE marketing_campanhas SET status = 'rodando', motivo = NULL, falhas_seguidas = 0 WHERE id = ?").run(id);
   return relatorio(orgId, id);
 }
@@ -502,9 +500,9 @@ function equipeAssumiu(e) {
    como resposta de ninguém no relatório). Se ainda não é, fica guardada e
    entra na conversa quando ela responder e virar lead (`vincularLead`). */
 function registrarEnvio(e, camp, no, { texto, midia, waId }, canalId, agora) {
-  db.prepare(`INSERT INTO marketing_envios (id,org_id,campanha_id,execucao_id,telefone,lead_id,no_id,texto,media_url,media_mime,media_nome,status,wa_id,enviado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,'ok',?,?)`).run("mv_" + randomUUID(), e.org_id, camp.id, e.id, e.telefone, e.lead_id, no.id,
-    texto || null, midia?.url || null, midia?.mime || null, midia?.nome || null, waId || null, agora);
+  db.prepare(`INSERT INTO marketing_envios (id,org_id,campanha_id,execucao_id,telefone,lead_id,no_id,texto,media_url,media_mime,media_nome,status,wa_id,enviado_em,canal_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,'ok',?,?,?)`).run("mv_" + randomUUID(), e.org_id, camp.id, e.id, e.telefone, e.lead_id, no.id,
+    texto || null, midia?.url || null, midia?.mime || null, midia?.nome || null, waId || null, agora, canalId || null);
   if (e.lead_id) inserirNaConversa(e.lead_id, camp.nome, { texto, midia, waId }, canalId, agora);
 }
 function inserirNaConversa(leadId, campanhaNome, { texto, midia, waId }, canalId, quando) {
@@ -526,8 +524,8 @@ async function enviarBloco(e, no, camp, agora, travadas) {
   const org = e.org_id;
   if (travadas.has(org)) { salvar(e, { no_atual: no.id, proxima_em: travadas.get(org) }); return "adiado"; }
   const linha = linhaDeDisparo(org);
-  if (!linha) {
-    pausarCampanha(camp.id, "O número de disparo não está conectado.");
+  if (!linha.canal) {
+    pausarCampanha(camp.id, linha.erro);
     salvar(e, { no_atual: no.id, proxima_em: agora + 60000 }); return "adiado";
   }
   const bloqueadoAgora = formas(e.telefone).some(x => db.prepare("SELECT 1 FROM marketing_bloqueio WHERE org_id = ? AND telefone = ?").get(org, x));
@@ -539,9 +537,10 @@ async function enviarBloco(e, no, camp, agora, travadas) {
   if (!dentroDoHorario(agora, lim)) return travar(proximaAbertura(agora, lim));
   const hoje = db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE org_id = ? AND status = 'ok' AND enviado_em >= ?").get(org, inicioDoDia(agora)).n;
   if (hoje >= lim.limite_dia) return travar(proximaAbertura(inicioDoDia(agora) + 86400000, lim));
-  if (linha.config.proximo_envio_em && linha.config.proximo_envio_em > agora) return travar(linha.config.proximo_envio_em);
+  const proxNumero = proximoEnvioEm(org);
+  if (proxNumero && proxNumero > agora) return travar(proxNumero);
 
-  const canalId = linha.canal.id;
+  const canalId = linha.canalId;   // nulo = a linha da casa
   const rodape = !e.primeira_enviada ? `\n\n${RODAPE_SAIR}` : "";
   const enviados = [];
   try {
@@ -587,7 +586,7 @@ async function enviarBloco(e, no, camp, agora, travadas) {
     db.prepare(`INSERT INTO marketing_envios (id,org_id,campanha_id,execucao_id,telefone,lead_id,no_id,status,erro,enviado_em)
       VALUES (?,?,?,?,?,?,?,'falha',?,?)`).run("mv_" + randomUUID(), org, camp.id, e.id, e.telefone, e.lead_id, no.id, erro, agora);
     // Não esperar à toa: o próximo envio deste número também respeita o intervalo.
-    db.prepare("UPDATE marketing_numero SET proximo_envio_em = ? WHERE org_id = ?").run(agora + aleatorio(lim.intervalo_min, lim.intervalo_max) * 1000, org);
+    marcarProximoEnvio(org, agora + aleatorio(lim.intervalo_min, lim.intervalo_max) * 1000);
     travadas.set(org, agora + lim.intervalo_min * 1000);
     if (naoTemWhatsapp(erro)) { finalizar(e, "falhou", "o número não tem WhatsApp"); return "parado"; }
     const seguidas = db.prepare("UPDATE marketing_campanhas SET falhas_seguidas = falhas_seguidas + 1 WHERE id = ? RETURNING falhas_seguidas").get(camp.id).falhas_seguidas;
@@ -601,7 +600,7 @@ async function enviarBloco(e, no, camp, agora, travadas) {
   for (const env of enviados) registrarEnvio(e, camp, no, env, canalId, agora);
   db.prepare("UPDATE marketing_campanhas SET falhas_seguidas = 0 WHERE id = ?").run(camp.id);
   const proximo = agora + aleatorio(lim.intervalo_min, lim.intervalo_max) * 1000;
-  db.prepare("UPDATE marketing_numero SET proximo_envio_em = ? WHERE org_id = ?").run(proximo, org);
+  marcarProximoEnvio(org, proximo);
   travadas.set(org, proximo);
   salvar(e, { primeira_enviada: 1, tentativas: 0 });
   return "enviado";
@@ -722,15 +721,32 @@ export function vincularLead(orgId, lead) {
   const f = formas(lead.phone);
   const em = f.map(() => "?").join(",");
   db.prepare(`UPDATE marketing_execucoes SET lead_id = ? WHERE org_id = ? AND lead_id IS NULL AND telefone IN (${em})`).run(lead.id, orgId, ...f);
-  const soltos = db.prepare(`SELECT v.*, c.nome AS campanha, n.canal_id FROM marketing_envios v
+  const soltos = db.prepare(`SELECT v.*, c.nome AS campanha FROM marketing_envios v
       JOIN marketing_campanhas c ON c.id = v.campanha_id
-      LEFT JOIN marketing_numero n ON n.org_id = v.org_id
     WHERE v.org_id = ? AND v.lead_id IS NULL AND v.status = 'ok' AND v.telefone IN (${em}) ORDER BY v.enviado_em`).all(orgId, ...f);
   for (const v of soltos) {
     inserirNaConversa(lead.id, v.campanha, { texto: v.texto, midia: v.media_url ? { url: v.media_url, mime: v.media_mime, nome: v.media_nome } : null, waId: v.wa_id },
       v.canal_id, v.enviado_em);
     db.prepare("UPDATE marketing_envios SET lead_id = ? WHERE id = ?").run(lead.id, v.id);
   }
+}
+
+/* A pessoa está no meio de um fluxo de disparo (em andamento ou pausado)?
+   O robô de atendimento usa isto para não responder por cima do fluxo. */
+export function emFluxoDeDisparo(orgId, phone) {
+  if (!orgId || !phone) return false;
+  const f = formas(phone);
+  return !!db.prepare(`SELECT 1 FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
+    WHERE e.org_id = ? AND e.telefone IN (${f.map(() => "?").join(",")}) AND e.estado IN ('ativa','aguardando_resposta')
+      AND c.status IN ('rodando','pausada') LIMIT 1`).get(orgId, ...f);
+}
+/* Este número já recebeu mensagem de algum disparo? É o que faz o lead que
+   nasce respondendo pela linha da casa entrar com origem "Disparo". */
+export function recebeuDisparo(orgId, phone) {
+  if (!orgId || !phone) return false;
+  const f = formas(phone);
+  return !!db.prepare(`SELECT 1 FROM marketing_envios WHERE org_id = ? AND status = 'ok'
+    AND telefone IN (${f.map(() => "?").join(",")}) LIMIT 1`).get(orgId, ...f);
 }
 
 /* Chamado pelo caminho de toda mensagem que chega (mensageria.js), depois de

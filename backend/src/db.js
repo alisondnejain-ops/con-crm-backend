@@ -1538,6 +1538,22 @@ addMktNumCol("hora_inicio", "INTEGER DEFAULT 8");
 addMktNumCol("hora_fim", "INTEGER DEFAULT 20");
 addMktNumCol("domingo", "INTEGER DEFAULT 0");
 addMktNumCol("proximo_envio_em", "INTEGER");
+/* O RITMO passou a ser da conta (27/09/2026): o número de disparo virou
+   opcional (sem ele o disparo sai pela linha da casa), e o ritmo não podia
+   continuar morando na linha de um número que talvez não exista. As colunas
+   de limite em `marketing_numero` ficam, sem uso — copiadas uma vez para cá. */
+db.exec(`CREATE TABLE IF NOT EXISTS marketing_ritmo (
+  org_id TEXT PRIMARY KEY,
+  limite_dia INTEGER DEFAULT 150,
+  intervalo_min INTEGER DEFAULT 30,
+  intervalo_max INTEGER DEFAULT 90,
+  hora_inicio INTEGER DEFAULT 8,
+  hora_fim INTEGER DEFAULT 20,
+  domingo INTEGER DEFAULT 0,
+  proximo_envio_em INTEGER
+)`);
+db.exec(`INSERT OR IGNORE INTO marketing_ritmo (org_id,limite_dia,intervalo_min,intervalo_max,hora_inicio,hora_fim,domingo,proximo_envio_em)
+  SELECT org_id,limite_dia,intervalo_min,intervalo_max,hora_inicio,hora_fim,domingo,proximo_envio_em FROM marketing_numero`);
 db.exec(`
 CREATE TABLE IF NOT EXISTS marketing_fluxos (
   id TEXT PRIMARY KEY,
@@ -1613,5 +1629,10 @@ CREATE INDEX IF NOT EXISTS idx_mkt_envios_org ON marketing_envios(org_id, enviad
 CREATE INDEX IF NOT EXISTS idx_mkt_envios_camp ON marketing_envios(campanha_id);
 CREATE INDEX IF NOT EXISTS idx_mkt_envios_tel ON marketing_envios(org_id, telefone);
 `);
+// A linha por onde cada envio saiu (nulo = a da casa). Guardada no envio
+// porque o número de disparo é opcional e pode mudar depois: ao ligar o
+// histórico a um lead novo, a conversa precisa dizer por onde ele saiu DE FATO.
+if (!db.prepare("PRAGMA table_info(marketing_envios)").all().some(c => c.name === "canal_id"))
+  db.exec("ALTER TABLE marketing_envios ADD COLUMN canal_id TEXT");
 
 export default db;

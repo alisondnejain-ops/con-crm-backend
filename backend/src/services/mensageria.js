@@ -18,7 +18,7 @@
    o motivo de este arquivo existir em vez de copiar o corpo do handler. */
 
 import { registrarPedidoDeSaida } from "./marketing.js";
-import { mensagemRecebida as respostaAoDisparo } from "./disparo.js";
+import { mensagemRecebida as respostaAoDisparo, recebeuDisparo } from "./disparo.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -127,7 +127,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
     db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
                 pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
       VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
-      .run(id, orgId, nome || "Contato do WhatsApp", phone, ehDisparo ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
+      .run(id, orgId, nome || "Contato do WhatsApp", phone, (ehDisparo || recebeuDisparo(orgId, phone)) ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
            entrada.pipeline_id, entrada.stage_id, quando, quando,
            linhaDaConversa, dono ? quando : null);
     lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
