@@ -3040,7 +3040,7 @@ function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,
   </div>;
 }
 
-function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,contagens,altura=560,aoPedirBloco,focar,enquadrarSinal=0}){
+function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,contagens,altura=560,aoPedirBloco,focar,enquadrarSinal=0,aoTocar}){
   const ref=useRef(null);
   const [vista,setVista]=useState({x:40,y:40,z:1});
   const [gesto,setGesto]=useState(null);
@@ -3097,7 +3097,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
     e.stopPropagation(); capturar(e); setMenu(null); setSetaSel(null);
     aoSelecionar&&aoSelecionar(id);
     const p=noCanvas(e), n=porId.get(id);
-    setGesto({tipo:"mover",id,dx:p.x-n.x,dy:p.y-n.y});
+    setGesto({tipo:"mover",id,dx:p.x-n.x,dy:p.y-n.y,x0:e.clientX,y0:e.clientY,movido:false});
   }
   function aoIniciarSeta(e,de,saida){ capturar(e); setMenu(null); const p=noCanvas(e); setGesto({tipo:"seta",de,saida,x:p.x,y:p.y}); }
   function noFundo(e){
@@ -3110,7 +3110,14 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
     if(!gesto) return;
     if(gesto.tipo==="arrastar") return setVista(v=>({...v,x:gesto.vx+e.clientX-gesto.x0,y:gesto.vy+e.clientY-gesto.y0}));
     const p=noCanvas(e);
-    if(gesto.tipo==="mover") return aoMudar({...grafo,nos:grafo.nos.map(n=>n.id===gesto.id?{...n,x:Math.round(p.x-gesto.dx),y:Math.round(p.y-gesto.dy)}:n)});
+    if(gesto.tipo==="mover"){
+      /* Dedo treme: sem esta folga, todo toque num bloco no celular virava
+         "arrastou 1px" — o fluxo ficava com alteração não salva e o toque
+         não contava como toque. */
+      if(!gesto.movido&&Math.hypot(e.clientX-gesto.x0,e.clientY-gesto.y0)<6) return;
+      if(!gesto.movido) setGesto({...gesto,movido:true});
+      return aoMudar({...grafo,nos:grafo.nos.map(n=>n.id===gesto.id?{...n,x:Math.round(p.x-gesto.dx),y:Math.round(p.y-gesto.dy)}:n)});
+    }
     if(gesto.tipo==="seta") setGesto({...gesto,x:p.x,y:p.y});
   }
   function aoSoltar(e){
@@ -3121,6 +3128,8 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
       // Soltou no vazio: oferece criar o próximo bloco ali mesmo, já ligado.
       else if(aoPedirBloco) setMenu({x:p.x,y:p.y,de:gesto.de,saida:gesto.saida});
     }
+    // Toque sem arrastar: é "abrir este bloco" (no celular abre o editor).
+    if(gesto&&gesto.tipo==="mover"&&!gesto.movido&&aoTocar) aoTocar(gesto.id);
     setGesto(null);
   }
   function criarAqui(tipo){
@@ -3184,7 +3193,7 @@ function CampoPrazo({valor,aoMudar,isMobile}){
 }
 
 const LIMITE_MB_ARQUIVO_MKT=8, LIMITE_MB_VIDEO_MKT=150;
-function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile}){
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar}){
   const [subindo,setSubindo]=useState("");
   const [erro,setErro]=useState("");
   useEffect(()=>{setErro("");},[no.id]);
@@ -3271,6 +3280,19 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile}){
         <span>Escrever as opções numeradas na mensagem <span style={{color:C.faint}}>— recomendado: no número não oficial os botões nem sempre aparecem. Responder “1”, “2” ou o texto do botão funciona igual.</span></span></label>
       <div><div style={rot}>Se não responder em</div><CampoPrazo valor={d.prazo} aoMudar={v=>dados({prazo:v})} isMobile={isMobile}/></div>
     </React.Fragment>}
+    {caminhos&&aoLigar&&caminhos.length>0&&<div>
+      <div style={rot}>Vai para</div>
+      {caminhos.map(c=><div key={c.saida} style={{marginBottom:8}}>
+        {caminhos.length>1&&<div style={{fontSize:12,color:C.sub,marginBottom:3}}>{c.rotulo}</div>}
+        <select value={c.para} onChange={e=>aoLigar(c.saida,e.target.value)} style={campoMkt(isMobile)}>
+          <option value="">— termina aqui —</option>
+          {(destinos||[]).map(d=><option key={d.id} value={d.id}>{TIPO_BLOCO[d.tipo].nome}: {resumoDoBloco(d).slice(0,40)}</option>)}
+          <optgroup label="Criar o próximo bloco">
+            {["mensagem","espera","resposta","botoes"].map(t=><option key={t} value={"novo:"+t}>+ {TIPO_BLOCO[t].nome}</option>)}
+          </optgroup>
+        </select>
+      </div>)}
+    </div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
   </div>;
 }
@@ -3286,6 +3308,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   const [salvoEm,setSalvoEm]=useState(null);
   const [enquadrar,setEnquadrar]=useState(0);
   const [testando,setTestando]=useState(false);
+  const [folha,setFolha]=useState(null);   // celular: bloco aberto na folha de baixo
   const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
   const apagarBloco=(id)=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
   function duplicar(){
@@ -3325,8 +3348,76 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
     const b=blocoNovo(tipo,base?base.x+LARG_BLOCO+70:300,base?base.y:120);
     setGrafo({...grafo,nos:[...grafo.nos,b]}); setSel(b.id);
+    if(isMobile) setFolha(b.id);
+  }
+  /* LIGAR SEM ARRASTAR: cada saída do bloco escolhido tem um "vai para".
+     No celular é o jeito principal (puxar uma bolinha de 16px com o dedo não
+     acerta); no computador fica como atalho, ao lado das setas. "Novo bloco"
+     cria o próximo já ligado, logo à direita. */
+  function ligar(de,saida,valor){
+    const origem=grafo.nos.find(n=>n.id===de); if(!origem) return;
+    const sem=grafo.ligacoes.filter(l=>!(l.de===de&&l.saida===saida));
+    if(!valor) return setGrafo({...grafo,ligacoes:sem});
+    if(valor.startsWith("novo:")){
+      const i=Math.max(0,saidasDoBloco(origem).findIndex(([id])=>id===saida));
+      const b=blocoNovo(valor.slice(5),origem.x+LARG_BLOCO+70,origem.y+i*(LINHA_SAIDA*3));
+      setGrafo({...grafo,nos:[...grafo.nos,b],ligacoes:[...sem,{de,saida,para:b.id}]});
+      setSel(b.id); if(isMobile) setFolha(b.id);
+      return;
+    }
+    setGrafo({...grafo,ligacoes:[...sem,{de,saida,para:valor}]});
   }
   const noSel=grafo.nos.find(n=>n.id===sel);
+  const noFolha=grafo.nos.find(n=>n.id===folha);
+  const editor=(no)=><EditorDeBloco no={no} acoes={acoes} isMobile={isMobile}
+    aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
+    aoDuplicar={duplicar}
+    aoApagar={()=>{apagarBloco(no.id);setFolha(null);}}
+    caminhos={saidasDoBloco(no).map(([saida,rotulo])=>({saida,rotulo,para:(grafo.ligacoes.find(l=>l.de===no.id&&l.saida===saida)||{}).para||""}))}
+    destinos={grafo.nos.filter(x=>x.tipo!=="inicio"&&x.id!==no.id)}
+    aoLigar={(saida,valor)=>ligar(no.id,saida,valor)}/>;
+  const avisoDisparo=avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:isMobile?0:12,fontSize:12.5,lineHeight:1.5}}>
+    <b>Para disparar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>;
+  const botoesAdicionar=["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>adicionar(t)}
+    style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,padding:"7px 12px",flexShrink:0,whiteSpace:"nowrap"}}>
+    <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{isMobile?"+ ":""}{TIPO_BLOCO[t].nome}</button>);
+
+  /* NO CELULAR (27/09/2026, pedido do Ali): a tela livre ocupa a largura toda,
+     tocar num bloco abre o editor numa folha que sobe de baixo (sem espaço para
+     painel ao lado), e as ligações se fazem pelo "Vai para" do editor. Arrastar
+     o fundo com o dedo anda pela tela; arrastar um bloco o muda de lugar. */
+  if(isMobile) return <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <button onClick={voltar} style={{...botaoLeveMkt,padding:"8px 11px"}} title="Voltar aos fluxos"><Icon n="voltar" size={15}/></button>
+      <input value={nome} onChange={e=>{setNome(e.target.value);setSujo(true);}} maxLength={80}
+        style={{...campoMkt(isMobile),flex:1,minWidth:0,fontFamily:DISPLAY,fontWeight:700,padding:"8px 10px"}}/>
+      <button onClick={salvar} disabled={ocupado||!sujo} style={{...botaoMkt(!ocupado&&sujo),padding:"9px 13px"}}>{ocupado?"…":"Salvar"}</button>
+    </div>
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <span style={{flex:1,fontSize:12,color:sujo?"#8a6d1f":C.faint}}>{sujo?"Alterações não salvas":salvoEm?"Salvo":"Toque num bloco para editar"}</span>
+      <button onClick={organizar} style={{...botaoLeveMkt,padding:"7px 10px"}}>Organizar</button>
+      <button onClick={()=>setTestando(!testando)} style={{...botaoLeveMkt,padding:"7px 10px"}}>Teste</button>
+    </div>
+    {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{botoesAdicionar}</div>
+    <div style={{flex:1,minHeight:0}}>
+      <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" focar={sel}
+        enquadrarSinal={enquadrar} aoTocar={(id)=>setFolha(id)}/>
+    </div>
+    {!sujo&&avisoDisparo}
+    {noFolha&&<div onClick={()=>setFolha(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:30}}>
+      <div onClick={e=>e.stopPropagation()} className="tela-cheia" style={{position:"fixed",left:0,right:0,bottom:0,height:"auto",maxHeight:"88dvh",
+        overflowY:"auto",background:C.card,borderRadius:"18px 18px 0 0",padding:"12px 16px calc(env(safe-area-inset-bottom, 0px) + 18px)",boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
+        <div style={{display:"flex",alignItems:"center",marginBottom:10}}>
+          <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto"}}/>
+        </div>
+        {editor(noFolha)}
+        <button onClick={()=>setFolha(null)} style={{...botaoMkt(),width:"100%",marginTop:16,padding:"12px 16px"}}>Pronto</button>
+      </div>
+    </div>}
+  </div>;
+
   return <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%"}}>
     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
       <button onClick={voltar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar aos fluxos"><Icon n="voltar" size={14}/></button>
@@ -3341,8 +3432,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
       <span style={{fontSize:12,color:C.sub,marginRight:4}}>Adicionar:</span>
-      {["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>adicionar(t)} style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,padding:"7px 12px"}}>
-        <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
+      {botoesAdicionar}
       <div style={{flex:1}}/>
       <button onClick={organizar} title="Arrumar os blocos em colunas, na ordem do fluxo" style={{...botaoLeveMkt,padding:"7px 12px"}}>Organizar</button>
     </div>
@@ -3354,21 +3444,17 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
       </div>
       <div style={{...CARTAO_MKT,marginBottom:0,width:330,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box"}}>
         {noSel
-          ?<EditorDeBloco no={noSel} acoes={acoes} isMobile={isMobile}
-            aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
-            aoDuplicar={duplicar}
-            aoApagar={()=>apagarBloco(noSel.id)}/>
+          ?editor(noSel)
           :<div style={{fontSize:12.5,color:C.sub,lineHeight:1.6}}>
             <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,marginBottom:6}}>Como montar</div>
             <div>• Clique num bloco para editar. Arraste para mudar de lugar.</div>
-            <div>• Puxe a bolinha da direita de uma saída até outro bloco para ligar. Soltando no vazio, cria o próximo bloco ali.</div>
+            <div>• Puxe a bolinha da direita de uma saída até outro bloco para ligar — ou use o "Vai para" no editor do bloco. Soltando no vazio, cria o próximo bloco ali.</div>
             <div>• Clique numa seta para apagá-la.</div>
             <div>• Para andar pela tela, arraste o fundo ou use a roda do mouse. Ctrl + roda aproxima e afasta.</div>
             <div>• <b>Organizar</b> arruma os blocos em colunas, na ordem do fluxo.</div>
             <div>• Delete apaga o bloco escolhido; Ctrl + S salva.</div>
             <div>• Saída sem seta termina o fluxo daquela pessoa.</div>
-            {avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:12}}>
-              <b>Para disparar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>}
+            {avisoDisparo}
             {!sujo&&avisos.length===0&&salvoEm&&<div style={{background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"9px 11px",marginTop:12}}>Pronto para disparar.</div>}
           </div>}
       </div>
@@ -3419,7 +3505,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
   async function abrir(id){ setErro(""); try{ setAberto(await acoes.fluxoMarketing(id)); }catch(e){ setErro(e.message); } }
   async function criar(){
     setErro("");
-    try{ const f=await acoes.criarFluxoMarketing(novoNome); setNovoNome(""); setCriando(false); await rever(); if(!isMobile) setAberto(f); }
+    try{ const f=await acoes.criarFluxoMarketing(novoNome); setNovoNome(""); setCriando(false); await rever(); setAberto(f); }
     catch(e){ setErro(e.message); }
   }
   async function apagar(f){
@@ -3431,18 +3517,17 @@ function FluxosDeMarketing({acoes,org,isMobile}){
     <div style={TITULO_MKT}><Icon n="lock" size={16}/> {d.liberado?"Aceite o termo primeiro":"Disparo em massa não liberado"}</div>
     <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>{d.liberado?"O termo de uso fica em Marketing → Disparos em massa.":"Este recurso é liberado pelo ConHub para cada conta."}</div>
   </div></div>;
-  if(aberto&&!isMobile) return <div style={{height:"100%",boxSizing:"border-box",padding:"16px 20px",maxWidth:1500,margin:"0 auto"}}>
+  if(aberto) return <div style={{height:"100%",boxSizing:"border-box",padding:isMobile?"10px 10px 12px":"16px 20px",maxWidth:1500,margin:"0 auto"}}>
     <EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     <div style={CARTAO_MKT}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
         <div style={{...TITULO_MKT,marginBottom:0,flex:1}}><Icon n="zap" size={16}/> Fluxos</div>
-        {!criando&&!isMobile&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
+        {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        A sequência de mensagens que cada pessoa do disparo recebe: mensagem, espera, botões e caminhos conforme a resposta.
-        {isMobile&&<b style={{color:C.ink}}> Para montar e editar, abra o ConHub no computador.</b>}</div>
+        A sequência de mensagens que cada pessoa do disparo recebe: mensagem, espera, botões e caminhos conforme a resposta.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
@@ -3457,7 +3542,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
               <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{f.nome}</div>
               <div style={{color:C.faint,fontSize:11.5}}>{f.blocos} blocos · {f.disparos} disparo(s) · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
-            {!isMobile&&<button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>}
+            <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>
             <button onClick={()=>apagar(f)} title="Apagar fluxo" style={{...botaoLeveMkt,color:C.hot,padding:"8px 10px"}}><Icon n="trash" size={14}/></button>
           </div>)}
         </div>}
@@ -5403,6 +5488,8 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
      início continua o do ConHub: aquele é gerado no build, não por conta. */
   const realce=realceDa(marca);
   const [maisAberto,setMaisAberto]=useState(false);
+  const [gavetas,setGavetas]=useState({});
+  const gavetaAberta=(item)=>gavetas[item[0]]??grupoContem(item,view);
   /* A folha do "Mais" abre colada no rodapé e a barra fica por cima dela — o
      último item do menu sumia atrás. Medimos a barra em vez de chutar um valor:
      a altura muda com a área segura de cada aparelho. */
@@ -5429,19 +5516,29 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
     {maisAberto&&<div onClick={()=>setMaisAberto(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:20}}/>}
     {maisAberto&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:21,background:C.card,borderRadius:"18px 18px 0 0",paddingLeft:14,paddingRight:14,paddingTop:14,paddingBottom:alturaBarra+14,boxShadow:"0 -8px 30px rgba(0,0,0,.18)"}}>
       <div style={{width:38,height:4,borderRadius:99,background:C.line,margin:"0 auto 12px"}}/>
+      <div style={{maxHeight:`calc(100dvh - ${alturaBarra+90}px)`,overflowY:"auto"}}>
       {extras.map((item,i)=>{
         const [v,n,label]=item, filhos=filhosDe(item);
         if(!filhos) return <ItemMais key={v} n={n} label={label} ativo={view===v} badge={aviso(v)}
           ultimo={i===extras.length-1} onClick={()=>escolher(v)}/>;
-        // O grupo vira um rótulo com as opções embaixo, recuadas.
+        /* O grupo é uma GAVETA, igual à barra do computador (27/09/2026,
+           pedido do Ali): fechado mostra só o nome, um toque abre as opções
+           embaixo. Abre sozinho quando a tela aberta é uma delas. */
+        const abre=gavetaAberta(item), contem=grupoContem(item,view), badge=avisoDe(item);
         return <div key={"g-"+v} style={{borderBottom:i===extras.length-1?"none":`1px solid ${C.line}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,padding:"13px 10px 4px",color:C.faint,fontSize:12,fontWeight:700}}>
-            <Icon n={n} size={17}/>{label}</div>
-          <div style={{paddingLeft:22}}>
+          <button onClick={()=>setGavetas(g=>({...g,[v]:!abre}))} aria-expanded={abre}
+            style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"13px 10px",border:"none",background:"transparent",cursor:"pointer",
+              color:contem?C.green:C.ink,fontSize:14.5,fontWeight:contem?700:500}}>
+            <Icon n={n} size={19}/><span style={{flex:1,textAlign:"left"}}>{label}</span>
+            {badge>0&&!abre&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{badge}</span>}
+            <span style={{display:"flex",transform:abre?"rotate(90deg)":"none",transition:"transform .15s ease",color:C.faint}}><Icon n="chevron" size={16}/></span>
+          </button>
+          {abre&&<div style={{paddingLeft:22,marginBottom:4}}>
             {filhos.map(([fv,fn,fl],j)=><ItemMais key={fv} n={fn} label={fl} ativo={view===fv} badge={aviso(fv)}
               ultimo={j===filhos.length-1} onClick={()=>escolher(fv)}/>)}
-          </div>
+          </div>}
         </div>;})}
+      </div>
     </div>}
     <nav ref={barra} style={{background:marca.cor,flexShrink:0,display:"flex",alignItems:"stretch",justifyContent:"space-around",paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 22px)",zIndex:22}}>
       {cabem.map(item=>{
