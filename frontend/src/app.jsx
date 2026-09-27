@@ -2544,7 +2544,7 @@ function ListaDeBloqueio({acoes,aoMudar,isMobile}){
 
 /* O botão do hub que libera (ou desliga) o Marketing de uma conta. Desligar
    esconde a seção e trava as rotas, mas não apaga nada. */
-function BotaoMarketingHub({conta,acoes,aoMudar,compacto}){
+function BotaoMarketingHub({conta,acoes,aoMudar,compacto,curto}){
   const [ocupado,setOcupado]=useState(false);
   const ligado=!!conta.marketing_liberado;
   async function alternar(){
@@ -2558,7 +2558,7 @@ function BotaoMarketingHub({conta,acoes,aoMudar,compacto}){
     style={{background:ligado?C.greenSoft:C.surface,color:ligado?C.greenDeep:C.sub,border:`1px solid ${ligado?C.green+"55":C.line}`,
       borderRadius:compacto?9:11,padding:compacto?"7px 11px":"8px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer",
       display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-    <Icon n="megafone" size={13}/>{ocupado?"…":ligado?"Marketing liberado":"Liberar marketing"}</button>;
+    <Icon n="megafone" size={13}/>{ocupado?"…":curto?(ligado?"Marketing ✓":"Marketing"):ligado?"Marketing liberado":"Liberar marketing"}</button>;
 }
 
 /* APAGAR UMA CONTA DA PLATAFORMA — imobiliária ou corretor autônomo.
@@ -2885,13 +2885,16 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
               : c.assinatura.status==="liberado"&&c.assinatura.liberado_ate
               ? `liberado até ${fmtData(c.assinatura.liberado_ate)}`
               : st.t}</span>
-          <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap"}}>
+          {/* No celular os botões ocupam a largura do cartão e quebram linha.
+              Com flexShrink:0 a fileira media a soma de todos os botões lado a
+              lado, e a lixeira ficava fora do cartão (e a tela rolava de lado). */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:isMobile?1:0,width:isMobile?"100%":"auto"}}>
             <button onClick={()=>entrar(c)} disabled={!!ocupado} title={`Abrir o CRM de ${c.nome}`}
               style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
                 fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
                 display:"flex",alignItems:"center",gap:6}}>
               {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
-            <BotaoMarketingHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto/>
+            <BotaoMarketingHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto curto={isMobile}/>
             <button onClick={()=>abrir(c,"liberar")} disabled={!!ocupado}
               style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.greenMid,
                 border:travado?"none":`1px solid ${C.green}55`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
