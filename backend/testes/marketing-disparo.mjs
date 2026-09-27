@@ -478,6 +478,26 @@ assert.ok(saiu.length >= 1, "na hora agendada sai, mesmo domingo às 23h");
 assert.equal((await chamar(tGestora, `/marketing/campanhas/${camp8}`)).d.agendado, false);
 await chamar(tGestora, `/marketing/campanhas/${camp8}/cancelar`, "POST");
 
+console.log("23. Só uma mensagem: sem fluxo, o texto sai com o rodapé — pelo mesmo motor");
+const lista7 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Aviso", origem: "conversaram", coletado_em: ontem, declaracao: true,
+  arquivo: csv(["nome;telefone", "Tais Nunes;87 90000-0080"]) })).d.lista;
+const baseMsg = { publico: { listas: [lista7.id] }, declaracao: true };
+r = await chamar(tGestora, "/marketing/campanhas", "POST", { ...baseMsg, nome: "Vazio", mensagem: { texto: "   " } });
+assert.equal(r.status, 400); assert.match(r.d.error, /Escreva a mensagem/);
+r = await chamar(tGestora, "/marketing/campanhas", "POST", { ...baseMsg, nome: "Aviso de plantão", mensagem: { texto: "Oi, {nome}! Plantão no sábado." } });
+assert.equal(r.status, 201, JSON.stringify(r.d));
+assert.equal(r.d.so_mensagem, true); assert.equal(r.d.fluxo_nome, "Mensagem única");
+const camp9 = r.d.id;
+db.prepare("UPDATE marketing_ritmo SET proximo_envio_em = NULL WHERE org_id = ?").run(orgA);
+const antesMsg = envios.length;
+agora = Date.now() + 60000; await tique();
+const aviso = envios.slice(antesMsg).filter(e => e.numero === "5587900000080");
+console.log(`   "${(aviso[0] || {}).texto?.split("\n")[0]}"`);
+assert.equal(aviso.length, 1);
+assert.ok(aviso[0].texto.startsWith("Oi, Tais! Plantão no sábado.") && aviso[0].texto.includes(RODAPE_SAIR));
+const rel9 = (await chamar(tGestora, `/marketing/campanhas/${camp9}`)).d;
+assert.equal(rel9.pessoas_alcancadas, 1); assert.equal(rel9.status, "concluida", "uma mensagem e acabou");
+
 console.log("\nTudo certo ✅");
 mock.close();
 process.exit(0);

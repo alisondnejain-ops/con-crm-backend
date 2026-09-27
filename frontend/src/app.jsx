@@ -2341,10 +2341,11 @@ function Marketing({acoes,org,isMobile,irParaFluxos}){
   const ABAS=[["disparos","Disparos"],["contatos","Contatos"],["config","Configuração"]];
   return <div style={moldura}>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
-    {(!aceito||!d.fluxos)&&<div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:14,color:C.sub,fontSize:12.5,fontWeight:600}}>
-      {[["Aceitar o termo",aceito],["Criar o primeiro fluxo",d.fluxos>0]].map(([t,ok],i)=>
+    {/* Fluxo deixou de ser passo obrigatório (27/09/2026): dá para disparar
+        "Só uma mensagem". O único pré-requisito é o termo. */}
+    {!aceito&&<div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:14,color:C.sub,fontSize:12.5,fontWeight:600}}>
+      {[["Aceitar o termo",aceito],["Fazer o primeiro disparo",false]].map(([t,ok],i)=>
         <span key={t} style={{display:"inline-flex",alignItems:"center",gap:6}}><NumeroDoPasso n={i+1} feito={ok}/>{t}</span>)}
-      {aceito&&!d.fluxos&&<button onClick={irParaFluxos} style={{border:"none",background:"none",color:C.green,fontWeight:700,cursor:"pointer",padding:0,fontSize:12.5}}>Ir para Fluxos →</button>}
     </div>}
     <div style={{display:"flex",gap:4,marginBottom:14,borderBottom:`1px solid ${C.line}`}}>
       {ABAS.map(([k,t])=>{const on=abaAtual===k, trava=!aceito&&k!=="config";
@@ -2662,7 +2663,7 @@ function Disparos({d,acoes,isMobile,irParaFluxos,irParaRitmo}){
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:8}}>{erro}</div>}
     {lista===null?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
       :lista.length===0?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
-        Nenhum disparo ainda. Monte a sequência de mensagens em <b>Fluxos</b> e depois escolha para quem ela vai em <b>Novo disparo</b>.</div>
+        Nenhum disparo ainda. Em <b>Novo disparo</b>, escreva a mensagem e escolha quem recebe — ou use um fluxo de <b>Fluxos</b>, para sequências com espera e botões.</div>
       :<div style={{display:"flex",flexDirection:"column",gap:8}}>
         {lista.map(c=><button key={c.id} onClick={()=>setAberto(c.id)} style={{textAlign:"left",border:`1px solid ${C.line}`,borderRadius:11,
           padding:"11px 12px",background:C.card,cursor:"pointer",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",fontFamily:FONT}}>
@@ -2671,7 +2672,7 @@ function Disparos({d,acoes,isMobile,irParaFluxos,irParaRitmo}){
             <div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
               <b style={{fontFamily:MONO,color:C.ink}}>{c.pessoas_alcancadas}</b> de {c.total} alcançados · {c.responderam} responderam
               {c.sairam>0&&` · ${c.sairam} pediram para sair`}</div>
-            <div style={{color:C.faint,fontSize:11.5}}>{c.fluxo_nome} · {c.criado_por_nome||"—"} · {c.agendado?`começa ${fmtDataHoraMkt(c.agendada_para)}`:fmtDataHoraMkt(c.criado_em)}</div>
+            <div style={{color:C.faint,fontSize:11.5}}>{c.so_mensagem?"Mensagem única":c.fluxo_nome} · {c.criado_por_nome||"—"} · {c.agendado?`começa ${fmtDataHoraMkt(c.agendada_para)}`:fmtDataHoraMkt(c.criado_em)}</div>
           </div>
           <Icon n="chevron" size={15} color={C.faint}/>
         </button>)}
@@ -2697,6 +2698,10 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   const [op,setOp]=useState(null);
   const [nome,setNome]=useState("");
   const [fluxoId,setFluxoId]=useState("");
+  /* "Só uma mensagem" é o padrão (27/09/2026): o disparo mais comum é um
+     aviso ou um follow-up, e montar um fluxo para isso é trabalho à toa. */
+  const [oQue,setOQue]=useState("mensagem");
+  const [msg,setMsg]=useState({texto:"",midia:null});
   const [listas,setListas]=useState([]);
   const [usarLeads,setUsarLeads]=useState(false);
   const [filtros,setFiltros]=useState(FILTROS_VAZIOS);
@@ -2722,14 +2727,15 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   const semFiltro=usarLeads&&!filtros.todos&&!["tags","etapas","temperaturas","responsaveis","origens"].some(k=>filtros[k].length);
   const quandoMs=agendar?new Date(quando).getTime():null;
   const agendaOk=!agendar||(Number.isFinite(quandoMs)&&quandoMs>Date.now());
-  const pronto=nome.trim().length>=2&&fluxoId&&previa&&previa.total>0&&declaracao&&agendaOk&&!ocupado;
+  const conteudoOk=oQue==="fluxo"?!!fluxoId:!!(msg.texto.trim()||msg.midia);
+  const pronto=nome.trim().length>=2&&conteudoOk&&previa&&previa.total>0&&declaracao&&agendaOk&&!ocupado;
   const lim=d.limites;
   async function comecar(){
     if(!window.confirm(agendar
       ?`Agendar o disparo "${nome.trim()}" para ${previa.total} pessoa(s), começando ${fmtDataHoraMkt(quandoMs)}?`
       :`Começar o disparo "${nome.trim()}" para ${previa.total} pessoa(s) agora? As mensagens saem aos poucos, no ritmo do número.`)) return;
     setErro("");setOcupado(true);
-    try{ aoCriar(await acoes.criarDisparoMarketing({nome,fluxo_id:fluxoId,publico,declaracao:true,agendar_para:agendar?quandoMs:undefined})); }
+    try{ aoCriar(await acoes.criarDisparoMarketing({nome,...(oQue==="fluxo"?{fluxo_id:fluxoId}:{mensagem:msg}),publico,declaracao:true,agendar_para:agendar?quandoMs:undefined})); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   const rotulo={color:C.sub,fontSize:11,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.4};
@@ -2741,16 +2747,25 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
       <button onClick={aoFechar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar"><Icon n="voltar" size={14}/></button>
       <div style={{...TITULO_MKT,marginBottom:0}}>Novo disparo</div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
-      <div><div style={rotulo}>Nome do disparo</div>
-        <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={100} placeholder="ex.: Reativação de setembro" style={campoMkt(isMobile)}/></div>
-      <div><div style={rotulo}>Fluxo</div>
-        {fluxos&&fluxos.length===0
+    <div><div style={rotulo}>Nome do disparo</div>
+      <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={100} placeholder="ex.: Reativação de setembro" style={campoMkt(isMobile)}/></div>
+
+    <div style={secao}>
+      <div style={rotulo}>O que enviar</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {[["mensagem","Só uma mensagem"],["fluxo","Um fluxo"]].map(([v,t])=><button key={v} onClick={()=>setOQue(v)}
+          style={{...botaoLeveMkt,background:oQue===v?C.greenDeep:C.card,color:oQue===v?"#fff":C.sub}}>{t}</button>)}
+      </div>
+      {oQue==="mensagem"
+        ?<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <ConteudoDaMensagem d={msg} aoMudar={p=>setMsg(m=>({...m,...p}))} acoes={acoes} isMobile={isMobile} linhas={5}/>
+        </div>
+        :fluxos&&fluxos.length===0
           ?<div style={{fontSize:12.5,color:C.sub,lineHeight:1.5}}>Nenhum fluxo ainda. <button onClick={irParaFluxos} style={{border:"none",background:"none",color:C.green,fontWeight:700,cursor:"pointer",padding:0}}>Criar um fluxo</button></div>
           :<select value={fluxoId} onChange={e=>setFluxoId(e.target.value)} style={campoMkt(isMobile)}>
-            <option value="">{fluxos?"Escolha…":"Carregando…"}</option>
+            <option value="">{fluxos?"Escolha o fluxo…":"Carregando…"}</option>
             {(fluxos||[]).map(f=><option key={f.id} value={f.id}>{f.nome} ({f.blocos} blocos)</option>)}
-          </select>}</div>
+          </select>}
     </div>
 
     <div style={secao}>
@@ -2854,7 +2869,7 @@ function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar,irParaRitmo}){
       <div style={{...TITULO_MKT,marginBottom:0,flex:1,minWidth:160}}>{c.nome}</div>
       <PillDisparo status={c.status} agendado={c.agendado}/>
     </div>
-    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Fluxo {c.fluxo_nome} · {c.agendada_para?`criado em ${fmtDataHoraMkt(c.criado_em)}, agendado para ${fmtDataHoraMkt(c.agendada_para)}`:`começou em ${fmtDataHoraMkt(c.criado_em)}`} por {c.criado_por_nome||"—"}
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>{c.so_mensagem?"Mensagem única":`Fluxo ${c.fluxo_nome}`} · {c.agendada_para?`criado em ${fmtDataHoraMkt(c.criado_em)}, agendado para ${fmtDataHoraMkt(c.agendada_para)}`:`começou em ${fmtDataHoraMkt(c.criado_em)}`} por {c.criado_por_nome||"—"}
       {c.concluida_em&&` · terminou em ${fmtDataHoraMkt(c.concluida_em)}`}</div>
     {c.status==="rodando"&&c.agendado&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
       Agendado: a primeira mensagem sai <b>{fmtDataHoraMkt(c.agendada_para)}</b>. Para cancelar, use o botão abaixo.</div>}
@@ -3227,13 +3242,15 @@ function CampoPrazo({valor,aoMudar,isMobile}){
 }
 
 const LIMITE_MB_ARQUIVO_MKT=8, LIMITE_MB_VIDEO_MKT=150;
-function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar}){
+/* O TEXTO E O ARQUIVO DE UMA MENSAGEM — o mesmo campo no bloco do fluxo e
+   no disparo de "Só uma mensagem" (27/09/2026). Um componente só: dois
+   editores da mesma coisa acabariam aceitando coisas diferentes. */
+const ROTULO_MKT={color:C.sub,fontSize:11,fontWeight:700,marginBottom:5,textTransform:"uppercase",letterSpacing:.4};
+function ConteudoDaMensagem({d,aoMudar,acoes,isMobile,linhas=7}){
   const [subindo,setSubindo]=useState("");
   const [erro,setErro]=useState("");
-  useEffect(()=>{setErro("");},[no.id]);
-  const d=no.dados||{};
-  const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
-  const rot={color:C.sub,fontSize:11,fontWeight:700,marginBottom:5,textTransform:"uppercase",letterSpacing:.4};
+  const dados=aoMudar;
+  const rot=ROTULO_MKT;
   async function anexar(e){
     const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
     setErro("");
@@ -3251,19 +3268,9 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
       dados({midia:{url:r.url,tipo:r.tipo,nome:r.nome,mime:r.mime}});
     }catch(x){ setErro(x.message); } finally{ setSubindo(""); }
   }
-  const t=TIPO_BLOCO[no.tipo];
-  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
-    <div style={{display:"flex",alignItems:"center",gap:8}}>
-      <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
-      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
-      {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
-      {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
-    </div>
-    {no.tipo==="inicio"&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
-      É por aqui que cada pessoa do disparo entra. Puxe a seta do “Começa aqui” até o primeiro bloco.</div>}
-    {no.tipo==="mensagem"&&<React.Fragment>
+  return <React.Fragment>
       <div><div style={rot}>Texto</div>
-        <textarea value={d.texto||""} onChange={e=>dados({texto:e.target.value})} rows={7} maxLength={4000}
+        <textarea value={d.texto||""} onChange={e=>dados({texto:e.target.value})} rows={linhas} maxLength={4000}
           placeholder="Oi, {nome}! …" style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
         <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>{"{nome}"} vira o primeiro nome da pessoa. *negrito* e _itálico_ como no WhatsApp.</div></div>
       <div><div style={rot}>Arquivo (opcional)</div>
@@ -3279,6 +3286,26 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
             <input type="file" disabled={!!subindo} onChange={anexar} style={{display:"none"}}
               accept="image/jpeg,image/png,image/webp,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx"/></label>}
       </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+  </React.Fragment>;
+}
+
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar}){
+  const d=no.dados||{};
+  const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
+  const rot=ROTULO_MKT;
+  const t=TIPO_BLOCO[no.tipo];
+  return <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
+      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
+      {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
+      {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
+    </div>
+    {no.tipo==="inicio"&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+      É por aqui que cada pessoa do disparo entra. Puxe a seta do “Começa aqui” até o primeiro bloco.</div>}
+    {no.tipo==="mensagem"&&<React.Fragment>
+      <ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
     </React.Fragment>}
     {no.tipo==="espera"&&<div><div style={rot}>Esperar</div>
       <CampoPrazo valor={{quantidade:d.quantidade,unidade:d.unidade}} aoMudar={v=>dados({quantidade:v.quantidade,unidade:v.unidade})} isMobile={isMobile}/>
@@ -3327,7 +3354,6 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         </select>
       </div>)}
     </div>}
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
   </div>;
 }
 
