@@ -138,3 +138,21 @@ export function lerXlsx(buffer) {
   }
   return linhas;
 }
+
+// CSV simples, para quem preferir mandar nesse formato. Aceita ; e , como
+// separador — o Excel em português usa ponto e vírgula.
+export function lerCSV(texto) {
+  const limpo = texto.replace(/^\uFEFF/, "");
+  const sep = (limpo.split("\n")[0].match(/;/g) || []).length >= (limpo.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+  return limpo.split(/\r?\n/).filter(l => l.trim()).map(linha => {
+    const campos = []; let atual = "", aspas = false;
+    for (let i = 0; i < linha.length; i++) {
+      const c = linha[i];
+      if (c === '"') { if (aspas && linha[i + 1] === '"') { atual += '"'; i++; } else aspas = !aspas; }
+      else if (c === sep && !aspas) { campos.push(atual); atual = ""; }
+      else atual += c;
+    }
+    campos.push(atual);
+    return campos.map(c => c.trim());
+  });
+}

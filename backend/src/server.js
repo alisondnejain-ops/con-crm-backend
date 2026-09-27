@@ -22,6 +22,7 @@ import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao } from "./routes/site.routes.js";
+import marketingRoutes from "./routes/marketing.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
@@ -89,7 +90,8 @@ app.use(cors({
    que andar juntos sempre — este é o teto do TRANSPORTE, aquele é o teto do
    ARQUIVO depois de decodificado; 30 MB em base64 pedem uns 40 MB de corpo,
    e o resto é folga para o JSON em volta. */
-const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs"];
+// "/marketing": a lista de contatos sobe em base64 (até 8 MB, igual à escala do plantão).
+const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing"];
 const jsonGrande = express.json({ limit: "45mb" });
 const jsonNormal = express.json({ limit: "1mb" });
 app.use((req, res, next) =>
@@ -311,6 +313,7 @@ app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
+app.use("/marketing", cobrando, marketingRoutes); // Marketing: termo, listas, bloqueio, número de disparo (só gestor)
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.

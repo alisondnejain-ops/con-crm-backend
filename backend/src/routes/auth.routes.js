@@ -34,10 +34,13 @@ const norm = (e) => String(e || "").trim().toLowerCase();
    depois, em todo login — o piscar diria à equipe que a marca dela é um
    enfeite que o sistema aplica com atraso. */
 function orgDoUsuario(user) {
-  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo FROM orgs WHERE id = ?").get(user.org_id);
+  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo,marketing_liberado FROM orgs WHERE id = ?").get(user.org_id);
   /* `tipo` vem junto porque decide o MENU: a conta de corretor autônomo não
      mostra catraca — fila de distribuição com uma pessoa não é fila. */
-  return o ? { id: o.id, nome: o.name, codigo: o.adm_code, tipo: o.tipo || "imobiliaria", ...marcaDaOrg(o) } : null;
+  /* `marketing_liberado` decide se a seção Marketing aparece no menu — sem
+     ele aqui, a liberação feita no hub só apareceria no login seguinte. */
+  return o ? { id: o.id, nome: o.name, codigo: o.adm_code, tipo: o.tipo || "imobiliaria",
+    marketing_liberado: !!o.marketing_liberado, ...marcaDaOrg(o) } : null;
 }
 // O link que o gestor manda para os corretores dele.
 function linkDaEquipe(req, user) {
@@ -416,9 +419,9 @@ r.get("/me", authRequired, (req, res) => {
   /* A imobiliária vem do TOKEN, não do cadastro da pessoa. Para quase todo
      mundo dá no mesmo; para o master é a diferença entre "a casa dele" e "a
      casa em que ele está trabalhando agora", escolhida no hub de contas. */
-  const org = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo FROM orgs WHERE id = ?").get(req.user.org_id);
-  res.json({ user: publicUser(user),
-    org: org ? { id: org.id, nome: org.name, codigo: org.adm_code, tipo: org.tipo || "imobiliaria", ...marcaDaOrg(org) } : null });
+  // Mesma montagem do login (orgDoUsuario) — era uma cópia à parte, e o campo
+  // novo que entrasse só lá sumia aqui até o próximo login.
+  res.json({ user: publicUser(user), org: orgDoUsuario({ org_id: req.user.org_id }) });
 });
 
 // ── Minha conta ───────────────────────────────────────────────────────────────

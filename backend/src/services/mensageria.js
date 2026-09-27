@@ -17,6 +17,7 @@
    existir `trocarResponsavel`, documentado no CLAUDE.md em 01/09/2026), e é
    o motivo de este arquivo existir em vez de copiar o corpo do handler. */
 
+import { registrarPedidoDeSaida } from "./marketing.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -184,6 +185,11 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
     }
     throw e;
   }
+
+  /* "SAIR" de quem está numa lista de marketing entra na lista de bloqueio da
+     imobiliária (services/marketing.js). A conversa segue normal — isto só
+     impede disparos futuros —, e a função nunca lança. */
+  if (!fromMe) registrarPedidoDeSaida(orgId, lead.phone || phone, texto);
 
   /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
 
