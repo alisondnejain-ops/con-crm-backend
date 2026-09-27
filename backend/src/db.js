@@ -1425,4 +1425,92 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_leads_canal ON leads(org_id, canal_id)")
    duas linhas na mesma conversa criam. */
 addMsgCol("canal_id", "TEXT");
 
+/* ===== MARKETING: A ESTRUTURA DO DISPARO EM MASSA (27/09/2026) =====
+
+   Primeira fase, pedido do Ali: antes de qualquer envio existir, tudo o que
+   PROVA que o ConHub cumpriu a lei e que a responsabilidade pelos contatos é
+   da imobiliária. Ver services/marketing.js.
+
+   - `orgs.marketing_liberado`: o master liga por conta, no hub. Desligado é o
+     padrão — o recurso não aparece para quem não foi liberado.
+   - `marketing_termos`: cada aceite do termo, com quem, quando, de onde e o
+     resumo (hash) do texto exato que foi aceito. Linha nunca é apagada.
+   - `marketing_numero`: o número SEPARADO de onde os disparos vão sair.
+   - `marketing_listas` + `marketing_contatos`: cada lista enviada, com a
+     declaração de origem e o ARQUIVO ORIGINAL guardado no banco (compactado),
+     nunca num endereço público — é dado pessoal e é a prova.
+   - `marketing_bloqueio`: quem pediu para sair. Permanente por imobiliária. */
+addOrgCol("marketing_liberado", "INTEGER DEFAULT 0");
+addOrgCol("marketing_liberado_em", "INTEGER");
+addOrgCol("marketing_liberado_por", "TEXT");
+db.exec(`
+CREATE TABLE IF NOT EXISTS marketing_termos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  user_nome TEXT,
+  user_email TEXT,
+  papel TEXT,
+  versao TEXT NOT NULL,
+  texto_hash TEXT NOT NULL,
+  ip TEXT,
+  user_agent TEXT,
+  aceito_em INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_termo_org ON marketing_termos(org_id, aceito_em);
+CREATE TABLE IF NOT EXISTS marketing_numero (
+  org_id TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  token TEXT NOT NULL,
+  numero TEXT,
+  conectado INTEGER,
+  atualizado_em INTEGER NOT NULL,
+  atualizado_por TEXT
+);
+CREATE TABLE IF NOT EXISTS marketing_listas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  origem TEXT NOT NULL,
+  origem_detalhe TEXT,
+  coletado_em TEXT,
+  declaracao TEXT NOT NULL,
+  arquivo_nome TEXT,
+  arquivo_hash TEXT,
+  arquivo_bytes INTEGER,
+  arquivo_gz BLOB,
+  total INTEGER DEFAULT 0,
+  validos INTEGER DEFAULT 0,
+  invalidos INTEGER DEFAULT 0,
+  repetidos INTEGER DEFAULT 0,
+  bloqueados INTEGER DEFAULT 0,
+  criado_por TEXT,
+  criado_por_nome TEXT,
+  ip TEXT,
+  criado_em INTEGER NOT NULL,
+  arquivada_em INTEGER,
+  arquivada_por TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_listas_org ON marketing_listas(org_id, criado_em);
+CREATE TABLE IF NOT EXISTS marketing_contatos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lista_id TEXT NOT NULL,
+  telefone TEXT NOT NULL,
+  nome TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mkt_contato_lista ON marketing_contatos(lista_id, telefone);
+CREATE INDEX IF NOT EXISTS idx_mkt_contato_tel ON marketing_contatos(org_id, telefone);
+CREATE TABLE IF NOT EXISTS marketing_bloqueio (
+  org_id TEXT NOT NULL,
+  telefone TEXT NOT NULL,
+  motivo TEXT NOT NULL,
+  texto TEXT,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  PRIMARY KEY (org_id, telefone)
+);
+`);
+
 export default db;

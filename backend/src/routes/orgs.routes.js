@@ -18,6 +18,7 @@ import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSesso
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao } from "../services/assinatura.js";
 import { cancelarAssinatura } from "../services/asaas.js";
+import { definirLiberacao } from "../services/marketing.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
 import { codigoLivre } from "../services/codigo.js";
@@ -74,6 +75,7 @@ function resumo(req, org) {
     criada_em: org.created_at || null,
     tipo: org.tipo || "imobiliaria",
     trial_ate: org.trial_ate || null,
+    marketing_liberado: !!org.marketing_liberado,
   };
 }
 
@@ -343,6 +345,22 @@ r.post("/autonomos/:id/liberar", (req, res) => {
 
   db.prepare("UPDATE orgs SET trial_ate = ?, liberado_ate = ? WHERE id = ?").run(ate, ate, org.id);
   console.log(`[autonomo] ${req.user.name} liberou ${org.name} até ${new Date(ate).toLocaleDateString("pt-BR")}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* LIBERAR O MARKETING (disparo em massa) PARA UMA CONTA — 27/09/2026.
+
+   Desligado por padrão, para toda conta. É o primeiro degrau da proteção do
+   ConHub: o recurso só existe para quem o master decidiu liberar, e a data e
+   quem liberou ficam gravadas. Desligar esconde a seção e trava as rotas, mas
+   NÃO apaga nada — termo aceito, listas, declarações e bloqueios continuam
+   guardados, porque são a prestação de contas. */
+r.post("/:id/marketing", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (typeof req.body?.liberado !== "boolean") return res.status(400).json({ error: "Diga se o marketing fica liberado ou não." });
+  definirLiberacao(org.id, req.body.liberado, req.user.id);
+  console.log(`[master] ${req.user.name} ${req.body.liberado ? "liberou" : "desligou"} o marketing de ${org.name}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 

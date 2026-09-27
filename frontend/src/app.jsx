@@ -713,6 +713,8 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 
 /* ===== ícones (SVG inline) ===== */
 const ICO={
+  // Megafone: a seção Marketing (disparos em massa, e depois os fluxos do bot).
+  megafone:<React.Fragment><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></React.Fragment>,
   /* WhatsApp: o balão com o fone dentro, desenhado com traço como os outros
      ícones da casa. Não é a logo oficial (que é sólida e tem cor própria) —
      é a forma que a equipe reconhece, no mesmo traço do resto da tela. */
@@ -1516,6 +1518,18 @@ function ConCRM(){
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
+    liberarMarketing:(id,liberado)=>api(`/orgs/${id}/marketing`,{method:"POST",body:{liberado}}),
+    // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
+    marketing:()=>api("/marketing"),
+    aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
+    salvarNumeroMarketing:(dados)=>api("/marketing/numero",{method:"PUT",body:dados}),
+    removerNumeroMarketing:()=>api("/marketing/numero",{method:"DELETE"}),
+    listasMarketing:()=>api("/marketing/listas"),
+    criarListaMarketing:(dados)=>api("/marketing/listas",{method:"POST",body:dados}),
+    arquivarListaMarketing:(id)=>api(`/marketing/listas/${id}/arquivar`,{method:"POST"}),
+    arquivoListaMarketing:(id)=>api(`/marketing/listas/${id}/arquivo`),
+    bloqueioMarketing:()=>api("/marketing/bloqueio"),
+    bloquearMarketing:(telefone)=>api("/marketing/bloqueio",{method:"POST",body:{telefone}}),
     // Sócios da PLATAFORMA (contas master), não da imobiliária.
     listarSocios:()=>api("/orgs/masters"),
     // Contas de corretor autônomo: criar, e liberar/travar sem esperar vencimento.
@@ -2233,6 +2247,320 @@ function AvisoPlantao({meu,isMobile,compacto}){
   </div>;
 }
 
+/* MARKETING · DISPAROS EM MASSA — a ESTRUTURA (27/09/2026).
+
+   Pedido do Ali: montar primeiro o que protege o ConHub, e só depois o envio.
+   Esta tela tem quatro partes, e a ordem é a ordem em que a imobiliária
+   precisa passar por elas:
+
+   1. o TERMO de uso, com o aceite registrado (quem, quando, de onde, versão);
+   2. o NÚMERO DE DISPARO, separado do número que recebe os leads;
+   3. as LISTAS de contatos, cada uma com a declaração de origem — lista
+      comprada é recusada — e o arquivo original guardado;
+   4. a LISTA DE BLOQUEIO: quem pediu para sair nunca mais recebe.
+
+   O envio em si é a próxima etapa, e o último cartão diz isso por escrito:
+   tela que parece pronta e não envia nada seria pior que tela nenhuma.
+
+   Cada parte é um componente de verdade, declarado aqui fora — componente
+   declarado DENTRO de outro perde o foco do campo a cada tecla (foi o defeito
+   da tela de metas, 23/09/2026). */
+const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,marginBottom:14};
+const TITULO_MKT={fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8};
+const campoMkt=(isMobile)=>({width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+  background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",fontFamily:FONT});
+const botaoMkt=(ativo=true,cor=C.greenDeep)=>({background:ativo?cor:C.faint,color:"#fff",border:"none",borderRadius:10,
+  padding:"10px 16px",fontSize:13,fontWeight:600,cursor:ativo?"pointer":"default"});
+const botaoLeveMkt={background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",
+  fontSize:12.5,fontWeight:600,cursor:"pointer"};
+const fmtDataHoraMkt=(ms)=>ms?new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";
+function NumeroDoPasso({n,feito}){
+  return <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",
+    background:feito?C.green:C.surface,color:feito?"#fff":C.sub,border:feito?"none":`1px solid ${C.line}`,fontSize:11.5,fontWeight:700}}>
+    {feito?<Icon n="check" size={13}/>:n}</span>;
+}
+
+function Marketing({acoes,org,isMobile}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const rever=()=>acoes.marketing().then(x=>{setD(x);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[org&&org.id]);
+  const moldura={maxWidth:880,margin:"0 auto",padding:isMobile?"14px 12px 90px":"20px 22px 40px"};
+  if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
+  if(!d.liberado) return <div style={moldura}><div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><Icon n="lock" size={16}/> Disparo em massa não liberado</div>
+    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Este recurso é liberado pelo ConHub para cada conta. Fale com a gente para ativar.</div>
+  </div></div>;
+  const aceito=!!d.termo.aceite;
+  return <div style={moldura}>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    <div style={{display:"flex",gap:isMobile?8:14,flexWrap:"wrap",marginBottom:16,color:C.sub,fontSize:12.5,fontWeight:600}}>
+      {[["Termo de uso",aceito],["Número de disparo",!!d.numero],["Lista de contatos",d.listas>0]].map(([t,ok],i)=>
+        <span key={t} style={{display:"inline-flex",alignItems:"center",gap:6}}><NumeroDoPasso n={i+1} feito={ok}/>{t}</span>)}
+    </div>
+    <TermoMarketing d={d} org={org} acoes={acoes} aoMudar={setD} isMobile={isMobile}/>
+    {aceito&&<NumeroDeDisparo d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
+    {aceito&&<ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>}
+    <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
+    <div style={{...CARTAO_MKT,background:C.surface,borderStyle:"dashed"}}>
+      <div style={TITULO_MKT}><Icon n="send" size={16}/> Disparos</div>
+      <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
+        O envio chega na próxima etapa, com limite por dia, intervalo entre mensagens, horário comercial, pausa automática
+        e relatório de cada campanha. Toda mensagem vai sair com o “responda SAIR”.
+      </div>
+    </div>
+  </div>;
+}
+
+function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
+  const [aberto,setAberto]=useState(!d.termo.aceite);
+  const [li,setLi]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const a=d.termo.aceite;
+  async function aceitar(){
+    setErro("");setOcupado(true);
+    try{ const x=await acoes.aceitarTermoMarketing(); aoMudar(x); setAberto(false); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><NumeroDoPasso n={1} feito={!!a}/> Termo de uso</div>
+    {a
+      ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>
+        Aceito por <b style={{color:C.ink}}>{a.por}</b> ({a.email}) em {fmtDataHoraMkt(a.em)} · versão {d.termo.versao}
+      </div>
+      :<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>
+        Leia antes de continuar. O aceite fica registrado com nome, data, hora e endereço de internet de quem aceitou.
+        {d.termo.versao_anterior&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:8,padding:"7px 10px",marginTop:8,fontWeight:600}}>
+          O termo mudou desde o último aceite (versão {d.termo.versao_anterior}). Aceite a versão nova para continuar.</div>}
+      </div>}
+    {a&&<button onClick={()=>setAberto(!aberto)} style={{...botaoLeveMkt,marginBottom:aberto?10:0}}>{aberto?"Esconder o termo":"Ver o termo"}</button>}
+    {aberto&&<div style={{whiteSpace:"pre-wrap",background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?12:16,
+      maxHeight:isMobile?340:380,overflowY:"auto",fontSize:12.5,lineHeight:1.6,color:C.ink,marginBottom:a?0:12}}>{d.termo.texto}</div>}
+    {!a&&(d.termo.pode_aceitar
+      ?<React.Fragment>
+        <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:13,color:C.ink,lineHeight:1.5,marginBottom:10,cursor:"pointer"}}>
+          <input type="checkbox" checked={li} onChange={e=>setLi(e.target.checked)} style={{marginTop:3,width:17,height:17,flexShrink:0}}/>
+          <span>Li o termo e aceito em nome de <b>{org&&org.nome||"esta imobiliária"}</b>, com poderes para representá-la.</span>
+        </label>
+        {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:8}}>{erro}</div>}
+        <button onClick={aceitar} disabled={!li||ocupado} style={botaoMkt(li&&!ocupado)}>{ocupado?"Registrando…":"Aceitar termo"}</button>
+      </React.Fragment>
+      :<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5}}>
+        Você está nesta conta como ConHub. O aceite precisa ser feito pelo gestor da imobiliária, na conta dele.</div>)}
+  </div>;
+}
+
+function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
+  const n=d.numero;
+  const [editando,setEditando]=useState(!n);
+  const [f,setF]=useState({host:"",token:""});
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [aviso,setAviso]=useState("");
+  async function salvar(){
+    setErro("");setAviso("");setOcupado(true);
+    try{
+      const r=await acoes.salvarNumeroMarketing(f);
+      if(r.numero&&r.numero.consulta&&!r.numero.consulta.ok)
+        setAviso(`Salvo, mas não consegui conferir a instância agora (${r.numero.consulta.erro}). Ela é conferida de novo antes do primeiro envio.`);
+      setF({host:"",token:""}); setEditando(false); await aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function remover(){
+    if(!window.confirm("Tirar o número de disparo desta conta?")) return;
+    try{ await acoes.removerNumeroMarketing(); setEditando(true); await aoMudar(); }catch(e){ setErro(e.message); }
+  }
+  const pronto=f.host.trim()&&f.token.trim();
+  return <div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><NumeroDoPasso n={2} feito={!!n}/> Número de disparo</div>
+    <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:12}}>
+      Use um número <b>só para disparo</b>, numa instância da Uazapi separada. Nunca o número que recebe os leads nem o WhatsApp
+      pessoal de um corretor: se o disparo for bloqueado, o atendimento continua de pé.</div>
+    {n&&!editando&&<div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:200,fontSize:12.5,color:C.sub,lineHeight:1.6}}>
+        <div><b style={{color:C.ink}}>{n.numero||"número ainda não identificado"}</b>{" "}
+          {n.conectado===true?<Pill c={C.greenMid} bg={C.greenSoft}>conectado</Pill>
+            :n.conectado===false?<Pill c={C.hot} bg={C.hotSoft}>desconectado</Pill>
+            :<Pill c={C.cool} bg={C.coolSoft}>não conferido</Pill>}</div>
+        <div style={{fontFamily:MONO,fontSize:11.5}}>{n.host} · token {n.token}</div>
+      </div>
+      <button onClick={()=>setEditando(true)} style={botaoLeveMkt}>Trocar</button>
+      <button onClick={remover} style={{...botaoLeveMkt,color:C.hot}}>Remover</button>
+    </div>}
+    {aviso&&<div style={{color:"#8a6d1f",fontSize:12.5,marginTop:10}}>{aviso}</div>}
+    {editando&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
+      <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Endereço da instância</div>
+        <input value={f.host} onChange={e=>setF({...f,host:e.target.value})} placeholder="https://suaconta.uazapi.com" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
+      <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Token da instância</div>
+        <input value={f.token} onChange={e=>setF({...f,token:e.target.value})} placeholder="cole o token" autoCapitalize="off" style={campoMkt(isMobile)}/></div>
+      {erro&&<div style={{gridColumn:"1/-1",color:C.hot,fontSize:12.5}}>{erro}</div>}
+      <div style={{gridColumn:"1/-1",display:"flex",gap:8}}>
+        <button onClick={salvar} disabled={!pronto||ocupado} style={botaoMkt(pronto&&!ocupado)}>{ocupado?"Conferindo…":"Salvar número"}</button>
+        {n&&<button onClick={()=>{setEditando(false);setErro("");}} style={botaoLeveMkt}>Cancelar</button>}
+      </div>
+    </div>}
+  </div>;
+}
+
+const LISTA_VAZIA={nome:"",origem:"",origem_detalhe:"",coletado_em:"",declaracao:false,arquivo:null};
+function ListasDeContatos({d,acoes,aoMudar,isMobile}){
+  const [listas,setListas]=useState(null);
+  const [abrindo,setAbrindo]=useState(false);
+  const [f,setF]=useState(LISTA_VAZIA);
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState(null);
+  const rever=()=>acoes.listasMarketing().then(r=>setListas(r.listas)).catch(e=>setErro(e.message));
+  useEffect(()=>{rever();},[]);
+  const origem=d.origens.find(o=>o.id===f.origem);
+  const hoje=new Date(); const hojeISO=`${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,"0")}-${String(hoje.getDate()).padStart(2,"0")}`;
+  function escolher(e){
+    const arq=e.target.files&&e.target.files[0]; if(!arq) return;
+    if(arq.size>8*1024*1024) return setErro("Arquivo muito grande. O limite é 8 MB.");
+    const leitor=new FileReader();
+    leitor.onload=()=>setF(v=>({...v,arquivo:{nome:arq.name,base64:String(leitor.result)},nome:v.nome||arq.name.replace(/\.[^.]+$/,"")}));
+    leitor.readAsDataURL(arq);
+  }
+  const pronto=f.nome.trim().length>=2&&origem&&!origem.recusada&&(!origem.detalhe||f.origem_detalhe.trim().length>=10)
+    &&f.coletado_em&&f.declaracao&&f.arquivo;
+  async function enviar(){
+    setErro("");setOcupado("enviar");
+    try{
+      const r=await acoes.criarListaMarketing(f);
+      setFeito(r.lista); setF(LISTA_VAZIA); setAbrindo(false); await rever(); await aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function baixar(l){
+    setOcupado("baixar:"+l.id);
+    try{
+      const r=await acoes.arquivoListaMarketing(l.id);
+      const bytes=Uint8Array.from(atob(r.base64),c=>c.charCodeAt(0));
+      const url=URL.createObjectURL(new Blob([bytes]));
+      const a=document.createElement("a"); a.href=url; a.download=r.nome||"lista"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function arquivar(l){
+    if(!window.confirm(`Arquivar a lista "${l.nome}"? Os contatos dela saem de uso. A declaração de origem e o arquivo original continuam guardados.`)) return;
+    try{ const r=await acoes.arquivarListaMarketing(l.id); setListas(r.listas); await aoMudar(); }catch(e){ setErro(e.message); }
+  }
+  const rotulo={color:C.sub,fontSize:11,fontWeight:600,marginBottom:4};
+  return <div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><NumeroDoPasso n={3} feito={d.listas>0}/> Listas de contatos</div>
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
+      Cada lista entra com a origem declarada. O arquivo original fica guardado para prestar contas, e quem pediu para sair fica de fora.</div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+      Lista “{feito.nome}” recebida: <b>{feito.validos} contato(s)</b>
+      {feito.invalidos>0&&` · ${feito.invalidos} número(s) inválido(s)`}
+      {feito.repetidos>0&&` · ${feito.repetidos} repetido(s)`}
+      {feito.bloqueados>0&&` · ${feito.bloqueados} já tinham pedido para sair e ficaram de fora`}.</div>}
+
+    {abrindo
+      ?<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:14,display:"flex",flexDirection:"column",gap:11,marginBottom:12}}>
+        <div><div style={rotulo}>Arquivo (.xlsx ou .csv, com uma coluna “telefone”)</div>
+          <input type="file" accept=".xlsx,.csv,text/csv" onChange={escolher} style={{fontSize:13}}/>
+          {f.arquivo&&<div style={{color:C.faint,fontSize:11.5,marginTop:4}}>{f.arquivo.nome}</div>}</div>
+        <div><div style={rotulo}>Nome da lista</div>
+          <input value={f.nome} onChange={e=>setF({...f,nome:e.target.value})} placeholder="ex.: Clientes do lançamento Jardins" style={campoMkt(isMobile)}/></div>
+        <div><div style={rotulo}>De onde vieram estes contatos?</div>
+          <select value={f.origem} onChange={e=>setF({...f,origem:e.target.value})} style={campoMkt(isMobile)}>
+            <option value="">Escolha…</option>
+            {d.origens.map(o=><option key={o.id} value={o.id}>{o.rotulo}</option>)}
+          </select>
+          {origem&&origem.recusada&&<div style={{color:C.hot,fontSize:12.5,marginTop:6,lineHeight:1.5}}>
+            Lista comprada ou de terceiros não pode ser usada: as pessoas não autorizaram receber mensagens da imobiliária.</div>}</div>
+        {origem&&origem.detalhe&&<div><div style={rotulo}>Descreva a origem</div>
+          <textarea value={f.origem_detalhe} onChange={e=>setF({...f,origem_detalhe:e.target.value})} rows={2}
+            placeholder="ex.: fichas preenchidas no plantão do Residencial X em agosto" style={{...campoMkt(isMobile),resize:"vertical"}}/></div>}
+        <div><div style={rotulo}>Quando os contatos foram coletados?</div>
+          <input type="date" max={hojeISO} value={f.coletado_em} onChange={e=>setF({...f,coletado_em:e.target.value})} style={{...campoMkt(isMobile),maxWidth:200}}/></div>
+        <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.5,cursor:"pointer"}}>
+          <input type="checkbox" checked={f.declaracao} onChange={e=>setF({...f,declaracao:e.target.checked})} style={{marginTop:3,width:17,height:17,flexShrink:0}}/>
+          <span>{d.declaracao}</span>
+        </label>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={enviar} disabled={!pronto||!!ocupado} style={botaoMkt(!!pronto&&!ocupado)}>{ocupado==="enviar"?"Enviando…":"Enviar lista"}</button>
+          <button onClick={()=>{setAbrindo(false);setErro("");setF(LISTA_VAZIA);}} style={botaoLeveMkt}>Cancelar</button>
+        </div>
+      </div>
+      :<button onClick={()=>{setAbrindo(true);setFeito(null);setErro("");}} style={{...botaoMkt(),marginBottom:12,display:"inline-flex",alignItems:"center",gap:7}}>
+        <Icon n="lista" size={15}/> Enviar lista de contatos</button>}
+
+    {listas===null?<div style={{color:C.faint,fontSize:12.5}}>Carregando listas…</div>
+      :listas.length===0?<div style={{color:C.faint,fontSize:12.5}}>Nenhuma lista enviada ainda.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {listas.map(l=><div key={l.id} style={{border:`1px solid ${C.line}`,borderRadius:11,padding:"11px 12px",
+          display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",opacity:l.arquivada_em?0.6:1}}>
+          <div style={{flex:1,minWidth:220}}>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}
+              {l.arquivada_em&&<span style={{color:C.faint,fontWeight:500,fontSize:11.5}}> · arquivada em {fmtData(l.arquivada_em)}</span>}</div>
+            <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}>
+              {l.origem_rotulo}{l.origem_detalhe?` — ${l.origem_detalhe}`:""} · coletados em {l.coletado_em.split("-").reverse().join("/")}</div>
+            <div style={{color:C.faint,fontSize:11.5}}>
+              <b style={{color:C.ink,fontFamily:MONO}}>{l.validos}</b> contato(s) · enviada por {l.criado_por_nome||"—"} em {fmtDataHoraMkt(l.criado_em)}</div>
+          </div>
+          <button onClick={()=>baixar(l)} disabled={!!ocupado} title="Baixar o arquivo original, como foi enviado"
+            style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:6}}>
+            <Icon n="download" size={14}/>{ocupado==="baixar:"+l.id?"…":"Original"}</button>
+          {!l.arquivada_em&&<button onClick={()=>arquivar(l)} style={botaoLeveMkt}>Arquivar</button>}
+        </div>)}
+      </div>}
+  </div>;
+}
+
+function ListaDeBloqueio({acoes,aoMudar,isMobile}){
+  const [b,setB]=useState(null);
+  const [tel,setTel]=useState("");
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  useEffect(()=>{acoes.bloqueioMarketing().then(setB).catch(e=>setErro(e.message));},[]);
+  async function bloquear(){
+    setErro("");setOcupado(true);
+    try{ setB(await acoes.bloquearMarketing(tel)); setTel(""); await aoMudar(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={CARTAO_MKT}>
+    <div style={TITULO_MKT}><Icon n="xcirc" size={16}/> Pediram para sair {b&&<span style={{color:C.faint,fontWeight:600,fontSize:13}}>· {b.total}</span>}</div>
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>
+      Quem responde SAIR, PARAR ou “não quero” entra aqui sozinho e não recebe mais disparos, mesmo que esteja em outra lista.
+      Não dá para desfazer.</div>
+    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+      <input value={tel} onChange={e=>setTel(e.target.value)} inputMode="tel" placeholder="Bloquear um número: (87) 99999-0000"
+        style={{...campoMkt(isMobile),flex:1,minWidth:200,width:"auto"}}/>
+      <button onClick={bloquear} disabled={!tel.trim()||ocupado} style={botaoMkt(!!tel.trim()&&!ocupado,C.hot)}>{ocupado?"…":"Bloquear"}</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:8}}>{erro}</div>}
+    {b&&b.itens.length>0&&<div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:220,overflowY:"auto"}}>
+      {b.itens.map(i=><div key={i.telefone} style={{display:"flex",gap:10,fontSize:12.5,color:C.sub,padding:"4px 0",borderBottom:`1px solid ${C.line}`}}>
+        <span style={{fontFamily:MONO,color:C.ink}}>{fmtTel(i.telefone)}</span>
+        <span style={{flex:1}}>{i.motivo==="pediu_sair"?`pediu para sair (“${i.texto||"SAIR"}”)`:"bloqueado na mão"}</span>
+        <span style={{color:C.faint}}>{fmtData(i.criado_em)}</span>
+      </div>)}
+    </div>}
+  </div>;
+}
+
+/* O botão do hub que libera (ou desliga) o Marketing de uma conta. Desligar
+   esconde a seção e trava as rotas, mas não apaga nada. */
+function BotaoMarketingHub({conta,acoes,aoMudar,compacto}){
+  const [ocupado,setOcupado]=useState(false);
+  const ligado=!!conta.marketing_liberado;
+  async function alternar(){
+    if(ligado&&!window.confirm(`Desligar o Marketing de ${conta.nome}? A seção some para eles; termo, listas e bloqueios continuam guardados.`)) return;
+    setOcupado(true);
+    try{ await acoes.liberarMarketing(conta.id,!ligado); await aoMudar(); }
+    catch(e){ window.alert(e.message); } finally{ setOcupado(false); }
+  }
+  return <button onClick={alternar} disabled={ocupado}
+    title={ligado?"Marketing liberado para esta conta — clique para desligar":"Liberar o Marketing (disparo em massa) para esta conta"}
+    style={{background:ligado?C.greenSoft:C.surface,color:ligado?C.greenDeep:C.sub,border:`1px solid ${ligado?C.green+"55":C.line}`,
+      borderRadius:compacto?9:11,padding:compacto?"7px 11px":"8px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer",
+      display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+    <Icon n="megafone" size={13}/>{ocupado?"…":ligado?"Marketing liberado":"Liberar marketing"}</button>;
+}
+
 /* APAGAR UMA CONTA DA PLATAFORMA — imobiliária ou corretor autônomo.
 
    Um componente só para as duas listas do hub: a confirmação é a mesma coisa
@@ -2385,6 +2713,8 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
                 trabalho — é o que mais merece o clique agora. */}
             {c.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
               <Icon n="clock" size={12}/>{c.pendentes} cadastro(s) aguardando aprovação</div>}
+
+            <div><BotaoMarketingHub conta={c} acoes={acoes} aoMudar={rever}/></div>
 
             <div style={{display:"flex",gap:7,marginTop:"auto"}}>
               <button onClick={()=>entrar(c)} disabled={!!ocupado}
@@ -2561,6 +2891,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
                 fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
                 display:"flex",alignItems:"center",gap:6}}>
               {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
+            <BotaoMarketingHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto/>
             <button onClick={()=>abrir(c,"liberar")} disabled={!!ocupado}
               style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.greenMid,
                 border:travado?"none":`1px solid ${C.green}55`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
@@ -3698,7 +4029,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -3749,9 +4080,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        tempo: os três números do relatório (veio / faltou / não conferido)
        deixam de significar qualquer coisa. Some a tela inteira, e some junto o
        lembrete do plantão no alto do sistema. */
-    .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")));
+    .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")))
+    // Marketing só existe para a conta que o ConHub liberou.
+    .filter(item=>item[0]!=="marketing"||!!(org&&org.marketing_liberado));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -3870,6 +4203,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
         {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
@@ -3920,6 +4254,10 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
    filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
    próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
+/* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
+   atendimento por bot entram aqui depois, como segundo filho. Só aparece para
+   o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"]];
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 // O grupo está "ativo" quando a tela aberta é um dos filhos dele.
 const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
