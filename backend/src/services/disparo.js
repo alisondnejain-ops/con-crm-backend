@@ -341,7 +341,7 @@ export const DECLARACAO_DISPARO =
 /* A linha de onde o disparo sai mora em services/marketing.js
    (`linhaDeDisparo`): a de contingência, se houver, senão a da casa. */
 
-export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao }, { ip } = {}) {
+export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao, agendar_para }, { ip } = {}) {
   exigirPronto(orgId);
   const eu = db.prepare("SELECT id, name, master, org_id FROM users WHERE id = ?").get(user.id);
   if (eu?.master && eu.org_id !== orgId)
@@ -360,17 +360,28 @@ export function criarCampanha(orgId, user, { nome, fluxo_id, publico, declaracao
 
   const id = "mc_" + randomUUID();
   const agora = agoraFn();
+  /* AGENDAR (27/09/2026): a imobiliária escolhe quando o disparo começa.
+     Sem data, começa agora. A data vale como a primeira ação de cada pessoa
+     — daí para frente o ritmo do número decide o espaçamento. */
+  let quando = agora, agendada = null;
+  if (agendar_para !== undefined && agendar_para !== null && agendar_para !== "") {
+    const t = typeof agendar_para === "number" ? agendar_para : new Date(agendar_para).getTime();
+    if (!Number.isFinite(t)) throw new ErroMarketing(400, "Data do agendamento inválida.");
+    if (t < agora - 60000) throw new ErroMarketing(400, "Essa data já passou. Escolha um horário no futuro, ou comece agora.");
+    if (t > agora + 90 * 86400000) throw new ErroMarketing(400, "Dá para agendar até 90 dias à frente.");
+    if (t > agora + 60000) { quando = t; agendada = t; }
+  }
   const inicio = grafo.nos.find(x => x.tipo === "inicio").id;
   db.transaction(() => {
     db.prepare(`INSERT INTO marketing_campanhas (id,org_id,nome,fluxo_id,fluxo_nome,grafo,publico,declaracao,status,total,
-        criado_por,criado_por_nome,ip,criado_em,iniciada_em) VALUES (?,?,?,?,?,?,?,?,'rodando',?,?,?,?,?,?)`)
+        criado_por,criado_por_nome,ip,criado_em,iniciada_em,agendada_para) VALUES (?,?,?,?,?,?,?,?,'rodando',?,?,?,?,?,?,?)`)
       .run(id, orgId, n, f.id, f.nome, JSON.stringify(grafo), JSON.stringify({ ...r.publico, resumo: r.resumo }),
-        DECLARACAO_DISPARO, r.total, eu?.id || user.id, eu?.name || null, ip || null, agora, agora);
+        DECLARACAO_DISPARO, r.total, eu?.id || user.id, eu?.name || null, ip || null, agora, quando, agendada);
     const ins = db.prepare(`INSERT INTO marketing_execucoes (id,org_id,campanha_id,telefone,nome,lead_id,no_atual,estado,proxima_em,criado_em,atualizado_em)
       VALUES (?,?,?,?,?,?,?,'ativa',?,?,?)`);
-    for (const c of r.contatos) ins.run("me_" + randomUUID(), orgId, id, c.telefone, c.nome || null, c.lead_id, inicio, agora, agora, agora);
+    for (const c of r.contatos) ins.run("me_" + randomUUID(), orgId, id, c.telefone, c.nome || null, c.lead_id, inicio, quando, agora, agora);
   })();
-  console.log(`[disparo] "${n}" começou para ${r.total} pessoa(s) em ${orgId} (por ${eu?.name})`);
+  console.log(`[disparo] "${n}" ${agendada ? `agendado para ${new Date(agendada).toISOString()}` : "começou"} para ${r.total} pessoa(s) em ${orgId} (por ${eu?.name})`);
   return relatorio(orgId, id);
 }
 
@@ -424,7 +435,8 @@ function contagens(id) {
 export function listarCampanhas(orgId) {
   return db.prepare("SELECT * FROM marketing_campanhas WHERE org_id = ? ORDER BY criado_em DESC LIMIT 100").all(orgId)
     .map(c => ({ id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, status: c.status, motivo: c.motivo, total: c.total,
-      criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em, ...contagens(c.id) }));
+      criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em, agendada_para: c.agendada_para || null,
+      agendado: !!(c.status === "rodando" && c.agendada_para && c.agendada_para > agoraFn()), ...contagens(c.id) }));
 }
 
 /* O relatório de um disparo: os números, e quantas pessoas passaram por
@@ -445,7 +457,9 @@ export function relatorio(orgId, id) {
   const proximo = c.status === "rodando"
     ? db.prepare("SELECT MIN(proxima_em) p FROM marketing_execucoes WHERE campanha_id = ? AND estado = 'ativa'").get(id).p : null;
   return {
-    espera_motivo: proximo && proximo > agoraFn() + 60000 ? motivoDaEspera(orgId, agoraFn()) : null,
+    agendada_para: c.agendada_para || null,
+    agendado: !!(c.agendada_para && c.agendada_para > agoraFn() && !contagens(id).mensagens_enviadas),
+    espera_motivo: proximo && proximo > agoraFn() + 60000 && !(c.agendada_para && c.agendada_para > agoraFn()) ? motivoDaEspera(orgId, agoraFn()) : null,
     id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, status: c.status, motivo: c.motivo, total: c.total,
     criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em,
     declaracao: c.declaracao, publico, grafo, ...contagens(id), proximo_envio_em: proximo || null,
@@ -461,10 +475,12 @@ export function relatorio(orgId, id) {
 function motivoDaEspera(orgId, agora) {
   const lim = ritmoDaOrg(orgId);
   const d = new Date(agora);
-  if (!lim.domingo && d.getDay() === 0) return "Hoje é domingo, e o envio aos domingos está desligado no ritmo de envio.";
-  const h = d.getHours() + d.getMinutes() / 60;
-  if (h < lim.hora_inicio) return `O envio começa às ${lim.hora_inicio}h.`;
-  if (h >= lim.hora_fim) return `O envio para às ${lim.hora_fim}h.`;
+  if (lim.janela) {
+    if (!lim.domingo && d.getDay() === 0) return "Hoje é domingo, e o envio aos domingos está desligado no ritmo de envio.";
+    const h = d.getHours() + d.getMinutes() / 60;
+    if (h < lim.hora_inicio) return `O envio começa às ${lim.hora_inicio}h, pelo ritmo de envio.`;
+    if (h >= lim.hora_fim) return `O envio para às ${lim.hora_fim}h, pelo ritmo de envio.`;
+  }
   const hoje = db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE org_id = ? AND status = 'ok' AND enviado_em >= ?").get(orgId, inicioDoDia(agora)).n;
   if (hoje >= lim.limite_dia) return `O limite de ${lim.limite_dia} mensagens por dia já foi atingido hoje.`;
   return null;
@@ -473,12 +489,14 @@ function motivoDaEspera(orgId, agora) {
 /* ===================== O BATIMENTO ===================== */
 
 function dentroDoHorario(agora, lim) {
+  if (!lim.janela) return true;   // horário livre: a imobiliária dispara quando quiser
   const d = new Date(agora);
   if (!lim.domingo && d.getDay() === 0) return false;
   const h = d.getHours() + d.getMinutes() / 60;
   return h >= lim.hora_inicio && h < lim.hora_fim;
 }
 function proximaAbertura(agora, lim) {
+  if (!lim.janela) return agora;
   const d = new Date(agora);
   for (let i = 0; i < 8; i++) {
     const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i, lim.hora_inicio, 0, 0, 0);
@@ -812,7 +830,7 @@ export function emFluxoDeDisparo(orgId, phone) {
   const f = formas(phone);
   return !!db.prepare(`SELECT 1 FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
     WHERE e.org_id = ? AND e.telefone IN (${f.map(() => "?").join(",")}) AND e.estado IN ('ativa','aguardando_resposta')
-      AND c.status IN ('rodando','pausada') LIMIT 1`).get(orgId, ...f);
+      AND e.primeira_enviada = 1 AND c.status IN ('rodando','pausada') LIMIT 1`).get(orgId, ...f);
 }
 /* Qual disparo alcançou este número por último (o nome da campanha), ou
    null. É o que faz o lead que nasce respondendo pela linha da casa entrar

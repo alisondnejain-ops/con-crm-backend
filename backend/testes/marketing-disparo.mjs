@@ -269,8 +269,8 @@ for (let i = 0; i < pessoasCamp2 + 2; i++) await tique(10);
 assert.equal(exec(camp2, "5587900000003").estado, "assumida");
 assert.ok(!envios.some(e => e.numero === "5587900000003" && e.texto === "Segunda"), "a segunda mensagem não sai no meio da conversa");
 
-console.log("11. Fora do horário não sai nada; o limite do dia empurra para amanhã");
-await chamar(tGestora, "/marketing/numero/limites", "PUT", { limite_dia: 1 });
+console.log("11. Com o limite de horário ligado, fora dele não sai nada; o limite do dia empurra para amanhã");
+await chamar(tGestora, "/marketing/numero/limites", "PUT", { limite_dia: 1, janela: true });
 const L4 = novoLead("Lia Duarte", "5587900000004", false);
 const L5 = novoLead("Leo Esteves", "5587900000005", false);
 const fluxo3 = (await chamar(tGestora, "/marketing/fluxos", "POST", { nome: "Simples" })).d.id;
@@ -293,7 +293,7 @@ assert.ok(pendente > manha.getTime() + 86400000 - 1, "o resto vai para o dia seg
 
 console.log("12. Cinco falhas seguidas pausam o disparo sozinhas");
 await chamar(tGestora, `/marketing/campanhas/${camp3}/cancelar`, "POST");
-await chamar(tGestora, "/marketing/numero/limites", "PUT", { limite_dia: 150 });
+await chamar(tGestora, "/marketing/numero/limites", "PUT", { limite_dia: 150, janela: false });
 const lista2 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Evento", origem: "conversaram", coletado_em: ontem, declaracao: true,
   arquivo: csv(["telefone", ...[20, 21, 22, 23, 24, 25].map(n => `87 90000-00${n}`)]) })).d.lista;
 r = await chamar(tGestora, "/marketing/campanhas", "POST", { nome: "Instável", fluxo_id: fluxo3, publico: { listas: [lista2.id] }, declaracao: true });
@@ -454,6 +454,29 @@ const rel7 = (await chamar(tGestora, `/marketing/campanhas/${camp7}`)).d;
 console.log(`   alcançados ${rel7.pessoas_alcancadas} · responderam ${rel7.responderam}`);
 assert.equal(rel7.pessoas_alcancadas, 0); assert.equal(rel7.responderam, 0);
 await chamar(tGestora, `/marketing/campanhas/${camp7}/cancelar`, "POST");
+
+console.log("22. Agendado: nada sai antes da hora; na hora, sai — e a qualquer hora, até domingo às 23h");
+assert.equal((await chamar(tGestora, "/marketing")).d.limites.janela, false, "horário livre é o padrão");
+const domingo = new Date(); domingo.setDate(domingo.getDate() + ((7 - domingo.getDay()) % 7 || 7)); domingo.setHours(23, 0, 0, 0);
+const lista6 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Agenda", origem: "conversaram", coletado_em: ontem, declaracao: true,
+  arquivo: csv(["nome;telefone", "Sara Melo;87 90000-0070"]) })).d.lista;
+const baseAg = { fluxo_id: fluxo3, publico: { listas: [lista6.id] }, declaracao: true };
+assert.equal((await chamar(tGestora, "/marketing/campanhas", "POST", { ...baseAg, nome: "Passado", agendar_para: Date.now() - 3600000 })).status, 400);
+assert.equal((await chamar(tGestora, "/marketing/campanhas", "POST", { ...baseAg, nome: "Longe", agendar_para: Date.now() + 100 * 86400000 })).status, 400);
+r = await chamar(tGestora, "/marketing/campanhas", "POST", { ...baseAg, nome: "Domingo à noite", agendar_para: domingo.getTime() });
+assert.equal(r.status, 201, JSON.stringify(r.d));
+assert.equal(r.d.agendado, true); assert.equal(r.d.agendada_para, domingo.getTime());
+const camp8 = r.d.id;
+db.prepare("UPDATE marketing_ritmo SET proximo_envio_em = NULL WHERE org_id = ?").run(orgA);
+const antesAg = envios.length;
+agora = domingo.getTime() - 3600000; await tique();
+assert.equal(envios.filter(e => e.numero === "5587900000070").length, 0, "antes da hora agendada, nada");
+agora = domingo.getTime() + 60000; await tique();
+const saiu = envios.slice(antesAg).filter(e => e.numero === "5587900000070");
+console.log(`   ${new Date(agora).toLocaleString("pt-BR")}: ${saiu.length} mensagem(ns)`);
+assert.ok(saiu.length >= 1, "na hora agendada sai, mesmo domingo às 23h");
+assert.equal((await chamar(tGestora, `/marketing/campanhas/${camp8}`)).d.agendado, false);
+await chamar(tGestora, `/marketing/campanhas/${camp8}/cancelar`, "POST");
 
 console.log("\nTudo certo ✅");
 mock.close();

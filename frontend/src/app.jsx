@@ -2630,8 +2630,11 @@ const STATUS_DISPARO={
   concluida:{rotulo:"Concluído",c:C.cool,bg:C.coolSoft},
   cancelada:{rotulo:"Cancelado",c:C.hot,bg:C.hotSoft},
 };
-const PillDisparo=({status})=>{const s=STATUS_DISPARO[status]||STATUS_DISPARO.concluida;return <Pill c={s.c} bg={s.bg}>{s.rotulo}</Pill>;};
-const ritmoDoNumero=(l)=>l?`até ${l.limite_dia} mensagens por dia, uma a cada ${l.intervalo_min}–${l.intervalo_max} segundos, das ${l.hora_inicio}h às ${l.hora_fim}h${l.domingo?"":", sem domingo"}`:"";
+const PillDisparo=({status,agendado})=>{if(agendado) return <Pill c={C.cool} bg={C.coolSoft}>Agendado</Pill>;
+  const s=STATUS_DISPARO[status]||STATUS_DISPARO.concluida;return <Pill c={s.c} bg={s.bg}>{s.rotulo}</Pill>;};
+const ritmoDoNumero=(l)=>l?`até ${l.limite_dia} mensagens por dia, uma a cada ${l.intervalo_min}–${l.intervalo_max} segundos, ${l.janela?`das ${l.hora_inicio}h às ${l.hora_fim}h${l.domingo?"":", sem domingo"}`:"a qualquer hora e em qualquer dia"}`:"";
+/* datetime-local ↔ milissegundos, no fuso do aparelho de quem agenda. */
+const paraCampoDataHora=(ms)=>{const d=new Date(ms-new Date(ms).getTimezoneOffset()*60000);return d.toISOString().slice(0,16);};
 
 function Disparos({d,acoes,isMobile,irParaFluxos,irParaRitmo}){
   const [lista,setLista]=useState(null);
@@ -2664,11 +2667,11 @@ function Disparos({d,acoes,isMobile,irParaFluxos,irParaRitmo}){
         {lista.map(c=><button key={c.id} onClick={()=>setAberto(c.id)} style={{textAlign:"left",border:`1px solid ${C.line}`,borderRadius:11,
           padding:"11px 12px",background:C.card,cursor:"pointer",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",fontFamily:FONT}}>
           <div style={{flex:1,minWidth:200}}>
-            <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>{c.nome} <PillDisparo status={c.status}/></div>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>{c.nome} <PillDisparo status={c.status} agendado={c.agendado}/></div>
             <div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
               <b style={{fontFamily:MONO,color:C.ink}}>{c.pessoas_alcancadas}</b> de {c.total} alcançados · {c.responderam} responderam
               {c.sairam>0&&` · ${c.sairam} pediram para sair`}</div>
-            <div style={{color:C.faint,fontSize:11.5}}>{c.fluxo_nome} · {c.criado_por_nome||"—"} · {fmtDataHoraMkt(c.criado_em)}</div>
+            <div style={{color:C.faint,fontSize:11.5}}>{c.fluxo_nome} · {c.criado_por_nome||"—"} · {c.agendado?`começa ${fmtDataHoraMkt(c.agendada_para)}`:fmtDataHoraMkt(c.criado_em)}</div>
           </div>
           <Icon n="chevron" size={15} color={C.faint}/>
         </button>)}
@@ -2698,6 +2701,8 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   const [usarLeads,setUsarLeads]=useState(false);
   const [filtros,setFiltros]=useState(FILTROS_VAZIOS);
   const [declaracao,setDeclaracao]=useState(false);
+  const [agendar,setAgendar]=useState(false);
+  const [quando,setQuando]=useState(()=>paraCampoDataHora(Date.now()+3600000));
   const [previa,setPrevia]=useState(null);
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
@@ -2715,12 +2720,16 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   const filtro=(k,v)=>setFiltros(f=>({...f,[k]:v}));
   const umFunil=op&&new Set(op.etapas.map(e=>e.funil)).size<=1;
   const semFiltro=usarLeads&&!filtros.todos&&!["tags","etapas","temperaturas","responsaveis","origens"].some(k=>filtros[k].length);
-  const pronto=nome.trim().length>=2&&fluxoId&&previa&&previa.total>0&&declaracao&&!ocupado;
+  const quandoMs=agendar?new Date(quando).getTime():null;
+  const agendaOk=!agendar||(Number.isFinite(quandoMs)&&quandoMs>Date.now());
+  const pronto=nome.trim().length>=2&&fluxoId&&previa&&previa.total>0&&declaracao&&agendaOk&&!ocupado;
   const lim=d.limites;
   async function comecar(){
-    if(!window.confirm(`Começar o disparo "${nome.trim()}" para ${previa.total} pessoa(s)? As mensagens saem aos poucos, no ritmo do número.`)) return;
+    if(!window.confirm(agendar
+      ?`Agendar o disparo "${nome.trim()}" para ${previa.total} pessoa(s), começando ${fmtDataHoraMkt(quandoMs)}?`
+      :`Começar o disparo "${nome.trim()}" para ${previa.total} pessoa(s) agora? As mensagens saem aos poucos, no ritmo do número.`)) return;
     setErro("");setOcupado(true);
-    try{ aoCriar(await acoes.criarDisparoMarketing({nome,fluxo_id:fluxoId,publico,declaracao:true})); }
+    try{ aoCriar(await acoes.criarDisparoMarketing({nome,fluxo_id:fluxoId,publico,declaracao:true,agendar_para:agendar?quandoMs:undefined})); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   const rotulo={color:C.sub,fontSize:11,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.4};
@@ -2790,6 +2799,19 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
       </div>
     </div>
 
+    {/* QUANDO ENVIAR (27/09/2026): a imobiliária escolhe — agora ou numa
+        data e hora. O ritmo do número continua espaçando as mensagens. */}
+    <div style={secao}>
+      <div style={rotulo}>Quando enviar</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        {[[false,"Agora"],[true,"Agendar"]].map(([v,t])=><button key={t} onClick={()=>setAgendar(v)}
+          style={{...botaoLeveMkt,background:agendar===v?C.greenDeep:C.card,color:agendar===v?"#fff":C.sub}}>{t}</button>)}
+        {agendar&&<input type="datetime-local" value={quando} min={paraCampoDataHora(Date.now())} onChange={e=>setQuando(e.target.value)}
+          style={{...campoMkt(isMobile),width:isMobile?"100%":230}}/>}
+      </div>
+      {agendar&&!agendaOk&&<div style={{color:"#8a6d1f",fontSize:12,marginTop:6}}>Escolha uma data e hora no futuro.</div>}
+    </div>
+
     <div style={secao}>
       <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.5,cursor:"pointer"}}>
         <input type="checkbox" checked={declaracao} onChange={e=>setDeclaracao(e.target.checked)} style={{marginTop:3,width:17,height:17,flexShrink:0}}/>
@@ -2797,7 +2819,7 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
       <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>A primeira mensagem de cada pessoa leva o aviso: “{(d.rodape_sair||"").replace(/_/g,"")}”.</div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginTop:10}}>{erro}</div>}
       <div style={{display:"flex",gap:8,marginTop:12}}>
-        <button onClick={comecar} disabled={!pronto} style={botaoMkt(!!pronto)}>{ocupado?"Começando…":"Começar disparo"}</button>
+        <button onClick={comecar} disabled={!pronto} style={botaoMkt(!!pronto)}>{ocupado?"Salvando…":agendar?"Agendar disparo":"Começar disparo"}</button>
         <button onClick={aoFechar} style={botaoLeveMkt}>Cancelar</button>
       </div>
     </div>
@@ -2830,11 +2852,13 @@ function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar,irParaRitmo}){
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
       <button onClick={aoVoltar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar"><Icon n="voltar" size={14}/></button>
       <div style={{...TITULO_MKT,marginBottom:0,flex:1,minWidth:160}}>{c.nome}</div>
-      <PillDisparo status={c.status}/>
+      <PillDisparo status={c.status} agendado={c.agendado}/>
     </div>
-    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Fluxo {c.fluxo_nome} · começou em {fmtDataHoraMkt(c.criado_em)} por {c.criado_por_nome||"—"}
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Fluxo {c.fluxo_nome} · {c.agendada_para?`criado em ${fmtDataHoraMkt(c.criado_em)}, agendado para ${fmtDataHoraMkt(c.agendada_para)}`:`começou em ${fmtDataHoraMkt(c.criado_em)}`} por {c.criado_por_nome||"—"}
       {c.concluida_em&&` · terminou em ${fmtDataHoraMkt(c.concluida_em)}`}</div>
-    {c.status==="rodando"&&c.proximo_envio_em&&c.proximo_envio_em>Date.now()+60000&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+    {c.status==="rodando"&&c.agendado&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+      Agendado: a primeira mensagem sai <b>{fmtDataHoraMkt(c.agendada_para)}</b>. Para cancelar, use o botão abaixo.</div>}
+    {c.status==="rodando"&&!c.agendado&&c.proximo_envio_em&&c.proximo_envio_em>Date.now()+60000&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
       Próxima mensagem sai <b>{fmtDataHoraMkt(c.proximo_envio_em)}</b>. {c.espera_motivo||"O número espera um intervalo entre uma mensagem e outra."}
       {c.espera_motivo&&irParaRitmo&&<> <button onClick={irParaRitmo} style={{background:"none",border:"none",padding:0,color:C.cool,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5}}>Mudar o ritmo de envio</button></>}</div>}
     {c.motivo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{c.motivo}</div>}
@@ -2886,14 +2910,23 @@ function RitmoDoNumero({limites,acoes,aoMudar,isMobile}){
   </div>;
   return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:12}}>
     <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>Mais devagar protege o número. Número novo: comece com pouco por dia e aumente aos poucos.</div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,auto) 1fr",gap:10,alignItems:"end"}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,auto) 1fr",gap:10,alignItems:"end"}}>
       <div><div style={rot}>Por dia</div>{num("limite_dia")}</div>
       <div><div style={rot}>Intervalo mín. (s)</div>{num("intervalo_min")}</div>
       <div><div style={rot}>Intervalo máx. (s)</div>{num("intervalo_max")}</div>
-      <div><div style={rot}>Começa (h)</div>{num("hora_inicio")}</div>
-      <div><div style={rot}>Termina (h)</div>{num("hora_fim")}</div>
-      <label style={{display:"flex",gap:7,alignItems:"center",fontSize:12.5,color:C.ink,cursor:"pointer",paddingBottom:8}}>
-        <input type="checkbox" checked={!!f.domingo} onChange={e=>setF({...f,domingo:e.target.checked})}/> Envia no domingo</label>
+    </div>
+    <div style={{marginTop:12}}>
+      <div style={rot}>Horário de envio</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {[[false,"A qualquer hora"],[true,"Só em um horário"]].map(([v,t])=><button key={t} onClick={()=>setF({...f,janela:v})}
+          style={{...botaoLeveMkt,background:!!f.janela===v?C.greenDeep:C.card,color:!!f.janela===v?"#fff":C.sub}}>{t}</button>)}
+      </div>
+      {f.janela&&<div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",marginTop:10}}>
+        <div><div style={rot}>Começa (h)</div>{num("hora_inicio")}</div>
+        <div><div style={rot}>Termina (h)</div>{num("hora_fim")}</div>
+        <label style={{display:"flex",gap:7,alignItems:"center",fontSize:12.5,color:C.ink,cursor:"pointer",paddingBottom:8}}>
+          <input type="checkbox" checked={!!f.domingo} onChange={e=>setF({...f,domingo:e.target.checked})}/> Envia no domingo</label>
+      </div>}
     </div>
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:8}}>{erro}</div>}
     <div style={{display:"flex",gap:8,marginTop:10}}>
