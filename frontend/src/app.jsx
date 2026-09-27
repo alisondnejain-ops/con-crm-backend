@@ -1520,7 +1520,8 @@ function ConCRM(){
     listarSocios:()=>api("/orgs/masters"),
     // Contas de corretor autônomo: criar, e liberar/travar sem esperar vencimento.
     criarAutonomo:(dados)=>api("/orgs/autonomos",{method:"POST",body:dados}),
-    liberarAutonomo:(id,dias)=>api(`/orgs/autonomos/${id}/liberar`,{method:"POST",body:{dias}}),
+    // `pedido` é {dias} ou {ate:"AAAA-MM-DD"}; {dias:-1} trava.
+    liberarAutonomo:(id,pedido)=>api(`/orgs/autonomos/${id}/liberar`,{method:"POST",body:pedido}),
     // Migrar imobiliária <-> autônomo, quando a conta nasceu com o tipo errado.
     converterTipoConta:(id,dados)=>api(`/orgs/${id}/tipo`,{method:"POST",body:dados}),
     convidarSocio:(dados)=>api("/orgs/masters",{method:"POST",body:dados}),
@@ -2232,6 +2233,62 @@ function AvisoPlantao({meu,isMobile,compacto}){
   </div>;
 }
 
+/* APAGAR UMA CONTA DA PLATAFORMA — imobiliária ou corretor autônomo.
+
+   Um componente só para as duas listas do hub: a confirmação é a mesma coisa
+   nos dois casos (mostrar o que some, exigir o nome digitado), e escrita duas
+   vezes ela divergiria no primeiro ajuste. Busca o resumo sozinha ao abrir.
+
+   A conta some com tudo que é dela — leads, conversas, equipe, imóveis,
+   conexão do WhatsApp — e a cobrança no Asaas é cancelada junto. Nada de
+   outra conta é tocado. */
+function ApagarConta({conta,acoes,isMobile,aoApagar,aoFechar}){
+  const [resumo,setResumo]=useState(null);
+  const [nome,setNome]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ acoes.resumoParaApagar(conta.id).then(setResumo).catch(e=>setErro(e.message)); },[conta.id]);
+  const autonomo=conta.tipo==="autonomo";
+  const confere=nome.trim()===conta.nome;
+  async function apagar(){
+    setOcupado(true); setErro("");
+    try{
+      const r=await acoes.apagarConta(conta.id,nome.trim());
+      await aoApagar(`A conta ${r.apagada} foi apagada — ${r.leads} lead(s), ${r.equipe} pessoa(s) e ${r.arquivos} arquivo(s).`
+        +(r.asaas_aviso?" "+r.asaas_aviso:""));
+    }catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+  return <div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:12,padding:12,flexBasis:"100%"}}>
+    <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:5}}>
+      Apagar {autonomo?"a conta de ":""}{conta.nome} da plataforma?</div>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
+    {!resumo?(!erro&&<div style={{color:C.sub,fontSize:11.5}}>Conferindo o que há na conta…</div>)
+    :<React.Fragment>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:8}}>
+        Some para sempre, sem desfazer:
+        <b> {resumo.leads} lead(s)</b>, <b>{resumo.mensagens} mensagem(ns)</b>,
+        <b> {resumo.equipe} pessoa(s)</b>{autonomo?" (o login do corretor deixa de existir)":""}, <b>{resumo.imoveis} imóvel(is)</b> com as fotos
+        e <b>{resumo.pagamentos} pagamento(s)</b> do histórico.
+        {resumo.asaas&&<div style={{marginTop:6}}>A assinatura no Asaas é cancelada junto.</div>}
+        {resumo.unica&&<div style={{marginTop:6,fontWeight:600}}>Esta é a única conta cadastrada — o sistema não deixa apagar.</div>}
+      </div>
+      <div style={{color:C.sub,fontSize:11.5,marginBottom:5}}>Digite <b>{conta.nome}</b> para confirmar:</div>
+      <input value={nome} onChange={e=>setNome(e.target.value)} placeholder={conta.nome}
+        disabled={resumo.unica} style={{...entrada,marginBottom:8}}/>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+        <button onClick={apagar} disabled={ocupado||resumo.unica||!confere}
+          style={{background:confere&&!resumo.unica?C.hot:C.faint,color:"#fff",border:"none",
+            borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {ocupado?"Apagando…":"Apagar definitivamente"}</button>
+        <button onClick={aoFechar} disabled={ocupado}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
 /* ===== HUB DE CONTAS =====
    A tela que abre quando o gestor master entra: em qual imobiliária ele vai
    trabalhar agora. Ninguém mais chega aqui — o servidor recusa (403) e o
@@ -2250,32 +2307,16 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   const [nova,setNova]=useState({nome:"",codigo:""});
   const [copiado,setCopiado]=useState("");
   /* Apagar um cliente da plataforma. Fica atrás de um clique a mais, mostra o
-     que vai sumir e exige o nome digitado: é a única ação daqui que destrói a
-     operação inteira de alguém, e não tem desfazer. */
-  const [apagando,setApagando]=useState(null);   // {id, resumo}
-  const [nomeDigitado,setNomeDigitado]=useState("");
+     que vai sumir e exige o nome digitado (ver `ApagarConta`). */
+  const [apagando,setApagando]=useState(null);   // id da conta com a confirmação aberta
   const [apagada,setApagada]=useState("");
 
   const rever=()=>acoes.listarContas()
     .then(d=>{setContas(d.orgs||[]);setAutonomos(d.autonomos||[]);})
     .catch(e=>{setErro(e.message);setContas([]);});
 
-  async function abrirExclusao(c){
-    setErro(""); setNomeDigitado(""); setApagada("");
-    if(apagando&&apagando.id===c.id) return setApagando(null);
-    try{ setApagando({id:c.id,resumo:await acoes.resumoParaApagar(c.id)}); }
-    catch(e){ setErro(e.message); }
-  }
-  async function apagarDeVez(c){
-    setOcupado("apagar"); setErro("");
-    try{
-      const r=await acoes.apagarConta(c.id,nomeDigitado.trim());
-      setApagando(null); setNomeDigitado("");
-      setApagada(`${r.apagada} foi apagada — ${r.leads} lead(s), ${r.equipe} pessoa(s) e ${r.arquivos} arquivo(s).`);
-      await rever();
-    }catch(e){ setErro(e.message); }
-    finally{ setOcupado(""); }
-  }
+  const abrirExclusao=(c)=>{ setErro(""); setApagada(""); setApagando(apagando===c.id?null:c.id); };
+  const aoApagar=async(msg)=>{ setApagando(null); setApagada(msg); await rever(); };
   useEffect(()=>{rever();},[]);
 
   const entrar=async(c)=>{ setErro(""); setOcupado(c.id);
@@ -2355,34 +2396,14 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
                   border:`1px solid ${copiado===c.id?C.green+"66":C.line}`,borderRadius:11,padding:"0 12px",fontSize:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
                 {copiado===c.id?"copiado!":<Icon n="link" size={15}/>}</button>
               <button onClick={()=>abrirExclusao(c)} title="Apagar esta imobiliária da plataforma"
-                style={{background:apagando&&apagando.id===c.id?C.hotSoft:C.surface,color:C.hot,
-                  border:`1px solid ${apagando&&apagando.id===c.id?C.hot+"66":C.line}`,borderRadius:11,
+                style={{background:apagando===c.id?C.hotSoft:C.surface,color:C.hot,
+                  border:`1px solid ${apagando===c.id?C.hot+"66":C.line}`,borderRadius:11,
                   padding:"0 12px",cursor:"pointer",display:"flex",alignItems:"center"}}>
                 <Icon n="trash" size={15}/></button>
             </div>
 
-            {apagando&&apagando.id===c.id&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:12,padding:12}}>
-              <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:5}}>Apagar {c.nome} da plataforma?</div>
-              <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginBottom:8}}>
-                Some para sempre, sem desfazer:
-                <b> {apagando.resumo.leads} lead(s)</b>, <b>{apagando.resumo.mensagens} mensagem(ns)</b>,
-                <b> {apagando.resumo.equipe} pessoa(s)</b>, <b>{apagando.resumo.imoveis} imóvel(is)</b> com as fotos
-                e <b>{apagando.resumo.pagamentos} pagamento(s)</b> do histórico.
-                {apagando.resumo.unica&&<div style={{marginTop:6,fontWeight:600}}>Esta é a única imobiliária cadastrada — o sistema não deixa apagar.</div>}
-              </div>
-              <div style={{color:C.sub,fontSize:11.5,marginBottom:5}}>Digite <b>{c.nome}</b> para confirmar:</div>
-              <input value={nomeDigitado} onChange={e=>setNomeDigitado(e.target.value)} placeholder={c.nome}
-                disabled={apagando.resumo.unica}
-                style={{...entrada,marginBottom:8}}/>
-              <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                <button onClick={()=>apagarDeVez(c)} disabled={ocupado==="apagar"||apagando.resumo.unica||nomeDigitado.trim()!==c.nome}
-                  style={{background:nomeDigitado.trim()===c.nome&&!apagando.resumo.unica?C.hot:C.faint,color:"#fff",border:"none",
-                    borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
-                  {ocupado==="apagar"?"Apagando…":"Apagar definitivamente"}</button>
-                <button onClick={()=>{setApagando(null);setNomeDigitado("");}} disabled={ocupado==="apagar"}
-                  style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-              </div>
-            </div>}
+            {apagando===c.id&&<ApagarConta conta={c} acoes={acoes} isMobile={isMobile}
+              aoApagar={aoApagar} aoFechar={()=>setApagando(null)}/>}
           </div>)}
 
           {/* Cadastrar cliente novo. É por aqui que a segunda imobiliária entra:
@@ -2448,6 +2469,13 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
   const [erro,setErro]=useState("");
   const [criado,setCriado]=useState(null);
   const [copiado,setCopiado]=useState(false);
+  /* Qual linha está com o painel aberto: o de liberar (escolher por quanto
+     tempo) ou o de apagar. Um de cada vez, para a lista não virar formulário. */
+  const [painel,setPainel]=useState(null);   // {id, tipo:"liberar"|"apagar"}
+  const [feito,setFeito]=useState("");
+  const [prazo,setPrazo]=useState({dias:"30",ate:""});
+  const abrir=(c,tipo)=>{ setErro(""); setFeito(""); setPrazo({dias:"30",ate:""});
+    setPainel(painel&&painel.id===c.id&&painel.tipo===tipo?null:{id:c.id,tipo}); };
 
   async function criar(){
     setErro("");setOcupado("criar");
@@ -2456,9 +2484,9 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
     catch(e){ setErro(e.message); }
     finally{ setOcupado(""); }
   }
-  async function mexer(c,dias){
+  async function mexer(c,pedido){
     setErro("");setOcupado(c.id);
-    try{ await acoes.liberarAutonomo(c.id,dias); await aoMudar(); }
+    try{ await acoes.liberarAutonomo(c.id,pedido); setPainel(null); await aoMudar(); }
     catch(e){ setErro(e.message); }
     finally{ setOcupado(""); }
   }
@@ -2479,7 +2507,9 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
     /* Sem este selo, `||SELO.ativo` mostrava "Em dia" em verde para quem
        nunca nem começou o teste — o oposto do que "aguardando_cartao"
        (22/09/2026) precisa dizer aqui. */
-    aguardando_cartao:{t:"Sem cartão",c:C.amber,bg:C.amberSoft}};
+    aguardando_cartao:{t:"Sem cartão",c:C.amber,bg:C.amberSoft},
+    liberado:{t:"Liberado",c:C.greenMid,bg:C.greenSoft}};
+  const hojeISO=(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;})();
 
   return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
@@ -2490,6 +2520,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{feito}</div>}
 
     {criado&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:14,padding:14,marginBottom:14}}>
       <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:3}}>Conta criada para {criado.nome}</div>
@@ -2520,20 +2551,67 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
           </div>
           <span style={{background:st.bg,color:st.c,fontSize:10.5,fontWeight:700,padding:"3px 10px",borderRadius:999}}>
             {c.assinatura.status==="teste"&&c.assinatura.vence_em
-              ? `em teste · ${Math.max(0,Math.ceil((c.assinatura.vence_em-Date.now())/86400000))} dia(s)`
+              ? `em teste · ${Math.max(0,Math.round((new Date(c.assinatura.vence_em).setHours(0,0,0,0)-new Date().setHours(0,0,0,0))/86400000))} dia(s)`
+              : c.assinatura.status==="liberado"&&c.assinatura.liberado_ate
+              ? `liberado até ${fmtData(c.assinatura.liberado_ate)}`
               : st.t}</span>
-          <div style={{display:"flex",gap:6,flexShrink:0}}>
+          <div style={{display:"flex",gap:6,flexShrink:0,flexWrap:"wrap"}}>
             <button onClick={()=>entrar(c)} disabled={!!ocupado} title={`Abrir o CRM de ${c.nome}`}
               style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
                 fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
                 display:"flex",alignItems:"center",gap:6}}>
               {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
-            <button onClick={()=>mexer(c,travado?30:-1)} disabled={!!ocupado}
-              style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.hot,
-                border:travado?"none":`1px solid ${C.hot}44`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
-                fontSize:12,fontWeight:600,cursor:"pointer"}}>
-              {ocupado===c.id?"…":travado?"Liberar 30 dias":"Travar"}</button>
+            <button onClick={()=>abrir(c,"liberar")} disabled={!!ocupado}
+              style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.greenMid,
+                border:travado?"none":`1px solid ${C.green}55`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
+                fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar…</button>
+            {!travado&&<button onClick={()=>mexer(c,{dias:-1})} disabled={!!ocupado}
+              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,
+                padding:isMobile?"10px 13px":"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              {ocupado===c.id?"…":"Travar"}</button>}
+            <button onClick={()=>abrir(c,"apagar")} disabled={!!ocupado} title="Apagar esta conta da plataforma"
+              style={{background:painel&&painel.id===c.id&&painel.tipo==="apagar"?C.hotSoft:C.card,color:C.hot,
+                border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"10px 11px":"7px 10px",
+                cursor:"pointer",display:"flex",alignItems:"center"}}>
+              <Icon n="trash" size={14}/></button>
           </div>
+
+          {/* LIBERAR PELO TEMPO QUE O MASTER QUISER: atalhos para os prazos
+              comuns, número de dias livre ou uma data no calendário. Vale
+              mesmo com a conta já paga ou sem cartão; não mexe em pagamento. */}
+          {painel&&painel.id===c.id&&painel.tipo==="liberar"&&<div style={{flexBasis:"100%",background:C.greenSoft,
+            border:`1px solid ${C.green}44`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:9}}>
+            <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700}}>Liberar {c.nome} por quanto tempo?</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[7,15,30,60,90,180,365].map(d=><button key={d} onClick={()=>mexer(c,{dias:d})} disabled={!!ocupado}
+                style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:999,
+                  padding:isMobile?"9px 13px":"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                {d===365?"1 ano":d+" dias"}</button>)}
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+              <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Quantos dias</div>
+                <input value={prazo.dias} onChange={e=>setPrazo({dias:e.target.value.replace(/\D/g,""),ate:""})}
+                  inputMode="numeric" style={{...entrada,width:100}}/></div>
+              <div style={{color:C.faint,fontSize:11.5,paddingBottom:12}}>ou</div>
+              <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Até o dia</div>
+                <input type="date" min={hojeISO} value={prazo.ate} onChange={e=>setPrazo({dias:"",ate:e.target.value})}
+                  style={{...entrada,width:170}}/></div>
+              <button onClick={()=>mexer(c,prazo.ate?{ate:prazo.ate}:{dias:Number(prazo.dias)})}
+                disabled={!!ocupado||(!prazo.ate&&!(Number(prazo.dias)>0))}
+                style={{background:!prazo.ate&&!(Number(prazo.dias)>0)?C.faint:C.greenDeep,color:"#fff",border:"none",
+                  borderRadius:10,padding:"11px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                {ocupado===c.id?"Liberando…":"Liberar"}</button>
+              <button onClick={()=>setPainel(null)} disabled={!!ocupado}
+                style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
+                  padding:"11px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            </div>
+            <div style={{color:C.sub,fontSize:11,lineHeight:1.5}}>
+              Pagamentos e assinatura continuam como estão. Passada a data, a conta volta a seguir a cobrança normal.
+            </div>
+          </div>}
+
+          {painel&&painel.id===c.id&&painel.tipo==="apagar"&&<ApagarConta conta={c} acoes={acoes} isMobile={isMobile}
+            aoApagar={async(msg)=>{ setPainel(null); setFeito(msg); await aoMudar(); }} aoFechar={()=>setPainel(null)}/>}
         </div>;})}
     </div>
 
