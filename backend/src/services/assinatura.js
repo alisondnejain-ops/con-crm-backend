@@ -81,7 +81,33 @@ export function recalcularVencimento(orgId) {
 export const listarPagamentos = (orgId) =>
   db.prepare("SELECT * FROM pagamentos WHERE org_id = ? ORDER BY pago_em DESC").all(orgId);
 
-export function situacao(orgId, { dono = true } = {}) {
+/* LIBERADO PELO MASTER (27/09/2026, pedido do Ali: "liberar quanto tempo eu
+   quisesse, sem anular nada no sistema").
+
+   Antes, liberar só empurrava `trial_ate` — e isso só vale para quem nunca
+   pagou E já tem cartão. Em conta que já pagou alguma vez, ou que veio do site
+   e ainda não cadastrou cartão, o botão respondia "ok" e a conta continuava
+   travada: botão que não faz nada.
+
+   `liberado_ate` fica POR CIMA do cálculo: só entra quando a régua normal
+   travaria (ou avisaria de atraso). Conta em dia ou em teste continua dizendo
+   o que diz — liberar um cliente que paga em dia não pode esconder dele o
+   próprio vencimento. Nada de pagamento, plano ou Asaas é tocado; vencida a
+   data, a conta volta à régua de sempre sozinha. */
+const TRAVARIA = new Set(["bloqueado", "aguardando_cartao", "atrasado"]);
+
+export function situacao(orgId, opcoes = {}) {
+  const s = situacaoDaCobranca(orgId, opcoes);
+  if (!TRAVARIA.has(s.status)) return s;
+  const org = db.prepare("SELECT liberado_ate FROM orgs WHERE id = ?").get(orgId);
+  if (!org || !org.liberado_ate) return s;
+  const faltam = Math.round((meiaNoite(org.liberado_ate) - meiaNoite(Date.now())) / DIA);
+  if (faltam < 0) return s;
+  return { ...s, status: "liberado", cobranca: false, liberado_ate: org.liberado_ate, dias: faltam,
+    motivo: undefined, atraso: undefined, restam: undefined };
+}
+
+function situacaoDaCobranca(orgId, { dono = true } = {}) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return { status: "ativo", cobranca: false, dono };
 

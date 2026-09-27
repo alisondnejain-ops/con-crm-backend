@@ -17,6 +17,7 @@ import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSessoes } from "../auth.js";
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao } from "../services/assinatura.js";
+import { cancelarAssinatura } from "../services/asaas.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
 import { codigoLivre } from "../services/codigo.js";
@@ -63,7 +64,8 @@ function resumo(req, org) {
     /* A marca entra no resumo porque é ele que o master recebe ao ENTRAR numa
        imobiliária. Sem isso o master trabalharia com a cor da casa anterior. */
     ...marcaDaOrg(org),
-    assinatura: { status: s.status, cobranca: !!s.cobranca, vence_em: s.vence_em || null, valor: s.valor ?? null },
+    assinatura: { status: s.status, cobranca: !!s.cobranca, vence_em: s.vence_em || null, valor: s.valor ?? null,
+      liberado_ate: s.liberado_ate || null },
     /* Quantas linhas de WhatsApp esta conta tem ligadas, e o que elas somam por
        mês. É a resposta que o hub precisa dar de relance: o número extra é
        cobrado à parte, e sem ele na lista o master precisaria entrar em cada
@@ -297,19 +299,50 @@ r.post("/autonomos", async (req, res) => {
 
 /* Liberar ou travar na mão, sem esperar vencimento.
 
-   É o "pagou libera, não pagou trava" do Ali, com um botão. Liberar empurra o
-   fim do teste para daqui a N dias; travar puxa para ontem. Não mexe no
-   histórico de pagamentos: quem paga de verdade entra pelo painel de
-   mensalidade, e aí o teste deixa de valer sozinho. */
+   É o "pagou libera, não pagou trava" do Ali, com um botão. Não mexe no
+   histórico de pagamentos nem na cobrança do Asaas.
+
+   LIBERAR PELO TEMPO QUE O MASTER QUISER (27/09/2026): `dias` (1 a 3650) ou
+   `ate` (data AAAA-MM-DD, vale até o fim daquele dia). Grava `liberado_ate` —
+   que segura a conta aberta em qualquer situação, inclusive quando já houve
+   pagamento ou falta o cartão, casos em que empurrar o teste não fazia nada
+   (ver `situacao()`) — e continua empurrando `trial_ate` junto, para a conta
+   em teste mostrar os dias certos e a primeira cobrança não vir antes da data
+   liberada.
+
+   TRAVAR puxa o teste para ontem e desfaz a liberação. */
+const MAX_DIAS_LIBERADOS = 3650;
 r.post("/autonomos/:id/liberar", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ? AND tipo = 'autonomo'").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
   const dias = Number(req.body?.dias);
-  const ate = Number.isFinite(dias)
-    ? (dias >= 0 ? Date.now() + dias * 86400000 : Date.now() - 86400000)
-    : Date.now() + TRIAL_DIAS * 86400000;
-  db.prepare("UPDATE orgs SET trial_ate = ? WHERE id = ?").run(ate, org.id);
-  console.log(`[autonomo] ${req.user.name} ${dias < 0 ? "travou" : "liberou"} ${org.name}`);
+  const dataTexto = String(req.body?.ate || "").trim();
+
+  if (!dataTexto && Number.isFinite(dias) && dias < 0) {
+    db.prepare("UPDATE orgs SET trial_ate = ?, liberado_ate = NULL WHERE id = ?").run(Date.now() - 86400000, org.id);
+    console.log(`[autonomo] ${req.user.name} travou ${org.name}`);
+    return res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+  }
+
+  let ate;
+  if (dataTexto) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataTexto)) return res.status(400).json({ error: "Data inválida." });
+    // Fim do dia no horário local: "liberado até 10/10" vale o dia 10 inteiro.
+    ate = new Date(`${dataTexto}T23:59:59`).getTime();
+    if (!Number.isFinite(ate)) return res.status(400).json({ error: "Data inválida." });
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    if (ate < hoje.getTime()) return res.status(400).json({ error: "Escolha uma data de hoje em diante." });
+  } else {
+    const n = Number.isFinite(dias) ? Math.round(dias) : TRIAL_DIAS;
+    if (n < 1 || n > MAX_DIAS_LIBERADOS)
+      return res.status(400).json({ error: `Escolha de 1 a ${MAX_DIAS_LIBERADOS} dias.` });
+    ate = Date.now() + n * 86400000;
+  }
+  if (ate > Date.now() + MAX_DIAS_LIBERADOS * 86400000)
+    return res.status(400).json({ error: "Data longe demais — o máximo é 10 anos." });
+
+  db.prepare("UPDATE orgs SET trial_ate = ?, liberado_ate = ? WHERE id = ?").run(ate, ate, org.id);
+  console.log(`[autonomo] ${req.user.name} liberou ${org.name} até ${new Date(ate).toLocaleDateString("pt-BR")}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
@@ -520,6 +553,9 @@ r.get("/:id/apagar", (req, res) => {
     mensagens: n("SELECT COUNT(*) n FROM messages m JOIN leads l ON l.id = m.lead_id WHERE l.org_id = ?"),
     imoveis: n("SELECT COUNT(*) n FROM produtos WHERE org_id = ?"),
     pagamentos: n("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?"),
+    tipo: org.tipo || "imobiliaria",
+    // Tem cobrança recorrente no Asaas? A exclusão tenta cancelar — a tela avisa antes.
+    asaas: !!org.asaas_subscription_id,
   });
 });
 
@@ -549,26 +585,48 @@ r.delete("/:id", async (req, res) => {
     arquivos: arquivosApagados,
   };
 
-  const apagar = db.transaction(() => {
-    const leads = db.prepare("SELECT id FROM leads WHERE org_id = ?").all(org.id);
-    for (const { id } of leads) {
-      db.prepare("DELETE FROM messages WHERE lead_id = ?").run(id);
-      db.prepare("DELETE FROM ligacoes WHERE lead_id = ?").run(id);
-      db.prepare("DELETE FROM simulacoes WHERE lead_id = ?").run(id);
+  /* A cobrança no Asaas é cancelada ANTES de apagar: depois disso ninguém mais
+     sabe qual assinatura era desta conta, e o cliente que saiu continuaria
+     sendo cobrado todo mês. Falha aqui não impede a exclusão — vira aviso na
+     tela, para o master cancelar no painel do Asaas. */
+  let asaasAviso = null;
+  if (org.asaas_subscription_id) {
+    try {
+      // Teto de 15s: Asaas fora do ar não pode deixar o botão pendurado.
+      await Promise.race([cancelarAssinatura(org.asaas_subscription_id),
+        new Promise((_, nao) => setTimeout(() => nao(new Error("o Asaas não respondeu")), 15000))]);
     }
-    db.prepare("DELETE FROM leads WHERE org_id = ?").run(org.id);
-    db.prepare("DELETE FROM importacoes WHERE org_id = ?").run(org.id);
-    db.prepare("DELETE FROM pagamentos WHERE org_id = ?").run(org.id);
-    /* Tabelas que nasceram depois desta rota e ficavam para trás: a escala de
-       plantão, o histórico de disponibilidade e os textos prontos da conversa.
-       Não davam erro — só deixavam o dado de um cliente que pediu para sair
-       morando no banco. */
-    db.prepare("DELETE FROM plantoes WHERE org_id = ?").run(org.id);
-    db.prepare("DELETE FROM disponibilidade_log WHERE org_id = ?").run(org.id);
-    db.prepare("DELETE FROM mensagens_rapidas WHERE org_id = ?").run(org.id);
+    catch (e) {
+      console.warn(`[orgs] não consegui cancelar a assinatura ${org.asaas_subscription_id} no Asaas: ${e.message}`);
+      asaasAviso = "Não consegui cancelar a assinatura no Asaas — cancele por lá para o cliente não continuar sendo cobrado.";
+    }
+  } else if (org.asaas_customer_id && org.plano_id) {
+    // O plano anual é parcelado (/payments), não assinatura: não há o que cancelar por aqui.
+    asaasAviso = "Esta conta tem cobrança no Asaas sem assinatura recorrente (plano parcelado). Confira no painel do Asaas se sobrou alguma parcela.";
+  }
+
+  const apagar = db.transaction(() => {
+    const leads = db.prepare("SELECT id FROM leads WHERE org_id = ?").all(org.id).map(l => l.id);
+    /* Todas as tabelas da conta, descobertas pelo próprio banco, e não uma
+       lista escrita à mão. A lista antiga parou no tempo: canais, tags,
+       funis, tarefas, observações, site, portais… ficavam para trás a cada
+       tabela nova — e a linha de WhatsApp de uma conta apagada continuava
+       podendo receber mensagem. `users` e `orgs` ficam de fora: saem abaixo,
+       com a trava do master. */
+    const tabelas = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(t => t.name);
+    const colunas = (t) => db.prepare(`PRAGMA table_info("${t}")`).all().map(c => c.name);
+    for (const t of tabelas) {
+      if (t === "users" || t === "orgs" || t === "leads") continue;
+      const cols = colunas(t);
+      if (cols.includes("lead_id") && !cols.includes("org_id"))
+        for (const id of leads) db.prepare(`DELETE FROM "${t}" WHERE lead_id = ?`).run(id);
+    }
     const prods = db.prepare("SELECT id FROM produtos WHERE org_id = ?").all(org.id);
     for (const { id } of prods) db.prepare("DELETE FROM produto_midias WHERE produto_id = ?").run(id);
-    db.prepare("DELETE FROM produtos WHERE org_id = ?").run(org.id);
+    for (const t of tabelas) {
+      if (t === "users" || t === "orgs") continue;
+      if (colunas(t).includes("org_id")) db.prepare(`DELETE FROM "${t}" WHERE org_id = ?`).run(org.id);
+    }
     // O master pertence à primeira org e não pode ser removido junto com um cliente.
     db.prepare(`DELETE FROM push_subs WHERE user_id IN
       (SELECT u.id FROM users u WHERE u.org_id = ?${semMaster("u")})`).run(org.id);
@@ -578,7 +636,7 @@ r.delete("/:id", async (req, res) => {
   });
   apagar();
   console.log(`[orgs] imobiliária APAGADA: ${org.name} (${contagem.leads} leads, ${contagem.equipe} pessoas, ${contagem.arquivos} arquivos)`);
-  res.json({ ok: true, apagada: org.name, ...contagem });
+  res.json({ ok: true, apagada: org.name, ...contagem, asaas_aviso: asaasAviso });
 });
 
 /* ===== CÓPIA DE SEGURANÇA DO BANCO =====

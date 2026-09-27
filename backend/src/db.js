@@ -851,6 +851,13 @@ addOrgCol("rodizio_ultimo", "TEXT");
 addOrgCol("tipo", "TEXT DEFAULT 'imobiliaria'");
 addOrgCol("trial_ate", "INTEGER");
 
+/* LIBERAÇÃO PELO MASTER, pelo tempo que ele escolher (27/09/2026). Enquanto
+   vale, a conta não trava — nem por mensalidade atrasada, nem por falta de
+   cartão, nem por teste vencido. Não mexe em pagamento nenhum: é uma cortesia
+   por cima da cobrança, e quando vence a conta volta a seguir a régua de
+   sempre. Ver `situacao()` em services/assinatura.js. */
+addOrgCol("liberado_ate", "INTEGER");
+
 /* O PLANO QUE A PESSOA ESCOLHEU NO SITE, antes de existir cobrança. (02/09/2026)
 
    É diferente de `plano_id`, e a diferença é a razão de existirem os dois:
