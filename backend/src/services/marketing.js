@@ -473,12 +473,14 @@ export const proximoEnvioEm = (orgId) =>
   db.prepare("SELECT proximo_envio_em FROM marketing_ritmo WHERE org_id = ?").get(orgId)?.proximo_envio_em || null;
 
 /* OS LIMITES DO ENVIO. Padrão conservador para número de API não oficial:
-   150 por dia, de 30 a 90 segundos entre uma mensagem e outra, das 8h às 20h,
-   sem domingo. A imobiliária ajusta, dentro de uma régua que não deixa virar
+   150 por dia e de 30 a 90 segundos entre uma mensagem e outra — isso é o
+   que protege o número, e fica sempre. O HORÁRIO é escolha da imobiliária
+   (27/09/2026): por padrão envia a qualquer hora, e `janela` liga o limite de
+   horário e de domingo para quem quiser. A régua não deixa virar
    metralhadora. */
 export const limitesDoNumero = (n) => ({
   limite_dia: n?.limite_dia ?? 150, intervalo_min: n?.intervalo_min ?? 30, intervalo_max: n?.intervalo_max ?? 90,
-  hora_inicio: n?.hora_inicio ?? 8, hora_fim: n?.hora_fim ?? 20, domingo: !!n?.domingo,
+  janela: !!n?.janela, hora_inicio: n?.hora_inicio ?? 8, hora_fim: n?.hora_fim ?? 20, domingo: !!n?.domingo,
 });
 
 export function salvarLimites(orgId, dados) {
@@ -492,16 +494,18 @@ export function salvarLimites(orgId, dados) {
     hora_inicio: inteiro(dados.hora_inicio, atual.hora_inicio),
     hora_fim: inteiro(dados.hora_fim, atual.hora_fim),
     domingo: dados.domingo === undefined ? atual.domingo : !!dados.domingo,
+    janela: dados.janela === undefined ? atual.janela : !!dados.janela,
   };
   if (!(l.limite_dia >= 1 && l.limite_dia <= 1000)) throw new ErroMarketing(400, "O limite por dia vai de 1 a 1000 mensagens.");
   if (!(l.intervalo_min >= 10 && l.intervalo_min <= 3600)) throw new ErroMarketing(400, "O intervalo mínimo vai de 10 segundos a 1 hora.");
   if (!(l.intervalo_max >= l.intervalo_min && l.intervalo_max <= 3600)) throw new ErroMarketing(400, "O intervalo máximo precisa ser maior que o mínimo (até 1 hora).");
   if (!(l.hora_inicio >= 0 && l.hora_inicio <= 23 && l.hora_fim >= 1 && l.hora_fim <= 24 && l.hora_fim > l.hora_inicio))
     throw new ErroMarketing(400, "Horário inválido: o fim precisa ser depois do começo.");
-  db.prepare(`INSERT INTO marketing_ritmo (org_id,limite_dia,intervalo_min,intervalo_max,hora_inicio,hora_fim,domingo)
-    VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET limite_dia=excluded.limite_dia, intervalo_min=excluded.intervalo_min,
-    intervalo_max=excluded.intervalo_max, hora_inicio=excluded.hora_inicio, hora_fim=excluded.hora_fim, domingo=excluded.domingo`)
-    .run(orgId, l.limite_dia, l.intervalo_min, l.intervalo_max, l.hora_inicio, l.hora_fim, l.domingo ? 1 : 0);
+  db.prepare(`INSERT INTO marketing_ritmo (org_id,limite_dia,intervalo_min,intervalo_max,hora_inicio,hora_fim,domingo,janela)
+    VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET limite_dia=excluded.limite_dia, intervalo_min=excluded.intervalo_min,
+    intervalo_max=excluded.intervalo_max, hora_inicio=excluded.hora_inicio, hora_fim=excluded.hora_fim, domingo=excluded.domingo,
+    janela=excluded.janela`)
+    .run(orgId, l.limite_dia, l.intervalo_min, l.intervalo_max, l.hora_inicio, l.hora_fim, l.domingo ? 1 : 0, l.janela ? 1 : 0);
   return ritmoDaOrg(orgId);
 }
 

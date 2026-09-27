@@ -1639,6 +1639,16 @@ CREATE INDEX IF NOT EXISTS idx_mkt_envios_org ON marketing_envios(org_id, enviad
 CREATE INDEX IF NOT EXISTS idx_mkt_envios_camp ON marketing_envios(campanha_id);
 CREATE INDEX IF NOT EXISTS idx_mkt_envios_tel ON marketing_envios(org_id, telefone);
 `);
+/* HORÁRIO LIVRE POR PADRÃO (27/09/2026, pedido do Ali: "prefiro que o
+   cliente dispare quando ele quiser"). `janela` = 1 limita o envio ao horário
+   e aos dias do ritmo; nulo ou 0 envia a qualquer hora. Nulo em toda linha
+   que já existe, de propósito: as janelas antigas eram o padrão da coluna,
+   não escolha de ninguém. */
+if (!db.prepare("PRAGMA table_info(marketing_ritmo)").all().some(c => c.name === "janela"))
+  db.exec("ALTER TABLE marketing_ritmo ADD COLUMN janela INTEGER");
+/* Disparo AGENDADO: as execuções nascem com a primeira ação nesta data. */
+if (!db.prepare("PRAGMA table_info(marketing_campanhas)").all().some(c => c.name === "agendada_para"))
+  db.exec("ALTER TABLE marketing_campanhas ADD COLUMN agendada_para INTEGER");
 // A linha por onde cada envio saiu (nulo = a da casa). Guardada no envio
 // porque o número de disparo é opcional e pode mudar depois: ao ligar o
 // histórico a um lead novo, a conversa precisa dizer por onde ele saiu DE FATO.
