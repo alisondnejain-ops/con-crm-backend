@@ -2352,7 +2352,7 @@ function Marketing({acoes,org,isMobile,irParaFluxos}){
           style={{border:"none",background:"transparent",padding:isMobile?"10px 10px":"10px 16px",fontSize:13.5,fontWeight:700,fontFamily:FONT,
             color:on?C.greenDeep:trava?C.faint:C.sub,borderBottom:`2px solid ${on?C.green:"transparent"}`,marginBottom:-1,cursor:trava?"default":"pointer"}}>{t}</button>;})}
     </div>
-    {abaAtual==="disparos"&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}/>}
+    {abaAtual==="disparos"&&<Disparos d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos} irParaRitmo={()=>setAba("config")}/>}
     {abaAtual==="contatos"&&<React.Fragment>
       <ListasDeContatos d={d} acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
       <ListaDeBloqueio acoes={acoes} aoMudar={rever} isMobile={isMobile}/>
@@ -2633,7 +2633,7 @@ const STATUS_DISPARO={
 const PillDisparo=({status})=>{const s=STATUS_DISPARO[status]||STATUS_DISPARO.concluida;return <Pill c={s.c} bg={s.bg}>{s.rotulo}</Pill>;};
 const ritmoDoNumero=(l)=>l?`até ${l.limite_dia} mensagens por dia, uma a cada ${l.intervalo_min}–${l.intervalo_max} segundos, das ${l.hora_inicio}h às ${l.hora_fim}h${l.domingo?"":", sem domingo"}`:"";
 
-function Disparos({d,acoes,isMobile,irParaFluxos}){
+function Disparos({d,acoes,isMobile,irParaFluxos,irParaRitmo}){
   const [lista,setLista]=useState(null);
   const [novo,setNovo]=useState(false);
   const [aberto,setAberto]=useState(null);
@@ -2647,7 +2647,7 @@ function Disparos({d,acoes,isMobile,irParaFluxos}){
     const t=setInterval(()=>{ if(!document.hidden) rever(); },15000);
     return ()=>clearInterval(t);
   },[rodando,aberto,novo]);
-  if(aberto) return <RelatorioDoDisparo id={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/>;
+  if(aberto) return <RelatorioDoDisparo id={aberto} acoes={acoes} isMobile={isMobile} irParaRitmo={irParaRitmo} aoVoltar={()=>{setAberto(null);rever();}}/>;
   if(novo) return <NovoDisparo d={d} acoes={acoes} isMobile={isMobile} irParaFluxos={irParaFluxos}
     aoFechar={()=>setNovo(false)} aoCriar={(c)=>{setNovo(false);setAberto(c.id);}}/>;
   return <div style={CARTAO_MKT}>
@@ -2804,7 +2804,7 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
   </div>;
 }
 
-function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar}){
+function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar,irParaRitmo}){
   const [c,setC]=useState(null);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
@@ -2835,7 +2835,8 @@ function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar}){
     <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Fluxo {c.fluxo_nome} · começou em {fmtDataHoraMkt(c.criado_em)} por {c.criado_por_nome||"—"}
       {c.concluida_em&&` · terminou em ${fmtDataHoraMkt(c.concluida_em)}`}</div>
     {c.status==="rodando"&&c.proximo_envio_em&&c.proximo_envio_em>Date.now()+60000&&<div style={{background:C.coolSoft,color:C.cool,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
-      Próxima mensagem sai {fmtDataHoraMkt(c.proximo_envio_em)} — o número só envia no horário e no limite do dia combinados.</div>}
+      Próxima mensagem sai <b>{fmtDataHoraMkt(c.proximo_envio_em)}</b>. {c.espera_motivo||"O número espera um intervalo entre uma mensagem e outra."}
+      {c.espera_motivo&&irParaRitmo&&<> <button onClick={irParaRitmo} style={{background:"none",border:"none",padding:0,color:C.cool,fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:12.5}}>Mudar o ritmo de envio</button></>}</div>}
     {c.motivo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{c.motivo}</div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10}}>{erro}</div>}
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,1fr)",gap:8,marginBottom:12}}>

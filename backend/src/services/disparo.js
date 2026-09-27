@@ -39,7 +39,7 @@ import db from "../db.js";
 import { randomUUID } from "crypto";
 import { normalizePhone } from "./stages.js";
 import { sendText, sendMedia, sendMenu, numeroAlternativo } from "./uazapi.js";
-import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm } from "./marketing.js";
+import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm, ritmoDaOrg } from "./marketing.js";
 import { ROTULO_DISPARO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
 
 const agoraFn = () => Date.now();
@@ -445,12 +445,29 @@ export function relatorio(orgId, id) {
   const proximo = c.status === "rodando"
     ? db.prepare("SELECT MIN(proxima_em) p FROM marketing_execucoes WHERE campanha_id = ? AND estado = 'ativa'").get(id).p : null;
   return {
+    espera_motivo: proximo && proximo > agoraFn() + 60000 ? motivoDaEspera(orgId, agoraFn()) : null,
     id: c.id, nome: c.nome, fluxo_nome: c.fluxo_nome, status: c.status, motivo: c.motivo, total: c.total,
     criado_por_nome: c.criado_por_nome, criado_em: c.criado_em, concluida_em: c.concluida_em,
     declaracao: c.declaracao, publico, grafo, ...contagens(id), proximo_envio_em: proximo || null,
     por_bloco: grafo.nos.map(n => ({ id: n.id, tipo: n.tipo, enviados: enviadosPorBloco[n.id] || 0, parados_aqui: paradosPorBloco[n.id] || 0 })),
     falhas,
   };
+}
+
+/* POR QUE A PRÓXIMA MENSAGEM AINDA NÃO SAIU, dito com a regra que está
+   segurando (27/09/2026: o Ali disparou num domingo às 18h e viu "próxima
+   mensagem amanhã às 8h" sem saber por quê — parecia que não funcionava).
+   Null quando é só o intervalo entre uma mensagem e outra. */
+function motivoDaEspera(orgId, agora) {
+  const lim = ritmoDaOrg(orgId);
+  const d = new Date(agora);
+  if (!lim.domingo && d.getDay() === 0) return "Hoje é domingo, e o envio aos domingos está desligado no ritmo de envio.";
+  const h = d.getHours() + d.getMinutes() / 60;
+  if (h < lim.hora_inicio) return `O envio começa às ${lim.hora_inicio}h.`;
+  if (h >= lim.hora_fim) return `O envio para às ${lim.hora_fim}h.`;
+  const hoje = db.prepare("SELECT COUNT(*) n FROM marketing_envios WHERE org_id = ? AND status = 'ok' AND enviado_em >= ?").get(orgId, inicioDoDia(agora)).n;
+  if (hoje >= lim.limite_dia) return `O limite de ${lim.limite_dia} mensagens por dia já foi atingido hoje.`;
+  return null;
 }
 
 /* ===================== O BATIMENTO ===================== */
@@ -865,8 +882,12 @@ export function mensagemRecebida({ orgId, lead, texto: recebido, fromMe }) {
     const f = formas(lead.phone);
     const em = f.map(() => "?").join(",");
     const agora = agoraFn();
+    /* Só responde quem RECEBEU alguma coisa. Mensagem de quem está na fila
+       do disparo mas ainda não recebeu nada (o disparo esperando o horário,
+       por exemplo) não é resposta a ele — contá-la mostrava "1 respondeu"
+       com zero mensagens enviadas. */
     db.prepare(`UPDATE marketing_execucoes SET respondeu = 1 WHERE org_id = ? AND telefone IN (${em})
-      AND estado IN ('ativa','aguardando_resposta')`).run(orgId, ...f);
+      AND estado IN ('ativa','aguardando_resposta') AND primeira_enviada = 1`).run(orgId, ...f);
     const e = db.prepare(`SELECT e.* FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
       WHERE e.org_id = ? AND e.telefone IN (${em}) AND e.estado = 'aguardando_resposta' AND c.status = 'rodando'
       ORDER BY e.atualizado_em DESC LIMIT 1`).get(orgId, ...f);

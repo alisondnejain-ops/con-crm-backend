@@ -440,6 +440,21 @@ assert.equal(db.prepare("SELECT last_interaction_at FROM leads WHERE id = ?").ge
 const { temposDeResposta } = await import("../src/services/score.js");
 assert.equal(temposDeResposta([LIA]).length, 0, "a campanha não conta como resposta à pergunta dela");
 
+console.log("21. Quem escreve antes de receber qualquer coisa do disparo não conta como \"respondeu\"");
+const lista5 = (await chamar(tGestora, "/marketing/listas", "POST", { nome: "Domingo", origem: "conversaram", coletado_em: ontem, declaracao: true,
+  arquivo: csv(["nome;telefone", "Rui Lopes;87 90000-0060"]) })).d.lista;
+r = await chamar(tGestora, "/marketing/campanhas", "POST", { nome: "Ainda não saiu", fluxo_id: fluxo, publico: { listas: [lista5.id] }, declaracao: true });
+assert.equal(r.status, 201, JSON.stringify(r.d));
+const camp7 = r.d.id;
+await fetch(`${BASE}/webhooks/uazapi`, { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: "tok-casa-A", message: { chatid: "5587900000060@s.whatsapp.net", fromMe: false,
+    messageid: "in_antes_1", messageType: "conversation", text: "Oi, bom dia", senderName: "Rui" } }) });
+await new Promise(r => setTimeout(r, 300));
+const rel7 = (await chamar(tGestora, `/marketing/campanhas/${camp7}`)).d;
+console.log(`   alcançados ${rel7.pessoas_alcancadas} · responderam ${rel7.responderam}`);
+assert.equal(rel7.pessoas_alcancadas, 0); assert.equal(rel7.responderam, 0);
+await chamar(tGestora, `/marketing/campanhas/${camp7}/cancelar`, "POST");
+
 console.log("\nTudo certo ✅");
 mock.close();
 process.exit(0);
