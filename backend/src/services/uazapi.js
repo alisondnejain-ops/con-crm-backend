@@ -514,6 +514,21 @@ export async function sendMedia({ orgId, canalId = null, toPhone, type, file, ca
   }
 }
 
+/* Mensagem com BOTÕES de resposta (27/09/2026, disparo em massa).
+
+   `/send/menu` com `type: "button"` na uazapiGO; cada opção vai como
+   "Texto|id". Na API não oficial os botões falham com frequência — às vezes a
+   Uazapi recusa, às vezes aceita e o celular do cliente não mostra —, por isso
+   quem chama sempre tem a saída de mandar as opções escritas (1, 2, 3) e o
+   fluxo reconhece a resposta dos dois jeitos. Só existe na Uazapi. */
+export function sendMenu({ orgId, canalId = null, toPhone, text, choices, footer }) {
+  return call(orgId, "/send/menu", {
+    number: toPhone, type: "button", text,
+    choices: choices.map(c => `${c.rotulo}|${c.id}`),
+    ...(footer ? { footerText: footer } : {}),
+  }, canalId);
+}
+
 export function sendLocation({ orgId, canalId = null, toPhone, latitude, longitude, name, address }) {
   const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
   if (canalAlvo?.provider === "meta") return oficial.sendLocation({ canal: canalAlvo, toPhone, latitude, longitude, name, address });

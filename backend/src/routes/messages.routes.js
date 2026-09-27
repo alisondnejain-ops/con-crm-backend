@@ -17,7 +17,7 @@ import { canalDoLead } from "../services/canais.js";
    mensagem pelo número errado, e só o cliente veria.
 
    Devolve o id do canal, ou `null` para a linha da casa. */
-const linhaDo = (lead) => { const c = canalDoLead(lead); return c && c.tipo === "corretor" ? c.id : null; };
+const linhaDo = (lead) => { const c = canalDoLead(lead); return c && c.tipo !== "imobiliaria" ? c.id : null; };
 
 /* O nome que aparece no pino do mapa. Estava escrito "Conecta Imóveis" no
    código — texto que vai PARA O CLIENTE com o nome de outra imobiliária, do
@@ -25,7 +25,7 @@ const linhaDo = (lead) => { const c = canalDoLead(lead); return c && c.tipo === 
    numa linha pessoal vai só o nome da pessoa, que é com quem o cliente pensa
    que está falando. */
 function nomeNoMapa(lead, firstName) {
-  if (linhaDo(lead)) return firstName;
+  if (canalDoLead(lead)?.tipo === "corretor") return firstName;
   const o = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id);
   return o && o.name ? `${firstName} — ${o.name}` : firstName;
 }

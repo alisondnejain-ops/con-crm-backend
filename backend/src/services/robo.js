@@ -227,6 +227,9 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
      IA falando pelo próprio WhatsApp por causa de uma versão nova. */
   const canal = canalDoLead(lead);
   const pessoal = canal && canal.tipo === "corretor";
+  /* No número de DISPARO quem conduz a conversa é o fluxo do marketing. Dois
+     automáticos respondendo a mesma pessoa se atropelariam. */
+  if (canal && canal.tipo === "disparo") return { pode: false, motivo: "linha_de_disparo" };
   if (pessoal && !canal.robo_ligado) return { pode: false, motivo: "robo_desligado_nesta_linha" };
 
   /* O DONO DA CASA DE UM CORRETOR SÓ NÃO ATIVA ESTA TRAVA. (02/09/2026)

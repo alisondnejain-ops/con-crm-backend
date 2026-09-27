@@ -1513,4 +1513,105 @@ CREATE TABLE IF NOT EXISTS marketing_bloqueio (
 );
 `);
 
+/* ===== MARKETING: FLUXOS E DISPAROS (27/09/2026) =====
+
+   A segunda fase. Ver services/disparo.js para as regras.
+
+   - `marketing_numero` ganha os LIMITES do envio (por dia, intervalo,
+     horário) e aponta para uma linha em `canais` do tipo 'disparo' — é por
+     ela que as respostas do cliente entram na conversa do lead.
+   - `marketing_fluxos`: o desenho do fluxo (o construtor), editável.
+   - `marketing_campanhas`: cada disparo, com uma CÓPIA do fluxo no momento
+     de começar (mexer no fluxo depois não muda o que já está no ar), o
+     público escolhido e a declaração de quem disparou.
+   - `marketing_execucoes`: uma linha por pessoa em cada campanha — em que
+     bloco ela está e quando é a próxima ação.
+   - `marketing_envios`: cada mensagem que saiu (ou falhou). É o relatório e é
+     o que conta o limite por dia. */
+const mktNumCols = db.prepare("PRAGMA table_info(marketing_numero)").all().map(c => c.name);
+const addMktNumCol = (name, ddl) => { if (!mktNumCols.includes(name)) db.exec(`ALTER TABLE marketing_numero ADD COLUMN ${name} ${ddl}`); };
+addMktNumCol("canal_id", "TEXT");
+addMktNumCol("limite_dia", "INTEGER DEFAULT 150");
+addMktNumCol("intervalo_min", "INTEGER DEFAULT 30");
+addMktNumCol("intervalo_max", "INTEGER DEFAULT 90");
+addMktNumCol("hora_inicio", "INTEGER DEFAULT 8");
+addMktNumCol("hora_fim", "INTEGER DEFAULT 20");
+addMktNumCol("domingo", "INTEGER DEFAULT 0");
+addMktNumCol("proximo_envio_em", "INTEGER");
+db.exec(`
+CREATE TABLE IF NOT EXISTS marketing_fluxos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  grafo TEXT NOT NULL,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER NOT NULL,
+  apagado_em INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_fluxos_org ON marketing_fluxos(org_id, atualizado_em);
+CREATE TABLE IF NOT EXISTS marketing_campanhas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  fluxo_id TEXT,
+  fluxo_nome TEXT,
+  grafo TEXT NOT NULL,
+  publico TEXT NOT NULL,
+  declaracao TEXT,
+  status TEXT NOT NULL,
+  motivo TEXT,
+  falhas_seguidas INTEGER DEFAULT 0,
+  total INTEGER DEFAULT 0,
+  criado_por TEXT,
+  criado_por_nome TEXT,
+  ip TEXT,
+  criado_em INTEGER NOT NULL,
+  iniciada_em INTEGER,
+  concluida_em INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_camp_org ON marketing_campanhas(org_id, criado_em);
+CREATE TABLE IF NOT EXISTS marketing_execucoes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  campanha_id TEXT NOT NULL,
+  telefone TEXT NOT NULL,
+  nome TEXT,
+  lead_id TEXT,
+  no_atual TEXT,
+  estado TEXT NOT NULL,
+  proxima_em INTEGER,
+  espera_ate INTEGER,
+  tentativas INTEGER DEFAULT 0,
+  primeira_enviada INTEGER DEFAULT 0,
+  respondeu INTEGER DEFAULT 0,
+  fim_motivo TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_exec_fila ON marketing_execucoes(estado, proxima_em);
+CREATE INDEX IF NOT EXISTS idx_mkt_exec_tel ON marketing_execucoes(org_id, telefone);
+CREATE INDEX IF NOT EXISTS idx_mkt_exec_camp ON marketing_execucoes(campanha_id);
+CREATE TABLE IF NOT EXISTS marketing_envios (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  campanha_id TEXT NOT NULL,
+  execucao_id TEXT,
+  telefone TEXT NOT NULL,
+  lead_id TEXT,
+  no_id TEXT,
+  texto TEXT,
+  media_url TEXT,
+  media_mime TEXT,
+  media_nome TEXT,
+  status TEXT NOT NULL,
+  erro TEXT,
+  wa_id TEXT,
+  enviado_em INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mkt_envios_org ON marketing_envios(org_id, enviado_em);
+CREATE INDEX IF NOT EXISTS idx_mkt_envios_camp ON marketing_envios(campanha_id);
+CREATE INDEX IF NOT EXISTS idx_mkt_envios_tel ON marketing_envios(org_id, telefone);
+`);
+
 export default db;
