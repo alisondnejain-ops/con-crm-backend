@@ -35,6 +35,7 @@ import { registrar as registrarUsoIA } from "./iauso.js";
 import { sendText } from "./uazapi.js";
 import { canalDoLead } from "./canais.js";
 import { emFluxoDeDisparo } from "./disparo.js";
+import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 
 export const TETO_PADRAO = 12;
@@ -263,7 +264,7 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   // que substitui três regras: não fala sozinho, não fala por cima de gente e
   // não fala duas vezes seguidas.
   const ultima = db.prepare(
-    "SELECT direction FROM messages WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1").get(leadId);
+    `SELECT direction FROM messages WHERE lead_id = ? AND ${semDisparo()} ORDER BY created_at DESC LIMIT 1`).get(leadId);
   if (!ultima || ultima.direction !== "in") return { pode: false, motivo: "nao_esta_esperando" };
 
   return { pode: true, lead, cfg };

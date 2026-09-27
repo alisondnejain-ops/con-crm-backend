@@ -29,6 +29,8 @@ import { semMaster } from "../auth.js";
 import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js";
 import { slaDoLead } from "./etapas.js";
 import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
+import { semDisparo } from "./marca-disparo.js";
+import { resumoDeDisparos } from "./disparo.js";
 
 const DIA = 86400000;
 
@@ -266,7 +268,7 @@ export function atividades(orgId, periodo, filtros = {}) {
       /* "Esperando resposta" é a última mensagem ser do cliente — mesma
          definição do alerta.js. Duas definições para a mesma frase fariam dois
          números diferentes na mesma tela. */
-      const ultima = db.prepare("SELECT direction FROM messages WHERE lead_id = ? ORDER BY created_at DESC LIMIT 1").get(l.id);
+      const ultima = db.prepare(`SELECT direction FROM messages WHERE lead_id = ? AND ${semDisparo()} ORDER BY created_at DESC LIMIT 1`).get(l.id);
       if (ultima && ultima.direction === "in") semResposta++;
     }
     const msgs = db.prepare(`SELECT COUNT(*) n FROM messages
@@ -447,9 +449,16 @@ export function campanhas(orgId, filtros = {}) {
   }).sort((a, b) => b.leads - a.leads);
 
   const comAtribuicao = leads.filter(l => l.campaign_name).length;
+  /* Os disparos em massa do período, ao lado das campanhas. São da CASA —
+     com uma pessoa no filtro não se aplicam (quem dispara é a imobiliária, e
+     o que chegou a cada pessoa já está nos leads dela, com origem
+     "Disparo"). Com uma campanha no filtro, só o disparo dela. */
+  let disparos = pessoaDoFiltro(filtros) ? [] : resumoDeDisparos(orgId, periodo);
+  if (filtros.campanha) disparos = disparos.filter(d => d.nome === filtros.campanha);
   return {
     periodo,
     campanhas: linhas,
+    disparos,
     /* Honestidade sobre a cobertura: dizer que 4 de 300 leads têm campanha é o
        que impede alguém de ler este painel como se fosse a operação inteira. */
     cobertura: {

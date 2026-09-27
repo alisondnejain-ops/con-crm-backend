@@ -1,6 +1,7 @@
 import db from "../db.js";
 import { semMaster } from "../auth.js";
 import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
+import { semDisparo } from "./marca-disparo.js";
 
 /* Score de performance e recomendação de direcionamento.
 
@@ -87,7 +88,7 @@ export function temposDeResposta(leadIds, userId = null) {
   if (!leadIds.length) return [];
   const marcas = "?,".repeat(leadIds.length).slice(0, -1);
   const msgs = db.prepare(
-    `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) ORDER BY lead_id, created_at`
+    `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} ORDER BY lead_id, created_at`
   ).all(...leadIds);
 
   const esperas = [];

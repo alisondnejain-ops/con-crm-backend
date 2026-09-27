@@ -13758,6 +13758,32 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
               </tr>)}</tbody>
             </table>
           </div>
+          {/* Os disparos em massa do período (27/09/2026). O lead que nasce
+              respondendo a um disparo já aparece na tabela de cima, com o
+              nome do disparo como campanha; aqui fica o resto — quantos ele
+              alcançou, quantos responderam e o que veio de quem ele tocou. */}
+          {(camp.disparos||[]).length>0&&<div style={{marginTop:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4}}>Disparos em massa</div>
+            <div style={{color:C.faint,fontSize:11.5,marginBottom:9}}>Disparos com envio no período; os números são do disparo inteiro.</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
+                <thead><tr style={{color:C.faint,textAlign:"left"}}>
+                  {["Disparo","Alcançados","Responderam","Saíram","Leads novos","Vendas de quem recebeu"].map(h=>
+                    <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Disparo"?"left":"right"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>{camp.disparos.map(d=><tr key={d.id} style={{borderTop:`1px solid ${C.line}`}}>
+                  <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{d.nome}
+                    <span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{fmtData(d.criado_em)}</span></td>
+                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{d.alcancados}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.responderam}{d.alcancados?` · ${num(d.taxa_resposta,"%")}`:""}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.sairam}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.leads_novos}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:d.vendas?C.greenDeep:C.faint,fontWeight:d.vendas?700:400}}>
+                    {d.vendas}{d.vgv?` · ${fmtMoeda(d.vgv)}`:""}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>}
         </div>}
       </React.Fragment>}
     </div>

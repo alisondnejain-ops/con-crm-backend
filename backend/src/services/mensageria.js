@@ -18,7 +18,8 @@
    o motivo de este arquivo existir em vez de copiar o corpo do handler. */
 
 import { registrarPedidoDeSaida } from "./marketing.js";
-import { mensagemRecebida as respostaAoDisparo, recebeuDisparo } from "./disparo.js";
+import { mensagemRecebida as respostaAoDisparo, campanhaQueAlcancou, ecoDeDisparo } from "./disparo.js";
+import { ROTULO_DISPARO } from "./marca-disparo.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -110,6 +111,12 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      SEM TEMPERATURA. Todo lead do WhatsApp nascia "MORNO", e isso não era
      leitura de nada — era o padrão da coluna. Lead sem temperatura é
      honesto: quem sabe a temperatura é quem conversou. */
+  /* Eco de um envio do DISPARO que saiu pelo número da casa (ou chegou antes
+     do registro). Entra como mensagem do disparo, não de gente: não carimba
+     a primeira resposta, não tira o robô, não conta como atendimento. */
+  const campanhaDoEco = fromMe ? (ecoDeDisparo(orgId, phone, messageid) || (ehDisparo ? "" : null)) : null;
+  const doDisparo = campanhaDoEco !== null;
+
   if (!lead) {
     const id = "l_" + randomUUID();
     /* LEAD QUE CHEGA NUMA LINHA PESSOAL JÁ NASCE DO DONO DA LINHA.
@@ -124,12 +131,17 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
        os do corretor, ao comercial. */
     const entrada = entradaDe(orgId, dono);
     const quando = Date.now();
+    /* Respondeu a um disparo: origem "Disparo" E a campanha gravada, como o
+       lead da Meta vem com a campanha do anúncio. É o que põe este lead na
+       linha certa de Operação → Campanhas e nos filtros de campanha. */
+    const campanha = campanhaQueAlcancou(orgId, phone);
+    const veioDoDisparo = ehDisparo || !!campanha;
     db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
-                pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at)
-      VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?)`)
-      .run(id, orgId, nome || "Contato do WhatsApp", phone, (ehDisparo || recebeuDisparo(orgId, phone)) ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
+                pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at,platform,campaign_name)
+      VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?,?,?)`)
+      .run(id, orgId, nome || "Contato do WhatsApp", phone, veioDoDisparo ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
            entrada.pipeline_id, entrada.stage_id, quando, quando,
-           linhaDaConversa, dono ? quando : null);
+           linhaDaConversa, dono ? quando : null, veioDoDisparo ? "disparo" : null, campanha);
     lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
     console.log(`[mensageria] lead NOVO pelo WhatsApp/${provider} (${mascararTelefone(phone)}) — ${
       ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
@@ -185,7 +197,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null,
         // Saiu do número de disparo sem passar pelo CRM: é o eco de um envio
         // do próprio disparo que chegou antes do registro dele.
-        fromMe && ehDisparo ? "Disparo" : null, corpo,
+        doDisparo ? (campanhaDoEco ? `${ROTULO_DISPARO} · ${campanhaDoEco}` : ROTULO_DISPARO) : null, corpo,
         midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, trechoReserva, Date.now(),
         /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
            convenção só nas duas colunas. */
@@ -224,7 +236,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   // Respondeu pelo celular? Continua sendo a primeira resposta — sem isto o
   // relatório contaria como "nunca atendido" quem atendeu fora do CRM.
   // (Só acontece na Uazapi — na Meta, `fromMe` nunca é true.)
-  if (fromMe && !ehDisparo && !lead.first_resp_at)
+  if (fromMe && !doDisparo && !lead.first_resp_at)
     db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
 
   // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
@@ -242,7 +254,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   if (!roboFalando) advanceStage(lead.id);
 
   // Mensagem que saiu do celular é gente atendendo: o robô sai da conversa.
-  if (fromMe && !ehDisparo) pararPorGente(lead.id);
+  if (fromMe && !doDisparo) pararPorGente(lead.id);
 
   // Aviso no celular de quem está com o lead.
   if (lead.assigned_to && !fromMe) {

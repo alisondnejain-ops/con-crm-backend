@@ -1281,8 +1281,18 @@ db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_id_unico ON messages(
    `MAX` protege contra a mensagem antiga que chega atrasada (reenvio da
    Uazapi, importacao de historico): ela nao pode fazer o lead retroceder para
    uma data anterior a ultima conversa de verdade. */
-db.exec(`CREATE TRIGGER IF NOT EXISTS trg_msg_interacao
-  AFTER INSERT ON messages BEGIN
+/* MENSAGEM DE DISPARO NÃO É INTERAÇÃO (27/09/2026). Uma campanha passando
+   por trezentos leads esquecidos deixaria os trezentos "em dia" no prazo da
+   etapa, sem ninguém da equipe ter tocado neles. A resposta do cliente conta
+   (é mensagem recebida); a campanha não. A mesma regra de
+   services/marca-disparo.js, escrita aqui em SQL porque gatilho não chama
+   JavaScript — se uma mudar, a outra muda junto. O gatilho é recriado a cada
+   start para a versão nova valer nos bancos que já têm a antiga. */
+db.exec(`DROP TRIGGER IF EXISTS trg_msg_interacao;
+  CREATE TRIGGER trg_msg_interacao
+  AFTER INSERT ON messages
+  WHEN NOT (NEW.direction = 'out' AND NEW.from_user_id IS NULL AND COALESCE(NEW.from_name, '') LIKE 'Disparo%')
+  BEGIN
     UPDATE leads SET last_interaction_at = MAX(COALESCE(last_interaction_at, 0), NEW.created_at)
     WHERE id = NEW.lead_id;
   END;`);
@@ -1634,5 +1644,16 @@ CREATE INDEX IF NOT EXISTS idx_mkt_envios_tel ON marketing_envios(org_id, telefo
 // histórico a um lead novo, a conversa precisa dizer por onde ele saiu DE FATO.
 if (!db.prepare("PRAGMA table_info(marketing_envios)").all().some(c => c.name === "canal_id"))
   db.exec("ALTER TABLE marketing_envios ADD COLUMN canal_id TEXT");
+
+/* Os leads que o disparo tocou antes do gatilho novo ficaram com a "última
+   interação" na data da campanha. Refaz a conta só deles (a tabela de envios
+   é pequena), a partir do que é interação de verdade: mensagem que não é de
+   disparo e ligação. Idempotente. */
+db.exec(`UPDATE leads SET last_interaction_at = (
+    SELECT MAX(t) FROM (
+      SELECT MAX(m.created_at) t FROM messages m WHERE m.lead_id = leads.id
+        AND NOT (m.direction = 'out' AND m.from_user_id IS NULL AND COALESCE(m.from_name, '') LIKE 'Disparo%')
+      UNION ALL SELECT MAX(g.created_at) FROM ligacoes g WHERE g.lead_id = leads.id))
+  WHERE id IN (SELECT DISTINCT lead_id FROM marketing_envios WHERE lead_id IS NOT NULL AND status = 'ok')`);
 
 export default db;
