@@ -20,7 +20,7 @@
      ter a tag. */
 
 import { randomUUID } from "crypto";
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 
 /* A PALETA É FECHADA, e isso é decisão, não preguiça.
 
@@ -142,11 +142,10 @@ export const tagsDoLead = (leadId) => db.prepare(`
 export function tagsDeLeads(ids) {
   const mapa = new Map();
   if (!ids || !ids.length) return mapa;
-  const marcadores = "?,".repeat(ids.length).slice(0, -1);
-  const linhas = db.prepare(`
+  const linhas = emLotes(ids, (marcadores, lote) => db.prepare(`
     SELECT lt.lead_id, t.id, t.nome, t.cor FROM lead_tags lt
     JOIN tags t ON t.id = lt.tag_id
-    WHERE lt.lead_id IN (${marcadores}) ORDER BY t.nome COLLATE NOCASE`).all(...ids);
+    WHERE lt.lead_id IN (${marcadores}) ORDER BY t.nome COLLATE NOCASE`).all(...lote));
   for (const l of linhas) {
     if (!mapa.has(l.lead_id)) mapa.set(l.lead_id, []);
     mapa.get(l.lead_id).push({ id: l.id, nome: l.nome, cor: l.cor });

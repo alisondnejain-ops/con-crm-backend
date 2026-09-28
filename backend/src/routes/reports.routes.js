@@ -1,5 +1,5 @@
 import { Router } from "express";
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { ranking, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
@@ -247,11 +247,22 @@ r.get("/", (req, res) => {
      resultado final não vazava dado de outra casa, mas lia mensagem alheia
      à toa. Ganhou também `lead_criado`, para a espera poder ser calculada
      sem uma segunda consulta. */
-  const primeiroContato = db.prepare(`
+  /* Só os leads que esta leitura precisa (28/09/2026, teste de carga): os do
+     período (para `sem_contato`) e os que tiveram mensagem da equipe no
+     período — o primeiro contato de um lead só cai no período se ele teve
+     mensagem no período. Varrer todas as mensagens enviadas da casa custava
+     meio segundo por relatório numa imobiliária com 500 mil mensagens. O
+     resultado é o mesmo: para cada lead escolhido, o MIN continua sendo de
+     todas as mensagens dele. */
+  const candidatos = new Set(leads.map(l => l.id));
+  for (const r of db.prepare(`SELECT DISTINCT m.lead_id FROM messages m JOIN users u ON u.id = m.from_user_id
+      WHERE u.org_id = ? AND m.direction = 'out' AND m.created_at BETWEEN ? AND ?`).all(req.user.org_id, de, ate))
+    candidatos.add(r.lead_id);
+  const primeiroContato = emLotes([...candidatos], (marcas, lote) => db.prepare(`
     SELECT m.lead_id, m.from_user_id, MIN(m.created_at) AS quando, l.created_at AS lead_criado
     FROM messages m JOIN leads l ON l.id = m.lead_id
-    WHERE l.org_id = ? AND m.direction='out' AND m.from_user_id IS NOT NULL
-    GROUP BY m.lead_id`).all(req.user.org_id);
+    WHERE m.lead_id IN (${marcas}) AND l.org_id = ? AND m.direction='out' AND m.from_user_id IS NOT NULL
+    GROUP BY m.lead_id`).all(...lote, req.user.org_id));
   const porLead = new Map(primeiroContato.map(x => [x.lead_id, x]));
 
   const atendimento = sdrs.map(u => {
@@ -298,11 +309,12 @@ r.get("/", (req, res) => {
 function confirmadosPorPessoa(leads) {
   const ids = leads.map(l => l.id);
   if (!ids.length) return 0;
-  return db.prepare(`SELECT COUNT(*) n FROM leads l
-    WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})
+  return emLotes(ids, (marcas, lote) => db.prepare(`SELECT COUNT(*) n FROM leads l
+    WHERE l.id IN (${marcas})
       AND l.stage IN ('Agendamento','Visita')
       AND EXISTS (SELECT 1 FROM lead_etapas e
-                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`).get(...ids).n;
+                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`).all(...lote))
+    .reduce((s, r) => s + r.n, 0);
 }
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();

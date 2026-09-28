@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import db from "../db.js";
+import db, { versaoDosLeads } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
@@ -44,6 +44,30 @@ const SELECT_LEAD = `
 
 const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread: l.unread || 0 });
 
+/* O QUE A LISTA LEVA DE CADA LEAD (28/09/2026, teste de carga). Ia a linha
+   inteira do banco — cerca de cem colunas, entre elas o resumo e a leitura da
+   IA, o JSON da qualificação e dezenas de carimbos que só a ficha usa — e cada
+   lead pesava ~1,4 KB. Numa imobiliária grande isso era a lista de 39 MB. Os
+   campos abaixo são exatamente os que `adaptLead` (app.jsx) lê da lista; o
+   resto chega ao abrir a conversa (`GET /leads/:id`), como sempre chegou.
+   Campo novo que a lista precise mostrar entra AQUI e lá. */
+const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "created_at", "first_resp_at",
+  "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
+  "last_interaction_at", "custom_fields", "campaign_name", "ad_name", "platform", "unread", "last_direction", "last_at",
+  "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
+  "sugestao_etapa"];
+const enxuto = (l) => {
+  const o = {};
+  // Nulo vai como nulo, e não omitido: `adaptLead` lê "não veio" como "use o
+  // valor anterior", e um lead devolvido à fila ficaria com o dono antigo.
+  for (const k of CAMPOS_DA_LISTA) o[k] = l[k] ?? null;
+  o.unread = l.unread || 0;
+  o.qual = JSON.parse(l.qual_json || "{}");
+  // A lista mostra só uma linha da última mensagem.
+  if (l.last_body) o.last_body = String(l.last_body).slice(0, 160);
+  return o;
+};
+
 // A ADM enxerga tudo; corretor e SDR só o que está com eles.
 // Filtros (pensados para a supervisão da ADM):
 //   ?atendente=<id|fila>  ?etapa=<etapa>  ?prioridade=QUENTE  ?q=<nome ou telefone>
@@ -79,14 +103,24 @@ r.get("/", (req, res) => {
   // relatórios. ?finalizados=1 traz de volta, para reabrir ou consultar.
   if (req.query.finalizados !== "1") where.push("l.closed_at IS NULL");
 
+  /* SÓ O QUE MUDOU (28/09/2026, ver `versaoDosLeads` em db.js). A versão é
+     lida ANTES da consulta: o que mudar durante ela volta de novo na próxima
+     vez, em vez de se perder entre as duas. `?versao=1` pede a lista inteira
+     já com a versão; `?desde=N` pede só o que mudou depois de N. Sem nenhum
+     dos dois a resposta continua sendo a lista pura de sempre. */
+  const versao = versaoDosLeads();
+  const desde = req.query.desde !== undefined ? Number(req.query.desde) : null;
+  const incremental = Number.isFinite(desde) && desde >= 0;
+  if (incremental) { where.push("COALESCE(l.versao, 0) > ?"); args.push(desde); }
+
   const rows = db.prepare(`${SELECT_LEAD} WHERE ${where.join(" AND ")} ORDER BY l.created_at DESC`).all(...args);
 
   /* Duas informações que o FUNIL precisa em todo card: desde quando o lead está
      na etapa, e se tem tarefa marcada. Buscadas de uma vez para a imobiliária
      inteira — uma consulta por card deixaria o funil lento com a base
      crescendo, e é o funil que a gestão deixa aberto o dia todo. */
-  const desde = etapaDesdePorLead(org_id);
-  const tarefas = tarefasAbertasPorLead(org_id);
+  const desdeEtapa = etapaDesdePorLead(org_id, incremental ? rows.map(l => l.id) : null);
+  const tarefas = tarefasAbertasPorLead(org_id, incremental ? rows.map(l => l.id) : null);
   /* O SLA de cada card, calculado com UMA consulta de etapas para a lista
      inteira. Uma por card deixaria a tela que recarrega de 10 em 10 segundos
      fazendo centenas de consultas — o custo que os índices de 27/08 vieram
@@ -96,8 +130,8 @@ r.get("/", (req, res) => {
     .map(e => [e.id, formatarEtapa(e)]));
   const tagsPorLead = tagsDeLeads(rows.map(l => l.id));
   const agoraMs = Date.now();
-  res.json(rows.map(l => ({
-    ...parse(l),
+  const lista = rows.map(l => ({
+    ...enxuto(l),
     sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs) : null,
     // null quando o lead nunca mudou de etapa desde que o histórico existe. A
     // tela mostra "—": inventar a data de criação seria dizer que ele está ali
@@ -108,13 +142,29 @@ r.get("/", (req, res) => {
        para TODO lead; o histórico só tem linha para quem se mexeu depois de
        13/08/2026. Na ordem inversa, a base inteira mostrava "nesta etapa há —"
        mesmo com a data disponível ao lado. */
-    etapa_desde: l.stage_entered_at || desde.get(l.id) || null,
+    etapa_desde: l.stage_entered_at || desdeEtapa.get(l.id) || null,
     tarefas: tarefas.get(l.id) || null,
     /* As tags vêm JUNTO, numa consulta só para a lista inteira. Buscá-las
        depois, por lead, seriam sessenta requisições a cada dez segundos em
        todo aparelho da equipe — e o card do funil precisa delas para desenhar. */
     tags: tagsPorLead.get(l.id) || [],
-  })));
+  }));
+  if (!incremental) return res.json(req.query.versao === "1" ? { versao, leads: lista } : lista);
+
+  /* O que o aparelho precisa TIRAR da tela: leads que mudaram e deixaram de
+     caber nesta lista (repassados para outra pessoa, finalizados quando a
+     lista não traz finalizados) e os apagados. Para quem supervisiona, é todo
+     lead da casa que mudou e não voltou acima. Para o corretor, só os que um
+     dia foram dele — senão a resposta listaria os ids dos leads dos colegas. */
+  const voltaram = new Set(rows.map(l => l.id));
+  const mudaram = supervisiona(req.user)
+    ? db.prepare("SELECT id FROM leads WHERE org_id = ? AND COALESCE(versao, 0) > ?").all(org_id, desde)
+    : db.prepare(`SELECT l.id FROM leads l WHERE l.org_id = ? AND COALESCE(l.versao, 0) > ? AND l.assigned_to IS NOT ?
+        AND EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id AND (t.from_user_id = ? OR t.to_user_id = ?))`)
+      .all(org_id, desde, id, id, id);
+  const fora = mudaram.map(r => r.id).filter(x => !voltaram.has(x));
+  for (const a of db.prepare("SELECT lead_id FROM leads_apagados WHERE org_id = ? AND versao > ?").all(org_id, desde)) fora.push(a.lead_id);
+  res.json({ versao, leads: lista, fora });
 });
 
 

@@ -1666,4 +1666,105 @@ db.exec(`UPDATE leads SET last_interaction_at = (
       UNION ALL SELECT MAX(g.created_at) FROM ligacoes g WHERE g.lead_id = leads.id))
   WHERE id IN (SELECT DISTINCT lead_id FROM marketing_envios WHERE lead_id IS NOT NULL AND status = 'ok')`);
 
+/* A LISTA DE LEADS MANDA SÓ O QUE MUDOU (28/09/2026, teste de carga).
+
+   Todo aparelho aberto recarregava a lista INTEIRA de leads a cada 10
+   segundos: na Conecta, ~2,6 MB por vez; numa imobiliária grande (30 mil
+   leads), 39 MB e 5 segundos com o servidor parado — e o servidor parado não
+   recebe webhook, que é quando para de entrar lead. Agora cada lead tem uma
+   VERSÃO, tirada de um contador único que sobe a cada mudança, e o aparelho
+   pede `GET /leads?desde=N`: vem só o que mudou depois da versão N.
+
+   Quem sobe a versão é o BANCO, por gatilho, e não as rotas: são dezenas de
+   lugares que mexem num lead (mensagem, etapa, dono, tarefa, tag, venda,
+   robô…), e o esquecido não daria erro — só deixaria a tela do corretor
+   desatualizada até alguém recarregar. É a mesma razão do gatilho do
+   `last_interaction_at`.
+
+   A tabela de apagados existe porque lead apagado não tem mais linha para
+   dizer "mudei": sem ela, o aparelho mostraria para sempre um lead que não
+   existe. Fica só uma semana (quem ficou mais que isso sem abrir o CRM
+   recebe a lista inteira de qualquer jeito). */
+const leadColsV = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
+if (!leadColsV.includes("versao")) db.exec("ALTER TABLE leads ADD COLUMN versao INTEGER");
+db.exec(`
+CREATE TABLE IF NOT EXISTS leads_seq (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL);
+INSERT OR IGNORE INTO leads_seq (id, n) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS leads_apagados (lead_id TEXT NOT NULL, org_id TEXT, versao INTEGER NOT NULL, em INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_leads_apagados ON leads_apagados(org_id, versao);
+CREATE INDEX IF NOT EXISTS idx_leads_versao ON leads(org_id, versao);
+-- O aviso de "cliente sem resposta" olha só quem conversou nos últimos dias.
+CREATE INDEX IF NOT EXISTS idx_leads_interacao ON leads(org_id, last_interaction_at);
+-- O Painel conta avanços por etapa no período (visitas, propostas, vendas).
+CREATE INDEX IF NOT EXISTS idx_etapas_org_para ON lead_etapas(org_id, para, created_at);
+DROP TRIGGER IF EXISTS trg_leads_versao_ins;
+CREATE TRIGGER trg_leads_versao_ins AFTER INSERT ON leads BEGIN
+  UPDATE leads_seq SET n = n + 1 WHERE id = 1;
+  UPDATE leads SET versao = (SELECT n FROM leads_seq WHERE id = 1) WHERE id = NEW.id;
+END;
+DROP TRIGGER IF EXISTS trg_leads_versao_upd;
+CREATE TRIGGER trg_leads_versao_upd AFTER UPDATE ON leads WHEN NEW.versao IS OLD.versao BEGIN
+  UPDATE leads_seq SET n = n + 1 WHERE id = 1;
+  UPDATE leads SET versao = (SELECT n FROM leads_seq WHERE id = 1) WHERE id = NEW.id;
+END;
+DROP TRIGGER IF EXISTS trg_leads_versao_del;
+CREATE TRIGGER trg_leads_versao_del AFTER DELETE ON leads BEGIN
+  UPDATE leads_seq SET n = n + 1 WHERE id = 1;
+  INSERT INTO leads_apagados (lead_id, org_id, versao, em)
+    VALUES (OLD.id, OLD.org_id, (SELECT n FROM leads_seq WHERE id = 1), CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+-- "Tocar" o lead (SET versao = versao) faz o gatilho acima subir a versão.
+DROP TRIGGER IF EXISTS trg_msg_versao_ins;
+CREATE TRIGGER trg_msg_versao_ins AFTER INSERT ON messages BEGIN
+  UPDATE leads SET versao = versao WHERE id = NEW.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_msg_versao_upd;
+CREATE TRIGGER trg_msg_versao_upd AFTER UPDATE ON messages BEGIN
+  UPDATE leads SET versao = versao WHERE id = NEW.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_msg_versao_del;
+CREATE TRIGGER trg_msg_versao_del AFTER DELETE ON messages BEGIN
+  UPDATE leads SET versao = versao WHERE id = OLD.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_tag_versao_ins;
+CREATE TRIGGER trg_tag_versao_ins AFTER INSERT ON lead_tags BEGIN
+  UPDATE leads SET versao = versao WHERE id = NEW.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_tag_versao_del;
+CREATE TRIGGER trg_tag_versao_del AFTER DELETE ON lead_tags BEGIN
+  UPDATE leads SET versao = versao WHERE id = OLD.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_tarefa_versao_ins;
+CREATE TRIGGER trg_tarefa_versao_ins AFTER INSERT ON tarefas BEGIN
+  UPDATE leads SET versao = versao WHERE id = NEW.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_tarefa_versao_upd;
+CREATE TRIGGER trg_tarefa_versao_upd AFTER UPDATE ON tarefas BEGIN
+  UPDATE leads SET versao = versao WHERE id = NEW.lead_id;
+END;
+DROP TRIGGER IF EXISTS trg_tarefa_versao_del;
+CREATE TRIGGER trg_tarefa_versao_del AFTER DELETE ON tarefas BEGIN
+  UPDATE leads SET versao = versao WHERE id = OLD.lead_id;
+END;
+`);
+db.prepare("DELETE FROM leads_apagados WHERE em < ?").run(Date.now() - 7 * 86400000);
+export const versaoDosLeads = () => db.prepare("SELECT n FROM leads_seq WHERE id = 1").get().n;
+
+/* CONSULTAS COM LISTA DE IDs, EM LOTES (28/09/2026, teste de carga para uma
+   imobiliária maior que a Conecta). `WHERE id IN (?,?,…)` com um marcador por
+   lead quebra acima de ~32 mil itens — o SQLite recusa ("too many SQL
+   variables") e a tela inteira que dependia da consulta deixa de abrir, só na
+   imobiliária grande e sem aviso nenhum antes. Toda consulta assim passa por
+   aqui: `consulta(marcadores, lote)` roda uma vez por lote e os resultados
+   vêm juntos. Cada id cai em um lote só, então o que era agrupado por lead
+   continua agrupado. */
+export function emLotes(ids, consulta, tamanho = 900) {
+  const saida = [];
+  for (let i = 0; i < ids.length; i += tamanho) {
+    const lote = ids.slice(i, i + tamanho);
+    for (const linha of consulta("?,".repeat(lote.length).slice(0, -1), lote)) saida.push(linha);
+  }
+  return saida;
+}
+
 export default db;
