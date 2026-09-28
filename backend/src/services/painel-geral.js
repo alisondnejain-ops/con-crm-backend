@@ -80,8 +80,11 @@ const contarLigacoes = (...a) => momentosDeLigacao(...a).length;
 function momentosDeEtapa(orgId, paraEtapa, filtros, de, ate) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
-  const where = [p.sql, "le.para = ?", "le.created_at BETWEEN ? AND ?"];
-  const args = [...p.args, paraEtapa, de, ate];
+  /* `le.org_id` primeiro: é o que deixa o banco usar o índice (org, data) do
+     histórico em vez de varrê-lo inteiro — meio segundo por Painel aberto
+     numa imobiliária grande (teste de carga, 28/09/2026). */
+  const where = ["le.org_id = ?", p.sql, "le.para = ?", "le.created_at BETWEEN ? AND ?"];
+  const args = [orgId, ...p.args, paraEtapa, de, ate];
   const quem = condPessoa(filtros);
   if (quem) { where.push("le.user_id = ?"); args.push(quem); }
   return db.prepare(`SELECT le.created_at t FROM lead_etapas le JOIN leads l ON l.id = le.lead_id

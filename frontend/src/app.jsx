@@ -549,6 +549,28 @@ function usarAtualizacao(ms=60000){
   },[ms]);
   return tick;
 }
+/* LISTAS LONGAS SÃO DESENHADAS AOS POUCOS (28/09/2026, teste de carga). Numa
+   imobiliária grande a caixa de conversas e as colunas do Funil desenhavam
+   milhares de itens de uma vez — e a lista do corretor se redesenha a cada
+   segundo, por causa do cronômetro. Aparecem os primeiros (a lista já vem na
+   ordem de prioridade: quem espera e quem acabou de chegar em cima) e o resto
+   a um toque. Busca e filtros continuam valendo sobre a lista INTEIRA; o que
+   muda é só quanto dela está desenhado. `reiniciar` volta ao começo quando o
+   filtro muda, senão a pessoa abre "Mostrar mais" numa busca e a próxima
+   busca já nasce aberta. */
+function usarLimite(passo,reiniciar){
+  const [n,setN]=useState(passo);
+  useEffect(()=>{setN(passo);},[reiniciar,passo]);
+  return [n,()=>setN(x=>x+passo)];
+}
+function MostrarMais({total,mostrando,aoClicar,passo}){
+  const resta=total-mostrando;
+  if(resta<=0) return null;
+  return <button onClick={aoClicar} style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
+    padding:"10px 12px",margin:"6px",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+    Mostrar mais {Math.min(resta,passo)} <span style={{color:C.faint,fontWeight:400}}>(faltam {resta})</span></button>;
+}
+
 /* O seletor de período — o mesmo nas três telas. */
 function SeletorPeriodo({f,set,isMobile,estilo}){
   return <React.Fragment>
@@ -1127,30 +1149,61 @@ function ConCRM(){
     const antes=new Map(ant.map(l=>[l.id,l]));
     return novos.map(l=>adaptLead(l,antes.get(l.id)));
   });
+  /* SÓ O QUE MUDOU (28/09/2026). A lista inteira vem na entrada e a cada 5
+     minutos; nos outros ciclos de 10 segundos o servidor manda só os leads que
+     mudaram (e os que saíram da lista). Numa imobiliária grande a lista
+     inteira passava de 30 MB — baixada a cada 10 segundos em cada aparelho.
+     Os 5 minutos cobrem o que muda sem o lead mudar (o prazo da etapa que
+     vence com o relógio, o nome de um colega trocado). */
+  const versaoLeads=useRef(null), cicloLeads=useRef(0);
+  const mesclarMudancas=(novos,fora)=>{
+    if(!novos.length&&!(fora||[]).length) return;
+    setLeads(ant=>{
+      const tirar=new Set(fora||[]);
+      const mapa=new Map(ant.map(l=>[l.id,l]));
+      for(const n of novos) mapa.set(n.id,adaptLead(n,mapa.get(n.id)));
+      return [...mapa.values()].filter(l=>!tirar.has(l.id)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    });
+  };
 
   const supervisiona=podeSupervisionar(session);
 
+  /* Uma atualização por vez. Com a rede lenta (ou a lista inteira de uma casa
+     grande a caminho), o ciclo de 10 segundos disparava outra por cima da que
+     ainda não tinha voltado, e elas se empilhavam — no aparelho e no servidor. */
+  /* A GERAÇÃO muda ao entrar ou trocar de imobiliária: a resposta atrasada
+     da conta anterior é jogada fora em vez de misturar leads das duas casas,
+     e a atualização da conta nova não espera a velha terminar. */
+  const geracao=useRef(0), recarregando=useRef(-1);
   async function recarregar(){
     if(!session) return;
+    const g=geracao.current;
+    if(recarregando.current===g) return;
+    recarregando.current=g;
     try{
       // /auth/users já traz papel, status e disponibilidade — serve tanto para a
       // catraca quanto para o contador de aprovações pendentes.
       const [ls,eq,eu]=await Promise.all([
         // Traz os finalizados também: eles somem da caixa de entrada, mas
         // continuam no funil e nos contadores. Quem esconde é a tela, não a busca.
-        api("/leads?finalizados=1"),
+        (versaoLeads.current==null||cicloLeads.current++%30===0)
+          ?api("/leads?finalizados=1&versao=1").then(r=>({...r,inteira:true}))
+          :api(`/leads?finalizados=1&desde=${versaoLeads.current}`),
         supervisiona?api("/auth/users"):Promise.resolve(null),
         /* O corretor não pode ler /auth/users, então a disponibilidade DELE só
            chega por aqui. Sem isto a tela dele dizia "indisponível" para sempre,
            mesmo depois de ele se prontificar — e não havia como desligar. */
         supervisiona?Promise.resolve(null):api("/auth/me"),
       ]);
-      mesclar(ls);
+      if(geracao.current!==g) return;
+      if(ls.inteira) mesclar(ls.leads); else mesclarMudancas(ls.leads,ls.fora);
+      versaoLeads.current=ls.versao;
       if(eq) setEquipe(eq);
       if(eu&&eu.user) setSession(s=>s&&s.available!==!!eu.user.available?{...s,available:!!eu.user.available}:s);
       if(supervisiona) setFila((await api("/leads/queue")).map(l=>adaptLead(l)));
       setErro(""); setVersao(v=>v+1);
     }catch(e){ setErro(e.message); }
+    finally{ if(recarregando.current===g) recarregando.current=-1; }
   }
 
   /* Recarrega ao entrar E ao trocar de imobiliária.
@@ -1161,7 +1214,7 @@ function ConCRM(){
      cadastrado"), porque a equipe tinha sido buscada antes de existir
      imobiliária escolhida. Passava sozinho no ciclo seguinte, o que é pior:
      dava para achar que a equipe tinha sumido. */
-  useEffect(()=>{ if(!session) return; recarregar();
+  useEffect(()=>{ if(!session) return; geracao.current++; versaoLeads.current=null; cicloLeads.current=1; recarregar();
     api("/integracoes").then(d=>setConecta({connected:whatsConectado(d.whatsapp),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
     const t=setInterval(()=>{ recarregar(); if(selRef.current) abrir(selRef.current,true); },INTERVALO_ATUALIZACAO);
     return ()=>clearInterval(t);
@@ -6706,6 +6759,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
   const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
   const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
+  const [limiteLista,maisLista]=usarLimite(150,[linha,filter,busca,fEtapa,fPrio,esperando,de,ate].join("|"));
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   const daCasa=myLeads.filter(l=>!minhaLinha||l.canalId!==minhaLinha.id).length;
   const daMinha=minhaLinha?myLeads.filter(l=>l.canalId===minhaLinha.id).length:0;
@@ -6833,7 +6887,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
       <div style={{flex:1,overflowY:"auto"}}>
         {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
-        {list.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
+        {list.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
+        <MostrarMais total={list.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
       </div>
     </div>}
     {showChat&&<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
@@ -7075,6 +7130,8 @@ function FichaVenda({lead,onSalvar}){
    espera, qualquer rolagem lateral entre as colunas viraria um arrasto sem
    querer, e o lead mudava de etapa sozinho. */
 function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],session}){
+  // Quantos cartões cada coluna desenha (ver `usarLimite`): 60, e mais 60 a cada toque.
+  const [limitesColuna,setLimitesColuna]=useState({});
   /* ===== QUAL FUNIL ESTE QUADRO ESTA MOSTRANDO ===== (28/08/2026)
 
      As colunas deixaram de ser a lista fixa do código e passaram a ser as
@@ -7446,12 +7503,14 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
               background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
-            {items.map(l=>{
+            {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
               return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
                 opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
+            <MostrarMais total={items.length} mostrando={limitesColuna[st]||60} passo={60}
+              aoClicar={()=>setLimitesColuna(m=>({...m,[st]:(m[st]||60)+60}))}/>
           </div>
         </div>;})}
     </div>
@@ -8353,6 +8412,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
   const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0);
   const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
+  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,rapido,esperando,verFinalizados]));
   /* Por qual LINHA de WhatsApp. Só existe para quem tem número pessoal ligado;
      para o resto a chave nem aparece e o valor fica em "casa", que é o
      comportamento de sempre.
@@ -8497,7 +8557,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       </div>
       <div style={{flex:1,overflowY:"auto"}}>
         {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
-        {visiveis.map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}/>)}
+        {visiveis.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}/>)}
+        <MostrarMais total={visiveis.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
       </div>
     </div>}
 
@@ -10965,6 +11026,7 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
 }
 
 function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
+  const [limiteBase,maisBase]=usarLimite(200,"");
   const [lista,setLista]=useState(null);
   const [busca,setBusca]=useState("");
   const [baixando,setBaixando]=useState(false);
@@ -11286,7 +11348,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           {/* A linha inteira abre a conversa. Era a pergunta natural de quem
               olha a base ("e esse aí, como está?") e não tinha resposta: só
               dava para procurar o nome de novo na tela de atendimento. */}
-          <tbody>{filtrados.map(l=><tr key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
+          <tbody>{filtrados.slice(0,limiteBase).map(l=><tr key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
             title="Abrir a conversa deste lead"
             style={{borderBottom:`1px solid ${C.line}`,cursor:abrirConversa?"pointer":"default"}}>
             <td style={{...cel,color:C.ink,fontWeight:600}}>{l.nome}</td>
@@ -11298,6 +11360,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
             <td style={cel}>{new Date(l.createdAt).toLocaleDateString("pt-BR")}</td>
           </tr>)}</tbody>
         </table>
+        <MostrarMais total={filtrados.length} mostrando={limiteBase} aoClicar={maisBase} passo={200}/>
         {lista!==null&&filtrados.length===0&&<div style={{color:C.faint,fontSize:12.5,textAlign:"center",padding:24}}>Nenhum lead encontrado.</div>}
       </div>
     </div>

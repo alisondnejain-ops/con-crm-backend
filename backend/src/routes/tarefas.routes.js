@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 import { authRequired, podeVerLead } from "../auth.js";
 
 /* DOIS routers, com caminhos EXPLÍCITOS na hora de montar.
@@ -107,14 +107,18 @@ rt.delete("/:id", (req, res) => {
 /* O resumo que o FUNIL usa: por lead, quantas tarefas estão em aberto e qual é
    a próxima. Uma consulta para a imobiliária inteira — uma por card deixaria o
    funil lento assim que a base crescesse. */
-export function tarefasAbertasPorLead(orgId) {
-  const linhas = db.prepare(`
+export function tarefasAbertasPorLead(orgId, ids = null) {
+  // Com `ids`, só destes leads (a lista que manda só o que mudou).
+  const ler = (sql) => ids
+    ? emLotes(ids, (m, lote) => db.prepare(sql(`AND lead_id IN (${m})`)).all(orgId, ...lote))
+    : db.prepare(sql("")).all(orgId);
+  const linhas = ler((f) => `
     SELECT lead_id, COUNT(*) AS abertas, MIN(quando) AS proxima
-    FROM tarefas WHERE org_id = ? AND feito_em IS NULL
-    GROUP BY lead_id`).all(orgId);
-  const titulos = db.prepare(`
+    FROM tarefas WHERE org_id = ? AND feito_em IS NULL ${f}
+    GROUP BY lead_id`);
+  const titulos = ler((f) => `
     SELECT lead_id, titulo, quando FROM tarefas
-    WHERE org_id = ? AND feito_em IS NULL ORDER BY quando ASC`).all(orgId);
+    WHERE org_id = ? AND feito_em IS NULL ${f} ORDER BY quando ASC`);
   const primeiro = new Map();
   for (const t of titulos) if (!primeiro.has(t.lead_id)) primeiro.set(t.lead_id, t.titulo);
   return new Map(linhas.map(l => [l.lead_id, {

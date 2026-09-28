@@ -24,7 +24,7 @@
       métrica que ignora o período escolhido devolve um número que não bate com
       o de cima, e ninguém consegue dizer qual dos dois está certo. */
 
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
 import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js";
 import { slaDoLead } from "./etapas.js";
@@ -106,6 +106,14 @@ export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = nul
     .filter(e => ids.has(e.lead_id));
 }
 
+/* SÓ AS COLUNAS QUE A CONTA USA (28/09/2026, teste de carga). O lead tem ~60
+   colunas, e montar todas para cada um dos leads da casa era o que fazia estas
+   telas levarem 1 a 2 segundos numa imobiliária grande — com o servidor
+   parado nesse tempo. Ler só as do prazo (`slaDoLead`) e do agrupamento é
+   ~40 vezes mais rápido. Conta nova que precise de outra coluna a acrescenta
+   aqui: faltando, ela chega `undefined` e o número sai errado sem erro. */
+const COLUNAS_PRAZO = "l.id, l.stage, l.stage_id, l.assigned_to, l.last_interaction_at, l.stage_entered_at, l.created_at, l.closed_at";
+
 // Quem o filtro de responsável aponta — "fila" não é pessoa.
 const pessoaDoFiltro = (f) => (f && f.responsavel && f.responsavel !== "fila" ? f.responsavel : null);
 
@@ -116,7 +124,7 @@ function coorte(orgId, { de, ate }, f, eventos = null) {
   if (quem) {
     const ids = [...new Set(recebidosDaPessoa(orgId, quem, f, de, ate, eventos).map(e => e.lead_id))];
     if (!ids.length) return [];
-    return db.prepare(`SELECT l.* FROM leads l WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})`).all(...ids);
+    return emLotes(ids, (marcas, lote) => db.prepare(`SELECT l.* FROM leads l WHERE l.id IN (${marcas})`).all(...lote));
   }
   const p = peneira(orgId, f);
   return db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
@@ -189,7 +197,7 @@ export function painel(orgId, filtros = {}) {
   const p = peneira(orgId, filtros);
 
   // Foto do agora: onde os leads estão neste instante, sem recorte de período.
-  const agoraLeads = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql}`).all(...p.args);
+  const agoraLeads = db.prepare(`SELECT ${COLUNAS_PRAZO} FROM leads l WHERE ${p.sql}`).all(...p.args);
   const etapas = new Map(db.prepare("SELECT * FROM pipeline_stages WHERE org_id = ?").all(orgId)
     .map(e => [e.id, formatarEtapa(e)]));
 
@@ -209,7 +217,7 @@ export function painel(orgId, filtros = {}) {
   /* VENDA CONTA PELA DATA DA VENDA, não pela entrada do lead. Foi o furo
      corrigido em 10/08/2026: venda fechada hoje de um lead de junho não
      aparecia em "esta semana". */
-  const vendas = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql}
+  const vendas = db.prepare(`SELECT l.id, l.sale_value FROM leads l WHERE ${p.sql}
     AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, periodo.de, periodo.ate);
 
   return {
@@ -258,18 +266,34 @@ export function atividades(orgId, periodo, filtros = {}) {
   const agora = Date.now();
   const eventos = eventosDeAtribuicao(orgId);
 
+  /* UMA leitura dos leads da casa para a equipe inteira (28/09/2026, teste de
+     carga). Era uma por pessoa, mais uma consulta de "última mensagem" por
+     LEAD: numa imobiliária com 70 corretores e 30 mil leads, a aba levava 5
+     segundos com o servidor parado. A direção da última mensagem vem junto,
+     na mesma consulta; a divisão por pessoa é feita aqui. */
+  const { responsavel: _ignorado, ...semPessoa } = filtros || {};
+  const p = peneira(orgId, semPessoa);
+  /* "Esperando resposta" é a última mensagem ser do cliente — mesma
+     definição do alerta.js. Duas definições para a mesma frase fariam dois
+     números diferentes na mesma tela. */
+  const daCasa = db.prepare(`SELECT ${COLUNAS_PRAZO}, (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")}
+      ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
+    FROM leads l WHERE ${p.sql}`).all(...p.args);
+  const porDono = new Map();
+  for (const l of daCasa) {
+    if (!l.assigned_to) continue;
+    if (!porDono.has(l.assigned_to)) porDono.set(l.assigned_to, []);
+    porDono.get(l.assigned_to).push(l);
+  }
+  const noFiltro = new Set(daCasa.map(l => l.id));
+
   return pessoas.map(u => {
-    const p = peneira(orgId, { ...filtros, responsavel: u.id });
-    const meus = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql}`).all(...p.args);
+    const meus = porDono.get(u.id) || [];
     let vencidos = 0, semResposta = 0;
     for (const l of meus) {
       const s = l.stage_id ? slaDoLead(etapas.get(l.stage_id), l, agora) : null;
       if (s && s.status === "overdue") vencidos++;
-      /* "Esperando resposta" é a última mensagem ser do cliente — mesma
-         definição do alerta.js. Duas definições para a mesma frase fariam dois
-         números diferentes na mesma tela. */
-      const ultima = db.prepare(`SELECT direction FROM messages WHERE lead_id = ? AND ${semDisparo()} ORDER BY created_at DESC LIMIT 1`).get(l.id);
-      if (ultima && ultima.direction === "in") semResposta++;
+      if (l.ultima_dir === "in") semResposta++;
     }
     const msgs = db.prepare(`SELECT COUNT(*) n FROM messages
       WHERE from_user_id = ? AND created_at BETWEEN ? AND ?`).get(u.id, periodo.de, periodo.ate).n;
@@ -278,7 +302,10 @@ export function atividades(orgId, periodo, filtros = {}) {
     const tarefas = db.prepare(`SELECT COUNT(*) n FROM tarefas
       WHERE user_id = ? AND feito_em IS NOT NULL AND feito_em BETWEEN ? AND ?`).get(u.id, periodo.de, periodo.ate).n;
     // A mesma conta de Relatórios e do Painel (ver recebidosDaPessoa).
-    const recebidosNoPeriodo = recebidosDaPessoa(orgId, u.id, filtros, periodo.de, periodo.ate, eventos).length;
+    // A mesma conta de `recebidosDaPessoa` (Relatórios e Painel), com a lista
+    // de leads do filtro já lida acima em vez de reler a casa por pessoa.
+    const recebidosNoPeriodo = noPeriodo(eventos.recebidos, u.id, periodo.de, periodo.ate)
+      .filter(e => noFiltro.has(e.lead_id)).length;
 
     return {
       id: u.id, nome: u.name, papel: u.role,
@@ -309,9 +336,9 @@ export function funil(orgId, pipelineId, filtros = {}) {
   if (!etapas.length) return { erro: "Este funil não tem etapas ativas." };
 
   const p = peneira(orgId, { ...filtros, pipeline_id: pipelineId });
-  const doPeriodo = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
+  const doPeriodo = db.prepare(`SELECT l.id, l.stage FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
     .all(...p.args, periodo.de, periodo.ate);
-  const emAberto = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql}`).all(...p.args);
+  const emAberto = db.prepare(`SELECT ${COLUNAS_PRAZO} FROM leads l WHERE ${p.sql}`).all(...p.args);
 
   /* QUEM alcançou cada etapa — o CONJUNTO de leads, não a contagem.
 
@@ -333,11 +360,17 @@ export function funil(orgId, pipelineId, filtros = {}) {
   const ids = doPeriodo.map(l => l.id);
   const quemAlcancou = new Map();
   if (ids.length) {
-    const marcadores = "?,".repeat(ids.length).slice(0, -1);
+    /* Uma leitura do histórico para todas as etapas (em lotes), e não uma
+       por etapa: com onze etapas e o ano inteiro de leads, eram onze
+       varreduras da mesma tabela. */
+    const porEtapa = new Map();
+    for (const r of emLotes(ids, (marcas, lote) => db.prepare(
+      `SELECT DISTINCT lead_id, para FROM lead_etapas WHERE lead_id IN (${marcas})`).all(...lote))) {
+      if (!porEtapa.has(r.para)) porEtapa.set(r.para, []);
+      porEtapa.get(r.para).push(r.lead_id);
+    }
     for (const e of etapas) {
-      const doHistorico = db.prepare(
-        `SELECT DISTINCT lead_id FROM lead_etapas WHERE para = ? AND lead_id IN (${marcadores})`)
-        .all(e.name, ...ids).map(r => r.lead_id);
+      const doHistorico = porEtapa.get(e.name) || [];
       // Mais quem está na etapa AGORA: a base anterior a 13/08/2026 não tem
       // histórico, e sem isto ela apareceria como se nunca tivesse chegado.
       const agoraAqui = doPeriodo.filter(l => l.stage === e.name).map(l => l.id);

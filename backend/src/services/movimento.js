@@ -329,8 +329,24 @@ export function eventosDeAtribuicao(orgId) {
 // Conta os eventos de uma lista (recebidos OU perdidos) para uma pessoa, num
 // intervalo — a mesma pergunta, feita várias vezes por `reports.routes.js` e
 // `services/score.js`. Função só para as duas nunca voltarem a divergir.
-export const noPeriodo = (eventos, userId, de, ate) =>
-  eventos.filter(e => e.user_id === userId && e.quando >= de && e.quando <= ate);
+//
+// Os eventos são separados por pessoa UMA vez por lista (28/09/2026, teste de
+// carga): percorrer a lista inteira para cada pessoa, numa imobiliária com 70
+// corretores e 30 mil leads, gastava meio segundo por relatório — com o
+// servidor parado. A ordem dentro de cada pessoa é a da lista original.
+const porPessoa = new WeakMap();
+export const noPeriodo = (eventos, userId, de, ate) => {
+  let indice = porPessoa.get(eventos);
+  if (!indice) {
+    indice = new Map();
+    for (const e of eventos) {
+      if (!indice.has(e.user_id)) indice.set(e.user_id, []);
+      indice.get(e.user_id).push(e);
+    }
+    porPessoa.set(eventos, indice);
+  }
+  return (indice.get(userId) || []).filter(e => e.quando >= de && e.quando <= ate);
+};
 
 /* Por onde o lead passou: funil, etapa e dono, em ordem. É o que a ficha mostra
    quando alguém pergunta "de onde veio este atendimento". */

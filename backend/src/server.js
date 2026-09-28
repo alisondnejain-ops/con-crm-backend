@@ -1,6 +1,7 @@
 import "dotenv/config";
 import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
+import zlib from "node:zlib";
 import cors from "cors";
 import path from "path";
 import { readFileSync } from "fs";
@@ -98,6 +99,35 @@ const jsonNormal = express.json({ limit: "1mb" });
 app.use((req, res, next) =>
   (CORPO_GRANDE.some(p => req.path.startsWith(p)) ? jsonGrande : jsonNormal)(req, res, next));
 
+/* RESPOSTAS COMPACTADAS (28/09/2026, teste de carga). O servidor mandava tudo
+   cru: a lista de leads de uma imobiliária grande passava de 20 MB, e a
+   própria página do CRM (~900 KB) ia inteira a cada abertura, no 4G do
+   corretor. Texto JSON compacta 8 a 50 vezes. `zlib.gzip` roda FORA da linha
+   principal do Node, então compactar não para o servidor (e não segura o
+   webhook que chega no mesmo instante). Nível 1: o mais rápido, e a
+   diferença de tamanho para os níveis altos é pequena neste tipo de texto.
+   Só a partir de 8 KB — abaixo disso a economia não paga o trabalho. Não
+   bloqueia nem responde nada sozinho: só troca a forma de enviar o que a
+   rota já ia mandar, por isso pode ficar antes de todas elas. */
+const aceitaGzip = (req) => /\bgzip\b/.test(req.headers["accept-encoding"] || "");
+app.use("/", (req, res, next) => {
+  if (!aceitaGzip(req)) return next();
+  const jsonOriginal = res.json.bind(res);
+  res.json = (corpo) => {
+    const texto = JSON.stringify(corpo);
+    if (texto === undefined || texto.length < 8192) return jsonOriginal(corpo);
+    zlib.gzip(texto, { level: 1 }, (erro, compactado) => {
+      if (res.headersSent) return;
+      if (erro) return res.type("json").send(texto);
+      res.set({ "Content-Type": "application/json; charset=utf-8", "Content-Encoding": "gzip", Vary: "Accept-Encoding" });
+      res.setHeader("Content-Length", compactado.length);
+      res.end(compactado);
+    });
+    return res;
+  };
+  next();
+});
+
 // Três vezes hoje a gente perdeu tempo sem saber se o servidor já estava
 // rodando o código novo ou ainda o antigo. A lista de recursos responde isso
 // em cinco segundos, sem precisar do painel da hospedagem: se o recurso não
@@ -194,10 +224,17 @@ function servirPagina(arquivo, req, res, erroSeFaltar) {
   try {
     if (!paginaApp.has(chave)) {
       const bruto = readFileSync(path.join(publicDir, arquivo), "utf8");
-      paginaApp.set(chave, bruto.replace("<script>",
-        `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`));
+      const texto = bruto.replace("<script>",
+        `<script>window.CON_CRM_API=${JSON.stringify(base)}</script>\n<script>`);
+      // A versão compactada é feita uma vez e guardada junto (ver "RESPOSTAS COMPACTADAS").
+      paginaApp.set(chave, { texto, gz: zlib.gzipSync(texto, { level: 6 }) });
     }
-    res.set("Cache-Control", "no-store").type("html").send(paginaApp.get(chave));
+    const pagina = paginaApp.get(chave);
+    res.set("Cache-Control", "no-store").type("html");
+    if (!aceitaGzip(req)) return res.send(pagina.texto);
+    res.set({ "Content-Encoding": "gzip", Vary: "Accept-Encoding" });
+    res.setHeader("Content-Length", pagina.gz.length);
+    res.end(pagina.gz);
   } catch (e) {
     res.status(404).send(erroSeFaltar);
   }

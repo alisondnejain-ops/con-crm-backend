@@ -20,7 +20,7 @@
    "o funil anda sozinho ou é a equipe que move?". */
 
 import { randomUUID } from "crypto";
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao } from "./pipelines.js";
 
 export const MOTIVOS = {
@@ -221,12 +221,17 @@ export function slaDoLead(etapa, lead, agora = Date.now()) {
 
 // Desde quando cada lead está na etapa atual. Um SELECT só para a lista
 // inteira: uma consulta por card deixaria o funil lento com a base crescendo.
-export function etapaDesdePorLead(orgId) {
-  const linhas = db.prepare(`
+/* Com `ids`, só destes leads (a lista que manda só o que mudou não precisa
+   ler o histórico da imobiliária inteira a cada 10 segundos). */
+export function etapaDesdePorLead(orgId, ids = null) {
+  const sql = (filtro) => `
     SELECT e.lead_id, MAX(e.created_at) AS quando
     FROM lead_etapas e JOIN leads l ON l.id = e.lead_id
-    WHERE e.org_id = ? AND e.para = l.stage
-    GROUP BY e.lead_id`).all(orgId);
+    WHERE e.org_id = ? AND e.para = l.stage ${filtro}
+    GROUP BY e.lead_id`;
+  const linhas = ids
+    ? emLotes(ids, (m, lote) => db.prepare(sql(`AND e.lead_id IN (${m})`)).all(orgId, ...lote))
+    : db.prepare(sql("")).all(orgId);
   return new Map(linhas.map(l => [l.lead_id, l.quando]));
 }
 

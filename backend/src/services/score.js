@@ -1,4 +1,4 @@
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
 import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
@@ -86,10 +86,9 @@ const nota = (valor, bom, ruim) => {
    espera do mesmo jeito, porque do lado do cliente ele foi atendido. */
 export function temposDeResposta(leadIds, userId = null) {
   if (!leadIds.length) return [];
-  const marcas = "?,".repeat(leadIds.length).slice(0, -1);
-  const msgs = db.prepare(
+  const msgs = emLotes(leadIds, (marcas, lote) => db.prepare(
     `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} ORDER BY lead_id, created_at`
-  ).all(...leadIds);
+  ).all(...lote));
 
   const esperas = [];
   let leadAtual = null, perguntaEm = null;
@@ -111,11 +110,10 @@ export function temposDeResposta(leadIds, userId = null) {
    vale a data de entrada — que nesse caso é a mesma coisa. */
 export function primeirasRespostas(leads, userId) {
   if (!leads.length) return [];
-  const marcas = "?,".repeat(leads.length).slice(0, -1);
-  const linhas = db.prepare(
+  const linhas = emLotes(leads.map(l => l.id), (marcas, lote) => db.prepare(
     `SELECT lead_id, MIN(created_at) q FROM messages
      WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id = ?
-     GROUP BY lead_id`).all(...leads.map(l => l.id), userId);
+     GROUP BY lead_id`).all(...lote, userId));
   const primeira = new Map(linhas.map(l => [l.lead_id, l.q]));
 
   const esperas = [];
@@ -195,13 +193,13 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
      O histórico começou em 13/08/2026: antes disso não há linha para nenhum
      lead, e o número nasce zero para todo mundo. Zero honesto é melhor que um
      número que ninguém reconhece. */
-  const confirmadas = ids.length ? db.prepare(`
+  const confirmadas = emLotes(ids, (marcas, lote) => db.prepare(`
     SELECT COUNT(*) n FROM leads l
-    WHERE l.id IN (${"?,".repeat(ids.length).slice(0, -1)})
+    WHERE l.id IN (${marcas})
       AND l.stage IN ('Agendamento','Visita')
       AND EXISTS (SELECT 1 FROM lead_etapas e
                   WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`)
-    .get(...ids).n : 0;
+    .all(...lote)).reduce((s, r) => s + r.n, 0);
 
   // Os dois tempos, medidos por pessoa (ver o bloco lá em cima).
   const primeiras = primeirasRespostas(meus, u.id);
@@ -419,7 +417,28 @@ export function ranking(orgId, periodo = 90) {
    Compara a conversão de cada CORRETOR disponível naquela temperatura. Só
    recomenda quando os dois lados têm amostra — comparar 40% (2 de 5) com 8%
    (1 de 12) seria enganoso. */
-export function recomendar(orgId, lead) {
+/* `contas` guarda o ranking e a lista de disponíveis para quem pede várias
+   recomendações seguidas (28/09/2026, teste de carga): o painel de
+   recomendações chamava isto para 200 leads, e cada chamada refazia o ranking
+   da equipe inteira — duas vezes. Numa imobiliária grande foram 163 segundos
+   com o servidor parado (sem receber WhatsApp) a cada vez que um gestor abria
+   o Painel. O ranking não muda de um lead para o outro na mesma leitura. */
+/* O ranking que ALIMENTA A RECOMENDAÇÃO fica guardado por um minuto por
+   imobiliária: o cartão "para quem mandar" aparece a cada ficha aberta, e
+   refazer o ranking a cada abertura custava ~1 s numa casa grande. Sugestão
+   de direcionamento com um minuto de idade é a mesma sugestão. O ranking da
+   tela de Score continua sempre fresco — lá é outro caminho. */
+const guardados = new Map();
+function rankingGuardado(orgId, dias) {
+  const chave = `${orgId}|${dias}`, agora = Date.now();
+  const g = guardados.get(chave);
+  if (g && agora - g.em < 60000) return g.lista;
+  const lista = ranking(orgId, dias);
+  guardados.set(chave, { lista, em: agora });
+  return lista;
+}
+
+export function recomendar(orgId, lead, contas = {}) {
   /* Lead sem temperatura não vira "morno" para caber na conta. Ele é comparado
      no grupo SEM — e, como esse grupo quase nunca tem 5 atendimentos
      resolvidos, a sugestão cai no desempenho da semana, que é a resposta
@@ -430,8 +449,8 @@ export function recomendar(orgId, lead) {
   // O dono atual entra na comparação: a recomendação vale para lead novo e para
   // lead já em andamento. Se quem está com ele já é o melhor, o retorno diz isso
   // em vez de sugerir troca por trocar.
-  const lista = ranking(orgId);
-  const disponiveis = new Set(
+  const lista = contas.lista ??= rankingGuardado(orgId, 90);
+  const disponiveis = contas.disponiveis ??= new Set(
     db.prepare(`SELECT u.id FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo' AND u.available=1${semMaster("u")}`).all(orgId).map(u => u.id)
   );
 
@@ -456,7 +475,7 @@ export function recomendar(orgId, lead) {
 
        Não é a mesma pergunta que "quem converte mais leads mornos", e a tela
        diz isso: é sugestão por desempenho recente, não por conversão. */
-    const daSemana = ranking(orgId, 7).filter(m => !m.sem_dados);
+    const daSemana = (contas.semana ??= rankingGuardado(orgId, 7)).filter(m => !m.sem_dados);
     const top5 = daSemana.slice(0, 5);
     const disponivelNoTop = top5.filter(m => disponiveis.has(m.id));
     const escolhido = disponivelNoTop[0]
@@ -535,6 +554,7 @@ export function recomendacoes(orgId, limite = 8) {
   for (const u of db.prepare("SELECT id,name FROM users WHERE org_id=?").all(orgId)) nomes[u.id] = u.name;
 
   const itens = [];
+  const contas = {};   // o ranking é calculado uma vez para os 200 (ver `recomendar`)
   for (const lead of abertos) {
     const agora = Date.now();
 
@@ -550,7 +570,7 @@ export function recomendacoes(orgId, limite = 8) {
         });
     }
 
-    const r = recomendar(orgId, lead);
+    const r = recomendar(orgId, lead, contas);
     // 2) Sem corretor: quem deve pegar.
     if (r.situacao === "ok" && r.ganho >= GANHO_MINIMO)
       itens.push({ tipo: "direcionar", urgencia: 2, lead_id: lead.id, lead: lead.name,

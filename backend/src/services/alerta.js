@@ -50,9 +50,18 @@ const SEM_RESPOSTA = `
     AND l.closed_at IS NULL
     AND l.stage NOT IN ('Perdido','Venda','Transferido por ligação')`;
 
-export function esperando(orgId, { minutos = null, agora = Date.now() } = {}) {
+/* `recentesDesde` limita aos leads com conversa depois dessa hora. É o que o
+   aviso automático usa (28/09/2026, teste de carga): ele roda a cada minuto
+   para todas as contas, e sem o corte olhava a última mensagem de TODO lead
+   com dono — meio segundo por minuto numa imobiliária de 30 mil leads, com o
+   servidor parado. Quem espera há mais que o corte já foi avisado quando
+   passou do limite (o carimbo `alerta_em` guarda isso). */
+export function esperando(orgId, { minutos = null, agora = Date.now(), recentesDesde = null } = {}) {
   const limite = minutos === null ? minutosDaOrg(orgId) : Number(minutos);
-  return db.prepare(SEM_RESPOSTA).all(orgId)
+  const linhas = recentesDesde
+    ? db.prepare(SEM_RESPOSTA + " AND l.last_interaction_at >= ?").all(orgId, recentesDesde)
+    : db.prepare(SEM_RESPOSTA).all(orgId);
+  return linhas
     .filter(l => l.ultima_dir === "in" && l.ultima_em)
     .map(l => ({ ...l, esperando_min: Math.floor((agora - l.ultima_em) / 60000) }))
     .filter(l => l.esperando_min >= limite)
@@ -69,7 +78,7 @@ export async function avisarSemResposta(orgId, agora = Date.now()) {
   const limite = minutosDaOrg(orgId);
   if (!limite) return { avisados: 0, motivo: "aviso desligado nesta imobiliária" };
 
-  const pendentes = esperando(orgId, { minutos: limite, agora })
+  const pendentes = esperando(orgId, { minutos: limite, agora, recentesDesde: agora - 3 * 86400000 })
     .filter(l => !l.alerta_em || l.alerta_em < l.ultima_em);
   if (!pendentes.length) return { avisados: 0 };
 
