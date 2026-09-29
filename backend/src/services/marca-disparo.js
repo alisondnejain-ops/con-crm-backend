@@ -52,3 +52,54 @@ export function envioEmCurso(orgId, telefone) {
   if (v.ate < Date.now()) { emEnvio.delete(k); return null; }
   return v;
 }
+
+/* TODO ENVIO DO CRM, NÃO SÓ O DO DISPARO (29/09/2026, relato do Ali: "as
+   mensagens ainda aparecem duplicadas"). O CRM grava a mensagem que enviou
+   DEPOIS que a Uazapi responde — e o eco dela (webhook com fromMe) pode
+   chegar antes disso, ou sem um id que case com o que a resposta trouxe.
+   Nos dois casos o eco virava uma segunda cópia, "Enviada pelo WhatsApp".
+   Piorou quando o CRM passou a ligar sozinho o webhook de cada número, que
+   entrega também o eco do que saiu pela API.
+
+   Quem registra é `call()` em services/uazapi.js — o único ponto por onde
+   todo envio passa (texto, mídia, imóvel, localização, robô). Guarda, por
+   número, quantos envios estão no ar e os ids que voltaram, por 3 minutos. */
+const doCrm = new Map();
+const JANELA_ECO = 180000;
+
+function registroDoCrm(k) {
+  const v = doCrm.get(k);
+  if (v && v.ultimo + JANELA_ECO < Date.now() && !v.noAr) { doCrm.delete(k); return null; }
+  return v || null;
+}
+export function inicioDeEnvioDoCrm(orgId, telefone) {
+  const k = chave(orgId, telefone);
+  const v = registroDoCrm(k) || { noAr: 0, ultimo: 0, ids: new Map() };
+  v.noAr++; v.ultimo = Date.now();
+  doCrm.set(k, v);
+  return k;
+}
+export function fimDeEnvioDoCrm(k, messageid) {
+  const v = doCrm.get(k);
+  if (!v) return;
+  v.noAr = Math.max(0, v.noAr - 1);
+  v.ultimo = Date.now();
+  if (messageid) v.ids.set(String(messageid).split(":").pop(), Date.now());
+}
+/* Este webhook com fromMe é o eco de algo que o próprio CRM mandou?
+   - o id bate com um que a Uazapi devolveu num envio recente: sim;
+   - há um envio para este número no ar agora: sim — a não ser que a
+     Uazapi diga com todas as letras que NÃO saiu pela API (`wasSentByApi`
+     falso), que é gente digitando no celular;
+   - houve envio para este número nos últimos 3 minutos e a Uazapi diz
+     que saiu pela API: sim (resposta que não trouxe id).
+   Fora disso é gente digitando no celular, e a mensagem entra. */
+export function ecoDoCrm(orgId, telefone, messageid, enviadaPelaApi) {
+  const v = registroDoCrm(chave(orgId, telefone));
+  if (!v) return false;
+  const suf = messageid ? String(messageid).split(":").pop() : "";
+  if (suf && v.ids.has(suf)) return true;
+  if (enviadaPelaApi === false) return false;
+  if (v.noAr > 0) return true;
+  return enviadaPelaApi === true && v.ultimo + JANELA_ECO >= Date.now();
+}

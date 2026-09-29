@@ -1820,4 +1820,60 @@ export function emLotes(ids, consulta, tamanho = 900) {
   return saida;
 }
 
+/* O ECO QUE VIROU CÓPIA (29/09/2026). A mensagem que o CRM enviou voltava pelo
+   webhook e entrava uma segunda vez, sem autor ("Enviada pelo WhatsApp") — o
+   conserto está em services/marca-disparo.js → ecoDoCrm. Aqui saem, uma vez
+   só, as cópias que já estavam na conversa.
+
+   É cópia a linha sem autor que tem, na mesma conversa, uma mensagem ENVIADA
+   PELO CRM (com autor, ou do robô/disparo) de 30 segundos antes a 2 minutos
+   depois dela, e que é a mesma coisa: o mesmo id do WhatsApp (nos dois
+   formatos), o mesmo texto (com ou sem a assinatura "*Nome:*" na frente), a
+   mesma espécie de arquivo, ou o eco das fotos/localização de um imóvel
+   enviado (o registro do imóvel é gravado depois de todos os envios). Só a partir de 28/09/2026, quando o problema começou —
+   o que o corretor digitou no celular antes disso não é tocado. */
+if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'limpeza_ecos_do_crm'").get()) {
+  const desde = Date.parse("2026-09-28T00:00:00-03:00");
+  const suf = (c) => `substr(${c}.wa_id, instr(${c}.wa_id, ':') + 1)`;
+  const copias = db.prepare(`SELECT e.id, (
+      SELECT c.id FROM messages c
+      WHERE c.lead_id = e.lead_id AND c.id != e.id AND c.direction = 'out'
+        AND (c.from_user_id IS NOT NULL OR COALESCE(c.from_name, '') != '')
+        AND c.created_at BETWEEN e.created_at - 30000 AND e.created_at + 120000
+        AND (
+          (e.wa_id IS NOT NULL AND c.wa_id IS NOT NULL AND ${suf("e")} = ${suf("c")})
+          OR e.body = c.body
+          OR e.body = '*' || c.from_name || ':*' || char(10) || c.body
+          OR (e.media_mime IS NOT NULL AND c.media_mime IS NOT NULL AND substr(e.media_mime, 1, 5) = substr(c.media_mime, 1, 5))
+          OR c.body LIKE '[Imóvel enviado]%'
+          OR c.body LIKE '📍 Localização enviada%'
+        )
+      ORDER BY abs(c.created_at - e.created_at) LIMIT 1) AS original
+    FROM messages e
+    WHERE e.direction = 'out' AND e.from_user_id IS NULL AND COALESCE(e.from_name, '') = ''
+      AND e.created_at >= ?`).all(desde).filter(x => x.original);
+  /* E a mesma mensagem enviada gravada duas vezes com o id em formatos
+     diferentes ("3EB0…" e "5587…:3EB0…") — o índice único de `wa_id` só
+     pega o id escrito igual. Fica a com autor; sem autor em nenhuma, a mais
+     antiga. */
+  const chaveOut = "substr(wa_id, instr(wa_id, ':') + 1)";
+  for (const g of db.prepare(`SELECT lead_id, ${chaveOut} AS k FROM messages
+      WHERE wa_id IS NOT NULL AND direction = 'out' AND created_at >= ? GROUP BY lead_id, k HAVING COUNT(*) > 1`).all(desde)) {
+    const [fica, ...sai] = db.prepare(`SELECT id FROM messages WHERE lead_id = ? AND direction = 'out' AND wa_id IS NOT NULL
+      AND ${chaveOut} = ? ORDER BY (from_user_id IS NULL AND COALESCE(from_name, '') = '') ASC, created_at ASC, rowid ASC`)
+      .all(g.lead_id, g.k).map(l => l.id);
+    for (const id of sai) if (!copias.some(x => x.id === id)) copias.push({ id, original: fica });
+  }
+  let apagadas = 0;
+  db.transaction(() => {
+    for (const x of copias) {
+      db.prepare("UPDATE messages SET reply_to = ? WHERE reply_to = ?").run(x.original, x.id);
+      apagadas += db.prepare("DELETE FROM messages WHERE id = ?").run(x.id).changes;
+    }
+    db.prepare("INSERT OR REPLACE INTO config_plataforma (chave, valor, atualizado_em) VALUES ('limpeza_ecos_do_crm', ?, ?)")
+      .run(String(apagadas), Date.now());
+  })();
+  if (apagadas) console.log(`[messages] ${apagadas} cópia(s) de mensagem enviada pelo CRM apagada(s) (o eco do WhatsApp que tinha entrado de novo).`);
+}
+
 export default db;
