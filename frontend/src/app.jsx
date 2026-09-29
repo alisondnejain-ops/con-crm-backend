@@ -832,18 +832,62 @@ function Metric({n,label,value,sub,accent=C.green}){
     {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4,overflowWrap:"anywhere"}}>{sub}</div>}
   </div>;
 }
-/* `noEscuro` inverte as cores do texto. Sem isso, o "Con" saía em tinta escura
-   sobre o verde profundo do painel de login — praticamente ilegível. */
-function Brand({size=44,noEscuro}){
-  return <div style={{display:"flex",alignItems:"center",gap:10}}>
-    <div style={{background:C.green,width:size,height:size,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff"}}><Icon n="dot" size={size*0.5}/></div>
-    <div style={{fontFamily:DISPLAY,lineHeight:1}}>
-      <div style={{color:noEscuro?"#fff":C.ink,fontSize:20,fontWeight:700}}>Con<span style={{color:noEscuro?"#8FE3C6":C.green}}>Hub</span></div>
-      {/* Era "CONECTA IMÓVEIS". A marca da tela de entrada é a da plataforma;
-          o nome da imobiliária aparece depois do login, dentro do sistema. */}
-      <div style={{color:noEscuro?"rgba(255,255,255,.55)":C.faint,fontSize:10,fontWeight:500,letterSpacing:.5}}>CRM IMOBILIÁRIO</div>
-    </div>
-  </div>;
+/* ===== A LOGO DO CONHUB (29/09/2026) =====
+
+   Símbolo "Órbita" (anel aberto com o ponto coral) + o nome "conhub", em
+   CURVAS: não depende de a fonte carregar nem de arquivo nenhum chegar — a
+   mesma régua do resto do app, que é um HTML só.
+
+   Três formas: `lockup` (símbolo + nome), `symbol` (só o anel) e `app` (o
+   ícone quadrado verde, o mesmo da tela de início). E três tons: `default`
+   para fundo claro, `inverse` (branco) para o verde escuro e foto, `mono`
+   para uma cor só.
+
+   Regras da marca, do guia: o ponto é SEMPRE coral e nunca se separa do anel;
+   a assinatura inteira só com 96px de largura ou mais — abaixo disso, o
+   símbolo ou o ícone. Em tamanho pequeno o anel troca de desenho
+   (`LOGO_ANEL_P`, ponto maior): o de tamanho grande vira um risco fino.
+
+   O coral do ponto (#E0563A) é da LOGO e fica fora da paleta `C` de
+   propósito: o coral de urgência do sistema é o `C.hot`, e os dois precisam
+   poder mudar sem arrastar o outro. */
+const LOGO_ANEL="M166.33 58.97A78 78 0 1 1 141.03 33.67A21.5 21.5 0 0 0 123.79 56.02A50 50 0 1 0 143.98 76.21A21.5 21.5 0 0 0 166.33 58.97Z";
+const LOGO_ANEL_P="M173.13 60.74A83 83 0 1 1 139.26 26.87A28.5 28.5 0 0 0 116.98 58.33A45 45 0 1 0 141.67 83.02A28.5 28.5 0 0 0 173.13 60.74Z";
+const LOGO_NOME="M318.75 19.5Q247.5 19.5 195.125 -4.125Q142.75 -27.75 107.875 -67.875Q73 -108 55.75 -158.5Q38.5 -209.0 38.5 -262.5V-282.0Q38.5 -338.25 56.5 -389.5Q74.5 -440.75 109.875 -480.625Q145.25 -520.5 197.5 -543.75Q249.75 -567.0 318.25 -567.0Q392 -567 448.875 -538.25Q505.75 -509.5 539.75 -458.75Q573.75 -408.0 577.75 -341.5H421.25Q417.25 -378.75 391.375 -404.375Q365.5 -430.0 318.25 -430.0Q277.75 -430.0 251.375 -410.0Q225 -390 212.0 -354.75Q199.0 -319.5 199.0 -272.25Q199.0 -227.75 210.875 -192.375Q222.75 -157.0 249.25 -137.25Q275.75 -117.5 318.75 -117.5Q351.0 -117.5 373.5 -129.0Q396.0 -140.5 409.25 -161.125Q422.5 -181.75 425.75 -209.0H582.25Q578.5 -140.75 543.5 -89.5Q508.5 -38.25 450.625 -9.375Q392.75 19.5 318.75 19.5ZM896.25 19.5Q824.0 19.5 768.0 -3.0Q712.0 -25.5 673.25 -64.625Q634.5 -103.75 614.5 -154.25Q594.5 -204.75 594.5 -261.0V-283.5Q594.5 -341.25 615.375 -392.625Q636.25 -444.0 675.5 -483.125Q714.75 -522.25 770.75 -544.625Q826.75 -567.0 896.25 -567.0Q966.5 -567.0 1022.125 -544.625Q1077.75 -522.25 1117.0 -483.125Q1156.25 -444.0 1177.125 -392.625Q1198.0 -341.25 1198.0 -283.5V-261Q1198.0 -204.75 1178.0 -154.25Q1158.0 -103.75 1119.25 -64.625Q1080.5 -25.5 1024.5 -3.0Q968.5 19.5 896.25 19.5ZM896.25 -116.0Q942.75 -116.0 974.0 -136.125Q1005.25 -156.25 1021.375 -191.875Q1037.5 -227.5 1037.5 -272.25Q1037.5 -318.75 1020.875 -354.375Q1004.25 -390.0 972.625 -410.75Q941.0 -431.5 896.25 -431.5Q851.75 -431.5 820.0 -410.75Q788.25 -390.0 771.625 -354.375Q755.0 -318.75 755.0 -272.25Q755.0 -227.5 771.125 -191.875Q787.25 -156.25 818.875 -136.125Q850.5 -116.0 896.25 -116.0ZM1254.5 0.0V-547.5H1381.5V-312.5H1372.5Q1372.5 -396.75 1394.375 -452.75Q1416.25 -508.75 1459.875 -536.875Q1503.5 -565.0 1566.75 -565.0H1573.75Q1669.5 -565.0 1720.25 -502.375Q1771.0 -439.75 1771.0 -313.25V0H1610.5V-322.0Q1610.5 -366.0 1584.875 -393.75Q1559.25 -421.5 1514.75 -421.5Q1469.75 -421.5 1442.375 -393.375Q1415.0 -365.25 1415.0 -319V0ZM1851.5 0.0V-730.0H2012.0V-309H1988.0Q1988.0 -391.75 2008.875 -448.875Q2029.75 -506.0 2070.875 -535.5Q2112.0 -565 2173.75 -565.0H2180.75Q2272.25 -565.0 2320.125 -500.375Q2368.0 -435.75 2368.0 -311.75V0H2207.5V-322.0Q2207.5 -366.75 2181.125 -394.125Q2154.75 -421.5 2111.75 -421.5Q2067.25 -421.5 2039.625 -392.5Q2012.0 -363.5 2012.0 -316.25V0ZM2633.5 17.5Q2539.25 17.5 2487.875 -44.125Q2436.5 -105.75 2436.5 -230.25V-547.75H2597.0V-221.75Q2597.0 -178.25 2622.0 -152.125Q2647.0 -126 2689.25 -126.0Q2732.0 -126 2758.75 -152.875Q2785.5 -179.75 2785.5 -225.75V-547.75H2946.0V0H2819.0V-231.25H2829.5Q2829.5 -147.75 2808.125 -92.5Q2786.75 -37.25 2744.875 -9.875Q2703.0 17.5 2640.5 17.5ZM3376.0 18Q3308.5 18.0 3257.75 -10.25Q3207.0 -38.5 3178.125 -92.875Q3149.25 -147.25 3147.0 -225.25H3165.5V0.0H3038.5V-730.0H3199.0V-359.25L3160.5 -311.0Q3163.75 -393.5 3192.5 -450.0Q3221.25 -506.5 3271.0 -535.25Q3320.75 -564.0 3384.75 -564.0Q3441.0 -564 3486.5 -543.25Q3532.0 -522.5 3564.125 -485.0Q3596.25 -447.5 3613.5 -396.875Q3630.75 -346.25 3630.75 -286.25V-263.75Q3630.75 -203.75 3613.375 -152.625Q3596.0 -101.5 3562.5 -63.0Q3529.0 -24.5 3482.0 -3.25Q3435.0 18 3376.0 18ZM3334.25 -115.5Q3374.75 -115.5 3405.375 -135.875Q3436.0 -156.25 3453.125 -192.375Q3470.25 -228.5 3470.25 -275.0Q3470.25 -322.25 3453.0 -357.125Q3435.75 -392.0 3405.5 -411.25Q3375.25 -430.5 3334.25 -430.5Q3297.5 -430.5 3265.875 -413.875Q3234.25 -397.25 3214.625 -365.375Q3195.0 -333.5 3195.0 -288.5V-251.5Q3195.0 -208.5 3215.5 -178.125Q3236.0 -147.75 3268.0 -131.625Q3300.0 -115.5 3334.25 -115.5Z";
+const LOGO_TONS={default:{ink:"#0B2E24",dot:"#E0563A"},inverse:{ink:"#FFFFFF",dot:"#E0563A"},mono:{ink:"currentColor",dot:"currentColor"}};
+function ConHubLogo({variant="lockup",tone="default",size,style}){
+  const c=LOGO_TONS[tone]||LOGO_TONS.default;
+  const comum={role:"img","aria-label":"ConHub",style:{display:"block",flexShrink:0,...style},xmlns:"http://www.w3.org/2000/svg"};
+  if(variant==="app"){
+    const s=size||40, pequeno=s<=32;
+    return <svg {...comum} viewBox="0 0 200 200" width={s} height={s}>
+      <rect width="200" height="200" rx="46" fill="#10906E"/>
+      <g transform="translate(28 28) scale(.72)">
+        <path d={pequeno?LOGO_ANEL_P:LOGO_ANEL} fill="#FFFFFF"/>
+        <circle cx="145.25" cy="54.75" r={pequeno?19.5:14.5} fill="#E0563A"/>
+      </g>
+    </svg>;
+  }
+  if(variant==="symbol"){
+    const s=size||40, pequeno=s<=20;
+    return <svg {...comum} viewBox="20 20 160 160" width={s} height={s}>
+      <path d={pequeno?LOGO_ANEL_P:LOGO_ANEL} fill={c.ink}/>
+      <circle cx="145.25" cy="54.75" r={pequeno?19.5:14.5} fill={c.dot}/>
+    </svg>;
+  }
+  const h=size||32;
+  return <svg {...comum} viewBox="0 -790 4803 940" height={h} width={Math.round(h*4803/940)}>
+    <g transform="translate(-132.56 -922.56) scale(6.0256)">
+      <path d={LOGO_ANEL} fill={c.ink}/>
+      <circle cx="145.25" cy="54.75" r="14.5" fill={c.dot}/>
+    </g>
+    <path d={LOGO_NOME} transform="translate(1171.5 0)" fill={c.ink}/>
+  </svg>;
+}
+/* A marca da plataforma nas telas SEM imobiliária: login, carregamento e hub.
+   `noEscuro` é o fundo verde/foto do login, onde a assinatura vai em branco. */
+function Brand({size=32,noEscuro}){
+  return <ConHubLogo tone={noEscuro?"inverse":"default"} size={size}/>;
 }
 
 /* ===== LOGIN (contas reais, via backend) ===== */
@@ -956,7 +1000,7 @@ function Auth({onLogin}){
         justifyContent:"space-between",gap:isMobile?14:0,minHeight:isMobile?0:500}}>
         <div style={{padding:isMobile?"26px 22px":"36px 34px",display:"flex",
           flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,flex:1}}>
-        <Brand size={isMobile?38:44} noEscuro/>
+        <Brand size={isMobile?28:34} noEscuro/>
         {/* Nada de Conecta aqui: esta tela é a porta do ConHub, e a partir de
             agora ela abre para qualquer imobiliária. O nome de quem opera
             aparece depois de entrar, dentro do sistema. */}
@@ -3790,7 +3834,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",padding:isMobile?"18px 14px 40px":"32px 24px"}}>
     <div style={{maxWidth:900,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:isMobile?18:26,flexWrap:"wrap"}}>
-        <Brand size={isMobile?38:44}/>
+        <Brand size={isMobile?24:28}/>
         <div style={{flex:1}}/>
         <div style={{textAlign:"right"}}>
           <div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div>
@@ -4964,7 +5008,7 @@ function TarjaMensalidade({assinatura,isMobile,master}){
 
 function Splash(){
   return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14}}>
-    <Brand/>
+    <Brand size={32}/>
     <div style={{color:C.faint,fontSize:13,display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Entrando…</div>
   </div>;
 }
@@ -5539,10 +5583,11 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
               display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
               <img src={marca.logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
             </div>
-          : <div style={{background:realce==="rgba(255,255,255,.92)"?"rgba(255,255,255,.16)":C.green,
-              width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",
-              justifyContent:"center",color:"#fff",flexShrink:0}}><Icon n="dot" size={18}/></div>}
-        {!recolhida&&<div style={{minWidth:0,textAlign:"left"}}>
+          : (org||recolhida)&&<ConHubLogo variant="app" size={34}/>}
+        {/* Sem imobiliária (e com espaço), a assinatura inteira do ConHub,
+            em branco — é o fundo escuro da barra. */}
+        {!recolhida&&!org&&<ConHubLogo tone="inverse" size={24}/>}
+        {!recolhida&&org&&<div style={{minWidth:0,textAlign:"left"}}>
           {/* O NOME DA IMOBILIÁRIA VEM PRIMEIRO, e o ConHub embaixo.
 
               Era o contrário, e fazia sentido enquanto havia uma casa só. Numa
@@ -5550,9 +5595,9 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
               sistema e ler o nome do fornecedor em cima do próprio é o oposto
               do que a marca na barra existe para fazer. */}
           <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.15,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org||"ConHub"}</div>
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org}</div>
           <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org?"ConHub":"CRM imobiliário"}</div>
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>ConHub</div>
         </div>}
       </button>
       {/* A seta aponta para onde a barra VAI: fechando quando aberta, abrindo

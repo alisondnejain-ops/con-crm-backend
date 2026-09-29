@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="theme-color" content="#0A3D30"/>
+<meta name="theme-color" content="#0B2E24"/>
 <title>Criar minha senha — ConHub</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
-<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='15' fill='%230E8F6E'/><circle cx='32' cy='32' r='15' fill='none' stroke='%23fff' stroke-width='5'/><circle cx='32' cy='32' r='5.5' fill='%23fff'/></svg>"/>
+<link rel="icon" href="/favicon.ico" sizes="48x48"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='46' fill='%2310906E'/><g transform='translate(28 28) scale(.72)'><path d='M173.13 60.74A83 83 0 1 1 139.26 26.87A28.5 28.5 0 0 0 116.98 58.33A45 45 0 1 0 141.67 83.02A28.5 28.5 0 0 0 173.13 60.74Z' fill='%23FFFFFF'/><circle cx='145.25' cy='54.75' r='19.5' fill='%23E0563A'/></g></svg>"/>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -18,9 +19,7 @@
         padding:34px;box-shadow:0 20px 60px rgba(0,0,0,.10)}
   .logo{display:flex;align-items:center;gap:10px;margin-bottom:26px}
   .logo{text-decoration:none;color:inherit}
-  .logo:hover .wordmark{opacity:.75}
-  .mark{width:42px;height:42px;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .mark svg{display:block;width:100%;height:100%}
+  .logo:hover .assinatura{opacity:.75}
   /* Botao secundario: mesma altura do principal, sem competir com ele. */
   .btn-entrar{display:block;width:100%;text-align:center;text-decoration:none;font-size:15px;font-weight:600;
               color:#fff;background:#0E8F6E;border-radius:12px;padding:14px;margin-top:20px}
@@ -28,9 +27,8 @@
   .btn-voltar{display:block;width:100%;text-align:center;text-decoration:none;font-size:14px;font-weight:600;
               color:#0C6B52;background:#fff;border:1px solid #BFE3D8;border-radius:12px;padding:13px;margin-top:10px}
   .btn-voltar:hover{background:#F0FAF6}
-  .wordmark{font-family:'Sora',sans-serif;font-size:20px;font-weight:700;line-height:1}
-  .wordmark em{color:#0E8F6E;font-style:normal}
-  .tag{font-size:10px;letter-spacing:.6px;color:#8A93A0;margin-top:2px}
+  .assinatura{display:block;height:30px;width:auto}
+  .tag{font-size:10px;letter-spacing:.6px;color:#8A93A0;margin-top:6px}
   h2{font-family:'Sora',sans-serif;font-size:20px;margin:0 0 4px}
   .lead{color:#5A6472;font-size:13.5px;line-height:1.55;margin:0 0 22px}
   label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
@@ -77,17 +75,8 @@
        "app.", a logo continua indo para o site e o botao de baixo continua indo
        para o login, sem ninguem precisar lembrar de trocar. -->
   <a class="logo" href="https://www.conhubcrm.com.br" title="Ir para o site do ConHub">
-    <div class="mark">
-      <svg width="42" height="42" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect width="128" height="128" rx="30" fill="#0E8F6E"/>
-        <path d="M88.6 48.8A30 30 0 1 0 88.6 83.2" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round"/>
-        <path d="M64 66V46" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
-        <circle cx="64" cy="66" r="9" fill="#fff"/>
-        <circle cx="88.6" cy="48.8" r="7.5" fill="#E1553A"/>
-      </svg>
-    </div>
     <div>
-      <div class="wordmark">Con<em>Hub</em></div>
+      <svg class="assinatura" role="img" aria-label="ConHub" width="153" height="30" xmlns="http://www.w3.org/2000/svg" viewBox="0 -790 4803 940"><g transform="translate(-132.56 -922.56) scale(6.0256)"><path d="M166.33 58.97A78 78 0 1 1 141.03 33.67A21.5 21.5 0 0 0 123.79 56.02A50 50 0 1 0 143.98 76.21A21.5 21.5 0 0 0 166.33 58.97Z" fill="#0B2E24"/><circle cx="145.25" cy="54.75" r="14.5" fill="#E0563A"/></g><path transform="translate(1171.5 0)" d="M318.75 19.5Q247.5 19.5 195.125 -4.125Q142.75 -27.75 107.875 -67.875Q73 -108 55.75 -158.5Q38.5 -209.0 38.5 -262.5V-282.0Q38.5 -338.25 56.5 -389.5Q74.5 -440.75 109.875 -480.625Q145.25 -520.5 197.5 -543.75Q249.75 -567.0 318.25 -567.0Q392 -567 448.875 -538.25Q505.75 -509.5 539.75 -458.75Q573.75 -408.0 577.75 -341.5H421.25Q417.25 -378.75 391.375 -404.375Q365.5 -430.0 318.25 -430.0Q277.75 -430.0 251.375 -410.0Q225 -390 212.0 -354.75Q199.0 -319.5 199.0 -272.25Q199.0 -227.75 210.875 -192.375Q222.75 -157.0 249.25 -137.25Q275.75 -117.5 318.75 -117.5Q351.0 -117.5 373.5 -129.0Q396.0 -140.5 409.25 -161.125Q422.5 -181.75 425.75 -209.0H582.25Q578.5 -140.75 543.5 -89.5Q508.5 -38.25 450.625 -9.375Q392.75 19.5 318.75 19.5ZM896.25 19.5Q824.0 19.5 768.0 -3.0Q712.0 -25.5 673.25 -64.625Q634.5 -103.75 614.5 -154.25Q594.5 -204.75 594.5 -261.0V-283.5Q594.5 -341.25 615.375 -392.625Q636.25 -444.0 675.5 -483.125Q714.75 -522.25 770.75 -544.625Q826.75 -567.0 896.25 -567.0Q966.5 -567.0 1022.125 -544.625Q1077.75 -522.25 1117.0 -483.125Q1156.25 -444.0 1177.125 -392.625Q1198.0 -341.25 1198.0 -283.5V-261Q1198.0 -204.75 1178.0 -154.25Q1158.0 -103.75 1119.25 -64.625Q1080.5 -25.5 1024.5 -3.0Q968.5 19.5 896.25 19.5ZM896.25 -116.0Q942.75 -116.0 974.0 -136.125Q1005.25 -156.25 1021.375 -191.875Q1037.5 -227.5 1037.5 -272.25Q1037.5 -318.75 1020.875 -354.375Q1004.25 -390.0 972.625 -410.75Q941.0 -431.5 896.25 -431.5Q851.75 -431.5 820.0 -410.75Q788.25 -390.0 771.625 -354.375Q755.0 -318.75 755.0 -272.25Q755.0 -227.5 771.125 -191.875Q787.25 -156.25 818.875 -136.125Q850.5 -116.0 896.25 -116.0ZM1254.5 0.0V-547.5H1381.5V-312.5H1372.5Q1372.5 -396.75 1394.375 -452.75Q1416.25 -508.75 1459.875 -536.875Q1503.5 -565.0 1566.75 -565.0H1573.75Q1669.5 -565.0 1720.25 -502.375Q1771.0 -439.75 1771.0 -313.25V0H1610.5V-322.0Q1610.5 -366.0 1584.875 -393.75Q1559.25 -421.5 1514.75 -421.5Q1469.75 -421.5 1442.375 -393.375Q1415.0 -365.25 1415.0 -319V0ZM1851.5 0.0V-730.0H2012.0V-309H1988.0Q1988.0 -391.75 2008.875 -448.875Q2029.75 -506.0 2070.875 -535.5Q2112.0 -565 2173.75 -565.0H2180.75Q2272.25 -565.0 2320.125 -500.375Q2368.0 -435.75 2368.0 -311.75V0H2207.5V-322.0Q2207.5 -366.75 2181.125 -394.125Q2154.75 -421.5 2111.75 -421.5Q2067.25 -421.5 2039.625 -392.5Q2012.0 -363.5 2012.0 -316.25V0ZM2633.5 17.5Q2539.25 17.5 2487.875 -44.125Q2436.5 -105.75 2436.5 -230.25V-547.75H2597.0V-221.75Q2597.0 -178.25 2622.0 -152.125Q2647.0 -126 2689.25 -126.0Q2732.0 -126 2758.75 -152.875Q2785.5 -179.75 2785.5 -225.75V-547.75H2946.0V0H2819.0V-231.25H2829.5Q2829.5 -147.75 2808.125 -92.5Q2786.75 -37.25 2744.875 -9.875Q2703.0 17.5 2640.5 17.5ZM3376.0 18Q3308.5 18.0 3257.75 -10.25Q3207.0 -38.5 3178.125 -92.875Q3149.25 -147.25 3147.0 -225.25H3165.5V0.0H3038.5V-730.0H3199.0V-359.25L3160.5 -311.0Q3163.75 -393.5 3192.5 -450.0Q3221.25 -506.5 3271.0 -535.25Q3320.75 -564.0 3384.75 -564.0Q3441.0 -564 3486.5 -543.25Q3532.0 -522.5 3564.125 -485.0Q3596.25 -447.5 3613.5 -396.875Q3630.75 -346.25 3630.75 -286.25V-263.75Q3630.75 -203.75 3613.375 -152.625Q3596.0 -101.5 3562.5 -63.0Q3529.0 -24.5 3482.0 -3.25Q3435.0 18 3376.0 18ZM3334.25 -115.5Q3374.75 -115.5 3405.375 -135.875Q3436.0 -156.25 3453.125 -192.375Q3470.25 -228.5 3470.25 -275.0Q3470.25 -322.25 3453.0 -357.125Q3435.75 -392.0 3405.5 -411.25Q3375.25 -430.5 3334.25 -430.5Q3297.5 -430.5 3265.875 -413.875Q3234.25 -397.25 3214.625 -365.375Q3195.0 -333.5 3195.0 -288.5V-251.5Q3195.0 -208.5 3215.5 -178.125Q3236.0 -147.75 3268.0 -131.625Q3300.0 -115.5 3334.25 -115.5Z" fill="#0B2E24"/></svg>
       <div class="tag">CRM IMOBILIÁRIO</div>
     </div>
   </a>

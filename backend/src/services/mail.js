@@ -112,6 +112,23 @@ function explicar(status, body) {
   return `o Resend respondeu ${status}.`;
 }
 
+/* A LOGO NO CABEÇALHO DO E-MAIL (29/09/2026).
+
+   Vai como IMAGEM (PNG), e não como SVG: Gmail e Outlook apagam SVG do corpo
+   do e-mail. O endereço sai do próprio link do e-mail — é o servidor que o
+   monta, então aponta para o mesmo lugar que vai abrir a tela de senha, e
+   nenhum dado de quem recebe entra nele.
+
+   Muita caixa de entrada bloqueia imagem até a pessoa liberar: o `alt` escreve
+   "ConHub" em branco no lugar, para o cabeçalho nunca ficar vazio. Link que
+   não é endereço (não deveria acontecer) volta para o nome escrito. */
+function logoDoEmail(link) {
+  let origem = "";
+  try { const u = new URL(link); if (u.protocol === "https:" || u.protocol === "http:") origem = u.origin; } catch (_) {}
+  if (!origem) return `<div style="color:#fff;font-size:20px;font-weight:700">ConHub</div>`;
+  return `<img src="${origem}/conhub-email.png" width="143" height="28" alt="ConHub" style="display:block;border:0;color:#fff;font-size:20px;font-weight:700">`;
+}
+
 // E-mail de convite: o corretor clica e define a própria senha.
 export function inviteEmail({ name, link, orgName }) {
   const first = (name || "").split(" ")[0] || "corretor(a)";
@@ -120,9 +137,9 @@ export function inviteEmail({ name, link, orgName }) {
     html: `
 <div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
-    <div style="background:#0A3D30;padding:24px">
-      <div style="color:#fff;font-size:20px;font-weight:700">Con<span style="color:#0E8F6E">Hub</span></div>
-      <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px">${orgName.toUpperCase()}</div>
+    <div style="background:#0B2E24;padding:24px">
+      ${logoDoEmail(link)}
+      <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px;margin-top:8px">${orgName.toUpperCase()}</div>
     </div>
     <div style="padding:28px">
       <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}! 👋</p>
@@ -160,9 +177,9 @@ export function senhaEmail({ name, link, horas = 24 }) {
     html: `
 <div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
-    <div style="background:#0A3D30;padding:24px">
-      <div style="color:#fff;font-size:20px;font-weight:700">Con<span style="color:#0E8F6E">Hub</span></div>
-      <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px">ACESSO À SUA CONTA</div>
+    <div style="background:#0B2E24;padding:24px">
+      ${logoDoEmail(link)}
+      <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px;margin-top:8px">ACESSO À SUA CONTA</div>
     </div>
     <div style="padding:28px">
       <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}!</p>
