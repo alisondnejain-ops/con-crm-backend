@@ -53,6 +53,19 @@ export const lembrar = (e) => { ultimosEventos.unshift(e); if (ultimosEventos.le
      citada    — id (do WhatsApp) da mensagem respondida, ou "".
      messageid — id (do WhatsApp) desta mensagem, para dedup e citação futura.
      nome      — nome de exibição de quem mandou, quando o provedor manda. */
+/* A mensagem já está gravada nesta imobiliária? O id vem em dois formatos na
+   uazapiGO — "3EB0…" e "5587…:3EB0…" (o número da instância na frente) —, e
+   a mesma mensagem pode chegar num e ficar gravada no outro. `direcao` nula
+   vale para as duas (o eco do que o CRM enviou). */
+function jaGravada(orgId, messageid, direcao) {
+  const id = String(messageid);
+  const suf = id.split(":").pop();
+  return !!db.prepare(`SELECT 1 FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE l.org_id = ? AND (m.wa_id = ? OR m.wa_id = ? OR m.wa_id LIKE ?)${direcao ? " AND m.direction = ?" : ""} LIMIT 1`)
+    .get(...[orgId, id, suf, "%:" + suf, ...(direcao ? [direcao] : [])]);
+}
+const emAndamento = new Set();
+
 export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome }) {
   const orgId = canal.org_id;
   const ehPessoal = canal.tipo === "corretor";
@@ -70,9 +83,27 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      diferencia isso do corretor digitando no celular (só acontece na
      Uazapi; na Meta `fromMe` nunca é true, então este `if` nunca dispara
      ali — e não precisa disparar, porque o resto da função segue igual). */
-  if (fromMe && messageid && db.prepare(`SELECT 1 FROM messages m JOIN leads l ON l.id = m.lead_id
-    WHERE m.wa_id = ? AND l.org_id = ?`).get(messageid, orgId))
+  if (fromMe && messageid && jaGravada(orgId, messageid, null))
     return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: eco da mensagem enviada pelo próprio CRM" });
+
+  /* A MESMA MENSAGEM DO CLIENTE ENTREGUE DUAS VEZES (29/09/2026): webhook
+     geral da Uazapi + webhook do número, ou a Uazapi reentregando. O id do
+     WhatsApp é o da mensagem — o cliente mandar a mesma frase de novo gera
+     outro. A conferência vem ANTES de qualquer espera (o download da mídia),
+     e o `emAndamento` cobre a entrega irmã que chega enquanto a primeira
+     ainda está baixando o arquivo: sem ele, as duas veriam o banco vazio e
+     um lead novo nasceria duas vezes. */
+  const chaveEntrega = messageid ? `${orgId}|${String(messageid).split(":").pop()}` : null;
+  if (!fromMe && messageid && (jaGravada(orgId, messageid, "in") || emAndamento.has(chaveEntrega)))
+    return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: a mesma mensagem chegou duas vezes (já está na conversa)" });
+  if (chaveEntrega) emAndamento.add(chaveEntrega);
+  try {
+    return await processar();
+  } finally {
+    if (chaveEntrega) emAndamento.delete(chaveEntrega);
+  }
+
+  async function processar() {
 
   // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
   // mensagem, para a conversa já nascer com a mídia. Se não der, `midia`
@@ -276,4 +307,5 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      outro motivo. `atender` nunca lança: erro dele vira log, nunca derruba
      o processo. */
   if (!fromMe) atender(orgId, lead.id);
+  }
 }

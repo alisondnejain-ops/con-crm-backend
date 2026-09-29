@@ -54,6 +54,9 @@ console.log("1. MIGRAÇÃO SEGURA: banco já com wa_id duplicado não pode trava
     VALUES ('m_velha','l_x','out','Áudio',1000,'DUPLICADO123','https://exemplo/velho.ogg')`).run();
   raw.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at,wa_id,media_url)
     VALUES ('m_nova','l_x','out','Áudio',2000,'DUPLICADO123','https://exemplo/novo.ogg')`).run();
+  // E a mesma mensagem RECEBIDA três vezes, uma com o número na frente (29/09/2026).
+  for (const [id, t, wa] of [["m_in_1", 1000, "3EB0IN"], ["m_in_2", 1500, "3EB0IN"], ["m_in_3", 1800, "5587999:3EB0IN"]])
+    raw.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at,wa_id) VALUES (?,'l_y','in','oi',?,?)`).run(id, t, wa);
   raw.close();
 
   // Importa src/db.js num PROCESSO SEPARADO (é módulo ESM com efeito colateral
@@ -78,6 +81,9 @@ console.log("1. MIGRAÇÃO SEGURA: banco já com wa_id duplicado não pode trava
   const indice = depois.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_messages_wa_id_unico'").get();
   console.log(`   índice único criado: ${!!indice}`);
   assert.ok(indice, "o índice único precisa existir depois da limpeza");
+  const recebidas = depois.prepare("SELECT id FROM messages WHERE lead_id = 'l_y'").all().map(l => l.id);
+  assert.deepEqual(recebidas, ["m_in_1"], "da recebida repetida fica só a mais antiga, nos dois formatos de id");
+  assert.ok(depois.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_messages_wa_id_recebida'").get());
   depois.close();
 }
 
@@ -142,6 +148,42 @@ await new Promise(r => setTimeout(r, ATRASO_MS + 900));
 const gravadas = db.prepare("SELECT id, media_url FROM messages WHERE lead_id = ? AND wa_id = 'MESMO_ID_REENTREGUE'").all(leadId);
 console.log(`   mensagens gravadas para este wa_id: ${gravadas.length}`);
 assert.equal(gravadas.length, 1, "as duas entregas do mesmo evento não podem virar duas mensagens");
+
+/* A MESMA MENSAGEM DO CLIENTE ENTREGUE DUAS VEZES (29/09/2026): o webhook
+   geral da Uazapi e o do número entregando o mesmo evento. */
+const entregar = (msg) => fetch(`${BASE}/webhooks/uazapi`, { method: "POST",
+  headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "token-fake", message: msg }) });
+const doCliente = (extra) => ({ chatid: "5581977776666@s.whatsapp.net", sender: "5581977776666@s.whatsapp.net",
+  fromMe: false, senderName: "Cliente Novo", ...extra });
+
+console.log("\n3. Texto do cliente entregue duas vezes: uma mensagem, um lead");
+await entregar(doCliente({ messageid: "3EB0TEXTO1", text: "Oi, quero ver a casa" }));
+await entregar(doCliente({ messageid: "3EB0TEXTO1", text: "Oi, quero ver a casa" }));
+await new Promise(r => setTimeout(r, 300));
+const leadsNovos = db.prepare("SELECT id FROM leads WHERE org_id = ? AND phone = '5581977776666'").all(orgId);
+assert.equal(leadsNovos.length, 1, "um lead só");
+const doLead = (id) => db.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ? AND direction = 'in'").get(id).n;
+assert.equal(doLead(leadsNovos[0].id), 1, "uma mensagem só");
+
+console.log("4. O mesmo id nos dois formatos da uazapiGO (com e sem o número na frente)");
+await entregar(doCliente({ messageid: "558199990000:3EB0TEXTO1", text: "Oi, quero ver a casa" }));
+await new Promise(r => setTimeout(r, 300));
+assert.equal(doLead(leadsNovos[0].id), 1, "\"5581…:3EB0…\" é a mesma mensagem que \"3EB0…\"");
+
+console.log("5. Mensagem nova (outro id) com o mesmo texto entra — é o cliente mandando de novo");
+await entregar(doCliente({ messageid: "3EB0TEXTO2", text: "Oi, quero ver a casa" }));
+await new Promise(r => setTimeout(r, 300));
+assert.equal(doLead(leadsNovos[0].id), 2);
+
+console.log("6. Áudio de um cliente NOVO entregue duas vezes AO MESMO TEMPO: um lead, uma mensagem");
+const audioNovo = { chatid: "5581966665555@s.whatsapp.net", sender: "5581966665555@s.whatsapp.net", fromMe: false,
+  senderName: "Cliente Áudio", messageid: "3EB0AUDIO1", messageType: "audioMessage",
+  content: { URL: "http://localhost:4632/audio.ogg", mimetype: "audio/ogg" } };
+await Promise.all([entregar(audioNovo), entregar(audioNovo)]);
+await new Promise(r => setTimeout(r, ATRASO_MS + 900));
+const doAudio = db.prepare("SELECT id FROM leads WHERE org_id = ? AND phone = '5581966665555'").all(orgId);
+assert.equal(doAudio.length, 1, "a entrega irmã, chegando durante o download, não cria um segundo lead");
+assert.equal(doLead(doAudio[0].id), 1);
 
 mock.close();
 console.log("\nTudo certo ✅");
