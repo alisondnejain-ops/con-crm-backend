@@ -104,6 +104,14 @@ function lista(data) {
 const recebeMensagens = (w) => w.enabled !== false
   && (!Array.isArray(w.events) || w.events.length === 0 || w.events.includes("messages"));
 
+function recebeuRecentemente(orgId, canal) {
+  const desde = Date.now() - 3 * 86400000;
+  const linha = canal && canal.tipo !== "imobiliaria" ? canal.id : null;
+  return !!db.prepare(`SELECT 1 FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE l.org_id = ? AND m.direction = 'in' AND m.created_at > ? AND ${linha ? "m.canal_id = ?" : "m.canal_id IS NULL"} LIMIT 1`)
+    .get(...[orgId, desde, ...(linha ? [linha] : [])]);
+}
+
 function gravar(canal, estado, detalhe) {
   if (!canal) return;
   db.prepare("UPDATE canais SET webhook_estado = ?, webhook_em = ?, webhook_detalhe = ? WHERE id = ?")
@@ -128,6 +136,16 @@ export async function garantirWebhook(orgId, canalId = null, { corrigir = true }
     if (certo) {
       gravar(a.canal, "ok", null);
       return { estado: "ok", acao: "ja_estava", url: certo.url };
+    }
+    /* JÁ RECEBE POR OUTRO CAMINHO (29/09/2026): a Uazapi tem um webhook
+       GERAL, da conta de administração, que o token da instância não
+       enxerga. Número que recebeu mensagem nos últimos 3 dias sem webhook
+       próprio está sendo atendido por ele — ligar mais um faria cada
+       mensagem chegar duas vezes, que foi o que aconteceu no primeiro dia
+       desta função. Aí não se mexe em nada. */
+    if (recebeuRecentemente(orgId || a.canal?.org_id, a.canal)) {
+      gravar(a.canal, "ok", null);
+      return { estado: "ok", acao: "outro_caminho" };
     }
     if (!corrigir) {
       const detalhe = "A instância não está mandando as mensagens para o CRM (webhook não configurado).";

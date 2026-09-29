@@ -174,12 +174,11 @@ r = await fetch(url("/webhooks/whatsapp-oficial"), {
 await new Promise(x => setTimeout(x, 200));
 const total8 = db.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ?").get(lead6.id).n;
 console.log(`   mensagens do lead: ${total8}`);
-// Duas entradas iguais do CLIENTE não são eco (fromMe nunca é true na Meta) —
-// a Meta reentregar o mesmo evento cria uma segunda linha na conversa, que é
-// o comportamento correto (o cliente pode ter mandado a mesma frase duas
-// vezes de propósito). O dedup por wa_id só existe para o eco do que o
-// próprio CRM manda, que não acontece aqui.
-assert.equal(total8, 2);
+// O mesmo wamid é a MESMA mensagem entregue de novo — o cliente mandar a
+// mesma frase outra vez gera outro wamid. Reentrega não pode virar uma
+// segunda linha na conversa (29/09/2026; até aqui este caso afirmava o
+// contrário e era a porta das mensagens duplicadas).
+assert.equal(total8, 1);
 
 console.log("9. Confirmação de entrega (`statuses`) não vira lead nem mensagem");
 const antesDeStatus = db.prepare("SELECT COUNT(*) n FROM leads").get().n;

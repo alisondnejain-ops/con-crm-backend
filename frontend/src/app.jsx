@@ -5784,7 +5784,42 @@ function SinoCutucar({lead,cutucar}){
   </span>;
 }
 
-function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar}){
+/* POR QUAL NÚMERO A CONVERSA ACONTECE (29/09/2026, relato do Ali: "não
+   estamos sabendo diferenciar a conversa que é do número da imobiliária e a
+   que é do número do corretor"). A lista da gestão mistura as duas, e nada
+   dizia qual era qual. `usarLinhas` lê as linhas da conta uma vez e devolve o
+   rótulo curto de cada conversa; só existe quando há mais de um número —
+   com um número só, o selo em toda linha seria ruído. */
+function usarLinhas(acoes,session,lista){
+  const [d,setD]=useState(null);
+  useEffect(()=>{ let vivo=true; acoes.canais().then(r=>vivo&&setD(r)).catch(()=>{}); return()=>{vivo=false;}; },[]);
+  const equipe=(d&&d.equipe)||(d&&d.meu?[d.meu]:[]);
+  const porId=new Map(equipe.map(c=>[c.id,c]));
+  const rotulo=(canalId)=>{
+    if(!canalId) return {texto:"Imobiliária",pessoal:false};
+    const c=porId.get(canalId);
+    if(!c) return {texto:"Outro número",pessoal:true};
+    if(c.tipo==="disparo") return {texto:"Disparo",pessoal:false};
+    if(c.user_id===session.id) return {texto:"Seu número",pessoal:true};
+    return {texto:first(c.pessoa||c.nome||"Corretor"),pessoal:true};
+  };
+  const pessoais=equipe.filter(c=>c.tipo==="corretor"&&(c.conectado||(lista||[]).some(l=>l.canalId===c.id)));
+  const varias=pessoais.length>0||(lista||[]).some(l=>l.canalId);
+  const opcoes=[{v:"casa",t:"Número da imobiliária"},...pessoais.map(c=>({v:c.id,t:"Número de "+first(c.pessoa||c.nome||"corretor")}))];
+  return {rotulo,varias,opcoes};
+}
+function SeloDaLinha({linha,grande}){
+  if(!linha) return null;
+  return <span title={linha.pessoal?"Conversa pelo WhatsApp pessoal do corretor":"Conversa pelo número da imobiliária"}
+    style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:0,maxWidth:grande?"none":110,
+      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+      fontSize:grande?11:10,fontWeight:700,padding:grande?"2px 8px":"1px 6px",borderRadius:999,
+      color:linha.pessoal?C.greenDeep:C.sub,background:linha.pessoal?C.greenSoft:C.surface,
+      border:`1px solid ${linha.pessoal?C.green+"55":C.line}`}}>
+    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:"Nº da imobiliária"):linha.texto}</span>;
+}
+
+function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
   const naoLida=l.unread>0, quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
@@ -5817,6 +5852,7 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar}){
       {naoLida
         ?<span style={{display:"flex",alignItems:"center",gap:4,color:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600}}><Icon n="timer" size={12} color={ageColor(espera)}/>aguardando há {fmtAge(espera)}</span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
+      <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
       <span style={{flex:1}}/>
       {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread}</span>}
@@ -8459,8 +8495,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   const [rapido,setRapido]=usarEscolha("conversas.rapido","Todos");
   const [esperando,setEsperando]=usarEscolha("conversas.esperando",false);   // só quem está sem resposta
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("conversas.gaveta",false);
+  // Por qual número (imobiliária ou o pessoal de um corretor) — ver usarLinhas.
+  const [numero,setNumero]=usarEscolha("conversas.numero","");
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
-  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0);
+  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0)+(numero?1:0);
   const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
   const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,rapido,esperando,verFinalizados]));
   /* Por qual LINHA de WhatsApp. Só existe para quem tem número pessoal ligado;
@@ -8504,7 +8542,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     // A linha só peneira quando existe uma segunda: sem número pessoal ligado,
     // "da imobiliária" seria a caixa inteira com outro nome.
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
-    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha]);
+    .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
+    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero]);
+  const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
   usarAberturaDeFora(sel,isMobile,setPane);
@@ -8587,13 +8627,19 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
                 border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
                 color:esperando?C.hot:C.sub,borderRadius:9,padding:isMobile?"11px 13px":"7px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
               <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
-            {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);}}
+            {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);setNumero("");}}
               style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
             {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
             {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+            {/* Por qual número: a peneira é no navegador, como a das abas. */}
+            {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
+              style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+              <option value="">Todos os números</option>
+              {linhas.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
@@ -8607,7 +8653,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       </div>
       <div style={{flex:1,overflowY:"auto"}}>
         {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
-        {visiveis.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}/>)}
+        {visiveis.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}
+          linha={linhas.varias?linhas.rotulo(l.canalId):null}/>)}
         <MostrarMais total={visiveis.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
       </div>
     </div>}
@@ -8618,7 +8665,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
-          <div style={{color:C.faint,fontSize:11.5}}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</div>
+          <div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
+            {linhas.varias&&<SeloDaLinha linha={linhas.rotulo(sel.canalId)} grande/>}</div>
         </div>
         <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes} nome={sel.nome}/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>}

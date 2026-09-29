@@ -1256,6 +1256,52 @@ if (waDuplicados.length) {
   console.log(`[messages] ${waDuplicados.length} wa_id duplicado(s) (enviadas) — ${apagadas} mensagem(ns) repetida(s) apagada(s) antes de travar o índice único.`);
 }
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_id_unico ON messages(wa_id) WHERE wa_id IS NOT NULL AND direction = 'out'");
+/* ===== A MESMA MENSAGEM RECEBIDA TAMBÉM NÃO ENTRA DUAS VEZES (29/09/2026) =====
+
+   Relato do Ali: "as mensagens estão indo duplicadas no CRM". O CRM passou a
+   ligar sozinho o webhook de cada número (services/webhook-uazapi.js) — e
+   numa conta que JÁ recebia pelo webhook GERAL da Uazapi (o da conta de
+   administração, que o token da instância não enxerga), cada mensagem passou
+   a chegar duas vezes. Entrar duas vezes só foi possível porque a trava
+   acima valia só para as ENVIADAS: a de 22/09 partia de que "o mesmo id
+   recebido duas vezes pode ser o cliente mandando de novo". Não pode — cada
+   mensagem que o cliente manda ganha um id novo do WhatsApp. O mesmo id é a
+   mesma mensagem, entregue duas vezes.
+
+   Por LEAD, e não na plataforma inteira: a mesma mensagem só pode ser
+   repetida dentro da mesma conversa. O caminho principal é a conferência em
+   `processarMensagemRecebida`, que também casa o id com e sem o número da
+   instância na frente ("5587…:3EB0…" e "3EB0…"); este índice é o fecho
+   contra a corrida de duas entregas simultâneas.
+
+   LIMPA ANTES DE TRAVAR, uma vez só (marcada em config_plataforma): mantém a
+   linha mais antiga de cada grupo, e quem citava uma das repetidas passa a
+   citar a que ficou. Sem a limpeza o índice falharia e o servidor não
+   subiria. */
+if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'limpeza_recebidas_duplicadas'").get()) {
+  const chave = "substr(wa_id, instr(wa_id, ':') + 1)";
+  const grupos = db.prepare(`SELECT lead_id, ${chave} AS k FROM messages
+    WHERE wa_id IS NOT NULL AND direction = 'in' GROUP BY lead_id, k HAVING COUNT(*) > 1`).all();
+  let apagadas = 0;
+  // `reply_to` pode ainda não existir neste ponto num banco antigo (as
+  // colunas novas de messages são acrescentadas mais adiante neste arquivo).
+  const temCitacao = db.prepare("PRAGMA table_info(messages)").all().some(c => c.name === "reply_to");
+  db.transaction(() => {
+    for (const g of grupos) {
+      const linhas = db.prepare(`SELECT id FROM messages WHERE lead_id = ? AND direction = 'in' AND wa_id IS NOT NULL
+        AND ${chave} = ? ORDER BY created_at ASC, rowid ASC`).all(g.lead_id, g.k);
+      const [fica, ...sai] = linhas.map(l => l.id);
+      for (const id of sai) {
+        if (temCitacao) db.prepare("UPDATE messages SET reply_to = ? WHERE reply_to = ?").run(fica, id);
+        apagadas += db.prepare("DELETE FROM messages WHERE id = ?").run(id).changes;
+      }
+    }
+    db.prepare("INSERT OR REPLACE INTO config_plataforma (chave, valor, atualizado_em) VALUES ('limpeza_recebidas_duplicadas', ?, ?)")
+      .run(String(apagadas), Date.now());
+  })();
+  if (apagadas) console.log(`[messages] ${apagadas} mensagem(ns) recebida(s) repetida(s) apagada(s) (a mesma mensagem entregue duas vezes).`);
+}
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_id_recebida ON messages(lead_id, wa_id) WHERE wa_id IS NOT NULL AND direction = 'in'");
 /* As leituras novas do core de gestao: o kanban por pipeline e o painel de SLA
    filtram leads por etapa e por pipeline dentro da imobiliaria. Sem indice,
    cada um deles varre a tabela de leads da plataforma inteira — foi o que os
