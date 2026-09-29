@@ -17,6 +17,7 @@ import {
   criarCanalDoCorretor, salvarConexao, salvarConexaoOficial, desligarCanal, limites,
 } from "../services/canais.js";
 import { instanceStatus, PROVEDORES } from "../services/uazapi.js";
+import { garantirWebhook } from "../services/webhook-uazapi.js";
 
 const r = Router();
 r.use(authRequired);
@@ -70,6 +71,7 @@ const enxuto = (c) => ({
   id: c.id, tipo: c.tipo, user_id: c.user_id, nome: c.nome, pessoa: c.pessoa || null,
   conectado: !!c.token, host: c.host || null, wa_number: c.wa_number || null,
   robo_ligado: !!c.robo_ligado, ativo: !!c.ativo, conectado_em: c.conectado_em || null,
+  recebimento: c.webhook_estado ? { estado: c.webhook_estado, em: c.webhook_em, detalhe: c.webhook_detalhe } : null,
 });
 
 // O estado da linha na Uazapi — pareada, esperando QR, caída.
@@ -165,10 +167,14 @@ r.post("/meu/credenciais", async (req, res) => {
   // a pessoa conferir que ligou o telefone certo.
   if (whatsapp && whatsapp.numero)
     db.prepare("UPDATE canais SET wa_number = ? WHERE id = ?").run(whatsapp.numero, meu.id);
+  // Liga o recebimento na instância dele: a tela "Meu WhatsApp" nunca pediu o
+  // webhook, e por isso nenhuma linha de corretor recebia (29/09/2026).
+  const recebimento = whatsapp.ok ? await garantirWebhook(req.user.org_id, meu.id) : null;
 
   res.json({
-    ok: true, meu: enxuto(canalPorId(meu.id)), whatsapp,
-    aviso: whatsapp.ok ? null : "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da SUA instância.",
+    ok: true, meu: enxuto(canalPorId(meu.id)), whatsapp, recebimento,
+    aviso: !whatsapp.ok ? "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da SUA instância."
+      : recebimento && recebimento.estado !== "ok" ? `Conectado, mas o recebimento das mensagens não foi ligado: ${recebimento.detalhe}` : null,
   });
 });
 

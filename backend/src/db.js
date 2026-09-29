@@ -1404,6 +1404,13 @@ addCanalCol("phone_number_id", "TEXT");
 addCanalCol("waba_id", "TEXT");
 addCanalCol("app_secret", "TEXT");
 addCanalCol("verify_token", "TEXT");
+/* O RECEBIMENTO DE CADA LINHA (29/09/2026, ver services/webhook-uazapi.js):
+   se o webhook da instância na Uazapi aponta para o CRM. `webhook_estado` é
+   'ok' | 'erro' | nulo (nunca conferido); `webhook_detalhe` é a frase que a
+   tela mostra quando não está ok. */
+addCanalCol("webhook_estado", "TEXT");
+addCanalCol("webhook_em", "INTEGER");
+addCanalCol("webhook_detalhe", "TEXT");
 
 /* O índice único de TOKEN só vale para a Uazapi — é lá que token = uma linha.
    Precisa de DROP e recriação porque um banco já publicado criou o antigo sem

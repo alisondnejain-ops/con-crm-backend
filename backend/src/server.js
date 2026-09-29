@@ -46,6 +46,7 @@ import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js";
 import { processarDisparos } from "./services/disparo.js";
+import { garantirWebhooksEmTodas } from "./services/webhook-uazapi.js";
 
 const app = express();
 
@@ -472,6 +473,13 @@ app.listen(PORT, () => {
      registro de cada execução ("próxima ação em"), não o relógio — servidor
      que reiniciou continua de onde parou. `MARKETING_AGENDADOR=0` desliga
      (os testes controlam o tempo chamando a função direto). */
+  /* O RECEBIMENTO DE CADA NÚMERO (29/09/2026, services/webhook-uazapi.js):
+     confere se a instância de cada linha conectada manda as mensagens para
+     cá, e liga quando não manda. 20s depois do start (deixa o servidor
+     terminar de subir) e a cada 30 minutos — é o que conserta as contas que
+     já existem, e a que alguém configurou errado depois, sem ninguém mexer. */
+  setTimeout(() => garantirWebhooksEmTodas(), 20000);
+  setInterval(() => garantirWebhooksEmTodas(), 30 * 60000);
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);

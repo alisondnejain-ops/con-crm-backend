@@ -17,6 +17,7 @@ import { authRequired, roles, soMaster, supervisiona } from "../auth.js";
 import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
+import { garantirWebhook, garantirWebhooksDaOrg, enderecoDoWebhook } from "../services/webhook-uazapi.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
@@ -230,6 +231,9 @@ r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
     // Diagnóstico de "marcar/citar mensagem": em texto simples, para o
     // gestor ler direto na tela — ver diagnosticoCitacao() logo abaixo.
     citacao: diagnosticoCitacao(),
+    // O que a última conferência do recebimento disse sobre a linha da casa.
+    recebimento: casa && casa.webhook_estado ? { estado: casa.webhook_estado, em: casa.webhook_em, detalhe: casa.webhook_detalhe } : null,
+    recebimento_automatico: !!enderecoDoWebhook(),
     webhook: {
       uazapi: {
         url: `${base}/webhooks/uazapi`,
@@ -327,9 +331,23 @@ r.post("/conexao/credenciais", roles("adm"), async (req, res) => {
   if (casa) salvarConexao(casa.id, { host, token, quem: req.user.id });
   else salvarCredenciais(req.user.org_id, { host, token });
   const whatsapp = await instanceStatus(req.user.org_id);
+  // Liga o recebimento na instância (services/webhook-uazapi.js): sem isso o
+  // CRM envia e não recebe, e era um passo manual que ninguém lembrava.
+  const recebimento = whatsapp.ok ? await garantirWebhook(req.user.org_id, null) : null;
   // Token errado só aparece na hora de perguntar o estado — e é melhor dizer
   // agora do que na primeira mensagem que não sair.
-  res.json({ ok: true, whatsapp, aviso: whatsapp.ok ? null : "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da instância." });
+  res.json({ ok: true, whatsapp, recebimento,
+    aviso: !whatsapp.ok ? "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da instância."
+      : recebimento && recebimento.estado !== "ok" ? `Conectado, mas o recebimento das mensagens não foi ligado: ${recebimento.detalhe}` : null });
+});
+
+/* "CONFERIR RECEBIMENTO": confere (e liga, faltando) o webhook de todas as
+   linhas da imobiliária — a da casa e as dos corretores. É o botão que
+   responde "por que a mensagem do cliente não chega?" sem ninguém precisar
+   abrir o painel da Uazapi. Supervisão, porque a atendente também cuida da
+   caixa de entrada. */
+r.post("/conexao/recebimento", roles("adm", "sdr"), async (req, res) => {
+  res.json({ ok: true, linhas: await garantirWebhooksDaOrg(req.user.org_id), automatico: !!enderecoDoWebhook() });
 });
 
 /* Desconectar derruba o WhatsApp da imobiliária inteira: ninguém envia nem
