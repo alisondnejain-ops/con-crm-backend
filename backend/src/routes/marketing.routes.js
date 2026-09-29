@@ -19,6 +19,8 @@ import {
 } from "../services/disparo.js";
 import { salvar, limiteBytes, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
+import db from "../db.js";
+import { garantirWebhook } from "../services/webhook-uazapi.js";
 
 const r = Router();
 r.use(roles("adm"));
@@ -50,7 +52,11 @@ r.get("/termo/historico", trata((req, res) => res.json({ aceites: historicoDeAce
 
 r.put("/numero", trata(async (req, res) => {
   const numero = await salvarNumero(req.user.org_id, req.user, req.body || {});
-  res.json({ ok: true, numero });
+  // A resposta do cliente ao disparo chega por esta linha: o recebimento é
+  // ligado aqui, como nas outras (services/webhook-uazapi.js).
+  const linha = db.prepare("SELECT canal_id FROM marketing_numero WHERE org_id = ?").get(req.user.org_id);
+  const recebimento = linha && linha.canal_id ? await garantirWebhook(req.user.org_id, linha.canal_id) : null;
+  res.json({ ok: true, numero, recebimento });
 }));
 r.put("/numero/limites", trata((req, res) => {
   res.json({ ok: true, limites: salvarLimites(req.user.org_id, req.body || {}) });

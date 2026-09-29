@@ -1579,6 +1579,7 @@ function ConCRM(){
     usoDaIA:(dias)=>api(`/config/ia?dias=${dias||30}`),
     desconectarWhats:(confirmar)=>api("/config/conexao/desconectar",{method:"POST",body:{confirmar}}),
     qrWhats:(forcar)=>api("/config/conexao/conectar",{method:"POST",body:{forcar:!!forcar}}),
+    conferirRecebimento:()=>api("/config/conexao/recebimento",{method:"POST"}),
     conectarWhats:(host,token)=>api("/config/conexao/credenciais",{method:"POST",body:{host,token}}),
     conectarWhatsOficial:(dados)=>api("/config/conexao/oficial",{method:"POST",body:dados}),
     robo:()=>api("/config/robo"),
@@ -9751,6 +9752,12 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
 
     {aviso&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,lineHeight:1.45,
       color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
+    {/* Ligado e NÃO recebendo: a última conferência do servidor diz por quê.
+        Sem esta linha o corretor veria "ligado" e esperaria mensagens que
+        não vão chegar. */}
+    {!aviso&&meu&&meu.conectado&&meu.recebimento&&meu.recebimento.estado!=="ok"&&<div style={{fontSize:12.5,borderRadius:9,
+      padding:"9px 11px",marginBottom:10,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>
+      Seu número está ligado, mas as mensagens dos clientes não estão chegando no CRM. {meu.recebimento.detalhe} Avise o gestor.</div>}
 
     {!liberado&&!ligado&&<div style={{background:C.surface,borderRadius:11,padding:12,color:C.sub,fontSize:12.5,lineHeight:1.6}}>
       A gestão da imobiliária ainda não liberou um número para você. <b>Cada número tem um
@@ -14895,6 +14902,11 @@ function ConexaoConfig({acoes,session,isMobile}){
       </div>}
     </div>
 
+    {/* SE CADA NÚMERO ESTÁ RECEBENDO (29/09/2026). Logo abaixo do estado da
+        conexão porque é a outra metade dela: conectado quer dizer que envia;
+        recebendo quer dizer que a mensagem do cliente chega aqui. */}
+    {(d.ativo==="uazapi"||d.recebimento)&&<RecebimentoDasLinhas acoes={acoes} isMobile={isMobile} automatico={d.recebimento_automatico}/>}
+
     {/* "Marquei a mensagem e não apareceu no WhatsApp" (22/09/2026). A
         Uazapi falha CALADA nisso — aceita e ignora, sem erro nenhum — então
         sem ver a última tentativa não há como saber se o campo foi
@@ -14991,6 +15003,57 @@ function ConexaoConfig({acoes,session,isMobile}){
   </React.Fragment>;
 }
 
+/* ===== O RECEBIMENTO DE CADA NÚMERO (29/09/2026) =====
+
+   Um número conectado ENVIA; só RECEBE se a instância na Uazapi mandar as
+   mensagens para o CRM (o webhook). Era um passo manual, e numa imobiliária
+   nova de Maragogi nenhum número recebia — nem o da casa, nem os dos
+   corretores —, sem erro nenhum aparecer. O servidor agora liga isso sozinho
+   (services/webhook-uazapi.js); esta lista é a prova, número a número, e o
+   botão refaz a conferência na hora.
+
+   Confere ao abrir a tela: quem veio até aqui quase sempre veio porque "a
+   mensagem não chegou", e a resposta tem que estar na tela sem mais um clique. */
+function RecebimentoDasLinhas({acoes,isMobile,automatico}){
+  const [linhas,setLinhas]=useState(null);
+  const [conferindo,setConferindo]=useState(false);
+  const [erro,setErro]=useState("");
+  const conferir=async()=>{
+    setConferindo(true); setErro("");
+    try{ const r=await acoes.conferirRecebimento(); setLinhas(r.linhas||[]); }
+    catch(e){ setErro(e.message); }
+    finally{ setConferindo(false); }
+  };
+  useEffect(()=>{ conferir(); },[]);
+  const visiveis=(linhas||[]).filter(l=>l.estado!=="sem_conexao"&&l.estado!=="meta");
+  const faltando=visiveis.filter(l=>l.estado!=="ok");
+  const nomeDa=(l)=>l.tipo==="imobiliaria"?"Número da imobiliária":l.tipo==="disparo"?"Número de disparo":(l.nome||"Corretor");
+  return <div style={{background:faltando.length?C.hotSoft:C.card,border:`1px solid ${faltando.length?C.hot+"44":C.line}`,
+    borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+      <Icon n="msg" size={14} color={faltando.length?C.hot:C.greenMid}/>
+      <span style={{color:faltando.length?C.hot:C.ink,fontSize:13,fontWeight:700,flex:1}}>
+        {linhas==null?"Conferindo se as mensagens chegam…":faltando.length?`${faltando.length} número(s) não estão recebendo as mensagens`:"Recebimento das mensagens"}</span>
+      <button onClick={conferir} disabled={conferindo}
+        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",
+          fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>{conferindo?"Conferindo…":"Conferir de novo"}</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:6}}>{erro}</div>}
+    {linhas!=null&&!visiveis.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum número conectado pela Uazapi ainda.</div>}
+    {visiveis.map((l,i)=><div key={l.canal_id||i} style={{display:"flex",gap:9,alignItems:"flex-start",padding:"7px 0",
+      borderTop:i?`1px solid ${C.line}`:"none"}}>
+      <Icon n={l.estado==="ok"?"check":"wifioff"} size={14} color={l.estado==="ok"?C.green:C.hot}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{nomeDa(l)}</div>
+        <div style={{color:l.estado==="ok"?C.faint:C.sub,fontSize:11.5,lineHeight:1.5}}>
+          {l.estado==="ok"?(l.acao==="configurado"?"Recebendo — o CRM acabou de ligar o recebimento.":"Recebendo."):l.detalhe}</div>
+      </div>
+    </div>)}
+    {!automatico&&linhas!=null&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:6}}>
+      O servidor não tem o endereço público configurado, então não liga o recebimento sozinho — fale com o suporte do ConHub.</div>}
+  </div>;
+}
+
 /* ===== OS NÚMEROS PESSOAIS DA EQUIPE =====
 
    Duas coisas numa tela só, e as duas são do gestor porque as duas custam
@@ -15053,6 +15116,8 @@ function NumerosDaEquipe({acoes,isMobile}){
         <span style={{color:C.ink,fontSize:12.5,fontWeight:600,flex:1,minWidth:90}}>{c.pessoa||c.nome}</span>
         <span style={{color:c.conectado?C.greenDeep:C.faint,fontSize:11,fontWeight:600}}>
           {c.conectado?(c.wa_number||"ligado"):"liberado, ainda não ligou"}</span>
+        {c.conectado&&c.recebimento&&c.recebimento.estado!=="ok"&&<span title={c.recebimento.detalhe||""}
+          style={{color:C.hot,fontSize:11,fontWeight:700}}>não recebe</span>}
         <button disabled={!!ocupado} onClick={()=>mexer(()=>acoes.desligarCanalDe(c.id),c.id)}
           style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:8,
             padding:"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
@@ -15086,8 +15151,8 @@ function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
     ["Crie uma instância",<React.Fragment>No painel da Uazapi, crie uma instância para o número da imobiliária. Use um <b>número dedicado</b>, nunca o WhatsApp pessoal de alguém.</React.Fragment>],
     ["Conecte o WhatsApp",<React.Fragment>A Uazapi mostra um <b>QR Code</b>. No celular do número da imobiliária, abra o WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> e leia o código, igual ao WhatsApp Web.</React.Fragment>],
     ["Copie o endereço e o token",<React.Fragment>No painel, copie o <b>host</b> (algo como suaempresa.uazapi.com) e o <b>token da instância</b> — não o token de administrador. São essas duas informações que o ConHub precisa.</React.Fragment>],
-    ["Cole o webhook",<React.Fragment>Ainda na instância, procure o campo <b>Webhook</b> e cole o endereço abaixo. É por ele que a resposta do cliente chega no CRM.</React.Fragment>],
-    ["Mande o host e o token para o suporte do ConHub",<React.Fragment>Hoje quem liga as duas pontas é o suporte. <b>Nunca mande o token em grupo</b> — ele dá acesso ao WhatsApp da imobiliária.</React.Fragment>],
+    ["Cole o host e o token aqui no ConHub",<React.Fragment>No botão <b>Conectar</b> desta tela. <b>Nunca mande o token em grupo</b> — ele dá acesso ao WhatsApp da imobiliária.</React.Fragment>],
+    ["O recebimento liga sozinho",<React.Fragment>Ao salvar, o ConHub configura o <b>webhook</b> da instância — é por ele que a resposta do cliente chega. Se o quadro "Recebimento das mensagens" avisar que não conseguiu, cole o endereço abaixo no campo <b>Webhook</b> da instância, no painel da Uazapi.</React.Fragment>],
   ];
   return <div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:11}}>
     {passos.map(([titulo,texto],i)=><div key={i} style={{display:"flex",gap:10,marginBottom:i===passos.length-1?0:12}}>
@@ -15096,7 +15161,7 @@ function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
       <div style={{flex:1,minWidth:0}}>
         <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>{titulo}</div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
-        {i===4&&<React.Fragment>
+        {i===5&&<React.Fragment>
           <div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
             <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
               padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
