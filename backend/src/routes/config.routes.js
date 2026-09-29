@@ -221,6 +221,17 @@ function diagnosticoCitacao() {
   };
 }
 
+/* O selo "WhatsApp conectado" do topo e da conversa (29/09/2026). Lia o
+   `/integracoes`, que é o da imobiliária mais antiga do servidor — toda conta
+   nova via o WhatsApp da Conecta como se fosse o dela. Agora cada pessoa lê o
+   da PRÓPRIA conta (a do crachá; o master, a conta em que entrou). Aberto a
+   toda a equipe, porque o corretor também vê o selo — e por isso só sai o
+   estado e o número mascarado, nunca QR, token ou endereço. */
+r.get("/conexao/estado", async (req, res) => {
+  const w = await instanceStatus(req.user.org_id);
+  res.json({ whatsapp: { configurado: w.configurado, ok: w.ok, conectado: w.conectado, numero: w.numero || "" } });
+});
+
 r.get("/conexao", roles("adm", "sdr"), async (req, res) => {
   const base = (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
   const casa = garantirCasa(req.user.org_id);

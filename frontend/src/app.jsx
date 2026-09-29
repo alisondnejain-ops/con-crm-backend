@@ -1259,7 +1259,12 @@ function ConCRM(){
      imobiliária escolhida. Passava sozinho no ciclo seguinte, o que é pior:
      dava para achar que a equipe tinha sumido. */
   useEffect(()=>{ if(!session) return; geracao.current++; versaoLeads.current=null; cicloLeads.current=1; recarregar();
-    api("/integracoes").then(d=>setConecta({connected:whatsConectado(d.whatsapp),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
+    /* O selo lê a conexão DA CONTA ABERTA. Lia o `/integracoes`, que é o da
+       imobiliária mais antiga do servidor — cliente novo via o WhatsApp da
+       Conecta como se fosse o dele (29/09/2026). Zera antes de buscar: trocar
+       de conta pelo hub não pode mostrar o selo da conta anterior. */
+    setConecta({connected:false,number:""});
+    if(org&&org.id) api("/config/conexao/estado").then(d=>setConecta({connected:whatsConectado(d.whatsapp),number:d.whatsapp&&d.whatsapp.numero||""})).catch(()=>{});
     const t=setInterval(()=>{ recarregar(); if(selRef.current) abrir(selRef.current,true); },INTERVALO_ATUALIZACAO);
     return ()=>clearInterval(t);
   },[session,org&&org.id]);
@@ -1388,7 +1393,7 @@ function ConCRM(){
       if(!res.ok) throw new Error("Não consegui gerar a lista.");
       const blob=await res.blob();
       const url=URL.createObjectURL(blob), a=document.createElement("a");
-      a.href=url; a.download=`leads-conecta-${new Date().toISOString().slice(0,10)}.csv`;
+      a.href=url; a.download=`leads-${new Date().toISOString().slice(0,10)}.csv`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     },
     recomendacao:(leadId)=>api(`/reports/recomendacao/${leadId}`),
@@ -5384,7 +5389,6 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile} org={org}
           aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
         {podeGerir(session)&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
-        {podeGerir(session)&&view==="conexao"&&<Conexao conecta={conecta}/>}
       </div>
     </main>
     {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
@@ -15220,31 +15224,6 @@ function TutorialMeta({webhook,site,copiar,copiado,isMobile}){
 }
 
 /* ===== CONEXÃO (ADM, número único) ===== */
-function Conexao({conecta}){
-  const isMobile=useIsMobile();
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:24}}>
-    <div style={{maxWidth:560,margin:"0 auto"}}>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
-        <div style={{background:conecta.connected?C.greenSoft:C.hotSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:conecta.connected?C.green:C.hot}}><Icon n={conecta.connected?"wifi":"wifioff"} size={28}/></div>
-        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{conecta.connected?"WhatsApp da imobiliária conectado":"WhatsApp desconectado"}</div>
-        {conecta.connected?<React.Fragment>
-          <div style={{color:C.sub,fontSize:13,marginTop:4}}>Todos os corretores atendem por este número:</div>
-          <div style={{color:C.green,fontFamily:MONO,fontSize:16,fontWeight:600,margin:"8px 0"}}>{fmtTel(conecta.number)}</div>
-          <Pill c={C.greenMid} bg={C.greenSoft}>Ativo via Uazapi</Pill>
-        </React.Fragment>:<div style={{color:C.sub,fontSize:13,margin:"6px 0 0",lineHeight:1.6}}>
-          O CRM não está conseguindo falar com a Uazapi. Confira no painel da Uazapi se a instância
-          está <b>connected</b>, e na hospedagem se <b>UAZAPI_HOST</b> e <b>UAZAPI_TOKEN</b> continuam preenchidos.
-        </div>}
-        {/* A conexão em si é feita no painel da Uazapi (QR / pareamento). Aqui só espelhamos o estado real —
-            botão de "conectar" aqui daria a falsa impressão de que o CRM controla o pareamento. */}
-      </div>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><Icon n="link" size={15} color={C.green}/> Como funciona</div>
-        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>Um único número conectado via Uazapi. Todos os corretores atendem por ele, e cada mensagem sai assinada com o nome de quem enviou — o lead sempre sabe com quem está falando.</div>
-      </div>
-    </div>
-  </div>;
-}
 
 /* ===== RELATÓRIOS (dados reais, com filtro de período) ===== */
 

@@ -58,7 +58,11 @@ r.post("/meta", async (req, res) => {
   }
   res.sendStatus(200); // responde rápido; processa depois
   try {
-    const org = db.prepare("SELECT * FROM orgs LIMIT 1").get(); // 1 org (Conecta) neste MVP
+    /* O Lead Ads ainda é da INSTALAÇÃO (o token da página está no servidor, e
+       só a página dele é lida): cai na imobiliária mais antiga, a mesma que o
+       `/integracoes` descreve. Com ordem explícita — `LIMIT 1` sem ordem é "a
+       que o banco quiser", e a que o banco quer muda sem aviso. */
+    const org = db.prepare("SELECT * FROM orgs ORDER BY created_at, name LIMIT 1").get();
     if (!org) return;
     for (const entry of req.body.entry || []) {
       for (const change of entry.changes || []) {
