@@ -8,6 +8,9 @@ import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
+import { RECURSOS, ehRecurso, recursosDaOrg, situacaoDoRecurso, registrarContratacao, avulsoDaAssinatura,
+  avulsoPago, avulsoCancelado } from "../services/recursos.js";
+import { cobrancasDaAssinatura } from "../services/asaas.js";
 
 const r = Router();
 
@@ -54,7 +57,24 @@ r.post("/webhooks/asaas", async (req, res) => {
   res.sendStatus(200);
 
   try {
-    const { acao, link, assinatura } = interpretarEvento(req.body || {});
+    const { acao, link, assinatura, pagamento } = interpretarEvento(req.body || {});
+
+    /* FERRAMENTA AVULSA (29/09/2026). A assinatura da ferramenta é OUTRA,
+       separada da mensalidade — e tem que ser separada aqui também, ANTES da
+       busca pela org: sem isto, os R$ 97 do Autoatendimento avulso entrariam
+       como mês pago de plano (numa instalação de uma conta só, o consolo de
+       "imobiliária única" credita o pagamento nela). */
+    const avulso = avulsoDaAssinatura(assinatura);
+    if (avulso) {
+      if (acao === "pago") {
+        if (avulsoPago(avulso, pagamento)) console.log(`[asaas] ferramenta ${avulso.recurso} paga (${avulso.org_id})`);
+      } else if (acao === "cancelado") {
+        const estorno = ["PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED"].includes(req.body?.event);
+        avulsoCancelado(avulso, { estorno });
+        console.log(`[asaas] ferramenta ${avulso.recurso} ${estorno ? "estornada" : "cancelada"} (${avulso.org_id})`);
+      }
+      return;
+    }
 
     // Com uma imobiliária só, o evento é dela. Quando abrir para várias, a
     // busca passa a ser pelo asaas_subscription_id — por isso ele já é gravado.
@@ -420,6 +440,35 @@ r.get("/assinatura/planos", authRequired, soDono, comPrateleira, (req, res) => {
   });
 });
 
+/* QUEM PAGA, NO ASAAS — um lugar só para o plano e para a ferramenta avulsa.
+   Nome, e-mail e telefone o CRM já tem (são os do titular); o CPF/CNPJ é o
+   único dado que falta, e só é pedido na primeira cobrança da conta. */
+function titularDaConta(org, userId) {
+  const eu = db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(userId);
+  const dono = org.dono_user_id
+    ? db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(org.dono_user_id) : null;
+  const r = dono || eu || {};
+  return { nome: String(r.name || "").trim(), email: String(r.email || "").trim(), telefone: String(r.phone || "").trim() };
+}
+/* Devolve a frase da recusa, ou null. Só conta dígito: o cliente digita com
+   ponto e traço, e "111.444.777-35" tem 14 caracteres — do tamanho de um
+   CNPJ, o que passaria por uma conferência feita no texto cru. */
+function conferirDadosDoCliente(org, userId, cpfCnpj) {
+  const doc = String(cpfCnpj || "").replace(/\D/g, "");
+  if (!org.asaas_customer_id && doc.length !== 11 && doc.length !== 14)
+    return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).";
+  const t = titularDaConta(org, userId);
+  if (!t.nome || !t.email) return "A sua conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo.";
+  return null;
+}
+async function clienteDoAsaas(org, userId, cpfCnpj) {
+  if (org.asaas_customer_id) return org.asaas_customer_id;
+  const t = titularDaConta(org, userId);
+  const cliente = await criarCliente({ ...t, cpfCnpj: String(cpfCnpj || "").replace(/\D/g, "") });
+  db.prepare("UPDATE orgs SET asaas_customer_id = ? WHERE id = ?").run(cliente.id, org.id);
+  return cliente.id;
+}
+
 /* Contrata o plano escolhido e devolve o endereço da tela de pagamento.
 
    O QUE ESTA ROTA NÃO FAZ: receber dados de cartão. O corretor é levado para a
@@ -442,22 +491,8 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
   if (!plano) return res.status(400).json({ error: "Escolha um dos planos disponíveis." });
 
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
-  const eu = db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(req.user.id);
-  const dono = org.dono_user_id
-    ? db.prepare("SELECT name,email,phone FROM users WHERE id = ?").get(org.dono_user_id) : null;
-  const responsavel = dono || eu;
-  const nome = String(responsavel.name || "").trim();
-  const email = String(responsavel.email || "").trim();
-  const telefone = String(responsavel.phone || "").trim();
-
-  const doc = String(cpfCnpj || "").replace(/\D/g, "");
-  /* Só conta dígito: o cliente digita com ponto e traço, e "111.444.777-35"
-     tem 14 caracteres — do tamanho de um CNPJ, o que passaria por uma
-     conferência feita no texto cru. */
-  if (!org.asaas_customer_id && doc.length !== 11 && doc.length !== 14)
-    return res.status(400).json({ error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)." });
-  if (!nome || !email)
-    return res.status(400).json({ error: "A sua conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo." });
+  const recusa = conferirDadosDoCliente(org, req.user.id, cpfCnpj);
+  if (recusa) return res.status(400).json({ error: recusa });
 
   /* O PRIMEIRO VENCIMENTO CAI NO FIM DO TESTE, quando ele ainda está correndo.
      Contratar no terceiro dia de teste não pode custar os onze que sobram —
@@ -469,12 +504,7 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
   const venc = new Date(quando - new Date(quando).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 
   try {
-    let clienteId = org.asaas_customer_id;
-    if (!clienteId) {
-      const cliente = await criarCliente({ nome, cpfCnpj: doc, email, telefone });
-      clienteId = cliente.id;
-      db.prepare("UPDATE orgs SET asaas_customer_id = ? WHERE id = ?").run(clienteId, org.id);
-    }
+    const clienteId = await clienteDoAsaas(org, req.user.id, cpfCnpj);
 
     /* A DESCRIÇÃO É O QUE O CLIENTE LÊ NO CHECKOUT — e depois na fatura do
        cartão, meses depois, quando não lembrar mais o que contratou.
@@ -526,6 +556,90 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+/* ===== AS FERRAMENTAS DA CONTA (29/09/2026) =====
+
+   O que vem no plano, o que foi contratado avulso e o que o ConHub liberou
+   ou retirou — ver services/recursos.js. A tela do dono lista as ferramentas
+   e oferece contratar avulso o que o plano não traz. */
+const PAGO = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
+
+/* Segunda chance além do webhook: a ferramenta contratada e ainda não
+   confirmada é conferida no Asaas quando a tela abre. Nunca lança. */
+async function conferirAvulsosPendentes(orgId) {
+  for (const l of db.prepare("SELECT * FROM org_recursos WHERE org_id = ? AND avulso_status = 'aguardando' AND avulso_sub_id IS NOT NULL").all(orgId)) {
+    try {
+      const pago = ((await cobrancasDaAssinatura(l.avulso_sub_id))?.data || []).find(c => PAGO.includes(c.status));
+      if (pago) avulsoPago(l, pago.id);
+    } catch (e) { console.warn(`[asaas] não consegui conferir a ferramenta ${l.recurso}: ${e.message}`); }
+  }
+}
+
+r.get("/assinatura/recursos", authRequired, soDono, async (req, res) => {
+  if (asaasConfigurado()) await conferirAvulsosPendentes(req.user.org_id);
+  const org = db.prepare("SELECT plano_id, asaas_customer_id FROM orgs WHERE id = ?").get(req.user.org_id);
+  res.json({ recursos: recursosDaOrg(req.user.org_id), plano: planoPorId(org.plano_id)?.nome || null,
+    pede_cpf: !org.asaas_customer_id, asaas: asaasConfigurado() });
+});
+
+/* Contrata a ferramenta avulsa: assinatura MENSAL própria no Asaas, no
+   cartão, com a primeira cobrança hoje. O preço sai de RECURSOS — o cliente
+   manda só qual ferramenta. */
+r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) => {
+  const recurso = req.params.recurso;
+  if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
+  if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
+  const antes = situacaoDoRecurso(req.user.org_id, recurso);
+  if (antes.master === "retirado")
+    return res.status(403).json({ error: "Esta ferramenta foi desligada pelo ConHub nesta conta. Fale com a gente." });
+  if (antes.ativo)
+    return res.status(409).json({ error: antes.origem === "plano" ? "Esta ferramenta já vem no seu plano." : "Esta ferramenta já está ligada na sua conta." });
+
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  const recusa = conferirDadosDoCliente(org, req.user.id, req.body?.cpfCnpj);
+  if (recusa) return res.status(400).json({ error: recusa });
+
+  const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const preco = RECURSOS[recurso].avulso;
+  const porMes = preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  try {
+    const clienteId = await clienteDoAsaas(org, req.user.id, req.body?.cpfCnpj);
+    // Uma contratação por vez: a tentativa anterior que nunca foi paga é
+    // cancelada, senão duas faturas da mesma ferramenta ficariam abertas.
+    const velha = db.prepare("SELECT avulso_sub_id, avulso_status FROM org_recursos WHERE org_id = ? AND recurso = ?").get(org.id, recurso);
+    if (velha?.avulso_sub_id && velha.avulso_status === "aguardando") {
+      try { await cancelarAssinatura(velha.avulso_sub_id); }
+      catch (e) { console.warn(`[asaas] tentativa anterior da ferramenta ${recurso} não foi cancelada: ${e.message}`); }
+    }
+    const a = await criarAssinatura({ clienteId, valor: preco, vencimento: hoje, ciclo: "MONTHLY",
+      descricao: `ConHub — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${porMes}/mês)` });
+    const link = await linkDaPrimeiraFatura(a.id);
+    registrarContratacao(org.id, recurso, { assinaturaId: a.id, link });
+    console.log(`[asaas] ${req.user.name} contratou ${RECURSOS[recurso].nome} avulso (${org.name})`);
+    if (!link) return res.status(502).json({
+      error: "A ferramenta foi criada no Asaas, mas a tela de pagamento não veio. Abra a fatura pelo e-mail que o Asaas enviou." });
+    res.json({ ok: true, url: link, recurso: situacaoDoRecurso(org.id, recurso) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+/* Cancela a ferramenta avulsa. O que já foi pago continua valendo até o fim
+   do mês pago — cancelar não é estorno. Se o Asaas não confirmar o
+   cancelamento, NADA muda aqui: marcar como cancelada uma cobrança que
+   continua correndo seria o CRM dizendo uma coisa e o cartão, outra. */
+r.delete("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) => {
+  const recurso = req.params.recurso;
+  if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
+  const l = db.prepare("SELECT * FROM org_recursos WHERE org_id = ? AND recurso = ?").get(req.user.org_id, recurso);
+  if (!l?.avulso_sub_id || !["aguardando", "ativo"].includes(l.avulso_status))
+    return res.status(404).json({ error: "Esta ferramenta não está contratada avulsa." });
+  try { await cancelarAssinatura(l.avulso_sub_id); }
+  catch (e) { return res.status(502).json({ error: "O Asaas não confirmou o cancelamento: " + e.message }); }
+  avulsoCancelado(l);
+  console.log(`[asaas] ${req.user.name} cancelou ${RECURSOS[recurso].nome} avulso`);
+  res.json({ ok: true, recurso: situacaoDoRecurso(req.user.org_id, recurso) });
 });
 
 export default r;

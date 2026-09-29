@@ -37,6 +37,7 @@ import { canalDoLead } from "./canais.js";
 import { emFluxoDeDisparo } from "./disparo.js";
 import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
+import { temRecurso } from "./recursos.js";
 
 export const TETO_PADRAO = 12;
 
@@ -110,6 +111,11 @@ export function configDoRobo(orgId) {
     ? autonomo : !!o.robo_sempre;
   return {
     ativo: !!o.robo_ativo,
+    /* A FERRAMENTA (29/09/2026): o Autoatendimento vem no plano, é contratado
+       avulso ou liberado pelo master (services/recursos.js). Sem ela o robô
+       não fala — mas `ativo` fica gravado como estava, para voltar sozinho no
+       dia em que a ferramenta voltar, sem ninguém ter de reconfigurar. */
+    incluido: temRecurso(orgId, "autoatendimento"),
     sempre,
     // Quem NÃO escolheu ainda continua vendo o padrão da casa dele. É o que
     // faz a tela explicar por que o horário está inativo em vez de o gestor
@@ -200,6 +206,7 @@ const orgDoAutonomo = (orgId) => {
    dúvida custa mais tempo do que o recurso economiza. */
 export function podeAtender(orgId, leadId, agora = Date.now()) {
   const cfg = configDoRobo(orgId);
+  if (!cfg.incluido) return { pode: false, motivo: "sem_autoatendimento" };
   if (!cfg.ativo) return { pode: false, motivo: "desligado" };
   if (!cfg.configurada) return { pode: false, motivo: "ia_nao_configurada" };
   if (!dentroDaJanela(cfg, agora)) return { pode: false, motivo: "dentro_do_expediente" };

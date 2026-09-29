@@ -39,7 +39,7 @@ import db from "../db.js";
 import { codigoLivre } from "../services/codigo.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
-import { planosDe, planoDaFamilia } from "../services/planos.js";
+import { planosDe, planoDaFamilia, PLANOS_COMPLETOS, PLANO_BASICO } from "../services/planos.js";
 import { resumoDeConvite } from "../auth.js";
 
 const r = Router();
@@ -95,8 +95,13 @@ r.get("/publico/planos", (_req, res) => {
        quebraria a vitrine publicada sem nenhum aviso — e o site é publicado por
        outro caminho, então os dois lados nunca sobem no mesmo instante. Os
        novos vêm ao lado, em campos próprios. */
-    planos: planosDe("autonomo").map(paraVitrine),
-    autonomo: planosDe("autonomo").map(paraVitrine),
+    planos: PLANOS_COMPLETOS.map(paraVitrine),
+    autonomo: PLANOS_COMPLETOS.map(paraVitrine),
+    /* O básico (29/09/2026) vem num campo próprio: a vitrine publicada monta
+       os cards a partir de `autonomo`, e um quarto card chegando sem ninguém
+       ter mexido no site desalinharia a tela de preços. Aparece quando o site
+       for ajustado para ler este campo. */
+    autonomo_basico: [PLANO_BASICO].map(paraVitrine),
     imobiliaria: planosDe("imobiliaria").map(paraVitrine),
   });
 });

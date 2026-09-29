@@ -10,6 +10,7 @@
 
 import { Router } from "express";
 import { configDoRobo, dentroDaJanela, paraConferir, conferir, orientacoes } from "../services/robo.js";
+import { situacaoDoRecurso } from "../services/recursos.js";
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
@@ -402,13 +403,18 @@ r.post("/conexao/conectar", roles("adm"), async (req, res) => {
    supervisão inteira vê. */
 r.get("/robo", roles("adm", "sdr"), (req, res) => {
   const cfg = configDoRobo(req.user.org_id);
-  res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+  res.json({ ...cfg, ferramenta: situacaoDoRecurso(req.user.org_id, "autoatendimento"),
+    agora_atenderia: cfg.incluido && cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
 
 r.post("/robo", roles("adm"), (req, res) => {
   const b = req.body || {};
   const hora = (v, padrao) => (lerHorario(v) ? String(v).trim() : padrao);
   const atual = configDoRobo(req.user.org_id);
+  /* Ligar exige a ferramenta. Desligar e ajustar horário continuam valendo
+     sem ela: é configuração guardada para o dia em que ela vier. */
+  if (b.ativo && !atual.incluido)
+    return res.status(403).json({ error: "O Autoatendimento não está no seu plano. Contrate a ferramenta ou mude de plano em Minha conta → Assinatura." });
 
   /* Atender a qualquer hora, sem janela nenhuma. (02/09/2026)
 
@@ -440,7 +446,8 @@ r.post("/robo", roles("adm"), (req, res) => {
 
   const cfg = configDoRobo(req.user.org_id);
   console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — ${cfg.sempre ? "a QUALQUER hora" : `janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}]`}, teto ${cfg.teto}`);
-  res.json({ ...cfg, agora_atenderia: cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+  res.json({ ...cfg, ferramenta: situacaoDoRecurso(req.user.org_id, "autoatendimento"),
+    agora_atenderia: cfg.incluido && cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
 
 /* ===== O QUE A EQUIPE ENSINA AO ROBÔ =====

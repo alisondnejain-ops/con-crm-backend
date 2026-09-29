@@ -19,6 +19,7 @@ import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao } from "../services/assinatura.js";
 import { cancelarAssinatura } from "../services/asaas.js";
 import { definirLiberacao } from "../services/marketing.js";
+import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../services/recursos.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
 import { codigoLivre } from "../services/codigo.js";
@@ -75,7 +76,10 @@ function resumo(req, org) {
     criada_em: org.created_at || null,
     tipo: org.tipo || "imobiliaria",
     trial_ate: org.trial_ate || null,
-    marketing_liberado: !!org.marketing_liberado,
+    /* As ferramentas da conta e de onde cada uma vem (plano, avulso, você) —
+       é o que o hub mostra ao lado dos botões de liberar e retirar. */
+    recursos: recursosDaOrg(org.id),
+    marketing_liberado: recursosDaOrg(org.id).find(x => x.id === "marketing").ativo,
   };
 }
 
@@ -364,6 +368,26 @@ r.post("/:id/marketing", (req, res) => {
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
+/* LIBERAR OU RETIRAR UMA FERRAMENTA (29/09/2026, pedido do Ali: "assim como a
+   função marketing eu também possa liberar se eu quiser a função
+   autoatendimento e retirar também da conta de qualquer cliente").
+
+   `estado`: "liberado" (vale mesmo fora do plano), "retirado" (some mesmo
+   estando no plano ou contratada avulsa) ou null (volta a seguir o plano).
+   Retirar NÃO cancela cobrança avulsa no Asaas: isso é do cliente, na tela
+   dele — a resposta devolve a situação, e o hub avisa quando há avulso pago. */
+r.post("/:id/recursos/:recurso", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (!ehRecurso(req.params.recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
+  const estado = req.body?.estado ?? null;
+  if (estado !== null && estado !== "liberado" && estado !== "retirado")
+    return res.status(400).json({ error: "Escolha liberar, retirar ou seguir o plano." });
+  definirPeloMaster(org.id, req.params.recurso, estado, req.user.id);
+  console.log(`[master] ${req.user.name} → ${RECURSOS[req.params.recurso].nome} de ${org.name}: ${estado || "segue o plano"}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
 /* MIGRAR O TIPO DA CONTA — imobiliária ⇄ autônomo (22/09/2026, pedido do Ali:
    um cliente se cadastrou como imobiliária, mas é corretor autônomo).
 
@@ -621,6 +645,18 @@ r.delete("/:id", async (req, res) => {
   } else if (org.asaas_customer_id && org.plano_id) {
     // O plano anual é parcelado (/payments), não assinatura: não há o que cancelar por aqui.
     asaasAviso = "Esta conta tem cobrança no Asaas sem assinatura recorrente (plano parcelado). Confira no painel do Asaas se sobrou alguma parcela.";
+  }
+  /* As ferramentas contratadas avulsas têm assinatura PRÓPRIA no Asaas — sem
+     cancelá-las, o cliente que saiu continuaria pagando a IA todo mês. */
+  for (const l of db.prepare(`SELECT recurso, avulso_sub_id FROM org_recursos
+      WHERE org_id = ? AND avulso_sub_id IS NOT NULL AND avulso_status IN ('aguardando','ativo')`).all(org.id)) {
+    try {
+      await Promise.race([cancelarAssinatura(l.avulso_sub_id),
+        new Promise((_, nao) => setTimeout(() => nao(new Error("o Asaas não respondeu")), 15000))]);
+    } catch (e) {
+      console.warn(`[orgs] não consegui cancelar a ferramenta ${l.recurso} (${l.avulso_sub_id}) no Asaas: ${e.message}`);
+      asaasAviso = [asaasAviso, `Não consegui cancelar a ferramenta ${RECURSOS[l.recurso]?.nome || l.recurso} no Asaas — cancele por lá.`].filter(Boolean).join(" ");
+    }
   }
 
   const apagar = db.transaction(() => {
