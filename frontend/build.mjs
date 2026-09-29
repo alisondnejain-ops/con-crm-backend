@@ -105,6 +105,15 @@ const paraOBackend = [
   ["manifest.json", "manifest.json"],
   ["icone-192.png", "icone-192.png"],
   ["icone-512.png", "icone-512.png"],
+  // A marca (29/09/2026): ícones do app, favicon de reserva, a figurinha da
+  // notificação e a logo do cabeçalho do e-mail. São imagens estáticas — o
+  // servidor só as entrega, igual aos ícones acima.
+  ["icone-512-maskable.png", "icone-512-maskable.png"],
+  ["icone-badge.png", "icone-badge.png"],
+  ["apple-touch-icon.png", "apple-touch-icon.png"],
+  ["favicon.ico", "favicon.ico"],
+  ["favicon.svg", "favicon.svg"],
+  ["conhub-email.png", "conhub-email.png"],
   ["versao.txt", "versao.txt"],
 ];
 for (const [origem, destino] of paraOBackend) {

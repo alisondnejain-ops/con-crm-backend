@@ -18,7 +18,10 @@ self.addEventListener("push", (e) => {
   e.waitUntil(self.registration.showNotification(titulo, {
     body: d.corpo || "",
     icon: "/icone-192.png",
-    badge: "/icone-192.png",
+    // O badge é a figurinha da barra de status do Android: ele só usa o
+    // contorno (canal alfa), então vai o símbolo branco em fundo transparente
+    // — o ícone colorido virava um quadrado branco.
+    badge: "/icone-badge.png",
     // Agrupa por lead: dez mensagens do mesmo cliente viram um aviso que se
     // atualiza, em vez de dez avisos empilhados no celular do corretor.
     tag: d.leadId ? "lead-" + d.leadId : "conhub",
