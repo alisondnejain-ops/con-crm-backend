@@ -58,11 +58,11 @@
    copiar trinta linhas — foi copiando que o `total` de um plano ficou
    divergindo do `mensal` dele em outros sistemas. Aqui `total` é sempre
    calculado, nunca digitado. */
-function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual }) {
+function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, inclui = [] }) {
   const id = (c) => (prefixo ? `${prefixo}-${c}` : c);
   return [
     {
-      id: id("mensal"), familia, plano: nome, limite,
+      id: id("mensal"), familia, plano: nome, limite, inclui,
       nome: nome ? `${nome} mensal` : "Mensal",
       ciclo_nome: "Mensal",
       mensal, meses: 1, total: mensal,
@@ -70,7 +70,7 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual }) 
       resumo: "Renova sozinho todo mês. Cancele quando quiser.",
     },
     {
-      id: id("semestral"), familia, plano: nome, limite,
+      id: id("semestral"), familia, plano: nome, limite, inclui,
       nome: nome ? `${nome} semestral` : "Semestral",
       ciclo_nome: "Semestral",
       mensal: semestral, meses: 6, total: semestral * 6,
@@ -78,7 +78,7 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual }) 
       resumo: "Uma cobrança a cada 6 meses. Renova sozinho.",
     },
     {
-      id: id("anual"), familia, plano: nome, limite,
+      id: id("anual"), familia, plano: nome, limite, inclui,
       nome: nome ? `${nome} anual` : "Anual",
       ciclo_nome: "Anual",
       mensal: anual, meses: 12, total: anual * 12,
@@ -92,7 +92,23 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual }) 
 
 /* CORRETOR AUTÔNOMO. Sem prefixo no id: são os ids históricos, já gravados em
    contas que pagam. Ver "OS IDs SÃO PARA SEMPRE", acima. */
-export const PLANOS = ciclosDe({
+/* O QUE CADA PLANO INCLUI (29/09/2026). As ferramentas moram em
+   services/recursos.js; aqui só se diz quais vêm no plano. O Marketing não
+   vem em nenhum: é liberado pelo master ou contratado avulso. */
+const COM_IA = ["autoatendimento"];
+
+/* O BÁSICO DO AUTÔNOMO (29/09/2026, pedido do Ali: "o basicão, atendimento
+   liberado sem IA, funil e sem a função marketing"). Só mensal: é o plano de
+   entrada, e quem quer desconto sobe de plano. Id próprio, para sempre. */
+export const PLANO_BASICO = {
+  id: "basico", familia: "autonomo", plano: "Básico", limite: "1 pessoa", inclui: [],
+  nome: "Básico", ciclo_nome: "Mensal",
+  mensal: 97, meses: 1, total: 97,
+  forma: "assinatura", ciclo: "MONTHLY",
+  resumo: "Atendimento, funil e relatórios. Renova todo mês.",
+};
+
+export const PLANOS_COMPLETOS = ciclosDe({
   familia: "autonomo",
   prefixo: "",
   nome: "",
@@ -100,19 +116,22 @@ export const PLANOS = ciclosDe({
   mensal: 197,
   semestral: 167,
   anual: 147,
+  inclui: COM_IA,
 });
+/* O básico vai PRIMEIRO na tela: a escada de preço se lê de baixo para cima. */
+export const PLANOS = [PLANO_BASICO, ...PLANOS_COMPLETOS];
 
 /* IMOBILIÁRIA. Os mesmos valores publicados no site. */
 export const PLANOS_IMOBILIARIA = [
   ...ciclosDe({
     familia: "imobiliaria", prefixo: "essencial", nome: "Essencial",
     limite: "até 10 corretores",
-    mensal: 497, semestral: 427, anual: 377,
+    mensal: 497, semestral: 427, anual: 377, inclui: COM_IA,
   }),
   ...ciclosDe({
     familia: "imobiliaria", prefixo: "plus", nome: "Plus",
     limite: "até 25 corretores",
-    mensal: 797, semestral: 677, anual: 597,
+    mensal: 797, semestral: 677, anual: 597, inclui: COM_IA,
   }),
 ];
 
@@ -122,7 +141,7 @@ const TODOS = [...PLANOS, ...PLANOS_IMOBILIARIA];
    não do frontend: número que a tela calcula sozinha é número que passa a
    divergir do preço no dia em que um dos dois mudar. */
 const CHEIO = {
-  autonomo: PLANOS[0].mensal,
+  autonomo: PLANOS_COMPLETOS[0].mensal,
   // Na imobiliária a comparação honesta é dentro do MESMO plano: quem olha o
   // Plus anual quer saber quanto economiza em relação ao Plus mensal, não em
   // relação ao Essencial. Por isso a conta usa o mensal do próprio plano.
@@ -130,7 +149,8 @@ const CHEIO = {
 };
 
 const cheioDe = (p) =>
-  p.familia === "autonomo"
+  p.id === PLANO_BASICO.id ? p.mensal
+  : p.familia === "autonomo"
     ? CHEIO.autonomo
     : (PLANOS_IMOBILIARIA.find(x => x.plano === p.plano && x.meses === 1)?.mensal ?? p.mensal);
 

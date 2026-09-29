@@ -1367,6 +1367,10 @@ function ConCRM(){
     // endereço da tela de pagamento do Asaas, para onde o navegador vai.
     planos:()=>api("/assinatura/planos"),
     contratarPlano:(dados)=>api("/assinatura/plano",{method:"POST",body:dados}),
+    // As ferramentas da conta (29/09/2026): o que vem no plano, o avulso e o que o ConHub liberou.
+    ferramentas:()=>api("/assinatura/recursos"),
+    contratarFerramenta:(id,cpfCnpj)=>api(`/assinatura/recursos/${id}`,{method:"POST",body:{cpfCnpj}}),
+    cancelarFerramenta:(id)=>api(`/assinatura/recursos/${id}`,{method:"DELETE"}),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -1623,6 +1627,7 @@ function ConCRM(){
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
     liberarMarketing:(id,liberado)=>api(`/orgs/${id}/marketing`,{method:"POST",body:{liberado}}),
+    definirFerramenta:(id,recurso,estado)=>api(`/orgs/${id}/recursos/${recurso}`,{method:"POST",body:{estado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -3713,23 +3718,80 @@ function FluxosDeMarketing({acoes,org,isMobile}){
   </div>;
 }
 
-/* O botão do hub que libera (ou desliga) o Marketing de uma conta. Desligar
-   esconde a seção e trava as rotas, mas não apaga nada. */
-function BotaoMarketingHub({conta,acoes,aoMudar,compacto,curto}){
-  const [ocupado,setOcupado]=useState(false);
-  const ligado=!!conta.marketing_liberado;
-  async function alternar(){
-    if(ligado&&!window.confirm(`Desligar o Marketing de ${conta.nome}? A seção some para eles; termo, listas e bloqueios continuam guardados.`)) return;
-    setOcupado(true);
-    try{ await acoes.liberarMarketing(conta.id,!ligado); await aoMudar(); }
-    catch(e){ window.alert(e.message); } finally{ setOcupado(false); }
+/* AS FERRAMENTAS DE UMA CONTA, NO HUB (29/09/2026, pedido do Ali: liberar ou
+   retirar o Autoatendimento de qualquer cliente, "assim como a função
+   marketing"). Um botão só por conta, que abre a lista: cada ferramenta diz de
+   onde vem (plano, avulso pago, você) e tem as três escolhas — seguir o plano,
+   liberar, retirar. Substituiu o botão "Liberar marketing", que só servia a
+   uma ferramenta e não dizia se a conta pagava por ela. */
+const ORIGEM_FERRAMENTA={
+  plano:"Incluída no plano",
+  avulso:"Contratada avulsa",
+  liberado:"Liberada por você",
+  retirado:"Retirada por você",
+  fora_do_plano:"Fora do plano",
+};
+function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
+  const [aberto,setAberto]=useState(false);
+  const [ocupado,setOcupado]=useState("");
+  const recursos=conta.recursos||[];
+  const ligadas=recursos.filter(r=>r.ativo).length;
+  async function definir(r,estado){
+    /* Retirar o que o cliente PAGA avulso não cancela a cobrança dele no
+       Asaas — ele continuaria pagando por algo desligado. O aviso diz isso
+       antes do clique, não depois. */
+    if(estado==="retirado"&&r.avulso&&r.avulso.valendo
+      &&!window.confirm(`${conta.nome} paga o ${r.nome} avulso. Retirar desliga a ferramenta, mas NÃO cancela a cobrança no Asaas. Continuar?`)) return;
+    setOcupado(r.id+estado);
+    try{ await acoes.definirFerramenta(conta.id,r.id,estado); await aoMudar(); }
+    catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
   }
-  return <button onClick={alternar} disabled={ocupado}
-    title={ligado?"Marketing liberado para esta conta — clique para desligar":"Liberar o Marketing (disparo em massa) para esta conta"}
-    style={{background:ligado?C.greenSoft:C.surface,color:ligado?C.greenDeep:C.sub,border:`1px solid ${ligado?C.green+"55":C.line}`,
-      borderRadius:compacto?9:11,padding:compacto?"7px 11px":"8px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer",
-      display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-    <Icon n="megafone" size={13}/>{ocupado?"…":curto?(ligado?"Marketing ✓":"Marketing"):ligado?"Marketing liberado":"Liberar marketing"}</button>;
+  return <React.Fragment>
+    <button onClick={()=>setAberto(true)} title="Ferramentas desta conta: Autoatendimento com IA e Marketing"
+      style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,
+        borderRadius:compacto?9:11,padding:compacto?"7px 11px":"8px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer",
+        display:"inline-flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+      <Icon n="zap" size={13}/>{curto?`${ligadas}/${recursos.length}`:`Ferramentas ${ligadas}/${recursos.length}`}</button>
+    {aberto&&<div onClick={()=>setAberto(false)} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:80,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,width:"100%",maxWidth:460,
+        maxHeight:"calc(100dvh - 32px)",overflowY:"auto",padding:18,boxShadow:"0 18px 50px rgba(0,0,0,.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <span style={{flex:1,color:C.ink,fontSize:15,fontWeight:700}}>Ferramentas · {conta.nome}</span>
+          <button onClick={()=>setAberto(false)} aria-label="Fechar"
+            style={{background:"transparent",border:"none",color:C.faint,cursor:"pointer",padding:4}}><Icon n="x" size={16}/></button>
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+          Liberar vale mesmo fora do plano; retirar desliga mesmo estando no plano. "Seguir o plano" desfaz a sua escolha.
+        </div>
+        {recursos.map(r=>{
+          const escolha=r.master||null;
+          const pago=r.avulso&&r.avulso.valendo;
+          return <div key={r.id} style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+              <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>{r.nome}</span>
+              <span style={{background:r.ativo?C.greenSoft:C.surface,color:r.ativo?C.greenDeep:C.faint,
+                borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{r.ativo?"ligada":"desligada"}</span>
+            </div>
+            <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+              {ORIGEM_FERRAMENTA[r.origem]||r.origem}
+              {r.no_plano&&r.origem!=="plano"?" · o plano inclui":""}
+              {pago?` · paga avulsa até ${fmtData(r.avulso.pago_ate)}`:""}
+              {r.avulso&&r.avulso.status==="aguardando"?" · contratação aguardando pagamento":""}
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[[null,"Seguir o plano"],["liberado","Liberar"],["retirado","Retirar"]].map(([v,t])=>{
+                const sel=escolha===v;
+                return <button key={t} onClick={()=>!sel&&definir(r,v)} disabled={!!ocupado}
+                  style={{flex:"1 1 auto",background:sel?(v==="retirado"?C.hotSoft:C.greenSoft):C.surface,
+                    color:sel?(v==="retirado"?C.hot:C.greenDeep):C.sub,border:`1px solid ${sel?(v==="retirado"?C.hot+"55":C.green+"55"):C.line}`,
+                    borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  {ocupado===r.id+v?"…":t}</button>;})}
+            </div>
+          </div>;})}
+      </div>
+    </div>}
+  </React.Fragment>;
 }
 
 /* APAGAR UMA CONTA DA PLATAFORMA — imobiliária ou corretor autônomo.
@@ -3885,7 +3947,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
             {c.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
               <Icon n="clock" size={12}/>{c.pendentes} cadastro(s) aguardando aprovação</div>}
 
-            <div><BotaoMarketingHub conta={c} acoes={acoes} aoMudar={rever}/></div>
+            <div><BotaoFerramentasHub conta={c} acoes={acoes} aoMudar={rever}/></div>
 
             <div style={{display:"flex",gap:7,marginTop:"auto"}}>
               <button onClick={()=>entrar(c)} disabled={!!ocupado}
@@ -4065,7 +4127,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
                 fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
                 display:"flex",alignItems:"center",gap:6}}>
               {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
-            <BotaoMarketingHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto curto={isMobile}/>
+            <BotaoFerramentasHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto curto={isMobile}/>
             <button onClick={()=>abrir(c,"liberar")} disabled={!!ocupado}
               style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.greenMid,
                 border:travado?"none":`1px solid ${C.green}55`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
@@ -4667,6 +4729,12 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
                   : `Cobrado ${fmtMoeda(p.total)} a cada ${p.meses} meses`}
               </div>
               <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>{p.resumo}</div>
+              {/* O que o plano traz, escrito no card: é a diferença entre o
+                  básico e o completo, e sem ela os dois seriam dois preços. */}
+              {Array.isArray(p.inclui)&&(p.inclui.includes("autoatendimento")
+                ?<div style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon n="check" size={11}/>Autoatendimento com IA</div>
+                :<div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Sem Autoatendimento com IA</div>)}
             </button>;})}
         </div>
 
@@ -4730,6 +4798,106 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
    Só aparece para o TITULAR da conta. Pode haver outro gestor com acesso total
    ao CRM — o que ele paga, quanto e quando não é assunto dele. O servidor
    recusa do mesmo jeito (403); esconder aqui é só não mostrar porta trancada. */
+/* AS FERRAMENTAS DA CONTA, NA TELA DO TITULAR (29/09/2026, pedido do Ali:
+   "as vezes o cliente não quer um plano mais caro mas quer apenas aquela
+   ferramenta"). Cada ferramenta diz se vem no plano, se foi contratada avulsa
+   ou liberada pelo ConHub — e a que falta pode ser contratada aqui mesmo, com
+   cobrança mensal própria no cartão, pela tela do Asaas.
+
+   `so` mostra uma ferramenta só: é como a tela do Autoatendimento oferece a
+   contratação no lugar onde a pessoa descobriu que não tinha. */
+function FerramentasDaConta({acoes,isMobile,so,aoMudar}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [abrindo,setAbrindo]=useState("");
+  const [cpf,setCpf]=useState("");
+  const [ocupado,setOcupado]=useState("");
+  const [fatura,setFatura]=useState(null);
+  const carregar=()=>acoes.ferramentas().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  if(erro&&!d) return <div style={{color:C.faint,fontSize:12,lineHeight:1.5}}>
+    {/403|titular/i.test(erro)?"Quem contrata ferramentas é o titular da conta.":erro}</div>;
+  if(!d) return null;
+  const lista=d.recursos.filter(r=>!so||r.id===so);
+  const digitos=cpf.replace(/\D/g,"").length;
+
+  async function contratar(r){
+    setErro("");setOcupado(r.id);
+    try{
+      const x=await acoes.contratarFerramenta(r.id,cpf);
+      setFatura({id:r.id,url:x.url}); setAbrindo("");
+      const aba=window.open(x.url,"_blank","noopener");
+      if(!aba) window.location.href=x.url;
+      await carregar(); if(aoMudar) aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function cancelar(r){
+    if(!window.confirm(`Cancelar o ${r.nome}? O que você já pagou continua valendo até ${fmtData(r.avulso.pago_ate)}.`)) return;
+    setErro("");setOcupado(r.id);
+    try{ await acoes.cancelarFerramenta(r.id); await carregar(); if(aoMudar) aoMudar(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
+
+  return <div style={{display:"flex",flexDirection:"column",gap:9}}>
+    {!so&&<div style={{color:C.ink,fontSize:13,fontWeight:700}}>Ferramentas</div>}
+    {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+    {lista.map(r=>{
+      const aguardando=r.avulso&&r.avulso.status==="aguardando";
+      const avulsaAtiva=r.origem==="avulso"&&r.avulso&&r.avulso.status==="ativo";
+      /* Com `so`, a tela em volta já disse o nome e para que serve —
+         repetir aqui dentro seria o mesmo título duas vezes seguidas. */
+      return <div key={r.id} style={so?{}:{border:`1px solid ${r.ativo?C.green+"44":C.line}`,background:r.ativo?C.greenSoft:C.surface,
+        borderRadius:12,padding:12}}>
+        {!so&&<React.Fragment><div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>{r.nome}</span>
+          {r.ativo&&<span style={{color:C.greenDeep,fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+            <Icon n="check" size={12}/>{r.origem==="plano"?"no seu plano":r.origem==="avulso"?"contratada":"liberada"}</span>}
+        </div>
+        <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:3}}>{r.resumo}</div></React.Fragment>}
+        {avulsaAtiva&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtMoeda(r.preco_avulso)}/mês · renova sozinha</span>
+          <button onClick={()=>cancelar(r)} disabled={!!ocupado}
+            style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+            {ocupado===r.id?"…":"Cancelar"}</button>
+        </div>}
+        {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
+          Cancelada — continua ligada até {fmtData(r.avulso.pago_ate)}.</div>}
+        {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo ConHub nesta conta. Fale com a gente.</div>}
+        {!r.ativo&&r.origem==="fora_do_plano"&&(d.asaas
+          ?<div style={{marginTop:9}}>
+            {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+              Contratação aguardando pagamento.{" "}
+              {r.avulso.link&&<a href={r.avulso.link} target="_blank" rel="noreferrer" style={{color:"inherit",fontWeight:700}}>Abrir a fatura</a>}
+              {" · "}<button onClick={carregar} style={{background:"none",border:"none",padding:0,color:"inherit",fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:11.5}}>verificar de novo</button>
+            </div>}
+            {fatura?.id===r.id&&<div style={{color:C.greenDeep,background:C.card,border:`1px solid ${C.green}44`,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+              A tela de pagamento abriu numa aba nova. Assim que o Asaas confirmar, a ferramenta liga sozinha.{" "}
+              <a href={fatura.url} target="_blank" rel="noreferrer" style={{color:C.greenDeep,fontWeight:700}}>Abrir de novo</a>
+            </div>}
+            {abrindo!==r.id
+              ?<button onClick={()=>{setErro("");setAbrindo(r.id);}}
+                style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+              :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {d.pede_cpf&&<div>
+                  <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Seu CPF ou CNPJ</div>
+                  <input value={cpf} onChange={e=>setCpf(e.target.value)} inputMode="numeric" placeholder="só números" style={entrada}/>
+                </div>}
+                <button onClick={()=>contratar(r)} disabled={!!ocupado||(d.pede_cpf&&digitos<11)}
+                  style={{width:"100%",background:(d.pede_cpf&&digitos<11)?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,
+                    padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                  {ocupado===r.id?"Abrindo…":<React.Fragment>Ir para o pagamento <Icon n="arrow" size={14}/></React.Fragment>}</button>
+                <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,display:"flex",gap:6}}>
+                  <Icon n="lock" size={12}/><span>Cobrança mensal no cartão, pela tela do Asaas. Cancele quando quiser.</span></div>
+              </div>}
+          </div>
+          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
+      </div>;})}
+  </div>;
+}
+
 function PainelAssinatura({acoes,isMobile,autonomo}){
   /* O PAINEL MANUAL DE MENSALIDADE FOI REMOVIDO (22/09/2026, pedido do Ali,
      depois de continuar vendo a seção antiga num print: "essa seção não faz
@@ -4777,7 +4945,8 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   /* CORRETOR AUTÔNOMO: compra de prateleira, três planos, sem digitação do
      ConHub no meio. */
   if(autonomo)
-    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/></div>;
+    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
+      {a.asaas&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}</div>;
 
   /* IMOBILIÁRIA COM PREÇO NEGOCIADO: o único campo que falta é o CPF/CNPJ —
      nome, e-mail e telefone o CRM já tem, e o valor é o que o master
@@ -4846,6 +5015,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
               {ocupado==="asaas"?"Ativando…":"Ativar cobrança automática"}</button>
           </React.Fragment>}
       </React.Fragment>}
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>
   </div>;
 }
 
@@ -4976,7 +5146,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
 
 /* Tarja de aviso. Aparece perto do vencimento e durante a carência — o objetivo
    é a conta nunca chegar a bloquear de surpresa. */
-function TarjaMensalidade({assinatura,isMobile,master}){
+function TarjaMensalidade({assinatura,isMobile,master,gestor}){
   if(!assinatura) return null;
   const {status}=assinatura;
   /* Conta travada, master dentro. Ele passa pela tela de bloqueio de propósito
@@ -4999,6 +5169,11 @@ function TarjaMensalidade({assinatura,isMobile,master}){
     </div>;
   if(!assinatura.cobranca) return null;
   if(status!=="vence_em_breve"&&status!=="atrasado") return null;
+  /* SÓ O GESTOR DO CLIENTE (29/09/2026, pedido do Ali). A mensalidade é
+     assunto de quem paga: na tela do corretor e da atendente o aviso só
+     gerava pergunta que eles não sabem responder. O master também não vê —
+     ele acompanha o vencimento de cada conta no hub. */
+  if(!gestor||master) return null;
   const atrasado=status==="atrasado";
   const texto=atrasado
     ?`Mensalidade vencida em ${fmtData(assinatura.vence_em)}. O acesso será suspenso em ${assinatura.restam} dia(s).`
@@ -5309,7 +5484,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           {isMobile&&<button onClick={()=>setSession(null)} title="Sair" aria-label="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="logout" size={16}/></button>}
         </div>
       </header>
-      <TarjaMensalidade assinatura={assinatura} isMobile={isMobile} master={session.master}/>
+      <TarjaMensalidade assinatura={assinatura} isMobile={isMobile} master={session.master} gestor={podeGerir(session)}/>
       {/* Lembrete do plantão no alto do sistema. Só aparece na véspera e no
           dia — antes disso é informação, não lembrete, e vive na tela da
           escala. Clicar leva para lá. */}
@@ -9101,6 +9276,7 @@ const MOTIVO_ROBO={
   linha_de_disparo:"Esta conversa está no número de disparo do marketing — quem conduz ali é o fluxo do disparo, não o robô.",
   fluxo_de_disparo:"Este cliente está no meio de um fluxo de disparo do marketing — enquanto o fluxo estiver conduzindo, o robô fica quieto.",
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
+  sem_autoatendimento:"O Autoatendimento com IA não está no plano desta conta. Ele liga em Configurações → Autoatendimento.",
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
   ele_se_despediu:"A IA já se despediu neste atendimento.",
@@ -9138,12 +9314,10 @@ function RoboNoLead({lead,acoes,isMobile}){
       {e.responderia
         ?<span>Se o cliente escrever agora, a IA responde.</span>
         /* "Desligado" é o único motivo que manda a pessoa a OUTRA TELA, então
-            precisa dizer o nome que a aba tem NESTA conta — na casa de um
-            corretor só ela se chama "Atendimento pela IA". Mandar procurar
-            "Fora do expediente" numa tela onde essa aba não existe é o mesmo
-            que não dizer nada. */
+            precisa dizer o nome da aba — "Autoatendimento", o mesmo em toda
+            conta desde 29/09/2026. */
         :<span>{e.motivo==="desligado"
-          ?`O atendimento automático está desligado na conta inteira (Configurações → ${e.autonomo?"Atendimento pela IA":"Fora do expediente"}).`
+          ?"O atendimento automático está desligado na conta inteira (Configurações → Autoatendimento)."
           :MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
     </div>
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
@@ -9166,7 +9340,7 @@ function RoboNoLead({lead,acoes,isMobile}){
     {!e.ligado&&<div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
       {e.sempre
         ?"Ela volta a responder este cliente a qualquer hora."
-        :"Ela volta a responder este cliente fora do expediente."}</div>}
+        :"Ela volta a responder este cliente quando ninguém estiver respondendo."}</div>}
   </div>;
 }
 
@@ -9876,7 +10050,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
             catch(err){ setAviso({ok:false,txt:err.message}); } finally{ setOcupado(false); } }}
           style={{marginTop:2,width:17,height:17,accentColor:C.green,cursor:"pointer"}}/>
         <span style={{fontSize:12,color:C.sub,lineHeight:1.55}}>
-          Deixar a IA responder o <b>primeiro contato fora do expediente</b> neste número.
+          Deixar o <b>Autoatendimento com IA</b> responder o primeiro contato neste número.
           Ela acolhe e faz perguntas — nunca fala de valor, aprovação nem agenda visita.
           Assim que você responder, ela sai da conversa.
         </span>
@@ -12984,14 +13158,12 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
      ou como argumento de desconto) e abria a estrutura de custo da plataforma
      para quem assina a plataforma. O cliente continua vendo o custo estimado
      ANTES do botão, nas rodadas em lote — que é onde ele decide gastar. */
-  /* O NOME DA ABA MUDA NA CONTA DE UM CORRETOR SÓ. Ali a IA atende a qualquer
-     hora por padrão, e "Fora do expediente" seria a aba anunciando um horário
-     que a conta não tem — a pessoa entra procurando o expediente e sai sem
-     entender o que a tela faz. Na imobiliária o nome continua o mesmo: lá ele
-     descreve exatamente o que a seção é. */
-  const sozinho=!!(org&&org.tipo==="autonomo");
+  /* "AUTOATENDIMENTO" (29/09/2026, pedido do Ali). Era "Fora do expediente"
+     na imobiliária e "Atendimento pela IA" no autônomo; virou uma ferramenta
+     com nome próprio, o mesmo no plano, no hub e na assinatura — e o horário
+     passou a ser uma opção dentro dela, não o nome dela. */
   const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
-    ["robo",sozinho?"Atendimento pela IA":"Fora do expediente"],
+    ["robo","Autoatendimento"],
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
@@ -13292,6 +13464,25 @@ function RoboConfig({acoes,session,isMobile}){
   }
 
   if(!cfg) return <div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>;
+  /* SEM A FERRAMENTA (29/09/2026). O Autoatendimento vem nos planos a partir
+     do completo, é contratado avulso ou liberado pelo ConHub. Sem ele, esta
+     aba vira o lugar de ligar a ferramenta — é aqui que a pessoa descobre
+     que não tem, e é aqui que ela resolve. A configuração guardada não some:
+     volta como estava no dia em que a ferramenta ligar. */
+  if(!cfg.incluido) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="spark" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Autoatendimento com IA</span>
+      <span style={{background:C.surface,color:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:700}}>fora do seu plano</span>
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:12}}>
+      Quando um lead chama e ninguém responde, a IA conversa com ele, acolhe e anota o que ele precisa — e sai da conversa assim que alguém da equipe responde.
+      {cfg.ferramenta&&cfg.ferramenta.origem==="retirado"
+        ?" Esta ferramenta foi desligada pelo ConHub nesta conta."
+        :" Ela vem nos planos completos, ou pode ser contratada à parte."}
+    </div>
+    {cfg.ferramenta&&cfg.ferramenta.origem!=="retirado"&&<FerramentasDaConta acoes={acoes} isMobile={isMobile} so="autoatendimento" aoMudar={carregar}/>}
+  </div>;
   const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
     borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",width:92};
   const cartao=(filhos,extra)=><div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
@@ -13304,7 +13495,7 @@ function RoboConfig({acoes,session,isMobile}){
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
         <Icon n="spark" size={15} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
-          {cfg.sempre?"Primeiro atendimento automático":"Primeiro atendimento fora do expediente"}</span>
+          Autoatendimento com IA</span>
         {cfg.ativo&&<span style={{background:cfg.agora_atenderia?C.greenSoft:C.surface,
           color:cfg.agora_atenderia?C.greenDeep:C.faint,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:700}}>
           {cfg.agora_atenderia?"atendendo agora":"em silêncio agora"}</span>}

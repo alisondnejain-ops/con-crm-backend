@@ -107,7 +107,11 @@ console.log("1b. E os IDs do autônomo continuam sendo os históricos");
 /* Estão gravados em `orgs.plano_id` de contas que pagam, e `mesesPagos` devolve
    1 mês para plano não encontrado: renomear para um esquema mais bonito
    bloquearia, em silêncio, quem tinha acabado de pagar seis meses. */
-assert.deepEqual(PLANOS.map(p => p.id), ["mensal", "semestral", "anual"]);
+assert.deepEqual(PLANOS.map(p => p.id), ["basico", "mensal", "semestral", "anual"],
+  "o básico entrou em 29/09/2026 com id próprio; os três históricos continuam");
+assert.equal(porId.basico.mensal, 97);
+assert.deepEqual(porId.basico.inclui, [], "o básico não traz o Autoatendimento");
+assert.deepEqual(porId.mensal.inclui, ["autoatendimento"]);
 console.log(`   ${PLANOS.map(p => p.id).join(", ")}`);
 
 console.log("2. A economia sai do servidor, não da tela");
@@ -116,6 +120,7 @@ console.log("2. A economia sai do servidor, não da tela");
 const tela = planosParaTela("autonomo");
 assert.equal(tela.find(p => p.id === "anual").economia_ano, (197 - 147) * 12);
 assert.equal(tela.find(p => p.id === "mensal").economia_ano, 0);
+assert.equal(tela.find(p => p.id === "basico").economia_ano, 0, "o básico não 'economiza' em relação ao completo: é outro plano");
 console.log(`   anual economiza R$ ${tela.find(p => p.id === "anual").economia_ano} por ano`);
 
 console.log("3. O autônomo vê os planos");
@@ -123,7 +128,7 @@ r = await chamar(tBruno, "/assinatura/planos");
 d = await r.json();
 console.log(`   ${r.status} · ${d.planos.length} planos · atual: ${d.atual}`);
 assert.equal(r.status, 200);
-assert.equal(d.planos.length, 3);
+assert.equal(d.planos.length, 4, "básico + os três ciclos do completo");
 assert.equal(d.atual, null, "ainda não escolheu nenhum");
 
 console.log("4. A IMOBILIÁRIA vê os planos DELA — Essencial e Plus (02/09/2026)");

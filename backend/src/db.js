@@ -1876,4 +1876,34 @@ if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'limpeza_ecos_do_
   if (apagadas) console.log(`[messages] ${apagadas} cópia(s) de mensagem enviada pelo CRM apagada(s) (o eco do WhatsApp que tinha entrado de novo).`);
 }
 
+/* AS FERRAMENTAS DE CADA CONTA (29/09/2026) — ver services/recursos.js.
+   Uma linha por conta e ferramenta, só quando existe algo a dizer: o master
+   decidiu, ou o cliente contratou avulso. Sem linha, vale o plano. */
+db.exec(`CREATE TABLE IF NOT EXISTS org_recursos (
+  org_id TEXT NOT NULL,
+  recurso TEXT NOT NULL,
+  master TEXT,                    -- 'liberado' | 'retirado' | NULL = segue o plano
+  master_em INTEGER,
+  master_por TEXT,
+  avulso_status TEXT,             -- 'aguardando' | 'ativo' | 'cancelado' | 'estornado' | NULL
+  avulso_sub_id TEXT,             -- a assinatura PRÓPRIA da ferramenta no Asaas
+  avulso_link TEXT,
+  avulso_desde INTEGER,
+  avulso_pago_ate INTEGER,
+  avulso_ultimo_pagamento TEXT,
+  avulso_cancelado_em INTEGER,
+  PRIMARY KEY (org_id, recurso)
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_org_recursos_sub ON org_recursos(avulso_sub_id)");
+/* O Marketing liberado pelo master em `orgs.marketing_liberado` passa a ser
+   uma liberação do master aqui, uma vez só. A coluna antiga fica, sem uso. */
+if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'recursos_marketing_migrado'").get()) {
+  db.transaction(() => {
+    for (const o of db.prepare("SELECT id, marketing_liberado_em, marketing_liberado_por FROM orgs WHERE marketing_liberado = 1").all())
+      db.prepare(`INSERT OR IGNORE INTO org_recursos (org_id, recurso, master, master_em, master_por)
+        VALUES (?, 'marketing', 'liberado', ?, ?)`).run(o.id, o.marketing_liberado_em || Date.now(), o.marketing_liberado_por || null);
+    db.prepare("INSERT OR REPLACE INTO config_plataforma (chave, valor, atualizado_em) VALUES ('recursos_marketing_migrado', '1', ?)").run(Date.now());
+  })();
+}
+
 export default db;

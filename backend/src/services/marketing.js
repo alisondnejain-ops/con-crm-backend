@@ -28,6 +28,7 @@ import { normalizePhone } from "./stages.js";
 import { lerXlsx, lerCSV } from "./xlsx.js";
 import { numeroAlternativo } from "./uazapi.js";
 import { desligarCanal, canalDaCasa, garantirCasa, canalPorId } from "./canais.js";
+import { temRecurso, definirPeloMaster } from "./recursos.js";
 
 /* ===== O TERMO =====
 
@@ -95,8 +96,9 @@ export class ErroMarketing extends Error {
 }
 
 // ===== LIBERAÇÃO E ACEITE =====
-export const liberado = (orgId) =>
-  !!db.prepare("SELECT marketing_liberado FROM orgs WHERE id = ?").get(orgId)?.marketing_liberado;
+/* Ferramenta da conta — liberada pelo master ou contratada avulsa
+   (services/recursos.js, desde 29/09/2026). */
+export const liberado = (orgId) => temRecurso(orgId, "marketing");
 
 export const aceiteVigente = (orgId) => db.prepare(
   "SELECT * FROM marketing_termos WHERE org_id = ? AND versao = ? ORDER BY aceito_em DESC LIMIT 1").get(orgId, TERMO_VERSAO) || null;
@@ -550,7 +552,8 @@ export function estado(orgId, user) {
 }
 
 // ===== LIBERAÇÃO PELO MASTER =====
+/* O botão antigo do hub. Ligar é liberar; desligar volta a seguir o plano —
+   e nenhum plano inclui o Marketing, então só fica quem contratou avulso. */
 export function definirLiberacao(orgId, ligado, porUserId) {
-  db.prepare("UPDATE orgs SET marketing_liberado = ?, marketing_liberado_em = ?, marketing_liberado_por = ? WHERE id = ?")
-    .run(ligado ? 1 : 0, Date.now(), porUserId, orgId);
+  definirPeloMaster(orgId, "marketing", ligado ? "liberado" : null, porUserId);
 }
