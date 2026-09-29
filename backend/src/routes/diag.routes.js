@@ -82,6 +82,27 @@ const ehMaster = (req) => {
   return !r.erro && !!r.user.master;
 };
 
+/* O WHATSAPP DA IMOBILIÁRIA MAIS ANTIGA NÃO SAI DAQUI (29/09/2026).
+
+   Esta página é pública, e o bloco `whatsapp` é o da imobiliária mais antiga
+   do servidor — a Conecta. Ele saía inteiro: o número, o NOME DO PERFIL do
+   WhatsApp e, com o número desconectado, o QR CODE e o código de pareamento.
+   Qualquer pessoa na internet podia ler o QR e parear o WhatsApp da Conecta no
+   próprio celular. E o CRM de TODA imobiliária lia este bloco para pintar o
+   selo "WhatsApp conectado" no topo: um cliente novo, sem nada conectado, via
+   "conectado" — com o número da Conecta por trás (relato do Ali no onboarding
+   de Maragogi).
+
+   Sem login sobra só "está configurado / respondeu / pareado". O master vê o
+   número e o nome, mas QR e código de pareamento não saem nem para ele: parear
+   é na tela de Conexão, dentro da conta, nunca numa página de diagnóstico. */
+function resumoDoWhatsapp(w, master) {
+  if (!w) return w;
+  const { qrcode, paircode, ...semPareamento } = w;
+  if (master) return semPareamento;
+  return { configurado: w.configurado, ok: w.ok, conectado: w.conectado, status: w.status };
+}
+
 // Painel de instalação: diz o que já está ligado, SEM devolver nenhum segredo.
 // Tokens e senhas nunca aparecem aqui — só "configurado: true/false" e o estado da conexão.
 r.get("/integracoes", async (_req, res) => {
@@ -102,7 +123,7 @@ r.get("/integracoes", async (_req, res) => {
     imobiliarias: master ? db.prepare("SELECT COUNT(*) n FROM orgs").get().n : undefined,
     detalhe_completo: master ? true : "entre como ConHub (master) para ver os números da plataforma",
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
-    whatsapp: await instanceStatus(org?.id),
+    whatsapp: resumoDoWhatsapp(await instanceStatus(org?.id), master),
     meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
     /* E-MAIL: não basta dizer "configurado". A recusa do provedor não aparece
        em tela nenhuma — a tela do "esqueci minha senha" responde a mesma frase
@@ -187,6 +208,9 @@ r.get("/integracoes", async (_req, res) => {
 
 // Últimos webhooks recebidos da Uazapi — para conferir a instalação.
 // Mostra só o resultado do processamento, nunca o conteúdo das conversas.
+/* O nome do lead que chegou é dado pessoal de um cliente — e desta lista, que
+   mistura as imobiliárias todas, só o master pode ler (29/09/2026). Sem login
+   fica o que o diagnóstico precisa: que evento chegou e o que o CRM fez. */
 r.get("/integracoes/webhooks", (_req, res) => res.json({
   /* A lista vive na memória e zera a cada publicação. Dizer isso junto evita a
      leitura errada mais provável: lista vazia logo depois de um deploy não
@@ -196,7 +220,7 @@ r.get("/integracoes/webhooks", (_req, res) => res.json({
   ha_minutos: Math.round((Date.now() - inicio) / 60000),
   observacao: "Esta lista zera a cada publicação. Vazia logo após um deploy não quer dizer que a Uazapi parou — quer dizer que ela ainda não chamou desde então.",
   recebidos: ultimosEventos.length,
-  eventos: ultimosEventos,
+  eventos: ehMaster(_req) ? ultimosEventos : ultimosEventos.map(({ lead, ...resto }) => resto),
 }));
 
 /* Teste do armazenamento: grava um arquivo de verdade, confere que ele abre
