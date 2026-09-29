@@ -119,6 +119,10 @@ function extrair(p) {
     citada: idCitado(m),
     citadaTrecho: trechoCitado(m),
     messageid: m.messageid || m.id || m.key?.id || "",
+    // A uazapiGO diz se a mensagem saiu pela API (o CRM) ou pelo celular.
+    // Ausente em contas antigas: aí fica `undefined`, e quem decide é o
+    // registro de envios (services/marca-disparo.js → ecoDoCrm).
+    enviadaPelaApi: typeof (m.wasSentByApi ?? m.sentByApi) === "boolean" ? (m.wasSentByApi ?? m.sentByApi) : undefined,
     nome: m.senderName || m.pushName || m.wa_name || m.chatName || "",
     // Só usado quando `citada` acima não achou nada — ver `pistasDeResposta`.
     pistasReply: pistasDeResposta(m),
@@ -145,7 +149,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
@@ -203,7 +207,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     // dentro de services/mensageria.js (que não sabe o formato da Uazapi).
     const temMidia = !!(content && (content.URL || content.url));
 
-    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho, messageid, nome });
+    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho, messageid, nome, enviadaPelaApi });
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);

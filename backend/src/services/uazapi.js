@@ -26,6 +26,7 @@
 import db from "../db.js";
 import { canalPorId, canalDaCasa, canalDoWhatsapp } from "./canais.js";
 import * as oficial from "./whatsapp_oficial.js";
+import { inicioDeEnvioDoCrm, fimDeEnvioDoCrm } from "./marca-disparo.js";
 
 /* ===== DESPACHO PARA A API OFICIAL DA META (03/09/2026) =====
 
@@ -238,9 +239,23 @@ const telLegivel = (d) => {
     : d.length === 12 ? `(${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}` : d;
 };
 
+/* Todo envio fica marcado enquanto está no ar e com o id que voltou — é o
+   que deixa o webhook reconhecer o eco de algo que o CRM mandou, mesmo
+   quando ele chega antes da resposta (services/marca-disparo.js). */
 async function call(orgId, path, payload, canalId = null) {
   const numero = payload && payload.number ? String(payload.number) : null;
   if (!numero || !path.startsWith("/send")) return chamar(orgId, path, payload, canalId);
+  const marca = inicioDeEnvioDoCrm(orgId, numero);
+  let r = null;
+  try {
+    r = await enviarComAlternativa(orgId, path, payload, canalId, numero);
+    return r;
+  } finally {
+    fimDeEnvioDoCrm(marca, r?.messageid);
+  }
+}
+
+async function enviarComAlternativa(orgId, path, payload, canalId, numero) {
   const conhecida = formaQueFunciona.get(numero);
   const primeiro = conhecida || numero;
   try {

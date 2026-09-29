@@ -19,7 +19,7 @@
 
 import { registrarPedidoDeSaida } from "./marketing.js";
 import { mensagemRecebida as respostaAoDisparo, campanhaQueAlcancou, ecoDeDisparo } from "./disparo.js";
-import { ROTULO_DISPARO } from "./marca-disparo.js";
+import { ROTULO_DISPARO, ecoDoCrm } from "./marca-disparo.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -66,7 +66,7 @@ function jaGravada(orgId, messageid, direcao) {
 }
 const emAndamento = new Set();
 
-export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome }) {
+export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome, enviadaPelaApi }) {
   const orgId = canal.org_id;
   const ehPessoal = canal.tipo === "corretor";
   /* A linha em que a conversa passa a acontecer: nula é a da CASA. A do
@@ -85,6 +85,15 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      ali — e não precisa disparar, porque o resto da função segue igual). */
   if (fromMe && messageid && jaGravada(orgId, messageid, null))
     return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: eco da mensagem enviada pelo próprio CRM" });
+
+  /* O ECO QUE CHEGA ANTES DO REGISTRO, OU SEM ID QUE CASE (29/09/2026). O CRM
+     grava o que enviou depois que a Uazapi responde; o eco pode chegar antes,
+     ou a resposta pode não ter trazido id (localização, imóvel). Sem isto,
+     cada mensagem do CRM aparecia duas vezes — a segunda como "Enviada pelo
+     WhatsApp". O eco do DISPARO fica fora: ele tem regra própria lá embaixo
+     (entra na conversa como mensagem do disparo). */
+  if (fromMe && ecoDoCrm(orgId, phone, messageid, enviadaPelaApi) && !ecoDeDisparo(orgId, phone, messageid))
+    return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: eco de uma mensagem enviada pelo próprio CRM (chegou antes do registro ou sem id)" });
 
   /* A MESMA MENSAGEM DO CLIENTE ENTREGUE DUAS VEZES (29/09/2026): webhook
      geral da Uazapi + webhook do número, ou a Uazapi reentregando. O id do
@@ -209,6 +218,12 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      vai casar. Registrar os dois lados (achou o id do WhatsApp, não achou
      a mensagem local) é o que separa "não reconheci o campo" de "reconheci
      o campo, mas o alvo nunca teve o dele guardado". */
+  /* Sem id do WhatsApp não há como a trava do id pegar a entrega repetida:
+     a mesma mensagem, igual, do mesmo cliente, no último minuto, é ela de novo. */
+  if (!fromMe && !messageid && db.prepare(`SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in'
+      AND body = ? AND created_at > ? LIMIT 1`).get(lead.id, corpo, Date.now() - 60000))
+    return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: a mesma mensagem, sem id, chegou duas vezes" });
+
   if (citada && !citadaLocal && !trechoReserva)
     lembrar({ em: Date.now(), evento, provider, resultado: "AVISO: a mensagem cita outra, mas nenhuma mensagem desta conversa tem esse id do WhatsApp guardado (mensagem antiga sem wa_id, ou o envio dela nunca recebeu id — ver 'envio_sem_id' em /integracoes)" });
 

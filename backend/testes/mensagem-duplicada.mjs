@@ -57,6 +57,14 @@ console.log("1. MIGRAÇÃO SEGURA: banco já com wa_id duplicado não pode trava
   // E a mesma mensagem RECEBIDA três vezes, uma com o número na frente (29/09/2026).
   for (const [id, t, wa] of [["m_in_1", 1000, "3EB0IN"], ["m_in_2", 1500, "3EB0IN"], ["m_in_3", 1800, "5587999:3EB0IN"]])
     raw.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at,wa_id) VALUES (?,'l_y','in','oi',?,?)`).run(id, t, wa);
+  // O eco de uma mensagem que o CRM enviou, gravado de novo sem autor (29/09/2026).
+  const t0 = Date.parse("2026-09-29T12:00:00-03:00");
+  const eco = (id, dono, nome, corpo, t) => raw.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
+    VALUES (?,'l_z','out',?,?,?,?)`).run(id, dono, nome, corpo, t);
+  eco("m_crm", "u_marina", "Marina", "Olá, tudo bem?", t0 + 1000);
+  eco("m_eco", null, null, "*Marina:*\nOlá, tudo bem?", t0 + 500);
+  eco("m_celular", null, null, "Bom dia, digitei no celular", t0 + 2000);
+  eco("m_antiga", null, null, "Olá, tudo bem?", Date.parse("2026-09-20T12:00:00-03:00"));
   raw.close();
 
   // Importa src/db.js num PROCESSO SEPARADO (é módulo ESM com efeito colateral
@@ -84,6 +92,10 @@ console.log("1. MIGRAÇÃO SEGURA: banco já com wa_id duplicado não pode trava
   const recebidas = depois.prepare("SELECT id FROM messages WHERE lead_id = 'l_y'").all().map(l => l.id);
   assert.deepEqual(recebidas, ["m_in_1"], "da recebida repetida fica só a mais antiga, nos dois formatos de id");
   assert.ok(depois.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_messages_wa_id_recebida'").get());
+  const daConversa = depois.prepare("SELECT id FROM messages WHERE lead_id = 'l_z' ORDER BY created_at").all().map(l => l.id);
+  console.log(`   conversa com eco: ${daConversa.join(", ")}`);
+  assert.deepEqual(daConversa, ["m_antiga", "m_crm", "m_celular"],
+    "sai só o eco da mensagem do CRM; o que foi digitado no celular e o que é de antes de 28/09 ficam");
   depois.close();
 }
 
@@ -185,6 +197,86 @@ const doAudio = db.prepare("SELECT id FROM leads WHERE org_id = ? AND phone = '5
 assert.equal(doAudio.length, 1, "a entrega irmã, chegando durante o download, não cria um segundo lead");
 assert.equal(doLead(doAudio[0].id), 1);
 
+/* O ECO DO QUE O CRM ENVIOU (29/09/2026, "as mensagens ainda aparecem
+   duplicadas"). Uma Uazapi de mentira que, ao receber o envio, dispara o eco
+   pelo webhook ANTES de responder — e responde com o id no outro formato. */
+const bcrypt = (await import("bcryptjs")).default;
+const org2 = "org_" + randomUUID().slice(0, 8);
+db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,uazapi_host,uazapi_token) VALUES (?,?,?,?,?,?)")
+  .run(org2, "Teste Eco", "ECO-1", Date.now(), "http://127.0.0.1:4634", "tok-eco");
+db.prepare(`INSERT INTO canais (id,org_id,tipo,host,token,ativo,created_at)
+  VALUES (?,?,'imobiliaria','http://127.0.0.1:4634','tok-eco',1,?)`).run("c_" + randomUUID(), org2, Date.now());
+const corretora = "u_" + randomUUID();
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+  VALUES (?,?,?,?,?,'adm',1,?,'ativo')`).run(corretora, org2, "Marina Lopes", "marina@eco.com", bcrypt.hashSync("123456", 8), Date.now());
+const leadEco = (tel) => { const id = "l_" + randomUUID();
+  db.prepare("INSERT INTO leads (id,org_id,name,phone,qual_json,stage,created_at) VALUES (?,?,?,?,'{}','Lead',?)")
+    .run(id, org2, "Cliente " + tel.slice(-4), tel, Date.now()); return id; };
+const ecoDe = (numero, extra) => fetch(`${BASE}/webhooks/uazapi`, { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token: "tok-eco", message: { chatid: `${numero}@s.whatsapp.net`, fromMe: true, ...extra } }) });
+let seq = 0;
+const uazapi = http.createServer((req, res) => {
+  let corpo = "";
+  req.on("data", c => corpo += c);
+  req.on("end", async () => {
+    const b = JSON.parse(corpo || "{}");
+    const id = `3EB0ENV${++seq}`;
+    if (req.url === "/send/text") {
+      await ecoDe(b.number, { messageid: id, text: b.text, wasSentByApi: true });
+      await new Promise(r => setTimeout(r, 300));   // o eco é processado antes da resposta
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ messageid: `${b.number}:${id}` }));
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end("{}");   // localização: a resposta não traz id nenhum
+  });
+});
+await new Promise(res => uazapi.listen(4634, res));
+const tokenEco = (await (await fetch(`${BASE}/auth/login`, { method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ email: "marina@eco.com", password: "123456" }) })).json()).token;
+const comoMarina = (url, body) => fetch(`${BASE}${url}`, { method: "POST",
+  headers: { authorization: "Bearer " + tokenEco, "content-type": "application/json" }, body: JSON.stringify(body) });
+const saidas = (id) => db.prepare("SELECT body, from_user_id, wa_id FROM messages WHERE lead_id = ? AND direction = 'out' ORDER BY created_at").all(id);
+
+console.log("\n7. Eco chegando ANTES de o envio terminar, com o id no outro formato: uma mensagem, com o autor certo");
+const l7 = leadEco("5581955554444");
+let r = await comoMarina(`/leads/${l7}/messages`, { text: "Olá! Vi que você se interessou pela casa." });
+assert.equal(r.status, 200, "o envio não pode falhar por causa do eco");
+await new Promise(r => setTimeout(r, 300));
+let s7 = saidas(l7);
+console.log(`   ${s7.length} mensagem(ns): ${s7.map(m => `${m.from_user_id ? "Marina" : "sem autor"} · ${m.wa_id}`).join(" | ")}`);
+assert.equal(s7.length, 1, "o eco não vira segunda cópia");
+assert.equal(s7[0].from_user_id, corretora, "a que fica é a do CRM, com autor");
+assert.match(String(s7[0].wa_id), /3EB0ENV1$/, "e com o id do WhatsApp, para o cliente poder citá-la");
+
+console.log("8. Mesmo eco entregue de novo depois (webhook geral + do número): continua uma");
+await ecoDe("5581955554444", { messageid: "3EB0ENV1", text: "*Marina:*\nOlá! Vi que você se interessou pela casa.", wasSentByApi: true });
+await new Promise(r => setTimeout(r, 300));
+assert.equal(saidas(l7).length, 1);
+
+console.log("9. Envio cuja resposta NÃO traz id (localização): o eco que chega depois não duplica");
+const l9 = leadEco("5581944443333");
+r = await comoMarina(`/leads/${l9}/localizacao`, { latitude: -9.39, longitude: -40.5 });
+assert.equal(r.status, 200);
+await ecoDe("5581944443333", { messageid: "3EB0LOC1", messageType: "locationMessage", wasSentByApi: true });
+await new Promise(r => setTimeout(r, 300));
+assert.equal(saidas(l9).length, 1, "o eco da localização não entra como \"Enviada pelo WhatsApp\"");
+
+console.log("10. O corretor digitando no celular logo depois CONTINUA entrando");
+await ecoDe("5581944443333", { messageid: "3EB0CEL1", text: "Te espero lá às 15h", wasSentByApi: false });
+await new Promise(r => setTimeout(r, 300));
+const s10 = saidas(l9);
+assert.equal(s10.length, 2);
+assert.equal(s10[1].body, "Te espero lá às 15h");
+assert.equal(s10[1].from_user_id, null, "entra como enviada pelo WhatsApp");
+
+console.log("11. Conta antiga, sem o campo wasSentByApi, sem envio recente do CRM: entra");
+const l11 = leadEco("5581933332222");
+await ecoDe("5581933332222", { messageid: "3EB0CEL2", text: "Oi, é o corretor" });
+await new Promise(r => setTimeout(r, 300));
+assert.equal(saidas(l11).length, 1);
+
+uazapi.close();
 mock.close();
 console.log("\nTudo certo ✅");
 process.exit(0);

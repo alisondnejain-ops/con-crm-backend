@@ -97,9 +97,10 @@ r.post("/:id/messages", async (req, res) => {
   const now = Date.now();
   // `wa_id`: o webhook devolve esta mesma mensagem daqui a instantes, e e por
   // ele que ela e reconhecida como eco em vez de virar uma copia na conversa.
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,reply_to,created_at,canal_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(),
-      envio?.messageid || null, citada ? citada.id : null, now, linhaDo(lead));
+  gravarOuAssumirEco(envio?.messageid, { user: req.user, firstName, body: text.trim(), replyTo: citada ? citada.id : null }, () =>
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,reply_to,created_at,canal_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(),
+        envio?.messageid || null, citada ? citada.id : null, now, linhaDo(lead)));
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
@@ -397,11 +398,24 @@ r.post("/:id/localizacao", async (req, res) => {
   res.json({ ok: true });
 });
 
+/* O eco chegou antes e já gravou esta mensagem (mesmo id do WhatsApp) como
+   "Enviada pelo WhatsApp": em vez de falhar ou duplicar, a linha que já existe
+   passa a ser a do CRM, com o autor certo. */
+function gravarOuAssumirEco(waId, { user, firstName, body, replyTo = null }, inserir) {
+  try { inserir(); }
+  catch (e) {
+    if (!waId || !/UNIQUE/i.test(e.message)) throw e;
+    db.prepare(`UPDATE messages SET from_user_id = ?, from_name = ?, body = ?, reply_to = COALESCE(?, reply_to)
+      WHERE direction = 'out' AND wa_id = ?`).run(user.id, firstName, body, replyTo, waId);
+  }
+}
+
 function gravarSaida(lead, user, firstName, m) {
   const rotulo = /^image\//.test(m.mime) ? "Foto" : /^video\//.test(m.mime) ? "Vídeo" : /^audio\//.test(m.mime) ? "Áudio" : (m.nome || "Arquivo");
-  db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at,canal_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
-      m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now(), linhaDo(lead));
+  gravarOuAssumirEco(m.wa_id, { user, firstName, body: m.legenda || rotulo }, () =>
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,created_at,canal_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName,
+        m.legenda || rotulo, m.url, m.mime, m.nome || null, m.wa_id || null, Date.now(), linhaDo(lead)));
 }
 
 /* Monta a apresentação do imóvel do jeito que o cliente quer ler: o essencial
