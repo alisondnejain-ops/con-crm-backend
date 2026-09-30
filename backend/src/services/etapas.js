@@ -180,15 +180,55 @@ export function camposQueFaltam(orgId, etapa, lead) {
   const ROTULOS_NATIVOS = { sale_value: "Valor da venda (use \"Registrar venda\" na ficha)" };
 
   const definicoes = db.prepare(
-    "SELECT key, name FROM custom_fields WHERE org_id = ? AND is_active = 1").all(orgId);
-  const rotulo = new Map(definicoes.map(d => [d.key, d.name]));
+    "SELECT id, key, name, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1").all(orgId);
+  const porChave = new Map(definicoes.map(d => [d.key, d]));
 
   const vazio = (v) => v === undefined || v === null || v === "" ||
     (Array.isArray(v) && !v.length);
 
+  /* EXIGÊNCIA QUE NINGUÉM CONSEGUE CUMPRIR NÃO TRAVA NADA (30/09/2026, vídeo
+     do Fernando: "Para mover para Qualificado, preencha: entrada_na_etapa").
+     O campo tinha sido marcado como obrigatório na etapa e depois desativado.
+     A exigência ficou gravada na etapa, mas o campo sumiu da ficha e da tela
+     de configuração — ninguém podia preenchê-lo nem desmarcá-lo, e nenhum
+     lead entrava mais na etapa. Chave que não é campo nativo nem campo ativo
+     desta conta é ignorada aqui, que é onde toda tela pergunta. */
+  const existe = (k) => Object.prototype.hasOwnProperty.call(nativos, k) || porChave.has(k);
+
   return exigidos
-    .filter(k => vazio(valores[k]) && vazio(nativos[k]))
-    .map(k => ({ key: k, label: ROTULOS_NATIVOS[k] || rotulo.get(k) || k }));
+    .filter(k => existe(k) && vazio(valores[k]) && vazio(nativos[k]))
+    .map(k => {
+      const d = porChave.get(k);
+      /* Vai o jeito de preencher junto: a tela abre ali mesmo o campo que
+         falta, em vez de mandar a pessoa procurar na ficha — onde o campo
+         pode nem aparecer (`show_on_lead_profile` desligado). */
+      return d
+        ? { key: k, label: d.name, campo: { id: d.id, key: d.key, name: d.name, type: d.type,
+            options: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() } }
+        : { key: k, label: ROTULOS_NATIVOS[k] || ROTULOS_DE_NATIVO[k] || k, nativo: true };
+    });
+}
+
+// Como os campos nativos aparecem na frase "preencha: …".
+const ROTULOS_DE_NATIVO = {
+  telefone: "Telefone", phone: "Telefone", email: "E-mail", nome: "Nome", name: "Nome",
+  temperatura: "Temperatura", priority: "Temperatura", origem: "Origem", source: "Origem",
+  campanha: "Campanha", campaign: "Campanha", responsavel: "Responsável",
+  produto: "Imóvel de interesse", ticket: "Valor da venda",
+};
+
+/* Tira de todas as etapas da conta a exigência de um campo que deixou de
+   existir. Chamada ao desativar o campo: desativar é "parar de pedir". */
+export function tirarExigencia(orgId, key) {
+  const etapas = db.prepare("SELECT id, required_fields FROM pipeline_stages WHERE org_id = ? AND required_fields LIKE ?")
+    .all(orgId, `%${key}%`);
+  for (const e of etapas) {
+    let lista = [];
+    try { lista = JSON.parse(e.required_fields || "[]"); } catch { continue; }
+    if (!lista.includes(key)) continue;
+    db.prepare("UPDATE pipeline_stages SET required_fields = ? WHERE id = ?")
+      .run(JSON.stringify(lista.filter(k => k !== key)), e.id);
+  }
 }
 
 /* ===== SLA DA ETAPA =====
