@@ -296,6 +296,25 @@ function usarEtapasDoLead(lead,acoes,session){
   return (pipe&&pipe.stages&&pipe.stages.length)?pipe.stages:STAGES.map(n=>({id:null,name:n}));
 }
 
+/* AS ETAPAS PARA O FILTRO "ETAPA" DAS CONVERSAS (30/09/2026, print da
+   Verónica): o filtro listava as 11 etapas fixas do funil antigo (Lead,
+   Atendimento, Pasta…) numa conta cujo funil é Inbox, Aguardando interação,
+   Qualificado… — nenhuma opção batia com lead nenhum, e escolher qualquer uma
+   esvaziava a lista. Agora são as etapas dos funis ativos da conta, na ordem
+   deles. O filtro casa pelo NOME (é o que a conversa guarda), então etapa com
+   o mesmo nome em dois funis vira uma opção só, com os funis escritos ao lado. */
+function opcoesDeEtapa(pipelines){
+  const ativo=(x)=>x.is_active!==false&&x.is_active!==0;
+  const funis=(pipelines||[]).filter(ativo);
+  if(!funis.length) return STAGES.map(n=>({v:n,t:n}));
+  const porNome=new Map();
+  for(const p of funis) for(const e of (p.stages||[]).filter(ativo)){
+    const a=porNome.get(e.name)||[]; if(!a.includes(p.name)) a.push(p.name); porNome.set(e.name,a);
+  }
+  const varios=funis.length>1;
+  return [...porNome].map(([n,fs])=>({v:n,t:varios?`${n} · ${fs.join(", ")}`:n}));
+}
+
 /* MOVER O LEAD PARA OUTRO FUNIL. (17/09/2026, pedido do Ali: uma seção do
    Kanban só para aluguéis — o funil "Locação" já existe como modelo pronto
    desde 28/08/2026, `PATCH /leads/:id/stage` já aceita `stage_id` de
@@ -1142,6 +1161,9 @@ function ConCRM(){
   const [erro,setErro]=useState("");
   // Recado âmbar: aconteceu, mas tem um porém que a pessoa precisa saber.
   const [recado,setRecado]=useState("");
+  // Mover de etapa que a etapa recusou por falta de campo: abre a janela
+  // para preencher ali mesmo (ver `mudarEtapa` e `PreencherParaMover`).
+  const [faltando,setFaltando]=useState(null);
   const [selId,setSelId]=useState(null);
   // Sobe a cada recarga. Telas que fazem a própria busca (Conversas) observam este
   // número para se atualizarem depois de uma ação, em vez de mostrar dado velho.
@@ -1321,8 +1343,29 @@ function ConCRM(){
     /* Aceita o NOME (todo o código de hoje) ou o `stage_id` (o kanban, que
        monta as colunas a partir do funil da empresa). O id é mais preciso:
        dois funis podem ter uma etapa com o mesmo nome. */
-    mudarEtapa:acao((leadId,stage,extra)=>api(`/leads/${leadId}/stage`,
-      {method:"PATCH",body:{stage,...(extra||{})}})),
+    /* NÃO passa pelo `acao()` (30/09/2026). Aquele envelope engole a resposta
+       E o erro — e mover etapa precisa dos dois: o aviso da automação
+       ("ninguém disponível no rodízio") e o 422 com os campos que faltam.
+       Com o `acao()` os dois morriam ali, e o bloqueio virava só uma faixa
+       vermelha dizendo "preencha: X", sem lugar nenhum para preencher. Agora
+       o 422 abre a janela `PreencherParaMover`, e vale para TODA tela que
+       move lead (funil, ficha, outro funil, sugestão da IA). */
+    mudarEtapa:async(leadId,stage,extra)=>{
+      try{
+        const r=await api(`/leads/${leadId}/stage`,{method:"PATCH",body:{stage,...(extra||{})}});
+        await recarregar(); if(selRef.current) await abrir(selRef.current,true);
+        if(r&&r.aviso) setRecado(r.aviso);
+        else if(r&&r.responsavel_nome) setRecado(`Lead entregue a ${r.responsavel_nome}.`);
+        return r;
+      }catch(e){
+        if(e.status===422&&e.dados&&e.dados.faltam){
+          setFaltando({leadId,stage,extra,...e.dados});
+          return {bloqueado:true,...e.dados};
+        }
+        setErro(e.message);
+        return {erro:e.message};
+      }
+    },
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
     // Sem o `acao()`: o erro (número repetido, formato) volta para o campo
     // que está aberto, em vez de ir para a faixa do topo e fechar a edição.
@@ -1772,7 +1815,7 @@ function ConCRM(){
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair} org={org}
       aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
 
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,versao,assinatura,org,voltarAoHub,plantao}}/>;
+  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}}/>;
 }
 
 /* ===== PLANTÃO =====
@@ -5194,7 +5237,7 @@ function Splash(){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,versao,assinatura,org,voltarAoHub,plantao}){
+function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -5355,21 +5398,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      O aviso da automação (ninguém disponível no rodízio, funil de destino sem
      etapa) sobe pelo mesmo caminho: o lead moveu, mas alguma coisa não saiu
      como configurado, e isso não pode passar em silêncio. */
-  const setStatus=async(id,status,extra)=>{
-    try{
-      const r=await acoes.mudarEtapa(id,status,extra);
-      if(r&&r.aviso) setRecado(r.aviso);
-      else if(r&&r.responsavel_nome) setRecado(`Lead entregue a ${r.responsavel_nome}.`);
-      return r;
-    }catch(e){
-      if(e.status===422&&e.dados&&e.dados.faltam){
-        setErro(e.dados.error);
-        return {bloqueado:true,...e.dados};
-      }
-      setErro(e.message);
-      throw e;
-    }
-  };
+  const setStatus=(id,status,extra)=>acoes.mudarEtapa(id,status,extra);
   const openLead=(id)=>{acoes.abrir(id);setView("atendimento");};
   const toggleAvail=(id,estaDisponivel,extra)=>acoes.disponibilidade(id,!estaDisponivel,extra);
 
@@ -5503,6 +5532,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         <Icon n="bell" size={14}/><span style={{flex:1}}>{recado}</span>
         <button onClick={()=>setRecado("")} style={{border:"none",background:"transparent",color:"#8a6d1f",cursor:"pointer",fontWeight:700}}>×</button>
       </div>}
+      {faltando&&<PreencherParaMover faltando={faltando} isMobile={isMobile} acoes={acoes}
+        nome={(leads.find(l=>l.id===faltando.leadId)||{}).nome}
+        abrirFicha={()=>{const id=faltando.leadId;setFaltando(null);openLead(id);}}
+        aoFechar={()=>setFaltando(null)}/>}
       <div style={{flex:1,minHeight:0}}>
         {/* O corretor tem a caixa de entrada simples; quem supervisiona usa a tela
             completa, com filtros e acesso a qualquer conversa — é a mesma aba.
@@ -6970,6 +7003,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
      exatamente o que a regra dos hooks proíbe. Aqui ela roda em toda
      renderização, e o valor é só IGNORADO quando a ficha não aparece. */
   const etapasFunilDoLead=usarEtapasDoLead(sel,acoes,session);
+  const {pipelines:funisDaConta}=usarPipelines(acoes,session);
   const [colando,setColando]=useState(false);
   /* Mensagem em edição: {id, texto}. O texto vai para o campo de baixo, então
      guardamos o rascunho de antes para devolver se a pessoa desistir. */
@@ -7086,7 +7120,11 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   return <div style={{height:"100%",display:"flex",minHeight:0}}>
     {novoLead&&<NovoLead acoes={acoes} session={session} isMobile={isMobile}
       aoFechar={()=>setNovoLead(false)} abrirLead={openChat}
-      aoCriar={(l)=>{setStatus&&setStatus(`${l.name} cadastrado.`);openChat(l.id);}}/>}
+      aoCriar={(l)=>openChat(l.id)}/>}
+      {/* Aqui chamava `setStatus("Fulano cadastrado.")` — só que `setStatus` é
+          MOVER ETAPA, não mostrar recado. Todo lead que o corretor cadastrava
+          disparava um "mover o lead 'Fulano cadastrado.'" e a faixa vermelha
+          dizia "Este lead não está com você". Achado em 30/09/2026. */}
     {showList&&<div style={{width:isMobile?"100%":isCompact?250:300,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
       <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -7133,7 +7171,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {seloCorretor("Etapa",fEtapa,setFEtapa,STAGES.map(s2=>({v:s2,t:s2})))}
+            {seloCorretor("Etapa",fEtapa,setFEtapa,opcoesDeEtapa(funisDaConta))}
             {seloCorretor("Temperatura",fPrio,setFPrio,[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
@@ -8664,6 +8702,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   // geral fica a um clique. O gestor abre já na equipe inteira, como antes.
   const [escopo,setEscopo]=usarEscolha("conversas.escopo",session.role==="sdr"?"meus":"todos");
   const [f,setF]=usarEscolha("conversas.filtros",{atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
+  const {pipelines:funisDaConta}=usarPipelines(acoes,session);
   /* Só "Todos" e "Meus" ficam à vista. Temperatura e "aguardando" desceram para
      a gaveta: cinco pastilhas numa coluna de 340px quebravam em duas linhas e
      comiam o espaço da lista de conversas, que é o que interessa. */
@@ -8807,7 +8846,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
-            {selo("Etapa",f.etapa,"etapa",STAGES.map(s=>({v:s,t:s})))}
+            {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
             {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
             {/* Por qual número: a peneira é no navegador, como a das abas. */}
             {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
@@ -9424,7 +9463,7 @@ function EtapaIA({lead,acoes,isMobile}){
   }
   async function aplicar(){
     setAplicando(true); setErro("");
-    try{ await acoes.mudarEtapa(lead.id,sug.etapa); }
+    try{ const r=await acoes.mudarEtapa(lead.id,sug.etapa,{origem:"ia"}); if(r&&r.erro) setErro(r.erro); }
     catch(e){ setErro(e.message); }
     finally{ setAplicando(false); }
   }
@@ -10524,6 +10563,95 @@ function CampoPersonalizado({def,valor,onSalvar}){
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto||"—"}</button>}
+  </div>;
+}
+
+/* ===== PREENCHER PARA MOVER ===== (30/09/2026, vídeo do Fernando)
+
+   A etapa exige campos para entrar, e até aqui a recusa era uma faixa
+   vermelha — "Para mover para Qualificado, preencha: X" — sem nenhum lugar
+   para preencher: arrastando no funil a ficha nem está aberta, e o campo pode
+   estar escondido dela (`show_on_lead_profile` desligado). Agora a recusa
+   abre esta janela com os campos que faltam, e "Salvar e mover" grava tudo e
+   tenta de novo. Faltou mais alguma coisa, a própria janela se atualiza. */
+function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
+  const [valores,setValores]=useState({});
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const campos=(faltando.faltam||[]).filter(f=>f.campo);
+  const nativos=(faltando.faltam||[]).filter(f=>!f.campo);
+  const mudar=(k,v)=>setValores(a=>({...a,[k]:v}));
+  const vazio=(v)=>v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
+  const prontos=campos.filter(f=>!vazio(valores[f.key]));
+
+  const salvarEMover=async()=>{
+    setOcupado(true); setErro("");
+    try{
+      if(prontos.length) await api(`/leads/${faltando.leadId}/campos`,{method:"PATCH",
+        body:Object.fromEntries(prontos.map(f=>[f.key,valores[f.key]]))});
+      const r=await acoes.mudarEtapa(faltando.leadId,faltando.stage,faltando.extra);
+      if(r&&!r.bloqueado&&!r.erro) aoFechar();
+      else if(r&&r.erro) setErro(r.erro);
+    }catch(e){ setErro(e.message); }
+    finally{ setOcupado(false); }
+  };
+
+  const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+  const pilula=(on)=>({border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+    color:on?C.greenDeep:C.sub,borderRadius:999,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"});
+  const editor=(f)=>{
+    const d=f.campo, v=valores[f.key];
+    if(d.type==="boolean") return <div style={{display:"flex",gap:6}}>
+      {[[true,"Sim"],[false,"Não"]].map(([x,t])=>
+        <button key={t} onClick={()=>mudar(f.key,x)} style={pilula(v===x)}>{t}</button>)}</div>;
+    if(d.type==="select") return <select value={v||""} onChange={e=>mudar(f.key,e.target.value)} style={{...caixa,cursor:"pointer"}}>
+      <option value="">Escolher…</option>
+      {(d.options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>;
+    if(d.type==="multiselect"){
+      const atuais=Array.isArray(v)?v:[];
+      return <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {(d.options||[]).map(o=>{const on=atuais.includes(o);
+          return <button key={o} onClick={()=>mudar(f.key,on?atuais.filter(x=>x!==o):[...atuais,o])} style={pilula(on)}>{o}</button>;})}
+      </div>;
+    }
+    return <input value={v??""} onChange={e=>mudar(f.key,e.target.value)}
+      type={d.type==="date"?"date":"text"} inputMode={d.type==="number"||d.type==="currency"?"decimal":undefined}
+      placeholder={d.type==="currency"?"R$":""} style={caixa}/>;
+  };
+
+  return <div className="tela-cheia" style={{zIndex:60,background:"rgba(0,0,0,.4)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:460,maxHeight:"92%",
+      borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"flex-start",gap:10}}>
+        <div style={{flex:1}}>
+          <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Para entrar em “{faltando.etapa}”</div>
+          <div style={{color:C.faint,fontSize:12}}>{nome?`${nome} precisa`:"O lead precisa"} destes dados antes.</div>
+        </div>
+        <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
+        {campos.map(f=><div key={f.key}>
+          <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>{f.label}</div>
+          {editor(f)}
+        </div>)}
+        {nativos.length>0&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:C.sub,lineHeight:1.5}}>
+          {campos.length>0?"E também, na ficha do lead: ":"Preencha na ficha do lead: "}
+          <b style={{color:C.ink}}>{nativos.map(f=>f.label).join(", ")}</b>.
+          <div><button onClick={abrirFicha} style={{marginTop:8,border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,
+            borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir a ficha</button></div>
+        </div>}
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+      </div>
+      {campos.length>0&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
+        <button onClick={aoFechar} style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvarEMover} disabled={ocupado||!prontos.length}
+          style={{flex:2,border:"none",background:prontos.length?C.green:C.coolSoft,color:prontos.length?"#fff":C.faint,
+            borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:prontos.length?"pointer":"default"}}>
+          {ocupado?"Salvando…":"Salvar e mover"}</button>
+      </div>}
+    </div>
   </div>;
 }
 
@@ -15874,7 +16002,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
               <div style={{color:C.faint,fontSize:10,lineHeight:1.4,marginTop:2}}>{p.regua}</div>
             </td>
             <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:C.ink,textAlign:"right",whiteSpace:"nowrap"}}>{p.valor_texto}</td>
-            <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:cor(p.nota),fontWeight:700,textAlign:"right"}}>{p.nota}</td>
+            <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:p.fora?C.faint:cor(p.nota),fontWeight:700,textAlign:"right"}}>{p.fora?"fora":p.nota}</td>
             <td style={{padding:"7px 6px",fontSize:11.5,fontFamily:MONO,color:C.faint,textAlign:"right"}}>{p.peso}%</td>
             <td style={{padding:"7px 6px",fontSize:12,fontFamily:MONO,color:C.sub,fontWeight:700,textAlign:"right"}}>{p.contribuiu}</td>
           </tr>)}</tbody>
@@ -15887,12 +16015,17 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
 
       {titulo("Onde estão os leads do período")}
       <div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {STAGES.filter(st=>(linha.por_etapa[st]||0)>0).map(st=>{
+        {/* As etapas que vieram, não a lista fixa das 11 antigas: num funil
+            próprio (Inbox, Qualificado…) a lista fixa não casava com nenhuma e
+            o bloco saía vazio com leads no período. (30/09/2026) */}
+        {Object.keys(linha.por_etapa||{}).filter(st=>(linha.por_etapa[st]||0)>0)
+          .sort((a,b)=>{const ia=STAGES.indexOf(a),ib=STAGES.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||(linha.por_etapa[b]-linha.por_etapa[a]);})
+          .map(st=>{
           const v=linha.por_etapa[st]||0, p=linha.recebidos?v/linha.recebidos*100:0;
           return <div key={st} style={{display:"flex",alignItems:"center",gap:9}}>
             <span style={{color:C.sub,fontSize:11.5,width:isMobile?106:160,flexShrink:0}}>{st}</span>
             <div style={{height:9,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}>
-              <div style={{width:Math.max(p,3)+"%",height:"100%",borderRadius:999,background:STAGE_C[st]}}/></div>
+              <div style={{width:Math.max(p,3)+"%",height:"100%",borderRadius:999,background:corDaEtapa(null,st)}}/></div>
             <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,width:34,textAlign:"right"}}>{v}</span>
           </div>;})}
         {linha.recebidos===0&&<div style={{color:C.faint,fontSize:12}}>Nenhum lead entrou para esta pessoa no período.</div>}
@@ -15988,7 +16121,7 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
         </div>
 
         <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,margin:"10px 0 12px"}}>
-          A nota é a média das seis partes abaixo, pesada. Cada valor é o mesmo que aparece na tabela do relatório — não existe número aqui que não exista lá.
+          A nota é a média pesada das partes abaixo. Parte sem base (nenhum atendimento encerrado, por exemplo) fica fora da conta em vez de valer nota máxima. Cada valor é o mesmo que aparece na tabela do relatório — não existe número aqui que não exista lá.
         </div>
 
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -15996,14 +16129,14 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
             <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
               <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{p.rotulo}</span>
               <span style={{fontFamily:MONO,color:C.ink,fontSize:14,fontWeight:700}}>{p.valor_texto}</span>
-              <span style={{fontFamily:MONO,color:cor(p.nota),fontSize:12,fontWeight:700,minWidth:52,textAlign:"right"}}>{p.nota}/100</span>
+              <span style={{fontFamily:MONO,color:p.fora?C.faint:cor(p.nota),fontSize:12,fontWeight:700,minWidth:52,textAlign:"right"}}>{p.fora?"fora da conta":`${p.nota}/100`}</span>
             </div>
-            <div style={{height:7,borderRadius:999,background:C.card,overflow:"hidden",margin:"7px 0 6px"}}>
+            {!p.fora&&<div style={{height:7,borderRadius:999,background:C.card,overflow:"hidden",margin:"7px 0 6px"}}>
               <div style={{width:Math.max(p.nota,2)+"%",height:"100%",borderRadius:999,background:cor(p.nota)}}/>
-            </div>
+            </div>}
             <div style={{color:C.sub,fontSize:11,lineHeight:1.45}}>{p.como}</div>
             <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45,marginTop:3}}>
-              {p.regua} · peso {p.peso}% · entrou com <b style={{fontFamily:MONO,color:C.sub}}>{p.contribuiu}</b> ponto(s) na nota
+              {p.regua} · peso {p.peso}% · {p.fora?"não entrou na nota":<React.Fragment>entrou com <b style={{fontFamily:MONO,color:C.sub}}>{p.contribuiu}</b> ponto(s) na nota</React.Fragment>}
             </div>
           </div>)}
         </div>

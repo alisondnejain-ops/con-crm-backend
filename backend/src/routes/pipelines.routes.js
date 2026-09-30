@@ -13,6 +13,7 @@
 
 import { Router } from "express";
 import db from "../db.js";
+import { tirarExigencia } from "../services/etapas.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import {
   listarPipelines, pipelinePorId, criarPipeline, editarPipeline, duplicarPipeline, apagarPipeline,
@@ -221,6 +222,7 @@ r.patch("/campos/:campoId", soGestao, (req, res) => {
     b(d.show_on_reports, atual.show_on_reports),
     d.ordem !== undefined ? Number(d.ordem) : atual.ordem,
     b(d.is_active, atual.is_active), Date.now(), req.params.campoId, req.user.org_id);
+  if (d.is_active !== undefined && !d.is_active) tirarExigencia(req.user.org_id, atual.key);
   res.json({ campo: formatarCampo(db.prepare("SELECT * FROM custom_fields WHERE id = ?").get(req.params.campoId)) });
 });
 
@@ -228,9 +230,12 @@ r.patch("/campos/:campoId", soGestao, (req, res) => {
    levaria junto o que a equipe preencheu em centenas de atendimentos, e quem
    desliga um campo raramente quer isso — quer parar de pedi-lo. */
 r.delete("/campos/:campoId", soGestao, (req, res) => {
-  const alvo = db.prepare("SELECT id FROM custom_fields WHERE id = ? AND org_id = ?").get(req.params.campoId, req.user.org_id);
+  const alvo = db.prepare("SELECT id, key FROM custom_fields WHERE id = ? AND org_id = ?").get(req.params.campoId, req.user.org_id);
   if (!alvo) return res.status(404).json({ error: "Campo não encontrado." });
   db.prepare("UPDATE custom_fields SET is_active = 0, updated_at = ? WHERE id = ?").run(Date.now(), req.params.campoId);
+  // Desativar é parar de pedir: a exigência sai das etapas junto, senão
+  // ficaria gravada num campo que nenhuma tela mostra mais.
+  tirarExigencia(req.user.org_id, alvo.key);
   res.json({ ok: true, desativado: true });
 });
 

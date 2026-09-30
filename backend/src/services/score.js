@@ -36,7 +36,13 @@ const grupoDe = (lead) => (lead.priority || SEM_TEMPERATURA).toUpperCase();
 // contam para conversão — lead em andamento ainda não é acerto nem erro.
 const VENDIDO = "Venda";
 const PERDIDO = "Perdido";
-const resolvido = (l) => l.stage === VENDIDO || l.stage === PERDIDO;
+/* "Perdido" pelo TIPO da etapa, não só pelo nome (30/09/2026). Num funil
+   próprio a etapa de perda chama "Descartado", "Sem interesse"… e a conta pelo
+   nome nunca a achava: todo lead perdido virava "em andamento", e a perda do
+   corretor ficava sempre em 0%. `_tipo` é carimbado em `ranking()`, uma
+   consulta só para a casa inteira. */
+const perdido = (l) => l.stage === PERDIDO || l._tipo === "perdido";
+const resolvido = (l) => l.stage === VENDIDO || perdido(l);
 
 export const mediana = (arr) => {
   if (!arr.length) return null;
@@ -173,7 +179,7 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
   // Mesma conta da tela: venda é a que FECHOU no período, venha o lead de quando vier.
   const vendas = vendasDoPeriodo.filter(l => l.assigned_to === u.id);
   const vendasDaCoorte = meus.filter(l => l.stage === VENDIDO);
-  const perdidos = meus.filter(l => l.stage === PERDIDO);
+  const perdidos = meus.filter(perdido);
   const visitas = meus.filter(l => l.stage === "Agendamento" || l.stage === "Visita");
   /* VISITA CONFIRMADA POR GENTE.
 
@@ -320,8 +326,26 @@ const VALOR_DA_PARTE = {
   ligacoes: (m) => m.ligacoes,
 };
 
+/* PARTE SEM BASE FICA FORA DA CONTA (30/09/2026, vídeo do Fernando: dois
+   corretores com nota 23 e todas as colunas vazias). "Perda" é a fração dos
+   atendimentos ENCERRADOS que foram perdidos — com nenhum encerrado, a conta
+   dava 0% e 0% valia nota 100. Quem não tinha feito nada levava 15 pontos de
+   perda "perfeita" e mais 10 de "nenhum lead tirado dele", e aparecia no
+   ranking com 23 sem ter atendido ninguém. Aqui a parte sem base sai do
+   cálculo (o peso dela não entra na média) em vez de virar nota máxima; é a
+   régua de sempre deste CRM: número sem medição não vira acerto. */
+const SEM_BASE = {
+  perda: (m) => !m.resolvidos,
+  leads_perdidos: (m) => !m.recebidos,
+};
+
 function pontuar(m, teto) {
   const partes = COMPONENTES.map(c => {
+    if (SEM_BASE[c.chave] && SEM_BASE[c.chave](m)) return {
+      chave: c.chave, rotulo: c.rotulo, peso: c.peso, nota: null, valor: null, fora: true,
+      valor_texto: c.chave === "perda" ? "nenhum atendimento encerrado" : "nenhum lead recebido",
+      como: c.como, regua: c.regua, comparativo: !!c.comparativo, contribuiu: 0,
+    };
     const valor = VALOR_DA_PARTE[c.chave](m);
     const n = c.comparativo
       ? (teto[c.chave] ? Math.round((valor / teto[c.chave]) * 100) : 0)
@@ -340,10 +364,15 @@ function pontuar(m, teto) {
       contribuiu: Math.round(n * c.peso / 100),
     };
   });
-  const pesoTotal = COMPONENTES.reduce((s, c) => s + c.peso, 0);
-  const total = partes.reduce((s, p) => s + p.nota * p.peso, 0);
+  const contam = partes.filter(p => !p.fora);
+  const pesoTotal = contam.reduce((s, p) => s + p.peso, 0);
+  // Quanto cada parte somou À NOTA FINAL: sobre o peso do que entrou na conta,
+  // para a coluna "contribuiu" fechar com a nota (antes dividia por 100 com
+  // pesos somando 110, e a soma nunca batia).
+  for (const p of contam) p.contribuiu = pesoTotal ? Math.round(p.nota * p.peso / pesoTotal) : 0;
+  const total = contam.reduce((s, p) => s + p.nota * p.peso, 0);
   return {
-    score: Math.round(total / pesoTotal),
+    score: pesoTotal ? Math.round(total / pesoTotal) : 0,
     partes,
     // Formato antigo, para não quebrar quem já lia `partes.conversao`.
     partes_nota: Object.fromEntries(partes.map(p => [p.chave, p.nota])),
@@ -373,6 +402,9 @@ export function ranking(orgId, periodo = 90) {
     `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`
   ).all(orgId);
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?").all(orgId, de, ate);
+  const tipoDaEtapa = new Map(db.prepare("SELECT id, status_type FROM pipeline_stages WHERE org_id = ?")
+    .all(orgId).map(e => [e.id, e.status_type]));
+  for (const l of leads) l._tipo = l.stage_id ? tipoDaEtapa.get(l.stage_id) || null : null;
   // Exatamente a mesma busca da tela de Relatórios — de propósito.
   const vendasDoPeriodo = db.prepare(
     "SELECT * FROM leads WHERE org_id=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?").all(orgId, de, ate);
