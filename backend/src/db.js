@@ -1907,4 +1907,31 @@ if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'recursos_marketi
   })();
 }
 
+/* ===== FUNIL DE CONVERSÃO POR ID (01/10/2026) =====
+
+   O histórico de etapas guardava só o NOME (`de`/`para`). Renomear uma etapa
+   apagava a passagem dos leads por ela, e duas etapas de mesmo nome em funis
+   diferentes ("Visita" no Comercial e na Locação) eram a mesma coisa para o
+   relatório. Agora cada mudança grava também o ID das duas etapas.
+
+   `etapa_fonte` diz de onde veio o id: 'gravado' (a mudança já gravou) ou
+   'nome' (recuperado do nome de uma linha antiga, só quando a evidência é
+   segura — ver `services/conversao.js`) ou 'desconhecida' (não deu para
+   saber, e a linha fica fora da conta em vez de virar palpite). Nulo = ainda
+   não conferida. Só acrescenta coluna: nada é apagado nem reescrito.
+
+   `entrada_comercial` marca a etapa em que o processo comercial começa — o
+   que fica antes dela (Inbox, triagem) não entra na base da conversão. */
+const etapaHistCols = db.prepare("PRAGMA table_info(lead_etapas)").all().map(c => c.name);
+for (const [col, ddl] of [["de_stage_id", "TEXT"], ["para_stage_id", "TEXT"], ["etapa_fonte", "TEXT"]])
+  if (!etapaHistCols.includes(col)) db.exec(`ALTER TABLE lead_etapas ADD COLUMN ${col} ${ddl}`);
+if (!db.prepare("PRAGMA table_info(pipeline_stages)").all().some(c => c.name === "entrada_comercial"))
+  db.exec("ALTER TABLE pipeline_stages ADD COLUMN entrada_comercial INTEGER DEFAULT 0");
+db.exec(`
+-- A coorte procura quem chegou às etapas do funil analisado DENTRO do período.
+CREATE INDEX IF NOT EXISTS idx_etapas_org_para_id ON lead_etapas(org_id, para_stage_id, created_at);
+-- As linhas antigas ainda não conferidas: some depois da primeira leitura.
+CREATE INDEX IF NOT EXISTS idx_etapas_pendentes ON lead_etapas(org_id) WHERE etapa_fonte IS NULL;
+`);
+
 export default db;

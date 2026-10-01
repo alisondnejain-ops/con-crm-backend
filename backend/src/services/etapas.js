@@ -84,9 +84,16 @@ export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", u
   const aplicar = db.transaction(() => {
     db.prepare(`UPDATE leads SET stage = ?, stage_id = ?, pipeline_id = ?, stage_entered_at = ? WHERE id = ?`)
       .run(nomeDestino, destino ? destino.id : null, pipelineDestino, quando, leadId);
-    db.prepare(`INSERT INTO lead_etapas (id,org_id,lead_id,de,para,motivo,user_id,created_at)
-      VALUES (?,?,?,?,?,?,?,?)`)
-      .run("le_" + randomUUID(), lead.org_id, leadId, anterior, nomeDestino, motivo, userId, quando);
+    /* O ID das duas etapas vai junto do nome (01/10/2026): o nome muda quando
+       alguém renomeia a etapa e se repete entre funis; o id não. É o que o
+       funil de conversão lê. A etapa de origem só é a do lead quando o nome
+       anterior é o dele — `de` explícito de outro lugar não tem id seguro. */
+    const deId = anterior === lead.stage ? lead.stage_id || null : null;
+    db.prepare(`INSERT INTO lead_etapas (id,org_id,lead_id,de,para,motivo,user_id,created_at,
+        de_stage_id,para_stage_id,etapa_fonte)
+      VALUES (?,?,?,?,?,?,?,?,?,?,'gravado')`)
+      .run("le_" + randomUUID(), lead.org_id, leadId, anterior, nomeDestino, motivo, userId, quando,
+        deId, destino ? destino.id : null);
 
     /* Troca de funil é outra pergunta que `lead_etapas` não responde: "por
        onde este lead passou". Fica em lead_transfers, junto com a troca de

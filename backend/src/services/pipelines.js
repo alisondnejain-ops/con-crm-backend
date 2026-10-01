@@ -52,6 +52,10 @@ export const formatarEtapa = (e) => e && ({
   status_type: e.status_type || "aberto",
   is_active: !!e.is_active,
   counts_as_conversion: !!e.counts_as_conversion,
+  // Onde o processo comercial começa: o que vem antes (Inbox, triagem) não
+  // entra na base da conversão. Uma por funil; sem nenhuma marcada, vale a
+  // primeira etapa que conta como conversão (ver services/conversao.js).
+  entrada_comercial: !!e.entrada_comercial,
   sla_minutes: e.sla_minutes ?? null,
   warning_before_minutes: e.warning_before_minutes ?? null,
   required_fields: parseJson(e.required_fields, []),
@@ -180,6 +184,7 @@ export function duplicarPipeline(orgId, id, novoNome) {
     etapas.forEach((e, i) => inserirEtapa(orgId, criado.pipeline.id, {
       name: e.name, color: e.color, status_type: e.status_type,
       counts_as_conversion: !!e.counts_as_conversion, sla_minutes: e.sla_minutes,
+      entrada_comercial: !!e.entrada_comercial,
       warning_before_minutes: e.warning_before_minutes,
       required_fields: parseJson(e.required_fields, []),
       automation_config: parseJson(e.automation_config, {}),
@@ -208,12 +213,13 @@ export function apagarPipeline(orgId, id) {
 function inserirEtapa(orgId, pipelineId, e, ordem) {
   const id = novoId("st");
   db.prepare(`INSERT INTO pipeline_stages
-    (id,pipeline_id,org_id,name,ordem,color,status_type,is_active,counts_as_conversion,
+    (id,pipeline_id,org_id,name,ordem,color,status_type,is_active,counts_as_conversion,entrada_comercial,
      sla_minutes,warning_before_minutes,required_fields,automation_config,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)`).run(
+    VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`).run(
     id, pipelineId, orgId, String(e.name).trim(), ordem,
     e.color || null, e.status_type || "aberto",
     e.counts_as_conversion ? 1 : 0,
+    e.entrada_comercial && e.status_type !== "perdido" ? 1 : 0,
     e.sla_minutes ?? null, e.warning_before_minutes ?? null,
     JSON.stringify(e.required_fields || []), JSON.stringify(e.automation_config || {}),
     agora(), agora());
@@ -225,9 +231,16 @@ export function criarEtapa(orgId, pipelineId, dados) {
   if (!pipeline) return { erro: "Pipeline não encontrado." };
   if (!String(dados?.name || "").trim()) return { erro: "A etapa precisa de um nome." };
   const { n } = db.prepare("SELECT COUNT(*) n FROM pipeline_stages WHERE pipeline_id = ?").get(pipelineId);
+  if (dados.entrada_comercial && dados.status_type === "perdido")
+    return { erro: ERRO_ENTRADA_PERDIDO };
   const id = inserirEtapa(orgId, pipelineId, dados, dados.ordem ?? n);
+  if (dados.entrada_comercial) soUmaEntrada(pipelineId, id);
   return { etapa: etapaPorId(orgId, id) };
 }
+
+const ERRO_ENTRADA_PERDIDO = "Uma etapa de perda não pode ser o início do processo comercial.";
+const soUmaEntrada = (pipelineId, id) => db.prepare(
+  "UPDATE pipeline_stages SET entrada_comercial = 0 WHERE pipeline_id = ? AND id <> ?").run(pipelineId, id);
 
 /* Renomear mexe nos LEADS que estão na etapa, e é por isso que passa por aqui.
 
@@ -247,7 +260,25 @@ export function editarEtapa(orgId, id, dados) {
     if (!n) return { erro: "Esta é a única etapa ativa do pipeline. Um funil sem etapa não recebe lead." };
   }
 
+  /* O INÍCIO DO PROCESSO COMERCIAL (01/10/2026). Uma etapa por funil; marcar
+     outra desmarca a anterior. As recusas dizem o porquê: etapa de perda não
+     é por onde um negócio começa, e etapa desativada não recebe ninguém. */
+  const tipoFinal = dados.status_type !== undefined ? dados.status_type : atual.status_type;
+  const ativaFinal = dados.is_active !== undefined ? !!dados.is_active : !!atual.is_active;
+  let entrada = dados.entrada_comercial !== undefined ? !!dados.entrada_comercial : !!atual.entrada_comercial;
+  if (dados.entrada_comercial === true) {
+    if (tipoFinal === "perdido") return { erro: ERRO_ENTRADA_PERDIDO };
+    if (!ativaFinal) return { erro: "Etapa desativada não pode ser o início do processo comercial. Ative-a antes." };
+  } else if (entrada && tipoFinal === "perdido") {
+    return { erro: ERRO_ENTRADA_PERDIDO };
+  }
+  // Desativar a etapa de início tira a marca: o funil volta a usar a primeira
+  // etapa que conta como conversão, e a tela do funil diz isso.
+  if (entrada && !ativaFinal) entrada = false;
+
   const rodar = db.transaction(() => {
+    db.prepare("UPDATE pipeline_stages SET entrada_comercial = ? WHERE id = ?").run(entrada ? 1 : 0, id);
+    if (entrada && !atual.entrada_comercial) soUmaEntrada(atual.pipeline_id, id);
     db.prepare(`UPDATE pipeline_stages SET name = ?, ordem = ?, color = ?, status_type = ?, is_active = ?,
       counts_as_conversion = ?, sla_minutes = ?, warning_before_minutes = ?, required_fields = ?,
       automation_config = ?, updated_at = ? WHERE id = ? AND org_id = ?`).run(
