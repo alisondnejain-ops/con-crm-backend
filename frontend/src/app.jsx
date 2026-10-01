@@ -13295,6 +13295,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
   const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
     ["robo","Autoatendimento"],
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
+    ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:760,margin:"0 auto"}}>
@@ -13316,8 +13317,80 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="marca"&&podeMarca&&<IdentidadeConfig acoes={acoes} isMobile={isMobile}/>}
       {aba==="conexao"&&<ConexaoConfig acoes={acoes} session={session} isMobile={isMobile}/>}
+      {aba==="anuncios"&&session&&podeGerir(session)&&<AnunciosDoMeta acoes={acoes} isMobile={isMobile}/>}
       {aba==="ia"&&session&&session.master&&<UsoDaIA acoes={acoes} isMobile={isMobile}/>}
     </div>
+  </div>;
+}
+
+/* ANÚNCIOS DE FORMULÁRIO DA META, PELA PONTE DO ZAPIER/MAKE (01/10/2026).
+
+   O lead do formulário do Facebook/Instagram entra pelo MESMO endereço de
+   leads dos portais, com `?portal=meta` — é ele que diz ao servidor para ler
+   as respostas do formulário e a campanha (services/portais.js). A tela é só
+   o endereço e o passo a passo: quem liga é o cliente, sem pedir nada ao
+   ConHub, e "não sei como colocar os anúncios na ferramenta" era justamente
+   o que faltava responder. */
+function AnunciosDoMeta({acoes,isMobile}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [ferramenta,setFerramenta]=useState("zapier");
+  useEffect(()=>{acoes.portais().then(setD).catch(e=>setErro(e.message));},[]);
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const passos=(lista)=><ol style={{margin:"10px 0 0",paddingLeft:20,color:C.sub,fontSize:12.5,lineHeight:1.7}}>{lista.map((p,i)=><li key={i} style={{marginBottom:4}}>{p}</li>)}</ol>;
+  const url=d?d.leads_url+"?portal=meta":"";
+  return <div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+    {d&&<React.Fragment>
+      <div style={cartao}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Leads dos anúncios de formulário</div>
+        <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:12}}>
+          Quem preenche o formulário de um anúncio no Facebook ou no Instagram entra aqui sozinho: vai para a atendente da vez,
+          com as respostas na ficha e a campanha registrada. Quem leva o lead até o CRM é o Zapier ou o Make, que você liga uma vez.
+          O WhatsApp continua sendo o de sempre — isto não mexe na conexão.
+        </div>
+        <CopiarEndereco rotulo="Endereço para colar no Zapier ou no Make" url={url}/>
+      </div>
+
+      <div style={cartao}>
+        <div style={{display:"flex",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+          {[["zapier","Pelo Zapier"],["make","Pelo Make"]].map(([k,t])=><button key={k} onClick={()=>setFerramenta(k)}
+            style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:34,
+              background:ferramenta===k?C.greenDeep:C.surface,color:ferramenta===k?"#fff":C.sub}}>{t}</button>)}
+        </div>
+        {ferramenta==="zapier"?passos([
+          <span>Em <b>zapier.com</b>, clique em <b>Create → Zap</b>. A ação “Webhooks by Zapier” só existe nos planos pagos do Zapier.</span>,
+          <span>No gatilho, escolha <b>Facebook Lead Ads</b> → <b>New Lead</b>. Entre com o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
+          <span>Na ação, escolha <b>Webhooks by Zapier</b> → <b>POST</b>.</span>,
+          <span>Em <b>URL</b>, cole o endereço de cima. Em <b>Payload Type</b>, escolha <b>json</b>. Deixe <b>Data</b> vazio — assim vão o nome, o telefone, a campanha e todas as respostas do formulário.</span>,
+          <span>Clique em <b>Test step</b>. O lead de teste deve aparecer em <b>Atender</b> em poucos segundos. Depois, <b>Publish</b>.</span>,
+          <span>Tem mais de um formulário? Faça um Zap para cada um, com o mesmo endereço.</span>,
+        ]):passos([
+          <span>Em <b>make.com</b>, crie um cenário. O plano grátis do Make serve para começar.</span>,
+          <span>Primeiro módulo: <b>Facebook Lead Ads</b> → <b>Watch New Leads</b>. Conecte o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
+          <span>Segundo módulo: <b>HTTP</b> → <b>Make a request</b>. URL: o endereço de cima. Method: <b>POST</b>. Body type: <b>Application/x-www-form-urlencoded</b>.</span>,
+          <span>Em <b>Fields</b>, crie uma linha para cada dado: <b>full_name</b>, <b>phone_number</b>, <b>email</b>, <b>campaign_name</b>, <b>form_name</b> e uma para cada pergunta do formulário (o nome da linha é o que aparece na ficha, ex.: <b>Qual a sua renda</b>).</span>,
+          <span>Clique em <b>Run once</b> e mande um lead de teste. Ele deve aparecer em <b>Atender</b>. Depois, ligue o cenário.</span>,
+        ])}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:12,lineHeight:1.55}}>
+          Sem lead real para testar? A Meta tem uma ferramenta que cria um lead de teste: procure por “Lead Ads Testing Tool”
+          (developers.facebook.com/tools/lead-ads-testing).
+        </div>
+      </div>
+
+      <div style={{...cartao,background:C.surface}}>
+        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+          <b style={{color:C.ink}}>Onde aparecem as respostas:</b> renda, entrada, situação, CPF e prazo vão para os campos da ficha
+          quando a pergunta tem essa palavra (ex.: “Qual a sua <b>renda</b>?”). Todas as respostas, inclusive as outras, ficam na
+          faixa âmbar acima da conversa, que é o que a atendente lê antes de falar. A campanha aparece em
+          Operação → Visão geral → Campanhas. Se a mesma pessoa preencher de novo, não vira outro lead.
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+          Este é o mesmo endereço de leads dos portais de imóveis. Se alguém gerar um endereço novo em Imóveis → Portais,
+          cole o novo também no Zapier ou no Make.
+        </div>
+      </div>
+    </React.Fragment>}
   </div>;
 }
 

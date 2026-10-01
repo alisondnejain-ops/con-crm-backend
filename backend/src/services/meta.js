@@ -57,12 +57,29 @@ export async function fetchLead(leadgenId) {
     name: field.full_name || field.nome_completo || pick("nome") || "",
     phone: field.phone_number || pick("telefone") || pick("phone") || "",
     email: field.email || pick("email") || "",
-    qual: {
-      renda: pick("renda"),
-      entrada: pick("entrada") || pick("disponível") || pick("disponivel"),
-      situacao: pick("situação") || pick("situacao") || pick("profissional"),
-      cpf: pick("cpf") || pick("restrição") || pick("restricao"),
-      prazo: pick("tempo") || pick("prazo"),
-    },
+    qual: qualDasRespostas(field),
+  };
+}
+
+/* As respostas do formulário que viram os campos da ficha (renda, entrada,
+   situação, CPF, prazo). Uma regra só para os dois caminhos por onde o lead do
+   formulário chega — o webhook nativo da Meta e a ponte do Zapier/Make
+   (services/portais.js) —, senão a mesma pergunta cairia num campo por um
+   caminho e em outro pelo outro. A pergunta é procurada por PEDAÇO do nome,
+   porque cada imobiliária escreve a sua ("Qual a sua renda?", "renda_mensal"). */
+export function qualDasRespostas(field) {
+  const pick = (...frags) => {
+    for (const frag of frags) {
+      const key = Object.keys(field).find(k => k.toLowerCase().includes(frag));
+      if (key && String(field[key] || "").trim()) return String(field[key]).trim().slice(0, 300);
+    }
+    return "";
+  };
+  return {
+    renda: pick("renda"),
+    entrada: pick("entrada", "disponível", "disponivel"),
+    situacao: pick("situação", "situacao", "profissional"),
+    cpf: pick("cpf", "restrição", "restricao"),
+    prazo: pick("tempo", "prazo"),
   };
 }

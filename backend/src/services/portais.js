@@ -26,6 +26,7 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { normalizePhone } from "./stages.js";
 import { avisar } from "./push.js";
+import { qualDasRespostas } from "./meta.js";
 import { mascararTelefone } from "../seguranca.js";
 
 const novoToken = () => randomBytes(24).toString("hex");
@@ -251,6 +252,8 @@ ${imoveis.join("\n")}
 /* Nome amigável do portal. O Grupo OLX manda `leadOrigin` ("ZAP",
    "VivaReal", "OLX"); os outros, quando mandam alguma coisa, mandam no nome
    que quiserem — e o `?portal=` do endereço é a saída para eles. */
+const META = "Meta Ads";
+
 export function nomeDoPortal(bruto) {
   const s = String(bruto || "").toLowerCase();
   if (s.includes("zap")) return "ZAP Imóveis";
@@ -258,6 +261,7 @@ export function nomeDoPortal(bruto) {
   if (s.includes("olx")) return "OLX";
   if (s.includes("chaves")) return "Chaves na Mão";
   if (s.includes("imovelweb")) return "Imovelweb";
+  if (s.includes("meta") || s.includes("facebook") || s.includes("instagram")) return META;
   return String(bruto || "").trim().slice(0, 40) || "Portal de imóveis";
 }
 
@@ -265,6 +269,53 @@ export function nomeDoPortal(bruto) {
    message, clientListingId, originLeadId, leadOrigin), mais os nomes em
    português que outros portais e integradores usam. Um formulário cada, e o
    lead não pode se perder porque um deles chamou "telefone" de "fone". */
+/* ANÚNCIOS DE FORMULÁRIO DA META, PELA PONTE DO ZAPIER/MAKE (01/10/2026).
+
+   O webhook nativo da Meta (`routes/meta.webhook.js`) só lê a página que tem
+   o token no servidor — a da Conecta. Para as outras contas, o Zapier (ou o
+   Make) pega o lead no Facebook e entrega AQUI, no endereço de leads da
+   imobiliária com `?portal=meta`. Nenhuma aprovação da Meta é necessária,
+   porque quem fala com o Facebook é o Zapier, com o login do próprio cliente.
+
+   O formato que chega é o que a pessoa montou no Zapier, e o caso comum é
+   deixar o campo "Data" vazio: aí vai TUDO o que o Facebook entregou, com o
+   nome técnico de cada pergunta (`qual_a_sua_renda?`). Por isso a leitura não
+   exige nome de campo nenhum: o que é dado do anúncio (campanha, formulário)
+   vai para as colunas de campanha; nome, telefone e e-mail para o cadastro;
+   e TODO O RESTO é resposta do formulário. Também aceita `field_data`
+   ([{name, values}]), que é o formato cru da Meta e o que o Make repassa. */
+const NAO_E_RESPOSTA = new Set([
+  "id", "lead_id", "leadid", "leadgen_id", "originleadid", "created_time", "createdtime",
+  "ad_id", "ad_name", "adset_id", "adset_name", "adgroup_id", "adgroup_name",
+  "campaign_id", "campaign_name", "form_id", "form_name", "page_id", "page_name",
+  "platform", "is_organic", "partner_name", "retailer_item_id", "vehicle", "inbox_url",
+  "custom_disclaimer_responses", "field_data", "fielddata", "portal", "origem", "source", "leadorigin",
+  "name", "nome", "full_name", "nome_completo", "first_name", "last_name",
+  "email", "e-mail", "phone", "phone_number", "telefone", "celular", "fone", "whatsapp",
+  "message", "mensagem", "comentario", "observacao", "ddd",
+]);
+
+// "qual_a_sua_renda_mensal?" → "Qual a sua renda mensal?" — é o que o corretor lê.
+const rotuloDaPergunta = (k) => {
+  const t = String(k).replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
+function respostasDoFormulario(b) {
+  const campos = {};
+  const lista = Array.isArray(b.field_data) ? b.field_data : Array.isArray(b.fieldData) ? b.fieldData : null;
+  if (lista) for (const f of lista) {
+    if (!f || !f.name) continue;
+    const v = Array.isArray(f.values) ? f.values.join(", ") : f.value ?? f.values;
+    if (v != null && String(v).trim()) campos[String(f.name)] = String(v).trim();
+  }
+  for (const [k, v] of Object.entries(b)) {
+    if (v == null || typeof v === "object") continue;
+    if (String(v).trim() && !(k in campos)) campos[k] = String(v).trim();
+  }
+  return campos;
+}
+
 export function lerLead(b, portalDoEndereco) {
   const pegar = (...chaves) => {
     for (const k of chaves) {
@@ -273,11 +324,13 @@ export function lerLead(b, portalDoEndereco) {
     }
     return "";
   };
+  const portal = nomeDoPortal(pegar("leadOrigin", "portal", "origem", "source") || portalDoEndereco);
+  if (portal === META) return lerLeadDoFormulario(b);
   let tel = pegar("phoneNumber", "phone", "telefone", "celular", "fone", "cliente.telefone", "lead.phone");
   const ddd = pegar("ddd", "cliente.ddd");
   if (ddd && tel && tel.replace(/\D/g, "").length <= 9) tel = ddd + tel;
   return {
-    portal: nomeDoPortal(pegar("leadOrigin", "portal", "origem", "source") || portalDoEndereco),
+    portal,
     externo: pegar("originLeadId", "leadId", "lead_id", "id"),
     nome: pegar("name", "nome", "cliente.nome", "lead.name").slice(0, 120),
     email: pegar("email", "cliente.email", "lead.email").slice(0, 160),
@@ -287,8 +340,48 @@ export function lerLead(b, portalDoEndereco) {
   };
 }
 
+function lerLeadDoFormulario(b) {
+  const campos = respostasDoFormulario(b);
+  // Chave sem acento e minúscula: o Zapier escreve "Full Name" ou "full_name"
+  // conforme a pessoa monta, e os dois são o mesmo campo.
+  const porChave = {};
+  for (const [k, v] of Object.entries(campos)) porChave[k.toLowerCase().replace(/\s+/g, "_")] = v;
+  const um = (...ks) => { for (const k of ks) if (porChave[k]) return porChave[k]; return ""; };
+
+  let nome = um("full_name", "nome_completo", "name", "nome");
+  if (!nome) nome = [um("first_name"), um("last_name")].filter(Boolean).join(" ");
+  const tel = um("phone_number", "phone", "telefone", "celular", "whatsapp", "fone");
+
+  const respostas = {};
+  for (const [k, v] of Object.entries(campos)) {
+    const kk = k.toLowerCase().replace(/\s+/g, "_");
+    if (NAO_E_RESPOSTA.has(kk) || kk.startsWith("raw_") || kk.startsWith("zap_")) continue;
+    if (Object.keys(respostas).length >= 30) break;
+    respostas[k] = String(v).slice(0, 500);
+  }
+  return {
+    portal: META,
+    formulario: true,
+    externo: um("id", "leadgen_id", "lead_id", "leadid"),
+    nome: nome.slice(0, 120),
+    email: um("email", "e-mail").slice(0, 160),
+    telefone: tel ? normalizePhone(tel) : "",
+    mensagem: um("message", "mensagem", "comentario").slice(0, 2000),
+    codigo: "",
+    respostas,
+    qual: qualDasRespostas(respostas),
+    anuncio: {
+      platform: (um("platform") || "").toLowerCase().slice(0, 20) || null,
+      campaign_id: um("campaign_id") || null, campaign_name: um("campaign_name") || null,
+      adset_id: um("adset_id", "adgroup_id") || null, adset_name: um("adset_name", "adgroup_name") || null,
+      ad_id: um("ad_id") || null, ad_name: um("ad_name") || null,
+      form_id: um("form_id") || null, form_name: um("form_name") || null,
+    },
+  };
+}
+
 export function receberLead(orgId, dados) {
-  const { portal, externo, nome, email, telefone, mensagem, codigo } = dados;
+  const { portal, externo, nome, email, telefone, mensagem, codigo, formulario, respostas, qual, anuncio } = dados;
   if (!telefone && !email) return { ok: false, status: 400, erro: "O lead chegou sem telefone e sem e-mail — não há como falar com ele." };
 
   if (externo) {
@@ -297,8 +390,14 @@ export function receberLead(orgId, dados) {
   }
 
   const produto = codigo ? db.prepare("SELECT id, titulo FROM produtos WHERE org_id = ? AND id = ?").get(orgId, codigo) : null;
+  const linhasDasRespostas = formulario ? Object.entries(respostas || {}).map(([k, v]) => `• ${rotuloDaPergunta(k)}: ${v}`) : [];
+  const deOnde = formulario
+    ? `Veio de um anúncio de formulário (${anuncio.platform === "ig" || anuncio.platform === "instagram" ? "Instagram" : anuncio.platform === "fb" || anuncio.platform === "facebook" ? "Facebook" : "Meta"})${
+        anuncio.campaign_name ? ` — campanha “${anuncio.campaign_name}”` : ""}${anuncio.form_name ? `, formulário “${anuncio.form_name}”` : ""}.`
+    : `Veio do ${portal}${produto ? ` — interessado em: ${produto.titulo}` : codigo ? ` — anúncio ${codigo}` : ""}.`;
   const texto = [
-    `Veio do ${portal}${produto ? ` — interessado em: ${produto.titulo}` : codigo ? ` — anúncio ${codigo}` : ""}.`,
+    deOnde,
+    linhasDasRespostas.length ? `Respostas do formulário:\n${linhasDasRespostas.join("\n")}` : null,
     mensagem ? `Mensagem do cliente: "${mensagem}"` : null,
     email ? `E-mail: ${email}` : null,
   ].filter(Boolean).join("\n");
@@ -317,10 +416,27 @@ export function receberLead(orgId, dados) {
       const entrada = entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at)
-        VALUES (?,?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'portal',?)`)
-        .run(id, orgId, nome || `Contato do ${portal}`, telefone || null, email || null, portal,
-             entrada.nome, dono, agora, entrada.pipeline_id, entrada.stage_id, agora, agora, dono ? agora : null);
+        VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?)`)
+        .run(id, orgId, nome || (formulario ? "Contato do anúncio" : `Contato do ${portal}`), telefone || null, email || null, portal,
+             JSON.stringify(formulario ? qual : {}),
+             entrada.nome, dono, agora, entrada.pipeline_id, entrada.stage_id, agora, agora,
+             formulario ? "meta" : "portal", dono ? agora : null);
+      /* A atribuição do anúncio vai para as MESMAS colunas do webhook nativo
+         da Meta: é o que faz o lead aparecer em Operação → Campanhas e nos
+         filtros de campanha, sem nenhuma tela saber por onde ele veio. */
+      if (formulario) db.prepare(`UPDATE leads SET meta_lead_id = ?, platform = ?, campaign_id = ?, campaign_name = ?,
+          adset_id = ?, adset_name = ?, ad_id = ?, ad_name = ?, form_id = ?, form_name = ? WHERE id = ?`)
+        .run(externo || null, anuncio.platform, anuncio.campaign_id, anuncio.campaign_name, anuncio.adset_id, anuncio.adset_name,
+             anuncio.ad_id, anuncio.ad_name, anuncio.form_id, anuncio.form_name, id);
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
+    } else if (formulario) {
+      /* A mesma pessoa preencheu de novo: as respostas novas completam o que
+         estava VAZIO na ficha, e nunca apagam o que alguém já corrigiu. */
+      let atual = {};
+      try { atual = JSON.parse(lead.qual_json || "{}") || {}; } catch {}
+      const junto = { ...atual };
+      for (const [k, v] of Object.entries(qual || {})) if (v && !String(junto[k] || "").trim()) junto[k] = v;
+      db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(junto), lead.id);
     }
     // Observação e não mensagem: o cliente não escreveu no WhatsApp, e o
     // texto na conversa pareceria enviado por ele ali. A faixa âmbar acima
@@ -334,7 +450,9 @@ export function receberLead(orgId, dados) {
   if (lead.assigned_to)
     avisar(lead.assigned_to, {
       titulo: novo ? `Lead novo do ${portal}` : `${lead.name} voltou pelo ${portal}`,
-      corpo: produto ? produto.titulo : (mensagem || "Abra o CRM para atender."),
+      corpo: produto ? produto.titulo
+        : formulario ? (anuncio.campaign_name ? `Anúncio: ${anuncio.campaign_name}` : "Preencheu o formulário do anúncio.")
+        : (mensagem || "Abra o CRM para atender."),
       leadId: lead.id,
     }).catch(() => {});
   console.log(`[portais] lead ${novo ? "NOVO" : "existente"} do ${portal} (${mascararTelefone(telefone || "")})${
