@@ -97,7 +97,12 @@ app.use(cors({
 // "/marketing": a lista de contatos sobe em base64 (até 8 MB, igual à escala do plantão).
 const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing"];
 const jsonGrande = express.json({ limit: "45mb" });
-const jsonNormal = express.json({ limit: "1mb" });
+/* Os webhooks guardam o corpo CRU: a assinatura da Meta é sobre os bytes
+   que ela mandou, e refazer o texto com JSON.stringify não reproduz o
+   original quando ele vem com "\u00e3" ou "\/" — a conferência recusava
+   aviso verdadeiro (01/10/2026, "assinatura não confere" com a chave certa). */
+const jsonNormal = express.json({ limit: "1mb",
+  verify: (req, res, buf) => { if (req.originalUrl.startsWith("/webhooks/")) req.rawBody = buf; } });
 app.use((req, res, next) =>
   (CORPO_GRANDE.some(p => req.path.startsWith(p)) ? jsonGrande : jsonNormal)(req, res, next));
 

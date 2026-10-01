@@ -220,6 +220,15 @@ try {
   assert.equal(lc.length, 1);
   assert.equal(lc[0].org_id, orgA);
 
+  caso("Aviso com acento escapado (\\u00e3) e barra escapada passa na assinatura — ela é sobre os bytes que chegaram");
+  {
+    const corpo = '{"object":"page","entry":[{"id":"P2","time":1,"changes":[{"field":"leadgen","value":{"leadgen_id":"L2","page_id":"P2","form_id":"F1","ad_name":"Promo\\u00e7\\u00e3o \\/ teste"}}]}]}';
+    assert.notEqual(JSON.stringify(JSON.parse(corpo)), corpo, "o caso só prova algo se o texto não se reconstrói igual");
+    const sig = "sha256=" + crypto.createHmac("sha256", SEGREDO).update(corpo).digest("hex");
+    const r = await fetch(url("/webhooks/meta"), { method: "POST", headers: { "Content-Type": "application/json", "x-hub-signature-256": sig }, body: corpo });
+    assert.equal(r.status, 200);
+  }
+
   caso("Aviso com assinatura errada é recusado");
   assert.equal(await avisar("P1", "L1", false), 401);
 

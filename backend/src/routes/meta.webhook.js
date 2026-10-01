@@ -36,7 +36,7 @@ r.get("/meta", (req, res) => {
    lado de receber, e o `/integracoes` avisa em letras claras que a conferência
    está desligada. */
 function assinaturaConfere(req) {
-  const segredo = process.env.META_APP_SECRET;
+  const segredo = String(process.env.META_APP_SECRET || "").trim();
   if (!segredo) return true;                       // ver o parágrafo acima
   const veio = String(req.get("x-hub-signature-256") || "");
   if (!veio.startsWith("sha256=")) return false;
@@ -44,8 +44,10 @@ function assinaturaConfere(req) {
      sobre os BYTES originais. `JSON.stringify` reproduz o texto da Meta na
      prática (ela manda JSON compacto), e se um dia deixar de reproduzir, o
      sintoma é a recusa — visível em `/integracoes`, não silenciosa. */
+  // Sobre os BYTES que chegaram (req.rawBody, guardado em server.js). O
+  // JSON.stringify fica só de reserva, para o caso de o corpo cru faltar.
   const esperado = "sha256=" + crypto.createHmac("sha256", segredo)
-    .update(JSON.stringify(req.body || {})).digest("hex");
+    .update(req.rawBody || JSON.stringify(req.body || {})).digest("hex");
   return segredoConfere(veio, esperado);
 }
 
