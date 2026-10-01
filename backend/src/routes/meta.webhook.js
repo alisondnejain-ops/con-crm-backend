@@ -65,11 +65,17 @@ function registrar(pageIds, resultado, detalhe) {
   for (const page_id of (pageIds.length ? pageIds : [""])) AVISOS.unshift({ em, page_id, resultado, detalhe: detalhe || null });
   AVISOS.length = Math.min(AVISOS.length, 60);
 }
-export function avisosDaMeta(pageIds) {
+/* `master` vê também o último aviso de QUALQUER página (só hora e resultado):
+   o botão "Teste" do painel da Meta manda um aviso de uma página de mentira,
+   que nunca aparece na lista de página nenhuma — e é justamente ele que
+   responde "a Meta chega até aqui e a assinatura passa?". Para quem não é
+   master fica de fora: seria a hora do aviso de página de outro cliente. */
+export function avisosDaMeta(pageIds, master = false) {
   const meus = new Set(pageIds.map(String));
+  const ultimo = AVISOS[0];
   return {
     desde: iniciadoEm,
-    ultimo_qualquer: AVISOS[0]?.em || null,
+    ultimo_qualquer: master && ultimo ? { em: ultimo.em, resultado: ultimo.resultado } : null,
     lista: AVISOS.filter(a => meus.has(a.page_id)).slice(0, 10),
   };
 }

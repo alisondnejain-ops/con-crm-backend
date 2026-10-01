@@ -74,7 +74,7 @@ gestao.get("/", (req, res) => {
     configurado: botaoConfigurado(),
     paginas,
     permissoes: PERMISSOES,
-    avisos: avisosDaMeta(paginas.map(p => p.page_id)),
+    avisos: avisosDaMeta(paginas.map(p => p.page_id), !!req.user.master),
   });
 });
 

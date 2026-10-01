@@ -13548,6 +13548,12 @@ function AvisosDaMeta({avisos,paginas,aoAtualizar}){
       <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>O que a Meta mandou</span>
       <button onClick={aoAtualizar} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:600,cursor:"pointer",padding:"4px 0",minHeight:28}}>Atualizar</button>
     </div>
+    {avisos.ultimo_qualquer&&<div style={{fontSize:11.5,lineHeight:1.5,marginBottom:6,color:C.sub}}>
+      Último aviso da Meta (qualquer página, só você vê): <span style={{fontFamily:MONO,color:C.faint}}>{dataHoraCurta(avisos.ultimo_qualquer.em)}</span>{" · "}
+      <b style={{color:(RESULTADO_AVISO[avisos.ultimo_qualquer.resultado]||[])[1]||C.sub}}>
+        {avisos.ultimo_qualquer.resultado==="sem_conta"?"chegou e a assinatura passou (página de teste)":(RESULTADO_AVISO[avisos.ultimo_qualquer.resultado]||[avisos.ultimo_qualquer.resultado])[0]}
+      </b>
+    </div>}
     {avisos.lista.length===0
       ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
         Nenhum aviso da Meta para esta página desde {dataHoraCurta(avisos.desde)} (última publicação do sistema).
