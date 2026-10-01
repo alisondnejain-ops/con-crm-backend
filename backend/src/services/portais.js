@@ -388,6 +388,11 @@ export function receberLead(orgId, dados) {
     const ja = db.prepare("SELECT lead_id FROM portais_leads WHERE org_id = ? AND portal = ? AND externo_id = ?").get(orgId, portal, externo);
     if (ja) return { ok: true, repetido: true, lead_id: ja.lead_id };
   }
+  // Lead da Meta gravado antes desta tabela existir (pelo webhook antigo).
+  if (formulario && externo) {
+    const ja = db.prepare("SELECT id FROM leads WHERE org_id = ? AND meta_lead_id = ?").get(orgId, externo);
+    if (ja) return { ok: true, repetido: true, lead_id: ja.id };
+  }
 
   const produto = codigo ? db.prepare("SELECT id, titulo FROM produtos WHERE org_id = ? AND id = ?").get(orgId, codigo) : null;
   const linhasDasRespostas = formulario ? Object.entries(respostas || {}).map(([k, v]) => `• ${rotuloDaPergunta(k)}: ${v}`) : [];

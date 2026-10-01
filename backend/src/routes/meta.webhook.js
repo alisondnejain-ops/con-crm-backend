@@ -2,10 +2,9 @@ import { Router } from "express";
 import crypto, { randomUUID } from "crypto";
 import { segredoConfere, mascararTelefone } from "../seguranca.js";
 import db from "../db.js";
-import { fetchLead } from "../services/meta.js";
-import { normalizePhone } from "../services/stages.js";
-import { proximoAtendente } from "../services/catraca.js";
-import { entradaDe } from "../services/pipelines.js";
+import { buscarLead, paginaDoTokenAntigo } from "../services/meta.js";
+import { lerLead, receberLead } from "../services/portais.js";
+import { abrir } from "../services/cofre.js";
 
 const r = Router();
 
@@ -50,7 +49,35 @@ function assinaturaConfere(req) {
   return segredoConfere(veio, esperado);
 }
 
-// 2) Recebimento em tempo real. Cada novo lead cai na fila da catraca (assigned_to = NULL).
+/* DE QUEM É ESTE LEAD? (01/10/2026)
+
+   A Meta manda o `page_id` em todo aviso. A página conectada pelo botão
+   aponta para UMA conta (`meta_paginas`), e o lead vai para ela com o token
+   dela. Antes do botão, todo aviso ia para a imobiliária mais antiga com o
+   token do servidor — certo enquanto só a página da Conecta existia, e
+   errado no dia em que houvesse outra.
+
+   A página antiga continua valendo, mas SÓ ela: o servidor descobre qual é a
+   página do META_PAGE_ACCESS_TOKEN (ou lê META_PAGE_ID) e recusa qualquer
+   outra. Página que não é de ninguém não é entregue a ninguém. */
+async function destinoDoLead(pageId) {
+  const conectada = db.prepare("SELECT * FROM meta_paginas WHERE page_id = ?").get(pageId);
+  if (conectada) {
+    const token = abrir(conectada.page_token);
+    if (!token) return { erro: "token da página não abre (CRYPTO_KEY trocada?)", pagina: conectada };
+    return { orgId: conectada.org_id, token, pagina: conectada };
+  }
+  if (!process.env.META_PAGE_ACCESS_TOKEN) return null;
+  const antiga = await paginaDoTokenAntigo();
+  /* `undefined` = não deu para saber (o token do servidor não é de página).
+     Aí vale o comportamento de antes, que é o que estava em produção: a busca
+     do lead só funciona se o token tiver acesso àquela página. */
+  if (antiga !== undefined && antiga !== pageId) return null;
+  const org = db.prepare("SELECT id FROM orgs ORDER BY created_at, name LIMIT 1").get();
+  return org ? { orgId: org.id, token: process.env.META_PAGE_ACCESS_TOKEN, antiga: true } : null;
+}
+
+// 2) Recebimento em tempo real.
 r.post("/meta", async (req, res) => {
   if (!assinaturaConfere(req)) {
     console.warn("[meta] webhook recusado: assinatura não confere (confira META_APP_SECRET)");
@@ -58,59 +85,30 @@ r.post("/meta", async (req, res) => {
   }
   res.sendStatus(200); // responde rápido; processa depois
   try {
-    /* O Lead Ads ainda é da INSTALAÇÃO (o token da página está no servidor, e
-       só a página dele é lida): cai na imobiliária mais antiga, a mesma que o
-       `/integracoes` descreve. Com ordem explícita — `LIMIT 1` sem ordem é "a
-       que o banco quiser", e a que o banco quer muda sem aviso. */
-    const org = db.prepare("SELECT * FROM orgs ORDER BY created_at, name LIMIT 1").get();
-    if (!org) return;
     for (const entry of req.body.entry || []) {
       for (const change of entry.changes || []) {
         if (change.field !== "leadgen") continue;
-        const leadgenId = change.value.leadgen_id;
+        const leadgenId = change.value?.leadgen_id;
+        const pageId = String(change.value?.page_id || entry.id || "");
+        if (!leadgenId || !pageId) continue;
+        const destino = await destinoDoLead(pageId);
+        if (!destino) { console.warn(`[meta] lead de uma página que nenhuma conta conectou (${pageId}) — descartado`); continue; }
+        if (destino.erro) {
+          console.error("[meta]", destino.erro);
+          db.prepare("UPDATE meta_paginas SET ultimo_erro = ?, ultimo_erro_em = ? WHERE page_id = ?").run(destino.erro, Date.now(), pageId);
+          continue;
+        }
         try {
-          const info = await fetchLead(leadgenId);
-          const phone = normalizePhone(info.phone);
-          const dup = db.prepare("SELECT 1 FROM leads WHERE org_id = ? AND (meta_lead_id = ? OR phone = ?)").get(org.id, info.meta_lead_id, phone);
-          if (dup) continue;
-          const dono = proximoAtendente(org.id);
-          /* Nasce SEM temperatura, como o lead do WhatsApp (14/08/2026).
-
-             Aqui havia uma nota de corte sobre as respostas do formulário
-             (renda, entrada, prazo) que devolvia QUENTE / MORNO / FRIO. As
-             respostas são reais e continuam na ficha, em `qual_json` — o que
-             saiu foi transformá-las em temperatura sozinha. A régua do meio
-             devolvia "MORNO" para quase todo mundo, e era esse morno de
-             ninguém que enchia o funil e que o Ali mandou tirar.
-
-             Temperatura agora tem uma origem só: alguém a colocou — o corretor
-             na ficha, ou a IA na análise por corretor que o gestor pediu. */
-          /* O lead nasce JA dentro de um pipeline. Antes a etapa era a
-             palavra 'Lead' escrita aqui, e isso presumia que toda imobiliaria
-             tem uma etapa com esse nome — o que deixou de ser verdade no dia
-             em que o funil virou configuravel. Agora o destino e a primeira
-             etapa do pipeline padrao da casa, seja ela qual for.
-
-             E desde 01/09/2026 o funil e o de QUEM RECEBE: os leads que caem
-             na atendente pertencem ao funil de pre-atendimento, e os do
-             corretor ao comercial. Quem nao configurou nada segue no padrao. */
-          const entrada = entradaDe(org.id, dono);
-          const agora = Date.now();
-          db.prepare(`INSERT INTO leads
-            (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
-             pipeline_id,stage_id,stage_entered_at,
-             source,platform,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,form_id,form_name)
-            VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?, ?,?,?,?,?,?,?,?,?,?)`).run(
-            "l_" + randomUUID(), org.id, info.name, phone, info.email, "Meta Ads",
-            JSON.stringify(info.qual), entrada.nome, dono, agora,
-            entrada.pipeline_id, entrada.stage_id, agora,
-            info.source || "meta", info.platform, info.campaign_id, info.campaign_name,
-            info.adset_id, info.adset_name, info.ad_id, info.ad_name, info.form_id, info.form_name
-          );
-          if (info.campaign_name) console.log(`[meta] campanha: ${info.campaign_name} · anúncio: ${info.ad_name || "—"}`);
-          console.log("[meta] novo lead entrou", mascararTelefone(phone), dono ? "— para a atendente da vez" : "— sem atendente, foi para a fila");
+          const dados = await buscarLead(leadgenId, destino.token);
+          // O MESMO caminho do lead que chega pelo Zapier/Make: catraca, funil
+          // de quem recebe, ficha, observação com as respostas e campanha.
+          const out = receberLead(destino.orgId, lerLead(dados, "meta"));
+          if (!out.ok) throw new Error(out.erro);
+          if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_lead_em = ?, ultimo_erro = NULL WHERE page_id = ?").run(Date.now(), pageId);
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);
+          if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_erro = ?, ultimo_erro_em = ? WHERE page_id = ?")
+            .run(String(e.message).slice(0, 300), Date.now(), pageId);
         }
       }
     }

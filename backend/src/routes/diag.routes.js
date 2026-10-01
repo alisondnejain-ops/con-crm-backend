@@ -124,7 +124,15 @@ r.get("/integracoes", async (_req, res) => {
     detalhe_completo: master ? true : "entre como ConHub (master) para ver os números da plataforma",
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: resumoDoWhatsapp(await instanceStatus(org?.id), master),
-    meta: { configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN) },
+    meta: {
+      configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN),
+      // O botão "Conectar com Facebook" (01/10/2026) precisa do ID e do segredo do aplicativo.
+      botao_conectar: process.env.META_APP_ID && process.env.META_APP_SECRET
+        ? "ligado" : "DESLIGADO (falta META_APP_ID e/ou META_APP_SECRET)",
+      cole_este_redirect_no_app_da_meta: `${base}/conectar-facebook/retorno`,
+      cole_este_webhook_no_app_da_meta: `${base}/webhooks/meta`,
+      paginas_conectadas: master ? db.prepare("SELECT COUNT(*) n FROM meta_paginas").get().n : undefined,
+    },
     /* E-MAIL: não basta dizer "configurado". A recusa do provedor não aparece
        em tela nenhuma — a tela do "esqueci minha senha" responde a mesma frase
        de propósito — então é aqui que se descobre por que o e-mail não chegou.

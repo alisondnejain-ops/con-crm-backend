@@ -1521,6 +1521,12 @@ function ConCRM(){
     portais:()=>api("/portais"),
     salvarPortais:(b)=>api("/portais",{method:"PATCH",body:b}),
     trocarTokenPortal:(qual)=>api("/portais/token",{method:"POST",body:{qual}}),
+    // "Conectar com Facebook" (01/10/2026): páginas da conta e a ida e volta ao Facebook.
+    anunciosMeta:()=>api("/anuncios-meta"),
+    iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
+    escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
+    conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
+    desconectarPaginaMeta:(id)=>api(`/anuncios-meta/paginas/${encodeURIComponent(id)}`,{method:"DELETE"}),
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
     salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
@@ -5248,6 +5254,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      plano no celular jogava todo mundo de volta na tela inicial do papel dele,
      no meio do atendimento. */
   const [view,setView]=usarEscolha("view",role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
+  // Voltando da janela do Facebook ("Conectar com Facebook"): abre onde a pessoa estava.
+  useEffect(()=>{ if(RETORNO_META&&podeGerir(session)) setView("config"); },[]);
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
@@ -13269,7 +13277,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
-  const [aba,setAba]=useState("funis");
+  const [aba,setAba]=useState(()=>RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis");
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
      nem aparece para os outros — botão que só devolve "não pode" é pior do que
@@ -13323,74 +13331,210 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
   </div>;
 }
 
-/* ANÚNCIOS DE FORMULÁRIO DA META, PELA PONTE DO ZAPIER/MAKE (01/10/2026).
+/* ANÚNCIOS DO FACEBOOK E INSTAGRAM (01/10/2026).
 
-   O lead do formulário do Facebook/Instagram entra pelo MESMO endereço de
-   leads dos portais, com `?portal=meta` — é ele que diz ao servidor para ler
-   as respostas do formulário e a campanha (services/portais.js). A tela é só
-   o endereço e o passo a passo: quem liga é o cliente, sem pedir nada ao
-   ConHub, e "não sei como colocar os anúncios na ferramenta" era justamente
-   o que faltava responder. */
+   O caminho principal é o botão "Conectar com Facebook": o cliente entra com
+   o Facebook dele, escolhe a página, e todo formulário de anúncio daquela
+   página cai na conta dele (routes/meta-conexao.routes.js). O Zapier/Make
+   ficou recolhido embaixo, como alternativa para quem já usa ou enquanto o
+   botão não está liberado.
+
+   A ida ao Facebook é uma navegação de verdade: a pessoa sai do CRM e volta
+   em /app?meta=... — RETORNO_META guarda o que voltou e limpa o endereço, para
+   recarregar a página não repetir a conexão. */
+const RETORNO_META=(()=>{
+  try{
+    const q=new URLSearchParams(window.location.search); const m=q.get("meta");
+    if(!m) return null;
+    window.history.replaceState(null,"",window.location.pathname);
+    return {estado:m,chave:q.get("k")||"",motivo:q.get("motivo")||""};
+  }catch(e){ return null; }
+})();
+let retornoMetaUsado=false;
+
+const dataCurta=(ms)=>ms?new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"";
+
 function AnunciosDoMeta({acoes,isMobile}){
-  const [d,setD]=useState(null); const [erro,setErro]=useState("");
-  const [ferramenta,setFerramenta]=useState("zapier");
-  useEffect(()=>{acoes.portais().then(setD).catch(e=>setErro(e.message));},[]);
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [aviso,setAviso]=useState("");
+  const [indo,setIndo]=useState(false);
+  const [escolha,setEscolha]=useState(null);      // {chave, paginas:[...]}
+  const [marcadas,setMarcadas]=useState([]);
+  const [salvando,setSalvando]=useState(false);
+  const [resultado,setResultado]=useState(null);
+  const [outroJeito,setOutroJeito]=useState(false);
+  const carregar=()=>acoes.anunciosMeta().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{
+    carregar();
+    if(RETORNO_META&&!retornoMetaUsado){
+      retornoMetaUsado=true;
+      const r=RETORNO_META;
+      if(r.estado==="cancelado") setAviso("A conexão foi cancelada na janela do Facebook. Quando quiser, é só clicar em Conectar de novo.");
+      else if(r.estado==="erro") setErro(r.motivo||"Não deu para conectar. Tente de novo.");
+      else if(r.estado==="escolher"&&r.chave) acoes.escolhaMeta(r.chave).then(x=>{
+        setEscolha({chave:r.chave,paginas:x.paginas});
+        const livres=x.paginas.filter(p=>!p.em_outra_conta);
+        if(livres.length===1) setMarcadas([livres[0].id]);
+      }).catch(e=>setErro(e.message));
+    }
+  },[]);
+  async function conectar(){
+    setErro(""); setIndo(true);
+    try{ const r=await acoes.iniciarMeta(); window.location.href=r.url; }
+    catch(e){ setErro(e.message); setIndo(false); }
+  }
+  async function salvarEscolha(){
+    setErro(""); setSalvando(true);
+    try{
+      const r=await acoes.conectarPaginasMeta(escolha.chave,marcadas);
+      setResultado(r.resultado); setD(x=>({...x,paginas:r.paginas}));
+      if(r.resultado.every(x=>x.ok)) setEscolha(null);
+    }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  async function desconectar(p){
+    if(!window.confirm(`Desconectar a página “${p.nome}”?\n\nOs leads dos formulários dela param de entrar no CRM. Os leads que já entraram continuam aqui.`)) return;
+    try{ const r=await acoes.desconectarPaginaMeta(p.page_id); setD(x=>({...x,paginas:r.paginas})); }
+    catch(e){ setErro(e.message); }
+  }
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
-  const passos=(lista)=><ol style={{margin:"10px 0 0",paddingLeft:20,color:C.sub,fontSize:12.5,lineHeight:1.7}}>{lista.map((p,i)=><li key={i} style={{marginBottom:4}}>{p}</li>)}</ol>;
-  const url=d?d.leads_url+"?portal=meta":"";
+  const botaoFace=(texto)=><button onClick={conectar} disabled={indo||!d.configurado}
+    style={{display:"inline-flex",alignItems:"center",gap:9,border:"none",borderRadius:10,minHeight:44,padding:"0 18px",
+      background:d.configurado?"#1877F2":C.faint,color:"#fff",fontSize:14,fontWeight:700,cursor:d.configurado&&!indo?"pointer":"default",
+      width:isMobile?"100%":"auto",justifyContent:"center"}}>
+    <span style={{width:20,height:20,borderRadius:"50%",background:"#fff",color:"#1877F2",display:"inline-flex",alignItems:"center",
+      justifyContent:"center",fontFamily:"Arial, sans-serif",fontWeight:900,fontSize:15,lineHeight:1,paddingTop:2}}>f</span>
+    {indo?"Abrindo o Facebook…":texto}
+  </button>;
+
   return <div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>{erro}</div>}
+    {aviso&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{aviso}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
     {d&&<React.Fragment>
-      <div style={cartao}>
-        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Leads dos anúncios de formulário</div>
-        <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:12}}>
-          Quem preenche o formulário de um anúncio no Facebook ou no Instagram entra aqui sozinho: vai para a atendente da vez,
-          com as respostas na ficha e a campanha registrada. Quem leva o lead até o CRM é o Zapier ou o Make, que você liga uma vez.
-          O WhatsApp continua sendo o de sempre — isto não mexe na conexão.
+      {escolha&&<div style={{...cartao,border:`2px solid #1877F2`}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Escolha a página da sua imobiliária</div>
+        <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>São as páginas que o seu Facebook administra. Marque a que roda os anúncios.</div>
+        {escolha.paginas.length===0&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,background:C.amberSoft,borderRadius:10,padding:"10px 12px"}}>
+          O Facebook não mostrou nenhuma página. Isso acontece quando a pessoa que entrou não é administradora da página,
+          ou quando, na janela do Facebook, a página não foi marcada. Clique em Conectar de novo e, na janela, marque a página.
+        </div>}
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {escolha.paginas.map(p=>{
+            const on=marcadas.includes(p.id);
+            return <label key={p.id} style={{display:"flex",alignItems:"center",gap:10,border:`1px solid ${on?"#1877F2":C.line}`,borderRadius:10,
+              padding:"10px 12px",cursor:p.em_outra_conta?"default":"pointer",background:p.em_outra_conta?C.surface:C.card,opacity:p.em_outra_conta?.65:1,minHeight:44}}>
+              <input type="checkbox" disabled={p.em_outra_conta} checked={on}
+                onChange={()=>setMarcadas(m=>on?m.filter(x=>x!==p.id):[...m,p.id])} style={{width:18,height:18}}/>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"block",color:C.ink,fontSize:13.5,fontWeight:600}}>{p.nome||p.id}</span>
+                {p.nesta_conta&&<span style={{display:"block",color:C.greenDeep,fontSize:11.5}}>Já conectada aqui — marcar de novo renova a conexão.</span>}
+                {p.em_outra_conta&&<span style={{display:"block",color:C.faint,fontSize:11.5}}>Conectada em outra conta do ConHub.</span>}
+              </span>
+            </label>;})}
         </div>
-        <CopiarEndereco rotulo="Endereço para colar no Zapier ou no Make" url={url}/>
-      </div>
+        <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
+          <button onClick={salvarEscolha} disabled={salvando||!marcadas.length}
+            style={{border:"none",borderRadius:10,minHeight:40,padding:"0 16px",background:marcadas.length?C.green:C.faint,color:"#fff",fontSize:13,fontWeight:600,cursor:marcadas.length&&!salvando?"pointer":"default"}}>
+            {salvando?"Conectando…":"Conectar página"}</button>
+          <button onClick={()=>setEscolha(null)} style={{border:`1px solid ${C.line}`,borderRadius:10,minHeight:40,padding:"0 14px",background:C.card,color:C.sub,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
+
+      {resultado&&resultado.some(r=>!r.ok)&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+        {resultado.filter(r=>!r.ok).map(r=><div key={r.id}><b>{r.nome||r.id}:</b> {r.erro}</div>)}
+      </div>}
 
       <div style={cartao}>
-        <div style={{display:"flex",gap:6,marginBottom:4,flexWrap:"wrap"}}>
-          {[["zapier","Pelo Zapier"],["make","Pelo Make"]].map(([k,t])=><button key={k} onClick={()=>setFerramenta(k)}
-            style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:34,
-              background:ferramenta===k?C.greenDeep:C.surface,color:ferramenta===k?"#fff":C.sub}}>{t}</button>)}
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Anúncios do Facebook e Instagram</div>
+        <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:14}}>
+          Conecte a página da imobiliária e todo lead dos anúncios de formulário entra aqui sozinho: vai para a atendente da vez,
+          com as respostas do formulário na ficha e a campanha registrada.
         </div>
-        {ferramenta==="zapier"?passos([
-          <span>Em <b>zapier.com</b>, clique em <b>Create → Zap</b>. A ação “Webhooks by Zapier” só existe nos planos pagos do Zapier.</span>,
-          <span>No gatilho, escolha <b>Facebook Lead Ads</b> → <b>New Lead</b>. Entre com o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
-          <span>Na ação, escolha <b>Webhooks by Zapier</b> → <b>POST</b>.</span>,
-          <span>Em <b>URL</b>, cole o endereço de cima. Em <b>Payload Type</b>, escolha <b>json</b>. Deixe <b>Data</b> vazio — assim vão o nome, o telefone, a campanha e todas as respostas do formulário.</span>,
-          <span>Clique em <b>Test step</b>. O lead de teste deve aparecer em <b>Atender</b> em poucos segundos. Depois, <b>Publish</b>.</span>,
-          <span>Tem mais de um formulário? Faça um Zap para cada um, com o mesmo endereço.</span>,
-        ]):passos([
-          <span>Em <b>make.com</b>, crie um cenário. O plano grátis do Make serve para começar.</span>,
-          <span>Primeiro módulo: <b>Facebook Lead Ads</b> → <b>Watch New Leads</b>. Conecte o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
-          <span>Segundo módulo: <b>HTTP</b> → <b>Make a request</b>. URL: o endereço de cima. Method: <b>POST</b>. Body type: <b>Application/x-www-form-urlencoded</b>.</span>,
-          <span>Em <b>Fields</b>, crie uma linha para cada dado: <b>full_name</b>, <b>phone_number</b>, <b>email</b>, <b>campaign_name</b>, <b>form_name</b> e uma para cada pergunta do formulário (o nome da linha é o que aparece na ficha, ex.: <b>Qual a sua renda</b>).</span>,
-          <span>Clique em <b>Run once</b> e mande um lead de teste. Ele deve aparecer em <b>Atender</b>. Depois, ligue o cenário.</span>,
-        ])}
-        <div style={{color:C.faint,fontSize:11.5,marginTop:12,lineHeight:1.55}}>
-          Sem lead real para testar? A Meta tem uma ferramenta que cria um lead de teste: procure por “Lead Ads Testing Tool”
-          (developers.facebook.com/tools/lead-ads-testing).
-        </div>
+
+        {d.paginas.length===0?<React.Fragment>
+          <ol style={{margin:"0 0 14px",paddingLeft:20,color:C.sub,fontSize:13,lineHeight:1.75}}>
+            <li>Clique em <b>Conectar com Facebook</b>.</li>
+            <li>Entre com o Facebook de quem <b>administra a página</b> da imobiliária.</li>
+            <li>Na janela do Facebook, deixe a página marcada e clique em <b>Continuar</b> até o fim.</li>
+            <li>De volta aqui, escolha a página. Pronto.</li>
+          </ol>
+          {botaoFace("Conectar com Facebook")}
+        </React.Fragment>:<React.Fragment>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            {d.paginas.map(p=><div key={p.page_id} style={{border:`1px solid ${p.ultimo_erro?C.amber+"88":C.line}`,borderRadius:10,padding:"10px 12px",
+              background:p.ultimo_erro?C.amberSoft:C.surface,display:"flex",gap:10,alignItems:isMobile?"flex-start":"center",flexDirection:isMobile?"column":"row"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{color:C.greenDeep,display:"inline-flex"}}><Icon n="check" size={15}/></span>{p.nome||p.page_id}</div>
+                <div style={{color:C.faint,fontSize:11.5,marginTop:2,lineHeight:1.45}}>
+                  Conectada em {dataCurta(p.conectado_em)}{p.conectado_por?` por ${p.conectado_por}`:""} ·{" "}
+                  {p.ultimo_lead_em?`último lead em ${dataCurta(p.ultimo_lead_em)}`:"nenhum lead recebido ainda"}
+                </div>
+                {p.ultimo_erro&&<div style={{color:"#6b561a",fontSize:11.5,marginTop:4,lineHeight:1.45}}>
+                  Último problema ({dataCurta(p.ultimo_erro_em)}): {p.ultimo_erro}. Se continuar, clique em Conectar outra página e escolha esta de novo.
+                </div>}
+              </div>
+              <button onClick={()=>desconectar(p)} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.sub,fontSize:12.5,cursor:"pointer",flexShrink:0}}>Desconectar</button>
+            </div>)}
+          </div>
+          {botaoFace("Conectar outra página")}
+          <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+            Entram os leads novos, a partir da conexão. Os que chegaram antes continuam só no Facebook.
+            Conectou e o lead não chega? A página pode estar num Gerenciador de Negócios que restringe quem lê os leads:
+            lá, em Configurações do negócio → Integrações → Acesso a leads, libere o ConHub.
+          </div>
+        </React.Fragment>}
+
+        {!d.configurado&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12,lineHeight:1.55}}>
+          A conexão com o Facebook está sendo ativada pela equipe do ConHub e o botão ainda não funciona.
+          Enquanto isso, se precisar com urgência, use o outro jeito logo abaixo.
+        </div>}
       </div>
 
       <div style={{...cartao,background:C.surface}}>
-        <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
-          <b style={{color:C.ink}}>Onde aparecem as respostas:</b> renda, entrada, situação, CPF e prazo vão para os campos da ficha
-          quando a pergunta tem essa palavra (ex.: “Qual a sua <b>renda</b>?”). Todas as respostas, inclusive as outras, ficam na
-          faixa âmbar acima da conversa, que é o que a atendente lê antes de falar. A campanha aparece em
-          Operação → Visão geral → Campanhas. Se a mesma pessoa preencher de novo, não vira outro lead.
-        </div>
-        <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
-          Este é o mesmo endereço de leads dos portais de imóveis. Se alguém gerar um endereço novo em Imóveis → Portais,
-          cole o novo também no Zapier ou no Make.
-        </div>
+        <button onClick={()=>setOutroJeito(v=>!v)} style={{border:"none",background:"transparent",padding:0,cursor:"pointer",
+          display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600,width:"100%",textAlign:"left",minHeight:32}}>
+          <span style={{display:"inline-flex",transform:outroJeito?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={14}/></span>
+          Outro jeito (avançado): pelo Zapier ou pelo Make
+        </button>
+        {outroJeito&&<div style={{marginTop:12}}><PonteZapierMake acoes={acoes} isMobile={isMobile}/></div>}
       </div>
     </React.Fragment>}
+  </div>;
+}
+
+/* A ponte do Zapier/Make: o mesmo endereço de leads dos portais com
+   `?portal=meta` (services/portais.js lê as respostas do formulário). */
+function PonteZapierMake({acoes,isMobile}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [ferramenta,setFerramenta]=useState("zapier");
+  useEffect(()=>{acoes.portais().then(setD).catch(e=>setErro(e.message));},[]);
+  const passos=(lista)=><ol style={{margin:"10px 0 0",paddingLeft:20,color:C.sub,fontSize:12.5,lineHeight:1.7}}>{lista.map((p,i)=><li key={i} style={{marginBottom:4}}>{p}</li>)}</ol>;
+  if(erro) return <div style={{color:C.hot,fontSize:12.5}}>{erro}</div>;
+  if(!d) return <div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>;
+  return <div>
+    <CopiarEndereco rotulo="Endereço para colar no Zapier ou no Make" url={d.leads_url+"?portal=meta"}/>
+    <div style={{display:"flex",gap:6,margin:"12px 0 4px",flexWrap:"wrap"}}>
+      {[["zapier","Pelo Zapier"],["make","Pelo Make"]].map(([k,t])=><button key={k} onClick={()=>setFerramenta(k)}
+        style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:34,
+          background:ferramenta===k?C.greenDeep:C.card,color:ferramenta===k?"#fff":C.sub}}>{t}</button>)}
+    </div>
+    {ferramenta==="zapier"?passos([
+      <span>Em <b>zapier.com</b>, clique em <b>Create → Zap</b>. A ação “Webhooks by Zapier” só existe nos planos pagos do Zapier.</span>,
+      <span>No gatilho, escolha <b>Facebook Lead Ads</b> → <b>New Lead</b>. Entre com o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
+      <span>Na ação, escolha <b>Webhooks by Zapier</b> → <b>POST</b>.</span>,
+      <span>Em <b>URL</b>, cole o endereço de cima. Em <b>Payload Type</b>, escolha <b>json</b>. Deixe <b>Data</b> vazio — assim vão o nome, o telefone, a campanha e todas as respostas do formulário.</span>,
+      <span>Clique em <b>Test step</b>. O lead de teste deve aparecer em <b>Atender</b> em poucos segundos. Depois, <b>Publish</b>.</span>,
+      <span>Tem mais de um formulário? Faça um Zap para cada um, com o mesmo endereço.</span>,
+    ]):passos([
+      <span>Em <b>make.com</b>, crie um cenário. O plano grátis do Make serve para começar.</span>,
+      <span>Primeiro módulo: <b>Facebook Lead Ads</b> → <b>Watch New Leads</b>. Conecte o Facebook de quem administra a página e escolha a <b>página</b> e o <b>formulário</b>.</span>,
+      <span>Segundo módulo: <b>HTTP</b> → <b>Make a request</b>. URL: o endereço de cima. Method: <b>POST</b>. Body type: <b>Application/x-www-form-urlencoded</b>.</span>,
+      <span>Em <b>Fields</b>, crie uma linha para cada dado: <b>full_name</b>, <b>phone_number</b>, <b>email</b>, <b>campaign_name</b>, <b>form_name</b> e uma para cada pergunta do formulário (o nome da linha é o que aparece na ficha, ex.: <b>Qual a sua renda</b>).</span>,
+      <span>Clique em <b>Run once</b> e mande um lead de teste. Ele deve aparecer em <b>Atender</b>. Depois, ligue o cenário.</span>,
+    ])}
+    <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+      Este é o mesmo endereço de leads dos portais de imóveis. Se alguém gerar um endereço novo em Imóveis → Portais, cole o novo também no Zapier ou no Make.
+    </div>
   </div>;
 }
 

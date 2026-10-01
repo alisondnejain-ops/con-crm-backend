@@ -306,6 +306,21 @@ export function verificarTokenAnexo(token, leadId, messageId) {
   } catch { return null; }
 }
 
+/* Crachá curto para uma ida e volta fora do CRM (01/10/2026, "Conectar com
+   Facebook"). A janela do Facebook devolve a pessoa ao CRM por uma navegação
+   comum, sem o cabeçalho Authorization — então o `state` que vai e volta
+   precisa dizer, assinado, quem pediu e para qual conta. `escopo` impede que
+   um crachá destes sirva para outra coisa, e o prazo é de minutos. */
+export function emitirTokenCurto(dados, escopo, prazo = "15m") {
+  return jwt.sign({ ...dados, escopo }, SECRET, { expiresIn: prazo });
+}
+export function verificarTokenCurto(token, escopo) {
+  try {
+    const d = jwt.verify(String(token || ""), SECRET);
+    return d.escopo === escopo ? d : null;
+  } catch { return null; }
+}
+
 /* O CORRETOR AUTÔNOMO É AS DUAS COISAS. (02/09/2026)
 
    Na casa de uma pessoa só, ele é o corretor E o gestor: atende os leads e
