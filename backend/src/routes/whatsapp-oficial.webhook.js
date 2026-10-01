@@ -82,12 +82,11 @@ function extrairEnvelopes(value) {
 // 2) Recebimento das mensagens.
 r.post("/whatsapp-oficial", async (req, res) => {
   const body = req.body || {};
-  // A assinatura é sobre os BYTES originais; o corpo já virou objeto pelo
-  // express.json. Mesma aproximação documentada em meta.webhook.js: na
-  // prática o JSON que a Meta manda é compacto e reconstrói igual, e se um
-  // dia deixar de reconstruir, o sintoma é a recusa — visível no
-  // diagnóstico, não silencioso.
-  const raw = JSON.stringify(body);
+  // A assinatura é sobre os BYTES originais, guardados em req.rawBody
+  // (server.js). Reconstruir com JSON.stringify NÃO reproduz o original
+  // quando a Meta escapa acento ("\u00e3") — e mensagem em português quase
+  // sempre tem acento. O stringify fica só de reserva.
+  const raw = req.rawBody ? req.rawBody.toString("utf8") : JSON.stringify(body);
 
   // DE QUEM é esta mensagem? Precisa vir antes da assinatura, porque é o
   // `phone_number_id` que diz qual app_secret conferir.
