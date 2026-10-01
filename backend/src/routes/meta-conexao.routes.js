@@ -22,6 +22,7 @@ import { fechar, abrir } from "../services/cofre.js";
 import {
   botaoConfigurado, urlDeLogin, trocarCodigo, paginasDoUsuario, assinarPagina, desassinarPagina, PERMISSOES,
 } from "../services/meta.js";
+import { avisosDaMeta } from "./meta.webhook.js";
 
 const ESCOPO = "meta-conectar";
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -67,11 +68,15 @@ const listaDaConta = (orgId) => db.prepare(`
   FROM meta_paginas p LEFT JOIN users u ON u.id = p.conectado_por
   WHERE p.org_id = ? ORDER BY p.conectado_em`).all(orgId);
 
-gestao.get("/", (req, res) => res.json({
-  configurado: botaoConfigurado(),
-  paginas: listaDaConta(req.user.org_id),
-  permissoes: PERMISSOES,
-}));
+gestao.get("/", (req, res) => {
+  const paginas = listaDaConta(req.user.org_id);
+  res.json({
+    configurado: botaoConfigurado(),
+    paginas,
+    permissoes: PERMISSOES,
+    avisos: avisosDaMeta(paginas.map(p => p.page_id), !!req.user.master),
+  });
+});
 
 gestao.post("/iniciar", (req, res) => {
   if (!botaoConfigurado()) return res.status(503).json({ error: "A conexão com o Facebook ainda não foi ativada no servidor do ConHub." });
