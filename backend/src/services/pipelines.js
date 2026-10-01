@@ -238,6 +238,45 @@ export function criarEtapa(orgId, pipelineId, dados) {
   return { etapa: etapaPorId(orgId, id) };
 }
 
+/* ===== O QUE A ETAPA FAZ QUANDO O LEAD CHEGA (01/10/2026) =====
+
+   O motor (`rodarAutomacao`, services/movimento.js) existia desde 28/08, mas
+   não havia tela: só dava para ligar mexendo no banco. Com a tela, o que chega
+   aqui vem do navegador, e é conferido antes de gravar — senão uma pessoa de
+   OUTRA imobiliária ou um funil de outra conta ficariam gravados na etapa, e
+   o erro só apareceria quando um lead passasse por ela.
+
+   Três chaves e só elas (o resto é descartado): `distribuir` ("rodizio" ou o
+   id de alguém ATIVO desta conta), `limpar_responsavel` (devolve à fila) e
+   `mover_para_pipeline` (outro funil ATIVO desta conta, com etapa ativa).
+   Distribuir e devolver à fila juntos se contradizem e são recusados. */
+export function validarAutomacao(orgId, pipelineId, cfg) {
+  if (cfg === null || cfg === undefined) return { config: {} };
+  if (typeof cfg !== "object" || Array.isArray(cfg)) return { erro: "Configuração da automação inválida." };
+  const config = {};
+  if (cfg.distribuir) {
+    if (cfg.distribuir === "rodizio") config.distribuir = "rodizio";
+    else {
+      const p = db.prepare("SELECT id FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'").get(String(cfg.distribuir), orgId);
+      if (!p) return { erro: "A pessoa escolhida para receber o lead não está ativa na equipe." };
+      config.distribuir = p.id;
+    }
+  }
+  if (cfg.limpar_responsavel) {
+    if (config.distribuir) return { erro: "Escolha uma coisa só: entregar a alguém ou devolver à fila." };
+    config.limpar_responsavel = true;
+  }
+  if (cfg.mover_para_pipeline) {
+    const alvo = db.prepare("SELECT id, is_active FROM pipelines WHERE id = ? AND org_id = ?").get(String(cfg.mover_para_pipeline), orgId);
+    if (!alvo) return { erro: "O funil de destino não foi encontrado." };
+    if (alvo.id === pipelineId) return { erro: "O lead já está neste funil — escolha outro funil de destino." };
+    if (!alvo.is_active) return { erro: "O funil de destino está desligado. Religue-o antes." };
+    if (!primeiraEtapa(orgId, alvo.id)) return { erro: "O funil de destino não tem etapa ativa para receber o lead." };
+    config.mover_para_pipeline = alvo.id;
+  }
+  return { config };
+}
+
 const ERRO_ENTRADA_PERDIDO = "Uma etapa de perda não pode ser o início do processo comercial.";
 const soUmaEntrada = (pipelineId, id) => db.prepare(
   "UPDATE pipeline_stages SET entrada_comercial = 0 WHERE pipeline_id = ? AND id <> ?").run(pipelineId, id);
@@ -276,6 +315,13 @@ export function editarEtapa(orgId, id, dados) {
   // etapa que conta como conversão, e a tela do funil diz isso.
   if (entrada && !ativaFinal) entrada = false;
 
+  let automacao = null;
+  if (dados.automation_config !== undefined) {
+    const v = validarAutomacao(orgId, atual.pipeline_id, dados.automation_config);
+    if (v.erro) return { erro: v.erro };
+    automacao = v.config;
+  }
+
   const rodar = db.transaction(() => {
     db.prepare("UPDATE pipeline_stages SET entrada_comercial = ? WHERE id = ?").run(entrada ? 1 : 0, id);
     if (entrada && !atual.entrada_comercial) soUmaEntrada(atual.pipeline_id, id);
@@ -291,7 +337,7 @@ export function editarEtapa(orgId, id, dados) {
       dados.sla_minutes !== undefined ? (dados.sla_minutes === null || dados.sla_minutes === "" ? null : Number(dados.sla_minutes)) : atual.sla_minutes,
       dados.warning_before_minutes !== undefined ? (dados.warning_before_minutes === null || dados.warning_before_minutes === "" ? null : Number(dados.warning_before_minutes)) : atual.warning_before_minutes,
       dados.required_fields !== undefined ? JSON.stringify(dados.required_fields || []) : atual.required_fields,
-      dados.automation_config !== undefined ? JSON.stringify(dados.automation_config || {}) : atual.automation_config,
+      automacao !== null ? JSON.stringify(automacao) : atual.automation_config,
       agora(), id, orgId);
     // Os leads acompanham o nome novo.
     if (nome !== atual.name)

@@ -14600,12 +14600,15 @@ function FunisConfig({acoes,session,isMobile}){
   const [template,setTemplate]=useState("");
   const [editando,setEditando]=useState(null);
   const [campos,setCampos]=useState([]);
+  // Quem pode receber o lead numa automação de etapa: a equipe ativa.
+  const [pessoas,setPessoas]=useState([]);
 
   const rever=()=>acoes.pipelinesTodos().then(r=>{
     setD(r);
     setSel(a=>a&&r.pipelines.find(p=>p.id===a)?a:(r.padrao||(r.pipelines[0]&&r.pipelines[0].id)||""));
   }).catch(e=>setErro(e.message));
-  useEffect(()=>{rever();acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{});},[]);
+  useEffect(()=>{rever();acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{});
+    acoes.equipe().then(r=>setPessoas((r.users||r||[]).filter(u=>u.status==="ativo"))).catch(()=>{});},[]);
   if(!d) return <div style={{color:C.faint,fontSize:13}}>Carregando…</div>;
 
   const pipe=d.pipelines.find(p=>p.id===sel)||d.pipelines[0];
@@ -14712,6 +14715,7 @@ function FunisConfig({acoes,session,isMobile}){
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {(pipe.stages||[]).map((e,i)=><EtapaLinha key={e.id} etapa={e} indice={i}
           total={(pipe.stages||[]).length} campos={campos} isMobile={isMobile}
+          pessoas={pessoas} funis={d.pipelines} pipelineId={pipe.id}
           aberta={editando===e.id} aoAbrir={()=>setEditando(editando===e.id?null:e.id)}
           acoes={acoes} aoMudar={rever} aoErro={setErro}
           aoMover={(dir)=>{
@@ -14847,12 +14851,31 @@ function TagsConfig({acoes,session,isMobile}){
 /* Uma etapa na lista de configuração. Fechada mostra o essencial; aberta, tudo
    que dá para configurar nela. Tudo à mostra de uma vez faria uma parede de
    dez formulários iguais. */
-function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover}){
+/* O que a automação da etapa faz, em uma frase — a mesma no resumo da linha
+   e no aviso do editor. */
+function resumoDaAutomacao(cfg,pessoas,funis){
+  const c=cfg||{}, partes=[];
+  if(c.mover_para_pipeline){
+    const f=(funis||[]).find(x=>x.id===c.mover_para_pipeline);
+    partes.push(`vai para o funil ${f?f.name:"(funil não encontrado)"}`);
+  }
+  if(c.distribuir==="rodizio") partes.push("entrega ao próximo corretor da roleta");
+  else if(c.distribuir){
+    const p=(pessoas||[]).find(x=>x.id===c.distribuir);
+    partes.push(`entrega a ${p?p.name:"uma pessoa que saiu da equipe"}`);
+  }
+  if(c.limpar_responsavel) partes.push("devolve à fila, sem dono");
+  return partes.join(" e ");
+}
+
+function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover,pessoas=[],funis=[],pipelineId}){
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
-  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type]);
+  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
 
-  const salvar=(mudanca)=>acoes.editarEtapa(etapa.id,mudanca).then(aoMudar).catch(e=>aoErro(e.message));
+  // Recusado pelo servidor, a tela volta ao que está gravado — senão o campo
+  // ficaria mostrando uma escolha que não valeu.
+  const salvar=(mudanca)=>acoes.editarEtapa(etapa.id,mudanca).then(aoMudar).catch(e=>{aoErro(e.message);setF(etapa);});
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:8,padding:"8px 10px",color:C.ink,outline:"none"};
   const rot=(t,ajuda)=><div style={{marginBottom:3}}>
@@ -14870,6 +14893,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
           {etapa.entrada_comercial?" · início do processo comercial":""}
+          {resumoDaAutomacao(etapa.automation_config,pessoas,funis)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis):""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
           {etapa.required_fields&&etapa.required_fields.length?` · exige ${etapa.required_fields.length} campo(s)`:""}
           {etapa.status_type&&etapa.status_type!=="aberto"?` · ${etapa.status_type}`:""}
@@ -14940,6 +14964,53 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           sem nenhuma marcada, vale a primeira que conta como conversão.
         </span>
       </label>}
+
+      {/* AO CHEGAR NESTA ETAPA (01/10/2026, áudio do Fernando: "não sei como
+          ativar a roleta"). O motor existia desde 28/08 e só dava para ligar
+          pelo banco. Duas escolhas independentes — o responsável e o funil —,
+          cada uma com "não mexer" como padrão. O servidor confere tudo antes de
+          gravar (pipelines.js → validarAutomacao). */}
+      {(()=>{
+        const cfg=f.automation_config||{};
+        const resp=cfg.limpar_responsavel?"__fila":cfg.distribuir||"";
+        const salvarCfg=(novo)=>{setF({...f,automation_config:novo});salvar({automation_config:novo});};
+        const mudarResp=(v)=>{const n={...cfg};delete n.distribuir;delete n.limpar_responsavel;
+          if(v==="__fila") n.limpar_responsavel=true; else if(v) n.distribuir=v; salvarCfg(n);};
+        const mudarFunil=(v)=>{const n={...cfg};delete n.mover_para_pipeline; if(v) n.mover_para_pipeline=v; salvarCfg(n);};
+        const outros=(funis||[]).filter(x=>x.id!==pipelineId&&x.is_active);
+        const fora=cfg.distribuir&&cfg.distribuir!=="rodizio"&&!pessoas.some(p=>p.id===cfg.distribuir);
+        const ordem={corretor:0,sdr:1,adm:2};
+        const resumo=resumoDaAutomacao(cfg,pessoas,funis);
+        return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 11px",display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{color:C.ink,fontSize:12,fontWeight:700}}>Quando um lead chegar nesta etapa</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 200px"}}>{rot("Responsável")}
+              <select value={resp} onChange={e=>mudarResp(e.target.value)} style={entrada}>
+                <option value="">Não mexer no responsável</option>
+                <option value="rodizio">Próximo corretor da roleta</option>
+                <option value="__fila">Devolver à fila, sem dono</option>
+                {fora&&<option value={cfg.distribuir}>Pessoa que saiu da equipe</option>}
+                <optgroup label="Entregar sempre a">
+                  {[...pessoas].sort((a,b)=>(ordem[a.role]??3)-(ordem[b.role]??3)||a.name.localeCompare(b.name))
+                    .map(p=><option key={p.id} value={p.id}>{p.name} · {roleParaTexto(p.role)}</option>)}
+                </optgroup>
+              </select></div>
+            <div style={{flex:"1 1 200px"}}>{rot("Funil")}
+              <select value={cfg.mover_para_pipeline||""} onChange={e=>mudarFunil(e.target.value)} style={entrada}>
+                <option value="">Continuar neste funil</option>
+                {cfg.mover_para_pipeline&&!outros.some(x=>x.id===cfg.mover_para_pipeline)&&
+                  <option value={cfg.mover_para_pipeline}>Funil desligado ou apagado</option>}
+                {outros.map(x=><option key={x.id} value={x.id}>Mover para o funil {x.name}{x.stages&&x.stages[0]?` (entra em ${x.stages[0].name})`:""}</option>)}
+              </select></div>
+          </div>
+          {fora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A pessoa configurada não está mais ativa: o lead vai chegar sem dono até você escolher outra.</div>}
+          <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5}}>
+            {resumo?<React.Fragment>Ao chegar aqui, o lead <b style={{color:C.sub}}>{resumo}</b>. </React.Fragment>:null}
+            Vale quando alguém move o lead para esta etapa — na mão, no funil ou confirmando a sugestão da IA.
+            {cfg.distribuir==="rodizio"&&" Na roleta só entra quem marcou disponibilidade; se ninguém estiver, o lead fica sem dono e quem moveu recebe o aviso."}
+            {indice===0&&" Lead novo que nasce nesta etapa não passa por aqui: o dono dele é decidido pela roleta das atendentes."}
+          </div>
+        </div>;})()}
 
       {campos.length>0&&<div>
         {rot("Campos obrigatórios para ENTRAR nesta etapa","Sem eles, o lead não avança — e a tela diz o que falta.")}

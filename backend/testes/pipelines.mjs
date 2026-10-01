@@ -388,7 +388,10 @@ assert.ok(doSdr.assigned_to, "e chegou com dono");
 console.log("36. A automação NUNCA derruba a movimentação");
 /* Configuração errada do gestor não pode virar uma etapa em que ninguém
    consegue entrar. */
-P.editarEtapa(org, idAgend, { automation_config: { mover_para_pipeline: "pipeline_que_nao_existe" } });
+// Configurada certa e o funil de destino apagado depois: a tela não deixa
+// salvar um funil inexistente, mas apagar o destino depois é a vida real.
+db.prepare("UPDATE pipeline_stages SET automation_config = ? WHERE id = ?")
+  .run(JSON.stringify({ mover_para_pipeline: "pipeline_que_nao_existe" }), idAgend);
 r = M.moverLead({ leadId: "l_3", paraEtapaId: idAgend, userId: uAdm });
 console.log(`   ok: ${r.ok} · aviso: ${r.aviso}`);
 assert.equal(r.ok, true, "o lead moveu");
