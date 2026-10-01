@@ -51,6 +51,31 @@ function assinaturaConfere(req) {
   return segredoConfere(veio, esperado);
 }
 
+/* O QUE A META MANDOU — visível na tela, não só no log (01/10/2026).
+
+   No primeiro teste real a pergunta "a Meta está chamando? foi recusado? por
+   quê?" só se respondia caçando linhas no log do Railway. Agora cada aviso
+   fica numa lista curta em memória (zera a cada publicação, como o
+   /integracoes/webhooks) e a tela de Anúncios do Meta mostra os da página da
+   conta. Guarda o resultado, nunca o conteúdo do lead. */
+const AVISOS = [];
+export const iniciadoEm = Date.now();
+function registrar(pageIds, resultado, detalhe) {
+  const em = Date.now();
+  for (const page_id of (pageIds.length ? pageIds : [""])) AVISOS.unshift({ em, page_id, resultado, detalhe: detalhe || null });
+  AVISOS.length = Math.min(AVISOS.length, 60);
+}
+export function avisosDaMeta(pageIds) {
+  const meus = new Set(pageIds.map(String));
+  return {
+    desde: iniciadoEm,
+    ultimo_qualquer: AVISOS[0]?.em || null,
+    lista: AVISOS.filter(a => meus.has(a.page_id)).slice(0, 10),
+  };
+}
+const paginasDoCorpo = (b) => [...new Set((b?.entry || []).flatMap(e =>
+  [e?.id, ...(e?.changes || []).map(c => c?.value?.page_id)]).filter(Boolean).map(String))];
+
 /* DE QUEM É ESTE LEAD? (01/10/2026)
 
    A Meta manda o `page_id` em todo aviso. A página conectada pelo botão
@@ -83,6 +108,7 @@ async function destinoDoLead(pageId) {
 r.post("/meta", async (req, res) => {
   if (!assinaturaConfere(req)) {
     console.warn("[meta] webhook recusado: assinatura não confere (confira META_APP_SECRET)");
+    registrar(paginasDoCorpo(req.body), "assinatura");
     return res.sendStatus(401);
   }
   res.sendStatus(200); // responde rápido; processa depois
@@ -94,9 +120,14 @@ r.post("/meta", async (req, res) => {
         const pageId = String(change.value?.page_id || entry.id || "");
         if (!leadgenId || !pageId) continue;
         const destino = await destinoDoLead(pageId);
-        if (!destino) { console.warn(`[meta] lead de uma página que nenhuma conta conectou (${pageId}) — descartado`); continue; }
+        if (!destino) {
+          console.warn(`[meta] lead de uma página que nenhuma conta conectou (${pageId}) — descartado`);
+          registrar([pageId], "sem_conta");
+          continue;
+        }
         if (destino.erro) {
           console.error("[meta]", destino.erro);
+          registrar([pageId], "erro", destino.erro);
           db.prepare("UPDATE meta_paginas SET ultimo_erro = ?, ultimo_erro_em = ? WHERE page_id = ?").run(destino.erro, Date.now(), pageId);
           continue;
         }
@@ -107,8 +138,11 @@ r.post("/meta", async (req, res) => {
           const out = receberLead(destino.orgId, lerLead(dados, "meta"));
           if (!out.ok) throw new Error(out.erro);
           if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_lead_em = ?, ultimo_erro = NULL WHERE page_id = ?").run(Date.now(), pageId);
+          console.log(`[meta] lead entregue (página ${pageId})`);
+          registrar([pageId], "entregue");
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);
+          registrar([pageId], "erro", String(e.message).slice(0, 200));
           if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_erro = ?, ultimo_erro_em = ? WHERE page_id = ?")
             .run(String(e.message).slice(0, 300), Date.now(), pageId);
         }

@@ -232,6 +232,17 @@ try {
   caso("Aviso com assinatura errada é recusado");
   assert.equal(await avisar("P1", "L1", false), 401);
 
+  caso("A tela mostra o que a Meta mandou para as páginas DA CONTA: entregue e recusado por assinatura — e a outra conta não vê");
+  {
+    const a = (await A.get("/anuncios-meta")).body.avisos;
+    const resultados = a.lista.filter(x => x.page_id === "P1").map(x => x.resultado);
+    assert.ok(resultados.includes("entregue"), JSON.stringify(a));
+    assert.ok(resultados.includes("assinatura"), JSON.stringify(a));
+    const b = (await B.get("/anuncios-meta")).body.avisos;
+    assert.ok(b.lista.every(x => x.page_id === "P2"), "a conta B não pode ver os avisos da página da A");
+    assert.ok(!JSON.stringify(a).includes("Ana da Casa A"), "a lista guarda o resultado, nunca o conteúdo do lead");
+  }
+
   caso("Desconectar: só a conta dona desconecta, os avisos são desligados e o lead seguinte não entra");
   assert.equal((await B.del("/anuncios-meta/paginas/P1")).status, 404);
   r = await A.del("/anuncios-meta/paginas/P1");

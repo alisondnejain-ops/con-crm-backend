@@ -13504,6 +13504,7 @@ function AnunciosDoMeta({acoes,isMobile}){
               <button onClick={()=>desconectar(p)} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.sub,fontSize:12.5,cursor:"pointer",flexShrink:0}}>Desconectar</button>
             </div>)}
           </div>
+          <AvisosDaMeta avisos={d.avisos} paginas={d.paginas} aoAtualizar={carregar}/>
           {botaoFace("Conectar outra página")}
           <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
             Entram os leads novos, a partir da conexão. Os que chegaram antes continuam só no Facebook.
@@ -13527,6 +13528,38 @@ function AnunciosDoMeta({acoes,isMobile}){
         {outroJeito&&<div style={{marginTop:12}}><PonteZapierMake acoes={acoes} isMobile={isMobile}/></div>}
       </div>
     </React.Fragment>}
+  </div>;
+}
+
+/* O que a Meta mandou para as páginas desta conta, com o resultado de cada
+   aviso. É a resposta para "a Meta está chamando? foi recusado? por quê?"
+   sem abrir o log da hospedagem. A lista zera a cada publicação do sistema. */
+const RESULTADO_AVISO={
+  entregue:["Lead entregue no CRM",C.greenDeep],
+  assinatura:["Recusado: a chave secreta (META_APP_SECRET) não é a deste app",C.hot],
+  sem_conta:["Descartado: página não conectada a nenhuma conta",C.amber],
+  erro:["Chegou, mas a busca do lead falhou",C.hot],
+};
+function AvisosDaMeta({avisos,paginas,aoAtualizar}){
+  if(!avisos) return null;
+  const nome=(id)=>(paginas.find(p=>p.page_id===id)||{}).nome||id;
+  return <div style={{background:C.surface,borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>O que a Meta mandou</span>
+      <button onClick={aoAtualizar} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:600,cursor:"pointer",padding:"4px 0",minHeight:28}}>Atualizar</button>
+    </div>
+    {avisos.lista.length===0
+      ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+        Nenhum aviso da Meta para esta página desde {dataHoraCurta(avisos.desde)} (última publicação do sistema).
+        {" "}Crie um lead de teste e clique em Atualizar.
+      </div>
+      :avisos.lista.map((a,i)=>{const [t,cor]=RESULTADO_AVISO[a.resultado]||[a.resultado,C.sub];
+        return <div key={i} style={{fontSize:11.5,lineHeight:1.5,padding:"3px 0",borderTop:i?`1px solid ${C.line}`:"none"}}>
+          <span style={{color:C.faint,fontFamily:MONO}}>{dataHoraCurta(a.em)}</span>{" · "}
+          <span style={{color:cor,fontWeight:600}}>{t}</span>
+          {paginas.length>1&&<span style={{color:C.faint}}> · {nome(a.page_id)}</span>}
+          {a.detalhe&&<div style={{color:C.sub}}>{a.detalhe}</div>}
+        </div>;})}
   </div>;
 }
 
