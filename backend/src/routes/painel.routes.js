@@ -13,6 +13,8 @@
 import { Router } from "express";
 import { authRequired, supervisiona } from "../auth.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo } from "../services/painel.js";
+import { conferenciaDoFunil } from "../services/conversao.js";
+import { funilComercial } from "../services/pipelines.js";
 import { visaoGeral, metasComRealizado, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
 
 const r = Router();
@@ -57,11 +59,38 @@ r.get("/equipe", soGestao, (req, res) => {
    Sem isso, a mesma tela teria duas versões: a do gestor, com tempo por etapa,
    e a do corretor, sem — e tela que muda de conteúdo conforme quem abre é
    exatamente o defeito que custou esta semana inteira de conserto. */
+/* `comercial` no lugar do id é o funil comercial da casa (o padrão, a menos
+   que o padrão seja o de SDR): é o que o relatório individual mostra, e a
+   escolha fica no servidor, num lugar só. */
+const pipelineDe = (req) => req.params.pipelineId === "comercial"
+  ? funilComercial(req.user.org_id)?.id || null
+  : req.params.pipelineId;
+
 r.get("/funil/:pipelineId", (req, res) => {
   const f = filtrosDe(req.query);
   if (!supervisiona(req.user)) f.responsavel = req.user.id;
-  const d = funil(req.user.org_id, req.params.pipelineId, f);
+  const pid = pipelineDe(req);
+  if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
+  const d = funil(req.user.org_id, pid, f);
   if (d.erro) return res.status(404).json({ error: d.erro });
+  res.json(d);
+});
+
+/* CONFERÊNCIA DE UM NÚMERO DO FUNIL DE CONVERSÃO (01/10/2026): quem está por
+   trás de "6 de 8". Mesma trava do funil: o corretor só confere a própria
+   coorte, e o filtro que ele mandar é descartado. Paginada. */
+r.get("/funil/:pipelineId/conferencia", (req, res) => {
+  const f = filtrosDe(req.query);
+  const sup = supervisiona(req.user);
+  if (!sup) f.responsavel = req.user.id;
+  const pid = pipelineDe(req);
+  if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
+  const d = conferenciaDoFunil(req.user.org_id, pid, f, {
+    etapa: req.query.etapa || null, conjunto: req.query.conjunto || "base",
+    pagina: req.query.pagina, porPagina: req.query.por_pagina,
+    quem: req.user.id, supervisor: sup,
+  });
+  if (d.erro) return res.status(d.erro === "Funil não encontrado." ? 404 : 400).json({ error: d.erro });
   res.json(d);
 });
 

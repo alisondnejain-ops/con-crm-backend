@@ -1757,6 +1757,8 @@ function ConCRM(){
     painelOpcoes:()=>api("/painel/opcoes"),
     painelEquipe:(f)=>api("/painel/equipe"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelFunil:(id,f)=>api(`/painel/funil/${id}`+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    // Quem está por trás de um número do funil de conversão (paginado).
+    conferenciaFunil:(id,f)=>api(`/painel/funil/${id}/conferencia?${new URLSearchParams(Object.entries(f||{}).filter(([,v])=>v!==undefined&&v!==null&&v!==""))}`),
     painelCampanhas:(f)=>api("/painel/campanhas"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelGeral:(f)=>api("/painel/geral"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     metasConfig:(mes)=>api("/painel/metas"+(mes?`?mes=${mes}`:"")),
@@ -14007,7 +14009,7 @@ function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
           transition:suave?"font-size .18s ease":"none"}}>{sel?sel.valor:total}</div>
         <div style={{color:C.faint,fontSize:10,marginTop:4,textAlign:"center",lineHeight:1.3,
           maxWidth:R*1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
-          {sel?sel.nome:total===1?"lead no funil":"leads no funil"}</div>
+          {sel?sel.nome:total===1?"contato agora":"contatos agora"}</div>
       </div>
     </div>
 
@@ -14051,9 +14053,10 @@ function fatiasDoFunil(operacional){
 }
 
 /* O que a fatia escolhida conta além do tamanho: há quanto tempo a etapa
-   segura o lead, quantos estouraram o prazo, e — quando ela é degrau
-   comercial — as duas taxas de conversão que já existiam no bloco de baixo. */
-function DetalheDaFatia({fatia,conversao,isMobile,children}){
+   segura o lead, quantos estouraram o prazo e em que fase do funil ela está.
+   As taxas de conversão NÃO entram aqui: são da coorte do período, e a fatia
+   é a foto de agora — juntar as duas era misturar perguntas. */
+function DetalheDaFatia({fatia,isMobile,children}){
   if(!fatia) return null;
   if(fatia.agrupadas) return <div style={{background:C.surface,borderRadius:12,padding:"11px 13px",marginTop:12}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>{fatia.nome}</div>
@@ -14064,7 +14067,6 @@ function DetalheDaFatia({fatia,conversao,isMobile,children}){
   </div>;
 
   const o=fatia.fonte||{};
-  const conv=(conversao||[]).find(c=>c.id===fatia.id);
   const item=(rot,valor,cor,sub)=><div style={{minWidth:isMobile?"46%":120}}>
     <div style={{color:C.faint,fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rot}</div>
     <div style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor||C.ink,marginTop:2}}>{valor}</div>
@@ -14084,9 +14086,208 @@ function DetalheDaFatia({fatia,conversao,isMobile,children}){
       {o.sla_minutes
         ?item("Fora do prazo",o.sla_vencidos,o.sla_vencidos?C.hot:C.ink,`prazo de ${fmtMin(o.sla_minutes)}`)
         :item("Prazo","—",null,"esta etapa não tem prazo configurado")}
-      {conv&&item("Alcançaram",pctBR(conv.taxa_sobre_entrada),null,`sobre a entrada · seq ${pctBR(conv.taxa_sequencial)}`)}
+      {o.fase&&item("Fase",{antes:"antes do comercial",comercial:"processo comercial",depois:"depois do último marco",perdido:"perda"}[o.fase]||"—")}
     </div>
     {children}
+  </div>;
+}
+
+/* ===== FUNIL DE CONVERSÃO POR COORTE (01/10/2026) =====
+
+   A conta é toda do servidor (services/conversao.js) — aqui só se desenha.
+   A tela diz SEMPRE de quem é a base (quem entrou no processo comercial no
+   período), até quando ela foi acompanhada (o corte) e as duas taxas com nome
+   inteiro: "desde a entrada" e "da etapa anterior", esta escrita como
+   "6 de 8" e não só como porcentagem — a porcentagem sozinha esconde quantas
+   pessoas há atrás dela. Clicar num número abre quem está por trás dele.
+
+   `impressao` desenha sem cliques (relatório para reunião). */
+const fmtTaxa=(v)=>v===null||v===undefined?"Sem base"
+  :(Math.round(v*10)/10).toLocaleString("pt-BR",{maximumFractionDigits:1})+"%";
+const fmtCorte=(c)=>{
+  if(!c||!c.corte) return "—";
+  if(c.corte_no_fim_do_periodo) return fmtData(c.corte);
+  return new Date(c.corte).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+};
+
+// Um número do funil que abre a lista de quem está por trás dele.
+function NumeroConferivel({v,etapa,conjunto,tit,cor,peso=700,pedir,impressao}){
+  if(impressao||!v) return <span style={{fontFamily:MONO,color:cor||C.ink,fontWeight:peso}}>{v}</span>;
+  return <button onClick={()=>pedir(etapa,conjunto,tit)} title="Ver quem são"
+    style={{fontFamily:MONO,color:cor||C.ink,fontWeight:peso,background:"none",border:"none",padding:0,
+      cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3,fontSize:"inherit"}}>{v}</button>;
+}
+
+function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa,impressao,titulo}){
+  const [conf,setConf]=useState(null);   // {etapa,conjunto,titulo}
+  const c=dados;
+  if(!c) return <div style={{color:C.faint,fontSize:12.5}}>Carregando o funil de conversão…</div>;
+  if(c.erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"10px 12px"}}>{c.erro}</div>;
+
+  const pedir=(etapa,conjunto,tituloConf)=>{ if(!impressao&&acoes) setConf({etapa,conjunto,titulo:tituloConf}); };
+
+  const cabecalho=<div style={{marginBottom:10}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
+    {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
+      Base: <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Base: entraram no processo comercial`}/> lead(s)</b> que entraram
+      no processo comercial (<b>{c.entrada.name}</b> ou adiante) de <b>{fmtData(c.periodo.de)}</b> a <b>{fmtData(c.periodo.ate)}</b>,
+      acompanhados até <b>{fmtCorte(c)}</b>. Inbox e triagem não entram na base.
+    </div>}
+  </div>;
+
+  const avisos=(c.avisos||[]).length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,
+    borderRadius:10,padding:"9px 12px",marginBottom:10,display:"flex",flexDirection:"column",gap:3}}>
+    {c.avisos.map((a,i)=><div key={i}>{a}</div>)}
+    {!impressao&&(c.cobertura?.entrada_sem_data>0||c.cobertura?.dono_desconhecido>0)&&<div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:2}}>
+      {c.cobertura.entrada_sem_data>0&&<button onClick={()=>pedir(null,"sem_data","Entrada sem data no histórico")}
+        style={{background:"none",border:"none",padding:0,color:"#8a6d1f",fontWeight:700,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>Ver os {c.cobertura.entrada_sem_data} sem data</button>}
+      {filtros&&filtros.responsavel&&c.cobertura.dono_desconhecido>0&&<button onClick={()=>pedir(null,"dono_desconhecido","Dono na entrada desconhecido")}
+        style={{background:"none",border:"none",padding:0,color:"#8a6d1f",fontWeight:700,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>Ver os {c.cobertura.dono_desconhecido} de dono desconhecido</button>}
+    </div>}
+  </div>;
+
+  if(c.sem_marcos) return <div>{cabecalho}{avisos}
+    <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.55,borderRadius:10,padding:"11px 13px"}}>
+      Este funil não tem início do processo comercial nem etapa marcada como conversão, então não há funil para desenhar.
+      Configure em Configurações → Funis e etapas.
+    </div></div>;
+
+  const linhas=c.linhas||[];
+  const detalhes=(l)=>{
+    const itens=[];
+    if(l.sem_passar_pela_anterior>0) itens.push(<span key="d"><NumeroConferivel pedir={pedir} impressao={impressao} v={l.sem_passar_pela_anterior} etapa={l.id} conjunto="sem_anterior" peso={700}
+      tit={`Chegaram a ${l.name} sem passar por ${l.anterior.name}`}/> chegaram sem passar por {l.anterior.name}</span>);
+    if(l.por_regra_automatica>0) itens.push(<span key="a" style={{color:"#8a6d1f"}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.por_regra_automatica} etapa={l.id} conjunto="automaticas"
+      cor="#8a6d1f" tit={`${l.name}: só por regra automática`}/> só por regra automática, sem confirmação de uma pessoa</span>);
+    if(l.com_venda_registrada!==undefined) itens.push(<span key="v">{l.com_venda_registrada} com venda registrada</span>);
+    return itens;
+  };
+
+  const tabela=isMobile&&!impressao
+    ?<div style={{display:"flex",flexDirection:"column",gap:7}}>
+      {linhas.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <span style={{width:9,height:9,borderRadius:3,background:corDaEtapa(l,l.name),flexShrink:0}}/>
+          <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{l.name}{l.papel==="entrada"&&<span style={{color:C.faint,fontWeight:500}}> · início</span>}</span>
+          <span style={{fontSize:15}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></span>
+        </div>
+        <div style={{display:"flex",gap:14,marginTop:7,flexWrap:"wrap"}}>
+          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Desde a entrada</div>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</div></div>
+          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Da etapa anterior</div>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{l.anterior
+              ?<React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/> de <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/> · {fmtTaxa(l.anterior.taxa)}</React.Fragment>:"—"}</div></div>
+        </div>
+        {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:6,display:"flex",flexDirection:"column",gap:2}}>{detalhes(l)}</div>}
+      </div>)}
+    </div>
+    :<table style={{width:"100%",borderCollapse:"collapse"}}>
+      <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
+        {["Etapa","Chegaram","Desde a entrada","Da etapa anterior"].map((h,i)=>
+          <th key={h} style={{padding:"6px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
+            letterSpacing:.4,textAlign:i?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
+      </tr></thead>
+      <tbody>{linhas.map(l=><tr key={l.id} style={{borderBottom:`1px solid ${C.line}`,verticalAlign:"top"}}>
+        <td style={{padding:"8px 8px",fontSize:12,color:C.ink}}>
+          <div style={{display:"flex",alignItems:"center",gap:7}}>
+            <span style={{width:9,height:9,borderRadius:3,background:corDaEtapa(l,l.name),flexShrink:0}}/>
+            <b>{l.name}</b>{l.papel==="entrada"&&<span style={{color:C.faint,fontSize:11}}>início do processo comercial</span>}
+          </div>
+          {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:4,paddingLeft:16,display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
+          {!impressao&&l.desde_entrada!==null&&<div style={{height:5,borderRadius:999,background:C.surface,overflow:"hidden",marginTop:6,marginLeft:16,maxWidth:260}}>
+            <div style={{width:Math.max(l.desde_entrada,l.chegaram?2:0)+"%",height:"100%",borderRadius:999,background:corDaEtapa(l,l.name)}}/></div>}
+        </td>
+        <td style={{padding:"8px 8px",fontSize:13,textAlign:"right"}}>
+          <NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></td>
+        <td style={{padding:"8px 8px",fontSize:12.5,fontFamily:MONO,color:C.ink,textAlign:"right",fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</td>
+        <td style={{padding:"8px 8px",fontSize:12.5,textAlign:"right",whiteSpace:"nowrap"}}>{l.anterior
+          ?<React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/>
+            <span style={{color:C.sub}}> de </span>
+            <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/>
+            <span style={{fontFamily:MONO,color:C.ink,fontWeight:700}}> · {fmtTaxa(l.anterior.taxa)}</span>
+            <div style={{color:C.faint,fontSize:10,marginTop:1}}>vindos de {l.anterior.name}</div></React.Fragment>
+          :<span style={{color:C.faint}}>—</span>}</td>
+      </tr>)}</tbody>
+    </table>;
+
+  const grupos=(c.por_responsavel||[]);
+  const ultimo=linhas[linhas.length-1];
+  const ganho=linhas.find(l=>l.status_type==="ganho");
+
+  return <div>
+    {cabecalho}{avisos}{tabela}
+    {grupos.length>1&&<div style={{marginTop:14}}>
+      <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>Por responsável na entrada</div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {grupos.map(g=><div key={g.grupo+(g.id||"")} style={{display:"flex",alignItems:"center",gap:9,fontSize:11.5}}>
+          <span style={{flex:1,minWidth:0,color:g.grupo==="pessoa"?C.ink:C.sub,fontStyle:g.grupo==="pessoa"?"normal":"italic"}}>{g.nome}</span>
+          <span style={{fontFamily:MONO,color:C.ink,fontWeight:700}}>{g.base}</span>
+          <span style={{color:C.faint,width:isMobile?96:170,textAlign:"right"}}>{ultimo?`${g.chegaram_ao_ultimo} em ${ultimo.name}`:""}</span>
+        </div>)}
+      </div>
+    </div>}
+    <div style={{color:C.faint,fontSize:10.5,lineHeight:1.6,marginTop:12}}>
+      <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
+      Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
+      {ganho&&<React.Fragment> <b>{ganho.name}</b> aqui é quem chegou à etapa até o corte; as <b>vendas</b> do Painel contam a data da venda registrada no período, de qualquer lead — por isso os dois números podem ser diferentes.</React.Fragment>}
+    </div>
+    {conf&&<ConferenciaDoFunil acoes={acoes} pipelineId={pipelineId} filtros={filtros} conf={conf} isMobile={isMobile}
+      abrirConversa={abrirConversa} aoFechar={()=>setConf(null)}/>}
+  </div>;
+}
+
+/* Quem está por trás de um número. Paginada no servidor; o corretor só vê a
+   coorte dele, e só abre a conversa de quem continua com ele. */
+function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConversa,aoFechar}){
+  const [pagina,setPagina]=useState(1);
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{let vivo=true; setD(null); setErro("");
+    acoes.conferenciaFunil(pipelineId,{...filtros,etapa:conf.etapa,conjunto:conf.conjunto,pagina,por_pagina:30})
+      .then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[pagina,conf.etapa,conf.conjunto]);
+  useEffect(()=>{const esc=(e)=>{if(e.key==="Escape") aoFechar();};
+    window.addEventListener("keydown",esc); return()=>window.removeEventListener("keydown",esc);},[]);
+  const paginas=d?Math.max(1,Math.ceil(d.total/d.por_pagina)):1;
+  return <div className="tela-cheia" onClick={aoFechar} style={{zIndex:70,background:"rgba(10,20,16,.5)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:560,maxHeight:"100%",
+      borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:14.5,fontWeight:700}}>{conf.titulo}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>{d?`${d.total} lead(s)`:"Carregando…"}</div>
+        </div>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
+          width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:17}}>×</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"8px 14px",minHeight:120}}>
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>{erro}</div>}
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:12.5,padding:14,display:"flex",gap:6,alignItems:"center"}}><Icon n="loader" size={13} spin/> carregando…</div>}
+        {d&&d.total===0&&<div style={{color:C.faint,fontSize:12.5,padding:14,textAlign:"center"}}>Ninguém neste número.</div>}
+        {d&&d.itens.map(it=><div key={it.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 4px",borderBottom:`1px solid ${C.line}`}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+            <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>
+              {it.entrou_em?`Entrou em ${fmtData(it.entrou_em)}`:"Entrada sem data no histórico"}
+              {it.chegou_em&&` · chegou em ${fmtData(it.chegou_em)}`}
+              {it.dono_na_entrada?` · na entrada: ${it.dono_na_entrada.nome}`:" · dono na entrada desconhecido"}
+              {it.etapa_atual&&` · hoje: ${it.etapa_atual}`}{it.responsavel_atual&&` com ${first(it.responsavel_atual)}`}
+            </div>
+          </div>
+          {it.pode_abrir&&abrirConversa&&<button onClick={()=>{aoFechar();abrirConversa(it.id);}}
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"6px 10px",
+              fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Abrir</button>}
+        </div>)}
+      </div>
+      {d&&paginas>1&&<div style={{padding:"9px 14px",borderTop:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
+        <button disabled={pagina<=1} onClick={()=>setPagina(p=>p-1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:8,
+          padding:"7px 12px",fontSize:12,cursor:pagina<=1?"default":"pointer",color:pagina<=1?C.faint:C.ink}}>Anterior</button>
+        <span style={{color:C.sub,fontSize:12}}>{pagina} de {paginas}</span>
+        <button disabled={pagina>=paginas} onClick={()=>setPagina(p=>p+1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:8,
+          padding:"7px 12px",fontSize:12,cursor:pagina>=paginas?"default":"pointer",color:pagina>=paginas?C.faint:C.ink}}>Próxima</button>
+      </div>}
+    </div>
   </div>;
 }
 
@@ -14118,8 +14319,13 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
     acoes.painel(f).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
     acoes.painelEquipe(f).then(r=>vivo&&setEquipe(r.equipe)).catch(()=>{});
     acoes.painelCampanhas(f).then(r=>vivo&&setCamp(r)).catch(()=>{});
-    const pipe=f.pipeline_id||(op&&op.pipelines[0]&&op.pipelines[0].id);
-    if(pipe) acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil(r)).catch(()=>{});
+    /* Sem funil escolhido, o funil COMERCIAL da casa (o servidor decide qual
+       é: o padrão, a menos que o padrão seja o de SDR). Antes caía no
+       primeiro da lista, que podia ser o de pré-atendimento. */
+    const pipe=f.pipeline_id||"comercial";
+    setFunil(x=>x&&x.pipeline_pedido===pipe?x:null);
+    acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil({...r,pipeline_pedido:pipe}))
+      .catch(e=>vivo&&setFunil({erro:e.message,pipeline_pedido:pipe}));
     return()=>{vivo=false;};
   },[JSON.stringify(f),op&&op.pipelines.length,tick]);
   // A fatia aberta só fecha quando o FILTRO muda, não na atualização automática.
@@ -14204,54 +14410,33 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
                 background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
         </div>
 
-        {/* ===== FUNIL: CONVERSAO x OPERACIONAL ===== */}
-        {aba==="funil"&&funil&&<React.Fragment>
-          {/* A ROSCA VEM PRIMEIRO porque responde a pergunta que se faz de
-              olho: onde a base está agora. As duas leituras de conversão, logo
-              abaixo, respondem a seguinte — quanto disso andou. */}
+        {/* ===== FUNIL: CONVERSÃO x ONDE ESTÃO AGORA (01/10/2026) =====
+            Duas perguntas, dois quadros, de propósito. A conversão é a coorte
+            de quem ENTROU no processo comercial no período; a rosca é a foto
+            de agora, pelo dono de hoje, com o Inbox junto. Misturar as duas
+            era o que fazia o funil dizer números que ninguém reconhecia. */}
+        {aba==="funil"&&!funil&&<div style={{color:C.faint,fontSize:13}}>Carregando o funil…</div>}
+        {aba==="funil"&&funil&&funil.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{funil.erro}</div>}
+        {aba==="funil"&&funil&&!funil.erro&&<React.Fragment>
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Onde a base está agora</div>
+            <FunilDeConversao dados={funil.conversao} pipelineId={funil.pipeline_pedido} filtros={f}
+              acoes={acoes} isMobile={isMobile} abrirConversa={abrirConversa}/>
+          </div>
+
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão agora</div>
+            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+              Contatos em cada etapa neste momento, pelo responsável de hoje — Inbox incluído. Não é conversão.
+            </div>
             {(()=>{const fatias=fatiasDoFunil(funil.operacional);
               const total=fatias.reduce((s,x)=>s+x.valor,0);
               return <React.Fragment>
                 <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
                   escolhida={fatia} aoEscolher={setFatia}
-                  vazioTexto="Nenhum lead em aberto neste funil — nada para desenhar ainda."/>
-                <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} conversao={funil.conversao} isMobile={isMobile}/>
+                  vazioTexto="Nenhum contato em aberto neste funil — nada para desenhar ainda."/>
+                <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} isMobile={isMobile}/>
               </React.Fragment>;})()}
           </div>
-
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de conversão</div>
-            <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-              % sobre quem entrou · <b>seq</b> sobre a etapa anterior · <span style={{color:C.amber,fontWeight:700}}>+N</span> pulou a etapa anterior
-            </div>
-            {funil.sem_degraus
-              ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.55,borderRadius:10,padding:"11px 13px"}}>
-                Nenhuma etapa deste funil está marcada como conversão, então não há funil comercial para desenhar.
-                Marque os degraus em Configurações → Funis e etapas.
-              </div>
-              :<div style={{display:"flex",flexDirection:"column",gap:7}}>
-                <div style={{color:C.sub,fontSize:11.5,marginBottom:2}}>{funil.entraram} lead(s) entraram no período</div>
-                {funil.conversao.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:9}}>
-                  <span style={{color:C.ink,fontSize:11.5,fontWeight:600,width:isMobile?90:150,flexShrink:0,
-                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
-                  <div style={{flex:1,height:12,borderRadius:999,background:C.surface,overflow:"hidden",minWidth:40}}>
-                    <div style={{width:Math.max(c.taxa_sobre_entrada,c.alcancaram?3:0)+"%",height:"100%",
-                      borderRadius:999,background:c.color||C.green}}/></div>
-                  <span style={{fontFamily:MONO,color:C.ink,fontSize:11.5,fontWeight:700,width:38,textAlign:"right"}}>{c.alcancaram}</span>
-                  <span style={{color:C.faint,fontSize:10.5,width:isMobile?44:112,textAlign:"right"}}
-                    title={c.entraram_por_fora?`${c.entraram_por_fora} chegaram aqui sem passar pela etapa anterior — lead importado direto, ou etapa pulada.`:undefined}>
-                    {pctBR(c.taxa_sobre_entrada)}{!isMobile&&` \u00b7 seq ${pctBR(c.taxa_sequencial)}`}
-                    {/* Quem apareceu sem passar pelo degrau anterior. Sem esta
-                        marca, a diferenca entre "5 alcancaram" e "seq 0%" fica
-                        inexplicavel e parece defeito. */}
-                    {c.entraram_por_fora>0&&<span style={{color:C.amber,fontWeight:700}}> +{c.entraram_por_fora}</span>}
-                  </span>
-                </div>)}
-              </div>}
-          </div>
-
         </React.Fragment>}
 
         {/* ===== EQUIPE ===== */}
@@ -14665,7 +14850,7 @@ function TagsConfig({acoes,session,isMobile}){
 function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover}){
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
-  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active]);
+  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type]);
 
   const salvar=(mudanca)=>acoes.editarEtapa(etapa.id,mudanca).then(aoMudar).catch(e=>aoErro(e.message));
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
@@ -14684,6 +14869,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           {etapa.name}</div>
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
+          {etapa.entrada_comercial?" · início do processo comercial":""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
           {etapa.required_fields&&etapa.required_fields.length?` · exige ${etapa.required_fields.length} campo(s)`:""}
           {etapa.status_type&&etapa.status_type!=="aberto"?` · ${etapa.status_type}`:""}
@@ -14741,6 +14927,19 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           de venda, e contá-la faz o relatório dizer que a operação converteu quando ela só juntou papel.
         </span>
       </label>
+
+      {/* Onde começa a base do funil de conversão (01/10/2026). Uma por funil:
+          marcar esta desmarca a outra, no servidor. Etapa de perda não pode. */}
+      {f.status_type!=="perdido"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+        <input type="checkbox" checked={!!f.entrada_comercial}
+          onChange={e=>{setF({...f,entrada_comercial:e.target.checked});salvar({entrada_comercial:e.target.checked});}}
+          style={{marginTop:2,width:16,height:16,accentColor:C.green,cursor:"pointer"}}/>
+        <span style={{fontSize:11.5,color:C.sub,lineHeight:1.5}}>
+          <b style={{color:C.ink}}>Início do processo comercial.</b> A base do funil de conversão é quem chega
+          aqui (ou adiante). O que vem antes — Inbox, triagem — não entra na base. Só uma etapa por funil;
+          sem nenhuma marcada, vale a primeira que conta como conversão.
+        </span>
+      </label>}
 
       {campos.length>0&&<div>
         {rot("Campos obrigatórios para ENTRAR nesta etapa","Sem eles, o lead não avança — e a tela diz o que falta.")}
@@ -15911,7 +16110,7 @@ function LeadsDaFatia({acoes,stageId,atendente,abrirConversa}){
 
    O bloco "Como cada número é medido" não é rodapé decorativo. É o que faz o
    relatório sobreviver à primeira pessoa que perguntar "de onde saiu isso". */
-function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar}){
+function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFechar}){
   const alturaBarra=usarAlturaDaBarra();
   /* `score` fica `false` quando a nota não está disponível para quem abriu.
 
@@ -16016,23 +16215,28 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         </table>
       </React.Fragment>}
 
-      {titulo("Onde estão os leads do período")}
-      <div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {/* As etapas que vieram, não a lista fixa das 11 antigas: num funil
-            próprio (Inbox, Qualificado…) a lista fixa não casava com nenhuma e
-            o bloco saía vazio com leads no período. (30/09/2026) */}
-        {Object.keys(linha.por_etapa||{}).filter(st=>(linha.por_etapa[st]||0)>0)
-          .sort((a,b)=>{const ia=STAGES.indexOf(a),ib=STAGES.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||(linha.por_etapa[b]-linha.por_etapa[a]);})
-          .map(st=>{
-          const v=linha.por_etapa[st]||0, p=linha.recebidos?v/linha.recebidos*100:0;
-          return <div key={st} style={{display:"flex",alignItems:"center",gap:9}}>
-            <span style={{color:C.sub,fontSize:11.5,width:isMobile?106:160,flexShrink:0}}>{st}</span>
-            <div style={{height:9,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}>
-              <div style={{width:Math.max(p,3)+"%",height:"100%",borderRadius:999,background:corDaEtapa(null,st)}}/></div>
-            <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,width:34,textAlign:"right"}}>{v}</span>
-          </div>;})}
-        {linha.recebidos===0&&<div style={{color:C.faint,fontSize:12}}>Nenhum lead entrou para esta pessoa no período.</div>}
-      </div>
+      {/* O FUNIL DE CONVERSÃO no papel (01/10/2026) — o mesmo da tela, com o
+          período, o corte e as duas taxas escritas. Sem ele, a reunião discutia
+          "onde os leads estão hoje" achando que era conversão. */}
+      <div style={{marginTop:22,borderTop:`1px solid ${C.line}`,paddingTop:12}}/>
+      {funil
+        ?<FunilDeConversao dados={funil.conversao} impressao isMobile={isMobile}
+          titulo={`Funil de conversão de ${first(linha.nome)}`}/>
+        :<div style={{color:C.faint,fontSize:12}}>O funil ainda está carregando na tela de Relatórios — feche e abra de novo em instantes.</div>}
+
+      {funil&&(funil.operacional||[]).some(o=>o.leads_agora>0)&&<React.Fragment>
+        {titulo("Onde estão os leads agora")}
+        <div style={{color:C.faint,fontSize:11,marginBottom:8}}>A carteira de hoje, pelo responsável atual — complemento, não conversão.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {(()=>{const ops=funil.operacional.filter(o=>o.leads_agora>0);const tot=ops.reduce((a,o)=>a+o.leads_agora,0);
+            return ops.map(o=><div key={o.id} style={{display:"flex",alignItems:"center",gap:9}}>
+              <span style={{color:C.sub,fontSize:11.5,width:isMobile?106:180,flexShrink:0}}>{o.name}</span>
+              <div style={{height:9,borderRadius:999,background:C.surface,flex:1,overflow:"hidden"}}>
+                <div style={{width:Math.max(o.leads_agora/tot*100,3)+"%",height:"100%",borderRadius:999,background:corDaEtapa(o,o.name)}}/></div>
+              <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,width:34,textAlign:"right"}}>{o.leads_agora}</span>
+            </div>);})()}
+        </div>
+      </React.Fragment>}
 
       {linha.por_dia&&linha.por_dia.length>0&&<React.Fragment>
         {titulo("Leads recebidos, dia a dia")}
@@ -16070,6 +16274,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,org,isMobile,aoFechar})
         <div><b>Leads recebidos</b> — entraram no período e estão com esta pessoa.</div>
         <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
         <div><b>Conversão</b> — dos leads que <b>entraram</b> no período, quantos já viraram venda.</div>
+        <div><b>Funil de conversão</b> — a base são os leads que <b>entraram no processo comercial</b> no período (Inbox e triagem não contam), atribuídos a quem estava com eles na entrada, acompanhados até o corte. <b>Desde a entrada</b> = chegaram à etapa ÷ base; <b>da etapa anterior</b> = dos que chegaram à etapa de cima, quantos chegaram a esta depois.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
         <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
         <div><b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
@@ -16179,13 +16384,21 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   const [rosca,setRosca]=useState(null);
   const [fatia,setFatia]=useState(null);
   useEffect(()=>{setFatia(null);},[sel,chavePeriodo]);
+  /* Qual funil: o COMERCIAL da casa para o corretor (o servidor resolve o
+     apelido), e o padrão para a atendente — o trabalho dela é o
+     pré-atendimento. Antes era sempre o padrão, que numa casa com o SDR como
+     padrão mostrava ao corretor um funil em que ele não tem lead nenhum. */
+  const papelSel=dados&&(dados.atendentes.find(a=>a.id===sel)||{}).papel;
+  const funilDoRelatorio=papelSel==="sdr"?funilPadrao:"comercial";
   useEffect(()=>{
-    if(!sel||!funilPadrao){setRosca(null);return;}
+    if(!sel||!funilDoRelatorio){setRosca(null);return;}
     let vivo=true;
-    acoes.painelFunil(funilPadrao,{...periodo,responsavel:sel})
-      .then(r=>vivo&&setRosca(r)).catch(()=>{});
+    setRosca(x=>x&&x.chave===sel+funilDoRelatorio+chavePeriodo?x:null);
+    acoes.painelFunil(funilDoRelatorio,{...periodo,responsavel:sel})
+      .then(r=>vivo&&setRosca({...r,chave:sel+funilDoRelatorio+chavePeriodo,pipeline_pedido:funilDoRelatorio}))
+      .catch(e=>vivo&&setRosca({erro:e.message}));
     return()=>{vivo=false;};
-  },[sel,chavePeriodo,funilPadrao,tick]);
+  },[sel,chavePeriodo,funilDoRelatorio,tick]);
 
   useEffect(()=>{
     let vivo=true; setCarregando(true);
@@ -16217,6 +16430,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
       {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
       {nota&&<DetalheDaNota m={nota.m} componentes={nota.componentes} periodo={dados.periodo} isMobile={isMobile} aoFechar={()=>setNota(null)}/>}
       {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
+        funil={rosca&&!rosca.erro&&rosca.chave===linha.id+funilDoRelatorio+chavePeriodo?rosca:null}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
       {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
@@ -16281,9 +16495,22 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
             ficavam aqui embaixo usavam a lista fixa das 11 etapas antigas —
             lead em Locação ou SDR não aparecia — e repetiam a rosca. A lista de
             "quem está nesta etapa" veio para dentro da fatia. */}
+        {/* O FUNIL DE CONVERSÃO DESTA PESSOA (01/10/2026): a mesma conta da
+            Operação, filtrada pelo responsável NA ENTRADA — o que ela recebeu
+            e levou adiante, mesmo que tenha repassado depois. */}
+        {rosca&&rosca.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"10px 12px",marginBottom:16}}>{rosca.erro}</div>}
+        {!rosca&&<div style={{color:C.faint,fontSize:12.5,marginBottom:16,display:"flex",gap:6,alignItems:"center"}}><Icon n="loader" size={13} spin/> carregando o funil…</div>}
         {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
           padding:16,marginBottom:16}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Onde estão os leads de {first(linha.nome)}</div>
+          <FunilDeConversao dados={rosca.conversao} pipelineId={rosca.pipeline_pedido}
+            filtros={{...periodo,responsavel:linha.id}} acoes={acoes} isMobile={isMobile}
+            abrirConversa={abrirConversa} titulo={`Funil de conversão de ${first(linha.nome)}`}/>
+        </div>}
+
+        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
+          padding:16,marginBottom:16}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão os leads de {first(linha.nome)} agora</div>
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>A carteira de hoje — complemento do funil acima, não conversão.</div>
           {(()=>{const fatias=fatiasDoFunil(rosca.operacional);
             const total=fatias.reduce((s,x)=>s+x.valor,0);
             const aberta=fatias.find(x=>x.id===fatia);
@@ -16291,7 +16518,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
               <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
                 escolhida={fatia} aoEscolher={setFatia}
                 vazioTexto={`${first(linha.nome)} não tem lead em aberto neste funil.`}/>
-              <DetalheDaFatia fatia={aberta} conversao={rosca.conversao} isMobile={isMobile}>
+              <DetalheDaFatia fatia={aberta} isMobile={isMobile}>
                 {aberta&&!aberta.agrupadas&&<LeadsDaFatia acoes={acoes} stageId={aberta.id} atendente={linha.id} abrirConversa={abrirConversa}/>}
               </DetalheDaFatia>
             </React.Fragment>;})()}
@@ -16436,7 +16663,7 @@ function FunilAtividadeViz({passos,isMobile}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-      Quanto se trabalhou no período.
+      Quanto se trabalhou no período — contagem de ações, não conversão de leads (essa fica em Operação → Funil).
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {passos.map((p,i)=>{
@@ -16450,7 +16677,7 @@ function FunilAtividadeViz({passos,isMobile}){
             </div>
           </div>
           <div style={{width:isMobile?58:120,flexShrink:0,textAlign:"right",fontSize:10,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
-            {i===0?"—":<React.Fragment><div>{pctBR(p.taxa_sequencial)} seq.</div><div>{pctBR(p.taxa_sobre_leads)} do total</div></React.Fragment>}
+            {i===0?"—":<React.Fragment><div title="sobre o passo anterior">{pctBR(p.taxa_sequencial)} do anterior</div><div>{pctBR(p.taxa_sobre_leads)} dos leads</div></React.Fragment>}
           </div>
         </div>;
       })}

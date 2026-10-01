@@ -31,6 +31,7 @@ import { slaDoLead } from "./etapas.js";
 import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { resumoDeDisparos } from "./disparo.js";
+import { configDoFunil, funilDeConversao } from "./conversao.js";
 
 const DIA = 86400000;
 
@@ -318,67 +319,30 @@ export function atividades(orgId, periodo, filtros = {}) {
   });
 }
 
-/* ===== FUNIL DE CONVERSAO x AVANCO OPERACIONAL =====
+/* ===== FUNIL DE CONVERSAO x ONDE ESTAO AGORA =====
 
-   Duas leituras do mesmo pipeline, de propósito separadas.
+   Duas leituras do mesmo pipeline, de propósito separadas (01/10/2026).
 
-   A) CONVERSAO — só as etapas marcadas como degrau comercial. Duas taxas:
-      sobre a entrada (quantos dos que chegaram alcançaram esta etapa) e
-      sequencial (quantos passaram da etapa anterior para esta). A segunda é a
-      que mostra ONDE a operação trava.
+   A) CONVERSAO — a coorte de quem entrou no processo comercial no período,
+      acompanhada até o corte. A conta mora inteira em `services/conversao.js`
+      e é a mesma para a Operação, o relatório individual e o de reunião.
 
-   B) OPERACIONAL — todas as etapas, com quantos estão em cada uma agora, há
-      quanto tempo em média, e quantos estouraram o SLA. Não é conversão: é
-      onde o trabalho está parado. */
+   B) ONDE ESTAO AGORA — todas as etapas, com quantos estão em cada uma neste
+      momento (pelo dono de hoje), há quanto tempo, e quantos estouraram o
+      SLA. Não é conversão: é onde o trabalho está parado. Inclui o Inbox, e a
+      tela chama de "contatos", não de base de conversão.
+
+   Antes daqui a conversão era montada com os leads CRIADOS no período —
+   Inbox incluído —, o histórico pelo NOME da etapa e a etapa de hoje como
+   prova de passagem. Os três estão corrigidos em conversao.js. */
 export function funil(orgId, pipelineId, filtros = {}) {
   const periodo = resolverPeriodo(filtros);
   const etapas = etapasDoPipeline(orgId, pipelineId);
   if (!etapas.length) return { erro: "Este funil não tem etapas ativas." };
 
   const p = peneira(orgId, { ...filtros, pipeline_id: pipelineId });
-  const doPeriodo = db.prepare(`SELECT l.id, l.stage FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
-    .all(...p.args, periodo.de, periodo.ate);
   const emAberto = db.prepare(`SELECT ${COLUNAS_PRAZO} FROM leads l WHERE ${p.sql}`).all(...p.args);
-
-  /* QUEM alcançou cada etapa — o CONJUNTO de leads, não a contagem.
-
-     A contagem sozinha produzia um número impossível: "conversão sequencial de
-     300%". Ela saía de dividir a contagem de uma etapa pela da anterior, e as
-     duas eram medidas de forma independente — nada garantia que quem chegou na
-     segunda tivesse passado pela primeira. Numa base real isso é comum: lead
-     importado já em "Proposta", lead que a equipe pula direto para "Visita".
-
-     Taxa acima de 100% não é um arredondamento feio: é um número que ninguém
-     reconhece, e um só deles faz o gestor parar de confiar na tela inteira.
-
-     Com os conjuntos, a taxa sequencial passa a ser o que a frase promete —
-     "dos que chegaram na etapa anterior, quantos também chegaram nesta" — e
-     não pode passar de 100% porque é uma interseção.
-
-     Vem do HISTÓRICO e não de onde o lead está agora: quem passou por Visita e
-     hoje está em Venda continua tendo alcançado a Visita. */
-  const ids = doPeriodo.map(l => l.id);
-  const quemAlcancou = new Map();
-  if (ids.length) {
-    /* Uma leitura do histórico para todas as etapas (em lotes), e não uma
-       por etapa: com onze etapas e o ano inteiro de leads, eram onze
-       varreduras da mesma tabela. */
-    const porEtapa = new Map();
-    for (const r of emLotes(ids, (marcas, lote) => db.prepare(
-      `SELECT DISTINCT lead_id, para FROM lead_etapas WHERE lead_id IN (${marcas})`).all(...lote))) {
-      if (!porEtapa.has(r.para)) porEtapa.set(r.para, []);
-      porEtapa.get(r.para).push(r.lead_id);
-    }
-    for (const e of etapas) {
-      const doHistorico = porEtapa.get(e.name) || [];
-      // Mais quem está na etapa AGORA: a base anterior a 13/08/2026 não tem
-      // histórico, e sem isto ela apareceria como se nunca tivesse chegado.
-      const agoraAqui = doPeriodo.filter(l => l.stage === e.name).map(l => l.id);
-      quemAlcancou.set(e.id, new Set([...doHistorico, ...agoraAqui]));
-    }
-  } else {
-    for (const e of etapas) quemAlcancou.set(e.id, new Set());
-  }
+  const cfg = configDoFunil(orgId, pipelineId);
 
   const agora = Date.now();
   const operacional = etapas.map(e => {
@@ -389,6 +353,8 @@ export function funil(orgId, pipelineId, filtros = {}) {
     return {
       id: e.id, name: e.name, color: e.color, status_type: e.status_type,
       counts_as_conversion: e.counts_as_conversion,
+      // antes (triagem/Inbox) · comercial · depois · perdido
+      fase: cfg.fase(e.id),
       leads_agora: aqui.length,
       // Mediana e não média: um lead esquecido há dois anos distorce a média
       // e faz a etapa inteira parecer parada.
@@ -398,39 +364,10 @@ export function funil(orgId, pipelineId, filtros = {}) {
     };
   });
 
-  const degraus = etapas.filter(e => e.counts_as_conversion);
-  let anteriores = new Set(ids);   // o degrau zero é a entrada
-  const conversao = degraus.map(e => {
-    const aqui = quemAlcancou.get(e.id) || new Set();
-    // A interseção: destes, quantos vieram do degrau anterior.
-    let vindos = 0;
-    for (const id of aqui) if (anteriores.has(id)) vindos++;
-    const linha = {
-      id: e.id, name: e.name, color: e.color,
-      alcancaram: aqui.size,
-      taxa_sobre_entrada: pct(aqui.size, doPeriodo.length),
-      /* Sequencial: dos que chegaram no degrau anterior, quantos também
-         chegaram neste. É o que mostra ONDE trava — e não pode passar de 100%. */
-      taxa_sequencial: pct(vindos, anteriores.size),
-      /* Quem apareceu aqui sem ter passado pelo degrau anterior. Não é erro:
-         é lead importado direto, ou etapa pulada pela equipe. Dito por escrito
-         porque a diferença entre `alcancaram` e a taxa sequencial ficaria
-         inexplicável sem ele. */
-      entraram_por_fora: aqui.size - vindos,
-    };
-    anteriores = aqui;
-    return linha;
-  });
-
   return {
     pipeline_id: pipelineId,
     periodo: { ...periodo },
-    entraram: doPeriodo.length,
-    /* Dito por escrito: sem etapa marcada como conversão, o funil comercial
-       não existe — e a tela precisa explicar isso em vez de mostrar um gráfico
-       vazio que parece defeito. */
-    conversao: degraus.length ? conversao : null,
-    sem_degraus: !degraus.length,
+    conversao: funilDeConversao(orgId, pipelineId, filtros, agora),
     operacional,
   };
 }

@@ -429,36 +429,32 @@ console.log(`   mediana: ${vazio.atendimento.primeira_resposta_mediana_min}`);
 assert.equal(vazio.atendimento.primeira_resposta_mediana_min, null);
 assert.equal(vazio.atendimento.recebidos, 0, "mas a contagem é zero, que é um fato");
 
-console.log("41. O funil separa CONVERSÃO de AVANÇO OPERACIONAL");
+console.log("41. O funil separa CONVERSÃO de ONDE ESTÃO AGORA");
 const f = PA.funil(org, pipelines[0].id, { periodo: "ano" });
-const nomesConv = f.conversao.map(c => c.name);
+const nomesConv = f.conversao.linhas.map(c => c.name);
 const nomesOper = f.operacional.map(o => o.name);
-console.log(`   conversão: ${nomesConv.length} degraus · operacional: ${nomesOper.length} etapas`);
-assert.ok(nomesOper.length > nomesConv.length, "o operacional mostra tudo; a conversão, só os degraus");
+console.log(`   conversão: ${nomesConv.length} marcos · agora: ${nomesOper.length} etapas`);
+assert.ok(nomesOper.length > nomesConv.length, "o operacional mostra tudo; a conversão, só os marcos");
 assert.ok(!nomesConv.includes("Pasta"), "etapa administrativa fica fora da conversão");
-assert.ok(nomesOper.includes("Pasta"), "mas aparece no avanço operacional");
+assert.ok(nomesOper.includes("Pasta"), "mas aparece em onde estão agora");
 
-console.log("41b. E a conversão sequencial NUNCA passa de 100%");
-/* Saía "seq 300%" no primeiro teste com base real. A taxa vinha de dividir a
-   contagem de uma etapa pela da anterior, medidas de forma independente — nada
-   garantia que quem chegou na segunda tivesse passado pela primeira. Numa base
-   real isso é comum: lead importado direto em "Proposta", etapa pulada pela
-   equipe. Taxa acima de 100% não é arredondamento feio: é um número que
-   ninguém reconhece, e um só deles faz o gestor parar de confiar na tela. */
-for (const c of f.conversao) {
-  console.log(`   ${c.name.padEnd(14)} ${String(c.alcancaram).padStart(3)} alcançaram · seq ${c.taxa_sequencial}%${c.entraram_por_fora ? ` · ${c.entraram_por_fora} entraram por fora` : ""}`);
-  assert.ok(c.taxa_sequencial <= 100, `${c.name} deu ${c.taxa_sequencial}% — impossível`);
-  assert.ok(c.taxa_sobre_entrada <= 100, `${c.name}: taxa sobre entrada acima de 100%`);
-  assert.ok(c.entraram_por_fora >= 0);
+console.log("41b. As taxas da conversão nunca passam de 100%");
+/* Saía "seq 300%" no primeiro teste com base real. Agora são conjuntos: dos
+   que chegaram ao marco anterior, quantos chegaram a este DEPOIS. */
+for (const c of f.conversao.linhas) {
+  console.log(`   ${c.name.padEnd(14)} ${String(c.chegaram).padStart(3)} chegaram · da anterior ${c.anterior ? `${c.anterior.vieram} de ${c.anterior.chegaram}` : "—"}`);
+  if (c.anterior && c.anterior.taxa !== null) assert.ok(c.anterior.taxa <= 100, `${c.name}: ${c.anterior.taxa}% — impossível`);
+  if (c.desde_entrada !== null) assert.ok(c.desde_entrada <= 100, `${c.name}: taxa desde a entrada acima de 100%`);
+  assert.ok(c.sem_passar_pela_anterior >= 0);
 }
 
-console.log("42. E o funil sem degrau marcado avisa, em vez de mostrar gráfico vazio");
+console.log("42. E o funil sem marco nenhum avisa, em vez de mostrar gráfico vazio");
 const semDegrau = P.criarPipeline(org, { name: "Sem degraus" });
 P.criarEtapa(org, semDegrau.pipeline.id, { name: "Única" });
 const fv = PA.funil(org, semDegrau.pipeline.id, { periodo: "ano" });
-console.log(`   sem_degraus: ${fv.sem_degraus} · conversao: ${fv.conversao}`);
-assert.equal(fv.sem_degraus, true);
-assert.equal(fv.conversao, null, "null e não [] — é ausência de configuração, não funil vazio");
+console.log(`   sem_marcos: ${fv.conversao.sem_marcos} · base: ${fv.conversao.base}`);
+assert.equal(fv.conversao.sem_marcos, true);
+assert.deepEqual(fv.conversao.linhas, [], "sem configuração, nenhuma linha inventada");
 
 console.log("43. O avanço operacional traz tempo mediano e atrasados por etapa");
 const comLeads = f.operacional.find(o => o.leads_agora > 0);
