@@ -49,12 +49,13 @@ console.log(`Funis: "${comercial.pipeline.name}" (padrão) e "${sdr.pipeline.nam
 
 console.log("===== ONDE O LEAD NASCE =====");
 
-console.log("1. Sem ninguém configurado, tudo cai no funil padrão da casa");
-/* É o comportamento de sempre, e ele precisa continuar valendo: quem nunca
-   abriu esta configuração não pode ver o CRM mudar sozinho. */
+console.log("1. Sem ninguém configurado, a ATENDENTE cai no funil de SDR (01/10/2026)");
+/* Regra do Ali: "chegou lead, a atendente que está ativa recebe e ele cai no
+   funil de SDR". Com um funil do modelo SDR na casa, ninguém precisa abrir
+   configuração nenhuma para isso acontecer. */
 let e = P.entradaDe(org, "u_vanessa");
-console.log(`   Vanessa → ${e.pipeline_id === comercial.pipeline.id ? "Comercial" : "?"} · próprio: ${e.proprio}`);
-assert.equal(e.pipeline_id, comercial.pipeline.id);
+console.log(`   Vanessa → ${e.pipeline_id === sdr.pipeline.id ? sdr.pipeline.name : "?"} · próprio: ${e.proprio}`);
+assert.equal(e.pipeline_id, sdr.pipeline.id);
 assert.equal(e.proprio, false);
 
 console.log("2. Com o funil da Vanessa escolhido, o lead dela nasce no SDR");
@@ -71,9 +72,9 @@ console.log("3. E o de quem NÃO configurou continua no padrão");
 assert.equal(P.entradaDe(org, "u_marina").pipeline_id, comercial.pipeline.id);
 console.log("   Marina → Comercial");
 
-console.log("4. Lead sem dono (fila) usa o padrão da casa");
-assert.equal(P.entradaDe(org, null).pipeline_id, comercial.pipeline.id);
-console.log("   fila → Comercial");
+console.log("4. Lead sem dono (fila, que a IA cobre) nasce no funil de SDR");
+assert.equal(P.entradaDe(org, null).pipeline_id, sdr.pipeline.id);
+console.log("   fila → SDR");
 
 console.log("5. Funil apagado depois de configurado cai no padrão, não no vazio");
 /* Lead sem funil nenhum é lead que some de todas as colunas do kanban — pior

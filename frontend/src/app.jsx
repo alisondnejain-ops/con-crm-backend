@@ -13679,7 +13679,10 @@ function RoboConfig({acoes,session,isMobile}){
         <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>QUANDO A IA ATENDE</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[[true,"A qualquer hora","ela responde sempre que o cliente escreve e você ainda não respondeu"],
-            [false,"Só fora do expediente","ela fica calada no horário em que a equipe atende"]].map(([v,t,d])=>
+            [false,"Só fora do expediente",cfg.autonomo?"ela fica calada no horário em que a equipe atende"
+              // A IA faz parte do time de SDR (01/10/2026): sem atendente ativa,
+              // ela cobre os leads novos também durante o dia.
+              :"no horário da equipe ela só fala se nenhuma atendente estiver ativa"]].map(([v,t,d])=>
             <button key={String(v)} disabled={!ehAdm} onClick={()=>ehAdm&&setCfg({...cfg,sempre:v})}
               title={d}
               style={{flex:isMobile?"1 1 100%":"1 1 0",minWidth:isMobile?"100%":190,textAlign:"left",

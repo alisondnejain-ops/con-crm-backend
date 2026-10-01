@@ -330,21 +330,75 @@ export function entradaPadrao(orgId) {
    `users.pipeline_entrada` vazio é o funil padrão — que é o que todo mundo era
    antes disto existir. Só quem for configurado muda de comportamento. */
 export function entradaDe(orgId, userId) {
-  if (userId) {
-    const escolhido = db.prepare("SELECT pipeline_entrada FROM users WHERE id = ? AND org_id = ?")
-      .get(userId, orgId)?.pipeline_entrada;
-    if (escolhido) {
-      const p = pipelinePorId(orgId, escolhido);
-      // Funil apagado depois de configurado: cai no padrão em vez de deixar o
-      // lead sem funil nenhum, que é onde ele some de todas as colunas.
-      if (p) {
-        const etapa = primeiraEtapa(orgId, p.id);
-        return { pipeline_id: p.id, stage_id: etapa ? etapa.id : null,
-                 nome: etapa ? etapa.name : "Lead", proprio: true };
-      }
-    }
+  const pessoa = userId
+    ? db.prepare("SELECT role, pipeline_entrada FROM users WHERE id = ? AND org_id = ?").get(userId, orgId)
+    : null;
+  if (pessoa?.pipeline_entrada) {
+    const p = pipelinePorId(orgId, pessoa.pipeline_entrada);
+    // Funil apagado depois de configurado: cai na regra do papel em vez de
+    // deixar o lead sem funil nenhum, que é onde ele some de todas as colunas.
+    if (p) return { ...entradaEm(orgId, p.id), proprio: true };
   }
-  return { ...entradaPadrao(orgId), proprio: false };
+  /* O FUNIL VEM DO PAPEL DE QUEM RECEBE (01/10/2026, pedido do Ali: "chegou
+     lead, a atendente que está ativa recebe e ele automaticamente cai no
+     funil de SDR"). Atendente — e o lead SEM dono, que é o que a IA está
+     cobrindo enquanto nenhuma atendente está ativa — vai para o funil de SDR
+     da casa; corretor e gestor, para o comercial. Sem funil de SDR na conta,
+     tudo continua no padrão, como sempre foi. */
+  if (!pessoa || pessoa.role === "sdr") {
+    const sdr = funilDeSdr(orgId);
+    if (sdr) return { ...entradaEm(orgId, sdr.id), proprio: false };
+    return { ...entradaPadrao(orgId), proprio: false };
+  }
+  const comercial = funilComercial(orgId);
+  return comercial ? { ...entradaEm(orgId, comercial.id), proprio: false } : { ...entradaPadrao(orgId), proprio: false };
+}
+
+function entradaEm(orgId, pipelineId) {
+  const etapa = primeiraEtapa(orgId, pipelineId);
+  return { pipeline_id: pipelineId, stage_id: etapa ? etapa.id : null, nome: etapa ? etapa.name : "Lead" };
+}
+
+/* QUAL É O FUNIL DE SDR DA CASA (01/10/2026).
+
+   O funil criado pelo modelo "SDR" tem `type = 'sdr'`. Mas há contas que
+   montaram o próprio pré-atendimento do zero (Inbox → Aguardando interação →
+   Qualificado) e o puseram como funil de entrada da atendente — e até aqui o
+   sistema não sabia que aquilo era SDR: o lead repassado ao corretor ficava
+   preso lá. Valem as duas marcas, nesta ordem: o modelo, e o funil que a
+   própria atendente escolheu como entrada. */
+export function funilDeSdr(orgId) {
+  const doModelo = db.prepare(`SELECT id FROM pipelines WHERE org_id = ? AND type = 'sdr' AND is_active = 1
+    ORDER BY is_default DESC, ordem, created_at LIMIT 1`).get(orgId);
+  if (doModelo) return pipelinePorId(orgId, doModelo.id);
+  const daAtendente = db.prepare(`SELECT u.pipeline_entrada AS id, COUNT(*) n FROM users u
+    JOIN pipelines p ON p.id = u.pipeline_entrada AND p.org_id = u.org_id AND p.is_active = 1
+    WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo' AND u.pipeline_entrada IS NOT NULL
+    GROUP BY u.pipeline_entrada ORDER BY n DESC LIMIT 1`).get(orgId);
+  return daAtendente ? pipelinePorId(orgId, daAtendente.id) : null;
+}
+
+export function ehFunilDeSdr(orgId, pipelineId) {
+  if (!pipelineId) return false;
+  const p = pipelinePorId(orgId, pipelineId);
+  if (!p) return false;
+  if (p.type === "sdr") return true;
+  return funilDeSdr(orgId)?.id === pipelineId;
+}
+
+/* O FUNIL COMERCIAL: o padrão da casa — a não ser que o padrão SEJA o de SDR.
+   É o segundo motivo de o lead não ir para o comercial no repasse: com o SDR
+   marcado como padrão (para os leads novos caírem nele), o "funil do
+   corretor" também era o SDR, e o sistema achava que o lead já estava no lugar
+   certo. Aí vale o primeiro funil ativo que não é de SDR, de preferência um
+   do modelo comercial. */
+export function funilComercial(orgId) {
+  const padrao = pipelinePadrao(orgId);
+  if (padrao && !ehFunilDeSdr(orgId, padrao.id)) return padrao;
+  const sdr = funilDeSdr(orgId);
+  const outro = db.prepare(`SELECT id FROM pipelines WHERE org_id = ? AND is_active = 1 AND type != 'sdr' AND id != ?
+    ORDER BY (type = 'commercial') DESC, ordem, created_at LIMIT 1`).get(orgId, sdr?.id || "");
+  return outro ? pipelinePorId(orgId, outro.id) : padrao;
 }
 
 /* ===== CRIAR A PARTIR DE UM TEMPLATE ===== */

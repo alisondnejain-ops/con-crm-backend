@@ -37,6 +37,35 @@ export function rodaDeCorretores(orgId) {
      ORDER BY u.created_at, u.name`).all(orgId);
 }
 
+/* A roda das ATENDENTES (01/10/2026). Mesma ordem fixa da dos corretores; a
+   memória da vez é outra coluna (`orgs.atendente_ultimo`), senão uma catraca
+   embaralharia a outra. */
+export function rodaDeAtendentes(orgId) {
+  return db.prepare(
+    `SELECT u.id, u.name, u.available FROM users u
+     WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo'${semMaster("u")}
+     ORDER BY u.created_at, u.name`).all(orgId);
+}
+
+/* Nenhuma atendente ativa agora — é quando a IA cobre (numa imobiliária).
+   Imobiliária sem atendente nenhuma também conta: aí a IA É o time de SDR. */
+export function semAtendenteAtiva(orgId) {
+  const org = db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(orgId);
+  if (!org || org.tipo === "autonomo") return false;
+  return !rodaDeAtendentes(orgId).some(u => u.available);
+}
+
+/* A roda girada para começar logo DEPOIS de quem recebeu por último.
+   É a regra das duas catracas — corretores e atendentes — num lugar só: quem
+   entra ou sai da disponibilidade não desloca ninguém, só entra ou sai da vez.
+   Último que não está mais na roda (saiu da equipe): começa do primeiro. */
+export function ordemDaVez(roda, ultimoId) {
+  const iUltimo = roda.findIndex(u => u.id === ultimoId);
+  const ordem = [];
+  for (let k = 1; k <= roda.length; k++) ordem.push(roda[(iUltimo + k + roda.length) % roda.length]);
+  return ordem;
+}
+
 /* Quem é o próximo, e a fila numerada a partir dele.
 
    `posicao` só existe para quem está disponível: é a ordem real de quem vai
@@ -56,12 +85,7 @@ export function filaDaVez(orgId) {
      Procuramos a posição dele na RODA (não na fila de disponíveis) e seguimos
      dali — assim a vez continua de onde parou mesmo com gente entrando e
      saindo. Sem registro nenhum, começa do primeiro. */
-  const iUltimo = roda.findIndex(u => u.id === org.rodizio_ultimo);
-  const ordenada = [];
-  for (let k = 1; k <= roda.length; k++) {
-    const u = roda[(iUltimo + k + roda.length) % roda.length];
-    if (u.available) ordenada.push(u);
-  }
+  const ordenada = ordemDaVez(roda, org.rodizio_ultimo).filter(u => u.available);
 
   const posicoes = new Map(ordenada.map((u, i) => [u.id, i + 1]));
   return {

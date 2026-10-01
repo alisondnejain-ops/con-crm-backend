@@ -186,7 +186,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
     console.log(`[mensageria] lead NOVO pelo WhatsApp/${provider} (${mascararTelefone(phone)}) — ${
       ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
       ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
-      dono ? "para a atendente da vez" : "sem atendente cadastrado, foi para a fila"}`);
+      dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
   }
 
   /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é

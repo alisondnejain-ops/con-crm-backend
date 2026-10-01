@@ -38,6 +38,7 @@ import { emFluxoDeDisparo } from "./disparo.js";
 import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
+import { semAtendenteAtiva } from "./rodizio.js";
 
 export const TETO_PADRAO = 12;
 
@@ -130,6 +131,14 @@ export function configDoRobo(orgId) {
   };
 }
 
+/* A IA está em condição de cobrir o time de SDR? Contratada, ligada e com a
+   chave da IA no servidor. É o que a catraca pergunta antes de deixar um lead
+   sem dono para ela atender — sem isso o lead ficaria solto e mudo. */
+export function roboCobre(orgId) {
+  const c = configDoRobo(orgId);
+  return !!(c.incluido && c.ativo && c.configurada);
+}
+
 /* O robô fala AGORA?
 
    Duas perguntas, nesta ordem, e a primeira é a que o Ali pediu em 16/08/2026:
@@ -209,10 +218,14 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   if (!cfg.incluido) return { pode: false, motivo: "sem_autoatendimento" };
   if (!cfg.ativo) return { pode: false, motivo: "desligado" };
   if (!cfg.configurada) return { pode: false, motivo: "ia_nao_configurada" };
-  if (!dentroDaJanela(cfg, agora)) return { pode: false, motivo: "dentro_do_expediente" };
-
   const lead = db.prepare(`SELECT l.*, u.role AS dono_papel FROM leads l
     LEFT JOIN users u ON u.id = l.assigned_to WHERE l.id = ? AND l.org_id = ?`).get(leadId, orgId);
+  /* A IA FAZ PARTE DO TIME DE SDR (01/10/2026, pedido do Ali): com nenhuma
+     atendente ativa, a catraca deixa o lead sem dono para ela — e ela atende
+     na hora, mesmo dentro do expediente. Só o lead SEM dono: o que já está
+     com uma atendente continua esperando por ela durante o dia. */
+  const cobrindo = !!lead && !lead.assigned_to && semAtendenteAtiva(orgId);
+  if (!dentroDaJanela(cfg, agora) && !cobrindo) return { pode: false, motivo: "dentro_do_expediente" };
   if (!lead) return { pode: false, motivo: "lead_nao_encontrado" };
   /* Neutro de propósito: aqui só interessa que ele está fora da conversa. POR
      QUE ele saiu — gente respondeu, ele se despediu, bateu o teto, a atendente
