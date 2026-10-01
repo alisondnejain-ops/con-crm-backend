@@ -139,6 +139,24 @@ try {
   assert.equal(l.origem, "Meta Ads");
   assert.equal(JSON.parse(l.qual_json).renda, "8 mil");
 
+  caso("Formulário em português (numero_de_telefone, endereço_de_email) é lido — telefone e e-mail não se perdem por causa do nome do campo");
+  r = await postar(endA + "?portal=meta", { id: "1200000010", field_data: [
+    { name: "nome_completo", values: ["Joana Lima"] }, { name: "número_de_telefone", values: ["+55 87 99111-3333"] },
+    { name: "endereço_de_email", values: ["joana@exemplo.com"] }, { name: "qual_a_sua_renda?", values: ["3 mil"] }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  l = leadPorTel(org, "5587991113333");
+  assert.equal(l.name, "Joana Lima");
+  assert.equal(l.email, "joana@exemplo.com");
+  assert.ok(!obs(l.id)[0].includes("número_de_telefone"), "o telefone não é repetido como resposta");
+
+  caso("O lead de TESTE da Meta (\"<test lead: dummy data…>\") entra, com nome de teste, mesmo sem telefone");
+  r = await postar(endA + "?portal=meta", { id: "1200000011", field_data: [
+    { name: "full_name", values: ["<test lead: dummy data for full_name>"] },
+    { name: "phone_number", values: ["<test lead: dummy data for phone_number>"] }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.novo, true);
+  assert.equal(db.prepare("SELECT name FROM leads WHERE meta_lead_id = ?").get("1200000011").name, "Lead de teste da Meta");
+
   caso("Sem telefone e sem e-mail é recusado com a razão escrita");
   r = await postar(endA + "?portal=meta", { full_name: "Ninguém", "qual_a_sua_renda?": "2 mil" });
   assert.equal(r.status, 400);
