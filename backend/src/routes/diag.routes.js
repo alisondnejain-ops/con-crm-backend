@@ -125,7 +125,11 @@ r.get("/integracoes", async (_req, res) => {
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: resumoDoWhatsapp(await instanceStatus(org?.id), master),
     meta: {
-      configurado: !!(process.env.META_VERIFY_TOKEN && process.env.META_PAGE_ACCESS_TOKEN),
+      /* "configurado" = a Meta consegue verificar e entregar avisos de lead.
+         Antes exigia o token da página antiga, e dizia "false" para quem só
+         usa o botão "Conectar com Facebook" — com tudo funcionando. */
+      configurado: !!(process.env.META_VERIFY_TOKEN && (process.env.META_PAGE_ACCESS_TOKEN || (process.env.META_APP_ID && process.env.META_APP_SECRET))),
+      pagina_antiga_do_servidor: !!process.env.META_PAGE_ACCESS_TOKEN,
       // O botão "Conectar com Facebook" (01/10/2026) precisa do ID e do segredo do aplicativo.
       botao_conectar: process.env.META_APP_ID && process.env.META_APP_SECRET
         ? "ligado" : "DESLIGADO (falta META_APP_ID e/ou META_APP_SECRET)",
