@@ -13342,6 +13342,29 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
    A ida ao Facebook é uma navegação de verdade: a pessoa sai do CRM e volta
    em /app?meta=... — RETORNO_META guarda o que voltou e limpa o endereço, para
    recarregar a página não repetir a conexão. */
+/* As marcas do Facebook e do Instagram, desenhadas como a Meta publica: o "f"
+   branco recortado no círculo, e o glifo da câmera sobre o degradê do
+   Instagram. É o que a pessoa reconhece de relance como "a janela oficial",
+   e um "f" escrito em fonte qualquer parecia imitação. */
+const AZUL_FACEBOOK="#0866FF";
+function LogoFacebook({size=20,cor=AZUL_FACEBOOK}){
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{flexShrink:0,display:"block"}}>
+    <path fill={cor} d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.971H15.83c-1.491 0-1.956.93-1.956 1.886v2.267h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
+  </svg>;
+}
+function LogoInstagram({size=20}){
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{flexShrink:0,display:"block"}}>
+    <defs><radialGradient id="conhub-ig" cx="30%" cy="107%" r="150%">
+      <stop offset="0" stopColor="#FDF497"/><stop offset=".05" stopColor="#FDF497"/>
+      <stop offset=".45" stopColor="#FD5949"/><stop offset=".6" stopColor="#D6249F"/><stop offset=".9" stopColor="#285AEB"/>
+    </radialGradient></defs>
+    <rect width="24" height="24" rx="6" fill="url(#conhub-ig)"/>
+    <rect x="5" y="5" width="14" height="14" rx="4.2" fill="none" stroke="#fff" strokeWidth="1.8"/>
+    <circle cx="12" cy="12" r="3.3" fill="none" stroke="#fff" strokeWidth="1.8"/>
+    <circle cx="16.3" cy="7.7" r="1.05" fill="#fff"/>
+  </svg>;
+}
+
 const RETORNO_META=(()=>{
   try{
     const q=new URLSearchParams(window.location.search); const m=q.get("meta");
@@ -13352,7 +13375,7 @@ const RETORNO_META=(()=>{
 })();
 let retornoMetaUsado=false;
 
-const dataCurta=(ms)=>ms?new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"";
+const dataHoraCurta=(ms)=>ms?new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"";
 
 function AnunciosDoMeta({acoes,isMobile}){
   const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [aviso,setAviso]=useState("");
@@ -13397,11 +13420,10 @@ function AnunciosDoMeta({acoes,isMobile}){
   }
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
   const botaoFace=(texto)=><button onClick={conectar} disabled={indo||!d.configurado}
-    style={{display:"inline-flex",alignItems:"center",gap:9,border:"none",borderRadius:10,minHeight:44,padding:"0 18px",
-      background:d.configurado?"#1877F2":C.faint,color:"#fff",fontSize:14,fontWeight:700,cursor:d.configurado&&!indo?"pointer":"default",
-      width:isMobile?"100%":"auto",justifyContent:"center"}}>
-    <span style={{width:20,height:20,borderRadius:"50%",background:"#fff",color:"#1877F2",display:"inline-flex",alignItems:"center",
-      justifyContent:"center",fontFamily:"Arial, sans-serif",fontWeight:900,fontSize:15,lineHeight:1,paddingTop:2}}>f</span>
+    style={{display:"inline-flex",alignItems:"center",gap:10,border:"none",borderRadius:8,minHeight:44,padding:"0 18px",
+      background:d.configurado?AZUL_FACEBOOK:C.faint,color:"#fff",fontFamily:"Helvetica, Arial, sans-serif",fontSize:14.5,fontWeight:700,
+      cursor:d.configurado&&!indo?"pointer":"default",width:isMobile?"100%":"auto",justifyContent:"center"}}>
+    <LogoFacebook size={22} cor="#fff"/>
     {indo?"Abrindo o Facebook…":texto}
   </button>;
 
@@ -13410,7 +13432,7 @@ function AnunciosDoMeta({acoes,isMobile}){
     {aviso&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{aviso}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
     {d&&<React.Fragment>
-      {escolha&&<div style={{...cartao,border:`2px solid #1877F2`}}>
+      {escolha&&<div style={{...cartao,border:`2px solid ${AZUL_FACEBOOK}`}}>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Escolha a página da sua imobiliária</div>
         <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>São as páginas que o seu Facebook administra. Marque a que roda os anúncios.</div>
         {escolha.paginas.length===0&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,background:C.amberSoft,borderRadius:10,padding:"10px 12px"}}>
@@ -13420,7 +13442,7 @@ function AnunciosDoMeta({acoes,isMobile}){
         <div style={{display:"flex",flexDirection:"column",gap:7}}>
           {escolha.paginas.map(p=>{
             const on=marcadas.includes(p.id);
-            return <label key={p.id} style={{display:"flex",alignItems:"center",gap:10,border:`1px solid ${on?"#1877F2":C.line}`,borderRadius:10,
+            return <label key={p.id} style={{display:"flex",alignItems:"center",gap:10,border:`1px solid ${on?AZUL_FACEBOOK:C.line}`,borderRadius:10,
               padding:"10px 12px",cursor:p.em_outra_conta?"default":"pointer",background:p.em_outra_conta?C.surface:C.card,opacity:p.em_outra_conta?.65:1,minHeight:44}}>
               <input type="checkbox" disabled={p.em_outra_conta} checked={on}
                 onChange={()=>setMarcadas(m=>on?m.filter(x=>x!==p.id):[...m,p.id])} style={{width:18,height:18}}/>
@@ -13444,7 +13466,10 @@ function AnunciosDoMeta({acoes,isMobile}){
       </div>}
 
       <div style={cartao}>
-        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Anúncios do Facebook e Instagram</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <LogoFacebook size={22}/><LogoInstagram size={22}/>
+          <span style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginLeft:2}}>Anúncios do Facebook e Instagram</span>
+        </div>
         <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:14}}>
           Conecte a página da imobiliária e todo lead dos anúncios de formulário entra aqui sozinho: vai para a atendente da vez,
           com as respostas do formulário na ficha e a campanha registrada.
@@ -13452,12 +13477,15 @@ function AnunciosDoMeta({acoes,isMobile}){
 
         {d.paginas.length===0?<React.Fragment>
           <ol style={{margin:"0 0 14px",paddingLeft:20,color:C.sub,fontSize:13,lineHeight:1.75}}>
-            <li>Clique em <b>Conectar com Facebook</b>.</li>
+            <li>Clique em <b>Continuar com o Facebook</b>.</li>
             <li>Entre com o Facebook de quem <b>administra a página</b> da imobiliária.</li>
             <li>Na janela do Facebook, deixe a página marcada e clique em <b>Continuar</b> até o fim.</li>
             <li>De volta aqui, escolha a página. Pronto.</li>
           </ol>
-          {botaoFace("Conectar com Facebook")}
+          {botaoFace("Continuar com o Facebook")}
+          <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
+            Os anúncios de cadastro do Instagram entram junto: eles ficam ligados à página do Facebook.
+          </div>
         </React.Fragment>:<React.Fragment>
           <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
             {d.paginas.map(p=><div key={p.page_id} style={{border:`1px solid ${p.ultimo_erro?C.amber+"88":C.line}`,borderRadius:10,padding:"10px 12px",
@@ -13466,11 +13494,11 @@ function AnunciosDoMeta({acoes,isMobile}){
                 <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
                   <span style={{color:C.greenDeep,display:"inline-flex"}}><Icon n="check" size={15}/></span>{p.nome||p.page_id}</div>
                 <div style={{color:C.faint,fontSize:11.5,marginTop:2,lineHeight:1.45}}>
-                  Conectada em {dataCurta(p.conectado_em)}{p.conectado_por?` por ${p.conectado_por}`:""} ·{" "}
-                  {p.ultimo_lead_em?`último lead em ${dataCurta(p.ultimo_lead_em)}`:"nenhum lead recebido ainda"}
+                  Conectada em {dataHoraCurta(p.conectado_em)}{p.conectado_por?` por ${p.conectado_por}`:""} ·{" "}
+                  {p.ultimo_lead_em?`último lead em ${dataHoraCurta(p.ultimo_lead_em)}`:"nenhum lead recebido ainda"}
                 </div>
                 {p.ultimo_erro&&<div style={{color:"#6b561a",fontSize:11.5,marginTop:4,lineHeight:1.45}}>
-                  Último problema ({dataCurta(p.ultimo_erro_em)}): {p.ultimo_erro}. Se continuar, clique em Conectar outra página e escolha esta de novo.
+                  Último problema ({dataHoraCurta(p.ultimo_erro_em)}): {p.ultimo_erro}. Se continuar, clique em Conectar outra página e escolha esta de novo.
                 </div>}
               </div>
               <button onClick={()=>desconectar(p)} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.sub,fontSize:12.5,cursor:"pointer",flexShrink:0}}>Desconectar</button>
