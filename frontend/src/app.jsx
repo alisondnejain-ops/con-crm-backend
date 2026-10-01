@@ -13548,11 +13548,15 @@ function AvisosDaMeta({avisos,paginas,aoAtualizar}){
       <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>O que a Meta mandou</span>
       <button onClick={aoAtualizar} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:600,cursor:"pointer",padding:"4px 0",minHeight:28}}>Atualizar</button>
     </div>
-    {avisos.ultimo_qualquer&&<div style={{fontSize:11.5,lineHeight:1.5,marginBottom:6,color:C.sub}}>
-      Último aviso da Meta (qualquer página, só você vê): <span style={{fontFamily:MONO,color:C.faint}}>{dataHoraCurta(avisos.ultimo_qualquer.em)}</span>{" · "}
-      <b style={{color:(RESULTADO_AVISO[avisos.ultimo_qualquer.resultado]||[])[1]||C.sub}}>
-        {avisos.ultimo_qualquer.resultado==="sem_conta"?"chegou e a assinatura passou (página de teste)":(RESULTADO_AVISO[avisos.ultimo_qualquer.resultado]||[avisos.ultimo_qualquer.resultado])[0]}
-      </b>
+    {avisos.ultimos&&avisos.ultimos.length>0&&<div style={{fontSize:11.5,lineHeight:1.5,marginBottom:8,color:C.sub}}>
+      <div style={{fontWeight:600,marginBottom:2}}>Últimos avisos da Meta, de qualquer página (só você vê):</div>
+      {avisos.ultimos.map((a,i)=>{const [t,cor]=a.resultado==="sem_conta"?["chegou e a assinatura passou — página não conectada",C.amber]
+          :a.resultado==="outro_campo"?["outro tipo de aviso (não é lead)",C.faint]:(RESULTADO_AVISO[a.resultado]||[a.resultado,C.sub]);
+        return <div key={i} style={{padding:"2px 0"}}>
+          <span style={{fontFamily:MONO,color:C.faint}}>{dataHoraCurta(a.em)}</span>{" · "}
+          <b style={{color:cor}}>{t}</b>
+          <span style={{color:C.faint}}> · página {a.page_id||"?"}{a.conectada?" (conectada)":""}{a.detalhe?` · ${a.detalhe}`:""}</span>
+        </div>;})}
     </div>}
     {avisos.lista.length===0
       ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>

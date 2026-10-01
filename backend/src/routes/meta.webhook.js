@@ -73,9 +73,15 @@ function registrar(pageIds, resultado, detalhe) {
 export function avisosDaMeta(pageIds, master = false) {
   const meus = new Set(pageIds.map(String));
   const ultimo = AVISOS[0];
+  const conectadas = master ? new Set(db.prepare("SELECT page_id FROM meta_paginas").all().map(x => x.page_id)) : null;
   return {
     desde: iniciadoEm,
     ultimo_qualquer: master && ultimo ? { em: ultimo.em, resultado: ultimo.resultado } : null,
+    // Para o master: os últimos avisos de QUALQUER página, com o id e se é de
+    // uma página conectada — é o que separa "a Meta manda da página errada"
+    // de "a Meta não manda".
+    ultimos: master ? AVISOS.slice(0, 8).map(a => ({ em: a.em, page_id: a.page_id, resultado: a.resultado, detalhe: a.detalhe,
+      conectada: conectadas.has(a.page_id) })) : undefined,
     lista: AVISOS.filter(a => meus.has(a.page_id)).slice(0, 10),
   };
 }
@@ -114,14 +120,16 @@ async function destinoDoLead(pageId) {
 r.post("/meta", async (req, res) => {
   if (!assinaturaConfere(req)) {
     console.warn("[meta] webhook recusado: assinatura não confere (confira META_APP_SECRET)");
-    registrar(paginasDoCorpo(req.body), "assinatura");
+    registrar(paginasDoCorpo(req.body), "assinatura",
+      `${req.rawBody ? "corpo de " + req.rawBody.length + " bytes" : "sem corpo cru"} · ${String(req.get("content-type") || "sem tipo").slice(0, 60)}` +
+      ` · ${String(req.get("x-hub-signature-256") || "").startsWith("sha256=") ? "com assinatura" : "SEM assinatura"}`);
     return res.sendStatus(401);
   }
   res.sendStatus(200); // responde rápido; processa depois
   try {
     for (const entry of req.body.entry || []) {
       for (const change of entry.changes || []) {
-        if (change.field !== "leadgen") continue;
+        if (change.field !== "leadgen") { registrar([String(entry.id || "")], "outro_campo", String(change.field || "?")); continue; }
         const leadgenId = change.value?.leadgen_id;
         const pageId = String(change.value?.page_id || entry.id || "");
         if (!leadgenId || !pageId) continue;
