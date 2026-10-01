@@ -39,7 +39,20 @@ const SELECT_LEAD = `
     (SELECT m.body FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
     (SELECT m.direction FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_direction,
     (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
-    (SELECT u.name FROM users u WHERE u.id = l.assigned_to) AS assigned_name
+    (SELECT u.name FROM users u WHERE u.id = l.assigned_to) AS assigned_name,
+    /* PEDIU CONTATO E NINGUÉM FALOU COM ELE (01/10/2026). O lead do formulário
+       do anúncio e do portal nasce SEM mensagem — o cliente pediu contato fora
+       do WhatsApp. Sem mensagem não há "não lida", e a lista punha esse lead
+       abaixo de todas as conversas com mensagem por ler: numa casa com
+       centenas delas, o lead que acabou de pagar anúncio sumia. Conta como
+       esperando até a primeira mensagem enviada ou a primeira ligação. Sete
+       dias de janela: lead antigo que ninguém contatou é assunto da Base de
+       leads, não do topo da caixa de hoje. */
+    CASE WHEN l.source IN ('meta','portal') AND l.closed_at IS NULL
+          AND l.created_at > CAST(strftime('%s','now') AS INTEGER) * 1000 - 604800000
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id AND m.direction = 'out')
+          AND NOT EXISTS (SELECT 1 FROM ligacoes g WHERE g.lead_id = l.id)
+         THEN 1 ELSE 0 END AS aguarda_contato
   FROM leads l`;
 
 const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread: l.unread || 0 });
@@ -55,7 +68,7 @@ const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
   "last_interaction_at", "custom_fields", "campaign_name", "ad_name", "platform", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
-  "sugestao_etapa"];
+  "sugestao_etapa", "aguarda_contato"];
 const enxuto = (l) => {
   const o = {};
   // Nulo vai como nulo, e não omitido: `adaptLead` lê "não veio" como "use o

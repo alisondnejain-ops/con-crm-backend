@@ -148,6 +148,8 @@ function adaptLead(l,anterior){
     campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
+    // Pediu contato pelo anúncio ou portal e ninguém falou com ele ainda (ver esperandoContato).
+    aguardaContato:l.aguarda_contato!==undefined?!!l.aguarda_contato:(anterior?anterior.aguardaContato:false),
     finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
     // Pedido de atenção da gestão. Fica na ficha até o corretor dar o "vi".
     cutucadoEm:l.cutucado_em||null, cutucadoRecado:l.cutucado_recado||null,
@@ -625,6 +627,13 @@ const ageColor=(ms)=>{const m=ms/60000;return m<2?C.green:m<10?C.amber:C.hot;};
    corretor senta para atender. */
 const NOVO_NA_MAO=24*3600000;
 const chegouAgora=(l)=>!!l.assignedAt&&(Date.now()-l.assignedAt)<NOVO_NA_MAO;
+/* "Tem cliente esperando" (01/10/2026). Era só mensagem não lida — e o lead do
+   formulário do anúncio e do portal nasce SEM mensagem: ele pediu contato fora
+   do WhatsApp. Ficava abaixo de todas as conversas com mensagem por ler, e numa
+   caixa de centenas sumia. Quem decide `aguardaContato` é o servidor (até a
+   primeira mensagem enviada ou ligação). Uma regra só para ordenar, filtrar
+   "aguardando" e pintar o item. */
+const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
 const first=(n)=>String(n||"").split(" ")[0];
@@ -5379,7 +5388,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
      mensagem do cliente sem resposta é o primeiro de todos. */
   const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
     .sort((a,b)=>{
-      const topo=(l)=>(chegouAgora(l)?2:0)+(l.unread>0?1:0);
+      const topo=(l)=>(chegouAgora(l)?2:0)+(esperandoContato(l)?1:0);
       return topo(b)-topo(a)
         // Entre os recém-chegados, o mais recente primeiro.
         ||(chegouAgora(a)&&chegouAgora(b)?b.assignedAt-a.assignedAt:0)
@@ -5480,7 +5489,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
 
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
   // finalizado não pode ficar cobrando resposta.
-  const naoLidas=myLeads.reduce((s,l)=>s+(l.unread>0&&!l.finalizado?1:0),0);
+  const naoLidas=myLeads.reduce((s,l)=>s+(esperandoContato(l)&&!l.finalizado?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
   const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
 
@@ -6038,7 +6047,7 @@ function SeloDaLinha({linha,grande}){
 }
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
-  const naoLida=l.unread>0, quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
+  const naoLida=esperandoContato(l), quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
@@ -6059,7 +6068,7 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
       </div>
     </div>
     <span style={{color:naoLida?C.ink:C.faint,fontWeight:naoLida?500:400,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-      {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:"Novo lead — sem contato"}
+      {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:l.aguardaContato?`Pediu contato · ${l.origem}`:"Novo lead — sem contato"}
     </span>
     <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
       {/* Lead que acabou de ser repassado tem que se anunciar. Sem isto ele
@@ -6073,7 +6082,7 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
       <span style={{flex:1}}/>
-      {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread}</span>}
+      {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread>0?l.unread:"novo"}</span>}
     </div>
   </button>;
 }
@@ -7073,7 +7082,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     // os outros filtros valem dentro da que estiver aberta.
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
-    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?l.unread>0:l.prio===filter.toUpperCase())
+    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?esperandoContato(l):l.prio===filter.toUpperCase())
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
 
        Até 02/09/2026 a última condição era `soNumeros(l.tel).includes(soNumeros(t))`,
@@ -7103,7 +7112,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     })
     .filter(l=>fEtapa?l.status===fEtapa:true)
     .filter(l=>fPrio?l.prio===fPrio:true)
-    .filter(l=>esperando?l.unread>0:true)
+    .filter(l=>esperando?esperandoContato(l):true)
     .filter(l=>{
       if(!de&&!ate) return true;
       const q=l.createdAt||0;
@@ -8762,12 +8771,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   // cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
   const visiveis=useMemo(()=>lista
     .filter(l=>rapido==="Meus"?l.assignedTo===session.id:true)
-    .filter(l=>esperando?l.unread>0:true)
+    .filter(l=>esperando?esperandoContato(l):true)
     // A linha só peneira quando existe uma segunda: sem número pessoal ligado,
     // "da imobiliária" seria a caixa inteira com outro nome.
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
-    .sort((a,b)=>(b.unread>0)-(a.unread>0)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero]);
+    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero]);
   const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
