@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { filaDaVez, pegarProximo, marcarQueRecebeu } from "../services/rodizio.js";
 import db from "../db.js";
+import { vezDasAtendentes } from "../services/catraca.js";
 import { authRequired, roles, semMaster } from "../auth.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { trocarResponsavel } from "../services/movimento.js";
@@ -31,23 +32,21 @@ r.get("/attendants", roles("sdr", "adm"), (req, res) => {
 });
 
 // Catraca dos ATENDENTES — só o gestor. É a fila de quem recebe os leads que
-// entram, com quantos cada uma já pegou e quem é a próxima da vez. Com uma
-// atendente só, a lista tem uma linha; a tela existe para quando entrar a segunda.
+// entram, com quantos cada uma já pegou e quem é a próxima da vez — a MESMA
+// conta da catraca (`vezDasAtendentes`), senão a tela diria um nome e o lead
+// cairia em outro. `ia: true` = nenhuma ativa, e a IA está cobrindo.
 r.get("/atendentes", roles("adm"), (req, res) => {
-  const fila = db.prepare(
-    `SELECT u.id,u.name,u.available,u.status FROM users u WHERE u.org_id = ? AND u.role = 'sdr' AND u.status = 'ativo'${semMaster("u")} ORDER BY u.created_at, u.name`
-  ).all(req.user.org_id);
-  const org = db.prepare("SELECT atendente_ptr FROM orgs WHERE id = ?").get(req.user.org_id);
-  const ptr = (org && org.atendente_ptr) || 0;
+  const vez = vezDasAtendentes(req.user.org_id);
   const emAberto = db.prepare(
     "SELECT COUNT(*) n FROM leads WHERE assigned_to = ? AND closed_at IS NULL AND stage NOT IN ('Venda','Perdido')"
   );
   res.json({
-    proximo: fila.length ? fila[ptr % fila.length].id : null,
-    atendentes: fila.map((u, i) => ({
+    proximo: vez.proximo,
+    ia_cobrindo: vez.ia,
+    atendentes: vez.ordem.map(u => ({
       ...u,
       available: !!u.available,
-      proximo_da_vez: fila.length ? i === ptr % fila.length : false,
+      proximo_da_vez: u.id === vez.proximo,
       em_aberto: emAberto.get(u.id).n,
     })),
   });

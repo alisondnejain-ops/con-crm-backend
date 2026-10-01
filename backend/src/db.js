@@ -819,6 +819,7 @@ addOrgCol("robo_sempre", "INTEGER");
    disponíveis muda o dia inteiro. Guardando QUEM recebeu, a fila só anda
    quando alguém de fato recebe. */
 addOrgCol("rodizio_ultimo", "TEXT");
+addOrgCol("atendente_ultimo", "TEXT");   // a vez das atendentes (services/catraca.js)
 
 /* A MARCA DA IMOBILIÁRIA (white-label).
 

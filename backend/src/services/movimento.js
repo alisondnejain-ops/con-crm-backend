@@ -31,7 +31,7 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { moverEtapa, camposQueFaltam } from "./etapas.js";
-import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId } from "./pipelines.js";
+import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
 import { pegarProximo, marcarQueRecebeu } from "./rodizio.js";
 
 /* Resolve o destino aceitando nome OU id.
@@ -238,7 +238,9 @@ function mudarParaOFunilDe(lead, userId, quemMandou) {
      vez, por cima da escolha explícita que o passo 1 acabou de fazer. */
   const pipelineAtualId = db.prepare("SELECT pipeline_id FROM leads WHERE id = ?").get(lead.id)?.pipeline_id;
   const entrada = entradaDe(lead.org_id, userId);
-  const saiuDoSdr = !!(pipelineAtualId && pipelinePorId(lead.org_id, pipelineAtualId)?.type === "sdr");
+  // SDR é o do modelo OU o que a atendente escolheu como entrada (01/10/2026):
+  // funil de pré-atendimento montado do zero também é SDR.
+  const saiuDoSdr = ehFunilDeSdr(lead.org_id, pipelineAtualId);
   if (!entrada.proprio && !saiuDoSdr) return null;          // não escolheu funil, e não estava preso no SDR
   if (entrada.pipeline_id === pipelineAtualId) return null; // já está nele
   if (!entrada.stage_id) return null;                       // funil sem etapa ativa
