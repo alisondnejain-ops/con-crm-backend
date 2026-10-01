@@ -340,32 +340,77 @@ export function lerLead(b, portalDoEndereco) {
   };
 }
 
+/* Telefone, e-mail e nome são procurados em três passos, porque cada
+   formulário chama o campo de um jeito (01/10/2026, primeiro lead real:
+   "chegou sem telefone e sem e-mail" num formulário que tinha os dois).
+   1. o nome padrão da Meta (`phone_number`, `email`, `full_name`);
+   2. qualquer campo cujo NOME contenha a palavra (`numero_de_telefone`,
+      `telefone_whatsapp`, `seu_e-mail`), sem acento;
+   3. pelo VALOR: o que tem forma de e-mail é e-mail, e o que tem de 10 a 13
+      dígitos é telefone. */
+const semAcentoChave = (k) => String(k).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, "_");
+const PARECE_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const pareceTelefone = (v) => /^[+\d\s().-]+$/.test(String(v)) && (() => { const d = String(v).replace(/\D/g, ""); return d.length >= 10 && d.length <= 13; })();
+// O lead da "Ferramenta de teste de anúncios de cadastro" da Meta vem com
+// valores como "<test lead: dummy data for phone_number>".
+const DE_TESTE = /<\s*test lead/i;
+
 function lerLeadDoFormulario(b) {
   const campos = respostasDoFormulario(b);
-  // Chave sem acento e minúscula: o Zapier escreve "Full Name" ou "full_name"
-  // conforme a pessoa monta, e os dois são o mesmo campo.
   const porChave = {};
-  for (const [k, v] of Object.entries(campos)) porChave[k.toLowerCase().replace(/\s+/g, "_")] = v;
-  const um = (...ks) => { for (const k of ks) if (porChave[k]) return porChave[k]; return ""; };
+  for (const [k, v] of Object.entries(campos)) porChave[semAcentoChave(k)] = v;
+  const usadas = new Set();
+  const um = (...ks) => { for (const k of ks) if (porChave[k]) { usadas.add(k); return porChave[k]; } return ""; };
+  // Só entre os campos que podem ser do cliente — "campaign_name" contém
+  // "name" e não é o nome de ninguém.
+  const candidatas = Object.keys(porChave).filter(k => !NAO_E_RESPOSTA.has(k) && !k.startsWith("raw_") && !k.startsWith("zap_"));
+  const peloNome = (teste, ...frags) => {
+    for (const f of frags) {
+      const k = candidatas.find(k => !usadas.has(k) && k.includes(f) && porChave[k] && teste(porChave[k]));
+      if (k) { usadas.add(k); return porChave[k]; }
+    }
+    return "";
+  };
+  const peloValor = (teste) => {
+    const k = candidatas.find(k => !usadas.has(k) && teste(porChave[k]));
+    if (k) { usadas.add(k); return porChave[k]; }
+    return "";
+  };
+  const qualquer = () => true;
 
+  let tel = um("phone_number", "phone", "telefone", "celular", "whatsapp", "fone")
+    || peloNome(qualquer, "telefone", "phone", "celular", "whatsapp", "fone", "contato")
+    || peloValor(pareceTelefone);
+  let email = um("email", "e-mail", "e_mail")
+    || peloNome(qualquer, "email", "e-mail", "e_mail")
+    || peloValor(v => PARECE_EMAIL.test(String(v)));
   let nome = um("full_name", "nome_completo", "name", "nome");
   if (!nome) nome = [um("first_name"), um("last_name")].filter(Boolean).join(" ");
-  const tel = um("phone_number", "phone", "telefone", "celular", "whatsapp", "fone");
+  if (!nome) nome = peloNome(qualquer, "nome", "name");
+
+  const teste = Object.values(campos).some(v => DE_TESTE.test(String(v)));
+  const telefone = tel && !DE_TESTE.test(tel) ? normalizePhone(tel) : "";
+  if (DE_TESTE.test(email) || !PARECE_EMAIL.test(email)) email = "";
+  if (DE_TESTE.test(nome)) nome = "";
 
   const respostas = {};
   for (const [k, v] of Object.entries(campos)) {
-    const kk = k.toLowerCase().replace(/\s+/g, "_");
-    if (NAO_E_RESPOSTA.has(kk) || kk.startsWith("raw_") || kk.startsWith("zap_")) continue;
+    const kk = semAcentoChave(k);
+    if (NAO_E_RESPOSTA.has(kk) || usadas.has(kk) || kk.startsWith("raw_") || kk.startsWith("zap_")) continue;
     if (Object.keys(respostas).length >= 30) break;
     respostas[k] = String(v).slice(0, 500);
   }
   return {
     portal: META,
     formulario: true,
+    teste,
+    // Só os NOMES dos campos, para o diagnóstico dizer o que veio quando
+    // nada foi reconhecido — nunca os valores.
+    campos: Object.keys(campos).slice(0, 30),
     externo: um("id", "leadgen_id", "lead_id", "leadid"),
-    nome: nome.slice(0, 120),
-    email: um("email", "e-mail").slice(0, 160),
-    telefone: tel ? normalizePhone(tel) : "",
+    nome: String(nome || (teste ? "Lead de teste da Meta" : "")).slice(0, 120),
+    email: String(email).slice(0, 160),
+    telefone,
     mensagem: um("message", "mensagem", "comentario").slice(0, 2000),
     codigo: "",
     respostas,
@@ -382,7 +427,11 @@ function lerLeadDoFormulario(b) {
 
 export function receberLead(orgId, dados) {
   const { portal, externo, nome, email, telefone, mensagem, codigo, formulario, respostas, qual, anuncio } = dados;
-  if (!telefone && !email) return { ok: false, status: 400, erro: "O lead chegou sem telefone e sem e-mail — não há como falar com ele." };
+  /* O lead de TESTE da Meta não tem telefone de verdade, e mesmo assim tem
+     que entrar: é ele que mostra a quem está ligando a integração que ela
+     funciona. Ele entra com o nome "Lead de teste da Meta" e é casado só
+     pelo id da Meta, nunca por telefone. */
+  if (!telefone && !email && !dados.teste) return { ok: false, status: 400, erro: "O lead chegou sem telefone e sem e-mail — não há como falar com ele." };
 
   if (externo) {
     const ja = db.prepare("SELECT lead_id FROM portais_leads WHERE org_id = ? AND portal = ? AND externo_id = ?").get(orgId, portal, externo);

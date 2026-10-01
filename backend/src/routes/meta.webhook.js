@@ -149,8 +149,11 @@ r.post("/meta", async (req, res) => {
           const dados = await buscarLead(leadgenId, destino.token);
           // O MESMO caminho do lead que chega pelo Zapier/Make: catraca, funil
           // de quem recebe, ficha, observação com as respostas e campanha.
-          const out = receberLead(destino.orgId, lerLead(dados, "meta"));
-          if (!out.ok) throw new Error(out.erro);
+          const lido = lerLead(dados, "meta");
+          const out = receberLead(destino.orgId, lido);
+          // Quando nada foi reconhecido, os NOMES dos campos que vieram (nunca
+          // os valores) dizem na tela qual campo do formulário faltou ler.
+          if (!out.ok) throw new Error(out.erro + (lido.campos?.length ? ` Campos que vieram: ${lido.campos.join(", ")}.` : ""));
           if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_lead_em = ?, ultimo_erro = NULL WHERE page_id = ?").run(Date.now(), pageId);
           console.log(`[meta] lead entregue (página ${pageId})`);
           registrar([pageId], "entregue");
