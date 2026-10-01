@@ -1137,6 +1137,24 @@ for (const [col, tipo] of [
    (é só leitura dos anúncios que a casa já publica); o dos LEADS abre a
    porta de ESCRITA — com ele se cria lead na conta. Um só token faria de
    quem viu o endereço do feed alguém capaz de encher o CRM de lead falso. */
+/* PÁGINAS DO FACEBOOK CONECTADAS PELO BOTÃO "Conectar com Facebook"
+   (01/10/2026). `page_id` é a CHAVE: uma página pertence a UMA conta do
+   ConHub, e é por ela que o lead de formulário que a Meta avisa encontra a
+   imobiliária certa. Lead de página que não está aqui não é entregue a
+   ninguém (exceto a página antiga da instalação, ver meta.webhook.js).
+   `page_token` vai fechado pelo cofre quando a CRYPTO_KEY existe. */
+db.exec(`CREATE TABLE IF NOT EXISTS meta_paginas (
+  page_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT,
+  page_token TEXT NOT NULL,
+  conectado_por TEXT,
+  conectado_em INTEGER NOT NULL,
+  ultimo_lead_em INTEGER,
+  ultimo_erro TEXT,
+  ultimo_erro_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_org ON meta_paginas(org_id)");
 db.exec(`CREATE TABLE IF NOT EXISTS portais_config (
   org_id TEXT PRIMARY KEY,
   token_feed TEXT UNIQUE NOT NULL,

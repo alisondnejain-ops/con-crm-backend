@@ -24,6 +24,7 @@ import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
+import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./routes/meta-conexao.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
@@ -351,6 +352,7 @@ app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
+app.use("/anuncios-meta", cobrando, metaConexaoGestao); // "Conectar com Facebook" (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
 app.use("/marketing", cobrando, marketingRoutes); // Marketing: termo, listas, bloqueio, número de disparo (só gestor)
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
@@ -393,6 +395,9 @@ app.use("/webhooks", whatsappOficialWebhook);   // GET/POST /webhooks/whatsapp-o
 /* Portais de imóveis: o portal LÊ o feed e ENTREGA o lead, sem login nenhum —
    quem identifica a imobiliária é o token do endereço (um para cada porta). */
 app.use("/webhooks", portaisWebhook);           // POST /webhooks/portais/:token (lead do ZAP, VivaReal, OLX…)
+/* A janela do Facebook devolve a pessoa por uma navegação comum, SEM o crachá:
+   esta rota confere o `state` assinado em vez do login. */
+app.use("/conectar-facebook", metaConexaoRetorno); // GET /conectar-facebook/retorno
 app.use("/feeds", portaisFeeds);                // GET /feeds/:token/zap.xml e /chavesnamao.xml
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/orgs", orgsRoutes);         // hub de contas (só o master)

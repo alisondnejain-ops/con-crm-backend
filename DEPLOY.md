@@ -240,6 +240,30 @@ Com a URL pública em mãos:
 
 Detalhes em `backend/README.md`.
 
+### Botão "Conectar com Facebook" (anúncios de formulário de cada cliente)
+
+Cada imobiliária conecta a própria página em Configurações → Anúncios do Meta.
+Para o botão funcionar, o aplicativo do ConHub na Meta precisa estar pronto:
+
+1. **developers.facebook.com → Meus apps**: use o app que já recebe os leads
+   da Conecta (o do `META_APP_SECRET`).
+2. **Login do Facebook → Configurações → URIs de redirecionamento do OAuth
+   válidos**: `https://www.conhubcrm.com.br/conectar-facebook/retorno`.
+   Se o app for do tipo Empresa ("Login do Facebook para Empresas"), crie uma
+   configuração com as permissões abaixo e ponha o ID dela em `META_CONFIG_ID`.
+3. **Webhooks → Page**: `https://www.conhubcrm.com.br/webhooks/meta`, com o
+   `META_VERIFY_TOKEN`, campo `leadgen` assinado.
+4. **No Railway**: `META_APP_ID` e `META_APP_SECRET` (Configurações → Básico do app).
+5. **Verificação da empresa** (Configurações do negócio → Central de segurança).
+6. **Análise do app** — acesso avançado para `pages_show_list`,
+   `pages_read_engagement`, `pages_manage_metadata`, `leads_retrieval`,
+   `business_management` e `ads_read`, com o vídeo do botão funcionando.
+7. App em modo **Ao vivo**.
+
+Antes da aprovação o botão só funciona para quem tem função no app
+(administrador, desenvolvedor ou testador). Conferência: `SITE/integracoes` →
+`meta.botao_conectar`.
+
 ---
 
 ## Cópia de segurança do banco
