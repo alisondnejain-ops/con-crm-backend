@@ -138,6 +138,10 @@ r.get("/", (req, res) => {
      inteira. Uma por card deixaria a tela que recarrega de 10 em 10 segundos
      fazendo centenas de consultas — o custo que os índices de 27/08 vieram
      justamente tirar. */
+  /* `is_active`, e não `active` (02/10/2026): a coluna nunca se chamou
+     `active`, e esta consulta derrubava TODA importação com erro 500 desde
+     01/09/2026 — o aviso aparecia no topo da Base de leads, longe do botão, e
+     do lado de quem usa parecia que os leads simplesmente não subiam. */
   const etapasDaCasa = new Map(db.prepare(
     "SELECT * FROM pipeline_stages WHERE org_id = ?").all(org_id)
     .map(e => [e.id, formatarEtapa(e)]));
@@ -400,7 +404,7 @@ function dataBR(valor) {
 }
 
 r.post("/import", roles("adm"), (req, res) => {
-  const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo } = req.body || {};
+  const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo, previa } = req.body || {};
   if (!Array.isArray(linhas) || !linhas.length)
     return res.status(400).json({ error: "Nenhuma linha recebida." });
   if (linhas.length > 5000)
@@ -426,8 +430,16 @@ r.post("/import", roles("adm"), (req, res) => {
 
   const TEMPERATURAS = ["QUENTE", "MORNO", "FRIO"];
   const importId = "imp_" + randomUUID();
-  const resultado = { criados: 0, ignorados: 0, motivos: {}, import_id: importId };
-  const anota = (motivo) => { resultado.ignorados++; resultado.motivos[motivo] = (resultado.motivos[motivo] || 0) + 1; };
+  const resultado = { criados: 0, ignorados: 0, motivos: {}, import_id: previa ? null : importId, exemplos: [] };
+  /* `exemplos`: as primeiras linhas que ficaram de fora, com o valor que veio
+     na coluna de telefone. "500 sem telefone válido" não diz o que fazer;
+     "5,58799E+12" diz — é o Excel que transformou o número em notação
+     científica. Só o telefone e o nome, nada além do que está na planilha. */
+  const anota = (motivo, l) => {
+    resultado.ignorados++; resultado.motivos[motivo] = (resultado.motivos[motivo] || 0) + 1;
+    if (resultado.exemplos.length < 5)
+      resultado.exemplos.push({ nome: String(l.nome || "").trim().slice(0, 60), telefone: String(l.telefone || "").trim().slice(0, 30), motivo });
+  };
 
   /* O LEAD IMPORTADO PRECISA NASCER LIGADO AO FUNIL.
 
@@ -442,7 +454,7 @@ r.post("/import", roles("adm"), (req, res) => {
      nome da etapa — mas só no próximo reinício do servidor. Entre a
      importação e ele, o gestor sobe a base e não a encontra em lugar nenhum. */
   const etapasDaCasa = new Map(
-    db.prepare("SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND active = 1").all(req.user.org_id)
+    db.prepare("SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND is_active = 1").all(req.user.org_id)
       .map(e => [e.name, e]));
   const entradaDaCasa = entradaPadrao(req.user.org_id);
 
@@ -451,16 +463,29 @@ r.post("/import", roles("adm"), (req, res) => {
      pipeline_id,stage_id,stage_entered_at)
     VALUES (?,?,?,?,?,?,?,'{}',?,?,?,?,?,?,?)`);
 
+  /* PRÉVIA (02/10/2026): `previa: true` faz a MESMA conferência, linha a
+     linha, e não grava nada. É o que o popup de conferência mostra antes do
+     botão — "480 vão entrar, 20 ficam de fora, e por quê". Uma regra só: se
+     a prévia fosse uma conta à parte, ela diria um número e a importação
+     faria outro. */
+  const naPlanilha = new Set();
   const importar = db.transaction((lista) => {
     for (const l of lista) {
       const phone = normalizePhone(String(l.telefone || "").trim());
-      if (!phone) { anota("sem telefone válido"); continue; }
+      /* Menos de 10 dígitos não é celular nem fixo com DDD: um lead com
+         telefone "123" entraria no funil e no relatório como atendimento. */
+      if (!phone || phone.replace(/\D/g, "").length < 10) { anota("sem telefone válido", l); continue; }
+      if (naPlanilha.has(phone)) { anota("telefone repetido na planilha", l); continue; }
+      naPlanilha.add(phone);
       if (db.prepare("SELECT 1 FROM leads WHERE org_id=? AND phone=?").get(req.user.org_id, phone)) {
-        anota("telefone já cadastrado"); continue;
+        anota("telefone já cadastrado", l); continue;
       }
       const etapa = STAGES.includes(l.etapa) ? l.etapa : "Lead";
+      /* Sem temperatura na planilha, o lead entra SEM temperatura — a regra
+         de 16/08/2026 ("nenhum caminho de entrada marca temperatura") valia
+         para tudo menos para esta rota, que ainda preenchia MORNO. */
       const temperatura = TEMPERATURAS.includes(String(l.temperatura || "").toUpperCase())
-        ? String(l.temperatura).toUpperCase() : "MORNO";
+        ? String(l.temperatura).toUpperCase() : null;
       /* Dono: primeiro o que o gestor decidiu na tela; se ele não decidiu
          aquele nome, o acerto exato pelo nome da equipe; senão, fila. */
       const chave = String(l.corretor || "").trim().toLowerCase();
@@ -474,6 +499,7 @@ r.post("/import", roles("adm"), (req, res) => {
          é onde ele some. */
       const noFunil = etapasDaCasa.get(etapa);
       const quando = isFinite(entrada) ? entrada : Date.now();
+      if (previa) { resultado.criados++; continue; }
       inserir.run("l_" + randomUUID(), req.user.org_id,
         String(l.nome || "Sem nome").trim().slice(0, 120), phone,
         String(l.email || "").trim() || null,
@@ -488,7 +514,12 @@ r.post("/import", roles("adm"), (req, res) => {
       resultado.criados++;
     }
   });
+  if (previa) {
+    importar(linhas);   // a mesma conferência, sem gravar nada
+    return res.json(resultado);
+  }
   importar(linhas);
+  if (!resultado.criados) return res.json(resultado);
 
   db.prepare(`INSERT INTO importacoes (id,org_id,rotulo,origem,arquivo,total,criados,criado_por,created_at)
               VALUES (?,?,?,?,?,?,?,?,?)`).run(importId, req.user.org_id,
