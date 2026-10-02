@@ -10463,12 +10463,18 @@ const COLUNAS={
   corretor:["corretor","responsavel","responsável","vendedor","consultor"],
   entrou_em:["entrou","data","criado","cadastro"],
 };
+/* A ORDEM IMPORTA (02/10/2026). "nome" casava primeiro, e os apelidos dele
+   ("cliente", "lead", "contato") aparecem dentro de outros cabeçalhos:
+   "Telefone do cliente" virava a coluna de NOME, e a importação dizia que não
+   havia telefone; "Nome do corretor" virava o nome do lead. Agora o campo mais
+   específico é conferido antes, e "nome" fica por último. */
+const ORDEM_COLUNAS=["telefone","email","corretor","origem","etapa","temperatura","entrou_em","nome"];
 function mapearColunas(cabecalho){
   const mapa={};
   cabecalho.forEach((titulo,i)=>{
     const t=String(titulo).trim().toLowerCase();
-    for(const [campo,apelidos] of Object.entries(COLUNAS))
-      if(mapa[campo]===undefined&&apelidos.some(a=>t.includes(a))){mapa[campo]=i;break;}
+    for(const campo of ORDEM_COLUNAS)
+      if(mapa[campo]===undefined&&COLUNAS[campo].some(a=>t.includes(a))){mapa[campo]=i;break;}
   });
   return mapa;
 }
@@ -11473,6 +11479,184 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
   </div>;
 }
 
+/* ===== CONFERIR A IMPORTAÇÃO (popup, 02/10/2026) =====
+   Pedido do Ali: a conferência morava numa seção no fim da Base de leads, e o
+   resultado e os erros apareciam no TOPO da página — quem clicava em importar
+   lá embaixo não via nada acontecer e concluía que os leads não tinham subido.
+   Agora é um popup: as colunas, os corretores, a PRÉVIA do servidor ("480 vão
+   entrar, 20 ficam de fora, e por quê") e o resultado, tudo no mesmo lugar. */
+const CAMPOS_IMPORTACAO=[["telefone","Telefone",true],["nome","Nome"],["email","E-mail"],["corretor","Corretor"],
+  ["origem","Origem"],["etapa","Etapa"],["temperatura","Temperatura"],["entrou_em","Data de entrada"]];
+function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}){
+  const [mapa,setMapa]=useState(arquivo.mapa);
+  const [rotulo,setRotulo]=useState(arquivo.rotulo);
+  const [origem,setOrigem]=useState("");
+  const [casar,setCasar]=useState({});
+  const [previa,setPrevia]=useState(null);
+  const [lendo,setLendo]=useState(true);
+  const [erro,setErro]=useState("");
+  const [subindo,setSubindo]=useState(false);
+  const [feito,setFeito]=useState(null);
+  const [colunasAbertas,setColunasAbertas]=useState(arquivo.mapa.telefone===undefined);
+
+  const dados=useMemo(()=>{
+    const pegar=(l,c)=>mapa[c]===undefined?"":(l[mapa[c]]??"");
+    return arquivo.linhas.map(l=>Object.fromEntries(CAMPOS_IMPORTACAO.map(([c])=>[c,pegar(l,c)])));
+  },[arquivo,mapa]);
+  const nomes=useMemo(()=>[...new Set(dados.map(d=>String(d.corretor||"").trim()).filter(Boolean))].sort(),[dados]);
+  // Nome igual ao da equipe já vem ligado; o resto o gestor escolhe.
+  useEffect(()=>{ setCasar(c=>{ const n={};
+    for(const x of nomes){ const igual=pessoas.find(p=>p.name.trim().toLowerCase()===x.toLowerCase());
+      n[x]=c[x]!==undefined?c[x]:(igual?igual.id:""); }
+    return n; }); },[nomes,pessoas]);
+
+  const semTelefone=mapa.telefone===undefined;
+  useEffect(()=>{
+    if(semTelefone){ setPrevia(null); setLendo(false); return; }
+    let vivo=true; setLendo(true); setErro("");
+    const t=setTimeout(()=>acoes.importarLeads({linhas:dados,previa:true})
+      .then(r=>vivo&&setPrevia(r)).catch(e=>vivo&&setErro(e.message)).finally(()=>vivo&&setLendo(false)),300);
+    return()=>{vivo=false;clearTimeout(t);};
+  },[dados,semTelefone]);
+  useEffect(()=>{ const k=e=>{ if(e.key==="Escape"&&!subindo) aoFechar(); };
+    window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[subindo]);
+
+  const padrao=arquivo.padrao;
+  async function importar(){
+    setErro(""); setSubindo(true);
+    try{
+      const r=await acoes.importarLeads({linhas:dados,origem_fixa:origem.trim()||padrao,
+        corretores:casar,rotulo,arquivo:arquivo.arquivo});
+      setFeito(r); await aoImportar(r);
+    }catch(e){ setErro(e.message); }
+    finally{ setSubindo(false); }
+  }
+
+  const vaoEntrar=previa?previa.criados:0;
+  const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none"};
+  const rotuloCampo={color:C.faint,fontSize:11,fontWeight:600,marginBottom:5};
+  const exemploDe=(c)=>{ const i=mapa[c]; if(i===undefined) return ""; const l=arquivo.linhas.find(x=>String(x[i]||"").trim()); return l?String(l[i]).trim():""; };
+  const ForaDaImportacao=({r})=>r.ignorados>0&&<div style={{background:"#FFF8E6",border:"1px solid #E8D9A8",borderRadius:12,padding:"11px 13px"}}>
+    <div style={{color:"#8a6d1f",fontSize:12.5,fontWeight:700,marginBottom:6}}>{r.ignorados} {r.ignorados===1?"linha fica":"linhas ficam"} de fora</div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {Object.entries(r.motivos).map(([m,n])=><span key={m} style={{background:C.card,border:"1px solid #E8D9A8",color:C.sub,fontSize:11.5,borderRadius:999,padding:"3px 10px"}}><b style={{color:C.ink}}>{n}</b> {m}</span>)}
+    </div>
+    {r.exemplos&&r.exemplos.length>0&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
+      {r.exemplos.map((x,i)=><div key={i} style={{color:C.sub,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        {x.nome||"sem nome"} · <span style={{fontFamily:MONO,color:C.ink}}>{x.telefone||"(vazio)"}</span> · {x.motivo}</div>)}
+    </div>}
+    {r.motivos["sem telefone válido"]>0&&<div style={{color:C.faint,fontSize:11,marginTop:7,lineHeight:1.5}}>
+      Número como <span style={{fontFamily:MONO}}>5,58799E+12</span> é o Excel mostrando o telefone em notação científica: formate a coluna como texto e salve o CSV de novo. Número sem DDD também fica de fora.</div>}
+  </div>;
+
+  return <div className="tela-cheia" onClick={()=>!subindo&&aoFechar()} style={{zIndex:70,background:"rgba(10,20,16,.5)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:24}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:620,maxHeight:isMobile?"92%":"90%",
+      borderRadius:isMobile?"20px 20px 0 0":18,display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 24px 60px rgba(0,0,0,.25)"}}>
+      <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:11}}>
+        <div style={{width:38,height:38,borderRadius:11,background:C.greenSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Icon n="userplus" size={18} color={C.greenDeep}/></div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:16,fontWeight:700}}>{feito?"Importação concluída":"Conferir importação"}</div>
+          <div style={{color:C.faint,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{arquivo.arquivo} · {arquivo.linhas.length} linha(s) na planilha</div>
+        </div>
+        <button onClick={aoFechar} disabled={subindo} aria-label="Fechar" style={{border:"none",background:"transparent",color:C.faint,fontSize:24,cursor:"pointer",lineHeight:1,padding:4}}>×</button>
+      </div>
+
+      {feito
+        ?<div style={{padding:22,display:"flex",flexDirection:"column",gap:14,overflowY:"auto"}}>
+          <div style={{textAlign:"center",padding:"10px 0"}}>
+            <div style={{width:54,height:54,borderRadius:"50%",background:feito.criados?C.greenSoft:C.hotSoft,margin:"0 auto 10px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon n={feito.criados?"check":"xcirc"} size={26} color={feito.criados?C.greenDeep:C.hot}/></div>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:34,fontWeight:700,lineHeight:1}}>{feito.criados}</div>
+            <div style={{color:C.sub,fontSize:13.5,marginTop:6}}>{feito.criados===1?"lead entrou na base":"leads entraram na base"}</div>
+          </div>
+          <ForaDaImportacao r={feito}/>
+          <button onClick={aoFechar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Fechar</button>
+        </div>
+        :<React.Fragment>
+        <div style={{flex:1,overflowY:"auto",padding:18,display:"flex",flexDirection:"column",gap:16}}>
+          {/* O número que decide: quantos entram de fato. */}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 150px",background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:14,padding:"13px 15px"}}>
+              <div style={{fontFamily:MONO,color:C.greenDeep,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":vaoEntrar}</div>
+              <div style={{color:C.greenDeep,fontSize:12,fontWeight:600,marginTop:5}}>vão entrar na base</div>
+            </div>
+            <div style={{flex:"1 1 150px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:14,padding:"13px 15px"}}>
+              <div style={{fontFamily:MONO,color:previa&&previa.ignorados?"#8a6d1f":C.ink,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":(previa?previa.ignorados:0)}</div>
+              <div style={{color:C.sub,fontSize:12,fontWeight:600,marginTop:5}}>ficam de fora</div>
+            </div>
+          </div>
+          {semTelefone&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:11,padding:"10px 12px",lineHeight:1.5}}>
+            Não reconheci a coluna de telefone. Escolha abaixo, em <b>Colunas da planilha</b>, qual coluna tem o número.</div>}
+          {previa&&<ForaDaImportacao r={previa}/>}
+
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 220px"}}>
+              <div style={rotuloCampo}>Nome desta lista</div>
+              <input value={rotulo} onChange={e=>setRotulo(e.target.value)} placeholder="Base antiga do RD" style={caixa}/>
+            </div>
+            <div style={{flex:"1 1 220px"}}>
+              <div style={rotuloCampo}>Origem dos leads</div>
+              <input value={origem} onChange={e=>setOrigem(e.target.value)} placeholder={padrao} style={caixa}/>
+            </div>
+          </div>
+
+          {nomes.length>0&&<div>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:2}}>Corretores da planilha</div>
+            <div style={{color:C.faint,fontSize:11.5,marginBottom:8}}>Ligue cada nome a alguém da equipe. "Deixar na fila" entra sem dono.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {nomes.map(n=>{ const quantos=dados.filter(d=>String(d.corretor||"").trim()===n).length;
+                return <div key={n} style={{display:"flex",alignItems:"center",gap:10,background:C.surface,borderRadius:11,padding:"8px 11px",flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 140px",minWidth:0}}>
+                    <div style={{color:C.ink,fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</div>
+                    <div style={{color:C.faint,fontSize:11}}>{quantos} lead(s)</div>
+                  </div>
+                  <select value={casar[n]||""} onChange={e=>setCasar({...casar,[n]:e.target.value})}
+                    style={{...caixa,flex:"1 1 180px",width:"auto",background:C.card,padding:"9px 10px"}}>
+                    <option value="">— deixar na fila —</option>
+                    {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>; })}
+            </div>
+          </div>}
+
+          {/* As colunas ficam recolhidas quando o reconhecimento deu certo:
+              conferir é ler a linha de resumo; mexer é exceção. */}
+          <div style={{border:`1px solid ${C.line}`,borderRadius:12}}>
+            <button onClick={()=>setColunasAbertas(a=>!a)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"transparent",border:"none",padding:"11px 13px",cursor:"pointer",textAlign:"left"}}>
+              <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Colunas da planilha</span>
+              <span style={{color:C.faint,fontSize:11.5}}>{CAMPOS_IMPORTACAO.filter(([c])=>mapa[c]!==undefined).length} de {CAMPOS_IMPORTACAO.length} reconhecidas</span>
+              <span style={{display:"flex",transform:colunasAbertas?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13} color={C.faint}/></span>
+            </button>
+            {colunasAbertas&&<div style={{padding:"2px 13px 13px",display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
+              {CAMPOS_IMPORTACAO.map(([c,t,obrig])=><div key={c}>
+                <div style={rotuloCampo}>{t}{obrig?" *":""}</div>
+                <select value={mapa[c]===undefined?"":String(mapa[c])}
+                  onChange={e=>setMapa(m=>{ const n={...m}; if(e.target.value==="") delete n[c]; else n[c]=Number(e.target.value); return n; })}
+                  style={{...caixa,padding:"9px 10px",borderColor:obrig&&mapa[c]===undefined?C.hot:C.line}}>
+                  <option value="">— não usar —</option>
+                  {arquivo.cabecalho.map((h,i)=><option key={i} value={i}>{String(h).trim()||`Coluna ${i+1}`}</option>)}
+                </select>
+                {exemploDe(c)&&<div style={{color:C.faint,fontSize:10.5,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>ex.: {exemploDe(c)}</div>}
+              </div>)}
+            </div>}
+          </div>
+          {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
+        </div>
+        <div style={{padding:"13px 18px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8,background:C.card}}>
+          <button onClick={aoFechar} disabled={subindo} style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:12,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          <button onClick={importar} disabled={subindo||lendo||!vaoEntrar}
+            style={{flex:2,border:"none",background:subindo||lendo||!vaoEntrar?C.coolSoft:C.greenDeep,color:subindo||lendo||!vaoEntrar?C.faint:"#fff",
+              borderRadius:12,padding:"12px",fontSize:13.5,fontWeight:700,cursor:subindo||lendo||!vaoEntrar?"default":"pointer"}}>
+            {subindo?"Importando…":lendo?"Conferindo a planilha…":vaoEntrar?`Importar ${vaoEntrar} lead(s)`:"Nenhum lead para importar"}</button>
+        </div>
+        </React.Fragment>}
+    </div>
+  </div>;
+}
+
 function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const [limiteBase,maisBase]=usarLimite(200,"");
   const [lista,setLista]=useState(null);
@@ -11511,48 +11695,12 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
     const f=e.target.files[0]; e.target.value=""; if(!f) return;
     setErro(""); setResultado(null);
     try{
-      const texto=await f.text();
-      const linhas=lerCSV(texto);
+      const linhas=lerCSV(await f.text());
       if(linhas.length<2) throw new Error("A planilha parece vazia — precisa ter o cabeçalho e ao menos uma linha.");
-      const mapa=mapearColunas(linhas[0]);
-      if(mapa.telefone===undefined)
-        throw new Error("Não encontrei a coluna de telefone. Renomeie o cabeçalho para 'Telefone' e tente de novo.");
-      const pegar=(l,c)=>mapa[c]===undefined?"":l[mapa[c]];
-      const dados=linhas.slice(1).map(l=>({
-        nome:pegar(l,"nome"), telefone:pegar(l,"telefone"), email:pegar(l,"email"),
-        origem:pegar(l,"origem"),
-        temperatura:pegar(l,"temperatura"), etapa:pegar(l,"etapa"),
-        corretor:pegar(l,"corretor"), entrou_em:pegar(l,"entrou_em"),
-      }));
-      // Nomes de corretor que aparecem na planilha, cada um uma vez. É esta
-      // lista que o gestor liga à equipe — "Ana C." e "ana costa" não se
-      // resolvem sozinhos, e errar aqui é lead na mão errada.
-      const nomes=[...new Set(dados.map(d=>String(d.corretor||"").trim()).filter(Boolean))].sort();
-      const casar={};
-      for(const n of nomes){
-        const igual=pessoas.find(p=>p.name.trim().toLowerCase()===n.toLowerCase());
-        casar[n]=igual?igual.id:"";
-      }
       const semArquivo=f.name.replace(/\.[^.]+$/,"");
-      setPronto({dados,nomes,mapaCorretores:casar,arquivo:f.name,
-        rotulo:semArquivo, origem:"", padrao:"Importado de "+semArquivo});
+      setPronto({cabecalho:linhas[0],linhas:linhas.slice(1),mapa:mapearColunas(linhas[0]),
+        arquivo:f.name,rotulo:semArquivo,padrao:"Importado de "+semArquivo});
     }catch(err){ setErro(err.message); }
-  }
-
-  async function confirmarImportacao(){
-    if(!pronto) return;
-    setErro(""); setSubindo(true);
-    try{
-      const r=await acoes.importarLeads({
-        linhas:pronto.dados,
-        origem_fixa:pronto.origem.trim()||pronto.padrao,
-        corretores:pronto.mapaCorretores,
-        rotulo:pronto.rotulo, arquivo:pronto.arquivo,
-      });
-      setResultado(r); setPronto(null);
-      await recarregar(); releituraLotes();
-    }catch(err){ setErro(err.message); }
-    finally{ setSubindo(false); }
   }
 
   async function apagarLote(lote,tudo){
@@ -11610,76 +11758,12 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
       <ArrumarBase acoes={acoes} isMobile={isMobile} aoAplicar={recarregar}/>
       <ReanalisarFunil acoes={acoes} isMobile={isMobile} aoAplicar={recarregar}/>
 
-      {/* ===== conferência antes de gravar ===== */}
-      {pronto&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:14,padding:14,marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-          <Icon n="userplus" size={16} color={C.greenMid}/>
-          <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Conferir antes de importar</span>
-          <span style={{color:C.faint,fontSize:11.5}}>{pronto.arquivo}</span>
-        </div>
-        <div style={{color:C.sub,fontSize:12.5,marginBottom:12}}>
-          <b style={{color:C.ink}}>{pronto.dados.length}</b> linha(s) lidas. Nada foi gravado ainda.
-        </div>
-
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
-          <div style={{flex:"1 1 200px"}}>
-            <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Nome desta lista</div>
-            <input value={pronto.rotulo} onChange={e=>setPronto({...pronto,rotulo:e.target.value})}
-              placeholder="Base antiga do RD"
-              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"}}/>
-            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>Só para você achar a lista depois, se precisar apagar.</div>
-          </div>
-          <div style={{flex:"1 1 200px"}}>
-            <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Origem dos leads</div>
-            <input value={pronto.origem} onChange={e=>setPronto({...pronto,origem:e.target.value})}
-              placeholder={pronto.padrao}
-              style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"}}/>
-            <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>Vale para a lista inteira e aparece no relatório. Em branco, usa "{pronto.padrao}".</div>
-          </div>
-        </div>
-
-        {/* Mapa dos corretores. O que a planilha chama de "Ana C." pode ser a
-            Ana Costa da equipe — só quem conhece a operação sabe. */}
-        {pronto.nomes.length>0
-          ?<div style={{marginBottom:12}}>
-            <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:2}}>Corretores da planilha</div>
-            <div style={{color:C.faint,fontSize:11,marginBottom:8,lineHeight:1.5}}>
-              Ligue cada nome ao corretor da equipe. Quem ficar em "deixar na fila" entra sem dono, para a catraca distribuir.
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {pronto.nomes.map(n=>{
-                const quantos=pronto.dados.filter(d=>String(d.corretor||"").trim()===n).length;
-                return <div key={n} style={{display:"flex",alignItems:"center",gap:9,background:C.surface,borderRadius:10,padding:"8px 11px",flexWrap:"wrap"}}>
-                  <div style={{flex:"1 1 130px",minWidth:0}}>
-                    <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</div>
-                    <div style={{color:C.faint,fontSize:10.5}}>{quantos} lead(s)</div>
-                  </div>
-                  <select value={pronto.mapaCorretores[n]||""}
-                    onChange={e=>setPronto({...pronto,mapaCorretores:{...pronto.mapaCorretores,[n]:e.target.value}})}
-                    style={{flex:"1 1 160px",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}>
-                    <option value="">— deixar na fila —</option>
-                    {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>;
-              })}
-            </div>
-          </div>
-          :<div style={{color:C.faint,fontSize:11.5,marginBottom:12,lineHeight:1.5}}>
-            A planilha não tem coluna de corretor — todos os leads entram na fila da catraca.
-          </div>}
-
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <button onClick={confirmarImportacao} disabled={subindo}
-            style={{flex:1,minWidth:150,background:subindo?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:subindo?"default":"pointer"}}>
-            {subindo?"Importando…":`Importar ${pronto.dados.length} lead(s)`}</button>
-          <button onClick={()=>setPronto(null)} disabled={subindo}
-            style={{flex:"0 0 auto",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"12px 18px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
-            Cancelar</button>
-        </div>
-      </div>}
+      {pronto&&<ConferirImportacao arquivo={pronto} pessoas={pessoas} acoes={acoes} isMobile={isMobile}
+        aoFechar={()=>setPronto(null)}
+        aoImportar={async(r)=>{ setResultado(r); await recarregar(); releituraLotes(); }}/>}
 
       {/* ===== listas já importadas ===== */}
-      {lotes&&lotes.length>0&&!pronto&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
+      {lotes&&lotes.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
         <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>Listas importadas</div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {lotes.map(l=><div key={l.id}>
