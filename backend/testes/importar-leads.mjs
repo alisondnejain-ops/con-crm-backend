@@ -116,6 +116,40 @@ try {
   assert.equal(r.status, 403);
   console.log("   403");
 
+  caso("A etapa da planilha vai para a etapa escolhida no popup; id de outra conta é ignorado");
+  const etapas = db.prepare("SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND is_active = 1").all(org);
+  const alvo = etapas.find((e) => /visita/i.test(e.name)) || etapas[2];
+  const orgB = "org_b_" + randomUUID().slice(0, 6);
+  db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(orgB, "Outra", "OUTRA-IMP", Date.now());
+  const deOutra = "st_outra_" + randomUUID().slice(0, 6);
+  db.prepare("INSERT INTO pipeline_stages (id,org_id,pipeline_id,name,is_active,created_at) VALUES (?,?,?,?,1,?)").run(deOutra, orgB, "pp_outra", "Etapa de outra conta", Date.now());
+  r = await importar(tGestor, { linhas: [
+    { nome: "Cris", telefone: "(87) 99333-0001", etapa: "Visita Agendada", corretor: "Veronica Gomez" },
+    { nome: "Duda", telefone: "(87) 99333-0002", etapa: "Etapa Estranha", corretor: "Veronica Gomez" },
+  ], corretores: { "Veronica Gomez": vero }, etapas: { "Visita Agendada": alvo.id, "Etapa Estranha": deOutra } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const cris = db.prepare("SELECT * FROM leads WHERE phone = ?").get("5587993330001");
+  assert.equal(cris.stage_id, alvo.id); assert.equal(cris.stage, alvo.name); assert.equal(cris.pipeline_id, alvo.pipeline_id);
+  const duda = db.prepare("SELECT * FROM leads WHERE phone = ?").get("5587993330002");
+  assert.notEqual(duda.stage_id, deOutra, "etapa de outra imobiliária não pode ser usada");
+  assert.ok(duda.stage_id && etapas.some((e) => e.id === duda.stage_id), "sem escolha válida, entra numa etapa desta conta");
+  console.log(`   Visita Agendada → ${alvo.name}; a etapa de outra conta foi ignorada`);
+
+  caso("Valor e data da venda da planilha viram venda registrada; na repetição, fica a linha com a venda");
+  r = await importar(tGestor, { linhas: [
+    { nome: "Eva", telefone: "(87) 99444-0001", etapa: "Venda Ganha" },
+    { nome: "Eva", telefone: "(87) 99444-0001", etapa: "Venda Ganha", valor_venda: "R$ 275.000,00", data_venda: "13/06/2026", imovel_vendido: "Casa 12" },
+    { nome: "Fábio", telefone: "(87) 99444-0002", valor_venda: "180000" },
+  ] });
+  assert.equal(r.body.criados, 2); assert.equal(r.body.vendas, 2);
+  assert.deepEqual(r.body.motivos, { "telefone repetido na planilha": 1 });
+  const eva = db.prepare("SELECT * FROM leads WHERE phone = ?").get("5587994440001");
+  assert.equal(eva.sale_value, 275000);
+  assert.equal(new Date(eva.sale_date).getDate(), 13);
+  assert.equal(eva.sale_property, "Casa 12");
+  assert.equal(db.prepare("SELECT sale_value FROM leads WHERE phone = ?").get("5587994440002").sale_value, 180000);
+  console.log("   Eva com R$ 275.000 em 13/06, Fábio com R$ 180.000");
+
   console.log(`\nTodos os ${n} casos passaram.`);
 } catch (e) {
   console.error("\nFALHOU:", e.message);

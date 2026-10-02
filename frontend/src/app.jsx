@@ -10462,13 +10462,18 @@ const COLUNAS={
   etapa:["etapa","status","fase","estagio","estágio"],
   corretor:["corretor","responsavel","responsável","vendedor","consultor"],
   entrou_em:["entrou","data","criado","cadastro"],
+  // A venda que o CRM antigo registrou. Sem estas três, "Venda Ganha · 275000"
+  // entrava como um lead qualquer e a venda não existia em relatório nenhum.
+  valor_venda:["valor da venda","valor vendido","valor de venda","valor venda","vgv"],
+  data_venda:["data venda","data da venda","data de venda","vendido em"],
+  imovel_vendido:["imóvel vendido","imovel vendido","produto vendido"],
 };
 /* A ORDEM IMPORTA (02/10/2026). "nome" casava primeiro, e os apelidos dele
    ("cliente", "lead", "contato") aparecem dentro de outros cabeçalhos:
    "Telefone do cliente" virava a coluna de NOME, e a importação dizia que não
    havia telefone; "Nome do corretor" virava o nome do lead. Agora o campo mais
    específico é conferido antes, e "nome" fica por último. */
-const ORDEM_COLUNAS=["telefone","email","corretor","origem","etapa","temperatura","entrou_em","nome"];
+const ORDEM_COLUNAS=["telefone","email","valor_venda","data_venda","imovel_vendido","corretor","origem","etapa","temperatura","entrou_em","nome"];
 function mapearColunas(cabecalho){
   const mapa={};
   cabecalho.forEach((titulo,i)=>{
@@ -11486,7 +11491,8 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
    Agora é um popup: as colunas, os corretores, a PRÉVIA do servidor ("480 vão
    entrar, 20 ficam de fora, e por quê") e o resultado, tudo no mesmo lugar. */
 const CAMPOS_IMPORTACAO=[["telefone","Telefone",true],["nome","Nome"],["email","E-mail"],["corretor","Corretor"],
-  ["origem","Origem"],["etapa","Etapa"],["temperatura","Temperatura"],["entrou_em","Data de entrada"]];
+  ["origem","Origem"],["etapa","Etapa"],["temperatura","Temperatura"],["entrou_em","Data de entrada"],
+  ["valor_venda","Valor da venda"],["data_venda","Data da venda"],["imovel_vendido","Imóvel vendido"]];
 function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}){
   const [mapa,setMapa]=useState(arquivo.mapa);
   const [rotulo,setRotulo]=useState(arquivo.rotulo);
@@ -11510,6 +11516,24 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
       n[x]=c[x]!==undefined?c[x]:(igual?igual.id:""); }
     return n; }); },[nomes,pessoas]);
 
+  /* AS ETAPAS DA PLANILHA (02/10/2026). Cada CRM chama as etapas de um jeito
+     ("Atendimento Frio", "Compra Futura", "Venda Ganha"), e só o nome igual
+     ao do funil casava — o resto caía na primeira etapa. Como os corretores,
+     cada nome é ligado aqui a uma etapa do funil. Nome igual (sem olhar
+     maiúscula nem acento) já vem ligado. */
+  const {pipelines:funis}=usarPipelines(acoes,true);   // valor fixo: um objeto novo a cada desenho buscaria os funis sem parar
+  const [casarEtapa,setCasarEtapa]=useState({});
+  const nomesEtapa=useMemo(()=>{
+    const c={}; for(const d of dados){ const n=String(d.etapa||"").trim(); if(n) c[n]=(c[n]||0)+1; }
+    return Object.entries(c).sort((a,b)=>b[1]-a[1]);
+  },[dados]);
+  useEffect(()=>{ if(!funis.length) return;
+    const chave=(t)=>semAcento(String(t||"")).trim().toLowerCase();
+    const todas=funis.flatMap(f=>(f.stages||[]).map(e=>({id:e.id,nome:e.name})));
+    setCasarEtapa(c=>{ const n={};
+      for(const [x] of nomesEtapa){ const igual=todas.find(e=>chave(e.nome)===chave(x));
+        n[x]=c[x]!==undefined?c[x]:(igual?igual.id:""); }
+      return n; }); },[nomesEtapa,funis]);
   const semTelefone=mapa.telefone===undefined;
   useEffect(()=>{
     if(semTelefone){ setPrevia(null); setLendo(false); return; }
@@ -11526,7 +11550,7 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
     setErro(""); setSubindo(true);
     try{
       const r=await acoes.importarLeads({linhas:dados,origem_fixa:origem.trim()||padrao,
-        corretores:casar,rotulo,arquivo:arquivo.arquivo});
+        corretores:casar,etapas:casarEtapa,rotulo,arquivo:arquivo.arquivo});
       setFeito(r); await aoImportar(r);
     }catch(e){ setErro(e.message); }
     finally{ setSubindo(false); }
@@ -11571,6 +11595,7 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
               <Icon n={feito.criados?"check":"xcirc"} size={26} color={feito.criados?C.greenDeep:C.hot}/></div>
             <div style={{fontFamily:MONO,color:C.ink,fontSize:34,fontWeight:700,lineHeight:1}}>{feito.criados}</div>
             <div style={{color:C.sub,fontSize:13.5,marginTop:6}}>{feito.criados===1?"lead entrou na base":"leads entraram na base"}</div>
+            {feito.vendas>0&&<div style={{color:C.greenDeep,fontSize:12.5,fontWeight:600,marginTop:4}}>{feito.vendas} com a venda registrada</div>}
           </div>
           <ForaDaImportacao r={feito}/>
           <button onClick={aoFechar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Fechar</button>
@@ -11590,6 +11615,7 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
           </div>
           {semTelefone&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:11,padding:"10px 12px",lineHeight:1.5}}>
             Não reconheci a coluna de telefone. Escolha abaixo, em <b>Colunas da planilha</b>, qual coluna tem o número.</div>}
+          {previa&&previa.vendas>0&&<div style={{color:C.greenDeep,fontSize:12.5,fontWeight:600}}>{previa.vendas} {previa.vendas===1?"lead entra com a venda registrada":"leads entram com a venda registrada"} (valor e data da planilha).</div>}
           {previa&&<ForaDaImportacao r={previa}/>}
 
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -11619,6 +11645,28 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
                     {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>; })}
+            </div>
+          </div>}
+
+          {nomesEtapa.length>0&&<div>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:2}}>Etapas da planilha</div>
+            <div style={{color:C.faint,fontSize:11.5,marginBottom:8}}>Ligue cada etapa a uma etapa do seu funil. Sem escolha, o lead entra no começo do funil de quem o recebe.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {nomesEtapa.map(([n,quantos])=>
+                <div key={n} style={{display:"flex",alignItems:"center",gap:10,background:C.surface,borderRadius:11,padding:"8px 11px",flexWrap:"wrap"}}>
+                  <div style={{flex:"1 1 140px",minWidth:0}}>
+                    <div style={{color:C.ink,fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n}</div>
+                    <div style={{color:C.faint,fontSize:11}}>{quantos} lead(s)</div>
+                  </div>
+                  <select value={casarEtapa[n]||""} onChange={e=>setCasarEtapa({...casarEtapa,[n]:e.target.value})}
+                    style={{...caixa,flex:"1 1 180px",width:"auto",background:C.card,padding:"9px 10px",
+                      color:casarEtapa[n]?C.ink:C.faint}}>
+                    <option value="">— começo do funil —</option>
+                    {funis.map(f=><optgroup key={f.id} label={f.name}>
+                      {(f.stages||[]).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+                    </optgroup>)}
+                  </select>
+                </div>)}
             </div>
           </div>}
 
