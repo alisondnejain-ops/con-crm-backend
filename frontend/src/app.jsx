@@ -1,5 +1,30 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
+/* O TRADUTOR DO NAVEGADOR NÃO DERRUBA A TELA (02/10/2026). O tradutor do
+   Chrome troca cada texto da página por um <font> com o texto traduzido. O
+   React continua guardando o texto ORIGINAL; quando ele vai trocar ou tirar
+   aquele texto, o nó já não está onde ele deixou, e o navegador lança
+   "Failed to execute 'removeChild' on 'Node'" — a tela inteira vira "Algo
+   quebrou". Quem usa o CRM traduzido (gravação para a Meta, corretor que
+   deixou "sempre traduzir" ligado) perdia a tela a cada atualização.
+
+   Aqui as duas operações deixam de lançar quando o nó já foi tirado do lugar
+   por outra pessoa: remover o que já não está ali não faz nada, e inserir
+   antes de um vizinho que sumiu insere no fim. É a saída conhecida para este
+   defeito do React (issue 11538), e só muda o caso que antes quebrava. */
+if(typeof Node==="function"&&Node.prototype&&!Node.prototype.__tradutorTolerado){
+  const remover=Node.prototype.removeChild, inserir=Node.prototype.insertBefore;
+  Node.prototype.removeChild=function(filho){
+    if(filho&&filho.parentNode!==this) return filho;
+    return remover.call(this,filho);
+  };
+  Node.prototype.insertBefore=function(novo,referencia){
+    if(referencia&&referencia.parentNode!==this) return inserir.call(this,novo,null);
+    return inserir.call(this,novo,referencia);
+  };
+  Node.prototype.__tradutorTolerado=true;
+}
+
 /* ===== IDENTIDADE ===== */
 const C = {
   ink:"#14181F", sub:"#5A6472", faint:"#8A93A0", line:"#E6E9E7", surface:"#F4F6F5", card:"#FFFFFF",
