@@ -7254,7 +7254,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
-      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
@@ -8934,7 +8933,6 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
           de corretor para apagar, e alguém precisa poder encerrar. */}
       {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
-      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
@@ -9035,30 +9033,6 @@ function usarObservacoes({lead,acoes}){
     catch(e){ setErro(e.message); }
   }
   return {lista:lista||[],erro,salvando,anotar,apagar};
-}
-
-// A faixa que aparece ACIMA da conversa. Mostra a mais recente e abre o resto
-// num toque — três recados empilhados empurrariam a conversa para fora da tela.
-function FaixaObservacoes({lead,isMobile}){
-  const [aberta,setAberta]=useState(false);
-  const lista=lead.obs||[];
-  useEffect(()=>{setAberta(false);},[lead.id]);
-  if(!lista.length) return null;
-  const mostrar=aberta?lista:lista.slice(0,1);
-  return <div style={{background:"#FFF8E6",borderBottom:`1px solid #E8D9A8`,padding:isMobile?"9px 12px":"9px 16px",flexShrink:0}}>
-    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-      <Icon n="star" size={12} color="#8a6d1f"/>
-      <span style={{color:"#8a6d1f",fontSize:11,fontWeight:700,flex:1}}>
-        Observações{lista.length>1?` · ${lista.length}`:""}</span>
-      {lista.length>1&&<button onClick={()=>setAberta(a=>!a)}
-        style={{border:"none",background:"transparent",color:"#8a6d1f",fontSize:11,fontWeight:600,cursor:"pointer",textDecoration:"underline",padding:0}}>
-        {aberta?"ver menos":`ver as ${lista.length}`}</button>}
-    </div>
-    {mostrar.map(o=><div key={o.id} style={{color:C.ink,fontSize:12.5,lineHeight:1.45,marginTop:3,whiteSpace:"pre-wrap"}}>
-      {o.texto}
-      <span style={{color:"#9a8550",fontSize:10.5,fontWeight:600}}> — {first(o.autor)||"alguém"}, {fmtQuando(o.created_at)}</span>
-    </div>)}
-  </div>;
 }
 
 // O cartão da ficha: onde se escreve e se apaga.
