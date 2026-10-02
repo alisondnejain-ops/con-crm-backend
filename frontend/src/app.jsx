@@ -670,13 +670,13 @@ const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
 function cronometroDoLead(l,agora=Date.now()){
   if(!l||l.finalizado) return null;
   if(l.aguardaContato||(!l.firstRespAt&&l.lastDirection==="in"))
-    return {rotulo:"lead novo · sem resposta há",desde:l.createdAt};
+    return {rotulo:"sem resposta",titulo:"Lead novo: ninguém respondeu ainda",desde:l.createdAt};
   if(l.lastDirection==="in"&&l.lastAt)
-    return {rotulo:"cliente aguardando há",desde:l.lastAt};
+    return {rotulo:"aguardando",titulo:"A última mensagem é do cliente",desde:l.lastAt};
   const s=l.sla;
   if(s&&s.limite&&s.desde){
     const venceu=s.desde+s.limite*60000;
-    if(agora>=venceu) return {rotulo:"SLA da etapa vencido há",desde:venceu,sla:true};
+    if(agora>=venceu) return {rotulo:"SLA vencido",titulo:"O prazo da etapa venceu",desde:venceu,sla:true};
   }
   return null;
 }
@@ -6125,7 +6125,7 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
       {chegouAgora(l)&&<span style={{background:C.greenDeep,color:"#fff",fontSize:9,fontWeight:700,
         padding:"2px 7px",borderRadius:999,textTransform:"uppercase",letterSpacing:.3,flexShrink:0}}>novo com você</span>}
       {relogio
-        ?<span style={{display:"flex",alignItems:"center",gap:4,color:relogio.sla?C.hot:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600,minWidth:0,overflow:"hidden",whiteSpace:"nowrap"}}><Icon n="timer" size={12} color={relogio.sla?C.hot:ageColor(espera)}/>{relogio.rotulo} {fmtEspera(espera)}</span>
+        ?<span title={relogio.titulo} style={{display:"flex",alignItems:"center",gap:4,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={12} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtEspera(espera)}</span><span style={{fontWeight:500}}>· {relogio.rotulo}</span></span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
