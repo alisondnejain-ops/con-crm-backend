@@ -19,8 +19,9 @@ import { roboCobre } from "./robo.js";
      1. A IA cobre — se a conta tem o Autoatendimento e o robô está ligado. O
         lead fica SEM dono, no funil de SDR, e a IA atende na hora, a qualquer
         horário (`podeAtender`). A atendente pega da fila quando voltar.
-     2. Sem IA, reveza entre TODAS as atendentes, ativas ou não: lead novo
-        nunca fica solto — é a proteção de 30/07, que continua de pé.
+     2. Sem IA, o lead fica na FILA, sem dono, no funil de SDR (02/10/2026).
+        Antes revezava entre todas, ativas ou não, e a atendente indisponível
+        continuava recebendo — indisponível tem que querer dizer sem lead novo.
 
    A memória da vez fica em `orgs.atendente_ultimo`, separada da dos
    corretores (`rodizio_ultimo`) — se fosse a mesma, uma catraca embaralharia
@@ -61,6 +62,11 @@ export function vezDasAtendentes(orgId, roda = rodaDeAtendentes(orgId)) {
   const ordem = ordemDaVez(roda, org.atendente_ultimo);
   const ativa = ordem.find(u => u.available);
   if (ativa) return { proximo: ativa.id, ia: false, ordem };
-  if (roboCobre(orgId)) return { proximo: null, ia: true, ordem };
-  return { proximo: ordem[0].id, ia: false, ordem };
+  /* NINGUÉM ATIVA: o lead fica na fila, sem dono (02/10/2026, pedido do Ali).
+     Antes, sem a IA, ele revezava entre TODAS as atendentes — e quem tinha
+     ficado indisponível continuava recebendo lead novo e voltava para a vez.
+     Do lado dela, parecia que o sistema a deixava disponível sozinho.
+     Indisponível é indisponível: a fila aparece na caixa de quem supervisiona
+     e na da atendente, e a IA atende se estiver ligada. */
+  return { proximo: null, ia: roboCobre(orgId), ordem };
 }
