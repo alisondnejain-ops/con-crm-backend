@@ -55,13 +55,13 @@ disponivel("u_vanessa", 0); disponivel("u_vanessa", 1);
 assert.equal(vezDasAtendentes(org).proximo, "u_camila");
 console.log("   próxima continua sendo a Camila");
 
-console.log("4. Nenhuma ativa e SEM IA: reveza entre todas, lead nunca fica solto");
+console.log("4. Nenhuma ativa e SEM IA: o lead fica na fila, sem dono — indisponível não recebe");
 disponivel("u_vanessa", 0); disponivel("u_camila", 0);
 db.prepare("UPDATE orgs SET robo_ativo = 0 WHERE id = ?").run(org);
 r = varias(2);
 console.log(`   ${r.join(", ")}`);
-assert.ok(r.every(Boolean), "ninguém fica sem dono");
-assert.deepEqual(r, ["u_camila", "u_vanessa"]);
+assert.deepEqual(r, [null, null], "atendente indisponível não pode receber lead novo");
+assert.equal(vezDasAtendentes(org).ia, false);
 
 console.log("5. Nenhuma ativa e IA LIGADA: o lead fica para a IA, sem dono");
 db.prepare("UPDATE orgs SET robo_ativo = 1 WHERE id = ?").run(org);

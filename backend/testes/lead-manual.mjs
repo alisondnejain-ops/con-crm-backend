@@ -96,7 +96,7 @@ assert.equal(salvo.source, "manual");
 
 console.log("4. A observação vira OBSERVAÇÃO, e não mensagem da conversa");
 /* Escrita na conversa, ela apareceria como se tivesse sido enviada ao cliente.
-   Na faixa âmbar acima da conversa, é lida por quem for atender antes de falar. */
+   Fica na ficha do lead, no cartão de observações. */
 const obs = db.prepare("SELECT texto, autor_id FROM observacoes WHERE lead_id = ?").all(d.id);
 const msgs = db.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ?").get(d.id).n;
 console.log(`   ${obs.length} observação(ões) · ${msgs} mensagem(ns) na conversa`);

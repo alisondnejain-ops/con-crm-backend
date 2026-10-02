@@ -659,6 +659,28 @@ const chegouAgora=(l)=>!!l.assignedAt&&(Date.now()-l.assignedAt)<NOVO_NA_MAO;
    primeira mensagem enviada ou ligação). Uma regra só para ordenar, filtrar
    "aguardando" e pintar o item. */
 const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
+/* O CRONÔMETRO DA CAIXA SÓ APARECE EM TRÊS SITUAÇÕES (02/10/2026, pedido do Ali:
+   "o temporizador está atrapalhando"). Antes ele aparecia em toda conversa
+   com mensagem não lida e contava da última mensagem, fosse de quem fosse —
+   e sumia ao marcar como lida, com o cliente ainda esperando. Agora, nesta ordem:
+     1. lead novo sem resposta nenhuma: conta desde a chegada;
+     2. a última palavra é do cliente: conta desde a mensagem dele;
+     3. o prazo (SLA) da etapa venceu: conta desde que venceu.
+   Fora disso, nada de relógio. Uma regra só, para as duas caixas. */
+function cronometroDoLead(l,agora=Date.now()){
+  if(!l||l.finalizado) return null;
+  if(l.aguardaContato||(!l.firstRespAt&&l.lastDirection==="in"))
+    return {rotulo:"lead novo · sem resposta há",desde:l.createdAt};
+  if(l.lastDirection==="in"&&l.lastAt)
+    return {rotulo:"cliente aguardando há",desde:l.lastAt};
+  const s=l.sla;
+  if(s&&s.limite&&s.desde){
+    const venceu=s.desde+s.limite*60000;
+    if(agora>=venceu) return {rotulo:"SLA da etapa vencido há",desde:venceu,sla:true};
+  }
+  return null;
+}
+const fmtEspera=(ms)=>{const m=Math.floor(Math.max(0,ms)/60000);if(m<24*60)return fmtAge(ms);const d=Math.floor(m/1440),h=Math.floor((m%1440)/60);return d+(d===1?" dia":" dias")+(h?" "+h+"h":"");};
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
 const first=(n)=>String(n||"").split(" ")[0];
@@ -6072,7 +6094,8 @@ function SeloDaLinha({linha,grande}){
 }
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
-  const naoLida=esperandoContato(l), quando=l.lastAt||l.createdAt, espera=Date.now()-quando;
+  const naoLida=esperandoContato(l), quando=l.lastAt||l.createdAt;
+  const relogio=cronometroDoLead(l), espera=relogio?Date.now()-relogio.desde:0;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
@@ -6101,8 +6124,8 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
           recebeu quando abre um por um. */}
       {chegouAgora(l)&&<span style={{background:C.greenDeep,color:"#fff",fontSize:9,fontWeight:700,
         padding:"2px 7px",borderRadius:999,textTransform:"uppercase",letterSpacing:.3,flexShrink:0}}>novo com você</span>}
-      {naoLida
-        ?<span style={{display:"flex",alignItems:"center",gap:4,color:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600}}><Icon n="timer" size={12} color={ageColor(espera)}/>aguardando há {fmtAge(espera)}</span>
+      {relogio
+        ?<span style={{display:"flex",alignItems:"center",gap:4,color:relogio.sla?C.hot:ageColor(espera),fontFamily:MONO,fontSize:11,fontWeight:600,minWidth:0,overflow:"hidden",whiteSpace:"nowrap"}}><Icon n="timer" size={12} color={relogio.sla?C.hot:ageColor(espera)}/>{relogio.rotulo} {fmtEspera(espera)}</span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
@@ -7254,7 +7277,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
-      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
@@ -8934,7 +8956,6 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
           de corretor para apagar, e alguém precisa poder encerrar. */}
       {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
-      <FaixaObservacoes lead={sel} isMobile={isMobile}/>
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
@@ -9035,30 +9056,6 @@ function usarObservacoes({lead,acoes}){
     catch(e){ setErro(e.message); }
   }
   return {lista:lista||[],erro,salvando,anotar,apagar};
-}
-
-// A faixa que aparece ACIMA da conversa. Mostra a mais recente e abre o resto
-// num toque — três recados empilhados empurrariam a conversa para fora da tela.
-function FaixaObservacoes({lead,isMobile}){
-  const [aberta,setAberta]=useState(false);
-  const lista=lead.obs||[];
-  useEffect(()=>{setAberta(false);},[lead.id]);
-  if(!lista.length) return null;
-  const mostrar=aberta?lista:lista.slice(0,1);
-  return <div style={{background:"#FFF8E6",borderBottom:`1px solid #E8D9A8`,padding:isMobile?"9px 12px":"9px 16px",flexShrink:0}}>
-    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-      <Icon n="star" size={12} color="#8a6d1f"/>
-      <span style={{color:"#8a6d1f",fontSize:11,fontWeight:700,flex:1}}>
-        Observações{lista.length>1?` · ${lista.length}`:""}</span>
-      {lista.length>1&&<button onClick={()=>setAberta(a=>!a)}
-        style={{border:"none",background:"transparent",color:"#8a6d1f",fontSize:11,fontWeight:600,cursor:"pointer",textDecoration:"underline",padding:0}}>
-        {aberta?"ver menos":`ver as ${lista.length}`}</button>}
-    </div>
-    {mostrar.map(o=><div key={o.id} style={{color:C.ink,fontSize:12.5,lineHeight:1.45,marginTop:3,whiteSpace:"pre-wrap"}}>
-      {o.texto}
-      <span style={{color:"#9a8550",fontSize:10.5,fontWeight:600}}> — {first(o.autor)||"alguém"}, {fmtQuando(o.created_at)}</span>
-    </div>)}
-  </div>;
 }
 
 // O cartão da ficha: onde se escreve e se apaga.

@@ -493,8 +493,8 @@ export function receberLead(orgId, dados) {
       db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(junto), lead.id);
     }
     // Observação e não mensagem: o cliente não escreveu no WhatsApp, e o
-    // texto na conversa pareceria enviado por ele ali. A faixa âmbar acima
-    // da conversa é o que quem vai atender lê antes de falar.
+    // texto na conversa pareceria enviado por ele ali. Fica na ficha do lead,
+    // no cartão de observações.
     db.prepare("INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at) VALUES (?,?,?,?,NULL,?)")
       .run("o_" + randomUUID(), orgId, lead.id, texto, agora);
     if (externo) db.prepare("INSERT OR IGNORE INTO portais_leads (org_id,portal,externo_id,lead_id,created_at) VALUES (?,?,?,?,?)")
