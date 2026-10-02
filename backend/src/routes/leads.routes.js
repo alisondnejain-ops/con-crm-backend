@@ -138,10 +138,6 @@ r.get("/", (req, res) => {
      inteira. Uma por card deixaria a tela que recarrega de 10 em 10 segundos
      fazendo centenas de consultas — o custo que os índices de 27/08 vieram
      justamente tirar. */
-  /* `is_active`, e não `active` (02/10/2026): a coluna nunca se chamou
-     `active`, e esta consulta derrubava TODA importação com erro 500 desde
-     01/09/2026 — o aviso aparecia no topo da Base de leads, longe do botão, e
-     do lado de quem usa parecia que os leads simplesmente não subiam. */
   const etapasDaCasa = new Map(db.prepare(
     "SELECT * FROM pipeline_stages WHERE org_id = ?").all(org_id)
     .map(e => [e.id, formatarEtapa(e)]));
@@ -403,6 +399,17 @@ function dataBR(valor) {
   return new Date(t).getTime();   // 2026-03-10 e afins
 }
 
+/* Valor de planilha brasileira: "275000", "275.000", "R$ 275.000,00",
+   "275000.50". Ponto seguido de 3 dígitos é milhar; vírgula é decimal. */
+function valorBR(valor) {
+  let t = String(valor || "").replace(/[^\d.,]/g, "");
+  if (!t) return null;
+  if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
+  else if (/\.\d{3}(\.|$)/.test(t)) t = t.replace(/\./g, "");
+  const n = Number(t);
+  return isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
 r.post("/import", roles("adm"), (req, res) => {
   const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo, previa } = req.body || {};
   if (!Array.isArray(linhas) || !linhas.length)
@@ -453,10 +460,27 @@ r.post("/import", roles("adm"), (req, res) => {
      O `garantirPipelinePadrao` do start conserta isso sozinho, ligando pelo
      nome da etapa — mas só no próximo reinício do servidor. Entre a
      importação e ele, o gestor sobe a base e não a encontra em lugar nenhum. */
-  const etapasDaCasa = new Map(
-    db.prepare("SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND is_active = 1").all(req.user.org_id)
-      .map(e => [e.name, e]));
-  const entradaDaCasa = entradaPadrao(req.user.org_id);
+  /* `is_active`, e não `active` (02/10/2026): a coluna nunca se chamou
+     `active`, e esta consulta derrubava TODA importação com erro 500 desde
+     01/09/2026 — o aviso aparecia no topo da Base de leads, longe do botão, e
+     do lado de quem usa parecia que os leads simplesmente não subiam. */
+  const ativas = db.prepare(
+    "SELECT id, name, pipeline_id FROM pipeline_stages WHERE org_id = ? AND is_active = 1").all(req.user.org_id);
+  const etapasDaCasa = new Map(ativas.map(e => [e.name, e]));
+  const etapaPorIdNaCasa = new Map(ativas.map(e => [e.id, e]));
+
+  /* ETAPA DA PLANILHA → ETAPA DO FUNIL (02/10/2026, relato do Ali: "não está
+     reconhecendo a etapa que o lead tá, tá indo tudo pra etapa Lead"). Cada
+     CRM chama as etapas de um jeito — "Atendimento Frio", "Compra Futura",
+     "Venda Ganha" — e só o nome IGUAL a uma das 11 etapas antigas casava; o
+     resto caía na primeira etapa. Agora o popup liga cada nome da planilha a
+     uma etapa (`etapas`: nome → stage_id), como já fazia com os corretores.
+     Id que não é etapa ativa desta conta é ignorado — o corpo da requisição
+     não escolhe etapa de outra imobiliária. */
+  const mapaEtapas = {};
+  if (req.body.etapas && typeof req.body.etapas === "object")
+    for (const [nome, id] of Object.entries(req.body.etapas))
+      if (etapaPorIdNaCasa.has(id)) mapaEtapas[String(nome).trim().toLowerCase()] = etapaPorIdNaCasa.get(id);
 
   const inserir = db.prepare(`INSERT INTO leads
     (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,import_id,
@@ -468,19 +492,26 @@ r.post("/import", roles("adm"), (req, res) => {
      botão — "480 vão entrar, 20 ficam de fora, e por quê". Uma regra só: se
      a prévia fosse uma conta à parte, ela diria um número e a importação
      faria outro. */
-  const naPlanilha = new Set();
+  /* O MESMO TELEFONE EM DUAS LINHAS fica UMA vez — e fica a linha que tem a
+     VENDA, se alguma tiver (02/10/2026: na planilha da Veronica a venda estava
+     na segunda linha de um telefone repetido, e ficar com a primeira apagava
+     a venda do relatório). Sem venda, fica a primeira. */
+  const telDaLinha = linhas.map(l => normalizePhone(String(l.telefone || "").trim()));
+  const escolhida = new Map();
+  linhas.forEach((l, i) => {
+    const t = telDaLinha[i]; if (!t) return;
+    if (!escolhida.has(t) || (valorBR(l.valor_venda) && !valorBR(linhas[escolhida.get(t)].valor_venda))) escolhida.set(t, i);
+  });
   const importar = db.transaction((lista) => {
-    for (const l of lista) {
-      const phone = normalizePhone(String(l.telefone || "").trim());
+    for (const [i, l] of lista.entries()) {
+      const phone = telDaLinha[i];
       /* Menos de 10 dígitos não é celular nem fixo com DDD: um lead com
          telefone "123" entraria no funil e no relatório como atendimento. */
       if (!phone || phone.replace(/\D/g, "").length < 10) { anota("sem telefone válido", l); continue; }
-      if (naPlanilha.has(phone)) { anota("telefone repetido na planilha", l); continue; }
-      naPlanilha.add(phone);
+      if (escolhida.get(phone) !== i) { anota("telefone repetido na planilha", l); continue; }
       if (db.prepare("SELECT 1 FROM leads WHERE org_id=? AND phone=?").get(req.user.org_id, phone)) {
         anota("telefone já cadastrado", l); continue;
       }
-      const etapa = STAGES.includes(l.etapa) ? l.etapa : "Lead";
       /* Sem temperatura na planilha, o lead entra SEM temperatura — a regra
          de 16/08/2026 ("nenhum caminho de entrada marca temperatura") valia
          para tudo menos para esta rota, que ainda preenchia MORNO. */
@@ -494,23 +525,33 @@ r.post("/import", roles("adm"), (req, res) => {
         : null;
       const entrada = dataBR(l.entrou_em);
 
-      /* A etapa da planilha casa pelo NOME com a do funil da casa. Não
-         casando, o lead entra na etapa de entrada — e não fora do funil, que
-         é onde ele some. */
-      const noFunil = etapasDaCasa.get(etapa);
+      /* A etapa: o que o gestor escolheu no popup; senão o nome igual ao de
+         uma etapa da casa; senão a entrada do funil de quem recebe o lead —
+         nunca fora do funil, que é onde ele some de todas as colunas. */
+      const nomeEtapa = String(l.etapa || "").trim();
+      const destino = mapaEtapas[nomeEtapa.toLowerCase()] || etapasDaCasa.get(nomeEtapa)
+        || (() => { const e = entradaDe(req.user.org_id, dono); return { name: e.nome, pipeline_id: e.pipeline_id, id: e.stage_id }; })();
       const quando = isFinite(entrada) ? entrada : Date.now();
-      if (previa) { resultado.criados++; continue; }
-      inserir.run("l_" + randomUUID(), req.user.org_id,
+      /* A VENDA QUE A PLANILHA TRAZ (02/10/2026). "Venda Ganha · 275000" do CRM
+         antigo entrava como um lead qualquer, e a venda não existia em relatório
+         nenhum — é `sale_value`/`sale_date` que todo número de dinheiro lê. */
+      const valorVenda = valorBR(l.valor_venda);
+      const dataVenda = dataBR(l.data_venda);
+      if (previa) { resultado.criados++; if (valorVenda) resultado.vendas = (resultado.vendas || 0) + 1; continue; }
+      const id = "l_" + randomUUID();
+      inserir.run(id, req.user.org_id,
         String(l.nome || "Sem nome").trim().slice(0, 120), phone,
         String(l.email || "").trim() || null,
         // A origem digitada na tela manda em tudo: é ela que separa "Feirão de
         // março" de "Base antiga do RD" na hora de medir o que deu resultado.
         origemFixa || String(l.origem || "").trim() || "Importado",
-        temperatura, noFunil ? noFunil.name : (entradaDaCasa.nome || etapa), dono,
-        quando, importId,
-        noFunil ? noFunil.pipeline_id : entradaDaCasa.pipeline_id,
-        noFunil ? noFunil.id : entradaDaCasa.stage_id,
-        quando);
+        temperatura, destino.name || "Lead", dono,
+        quando, importId, destino.pipeline_id || null, destino.id || null, quando);
+      if (valorVenda) {
+        db.prepare("UPDATE leads SET sale_value = ?, sale_date = ?, sale_property = ? WHERE id = ?")
+          .run(valorVenda, isFinite(dataVenda) ? dataVenda : quando, String(l.imovel_vendido || "").trim().slice(0, 160) || null, id);
+        resultado.vendas = (resultado.vendas || 0) + 1;
+      }
       resultado.criados++;
     }
   });
