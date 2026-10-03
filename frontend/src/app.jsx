@@ -1702,6 +1702,8 @@ function ConCRM(){
     // "Conectar com Facebook" (01/10/2026): páginas da conta e a ida e volta ao Facebook.
     anunciosMeta:()=>api("/anuncios-meta"),
     formulariosMeta:()=>api("/anuncios-meta/formularios"),
+    funilDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}`,{method:"POST",body:dados}),
+    catracaDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/catraca`,{method:"POST",body:dados}),
     iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
     escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
     conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
@@ -5933,7 +5935,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal",ATENDER_FILHOS,{navegar:true}],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -6111,6 +6113,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
         {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
@@ -6162,6 +6165,12 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
    filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
    próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
+/* ATENDER É UM GRUPO PARA O GESTOR (03/10/2026, pedido do Ali): Conversas e
+   Formulários (de que funil é o lead de cada formulário do anúncio). Diferente
+   de Operação, o clique em "Atender" LEVA às conversas (`navegar`): é o item
+   mais usado do menu, e dois cliques para chegar na caixa seria um passo a
+   mais todo dia. O corretor e a atendente continuam com o item simples. */
+const ATENDER_FILHOS=[["atendimento","whatsapp","Conversas"],["formularios","form","Formulários"]];
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
    o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
@@ -9638,6 +9647,144 @@ function SeloDoFormulario({l}){
       color:"#0B57D0",background:"#EAF1FE",border:"1px solid #0866FF33"}}>
     <span style={{flexShrink:0,display:"inline-flex"}}><Icon n="megafone" size={10}/></span>
     <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{texto}</span></span>;
+}
+
+/* ===== ATENDER → FORMULÁRIOS (03/10/2026, pedido do Ali) =====
+   Todos os formulários da página conectada e, para cada um, o funil (e a
+   etapa) em que o lead NOVO dele nasce. Sem escolha, a regra de sempre: o
+   funil de quem recebe. O responsável continua vindo da catraca — a tela diz
+   isso uma vez, no topo. Salva ao escolher: é uma escolha por linha, e um
+   botão "Salvar" para cada formulário seria um clique a mais sem proteger
+   nada (a escolha não mexe em lead nenhum que já entrou). */
+function Formularios({acoes,isMobile,irPara,semCatraca}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [verArquivados,setVerArquivados]=useState(false);
+  const {pipelines}=usarPipelines(acoes,true);
+  const catracas=usarCatracas(acoes,!semCatraca);
+  const carregar=()=>acoes.formulariosMeta().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const ativos=(d?.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE");
+  const arquivados=(d?.formularios||[]).filter(f=>f.status&&f.status!=="ACTIVE");
+  const semPagina=d&&!d.paginas.length;
+  return <div style={molduraMkt(isMobile)}>
+    <div style={{marginBottom:14}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
+        {semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Escolha em que funil nasce o lead de cada formulário e por quais catracas ele é distribuído. Sem escolha, vale a regra de sempre."}
+</div>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
+    {d&&(d.erros||[]).map((e,i)=><div key={i} style={{background:"#FFF8E6",border:"1px solid #E8D9A8",color:"#8a6d1f",
+      borderRadius:12,padding:"10px 13px",fontSize:12.5,lineHeight:1.5,marginBottom:12}}>
+      A Meta não deixou ler os formulários da <b>{e.pagina}</b>: {e.erro}. A lista abaixo mostra os que já trouxeram lead.</div>)}
+    {semPagina&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 240px",color:C.sub,fontSize:13,lineHeight:1.5}}>
+        Nenhuma página do Facebook conectada nesta conta. Conecte em <b>Configurações → Anúncios do Meta</b> para os formulários aparecerem aqui.</div>
+      <button onClick={()=>irPara("config")} style={botaoMkt()}>Ir para Configurações</button>
+    </div>}
+    {d&&!d.formularios.length&&!semPagina&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum formulário encontrado na página.</div>}
+    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {arquivados.length>0&&<button onClick={()=>setVerArquivados(v=>!v)}
+      style={{background:"transparent",border:"none",color:C.sub,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:"6px 2px",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+      Arquivados ({arquivados.length})</button>}
+    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+  </div>;
+}
+
+function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,aoSalvar}){
+  const [pipe,setPipe]=useState(f.pipeline_id||"");
+  /* AS CATRACAS DESTE FORMULÁRIO (03/10/2026): um formulário pode estar em
+     várias (decisão do Ali). É a MESMA marcação de "De onde vêm os leads" no
+     editor da catraca — gravada pela mesma rota, então as duas telas mostram
+     sempre o mesmo vínculo. */
+  const [marcadas,setMarcadas]=useState(f.catraca_ids||[]);
+  useEffect(()=>{setMarcadas(f.catraca_ids||[]);},[(f.catraca_ids||[]).join(",")]);
+  const catracasAtivas=(catracas?.catracas||[]).filter(c=>c.ativa);
+  // A catraca grava por rota própria: escolher uma não mexe no funil.
+  async function alternarCatraca(id){
+    const ativasMarcadas=marcadas.filter(x=>catracasAtivas.some(c=>c.id===x));
+    const nova=ativasMarcadas.includes(id)?ativasMarcadas.filter(x=>x!==id):[...ativasMarcadas,id];
+    setMarcadas(nova); setEstado("salvando");
+    try{
+      await acoes.catracaDoFormulario(f.id,{catraca_ids:nova,nome:f.nome,page_id:f.page_id});
+      esquecerCatracas(); setEstado("salvo"); aoSalvar&&aoSalvar();
+      setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
+    }catch(e){ setEstado("erro:"+e.message); setMarcadas(f.catraca_ids||[]); }
+  }
+  const [etapa,setEtapa]=useState(f.stage_id||"");
+  const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
+  useEffect(()=>{setPipe(f.pipeline_id||"");setEtapa(f.stage_id||"");},[f.pipeline_id,f.stage_id]);
+  const ativos=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
+  const escolhido=ativos.find(p=>p.id===pipe);
+  const etapas=(escolhido?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  async function salvar(novoPipe,novaEtapa){
+    setEstado("salvando");
+    try{
+      await acoes.funilDoFormulario(f.id,{pipeline_id:novoPipe||null,stage_id:novaEtapa||null,nome:f.nome,page_id:f.page_id});
+      setEstado("salvo"); aoSalvar&&aoSalvar();
+      setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
+    }catch(e){ setEstado("erro:"+e.message); setPipe(f.pipeline_id||""); setEtapa(f.stage_id||""); }
+  }
+  const caixa={...campoMkt(isMobile),cursor:"pointer",padding:"9px 10px"};
+  const rotuloForm={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"12px 0 5px"};
+  const quando=f.ultimo_lead_em?`último lead ${fmtQuando(f.ultimo_lead_em)}`:null;
+  return <div style={{...CARTAO_MKT,padding:14,marginBottom:10}}>
+    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+      <div style={{width:34,height:34,borderRadius:10,background:"#EAF1FE",color:"#0B57D0",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        <Icon n="form" size={17}/></div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700,overflowWrap:"anywhere"}}>{f.nome}</span>
+          {f.status&&f.status!=="ACTIVE"&&<Pill c={C.sub} bg={C.surface}>Arquivado</Pill>}
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+          {[f.pagina,`${f.leads_crm} ${f.leads_crm===1?"lead":"leads"} no CRM`,quando].filter(Boolean).join(" · ")}</div>
+      </div>
+    </div>
+    <div style={rotuloForm}>Funil</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8}}>
+      <select aria-label="Funil do formulário" value={pipe} disabled={estado==="salvando"}
+        onChange={e=>{const v=e.target.value;setPipe(v);setEtapa("");salvar(v,"");}} style={caixa}>
+        <option value="">Funil de quem recebe (padrão)</option>
+        {ativos.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      {escolhido&&<select aria-label="Etapa de entrada" value={etapa} disabled={estado==="salvando"}
+        onChange={e=>{const v=e.target.value;setEtapa(v);salvar(pipe,v);}} style={caixa}>
+        <option value="">Primeira etapa{etapas[0]?` (${etapas[0].name})`:""}</option>
+        {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+      </select>}
+    </div>
+    {/* Sempre à vista (pedido do Ali, 03/10/2026): escondida enquanto não
+        existia catraca nenhuma, a escolha parecia não existir. Sem catraca
+        criada, a última opção leva à tela onde ela se cria. */}
+    {!semCatraca&&<div style={rotuloForm}>Catracas</div>}
+    {!semCatraca&&<div>
+      {!catracas&&<div style={{color:C.faint,fontSize:11}}>Carregando as catracas…</div>}
+      {catracas&&catracas.erro&&<div style={{color:C.hot,fontSize:11}}>Não consegui ler as catracas: {catracas.erro}</div>}
+      {catracas&&!catracas.erro&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {catracasAtivas.map(c=>{const on=marcadas.includes(c.id);
+          return <button key={c.id} onClick={()=>alternarCatraca(c.id)} disabled={estado==="salvando"} aria-pressed={on}
+            title={c.etapa&&c.etapa.ok?`Aciona em ${c.etapa.funil} › ${c.etapa.nome}`:"Sem etapa: entrega pelo repasse"}
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+              borderRadius:999,padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,color:C.ink,fontWeight:on?600:500,fontFamily:FONT}}>
+            {on&&<Icon n="check" size={13} color={C.green}/>}{c.nome}
+            <span style={{color:C.faint,fontSize:10.5,fontWeight:500}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></button>;})}
+        {irPara&&<button onClick={()=>irPara("catraca")} style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.sub,borderRadius:999,
+          padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,fontFamily:FONT}}>+ Criar uma catraca nova</button>}
+      </div>}
+      {catracas&&!catracas.erro&&<div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.4}}>
+        {!catracasAtivas.length?"Nenhuma catraca de produto criada ainda — os leads deste formulário usam a catraca principal."
+          :!marcadas.some(x=>catracasAtivas.some(c=>c.id===x))?"Nenhuma marcada: os leads deste formulário usam a catraca principal."
+          :"Com mais de uma marcada, elas se revezam. O funil e a etapa que acionam cada uma se escolhem na tela Catraca."}</div>}
+    </div>}
+    {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
+      O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
+    {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
+    {estado.startsWith("erro:")&&<div style={{color:C.hot,fontSize:12,marginTop:7}}>{estado.slice(5)}</div>}
+  </div>;
 }
 
 /* A FAIXA ACIMA DO CAMPO: por qual número a próxima mensagem sai.
