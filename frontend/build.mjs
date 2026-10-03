@@ -41,7 +41,14 @@ jsx.split("\n").forEach((linha, i) => {
 if (erradas.length)
   throw new Error(`Cor inexistente na paleta (o navegador ignora e o elemento fica sem cor):\n${erradas.join("\n")}\n\nA paleta tem: ${[...cores].join(", ")}`);
 
-const out = await esbuild.transform(jsx, {
+/* A lista de países e códigos de telefone vem do SERVIDOR
+   (backend/src/services/paises.js) e entra no app como `PAISES_DADOS`. Uma
+   lista só: a do seletor de país e a que o servidor usa para conferir o
+   número nunca divergem. */
+const { PAISES } = await import(new URL("../backend/src/services/paises.js", import.meta.url));
+const comPaises = `const PAISES_DADOS = ${JSON.stringify(PAISES)};\n` + jsx;
+
+const out = await esbuild.transform(comPaises, {
   loader: "jsx",
   format: "iife",
   target: "es2018",

@@ -63,7 +63,7 @@ function extrairEnvelopes(value) {
       texto = "[localização compartilhada]";
     }
     return {
-      phone: normalizePhone(m.from || ""),
+      phone: normalizePhone(m.from || "", { comCodigo: true }),
       texto: String(texto).trim(),
       tipo,
       content,

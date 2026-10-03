@@ -5,6 +5,7 @@ import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../au
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
+import { validarTelefone, paisPorIso } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
@@ -201,7 +202,7 @@ r.get("/", (req, res) => {
    escolhe o dono e deixa uma observação, que é o caso que motivou o pedido: a
    atendente recebe a ligação, anota o que descobriu e passa adiante. */
 r.post("/", (req, res) => {
-  const { nome, telefone, stage_id, assigned_to, observacao, origem, email } = req.body || {};
+  const { nome, telefone, stage_id, assigned_to, observacao, origem, email, pais } = req.body || {};
 
   const limpo = String(nome || "").trim().slice(0, 120);
   if (!limpo) return res.status(400).json({ error: "Escreva o nome do lead." });
@@ -213,15 +214,18 @@ r.post("/", (req, res) => {
      "5587999998888", o cliente que respondesse criaria um segundo lead ao lado
      do primeiro, e ninguém veria nada de errado — duas fichas do mesmo cliente,
      cada uma com metade da história. */
-  const phone = normalizePhone(String(telefone || "").trim());
+  /* `pais` é o país escolhido no cadastro (padrão: Brasil). Número escrito com
+     "+" na frente vale como veio, seja qual for o país escolhido. */
+  if (pais && !paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
+  const phone = normalizePhone(String(telefone || "").trim(), { pais: pais || "BR" });
   /* `normalizePhone` é PERMISSIVA de propósito — no webhook, devolver os
      dígitos que vieram é melhor do que perder um lead por causa de um formato
      estranho. Aqui é o contrário: quem digita está criando o registro do zero,
      e um lead com telefone "123" é um lead com quem ninguém consegue falar,
      que entraria no funil e no relatório contando como atendimento. Por isso a
      conferência do tamanho fica NESTA rota, e não dentro da função. */
-  if (!/^55\d{10,11}$/.test(phone))
-    return res.status(400).json({ error: "Informe um telefone válido, com DDD (ex.: 87 99999-8888)." });
+  const problemaNoTelefone = validarTelefone(phone);
+  if (problemaNoTelefone) return res.status(400).json({ error: problemaNoTelefone });
 
   /* NÚMERO REPETIDO NÃO VIRA LEAD NOVO — e a recusa devolve QUAL é o lead que
      já existe, para a tela abrir a conversa dele em vez de só dizer "não".
@@ -411,7 +415,12 @@ function valorBR(valor) {
 }
 
 r.post("/import", roles("adm"), (req, res) => {
-  const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo, previa } = req.body || {};
+  const { linhas, origem_fixa, corretores: mapaEnviado, rotulo, arquivo, previa, pais } = req.body || {};
+  /* País dos números SEM código (03/10/2026). Padrão: Brasil. Número que já
+     vem com "+" na planilha vale como veio, e número comprido demais para ser
+     brasileiro (um 54 9 11… colado sem "+") também — `normalizePhone` só põe
+     o 55 em quem tem tamanho de número brasileiro. */
+  if (pais && !paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
   if (!Array.isArray(linhas) || !linhas.length)
     return res.status(400).json({ error: "Nenhuma linha recebida." });
   if (linhas.length > 5000)
@@ -496,7 +505,7 @@ r.post("/import", roles("adm"), (req, res) => {
      VENDA, se alguma tiver (02/10/2026: na planilha da Veronica a venda estava
      na segunda linha de um telefone repetido, e ficar com a primeira apagava
      a venda do relatório). Sem venda, fica a primeira. */
-  const telDaLinha = linhas.map(l => normalizePhone(String(l.telefone || "").trim()));
+  const telDaLinha = linhas.map(l => normalizePhone(String(l.telefone || "").trim(), { pais: pais || "BR" }));
   const escolhida = new Map();
   linhas.forEach((l, i) => {
     const t = telDaLinha[i]; if (!t) return;
@@ -505,9 +514,10 @@ r.post("/import", roles("adm"), (req, res) => {
   const importar = db.transaction((lista) => {
     for (const [i, l] of lista.entries()) {
       const phone = telDaLinha[i];
-      /* Menos de 10 dígitos não é celular nem fixo com DDD: um lead com
-         telefone "123" entraria no funil e no relatório como atendimento. */
-      if (!phone || phone.replace(/\D/g, "").length < 10) { anota("sem telefone válido", l); continue; }
+      /* Número incompleto não vira lead: um lead com telefone "123" entraria
+         no funil e no relatório como atendimento. A régua é a mesma do
+         cadastro na mão (`validarTelefone`), para o país de cada número. */
+      if (!phone || validarTelefone(phone)) { anota("sem telefone válido", l); continue; }
       if (escolhida.get(phone) !== i) { anota("telefone repetido na planilha", l); continue; }
       if (db.prepare("SELECT 1 FROM leads WHERE org_id=? AND phone=?").get(req.user.org_id, phone)) {
         anota("telefone já cadastrado", l); continue;
@@ -1654,9 +1664,11 @@ r.post("/:id/sugestao-etapa", (req, res) => {
 r.patch("/:id/telefone", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const phone = normalizePhone(String(req.body?.telefone || "").trim());
-  if (!/^55\d{10,11}$/.test(phone))
-    return res.status(400).json({ error: "Informe um telefone válido, com DDD (ex.: 87 99999-8888)." });
+  const pais = req.body?.pais || "BR";
+  if (!paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
+  const phone = normalizePhone(String(req.body?.telefone || "").trim(), { pais });
+  const problema = validarTelefone(phone);
+  if (problema) return res.status(400).json({ error: problema });
   if (phone === lead.phone) return res.json({ ok: true, telefone: phone });
   const outro = db.prepare("SELECT id, name FROM leads WHERE org_id = ? AND phone = ? AND id <> ? LIMIT 1")
     .get(lead.org_id, phone, lead.id);

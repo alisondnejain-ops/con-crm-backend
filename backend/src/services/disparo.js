@@ -44,7 +44,7 @@ import { ROTULO_DISPARO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./mar
 
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
-const telefoneValido = (t) => /^55\d{10,11}$/.test(t);
+import { telefoneValido } from "./telefone.js";
 const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
   .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -809,7 +809,7 @@ export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
   const f = fluxoDaOrg(orgId, fluxoId);
   if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
   const tel = normalizePhone(String(telefone || "").trim());
-  if (!telefoneValido(tel)) throw new ErroMarketing(400, "Digite o número com DDD, ex.: (87) 99999-0000.");
+  if (!telefoneValido(tel)) throw new ErroMarketing(400, "Digite o número com DDD, ex.: (87) 99999-0000 — de fora do Brasil, com + e o código do país.");
   const { grafo, erros } = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
   if (erros.length) throw new ErroMarketing(422, "Antes do teste: " + erros[0]);
   const linha = linhaDeDisparo(orgId);
