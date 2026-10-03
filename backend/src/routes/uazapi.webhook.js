@@ -108,7 +108,8 @@ function extrair(p) {
   // arquivo. Em mensagem de texto ele é uma string — daí a checagem de tipo.
   const content = m.content && typeof m.content === "object" ? m.content : null;
   return {
-    phone: normalizePhone(chat.split("@")[0]),
+    // O número do remetente sempre traz o país — não é lido como brasileiro.
+    phone: normalizePhone(chat.split("@")[0], { comCodigo: true }),
     texto: String(texto).trim(),
     tipo,
     content,

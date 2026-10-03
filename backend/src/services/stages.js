@@ -86,15 +86,10 @@ export function inferStage(current, messages) {
   return LINEAR[t];
 }
 
-// Normaliza telefone brasileiro para 55 + DDD + 9 + 8 dígitos (formato wa/Uazapi).
-export function normalizePhone(raw) {
-  let d = String(raw || "").replace(/\D/g, "");
-  if (d.length === 13 && d.startsWith("55")) return d;
-  if (d.length === 11) return "55" + d;
-  if (d.length === 12 && d.startsWith("55")) return d.slice(0, 4) + "9" + d.slice(4);
-  if (d.length === 10) return "55" + d.slice(0, 2) + "9" + d.slice(2);
-  return d;
-}
+/* O telefone saiu daqui em 03/10/2026 e passou a entender outros países
+   (services/telefone.js). Continua exportado por este arquivo porque é daqui
+   que quase todo o sistema o importa. */
+export { normalizePhone } from "./telefone.js";
 
 /* A nota de corte que virava temperatura saiu daqui em 14/08/2026.
 

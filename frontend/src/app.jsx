@@ -716,13 +716,81 @@ const fmtEspera=(ms)=>{const m=Math.floor(Math.max(0,ms)/60000);if(m<24*60)retur
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
 const first=(n)=>String(n||"").split(" ")[0];
-// O backend guarda 5587991234567; aqui mostramos legível.
+/* ===== PAÍSES E TELEFONE INTERNACIONAL (03/10/2026) =====
+
+   A lista vem do servidor (backend/src/services/paises.js), injetada pelo
+   build como `PAISES_DADOS` — a mesma que confere o número lá. Brasil
+   primeiro; o resto em ordem alfabética, que é como se procura um país. */
+const PAISES=[...PAISES_DADOS].sort((a,b)=>a.iso==="BR"?-1:b.iso==="BR"?1:a.nome.localeCompare(b.nome,"pt-BR"));
+const PAISES_POR_DDI=[...PAISES_DADOS].sort((a,b)=>b.ddi.length-a.ddi.length);
+const paisPorIso=(iso)=>PAISES.find(p=>p.iso===iso)||PAISES[0];
+/* Bandeira pelo código ISO (letras regionais do Unicode). No Windows o
+   navegador desenha as duas letras ("BR") em vez da bandeira — continua
+   legível, por isso o código de discagem vai sempre ao lado. */
+const bandeira=(iso)=>String(iso||"").toUpperCase().replace(/./g,c=>String.fromCodePoint(127397+c.charCodeAt(0)));
+// De que país é um número já gravado (com o código). Nulo se o código não está na lista.
+function paisDoTel(t){
+  const d=String(t||"").replace(/\D/g,"");
+  return d.length>=8?(PAISES_POR_DDI.find(p=>d.startsWith(p.ddi))||null):null;
+}
+/* O número gravado separado em país + parte nacional, para abrir o campo de
+   correção com o país certo já escolhido. */
+function separarTel(t){
+  const d=String(t||"").replace(/\D/g,"");
+  const p=paisDoTel(d);
+  if(!p) return {pais:"BR",nacional:d};
+  return {pais:p.iso,nacional:d.slice(p.ddi.length)};
+}
+// O backend guarda 5587991234567; aqui mostramos legível — de qualquer país.
 function fmtTel(t){
   const d=String(t||"").replace(/\D/g,"");
-  if(d.length===13) return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
-  if(d.length===12) return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
-  return t||"—";
+  if(d.startsWith("55")){
+    if(d.length===13) return `+55 (${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`;
+    if(d.length===12) return `+55 (${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`;
+    return t||"—";
+  }
+  const p=paisDoTel(d);
+  if(!p) return d.length>=10?"+"+d:(t||"—");
+  /* Estrangeiro: +código e o resto em blocos — de 3 em 3 quando fecha certo
+     (912 345 678), senão os últimos 4 juntos e o começo de 3 em 3
+     (202 555 0123). Não é o jeito de cada país escrever, é um jeito legível
+     de ditar. */
+  const n=d.slice(p.ddi.length);
+  if(n.length%3===0) return `+${p.ddi} ${n.match(/\d{3}/g).join(" ")}`;
+  const fim=n.slice(-4), ini=n.slice(0,-4), blocos=[];
+  for(let i=0;i<ini.length;i+=3) blocos.push(ini.slice(i,i+3));
+  if(blocos.length>1&&blocos[blocos.length-1].length===1) blocos[blocos.length-2]+=blocos.pop();
+  return `+${p.ddi} ${[...blocos,fim].filter(Boolean).join(" ")}`;
 }
+/* O país ao lado do número, só quando NÃO é o Brasil: numa base brasileira,
+   escrever "Brasil" em toda ficha é ruído; o estrangeiro é que precisa saltar
+   aos olhos de quem vai ligar ou mandar mensagem. */
+function SeloDoPais({tel,style}){
+  const p=paisDoTel(tel);
+  if(!p||p.iso==="BR") return null;
+  return <span title={`Número de ${p.nome}`} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,
+    color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"1px 7px",whiteSpace:"nowrap",...style}}>
+    {bandeira(p.iso)} {p.nome}</span>;
+}
+/* Seletor de país compacto: mostra só bandeira + código ("🇧🇷 +55 ▾") e abre a
+   lista inteira do sistema ao tocar. O <select> fica invisível POR CIMA do
+   rótulo — é o seletor nativo que abre (no celular, a roda de opções), e o
+   que aparece é o que cabe ao lado do número. */
+function SeletorDePais({valor,aoMudar,style,altura=40}){
+  const p=paisPorIso(valor);
+  return <label title={p.nome} style={{position:"relative",display:"inline-flex",alignItems:"center",gap:5,flexShrink:0,
+    height:altura,boxSizing:"border-box",padding:"0 9px",border:`1px solid ${C.line}`,borderRadius:10,background:C.surface,
+    color:C.ink,fontSize:13.5,fontFamily:MONO,cursor:"pointer",...style}}>
+    <span style={{fontFamily:FONT}}>{bandeira(p.iso)}</span>+{p.ddi}
+    <span style={{color:C.faint,fontSize:10}}>▾</span>
+    <select aria-label="País do número" value={p.iso} onChange={e=>aoMudar(e.target.value)}
+      style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",fontSize:16,width:"100%"}}>
+      {PAISES.map(x=><option key={x.iso} value={x.iso}>{bandeira(x.iso)} {x.nome} (+{x.ddi})</option>)}
+    </select>
+  </label>;
+}
+// O que escrever no campo do número, conforme o país.
+const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
@@ -1457,8 +1525,8 @@ function ConCRM(){
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
     // Sem o `acao()`: o erro (número repetido, formato) volta para o campo
     // que está aberto, em vez de ir para a faixa do topo e fechar a edição.
-    corrigirTelefone:async(leadId,telefone)=>{
-      const r=await api(`/leads/${leadId}/telefone`,{method:"PATCH",body:{telefone}});
+    corrigirTelefone:async(leadId,telefone,pais)=>{
+      const r=await api(`/leads/${leadId}/telefone`,{method:"PATCH",body:{telefone,pais}});
       await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
     /* Tarefas: NÃO passam pelo `acao()`. Aquele envelope engole o erro e
        recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
@@ -2735,7 +2803,7 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
   </div>;
 }
 
-const LISTA_VAZIA={nome:"",origem:"",origem_detalhe:"",coletado_em:"",declaracao:false,arquivo:null};
+const LISTA_VAZIA={nome:"",origem:"",origem_detalhe:"",coletado_em:"",declaracao:false,arquivo:null,pais:"BR"};
 function ListasDeContatos({d,acoes,aoMudar,isMobile}){
   const [listas,setListas]=useState(null);
   const [abrindo,setAbrindo]=useState(false);
@@ -2808,6 +2876,11 @@ function ListasDeContatos({d,acoes,aoMudar,isMobile}){
             placeholder="ex.: fichas preenchidas no plantão do Residencial X em agosto" style={{...campoMkt(isMobile),resize:"vertical"}}/></div>}
         <div><div style={rotulo}>Quando os contatos foram coletados?</div>
           <input type="date" max={hojeISO} value={f.coletado_em} onChange={e=>setF({...f,coletado_em:e.target.value})} style={{...campoMkt(isMobile),maxWidth:200}}/></div>
+        <div><div style={rotulo}>País dos números sem código</div>
+          <select value={f.pais||"BR"} onChange={e=>setF({...f,pais:e.target.value})} style={{...campoMkt(isMobile),maxWidth:320,cursor:"pointer"}}>
+            {PAISES.map(x=><option key={x.iso} value={x.iso}>{bandeira(x.iso)} {x.nome} (+{x.ddi})</option>)}
+          </select>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>Número com + e o código do país fica como está.</div></div>
         <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.5,cursor:"pointer"}}>
           <input type="checkbox" checked={f.declaracao} onChange={e=>setF({...f,declaracao:e.target.checked})} style={{marginTop:3,width:17,height:17,flexShrink:0}}/>
           <span>{d.declaracao}</span>
@@ -6946,7 +7019,7 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
   const supervisor=podeSupervisionar(session);
-  const [f,setF]=useState({nome:"",telefone:"",stage_id:"",assigned_to:"",observacao:""});
+  const [f,setF]=useState({nome:"",telefone:"",pais:"BR",stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   const [equipe,setEquipe]=useState([]);
   const [erro,setErro]=useState(null);   // {texto, leadId}
@@ -6965,11 +7038,11 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
   async function salvar(){
     setErro(null);
     if(!f.nome.trim()) return setErro({texto:"Escreva o nome do lead."});
-    if(!f.telefone.trim()) return setErro({texto:"Escreva o número de WhatsApp, com DDD."});
+    if(!f.telefone.trim()) return setErro({texto:f.pais==="BR"?"Escreva o número de WhatsApp, com DDD.":"Escreva o número de WhatsApp."});
     setSalvando(true);
     try{
       const lead=await acoes.criarLead({
-        nome:f.nome.trim(), telefone:f.telefone.trim(),
+        nome:f.nome.trim(), telefone:f.telefone.trim(), pais:f.pais,
         stage_id:f.stage_id||undefined,
         observacao:f.observacao.trim()||undefined,
         ...(supervisor?{assigned_to:f.assigned_to}:{}),
@@ -7013,8 +7086,13 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
             placeholder="Como o cliente se apresentou" style={entrada}/></div>
 
         <div>{rotulo("Número de WhatsApp")}
-          <input value={f.telefone} onChange={e=>setF({...f,telefone:e.target.value})}
-            type="tel" inputMode="tel" placeholder="(87) 9 9999-8888" style={entrada}/>
+          {/* O país vem antes do número: é ele que diz que código vai na frente.
+              Padrão Brasil; quem colar o número com "+" já vale como veio. */}
+          <div style={{display:"flex",gap:6}}>
+            <SeletorDePais valor={f.pais} aoMudar={v=>setF({...f,pais:v})} altura={isMobile?44:40}/>
+            <input value={f.telefone} onChange={e=>setF({...f,telefone:e.target.value})}
+              type="tel" inputMode="tel" placeholder={dicaDoNumero(f.pais)} style={{...entrada,flex:1,minWidth:0}}/>
+          </div>
           {/* O número é o que amarra o cadastro à conversa: quando o cliente
               escrever, o CRM acha ESTE lead em vez de criar outro. */}
           <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
@@ -7048,7 +7126,7 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
             placeholder="O que quem for atender precisa saber antes de falar: melhor horário, quem decide, o que já foi tentado."
             style={{...entrada,resize:"vertical"}}/>
           <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
-            Vira uma observação do lead — aparece na faixa acima da conversa, para quem for atender ler antes.
+            Vira uma observação na ficha do lead, para quem for atender ler antes.
             O cliente <b>não recebe</b> este texto.</div></div>
       </div>
 
@@ -9403,33 +9481,46 @@ function NomeDoLead({lead,acoes}){
 function TelefoneDoLead({lead,acoes}){
   const [editando,setEditando]=useState(false);
   const [tel,setTel]=useState("");
+  const [pais,setPais]=useState("BR");
   const [salvando,setSalvando]=useState(false);
   const [erro,setErro]=useState("");
   useEffect(()=>{ setEditando(false); setErro(""); },[lead.id]);
 
   async function salvar(){
-    if(String(tel).replace(/\D/g,"").length<10) return setErro("Informe o número com DDD.");
+    if(pais==="BR"&&!String(tel).trim().startsWith("+")&&String(tel).replace(/\D/g,"").length<10) return setErro("Informe o número com DDD.");
     setSalvando(true); setErro("");
-    try{ await acoes.corrigirTelefone(lead.id,tel); setEditando(false); }
+    try{ await acoes.corrigirTelefone(lead.id,tel,pais); setEditando(false); }
     catch(e){ setErro(e.message); }
     finally{ setSalvando(false); }
   }
 
-  if(!editando) return <div style={{display:"flex",alignItems:"center",gap:6,marginTop:-8,marginBottom:12}}>
-    <span style={{color:C.sub,fontSize:12.5,fontFamily:MONO}}>{fmtTel(lead.tel)}</span>
-    <button onClick={()=>{setTel(String(lead.tel||"").replace(/\D/g,"").replace(/^55/,""));setEditando(true);}} title="Corrigir o telefone"
-      aria-label="Corrigir o telefone"
-      style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
-      <Icon n="edit" size={12}/></button>
+  /* O número nunca quebra no meio; quem desce de linha, se faltar espaço, é
+     o selo do país. O lápis fica colado ao número. */
+  if(!editando) return <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:-8,marginBottom:12}}>
+    <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+      <span style={{color:C.sub,fontSize:12.5,fontFamily:MONO,whiteSpace:"nowrap"}}>{fmtTel(lead.tel)}</span>
+      {/* Abre já com o país do número gravado e só a parte nacional no campo. */}
+      <button onClick={()=>{const x=separarTel(lead.tel);setPais(x.pais);setTel(x.nacional);setEditando(true);}} title="Corrigir o telefone"
+        aria-label="Corrigir o telefone"
+        style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
+        <Icon n="edit" size={12}/></button>
+    </span>
+    <SeloDoPais tel={lead.tel}/>
   </div>;
 
+  /* Duas linhas: país + número em cima, botões embaixo. Na ficha do
+     computador a coluna tem 280px, e numa linha só o número ficava espremido
+     a ponto de não dar para ler o que se digitava. */
   return <div style={{marginTop:-6,marginBottom:12}}>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <SeletorDePais valor={pais} aoMudar={setPais} altura={38} style={{padding:"0 7px",fontSize:12.5}}/>
       <input autoFocus value={tel} onChange={e=>setTel(e.target.value)} inputMode="tel" maxLength={20}
         onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
-        placeholder="DDD + número"
+        placeholder={pais==="BR"?"DDD + número":"Número"}
         style={{flex:1,minWidth:0,fontSize:16,border:`1px solid ${C.green}66`,background:C.surface,
           borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+    </div>
+    <div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}>
       <button onClick={salvar} disabled={salvando}
         style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
           fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
@@ -11721,6 +11812,8 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
   const [mapa,setMapa]=useState(arquivo.mapa);
   const [rotulo,setRotulo]=useState(arquivo.rotulo);
   const [origem,setOrigem]=useState("");
+  // País dos números SEM código (03/10/2026). Muda a prévia na hora.
+  const [pais,setPais]=useState("BR");
   const [casar,setCasar]=useState({});
   const [previa,setPrevia]=useState(null);
   const [lendo,setLendo]=useState(true);
@@ -11762,10 +11855,10 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
   useEffect(()=>{
     if(semTelefone){ setPrevia(null); setLendo(false); return; }
     let vivo=true; setLendo(true); setErro("");
-    const t=setTimeout(()=>acoes.importarLeads({linhas:dados,previa:true})
+    const t=setTimeout(()=>acoes.importarLeads({linhas:dados,pais,previa:true})
       .then(r=>vivo&&setPrevia(r)).catch(e=>vivo&&setErro(e.message)).finally(()=>vivo&&setLendo(false)),300);
     return()=>{vivo=false;clearTimeout(t);};
-  },[dados,semTelefone]);
+  },[dados,semTelefone,pais]);
   useEffect(()=>{ const k=e=>{ if(e.key==="Escape"&&!subindo) aoFechar(); };
     window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[subindo]);
 
@@ -11773,7 +11866,7 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
   async function importar(){
     setErro(""); setSubindo(true);
     try{
-      const r=await acoes.importarLeads({linhas:dados,origem_fixa:origem.trim()||padrao,
+      const r=await acoes.importarLeads({linhas:dados,pais,origem_fixa:origem.trim()||padrao,
         corretores:casar,etapas:casarEtapa,rotulo,arquivo:arquivo.arquivo});
       setFeito(r); await aoImportar(r);
     }catch(e){ setErro(e.message); }
@@ -11851,6 +11944,15 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
               <div style={rotuloCampo}>Origem dos leads</div>
               <input value={origem} onChange={e=>setOrigem(e.target.value)} placeholder={padrao} style={caixa}/>
             </div>
+          </div>
+
+          <div>
+            <div style={rotuloCampo}>País dos números sem código</div>
+            <select value={pais} onChange={e=>setPais(e.target.value)} style={{...caixa,cursor:"pointer"}}>
+              {PAISES.map(x=><option key={x.iso} value={x.iso}>{bandeira(x.iso)} {x.nome} (+{x.ddi})</option>)}
+            </select>
+            <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+              Número que já vem com + e o código do país fica como está. Planilha com clientes de vários países: escreva o + na frente de cada número.</div>
           </div>
 
           {nomes.length>0&&<div>

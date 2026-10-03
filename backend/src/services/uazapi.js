@@ -231,10 +231,18 @@ export function numeroAlternativo(numero) {
   const d = String(numero || "").replace(/\D/g, "");
   if (/^55\d{2}9\d{8}$/.test(d)) return d.slice(0, 4) + d.slice(5);   // tira o 9
   if (/^55\d{2}[6-9]\d{7}$/.test(d)) return d.slice(0, 4) + "9" + d.slice(4); // põe o 9
+  /* Argentina e México têm o mesmo tipo de dígito a mais no celular (03/10/2026):
+     54 9 … e 52 1 …. O WhatsApp registra uns com e outros sem, conforme a
+     época da conta — mesma régua do nono dígito brasileiro. */
+  if (/^549\d{10}$/.test(d)) return "54" + d.slice(3);
+  if (/^54\d{10}$/.test(d)) return "549" + d.slice(2);
+  if (/^521\d{10}$/.test(d)) return "52" + d.slice(3);
+  if (/^52\d{10}$/.test(d)) return "521" + d.slice(2);
   return null;
 }
 const telLegivel = (d) => {
   d = String(d || "").replace(/\D/g, "");
+  if (!d.startsWith("55")) return "+" + d;   // estrangeiro: com o código, como se disca de fora
   return d.length === 13 ? `(${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`
     : d.length === 12 ? `(${d.slice(2, 4)}) ${d.slice(4, 8)}-${d.slice(8)}` : d;
 };

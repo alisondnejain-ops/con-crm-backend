@@ -139,7 +139,9 @@ export const historicoDeAceites = (orgId) => db.prepare(
    FROM marketing_termos WHERE org_id = ? ORDER BY aceito_em DESC`).all(orgId);
 
 // ===== TELEFONES =====
-const telefoneValido = (t) => /^55\d{10,11}$/.test(t);
+/* Vale para qualquer país (03/10/2026): a régua é a mesma do cadastro do
+   lead. Era só o brasileiro, e o estrangeiro ficava de fora como "inválido". */
+import { telefoneValido, paisPorIso } from "./telefone.js";
 /* As duas formas do mesmo celular (com e sem o nono dígito) — o bloqueio e a
    comparação com o número da casa têm que valer para as duas, senão quem
    pediu para sair voltaria a receber por uma diferença de um dígito. */
@@ -180,8 +182,10 @@ function lerContatos(matriz) {
   };
 }
 
-export function criarLista(orgId, user, { nome, origem, origem_detalhe, coletado_em, declaracao, arquivo }, { ip }) {
+export function criarLista(orgId, user, { nome, origem, origem_detalhe, coletado_em, declaracao, arquivo, pais }, { ip }) {
   exigirPronto(orgId);
+  // País dos números SEM código; o que vem com "+" na planilha vale como veio.
+  if (pais && !paisPorIso(pais)) throw new ErroMarketing(400, "País desconhecido.");
   const nomeLista = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 120);
   if (nomeLista.length < 2) throw new ErroMarketing(400, "Dê um nome à lista.");
   const o = ORIGENS[origem];
@@ -208,7 +212,7 @@ export function criarLista(orgId, user, { nome, origem, origem_detalhe, coletado
   const validos = [];
   let invalidos = 0, repetidos = 0, bloqueados = 0;
   for (const c of contatos) {
-    const tel = normalizePhone(String(c.bruto || "").trim());
+    const tel = normalizePhone(String(c.bruto || "").trim(), { pais: pais || "BR" });
     if (!telefoneValido(tel)) { invalidos++; continue; }
     if (vistos.has(tel) || vistos.has(numeroAlternativo(tel))) { repetidos++; continue; }
     vistos.add(tel);
@@ -287,7 +291,7 @@ export function pedidoDeSaida(texto) {
 
 export function bloquear(orgId, telefone, { motivo = "manual", texto = null, por = null } = {}) {
   const tel = normalizePhone(String(telefone || "").trim());
-  if (!telefoneValido(tel)) throw new ErroMarketing(400, "Número inválido. Use DDD + número.");
+  if (!telefoneValido(tel)) throw new ErroMarketing(400, "Número inválido. Use DDD + número (ou + código do país, se for de fora).");
   db.prepare(`INSERT OR IGNORE INTO marketing_bloqueio (org_id,telefone,motivo,texto,criado_por,criado_em)
     VALUES (?,?,?,?,?,?)`).run(orgId, tel, motivo, texto ? String(texto).slice(0, 200) : null, por, Date.now());
   return tel;
