@@ -23,6 +23,7 @@ import {
   botaoConfigurado, urlDeLogin, trocarCodigo, paginasDoUsuario, assinarPagina, desassinarPagina, PERMISSOES,
 } from "../services/meta.js";
 import { avisosDaMeta } from "./meta.webhook.js";
+import { listarFormularios, definirFunil, ErroFormulario } from "../services/formularios.js";
 
 const ESCOPO = "meta-conectar";
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -76,6 +77,20 @@ gestao.get("/", (req, res) => {
     permissoes: PERMISSOES,
     avisos: avisosDaMeta(paginas.map(p => p.page_id), !!req.user.master),
   });
+});
+
+/* Atender → Formulários (03/10/2026): os formulários da página e o funil de
+   cada um. Só gestor, como o resto desta tela. */
+gestao.get("/formularios", async (req, res) => {
+  try { res.json(await listarFormularios(req.user.org_id)); }
+  catch (e) { console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui montar a lista de formulários." }); }
+});
+gestao.post("/formularios/:formId", (req, res) => {
+  try { res.json({ ok: true, ...definirFunil(req.user.org_id, req.user.id, req.params.formId, req.body || {}) }); }
+  catch (e) {
+    if (e instanceof ErroFormulario) return res.status(e.status).json({ error: e.message });
+    console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui salvar." });
+  }
 });
 
 gestao.post("/iniciar", (req, res) => {

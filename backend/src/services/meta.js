@@ -85,6 +85,26 @@ export const assinarPagina = (pageId, pageToken) =>
 export const desassinarPagina = (pageId, pageToken) =>
   graph(`${pageId}/subscribed_apps`, { metodo: "DELETE", token: pageToken });
 
+/* Os formulários de cadastro de uma página (03/10/2026, subseção Formulários
+   do Atender). Ativos e arquivados: um formulário arquivado ainda pode ter
+   anúncio rodando com lead entrando por alguns dias. */
+export async function formulariosDaPagina(pageId, pageToken) {
+  const lista = [];
+  let r = await graph(`${pageId}/leadgen_forms`, { token: pageToken,
+    params: { fields: "id,name,status,leads_count,created_time", limit: 100 } });
+  lista.push(...(r.data || []));
+  for (let i = 0; i < 5 && r.paging?.next; i++) {
+    const res = await fetch(r.paging.next, { signal: AbortSignal.timeout(20000) });
+    r = await res.json().catch(() => ({}));
+    lista.push(...(r.data || []));
+  }
+  return lista.filter(f => f.id).map(f => ({
+    id: String(f.id), nome: f.name || "", status: f.status || null,
+    leads_count: Number.isFinite(f.leads_count) ? f.leads_count : null,
+    criado_em: f.created_time ? new Date(f.created_time).getTime() || null : null,
+  }));
+}
+
 /* ===== O lead ===== */
 
 /* OS CAMPOS DE ATRIBUIÇÃO PRECISAM SER PEDIDOS PELO NOME: a Graph API devolve

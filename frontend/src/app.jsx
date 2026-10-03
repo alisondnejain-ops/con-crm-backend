@@ -712,6 +712,10 @@ function cronometroDoLead(l,agora=Date.now()){
   }
   return null;
 }
+/* O relógio da caixa (03/10/2026, pedido do Ali: "deixa só o relógio e os
+   números"): curto o bastante para caber ao lado do selo da campanha —
+   "7min", "3h11", "2d4h". O que ele mede fica no title. */
+const fmtRelogio=(ms)=>{const m=Math.floor(Math.max(0,ms)/60000);if(m<60)return m+"min";const h=Math.floor(m/60);if(h<24)return h+"h"+String(m%60).padStart(2,"0");const d=Math.floor(h/24);return d+"d"+(h%24?(h%24)+"h":"");};
 const fmtEspera=(ms)=>{const m=Math.floor(Math.max(0,ms)/60000);if(m<24*60)return fmtAge(ms);const d=Math.floor(m/1440),h=Math.floor((m%1440)/60);return d+(d===1?" dia":" dias")+(h?" "+h+"h":"");};
 const fmtClock=(at)=>new Date(at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
 const initials=(n)=>String(n||"?").trim().split(/\s+/).map(x=>x[0]).slice(0,2).join("").toUpperCase();
@@ -940,6 +944,7 @@ const ICO={
   /* Linhas de uma tabela: é a cara da "Base de leads", que é a planilha da
      imobiliária. Ela dividia o ícone de colunas com o Funil — mesmo problema
      de Equipe e Minha conta, achado na mesma varredura. */
+  form:<React.Fragment><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></React.Fragment>,
   lista:<React.Fragment><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r=".6"/><circle cx="3" cy="12" r=".6"/><circle cx="3" cy="18" r=".6"/></React.Fragment>,
   chart:<React.Fragment><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></React.Fragment>,
   trend:<React.Fragment><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></React.Fragment>,
@@ -1679,6 +1684,8 @@ function ConCRM(){
     trocarTokenPortal:(qual)=>api("/portais/token",{method:"POST",body:{qual}}),
     // "Conectar com Facebook" (01/10/2026): páginas da conta e a ida e volta ao Facebook.
     anunciosMeta:()=>api("/anuncios-meta"),
+    formulariosMeta:()=>api("/anuncios-meta/formularios"),
+    funilDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}`,{method:"POST",body:dados}),
     iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
     escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
     conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
@@ -5584,7 +5591,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal",ATENDER_FILHOS,{navegar:true}],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -5639,7 +5646,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     // Marketing só existe para a conta que o ConHub liberou.
     .filter(item=>item[0]!=="marketing"||!!(org&&org.marketing_liberado));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",fluxos:"Marketing · Fluxos"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Atender · Formulários",fluxos:"Marketing · Fluxos"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -5762,6 +5769,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
         {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
@@ -5813,6 +5821,12 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
    filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
    próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
+/* ATENDER É UM GRUPO PARA O GESTOR (03/10/2026, pedido do Ali): Conversas e
+   Formulários (de que funil é o lead de cada formulário do anúncio). Diferente
+   de Operação, o clique em "Atender" LEVA às conversas (`navegar`): é o item
+   mais usado do menu, e dois cliques para chegar na caixa seria um passo a
+   mais todo dia. O corretor e a atendente continuam com o item simples. */
+const ATENDER_FILHOS=[["atendimento","whatsapp","Conversas"],["formularios","form","Formulários"]];
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
    o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
@@ -5904,7 +5918,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
     const contem=grupoContem(item,view);
     const badge=filhos.reduce((s,[fv])=>s+aviso(fv),0);
     return <div key={"g-"+v}>
-      <button onClick={()=>setAbertos(a=>({...a,[v]:!abre}))} title={label} aria-expanded={abre}
+      <button onClick={()=>{ if(item[5]&&item[5].navegar&&!contem){ setView(filhos[0][0]); setAbertos(a=>({...a,[v]:true})); } else setAbertos(a=>({...a,[v]:!abre})); }} title={label} aria-expanded={abre}
         style={{position:"relative",width:"100%",display:"flex",alignItems:"center",
           gap:recolhida?0:11,justifyContent:recolhida?"center":"flex-start",
           padding:recolhida?"11px 0":"9px 11px",borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
@@ -6049,7 +6063,11 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
     window.addEventListener("resize",medir);
     return()=>window.removeEventListener("resize",medir);
   },[]);
-  const {cabem,extras}=dividirNav(nav);
+  const {cabem,extras:extrasDoMenu}=dividirNav(nav);
+  /* O grupo que cabe na barra vira o botão do PRIMEIRO filho (Atender →
+     Conversas); os outros filhos dele entram no "Mais", senão Formulários não
+     teria caminho no celular. */
+  const extras=[...cabem.filter(filhosDe).flatMap(item=>filhosDe(item).slice(1)),...extrasDoMenu];
   // Um grupo conta como um item só; o aviso dele é a soma dos filhos.
   const avisoDe=(item)=>filhosDe(item)?filhosDe(item).reduce((s,[v])=>s+aviso(v),0):aviso(item[0]);
   const ativoEm=(item)=>view===item[0]||grupoContem(item,view);
@@ -6092,7 +6110,8 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
       {cabem.map(item=>{
         const [v,n,label]=item, filhos=filhosDe(item);
         return filhos
-          ?botao(filhos[0][0],n,label,avisoDe(item),ativoEm(item))
+          // Marcado só no primeiro filho: os outros moram no "Mais", que se marca sozinho.
+          ?botao(filhos[0][0],n,label,avisoDe(item),view===filhos[0][0])
           :botao(v,n,label,aviso(v));})}
       {extras.length>0&&<button onClick={()=>setMaisAberto(m=>!m)} style={{position:"relative",flex:1,minWidth:0,padding:"14px 2px 6px",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",color:extras.some(ativoEm)?"#fff":"rgba(255,255,255,.5)",borderTop:`2px solid ${extras.some(ativoEm)?realce:"transparent"}`}}>
         <Icon n="mais" size={20}/><span style={{fontSize:9.5,fontWeight:600}}>Mais</span>
@@ -6229,20 +6248,26 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
     <span style={{color:naoLida?C.ink:C.faint,fontWeight:naoLida?500:400,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
       {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:l.aguardaContato?`Pediu contato · ${l.origem}`:"Novo lead — sem contato"}
     </span>
-    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+    <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,minWidth:0}}>
       {/* Lead que acabou de ser repassado tem que se anunciar. Sem isto ele
           entra na lista igual a todos os outros, e o corretor só descobre que
           recebeu quando abre um por um. */}
-      {chegouAgora(l)&&<span style={{background:C.greenDeep,color:"#fff",fontSize:9,fontWeight:700,
-        padding:"2px 7px",borderRadius:999,textTransform:"uppercase",letterSpacing:.3,flexShrink:0}}>novo com você</span>}
+      {chegouAgora(l)&&<span title="Chegou para você nas últimas 24h" style={{background:C.greenDeep,color:"#fff",fontSize:9,fontWeight:700,
+        padding:"1px 6px",borderRadius:999,textTransform:"uppercase",letterSpacing:.3,flexShrink:0}}>novo</span>}
+      {/* Só o relógio e o número, na cor do tempo (03/10/2026, pedido do
+          Ali). O que ele mede — sem resposta, aguardando, SLA vencido — fica
+          no title: a cor já diz a urgência, e a frase tomava o lugar do selo
+          da campanha. */}
       {relogio
-        ?<span title={relogio.titulo} style={{display:"flex",alignItems:"center",gap:4,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={12} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtEspera(espera)}</span><span style={{fontWeight:500}}>· {relogio.rotulo}</span></span>
-        :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
+        ?<span title={`${relogio.titulo} · ${fmtEspera(espera)}`} style={{display:"flex",alignItems:"center",gap:3,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={11} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtRelogio(espera)}</span></span>
+        :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,flexShrink:0}}>{l.status}</span>}
       <SeloDoFormulario l={l}/>
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
       <span style={{flex:1}}/>
-      {naoLida&&<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread>0?l.unread:"novo"}</span>}
+      {naoLida&&(l.unread>0
+        ?<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread}</span>
+        :<span title="Pediu contato e ninguém falou com ele ainda" style={{width:9,height:9,borderRadius:999,background:C.hot,flexShrink:0}}/>)}
     </div>
   </button>;
 }
@@ -8972,12 +8997,105 @@ function SeloDoFormulario({l}){
   const texto=l.campanha||"Formulário";
   return <span title={["Veio do formulário do anúncio",l.campanha&&`Campanha: ${l.campanha}`,l.anuncio&&`Anúncio: ${l.anuncio}`,
       l.formulario&&`Formulário: ${l.formulario}`,!l.campanha&&"A Meta não informou a campanha"].filter(Boolean).join("\n")}
-    style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:1,minWidth:62,maxWidth:130,
+    style={{display:"inline-flex",alignItems:"center",gap:3,flex:"0 1 auto",minWidth:44,maxWidth:200,
       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
       fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:999,
       color:"#0B57D0",background:"#EAF1FE",border:"1px solid #0866FF33"}}>
     <span style={{flexShrink:0,display:"inline-flex"}}><Icon n="megafone" size={10}/></span>
     <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{texto}</span></span>;
+}
+
+/* ===== ATENDER → FORMULÁRIOS (03/10/2026, pedido do Ali) =====
+   Todos os formulários da página conectada e, para cada um, o funil (e a
+   etapa) em que o lead NOVO dele nasce. Sem escolha, a regra de sempre: o
+   funil de quem recebe. O responsável continua vindo da catraca — a tela diz
+   isso uma vez, no topo. Salva ao escolher: é uma escolha por linha, e um
+   botão "Salvar" para cada formulário seria um clique a mais sem proteger
+   nada (a escolha não mexe em lead nenhum que já entrou). */
+function Formularios({acoes,isMobile,irPara}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [verArquivados,setVerArquivados]=useState(false);
+  const {pipelines}=usarPipelines(acoes,true);
+  const carregar=()=>acoes.formulariosMeta().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const ativos=(d?.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE");
+  const arquivados=(d?.formularios||[]).filter(f=>f.status&&f.status!=="ACTIVE");
+  const semPagina=d&&!d.paginas.length;
+  return <div style={molduraMkt(isMobile)}>
+    <div style={{marginBottom:14}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
+        Escolha em que funil nasce o lead de cada formulário. Sem escolha, ele vai para o funil de quem o recebe. Quem recebe continua sendo a catraca.</div>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
+    {d&&(d.erros||[]).map((e,i)=><div key={i} style={{background:"#FFF8E6",border:"1px solid #E8D9A8",color:"#8a6d1f",
+      borderRadius:12,padding:"10px 13px",fontSize:12.5,lineHeight:1.5,marginBottom:12}}>
+      A Meta não deixou ler os formulários da <b>{e.pagina}</b>: {e.erro}. A lista abaixo mostra os que já trouxeram lead.</div>)}
+    {semPagina&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 240px",color:C.sub,fontSize:13,lineHeight:1.5}}>
+        Nenhuma página do Facebook conectada nesta conta. Conecte em <b>Configurações → Anúncios do Meta</b> para os formulários aparecerem aqui.</div>
+      <button onClick={()=>irPara("config")} style={botaoMkt()}>Ir para Configurações</button>
+    </div>}
+    {d&&!d.formularios.length&&!semPagina&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum formulário encontrado na página.</div>}
+    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {arquivados.length>0&&<button onClick={()=>setVerArquivados(v=>!v)}
+      style={{background:"transparent",border:"none",color:C.sub,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:"6px 2px",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+      Arquivados ({arquivados.length})</button>}
+    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+  </div>;
+}
+
+function LinhaFormulario({f,pipelines,acoes,isMobile,aoSalvar}){
+  const [pipe,setPipe]=useState(f.pipeline_id||"");
+  const [etapa,setEtapa]=useState(f.stage_id||"");
+  const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
+  useEffect(()=>{setPipe(f.pipeline_id||"");setEtapa(f.stage_id||"");},[f.pipeline_id,f.stage_id]);
+  const ativos=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
+  const escolhido=ativos.find(p=>p.id===pipe);
+  const etapas=(escolhido?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  async function salvar(novoPipe,novaEtapa){
+    setEstado("salvando");
+    try{
+      await acoes.funilDoFormulario(f.id,{pipeline_id:novoPipe||null,stage_id:novaEtapa||null,nome:f.nome,page_id:f.page_id});
+      setEstado("salvo"); aoSalvar&&aoSalvar();
+      setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
+    }catch(e){ setEstado("erro:"+e.message); setPipe(f.pipeline_id||""); setEtapa(f.stage_id||""); }
+  }
+  const caixa={...campoMkt(isMobile),cursor:"pointer",padding:"9px 10px"};
+  const quando=f.ultimo_lead_em?`último lead ${fmtQuando(f.ultimo_lead_em)}`:null;
+  return <div style={{...CARTAO_MKT,padding:14,marginBottom:10}}>
+    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+      <div style={{width:34,height:34,borderRadius:10,background:"#EAF1FE",color:"#0B57D0",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        <Icon n="form" size={17}/></div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700,overflowWrap:"anywhere"}}>{f.nome}</span>
+          {f.status&&f.status!=="ACTIVE"&&<Pill c={C.sub} bg={C.surface}>Arquivado</Pill>}
+        </div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+          {[f.pagina,`${f.leads_crm} ${f.leads_crm===1?"lead":"leads"} no CRM`,quando].filter(Boolean).join(" · ")}</div>
+      </div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8,marginTop:12}}>
+      <select aria-label="Funil do formulário" value={pipe} disabled={estado==="salvando"}
+        onChange={e=>{const v=e.target.value;setPipe(v);setEtapa("");salvar(v,"");}} style={caixa}>
+        <option value="">Funil de quem recebe (padrão)</option>
+        {ativos.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      {escolhido&&<select aria-label="Etapa de entrada" value={etapa} disabled={estado==="salvando"}
+        onChange={e=>{const v=e.target.value;setEtapa(v);salvar(pipe,v);}} style={caixa}>
+        <option value="">Primeira etapa{etapas[0]?` (${etapas[0].name})`:""}</option>
+        {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+      </select>}
+    </div>
+    {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
+      O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
+    {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
+    {estado.startsWith("erro:")&&<div style={{color:C.hot,fontSize:12,marginTop:7}}>{estado.slice(5)}</div>}
+  </div>;
 }
 
 /* A FAIXA ACIMA DO CAMPO: por qual número a próxima mensagem sai.
