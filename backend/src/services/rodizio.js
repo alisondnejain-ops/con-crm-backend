@@ -73,19 +73,26 @@ export function ordemDaVez(roda, ultimoId) {
    fila, mas não some da tela, senão o gestor não entende por que a equipe tem
    seis corretores e a catraca mostra dois. */
 export function filaDaVez(orgId) {
-  const roda = rodaDeCorretores(orgId);
   const org = db.prepare("SELECT rodizio_ultimo FROM orgs WHERE id = ?").get(orgId) || {};
+  return montarFila(rodaDeCorretores(orgId), org.rodizio_ultimo);
+}
 
+/* A conta da fila, separada de QUAL roda e de QUAL memória — é a mesma para a
+   catraca principal e para as catracas de produto (services/catracas.js). Se
+   fossem duas, a regra de "quem entra ou sai da disponibilidade não desloca
+   ninguém" valeria numa e não na outra. */
+export function montarFila(roda, ultimoId) {
   const disponiveis = roda.filter(u => u.available);
   if (!disponiveis.length) {
-    return { proximo: null, fila: roda.map(u => ({ ...u, disponivel: !!u.available, posicao: null })), disponiveis: 0 };
+    return { proximo: null, fila: roda.map(u => ({ id: u.id, name: u.name, avatar_url: u.avatar_url || null,
+      disponivel: !!u.available, posicao: null })), disponiveis: 0 };
   }
 
   /* O último a receber pode ter ficado indisponível, ou até saído da equipe.
      Procuramos a posição dele na RODA (não na fila de disponíveis) e seguimos
      dali — assim a vez continua de onde parou mesmo com gente entrando e
      saindo. Sem registro nenhum, começa do primeiro. */
-  const ordenada = ordemDaVez(roda, org.rodizio_ultimo).filter(u => u.available);
+  const ordenada = ordemDaVez(roda, ultimoId).filter(u => u.available);
 
   const posicoes = new Map(ordenada.map((u, i) => [u.id, i + 1]));
   return {

@@ -32,7 +32,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { moverEtapa, camposQueFaltam } from "./etapas.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
-import { pegarProximo, marcarQueRecebeu } from "./rodizio.js";
+import { pegarProximoDoLead, marcarQueRecebeuNoLead } from "./catracas.js";
 
 /* Resolve o destino aceitando nome OU id.
 
@@ -129,11 +129,13 @@ function rodarAutomacao(lead, etapa, userId) {
       trocarResponsavel(lead, null, userId, "automatica");
       resultado.responsavel = null;
     } else if (cfg.distribuir) {
+      /* O rodízio é o da catraca do produto do lead, quando ele tem uma
+         (03/10/2026); senão, ou sem ninguém disponível nela, o principal. */
       const novo = cfg.distribuir === "rodizio"
-        ? pegarProximo(lead.org_id)
+        ? pegarProximoDoLead(lead.org_id, lead).userId
         : validarPessoa(lead.org_id, cfg.distribuir);
       if (novo) {
-        if (cfg.distribuir !== "rodizio") marcarQueRecebeu(lead.org_id, novo);
+        if (cfg.distribuir !== "rodizio") marcarQueRecebeuNoLead(lead.org_id, lead, novo);
         trocarResponsavel(lead, novo, userId, "automatica");
         resultado.responsavel = novo;
         resultado.responsavel_nome = db.prepare("SELECT name FROM users WHERE id = ?").get(novo)?.name || null;

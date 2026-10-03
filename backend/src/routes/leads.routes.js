@@ -69,7 +69,7 @@ const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
   "last_interaction_at", "custom_fields", "campaign_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
-  "sugestao_etapa", "aguarda_contato"];
+  "sugestao_etapa", "aguarda_contato", "catraca_id"];
 const enxuto = (l) => {
   const o = {};
   // Nulo vai como nulo, e não omitido: `adaptLead` lê "não veio" como "use o

@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { filaDaVez, pegarProximo, marcarQueRecebeu } from "../services/rodizio.js";
+import { filaDaVez } from "../services/rodizio.js";
+import { filaDoLead, filaDaCatraca, pegarProximoDoLead, marcarQueRecebeuNoLead, listar as listarCatracas,
+  criar as criarCatraca, editar as editarCatraca, apagar as apagarCatraca, definirCatracaDoLead,
+  ErroCatraca } from "../services/catracas.js";
 import db from "../db.js";
 import { vezDasAtendentes } from "../services/catraca.js";
 import { authRequired, roles, semMaster } from "../auth.js";
@@ -160,7 +163,50 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
    (`services/rodizio.js`). Número na tela que não é o número usado pelo botão
    é pior do que número nenhum: a atendente combina com o corretor que ele é o
    próximo e o lead cai em outro. */
-r.get("/rodizio", roles("sdr", "adm"), (req, res) => res.json(filaDaVez(req.user.org_id)));
+r.get("/rodizio", roles("sdr", "adm"), (req, res) => {
+  /* Com `lead_id`, a fila que vale para AQUELE lead — a da catraca do
+     produto dele, ou a principal. É o que faz o botão da ficha escrever o
+     nome de quem vai receber de verdade. Com `catraca`, a fila de uma
+     catraca de produto. Sem nada, a principal, como sempre. */
+  const orgId = req.user.org_id;
+  if (req.query.lead_id) {
+    const lead = db.prepare("SELECT id, catraca_id FROM leads WHERE id = ? AND org_id = ?").get(String(req.query.lead_id), orgId);
+    return res.json(filaDoLead(orgId, lead));
+  }
+  if (req.query.catraca) {
+    const f = filaDaCatraca(orgId, req.query.catraca);
+    if (!f) return res.status(404).json({ error: "Catraca não encontrada ou desativada." });
+    return res.json(f);
+  }
+  res.json({ ...filaDaVez(orgId), catraca: null });
+});
+
+/* ===== CATRACAS POR PRODUTO (services/catracas.js) =====
+   A atendente vê (é ela quem repassa); só o gestor cria, edita e apaga. */
+const erroCatraca = (res, e) => e instanceof ErroCatraca
+  ? res.status(e.status).json({ error: e.message })
+  : (console.error("[catracas]", e), res.status(500).json({ error: "Não consegui salvar a catraca." }));
+
+r.get("/catracas", roles("sdr", "adm"), (req, res) => res.json(listarCatracas(req.user.org_id)));
+r.post("/catracas", roles("adm"), (req, res) => {
+  try { res.json({ ok: true, id: criarCatraca(req.user.org_id, req.user.id, req.body || {}) }); }
+  catch (e) { erroCatraca(res, e); }
+});
+r.patch("/catracas/:id", roles("adm"), (req, res) => {
+  try { editarCatraca(req.user.org_id, req.params.id, req.body || {}); res.json({ ok: true }); }
+  catch (e) { erroCatraca(res, e); }
+});
+r.delete("/catracas/:id", roles("adm"), (req, res) => {
+  try { res.json({ ok: true, ...apagarCatraca(req.user.org_id, req.params.id) }); }
+  catch (e) { erroCatraca(res, e); }
+});
+// A catraca de UM lead — quem repassa decide (atendente ou gestor).
+r.post("/catraca-do-lead", roles("sdr", "adm"), (req, res) => {
+  try {
+    const { lead_id, catraca_id } = req.body || {};
+    res.json({ ok: true, catraca_id: definirCatracaDoLead(req.user.org_id, lead_id, catraca_id || null) });
+  } catch (e) { erroCatraca(res, e); }
+});
 
 // Catraca automática (rodízio): entrega ao próximo CORRETOR disponível.
 r.post("/next", roles("sdr", "adm"), (req, res) => {
@@ -169,33 +215,44 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
      atendentes, enquanto o repasse da ficha sorteava só entre corretores — e
      os dois mexiam no mesmo contador, então usar um bagunçava a vez do outro.
      A regra escrita já dizia que o repasse nunca volta para a atendente. */
-  const chosen = pegarProximo(req.user.org_id);
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  // A catraca do produto do lead, ou a principal (services/catracas.js).
+  const vez = pegarProximoDoLead(req.user.org_id, lead);
+  const chosen = vez.userId;
   if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível na catraca" });
   const t = repassar(lead_id, req.user.org_id, chosen, req.user.id);
   if (t.erro) return res.status(404).json({ error: t.erro });
-  res.json({ ok: true, assigned_to: chosen, funil: t.funil, aviso: avisarNovoLead(chosen, lead_id) });
+  res.json({ ok: true, assigned_to: chosen, funil: t.funil, catraca: vez.catraca, reserva: vez.reserva, catraca_do_lead: vez.catraca_do_lead || null,
+    aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // Repasse da SDR: ela faz o 1º atendimento e passa o lead para o CORRETOR da vez
 // (rodízio entre corretores disponíveis) ou para um corretor específico. O lead deixa de ser dela.
 r.post("/handoff", roles("sdr", "adm"), (req, res) => {
   const { lead_id, user_id } = req.body || {};
-  let chosen = user_id;
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  let chosen = user_id, vez = { catraca: null, reserva: false };
   if (chosen) {
     const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ? AND role = 'corretor'").get(chosen, req.user.org_id);
     if (!u) return res.status(404).json({ error: "Corretor não encontrado" });
     if (!u.available) return res.status(409).json({ error: "Corretor indisponível" });
   } else {
-    chosen = pegarProximo(req.user.org_id);
+    // A catraca do produto do lead, ou a principal (services/catracas.js).
+    vez = pegarProximoDoLead(req.user.org_id, lead);
+    chosen = vez.userId;
     if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível" });
   }
   const t = repassar(lead_id, req.user.org_id, chosen, req.user.id);
   if (t.erro) return res.status(404).json({ error: t.erro });
   /* Escolher um corretor a dedo TAMBÉM move a vez: quem acabou de receber vai
      para o fim da fila. Sem isto, a atendente escolhia a Marina na mão e a
-     Marina continuava sendo a próxima do rodízio — recebia de novo em seguida. */
-  marcarQueRecebeu(req.user.org_id, chosen);
-  res.json({ ok: true, assigned_to: chosen, funil: t.funil, aviso: avisarNovoLead(chosen, lead_id) });
+     Marina continuava sendo a próxima do rodízio — recebia de novo em seguida.
+     A vez que anda é a da catraca do lead, quando ele é membro dela. */
+  if (user_id) marcarQueRecebeuNoLead(req.user.org_id, lead, chosen);
+  res.json({ ok: true, assigned_to: chosen, funil: t.funil, catraca: vez.catraca, reserva: vez.reserva, catraca_do_lead: vez.catraca_do_lead || null,
+    aviso: avisarNovoLead(chosen, lead_id) });
 });
 
 // A ADM assume a negociação: o lead passa a ser dela e sai da lista do corretor.
