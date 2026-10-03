@@ -1155,6 +1155,23 @@ db.exec(`CREATE TABLE IF NOT EXISTS meta_paginas (
   ultimo_erro_em INTEGER
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_org ON meta_paginas(org_id)");
+/* FORMULÁRIOS DA META E O FUNIL DE CADA UM (03/10/2026, pedido do Ali: "a
+   opção de aplicar um determinado formulário a um funil específico"). Uma
+   linha por formulário que a imobiliária configurou. `pipeline_id` nulo é
+   "seguir a regra de sempre" (o funil de quem recebe o lead). A chave inclui a
+   conta: o id do formulário vem de fora, e a escolha de uma imobiliária nunca
+   vale para a outra. */
+db.exec(`CREATE TABLE IF NOT EXISTS meta_formularios (
+  org_id TEXT NOT NULL,
+  form_id TEXT NOT NULL,
+  page_id TEXT,
+  nome TEXT,
+  pipeline_id TEXT,
+  stage_id TEXT,
+  atualizado_por TEXT,
+  atualizado_em INTEGER,
+  PRIMARY KEY (org_id, form_id)
+)`);
 db.exec(`CREATE TABLE IF NOT EXISTS portais_config (
   org_id TEXT PRIMARY KEY,
   token_feed TEXT UNIQUE NOT NULL,

@@ -24,6 +24,7 @@ import { randomBytes, randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
+import { entradaDoFormulario } from "./formularios.js";
 import { normalizePhone } from "./stages.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
@@ -467,7 +468,10 @@ export function receberLead(orgId, dados) {
       novo = true;
       const id = "l_" + randomUUID();
       const dono = proximoAtendente(orgId);
-      const entrada = entradaDe(orgId, dono);
+      /* O formulário com funil escolhido (Atender → Formulários) manda no
+         funil e na etapa; o responsável continua vindo da catraca. Sem
+         escolha, o funil de quem recebe, como sempre. */
+      const entrada = (formulario && entradaDoFormulario(orgId, anuncio.form_id)) || entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at)
         VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?)`)
