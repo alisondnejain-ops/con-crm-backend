@@ -239,6 +239,10 @@ assert.ok(!("token" in d.meu), "o token nunca sai na resposta — a linha herda 
 
 console.log("16. A linha do Rafael HERDOU o app_secret/token/waba da casa — sem ele digitar nada");
 const canalRafael = C.canalDoUsuario(org, "u_rafael");
+/* A triagem de números novos (03/10/2026) nasce LIGADA na linha pessoal.
+   Este teste confere a ROTA do lead que nasce ali — então ela fica desligada
+   aqui; a triagem tem teste próprio (npm run teste:triagem). */
+db.prepare("UPDATE canais SET triagem = 0 WHERE id = ?").run(canalRafael.id);
 console.log(`   provider: ${canalRafael.provider} · app_secret: ${canalRafael.app_secret === "segredo-conecta" ? "herdado" : "ERRADO"}`);
 assert.equal(canalRafael.provider, "meta");
 assert.equal(canalRafael.app_secret, "segredo-conecta");

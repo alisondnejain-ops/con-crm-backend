@@ -1477,6 +1477,44 @@ addCanalCol("webhook_estado", "TEXT");
 addCanalCol("webhook_em", "INTEGER");
 addCanalCol("webhook_detalhe", "TEXT");
 
+/* TRIAGEM DE NÚMEROS NOVOS (03/10/2026, pedido do Ali: "não espelhar conversas
+   pessoais"). Até aqui todo número que escrevia virava lead — no WhatsApp
+   pessoal do corretor, a mãe e o grupo da família viravam "lead" na caixa
+   dele, com a conversa inteira gravada (services/triagem.js).
+
+   `canais.triagem` NULO é "ninguém escolheu": ligada na linha pessoal,
+   desligada no número da casa. Escolher grava 0/1 e vale mais que o tipo. */
+addCanalCol("triagem", "INTEGER");
+db.exec(`
+/* Quem escreveu e ainda não foi decidido. Guarda o MÍNIMO — nome, número,
+   quando e quantas mensagens —, nunca o texto: se for conversa pessoal, nada
+   dela fica no CRM. linha = '' é o número da casa (sentinela, e não NULL:
+   dentro de um UNIQUE, cada NULL é diferente de si mesmo). */
+CREATE TABLE IF NOT EXISTS contatos_novos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  linha TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL,
+  nome TEXT,
+  primeira_em INTEGER NOT NULL,
+  ultima_em INTEGER NOT NULL,
+  quantas INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(org_id, linha, phone)
+);
+/* Número marcado como pessoal naquela linha: a mensagem dele nem chega a ser
+   lida. Tem volta ("voltar a receber"), porque o clique errado tiraria um
+   cliente de verdade do CRM sem ninguém perceber. */
+CREATE TABLE IF NOT EXISTS numeros_pessoais (
+  org_id TEXT NOT NULL,
+  linha TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL,
+  nome TEXT,
+  marcado_por TEXT,
+  marcado_em INTEGER NOT NULL,
+  PRIMARY KEY (org_id, linha, phone)
+);
+`);
+
 /* O índice único de TOKEN só vale para a Uazapi — é lá que token = uma linha.
    Precisa de DROP e recriação porque um banco já publicado criou o antigo sem
    a condição de provider, e `CREATE INDEX IF NOT EXISTS` não troca a definição

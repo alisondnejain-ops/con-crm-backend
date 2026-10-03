@@ -60,6 +60,10 @@ novo("u_marina", "Marina", "corretor");
 C.garantirCasa(org);
 const criada = C.criarCanalDoCorretor(org, "u_marina");
 C.salvarConexao(criada.canal.id, { host: "https://marina.uazapi.com", token: "token-da-marina" });
+/* A triagem de números novos (03/10/2026) nasce LIGADA na linha pessoal.
+   Este teste confere a ROTA do lead que nasce ali — então ela fica desligada
+   aqui; a triagem tem teste próprio (npm run teste:triagem). */
+db.prepare("UPDATE canais SET triagem = 0 WHERE id = ?").run(criada.canal.id);
 const daMarina = C.canalDoUsuario(org, "u_marina");
 
 const mandar = (token, phone, texto, extra = {}) => fetch(url("/webhooks/uazapi"), {
