@@ -13,7 +13,7 @@ import {
   bloquear, listaDeBloqueio, salvarNumero, removerNumero, salvarLimites,
 } from "../services/marketing.js";
 import {
-  listarFluxos, criarFluxo, lerFluxo, salvarFluxo, apagarFluxo,
+  listarFluxos, criarFluxo, lerFluxo, salvarFluxo, apagarFluxo, ativarFluxo, logsDoFluxo,
   opcoesDePublico, previaDoPublico, criarCampanha, listarCampanhas, relatorio,
   pausar, retomar, cancelar, DECLARACAO_DISPARO, RODAPE_SAIR, enviarTeste,
 } from "../services/disparo.js";
@@ -109,7 +109,14 @@ r.get("/fluxos/:id", trata((req, res) => {
   exigirPronto(req.user.org_id);
   res.json(lerFluxo(req.user.org_id, req.params.id));
 }));
-r.put("/fluxos/:id", trata((req, res) => res.json(salvarFluxo(req.user.org_id, req.params.id, req.body || {}))));
+r.put("/fluxos/:id", trata((req, res) => res.json(salvarFluxo(req.user.org_id, req.params.id, req.body || {}, req.user))));
+/* Ligar e desligar a automação de um fluxo com gatilho (services/automacoes.js),
+   e o histórico de quem passou por ela. */
+r.post("/fluxos/:id/ativar", trata((req, res) => res.json(ativarFluxo(req.user.org_id, req.params.id, req.user, req.body?.ativo !== false))));
+r.get("/fluxos/:id/logs", trata((req, res) => {
+  exigirPronto(req.user.org_id);
+  res.json(logsDoFluxo(req.user.org_id, req.params.id));
+}));
 r.post("/fluxos/:id/teste", trata(async (req, res) => {
   res.json(await enviarTeste(req.user.org_id, req.params.id, { telefone: req.body?.telefone, nome: req.user.name }));
 }));

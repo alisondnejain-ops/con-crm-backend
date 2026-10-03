@@ -221,7 +221,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null,
         // Saiu do número de disparo sem passar pelo CRM: é o eco de um envio
         // do próprio disparo que chegou antes do registro dele.
-        doDisparo ? (campanhaDoEco ? `${ROTULO_DISPARO} · ${campanhaDoEco}` : ROTULO_DISPARO) : null, corpo,
+        doDisparo ? (campanhaDoEco || ROTULO_DISPARO) : null, corpo,
         midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, trechoReserva, Date.now(),
         /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
            convenção só nas duas colunas. */

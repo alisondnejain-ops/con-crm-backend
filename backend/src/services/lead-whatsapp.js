@@ -13,6 +13,7 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { campanhaQueAlcancou } from "./disparo.js";
 import { mascararTelefone } from "../seguranca.js";
+import { dispararGatilho } from "./automacoes.js";
 
 export function nascerLeadDoWhatsapp({ canal, phone, nome, quando = Date.now() }) {
   const orgId = canal.org_id;
@@ -47,5 +48,7 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, quando = Date.now() }
     ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
     ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
     dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
+  // Quem nasce respondendo a um disparo já está num fluxo: não entra no "lead novo".
+  if (!veioDoDisparo) dispararGatilho(orgId, "lead_novo", { leadId: id, origem: "whatsapp" });
   return db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 }

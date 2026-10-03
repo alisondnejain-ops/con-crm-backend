@@ -26,6 +26,7 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { entradaDoFormulario } from "./formularios.js";
 import { catracaDoFormulario, pegarDaCatraca } from "./catracas.js";
+import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
@@ -513,6 +514,12 @@ export function receberLead(orgId, dados) {
     if (externo) db.prepare("INSERT OR IGNORE INTO portais_leads (org_id,portal,externo_id,lead_id,created_at) VALUES (?,?,?,?,?)")
       .run(orgId, portal, externo, lead.id, agora);
   })();
+
+  /* Os gatilhos dos fluxos (services/automacoes.js): o lead novo e o
+     formulário preenchido — este, também quando a pessoa já era lead e
+     preencheu de novo. Depois da transação: a automação lê o lead gravado. */
+  if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: formulario ? "formulario" : "portal" });
+  if (formulario && anuncio.form_id) dispararGatilho(orgId, "formulario", { leadId: lead.id, ref: String(anuncio.form_id) });
 
   if (lead.assigned_to)
     avisar(lead.assigned_to, {

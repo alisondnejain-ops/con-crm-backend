@@ -22,6 +22,7 @@
 import { randomUUID } from "crypto";
 import db, { emLotes } from "../db.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao } from "./pipelines.js";
+import { dispararGatilho } from "./automacoes.js";
 
 export const MOTIVOS = {
   mao: "mudança na mão",
@@ -47,7 +48,10 @@ export const MOTIVOS = {
    Aceita `para` como NOME (compatível com todo o código de hoje) ou
    `paraEtapaId` como vínculo (o caminho novo). Devolve `true` quando houve
    mudança de fato. */
-export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", userId = null, de = null }) {
+/* `gatilhos: false` é para as mudanças EM MASSA (mover a base de uma pessoa
+   para outro funil, reanálise em lote, conta de demonstração): trezentos leads
+   entrando numa etapa de uma vez não podem virar trezentas automações. */
+export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", userId = null, de = null, gatilhos = true }) {
   const lead = db.prepare(
     "SELECT id, org_id, stage, stage_id, pipeline_id, assigned_to FROM leads WHERE id = ?").get(leadId);
   if (!lead) return false;
@@ -109,6 +113,7 @@ export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", u
         lead.assigned_to, lead.assigned_to, userId, motivo, quando);
   });
   aplicar();
+  if (gatilhos && destino) dispararGatilho(lead.org_id, "etapa", { leadId, ref: destino.id });
   return true;
 }
 
