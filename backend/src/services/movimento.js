@@ -32,7 +32,8 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { moverEtapa, camposQueFaltam } from "./etapas.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
-import { pegarProximoDoLead, marcarQueRecebeuNoLead } from "./catracas.js";
+import { pegarProximoDoLead, marcarQueRecebeuNoLead, catracaDaEtapa } from "./catracas.js";
+import { avisar } from "./push.js";
 
 /* Resolve o destino aceitando nome OU id.
 
@@ -79,9 +80,50 @@ export function moverLead({ leadId, para = null, paraEtapaId = null, motivo = "m
   const mudou = moverEtapa({ leadId, para: nomeDestino, paraEtapaId: destino?.id || null, motivo, userId });
   if (!mudou) return { ok: true, mudou: false, stage: nomeDestino };
 
-  // 3. O que a etapa manda fazer.
-  const automacao = destino ? rodarAutomacao(lead, destino, userId) : {};
-  return { ok: true, mudou: true, stage: nomeDestino, stage_id: destino?.id || null, ...automacao };
+  /* 3. A catraca que esta etapa aciona (03/10/2026). Vem antes da automação
+     da etapa porque é a regra mais específica — vale só para os leads dos
+     canais daquela catraca; a automação vale para todo lead. Quando a
+     catraca entrega, a automação não troca o dono de novo. */
+  const daCatraca = destino ? acionarCatraca(lead.id, destino.id, userId) : null;
+  // 4. O que a etapa manda fazer.
+  const automacao = destino ? rodarAutomacao(lead, destino, userId, { semResponsavel: !!daCatraca?.responsavel }) : {};
+  /* A automação trocou de funil (o "Lead qualificado" do SDR leva ao
+     comercial): a etapa em que o lead chegou também pode acionar uma catraca. */
+  let depois = null;
+  if (!daCatraca?.responsavel && automacao.responsavel === undefined && automacao.stage_id && automacao.stage_id !== destino?.id)
+    depois = acionarCatraca(lead.id, automacao.stage_id, userId);
+  return { ok: true, mudou: true, stage: nomeDestino, stage_id: destino?.id || null, ...automacao, ...(daCatraca || {}), ...(depois || {}) };
+}
+
+/* ===== A ETAPA QUE ACIONA UMA CATRACA (03/10/2026) =====
+
+   Pedido do Ali: na catraca se escolhe o funil e a etapa, e "quando o lead
+   entra nessa etapa, essa catraca é ativada para aquele lead" — o lead dos
+   canais dela vai para o próximo corretor disponível dela. O caso típico: a
+   atendente qualifica e move para "Qualificado", e o lead segue sozinho.
+
+   NÃO TIRA LEAD DE CORRETOR. Se o lead já está com um corretor (o próprio
+   corretor moveu o lead dele para a etapa), nada acontece — senão mover o
+   próprio lead seria o jeito de perdê-lo. Só o lead sem dono, com a
+   atendente ou com a gestão é entregue. Nunca lança. */
+function acionarCatraca(leadId, stageId, userId) {
+  try {
+    const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
+    if (!lead) return null;
+    if (lead.assigned_to && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor") return null;
+    const r = catracaDaEtapa(lead.org_id, lead, stageId);
+    if (!r) return null;
+    if (r.ninguem) return { aviso: `Ninguém da catraca ${r.catraca.nome} está disponível agora — o lead entrou na etapa sem trocar de responsável.` };
+    db.prepare("UPDATE leads SET catraca_id = ? WHERE id = ?").run(r.catraca.id, lead.id);
+    trocarResponsavel({ ...lead, catraca_id: r.catraca.id }, r.userId, userId, "automatica");
+    const nome = db.prepare("SELECT name FROM users WHERE id = ?").get(r.userId)?.name || null;
+    avisar(r.userId, { titulo: "Novo lead com você", corpo: `${lead.name || "Um lead"} chegou pela catraca ${r.catraca.nome}. Fale agora.`, leadId: lead.id }).catch(() => {});
+    console.log(`[catraca] etapa acionou "${r.catraca.nome}" em ${lead.org_id} — lead entregue`);
+    return { responsavel: r.userId, responsavel_nome: nome, catraca: r.catraca };
+  } catch (e) {
+    console.error("[catraca] etapa não acionou:", e.message);
+    return { aviso: "A catraca desta etapa não pôde ser aplicada. O lead foi movido mesmo assim." };
+  }
 }
 
 /* ===== AUTOMACAO DA ETAPA =====
@@ -105,7 +147,7 @@ export function moverLead({ leadId, para = null, paraEtapaId = null, motivo = "m
    NUNCA LANCA. Automação que derruba a movimentação transformaria uma
    configuração errada do gestor numa etapa em que ninguém consegue entrar. O
    lead move; o que falhou vira aviso na resposta. */
-function rodarAutomacao(lead, etapa, userId) {
+function rodarAutomacao(lead, etapa, userId, { semResponsavel = false } = {}) {
   const cfg = etapa.automation_config || {};
   if (!cfg || !Object.keys(cfg).length) return {};
   const resultado = {};
@@ -124,8 +166,10 @@ function rodarAutomacao(lead, etapa, userId) {
       }
     }
 
-    // 2. Responsável.
-    if (cfg.limpar_responsavel) {
+    // 2. Responsável (a catraca da etapa já entregou: não troca de novo).
+    if (semResponsavel) {
+      // nada
+    } else if (cfg.limpar_responsavel) {
       trocarResponsavel(lead, null, userId, "automatica");
       resultado.responsavel = null;
     } else if (cfg.distribuir) {

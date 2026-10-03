@@ -1204,6 +1204,39 @@ db.exec(`CREATE TABLE IF NOT EXISTS catraca_membros (
 )`);
 const metaFormCols = db.prepare("PRAGMA table_info(meta_formularios)").all().map(c => c.name);
 if (!metaFormCols.includes("catraca_id")) db.exec("ALTER TABLE meta_formularios ADD COLUMN catraca_id TEXT");
+/* CANAIS DE AQUISIÇÃO E ETAPA DA CATRACA (03/10/2026, pedido do Ali: "o que
+   nós queremos também que apareça na criação da catraca é selecionar o funil
+   e a etapa… e quais são os leads que vão entrar nessa catraca, que são os
+   canais de aquisição"). `catraca_canais` diz de onde vêm os leads dela —
+   'whatsapp' (número da imobiliária), 'portal', 'site' ou 'formulario' (com
+   o id do formulário em `ref`). Um canal pode estar em VÁRIAS catracas
+   (decisão do Ali). `pipeline_id`/`stage_id` é a etapa que ACIONA a catraca:
+   o lead dos canais dela que entra ali vai para o próximo corretor dela.
+   `ultima_entrega_em` reveza entre catracas que disputam o mesmo lead. */
+db.exec(`CREATE TABLE IF NOT EXISTS catraca_canais (
+  catraca_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  canal TEXT NOT NULL,
+  ref TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (catraca_id, canal, ref)
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_catraca_canais_org ON catraca_canais(org_id, canal, ref)");
+{
+  const cols = db.prepare("PRAGMA table_info(catracas)").all().map(c => c.name);
+  if (!cols.includes("pipeline_id")) db.exec("ALTER TABLE catracas ADD COLUMN pipeline_id TEXT");
+  if (!cols.includes("stage_id")) db.exec("ALTER TABLE catracas ADD COLUMN stage_id TEXT");
+  if (!cols.includes("ultima_entrega_em")) db.exec("ALTER TABLE catracas ADD COLUMN ultima_entrega_em INTEGER");
+  /* O formulário ligado a UMA catraca (meta_formularios.catraca_id, de
+     03/10/2026) passa para a tabela de canais, uma vez só: a coluna é zerada
+     ao copiar, senão desmarcar o formulário na catraca o traria de volta no
+     próximo start. */
+  const antigos = db.prepare("SELECT org_id, form_id, catraca_id FROM meta_formularios WHERE catraca_id IS NOT NULL AND catraca_id <> ''").all();
+  if (antigos.length) db.transaction(() => {
+    const ins = db.prepare("INSERT OR IGNORE INTO catraca_canais (catraca_id, org_id, canal, ref) VALUES (?,?,'formulario',?)");
+    for (const a of antigos) ins.run(a.catraca_id, a.org_id, a.form_id);
+    db.prepare("UPDATE meta_formularios SET catraca_id = NULL WHERE catraca_id IS NOT NULL").run();
+  })();
+}
 db.exec(`CREATE TABLE IF NOT EXISTS portais_config (
   org_id TEXT PRIMARY KEY,
   token_feed TEXT UNIQUE NOT NULL,
@@ -1405,7 +1438,8 @@ db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_wa_id_recebida ON messag
 db.exec(`DROP TRIGGER IF EXISTS trg_msg_interacao;
   CREATE TRIGGER trg_msg_interacao
   AFTER INSERT ON messages
-  WHEN NOT (NEW.direction = 'out' AND NEW.from_user_id IS NULL AND COALESCE(NEW.from_name, '') LIKE 'Disparo%')
+  WHEN NOT (NEW.direction = 'out' AND NEW.from_user_id IS NULL
+    AND (COALESCE(NEW.from_name, '') LIKE 'Disparo%' OR COALESCE(NEW.from_name, '') LIKE 'Automação%'))
   BEGIN
     UPDATE leads SET last_interaction_at = MAX(COALESCE(last_interaction_at, 0), NEW.created_at)
     WHERE id = NEW.lead_id;
@@ -1816,6 +1850,22 @@ if (!db.prepare("PRAGMA table_info(marketing_campanhas)").all().some(c => c.name
 // histórico a um lead novo, a conversa precisa dizer por onde ele saiu DE FATO.
 if (!db.prepare("PRAGMA table_info(marketing_envios)").all().some(c => c.name === "canal_id"))
   db.exec("ALTER TABLE marketing_envios ADD COLUMN canal_id TEXT");
+
+/* GATILHOS DOS FLUXOS (03/10/2026, services/automacoes.js). Só colunas
+   novas: todo fluxo que já existe fica com `ativo` 0 e gatilho nulo — é o
+   "disparo em massa" de sempre, e nada muda nele. A automação ativa de um
+   fluxo é uma linha em `marketing_campanhas` com `tipo = 'automacao'`: o
+   motor que anda pelo fluxo é o MESMO do disparo (um motor só). */
+{
+  const colF = db.prepare("PRAGMA table_info(marketing_fluxos)").all().map(c => c.name);
+  for (const [c, ddl] of [["ativo", "INTEGER DEFAULT 0"], ["gatilho_tipo", "TEXT"], ["gatilho_ref", "TEXT"],
+    ["automacao_id", "TEXT"], ["ativado_em", "INTEGER"], ["ativado_por", "TEXT"]])
+    if (!colF.includes(c)) db.exec(`ALTER TABLE marketing_fluxos ADD COLUMN ${c} ${ddl}`);
+  if (!db.prepare("PRAGMA table_info(marketing_campanhas)").all().some(c => c.name === "tipo"))
+    db.exec("ALTER TABLE marketing_campanhas ADD COLUMN tipo TEXT DEFAULT 'disparo'");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_fluxos_gatilho ON marketing_fluxos(org_id, ativo, gatilho_tipo)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_exec_lead ON marketing_execucoes(campanha_id, lead_id)");
+}
 
 /* Os leads que o disparo tocou antes do gatilho novo ficaram com a "última
    interação" na data da campanha. Refaz a conta só deles (a tabela de envios

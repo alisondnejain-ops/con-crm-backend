@@ -15,6 +15,7 @@ import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverLead, transferenciasDoLead } from "../services/movimento.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
+import { dispararGatilho } from "../services/automacoes.js";
 import { slaDoLead } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
@@ -51,7 +52,9 @@ const SELECT_LEAD = `
        leads, não do topo da caixa de hoje. */
     CASE WHEN l.source IN ('meta','portal') AND l.closed_at IS NULL
           AND l.created_at > CAST(strftime('%s','now') AS INTEGER) * 1000 - 604800000
-          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id AND m.direction = 'out')
+          AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.lead_id = l.id AND m.direction = 'out'
+            -- A mensagem de disparo ou de automação não é contato de gente (services/marca-disparo.js).
+            AND NOT (m.from_user_id IS NULL AND (COALESCE(m.from_name,'') LIKE 'Disparo%' OR COALESCE(m.from_name,'') LIKE 'Automação%')))
           AND NOT EXISTS (SELECT 1 FROM ligacoes g WHERE g.lead_id = l.id)
          THEN 1 ELSE 0 END AS aguarda_contato
   FROM leads l`;
@@ -322,6 +325,8 @@ r.post("/", (req, res) => {
   const aviso = dono && dono !== req.user.id ? avisarLeadNovo(dono, id, limpo) : null;
 
   console.log(`[leads] cadastro manual (${mascararTelefone(phone)}) por ${req.user.name} — ${dono ? "para " + dono : "fila"}`);
+  // Gatilho "lead novo" dos fluxos (services/automacoes.js). A planilha importada fica de fora de propósito.
+  dispararGatilho(req.user.org_id, "lead_novo", { leadId: id, origem: "manual" });
   const criado = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(id);
   res.status(201).json({ ...parse(criado), aviso });
 });

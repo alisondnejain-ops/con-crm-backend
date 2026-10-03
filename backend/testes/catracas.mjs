@@ -26,6 +26,7 @@ const aqui = path.dirname(fileURLToPath(import.meta.url));
 const DB = path.join(os.tmpdir(), "concrm-teste-catracas.db");
 for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(DB + s); } catch (e) {} }
 process.env.DB_PATH = DB;
+process.env.JWT_SECRET = "teste";
 
 const PORTA = 4803, PORTA_META = 4804, SEGREDO = "segredo-do-app";
 
@@ -170,7 +171,7 @@ try {
   assert.equal((await A.post("/anuncios-meta/formularios/F1/catraca", { catraca_id: lanc, nome: "Lançamento Jardins" })).status, 200);
   assert.equal((await A.post("/anuncios-meta/formularios/F2/catraca", { catraca_id: alug })).status, 200);
   r = await A.get("/anuncios-meta/formularios");
-  assert.equal(r.body.formularios.find((f) => f.id === "F1").catraca_id, lanc);
+  assert.deepEqual(r.body.formularios.find((f) => f.id === "F1").catraca_ids, [lanc]);
   // Escolher a catraca não mexe no funil (e vice-versa).
   assert.equal(r.body.formularios.find((f) => f.id === "F1").pipeline_id, null);
 
@@ -271,13 +272,11 @@ try {
   assert.equal((await B.get("/distribution/catracas")).body.catracas.length, 0);
   assert.equal((await B.get(`/distribution/rodizio?catraca=${alug}`)).status, 404);
 
-  caso("Desativar: o formulário volta à regra de sempre, e a tela avisa");
+  caso("Desativar: o formulário volta à regra de sempre");
   assert.equal((await A.patch(`/distribution/catracas/${lanc}`, { ativa: false })).status, 200);
   const l4 = await chegar("F1");
   assert.equal(l4.assigned_to, sdr);
   assert.equal(l4.catraca_id, null);
-  r = await A.get("/anuncios-meta/formularios");
-  assert.equal(r.body.formularios.find((f) => f.id === "F1").catraca_invalida, true);
   r = await atendente.get(`/distribution/rodizio?lead_id=${l1.id}`);   // lead antigo da catraca desativada
   assert.equal(r.body.catraca, null);
   assert.equal(r.body.reserva, false);
@@ -292,8 +291,89 @@ try {
   await A.post("/anuncios-meta/formularios/F3/catraca", { catraca_id: vazia });
   r = await A.del(`/distribution/catracas/${vazia}`);
   assert.equal(r.body.apagada, true);
-  assert.equal(db.prepare("SELECT catraca_id FROM meta_formularios WHERE org_id = ? AND form_id = 'F3'").get(orgA).catraca_id, null);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM catraca_canais WHERE catraca_id = ?").get(vazia).n, 0);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM catraca_membros WHERE catraca_id = ?").get(vazia).n, 0);
+
+  caso("Canais e etapa: só funil/etapa desta conta; a catraca guarda o que foi marcado");
+  const { nascerLeadDoWhatsapp } = await import("../src/services/lead-whatsapp.js");
+  const { receberLead } = await import("../src/services/portais.js");
+  const etapasCom = P.etapasDoPipeline(orgA, P.funilComercial(orgA).id);
+  const qualificado = etapasCom[1], entradaCom = etapasCom[0];
+  const etapaDeB = P.etapasDoPipeline(orgB, P.pipelinePadrao(orgB).id)[1];
+  assert.equal((await A.post("/distribution/catracas", { nome: "Errada", stage_id: etapaDeB.id })).status, 400);
+  const outroFunil = db.prepare("SELECT id FROM pipelines WHERE org_id = ? AND id <> ? LIMIT 1").get(orgA, P.funilComercial(orgA).id);
+  if (outroFunil) assert.equal((await A.post("/distribution/catracas", { nome: "Errada", pipeline_id: outroFunil.id, stage_id: qualificado.id })).status, 400);
+  disponivel(c1, true); disponivel(c2, true); disponivel(c3, true);
+  r = await A.post("/distribution/catracas", { nome: "Site e portal", entrega: "atendente", membros: [c3],
+    pipeline_id: P.funilComercial(orgA).id, stage_id: qualificado.id, canais: { site: true, portal: true, formularios: ["F5"] } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const sp = r.body.id;
+  r = await A.get("/distribution/catracas");
+  let cSp = r.body.catracas.find((c) => c.id === sp);
+  assert.deepEqual(cSp.canais, { whatsapp: false, portal: true, site: true, formularios: ["F5"] });
+  assert.equal(cSp.etapa.nome, qualificado.name);
+  assert.equal(cSp.etapa.ok, true);
+
+  caso("WhatsApp do site: a primeira mensagem do botão do site marca o canal; o lead lembra a catraca e fica com a atendente");
+  const casa = { org_id: orgA, tipo: "imobiliaria", id: "casa", nome: "Casa" };
+  const doSite = nascerLeadDoWhatsapp({ canal: casa, phone: "5587911110001", nome: "Visitante",
+    texto: "Olá! Tenho interesse no imóvel \"Casa\" (cód. 12) que vi no site: https://x/imoveis/casa/1/casa" });
+  assert.equal(doSite.origem, "Site");
+  assert.equal(doSite.catraca_id, sp);
+  assert.equal(doSite.assigned_to, sdr);
+  const doWpp = nascerLeadDoWhatsapp({ canal: casa, phone: "5587911110002", nome: "Comum", texto: "oi, quero saber de casas" });
+  assert.equal(doWpp.origem, "WhatsApp");
+  assert.equal(doWpp.catraca_id, null);
+  const pessoal = nascerLeadDoWhatsapp({ canal: { org_id: orgA, tipo: "corretor", id: "linha-c1", user_id: c1, nome: "c1" },
+    phone: "5587911110003", nome: "Do c1", texto: "vim pelo site" });
+  assert.equal(pessoal.assigned_to, c1);
+  assert.equal(pessoal.catraca_id, null);
+
+  caso("A etapa ACIONA a catraca: a atendente move para a etapa e o lead vai ao próximo corretor dela");
+  r = await atendente.patch(`/leads/${doSite.id}/stage`, { stage: qualificado.name, stage_id: qualificado.id });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  let agora = db.prepare("SELECT assigned_to, catraca_id FROM leads WHERE id = ?").get(doSite.id);
+  assert.equal(agora.assigned_to, c3);
+  assert.equal(r.body.responsavel_nome, "c3");
+  // Lead de canal que a catraca não recebe: entra na etapa e nada muda.
+  r = await atendente.patch(`/leads/${doWpp.id}/stage`, { stage: qualificado.name, stage_id: qualificado.id });
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id = ?").get(doWpp.id).assigned_to, sdr);
+  // Lead já com corretor: a etapa não tira o lead dele.
+  const dePortal = await receberLead(orgA, { portal: "Zap", nome: "Do portal", telefone: "5587911110004" });
+  let lp = db.prepare("SELECT * FROM leads WHERE id = ?").get(dePortal.lead_id);
+  assert.equal(lp.catraca_id, sp);
+  db.prepare("UPDATE leads SET assigned_to = ? WHERE id = ?").run(c1, lp.id);
+  r = await A.patch(`/leads/${lp.id}/stage`, { stage: qualificado.name, stage_id: qualificado.id });
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id = ?").get(lp.id).assigned_to, c1);
+  // Ninguém disponível: o lead entra na etapa, continua com quem estava, e a resposta avisa.
+  disponivel(c3, false);
+  const dePortal2 = await receberLead(orgA, { portal: "Zap", nome: "Do portal 2", telefone: "5587911110005" });
+  r = await atendente.patch(`/leads/${dePortal2.lead_id}/stage`, { stage: qualificado.name, stage_id: qualificado.id });
+  assert.equal(r.status, 200);
+  assert.match(r.body.aviso || "", /Ninguém da catraca Site e portal/);
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id = ?").get(dePortal2.lead_id).assigned_to, sdr);
+  disponivel(c3, true);
+
+  caso("Um canal em várias catracas: 'direto ao corretor' nasce na etapa da catraca e as catracas se revezam");
+  r = await A.post("/distribution/catracas", { nome: "Dolphin A", entrega: "corretor", membros: [c1],
+    pipeline_id: P.funilComercial(orgA).id, stage_id: qualificado.id, canais: { formularios: ["F6"] } });
+  const dA = r.body.id;
+  r = await A.post("/distribution/catracas", { nome: "Dolphin B", entrega: "corretor", membros: [c2], canais: { formularios: ["F6"] } });
+  const dB = r.body.id;
+  r = await A.get("/anuncios-meta/formularios");
+  assert.deepEqual(r.body.formularios.find((f) => f.id === "F6").catraca_ids.sort(), [dA, dB].sort());
+  const d1 = await chegar("F6"), d2 = await chegar("F6"), d3 = await chegar("F6");
+  assert.deepEqual([d1.catraca_id, d2.catraca_id, d3.catraca_id], [dA, dB, dA]);
+  assert.deepEqual([d1.assigned_to, d2.assigned_to, d3.assigned_to], [c1, c2, c1]);
+  assert.equal(d1.stage_id, qualificado.id);   // nasce na etapa da catraca
+  assert.notEqual(d2.stage_id, qualificado.id); // a B não tem etapa: funil de quem recebe
+  assert.equal(d2.stage_id, entradaCom.id);
+  // Editar sem mandar os canais não apaga os canais.
+  assert.equal((await A.patch(`/distribution/catracas/${dA}`, { nome: "Dolphin A1" })).status, 200);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM catraca_canais WHERE catraca_id = ?").get(dA).n, 1);
+  // Tirar a etapa.
+  assert.equal((await A.patch(`/distribution/catracas/${dA}`, { stage_id: null })).status, 200);
+  assert.equal(db.prepare("SELECT stage_id FROM catracas WHERE id = ?").get(dA).stage_id, null);
 
   caso("Conta de corretor autônomo não tem catraca");
   db.prepare("UPDATE orgs SET tipo = 'autonomo' WHERE id = ?").run(orgB);

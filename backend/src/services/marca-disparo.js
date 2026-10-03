@@ -18,14 +18,20 @@
    disparo e pelos relatórios, e não pode criar ciclo entre eles. */
 
 export const ROTULO_DISPARO = "Disparo";
+/* A mensagem que um FLUXO COM GATILHO manda (03/10/2026, services/automacoes.js)
+   tem rótulo próprio — "Automação · Boas-vindas" — e a MESMA regra: não é
+   atendimento de gente, não fecha a espera do cliente, não conta no prazo. */
+export const ROTULO_AUTOMACAO = "Automação";
 
-/* Condição SQL: a linha NÃO é mensagem de disparo. `a` é o apelido da tabela
-   de mensagens com o ponto ("m."), ou vazio. */
+/* Condição SQL: a linha NÃO é mensagem de disparo nem de automação. `a` é o
+   apelido da tabela de mensagens com o ponto ("m."), ou vazio. O gatilho
+   `trg_msg_interacao` (db.js) repete esta regra em SQL — mudou uma, muda a outra. */
 export const semDisparo = (a = "") =>
-  `NOT (${a}direction = 'out' AND ${a}from_user_id IS NULL AND COALESCE(${a}from_name, '') LIKE '${ROTULO_DISPARO}%')`;
+  `NOT (${a}direction = 'out' AND ${a}from_user_id IS NULL AND (COALESCE(${a}from_name, '') LIKE '${ROTULO_DISPARO}%' OR COALESCE(${a}from_name, '') LIKE '${ROTULO_AUTOMACAO}%'))`;
 
 export const ehDeDisparo = (m) =>
-  !!m && m.direction === "out" && !m.from_user_id && String(m.from_name || "").startsWith(ROTULO_DISPARO);
+  !!m && m.direction === "out" && !m.from_user_id
+    && (String(m.from_name || "").startsWith(ROTULO_DISPARO) || String(m.from_name || "").startsWith(ROTULO_AUTOMACAO));
 
 /* ENVIOS EM CURSO. A Uazapi às vezes entrega o eco de uma mensagem enviada
    (webhook com fromMe) ANTES de a chamada de envio devolver a resposta — e

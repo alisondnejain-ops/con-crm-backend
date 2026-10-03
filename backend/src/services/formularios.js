@@ -21,7 +21,7 @@
 import db from "../db.js";
 import { abrir } from "./cofre.js";
 import { formulariosDaPagina } from "./meta.js";
-import { catracaAtiva } from "./catracas.js";
+import { catracasDoFormulario, definirCatracasDoFormulario, ErroCatraca } from "./catracas.js";
 
 export class ErroFormulario extends Error {
   constructor(status, mensagem) { super(mensagem); this.status = status; }
@@ -78,6 +78,9 @@ export async function listarFormularios(orgId) {
   // E os que já têm escolha gravada (formulário arquivado, página desconectada).
   const escolhas = db.prepare("SELECT * FROM meta_formularios WHERE org_id = ?").all(orgId);
   for (const c of escolhas) if (!porId.has(c.form_id)) porId.set(c.form_id, { id: c.form_id, nome: c.nome, status: null, pagina: null });
+  // E os marcados numa catraca que ainda não trouxeram lead.
+  for (const c of db.prepare("SELECT DISTINCT ref FROM catraca_canais WHERE org_id = ? AND canal = 'formulario'").all(orgId))
+    if (!porId.has(c.ref)) porId.set(c.ref, { id: c.ref, nome: null, status: null, pagina: null });
 
   const escolhaDe = new Map(escolhas.map(c => [c.form_id, c]));
   const formularios = [...porId.values()].map(f => {
@@ -92,10 +95,8 @@ export async function listarFormularios(orgId) {
       // Escolhido, mas o funil foi desativado depois: a tela avisa.
       funil_invalido: !!(c?.pipeline_id && !entrada),
       entrada,
-      // A catraca do formulário (03/10/2026). Desativada ou apagada depois:
-      // a tela avisa, e o lead segue a regra de sempre.
-      catraca_id: c?.catraca_id || null,
-      catraca_invalida: !!(c?.catraca_id && !catracaAtiva(orgId, c.catraca_id)),
+      // As catracas que recebem os leads deste formulário (03/10/2026).
+      catraca_ids: catracasDoFormulario(orgId, f.id),
     };
   });
   // Ativos primeiro; dentro deles, quem trouxe lead por último.
@@ -142,23 +143,24 @@ export function definirFunil(orgId, userId, formId, { pipeline_id, stage_id, nom
   return { pipeline_id: p.id, stage_id: etapa?.id || null, entrada };
 }
 
-/* Ligar um formulário a uma catraca de produto (services/catracas.js).
-   Vazio volta à regra de sempre (a atendente da vez, catraca principal no
-   repasse). Gravado à parte do funil: escolher um não mexe no outro. */
-export function definirCatraca(orgId, userId, formId, { catraca_id, nome, page_id } = {}) {
+/* As catracas que recebem os leads de um formulário (03/10/2026). Um
+   formulário pode estar em várias (decisão do Ali); a fonte é a própria
+   catraca (`catraca_canais`, services/catracas.js) — esta função só grava o
+   nome/página do formulário e repassa a lista. Aceita `catraca_id` (uma, o
+   formato antigo) ou `catraca_ids`. */
+export function definirCatraca(orgId, userId, formId, { catraca_id, catraca_ids, nome, page_id } = {}) {
   const id = String(formId || "").trim();
   if (!/^[\w-]{1,64}$/.test(id)) throw new ErroFormulario(400, "Formulário inválido.");
   const nomeLimpo = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
   const pagina = page_id ? String(page_id).replace(/[^\d]/g, "").slice(0, 40) || null : null;
-  let catraca = null;
-  if (catraca_id) {
-    catraca = catracaAtiva(orgId, catraca_id);
-    if (!catraca) throw new ErroFormulario(400, "Essa catraca não existe nesta conta ou está desativada.");
-  }
-  db.prepare(`INSERT INTO meta_formularios (org_id,form_id,page_id,nome,catraca_id,atualizado_por,atualizado_em)
-    VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id,form_id) DO UPDATE SET catraca_id = excluded.catraca_id,
+  const lista = Array.isArray(catraca_ids) ? catraca_ids : (catraca_id ? [catraca_id] : []);
+  let ids;
+  try { ids = definirCatracasDoFormulario(orgId, id, lista); }
+  catch (e) { if (e instanceof ErroCatraca) throw new ErroFormulario(e.status, e.message); throw e; }
+  db.prepare(`INSERT INTO meta_formularios (org_id,form_id,page_id,nome,atualizado_por,atualizado_em)
+    VALUES (?,?,?,?,?,?) ON CONFLICT(org_id,form_id) DO UPDATE SET
     nome = COALESCE(excluded.nome, nome), page_id = COALESCE(excluded.page_id, page_id),
     atualizado_por = excluded.atualizado_por, atualizado_em = excluded.atualizado_em`)
-    .run(orgId, id, pagina, nomeLimpo, catraca ? catraca.id : null, userId, Date.now());
-  return { catraca_id: catraca ? catraca.id : null };
+    .run(orgId, id, pagina, nomeLimpo, userId, Date.now());
+  return { catraca_ids: ids };
 }

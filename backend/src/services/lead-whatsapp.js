@@ -13,8 +13,10 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { campanhaQueAlcancou } from "./disparo.js";
 import { mascararTelefone } from "../seguranca.js";
+import { dispararGatilho } from "./automacoes.js";
+import { catracaNoNascimento, etapaDeEntrada, veioDoSite } from "./catracas.js";
 
-export function nascerLeadDoWhatsapp({ canal, phone, nome, quando = Date.now() }) {
+export function nascerLeadDoWhatsapp({ canal, phone, nome, texto = "", quando = Date.now() }) {
   const orgId = canal.org_id;
   const ehPessoal = canal.tipo === "corretor";
   const ehDisparo = canal.tipo === "disparo";
@@ -27,25 +29,35 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, quando = Date.now() }
      da CASA, que é de todo mundo e de ninguém. O cliente que escreveu
      para o número da Marina escolheu a Marina — sortear esse lead para
      outra pessoa seria o CRM desfazendo uma decisão do cliente. */
-  const dono = ehPessoal ? canal.user_id : proximoAtendente(orgId);
-  /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa. Os
-     leads que caem na atendente pertencem ao funil de pré-atendimento;
-     os do corretor, ao comercial. */
-  const entrada = entradaDe(orgId, dono);
   /* Respondeu a um disparo: origem "Disparo" E a campanha gravada, como o
      lead da Meta vem com a campanha do anúncio. É o que põe este lead na
      linha certa de Operação → Campanhas e nos filtros de campanha. */
   const campanha = campanhaQueAlcancou(orgId, phone);
   const veioDoDisparo = ehDisparo || !!campanha;
+  /* O CANAL DE AQUISIÇÃO (03/10/2026): só o número da CASA entra numa
+     catraca — "site" quando a primeira mensagem é a que o botão do site
+     escreve, "whatsapp" no resto. Linha pessoal e disparo ficam de fora. */
+  const doSite = !ehPessoal && !veioDoDisparo && veioDoSite(texto);
+  const vez = ehPessoal || veioDoDisparo ? { catraca: null, dono: null }
+    : catracaNoNascimento(orgId, { canal: doSite ? "site" : "whatsapp", ref: "" });
+  const dono = ehPessoal ? canal.user_id : (vez.dono || proximoAtendente(orgId));
+  /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa. Os
+     leads que caem na atendente pertencem ao funil de pré-atendimento;
+     os do corretor, ao comercial. A catraca "direto ao corretor" com etapa
+     faz o lead nascer nela. */
+  const entrada = (vez.dono && vez.catraca.stage_id && etapaDeEntrada(orgId, vez.catraca.stage_id)) || entradaDe(orgId, dono);
   db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
-              pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at,platform,campaign_name)
-    VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?,?,?)`)
-    .run(id, orgId, nome || "Contato do WhatsApp", phone, veioDoDisparo ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
+              pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at,platform,campaign_name,catraca_id)
+    VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?,?,?,?)`)
+    .run(id, orgId, nome || "Contato do WhatsApp", phone, veioDoDisparo ? "Disparo" : doSite ? "Site" : "WhatsApp", entrada.nome, dono, quando,
          entrada.pipeline_id, entrada.stage_id, quando, quando,
-         linhaDaConversa, dono ? quando : null, veioDoDisparo ? "disparo" : null, campanha);
+         linhaDaConversa, dono ? quando : null, veioDoDisparo ? "disparo" : null, campanha, vez.catraca ? vez.catraca.id : null);
   console.log(`[mensageria] lead NOVO pelo WhatsApp/${canal.provider || "uazapi"} (${mascararTelefone(phone)}) — ${
     ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
     ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
+    vez.dono ? `direto ao corretor pela catraca ${vez.catraca.nome}` :
     dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
+  // Quem nasce respondendo a um disparo já está num fluxo: não entra no "lead novo".
+  if (!veioDoDisparo) dispararGatilho(orgId, "lead_novo", { leadId: id, origem: "whatsapp" });
   return db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 }

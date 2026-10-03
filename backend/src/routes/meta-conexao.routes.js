@@ -79,14 +79,15 @@ gestao.get("/", (req, res) => {
   });
 });
 
-/* Atender → Formulários (03/10/2026): os formulários da página e o funil de
-   cada um. Só gestor, como o resto desta tela. */
+/* Os formulários da página, com o funil próprio e as catracas de cada um —
+   a lista que o editor da catraca e o gatilho de formulário dos fluxos
+   mostram. Só gestor, como o resto desta tela. */
 gestao.get("/formularios", async (req, res) => {
   try { res.json(await listarFormularios(req.user.org_id)); }
   catch (e) { console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui montar a lista de formulários." }); }
 });
-// A catraca de cada formulário (03/10/2026). Rota própria, para escolher a
-// catraca não mexer no funil e vice-versa.
+// As catracas de um formulário (03/10/2026; um formulário pode estar em
+// várias). Rota própria, para escolher a catraca não mexer no funil.
 gestao.post("/formularios/:formId/catraca", (req, res) => {
   try { res.json({ ok: true, ...definirCatraca(req.user.org_id, req.user.id, req.params.formId, req.body || {}) }); }
   catch (e) {

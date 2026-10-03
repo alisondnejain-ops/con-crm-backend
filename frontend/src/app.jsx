@@ -933,6 +933,10 @@ const ICO={
   check:<React.Fragment><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></React.Fragment>,
   calendar:<React.Fragment><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></React.Fragment>,
   zap:<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  tag:<React.Fragment><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></React.Fragment>,
+  tagx:<React.Fragment><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="9" y1="10" x2="14" y2="15"/><line x1="14" y1="10" x2="9" y2="15"/></React.Fragment>,
+  branch:<React.Fragment><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10"/><path d="M18 10c0 4-6 3-12 7"/></React.Fragment>,
+  tarefa:<React.Fragment><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 2v4M15 2v4"/><polyline points="8.5 13 11 15.5 15.5 11"/></React.Fragment>,
   sparkles:<React.Fragment><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></React.Fragment>,
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
@@ -1879,6 +1883,8 @@ function ConCRM(){
     salvarFluxoMarketing:(id,dados)=>api(`/marketing/fluxos/${id}`,{method:"PUT",body:dados}),
     apagarFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`,{method:"DELETE"}),
     testarFluxoMarketing:(id,telefone)=>api(`/marketing/fluxos/${id}/teste`,{method:"POST",body:{telefone}}),
+    ativarFluxoMarketing:(id,ativo)=>api(`/marketing/fluxos/${id}/ativar`,{method:"POST",body:{ativo}}),
+    logsFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}/logs`),
     midiaMarketing:(dados)=>api("/marketing/midia",{method:"POST",body:dados}),
     // Vídeo sobe cru (sem base64), com progresso — mesma régua do vídeo da conversa.
     videoMarketing:(file,aoProgredir)=>new Promise((ok,falhou)=>{
@@ -3322,12 +3328,38 @@ function WebhookDoDisparo({url}){
    linha por saída) porque é delas que sai a posição de cada ponta de seta.
    Medir no navegador faria a seta pular um quadro depois de cada mudança. */
 const TIPO_BLOCO={
-  inicio:{nome:"Início",cor:C.greenDeep,icone:"zap"},
+  inicio:{nome:"Gatilho",cor:C.greenDeep,icone:"zap"},
   mensagem:{nome:"Mensagem",cor:C.green,icone:"msg"},
   espera:{nome:"Espera",cor:C.cool,icone:"clock"},
   resposta:{nome:"Esperar resposta",cor:"#2F80C4",icone:"reply"},
   botoes:{nome:"Botões",cor:"#7A5AD6",icone:"grid"},
+  condicao:{nome:"Condição",cor:"#1C8C8C",icone:"branch"},
+  add_tag:{nome:"Adicionar etiqueta",cor:"#D1477A",icone:"tag"},
+  remover_tag:{nome:"Remover etiqueta",cor:"#9E3D63",icone:"tagx"},
+  mover_etapa:{nome:"Mover de etapa",cor:"#4C5BD4",icone:"arrow"},
+  atribuir:{nome:"Atribuir responsável",cor:"#0E8FB0",icone:"userplus"},
+  tarefa:{nome:"Criar tarefa",cor:"#B7791F",icone:"tarefa"},
 };
+/* A PALETA, agrupada como no exemplo que o Ali mandou (03/10/2026): o que
+   fala com o cliente, o que decide o caminho e o que mexe no lead. */
+const GRUPOS_DE_BLOCO=[["Mensagem",["mensagem","botoes","resposta","espera"]],["Fluxo",["condicao"]],
+  ["CRM",["add_tag","remover_tag","mover_etapa","atribuir","tarefa"]]];
+const TIPOS_NOVOS=GRUPOS_DE_BLOCO.flatMap(([,t])=>t);
+const BLOCOS_CRM=["add_tag","remover_tag","mover_etapa","atribuir","tarefa"];
+/* Os GATILHOS (services/automacoes.js): "Disparo em massa" é o fluxo de
+   sempre — ninguém entra sozinho. Os outros ligam a automação. */
+const GATILHOS=[
+  ["manual","Disparo em massa","Ninguém entra sozinho: este fluxo é enviado pela aba Disparos.","megafone"],
+  ["formulario","Formulário preenchido","Quando alguém preenche um formulário do anúncio.","form"],
+  ["lead_novo","Lead novo","Quando entra um lead novo — escolha de onde.","userplus"],
+  ["etapa","Entrou na etapa","Quando um lead entra numa etapa do funil.","columns"],
+  ["etiqueta","Etiqueta adicionada","Quando alguém coloca uma etiqueta num lead.","tag"],
+];
+const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
+const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"]];
+const TEMPERATURAS_COND=[["QUENTE","Quente"],["MORNO","Morno"],["FRIO","Frio"],["SEM","Sem temperatura"]];
+// Nomes das etiquetas, etapas, pessoas e formulários — para o bloco se descrever.
+const OpcoesDoFluxo=React.createContext(null);
 const UNIDADES_FLUXO=[["minutos","minuto(s)"],["horas","hora(s)"],["dias","dia(s)"]];
 const LARG_BLOCO=236, CAB_BLOCO=34, CORPO_BLOCO=50, LINHA_SAIDA=28;
 const fmtPrazo=(p)=>p?`${p.quantidade} ${({minutos:"min",horas:p.quantidade==1?"hora":"horas",dias:p.quantidade==1?"dia":"dias"})[p.unidade]||p.unidade}`:"";
@@ -3335,7 +3367,8 @@ function saidasDoBloco(no){
   const d=no.dados||{};
   switch(no.tipo){
     case "inicio": return [["proximo","Começa aqui"]];
-    case "mensagem": case "espera": return [["proximo","Depois"]];
+    case "mensagem": case "espera": case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return [["proximo","Depois"]];
+    case "condicao": return [["sim","Sim"],["nao","Não"]];
     case "resposta": return [...(d.regras||[]).map((r,i)=>[r.id,r.palavras?`Contém: ${r.palavras}`:`Caminho ${i+1} (sem palavras)`]),
       ["outra","Qualquer outra resposta"],["sem_resposta",`Não respondeu em ${fmtPrazo(d.prazo)}`]];
     case "botoes": return [...(d.botoes||[]).map((b,i)=>[b.id,b.rotulo?`${i+1}. ${b.rotulo}`:`Botão ${i+1} (sem texto)`]),
@@ -3343,18 +3376,44 @@ function saidasDoBloco(no){
     default: return [];
   }
 }
-const corpoDoBloco=(no)=>no.tipo==="inicio"?0:CORPO_BLOCO;
+const corpoDoBloco=()=>CORPO_BLOCO;
 const alturaDoBloco=(no)=>CAB_BLOCO+corpoDoBloco(no)+saidasDoBloco(no).length*LINHA_SAIDA+6;
 const pontoDeSaida=(no,saida)=>{const i=Math.max(0,saidasDoBloco(no).findIndex(([id])=>id===saida));
   return {x:no.x+LARG_BLOCO,y:no.y+CAB_BLOCO+corpoDoBloco(no)+i*LINHA_SAIDA+LINHA_SAIDA/2};};
 const pontoDeEntrada=(no)=>({x:no.x,y:no.y+CAB_BLOCO/2});
 const curvaDaSeta=(a,b)=>{const dx=Math.max(50,Math.abs(b.x-a.x)/2);return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`;};
-function resumoDoBloco(no){
+const nomeEm=(lista,id,campo="nome")=>((lista||[]).find(x=>x.id===id)||{})[campo]||"";
+function resumoDoGatilho(g,op){
+  g=g||{tipo:"manual"};
+  if(g.tipo==="formulario") return g.form_id?`Formulário: ${g.form_nome||nomeEm(op&&op.formularios,g.form_id)||g.form_id}`:"Escolha o formulário…";
+  if(g.tipo==="lead_novo") return `Lead novo · ${(g.origens||[]).length?g.origens.map(o=>(ORIGENS_GATILHO.find(x=>x[0]===o)||[,o])[1]).join(", "):"qualquer origem"}`;
+  if(g.tipo==="etapa") return g.etapa_id?`Entrou em ${nomeEm(op&&op.etapas,g.etapa_id)||"uma etapa"}`:"Escolha a etapa…";
+  if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
+  return "Disparo em massa — entra quem o disparo escolher.";
+}
+function resumoDoBloco(no,op){
   const d=no.dados||{};
+  if(no.tipo==="inicio") return resumoDoGatilho(d.gatilho,op);
   if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
   if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
   if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
   if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
+  if(no.tipo==="condicao"){
+    if(!d.valor) return "Escolha a regra…";
+    if(d.regra==="tag") return `Tem a etiqueta “${nomeEm(op&&op.tags,d.valor)||"…"}”?`;
+    if(d.regra==="etapa") return `Está em ${nomeEm(op&&op.etapas,d.valor)||"…"}?`;
+    if(d.regra==="temperatura") return `Temperatura é ${(TEMPERATURAS_COND.find(t=>t[0]===d.valor)||[,d.valor])[1]}?`;
+    return d.valor==="sem"?"Está sem responsável?":"Já tem responsável?";
+  }
+  if(no.tipo==="add_tag") return d.tag_id?`Coloca “${nomeEm(op&&op.tags,d.tag_id)||"etiqueta"}”`:"Escolha a etiqueta…";
+  if(no.tipo==="remover_tag") return d.tag_id?`Tira “${nomeEm(op&&op.tags,d.tag_id)||"etiqueta"}”`:"Escolha a etiqueta…";
+  if(no.tipo==="mover_etapa"){ const e=((op&&op.etapas)||[]).find(x=>x.id===d.etapa_id); return d.etapa_id?(e?`${e.funil} · ${e.nome}`:"Etapa escolhida"):"Escolha a etapa…"; }
+  if(no.tipo==="atribuir"){
+    if(d.modo==="fila") return "Devolve à fila, sem responsável.";
+    if(d.modo==="pessoa") return d.user_id?`Para ${nomeEm(op&&op.responsaveis,d.user_id)||"a pessoa escolhida"}`:"Escolha a pessoa…";
+    return d.catraca_id?`Próximo da catraca ${nomeEm(op&&op.catracas,d.catraca_id)||"…"}`:"Próximo da catraca do lead";
+  }
+  if(no.tipo==="tarefa") return d.titulo?`${d.titulo} · em ${d.em_horas||0}h`:"Escreva a tarefa…";
   return "";
 }
 const idNovoFluxo=(p)=>p+Math.random().toString(36).slice(2,8);
@@ -3363,7 +3422,13 @@ function blocoNovo(tipo,x,y){
   const dados=tipo==="mensagem"?{texto:"",midia:null}
     :tipo==="espera"?{quantidade:1,unidade:"dias"}
     :tipo==="resposta"?{regras:[{id:idNovoFluxo("r"),palavras:""}],prazo}
-    :{texto:"",botoes:[{id:idNovoFluxo("b"),rotulo:""},{id:idNovoFluxo("b"),rotulo:""}],escrever_opcoes:true,prazo};
+    :tipo==="botoes"?{texto:"",botoes:[{id:idNovoFluxo("b"),rotulo:""},{id:idNovoFluxo("b"),rotulo:""}],escrever_opcoes:true,prazo}
+    :tipo==="condicao"?{regra:"tag",valor:""}
+    :tipo==="add_tag"||tipo==="remover_tag"?{tag_id:""}
+    :tipo==="mover_etapa"?{etapa_id:""}
+    :tipo==="atribuir"?{modo:"catraca",catraca_id:"",user_id:""}
+    :tipo==="tarefa"?{titulo:"",em_horas:24}
+    :{};
   return {id:idNovoFluxo("n"),tipo,x:Math.round(x),y:Math.round(y),dados};
 }
 // Seta que sai de uma saída que não existe mais (botão apagado) cai fora.
@@ -3412,6 +3477,7 @@ function copiaDoBloco(no){
 
 function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta}){
   const t=TIPO_BLOCO[no.tipo]||TIPO_BLOCO.mensagem;
+  const op=React.useContext(OpcoesDoFluxo);
   // O bloco inteiro agarra (seleciona e arrasta), como no ManyChat; só as
   // bolinhas de saída puxam seta.
   return <div onPointerDown={e=>aoAgarrar&&aoAgarrar(e,no.id)} style={{position:"absolute",left:no.x,top:no.y,width:LARG_BLOCO,background:C.card,borderRadius:12,paddingBottom:6,boxSizing:"border-box",cursor:somenteLeitura?"default":"grab",touchAction:"none",
@@ -3420,12 +3486,12 @@ function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,
     <div style={{height:CAB_BLOCO,display:"flex",alignItems:"center",gap:7,padding:"0 10px",
       background:t.cor,color:"#fff",borderRadius:"10px 10px 0 0",fontSize:12.5,fontWeight:700}}>
       <Icon n={t.icone} size={14}/><span style={{flex:1}}>{t.nome}</span>
-      {contagem&&no.tipo!=="inicio"&&<span style={{background:"rgba(255,255,255,.22)",borderRadius:999,padding:"2px 8px",fontSize:11,fontFamily:MONO}}
-        title={`${contagem.enviados||0} receberam${contagem.parados_aqui?` · ${contagem.parados_aqui} aqui agora`:""}`}>
+      {contagem&&<span style={{background:"rgba(255,255,255,.22)",borderRadius:999,padding:"2px 8px",fontSize:11,fontFamily:MONO}}
+        title={no.tipo==="inicio"?`${contagem.enviados||0} entraram`:`${contagem.enviados||0} passaram por aqui${contagem.parados_aqui?` · ${contagem.parados_aqui} aqui agora`:""}`}>
         {contagem.enviados||0}{contagem.parados_aqui?` · ${contagem.parados_aqui} aqui`:""}</span>}
     </div>
-    {no.tipo!=="inicio"&&<div style={{height:CORPO_BLOCO,padding:"7px 10px",boxSizing:"border-box",borderBottom:`1px solid ${C.line}`}}>
-      <div style={{fontSize:12,color:C.sub,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",wordBreak:"break-word"}}>{resumoDoBloco(no)}</div></div>}
+    <div style={{height:CORPO_BLOCO,padding:"7px 10px",boxSizing:"border-box",borderBottom:`1px solid ${C.line}`}}>
+      <div style={{fontSize:12,color:no.tipo==="inicio"?C.ink:C.sub,fontWeight:no.tipo==="inicio"?600:400,lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",wordBreak:"break-word"}}>{resumoDoBloco(no,op)}</div></div>
     {saidasDoBloco(no).map(([id,rot])=><div key={id} style={{height:LINHA_SAIDA,display:"flex",alignItems:"center",justifyContent:"flex-end",
       padding:"0 16px 0 10px",fontSize:11.5,color:C.sub,position:"relative"}}>
       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rot}</span>
@@ -3565,7 +3631,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
       {menu&&<div onPointerDown={e=>e.stopPropagation()} style={{position:"absolute",left:menu.x,top:menu.y,background:C.card,border:`1px solid ${C.line}`,
         borderRadius:10,boxShadow:"0 8px 22px rgba(10,61,48,.18)",padding:6,display:"flex",flexDirection:"column",gap:2,minWidth:170}}>
         <div style={{fontSize:11,color:C.faint,padding:"2px 6px 4px"}}>Criar o próximo bloco:</div>
-        {["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>criarAqui(t)} style={{display:"flex",gap:8,alignItems:"center",
+        {TIPOS_NOVOS.map(t=><button key={t} onClick={()=>criarAqui(t)} style={{display:"flex",gap:8,alignItems:"center",
           border:"none",background:"transparent",padding:"7px 8px",borderRadius:7,cursor:"pointer",fontSize:12.5,color:C.ink,textAlign:"left"}}>
           <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
       </div>}
@@ -3637,7 +3703,91 @@ function ConteudoDaMensagem({d,aoMudar,acoes,isMobile,linhas=7}){
   </React.Fragment>;
 }
 
-function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar}){
+/* Um seletor de etapa agrupado por funil — o mesmo nos blocos e no gatilho. */
+function SeletorDeEtapaFluxo({valor,aoMudar,etapas,isMobile,vazio="Escolha a etapa…"}){
+  const funis=[...new Set((etapas||[]).map(e=>e.funil))];
+  return <select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+    <option value="">{vazio}</option>
+    {funis.map(f=><optgroup key={f} label={f}>{etapas.filter(e=>e.funil===f).map(e=><option key={e.id} value={e.id}>{e.nome}</option>)}</optgroup>)}
+  </select>;
+}
+const SeletorDeEtiquetaFluxo=({valor,aoMudar,tags,isMobile})=><select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+  <option value="">Escolha a etiqueta…</option>
+  {(tags||[]).map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
+</select>;
+
+/* O GATILHO — o que faz alguém entrar neste fluxo sozinho
+   (services/automacoes.js). O funil do formulário e as catracas que o
+   recebem vão para o formulário quando o fluxo é salvo — as catracas são a
+   MESMA marcação da tela Catraca (um formulário pode estar em várias). */
+function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
+  const rot=ROTULO_MKT;
+  const muda=(patch)=>aoMudar({...g,...patch});
+  const ativosP=(pipelines||[]).filter(p=>p.is_active!==false&&p.is_active!==0);
+  const pipe=ativosP.find(p=>p.id===g.pipeline_id);
+  const etapasP=(pipe?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  const forms=(op&&op.formularios)||[];
+  const catracas=((op&&op.catracas)||[]).filter(c=>c.ativa);
+  return <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div><div style={rot}>Quando começa</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {GATILHOS.map(([id,tit,desc,ic])=>{const on=(g.tipo||"manual")===id;
+          return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
+            border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:10,padding:isMobile?"10px 11px":"8px 10px",fontFamily:FONT}}>
+            <span style={{width:26,height:26,borderRadius:8,flexShrink:0,background:on?C.greenDeep:C.surface,color:on?"#fff":C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={ic} size={14}/></span>
+            <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{tit}</span>
+              <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{desc}</span></span>
+          </button>;})}
+      </div></div>
+    {g.tipo==="formulario"&&<React.Fragment>
+      <div><div style={rot}>Formulário</div>
+        <select value={g.form_id||""} onChange={e=>{const f=forms.find(x=>x.id===e.target.value);
+          /* Já vem com o que o formulário tem hoje: sem isso, escolher o
+             formulário e salvar trocaria o funil e as catracas dele por nada. */
+          muda({form_id:e.target.value,form_nome:f?f.nome:"",pipeline_id:f?f.pipeline_id||null:null,stage_id:f?f.stage_id||null:null,
+            catraca_ids:f?(f.catraca_ids||[]).filter(id=>catracas.some(c=>c.id===id)):[]});}} style={campoMkt(isMobile)}>
+          <option value="">Escolha o formulário…</option>
+          {g.form_id&&!forms.some(f=>f.id===g.form_id)&&<option value={g.form_id}>{g.form_nome||g.form_id}</option>}
+          {forms.map(f=><option key={f.id} value={f.id}>{f.nome}{f.status&&f.status!=="ACTIVE"?" (arquivado)":""}</option>)}
+        </select>
+        {op&&!forms.length&&<div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.45}}>Nenhum formulário encontrado. Conecte a página em Configurações → Anúncios do Meta.</div>}
+      </div>
+      {g.form_id&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,background:C.surface}}>
+        <div style={{fontSize:11.5,color:C.sub,lineHeight:1.45}}>Onde o lead deste formulário nasce e por quais catracas ele passa.</div>
+        <div><div style={{...rot,marginBottom:3}}>Funil</div>
+          <select value={g.pipeline_id||""} onChange={e=>muda({pipeline_id:e.target.value||null,stage_id:null})} style={campoMkt(isMobile)}>
+            <option value="">Funil de quem recebe (padrão)</option>
+            {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select></div>
+        {pipe&&<div><div style={{...rot,marginBottom:3}}>Etapa de entrada</div>
+          <select value={g.stage_id||""} onChange={e=>muda({stage_id:e.target.value||null})} style={campoMkt(isMobile)}>
+            <option value="">Primeira etapa{etapasP[0]?` (${etapasP[0].name})`:""}</option>
+            {etapasP.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+          </select></div>}
+        <div><div style={{...rot,marginBottom:3}}>Catracas</div>
+          {!catracas.length&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>Nenhuma catraca de produto criada — vale a catraca principal. Crie na tela Catraca.</div>}
+          {catracas.map(c=>{const ids=g.catraca_ids||[],on=ids.includes(c.id);
+            return <label key={c.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
+              <input type="checkbox" checked={on} onChange={()=>muda({catraca_ids:on?ids.filter(x=>x!==c.id):[...ids,c.id]})}/>
+              <span>{c.nome} <span style={{color:C.faint,fontSize:11}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span></label>;})}
+          {catracas.length>0&&!(g.catraca_ids||[]).length&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>Nenhuma marcada: vale a catraca principal.</div>}</div>
+      </div>}
+    </React.Fragment>}
+    {g.tipo==="lead_novo"&&<div><div style={rot}>De onde</div>
+      {ORIGENS_GATILHO.map(([id,t])=>{const on=(g.origens||[]).includes(id);
+        return <label key={id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
+          <input type="checkbox" checked={on} onChange={()=>muda({origens:on?g.origens.filter(x=>x!==id):[...(g.origens||[]),id]})}/>{t}</label>;})}
+      <div style={{color:C.faint,fontSize:11,marginTop:3,lineHeight:1.45}}>Nenhuma marcada vale para todas. Planilha importada nunca dispara.</div></div>}
+    {g.tipo==="etapa"&&<div><div style={rot}>Etapa</div><SeletorDeEtapaFluxo valor={g.etapa_id} aoMudar={v=>muda({etapa_id:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Mover a base inteira de funil (em Base de leads) não dispara.</div></div>}
+    {g.tipo==="etiqueta"&&<div><div style={rot}>Etiqueta</div><SeletorDeEtiquetaFluxo valor={g.tag_id} aoMudar={v=>muda({tag_id:v})} tags={op&&op.tags} isMobile={isMobile}/></div>}
+    {g.tipo&&g.tipo!=="manual"&&<label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
+      <input type="checkbox" checked={!!g.reentrada} onChange={e=>muda({reentrada:e.target.checked})} style={{marginTop:3}}/>
+      <span>O mesmo lead pode entrar de novo <span style={{color:C.faint}}>— depois de terminar, e com pelo menos 1 hora entre uma vez e outra. Desligado, cada lead passa por esta automação uma vez só.</span></span></label>}
+  </div>;
+}
+
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar,op,pipelines,topoDoGatilho}){
   const d=no.dados||{};
   const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
   const rot=ROTULO_MKT;
@@ -3649,8 +3799,49 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
       {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
       {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
     </div>
-    {no.tipo==="inicio"&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
-      É por aqui que cada pessoa do disparo entra. Puxe a seta do “Começa aqui” até o primeiro bloco.</div>}
+    {no.tipo==="inicio"&&<React.Fragment>
+      {topoDoGatilho}
+      <EditorDoGatilho g={d.gatilho||{tipo:"manual"}} aoMudar={g=>dados({gatilho:g})} op={op} pipelines={pipelines} isMobile={isMobile}/>
+    </React.Fragment>}
+    {no.tipo==="condicao"&&<React.Fragment>
+      <div><div style={rot}>Se o lead…</div>
+        <select value={d.regra||"tag"} onChange={e=>dados({regra:e.target.value,valor:e.target.value==="responsavel"?"com":""})} style={campoMkt(isMobile)}>
+          {REGRAS_CONDICAO.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
+      <div>
+        {d.regra==="etapa"?<SeletorDeEtapaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
+          :d.regra==="temperatura"?<select value={d.valor||""} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
+            <option value="">Escolha…</option>{TEMPERATURAS_COND.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select>
+          :d.regra==="responsavel"?<select value={d.valor||"com"} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
+            <option value="com">já tem responsável</option><option value="sem">está sem responsável (na fila)</option></select>
+          :<SeletorDeEtiquetaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} tags={op&&op.tags} isMobile={isMobile}/>}
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Sim segue por uma saída, Não pela outra. Contato de lista (que ainda não é lead) vai pelo Não.</div>
+    </React.Fragment>}
+    {(no.tipo==="add_tag"||no.tipo==="remover_tag")&&<div><div style={rot}>Etiqueta</div>
+      <SeletorDeEtiquetaFluxo valor={d.tag_id} aoMudar={v=>dados({tag_id:v})} tags={op&&op.tags} isMobile={isMobile}/></div>}
+    {no.tipo==="mover_etapa"&&<div><div style={rot}>Para a etapa</div>
+      <SeletorDeEtapaFluxo valor={d.etapa_id} aoMudar={v=>dados({etapa_id:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:6,lineHeight:1.5}}>Pela porta de sempre: se a etapa pede um campo que o lead não tem, ele não move (fica no histórico da automação).</div></div>}
+    {no.tipo==="atribuir"&&<React.Fragment>
+      <div><div style={rot}>Entregar para</div>
+        <select value={d.modo||"catraca"} onChange={e=>dados({modo:e.target.value})} style={campoMkt(isMobile)}>
+          <option value="catraca">O próximo da catraca</option><option value="pessoa">Uma pessoa</option><option value="fila">Ninguém — devolver à fila</option></select></div>
+      {(d.modo||"catraca")==="catraca"&&<div><div style={rot}>Catraca</div>
+        <select value={d.catraca_id||""} onChange={e=>dados({catraca_id:e.target.value})} style={campoMkt(isMobile)}>
+          <option value="">A do lead (ou a principal)</option>
+          {((op&&op.catracas)||[]).filter(c=>c.ativa).map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:6,lineHeight:1.5}}>Ninguém disponível na catraca do produto: vai pela principal, como no repasse.</div></div>}
+      {d.modo==="pessoa"&&<div><div style={rot}>Pessoa</div>
+        <select value={d.user_id||""} onChange={e=>dados({user_id:e.target.value})} style={campoMkt(isMobile)}>
+          <option value="">Escolha…</option>{((op&&op.responsaveis)||[]).map(u=><option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>}
+    </React.Fragment>}
+    {no.tipo==="tarefa"&&<React.Fragment>
+      <div><div style={rot}>Tarefa</div>
+        <input value={d.titulo||""} onChange={e=>dados({titulo:e.target.value})} maxLength={160} placeholder="Ligar para o cliente" style={campoMkt(isMobile)}/></div>
+      <div><div style={rot}>Para daqui a (horas)</div>
+        <input inputMode="numeric" value={d.em_horas??24} onChange={e=>dados({em_horas:Number(e.target.value.replace(/\D/g,""))||0})} style={{...campoMkt(isMobile),width:90}}/>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Fica no nome de quem está com o lead.</div></div>
+    </React.Fragment>}
     {no.tipo==="mensagem"&&<React.Fragment>
       <ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
     </React.Fragment>}
@@ -3694,9 +3885,9 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         {caminhos.length>1&&<div style={{fontSize:12,color:C.sub,marginBottom:3}}>{c.rotulo}</div>}
         <select value={c.para} onChange={e=>aoLigar(c.saida,e.target.value)} style={campoMkt(isMobile)}>
           <option value="">— termina aqui —</option>
-          {(destinos||[]).map(d=><option key={d.id} value={d.id}>{TIPO_BLOCO[d.tipo].nome}: {resumoDoBloco(d).slice(0,40)}</option>)}
+          {(destinos||[]).map(d=><option key={d.id} value={d.id}>{TIPO_BLOCO[d.tipo].nome}: {resumoDoBloco(d,op).slice(0,40)}</option>)}
           <optgroup label="Criar o próximo bloco">
-            {["mensagem","espera","resposta","botoes"].map(t=><option key={t} value={"novo:"+t}>+ {TIPO_BLOCO[t].nome}</option>)}
+            {TIPOS_NOVOS.map(t=><option key={t} value={"novo:"+t}>+ {TIPO_BLOCO[t].nome}</option>)}
           </optgroup>
         </select>
       </div>)}
@@ -3704,19 +3895,110 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
   </div>;
 }
 
+/* As opções que os blocos novos precisam (etiquetas, etapas, pessoas,
+   catracas, formulários) — buscadas UMA vez por construtor aberto. Cada
+   fonte que falhar vira lista vazia: um formulário que a Meta não deixou
+   ler não pode impedir de editar o resto do fluxo. */
+function usarOpcoesDoFluxo(acoes){
+  const [op,setOp]=useState(null);
+  useEffect(()=>{ let vivo=true;
+    Promise.all([
+      acoes.opcoesPublicoMarketing().catch(()=>({})),
+      acoes.catracas().catch(()=>({catracas:[]})),
+      acoes.formulariosMeta().catch(()=>({formularios:[]})),
+    ]).then(([pub,cat,form])=>vivo&&setOp({tags:pub.tags||[],etapas:pub.etapas||[],responsaveis:pub.responsaveis||[],
+      catracas:cat.catracas||[],formularios:form.formularios||[]}));
+    return()=>{vivo=false;}; },[]);
+  return op;
+}
+
+/* Os números da automação e a chave de ligar — no topo do painel do
+   gatilho, como no exemplo que o Ali mandou. */
+function PainelDaAutomacao({manual,ativo,automacao,desatualizada,avisos,ocupado,aoLigar,isMobile}){
+  if(manual) return <div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.5}}>
+    Este fluxo não liga sozinho: é usado em <b>Marketing → Disparos em massa</b>. Escolha outro gatilho abaixo para ele rodar automático.</div>;
+  const num=(t,v)=><div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",flex:"1 1 46%"}}>
+    <div style={{color:C.faint,fontSize:10.5}}>{t}</div><div style={{color:C.ink,fontFamily:MONO,fontSize:17,fontWeight:700}}>{v}</div></div>;
+  return <div style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:12,borderBottom:`1px solid ${C.line}`}}>
+    <div style={ROTULO_MKT}>Execução</div>
+    <button onClick={()=>aoLigar(!ativo)} disabled={ocupado} style={{display:"flex",alignItems:"center",gap:9,background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
+      <Icon n={ativo?"toggleOn":"toggleOff"} size={30} color={ativo?C.green:C.faint}/>
+      <span><span style={{display:"block",fontSize:13,fontWeight:700,color:C.ink}}>{ativo?"Automação ativa":"Automação desligada"}</span>
+        <span style={{display:"block",fontSize:11.5,color:C.faint,lineHeight:1.4}}>{ativo?"Roda sempre que o gatilho acontecer.":"Ligue para começar a rodar sozinha."}</span></span>
+    </button>
+    {ativo&&desatualizada&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"8px 10px",fontSize:12,lineHeight:1.5}}>
+      A automação no ar continua com a <b>última versão completa</b>. Resolva o que falta e salve para ela passar a usar esta.</div>}
+    {!ativo&&avisos&&avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"8px 10px",fontSize:12,lineHeight:1.5}}>
+      <b>Para ligar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>}
+    {automacao&&<React.Fragment>
+      <div style={ROTULO_MKT}>Números</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {num("Entraram",automacao.entraram)}{num("Últimos 7 dias",automacao.ultimos_7_dias)}
+        {num("Em andamento",automacao.em_andamento)}{num("Concluídos",automacao.concluidas)}
+        {num("Equipe assumiu",automacao.assumidas)}{num("Conclusão",automacao.taxa_conclusao==null?"—":`${pctBR(automacao.taxa_conclusao)}`)}
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
+/* O HISTÓRICO DA AUTOMAÇÃO ("Logs" no exemplo): quem entrou, quando, por
+   onde passou e como terminou. */
+const ESTADO_EXEC={ativa:["Em andamento",C.green],aguardando_resposta:["Esperando resposta","#2F80C4"],concluida:["Concluído",C.greenDeep],
+  assumida:["Equipe assumiu",C.cool],saiu:["Pediu para sair",C.amber],falhou:["Falhou",C.hot],cancelada:["Cancelado",C.faint]};
+function LogsDoFluxo({acoes,fluxoId,grafo,isMobile,aoFechar}){
+  const [d,setD]=useState(null), [erro,setErro]=useState("");
+  const op=React.useContext(OpcoesDoFluxo);
+  useEffect(()=>{acoes.logsFluxoMarketing(fluxoId).then(setD).catch(e=>setErro(e.message));},[fluxoId]);
+  const nomeDoNo=(id)=>{const n=grafo.nos.find(x=>x.id===id); return n?TIPO_BLOCO[n.tipo].nome:"Bloco apagado";};
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:40,display:"flex",justifyContent:"center",alignItems:isMobile?"flex-end":"center"}}>
+    <div onClick={e=>e.stopPropagation()} className={isMobile?"tela-cheia":undefined} style={{background:C.card,width:isMobile?"100%":620,maxWidth:"100%",height:"auto",maxHeight:isMobile?"88dvh":"80vh",overflowY:"auto",
+      ...(isMobile?{position:"fixed",left:0,right:0,top:"auto",bottom:0}:{}),
+      borderRadius:isMobile?"18px 18px 0 0":16,padding:isMobile?"14px 16px calc(env(safe-area-inset-bottom, 0px) + 18px)":20,boxSizing:"border-box"}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:10}}>
+        <div style={{...TITULO_MKT,marginBottom:0,flex:1}}><Icon n="lista" size={16}/> Histórico da automação</div>
+        <button onClick={aoFechar} style={botaoLeveMkt}>Fechar</button></div>
+      {erro&&<div style={{color:C.hot,fontSize:12.5}}>{erro}</div>}
+      {!d&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>}
+      {d&&!d.execucoes.length&&<div style={{color:C.faint,fontSize:12.5}}>Ninguém entrou ainda.</div>}
+      {d&&d.execucoes.map(e=>{const [rot,cor]=ESTADO_EXEC[e.estado]||[e.estado,C.sub];
+        return <div key={e.id} style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",marginBottom:8}}>
+          <div style={{display:"flex",gap:8,alignItems:"baseline",flexWrap:"wrap"}}>
+            <span style={{fontWeight:600,fontSize:13,color:C.ink,flex:1,minWidth:0}}>{e.nome}</span>
+            <span style={{fontSize:11,fontWeight:700,color:cor}}>{rot}</span>
+            <span style={{fontSize:11,color:C.faint}}>{fmtDataHoraMkt(e.criado_em)}</span></div>
+          {e.fim_motivo&&e.estado!=="concluida"&&<div style={{fontSize:11.5,color:C.sub,marginTop:2}}>{e.fim_motivo}</div>}
+          {e.passos.length>0&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+            {e.passos.map((p,i)=><div key={i} style={{fontSize:11.5,color:p.status==="falha"||p.erro?C.hot:C.sub,lineHeight:1.4}}>
+              • <b>{nomeDoNo(p.no_id)}</b>: {p.erro||p.texto||(p.status==="ok"?"enviada":"")}</div>)}
+          </div>}
+        </div>;})}
+    </div>
+  </div>;
+}
+
 function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   const [nome,setNome]=useState(inicial.nome);
   const [grafo,setGrafoCru]=useState(inicial.grafo);
   const [avisos,setAvisos]=useState(inicial.avisos||[]);
+  const [estado,setEstado]=useState({ativo:!!inicial.ativo,automacao:inicial.automacao||null,
+    desatualizada:!!inicial.automacao_desatualizada,gatilhoAvisos:inicial.gatilho_avisos||[]});
   const [sujo,setSujo]=useState(false);
-  const [sel,setSel]=useState(null);
+  // Abre com o gatilho escolhido: é a primeira pergunta do fluxo.
+  const [sel,setSel]=useState(isMobile?null:"inicio");
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
   const [salvoEm,setSalvoEm]=useState(null);
   const [enquadrar,setEnquadrar]=useState(0);
   const [testando,setTestando]=useState(false);
+  const [vendoLogs,setVendoLogs]=useState(false);
   const [folha,setFolha]=useState(null);   // celular: bloco aberto na folha de baixo
+  const op=usarOpcoesDoFluxo(acoes);
+  const {pipelines}=usarPipelines(acoes,true);
   const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
+  const gatilho=((grafo.nos.find(n=>n.tipo==="inicio")||{}).dados||{}).gatilho||{tipo:"manual"};
+  const manual=(gatilho.tipo||"manual")==="manual";
+  const absorver=(r)=>{ setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome);
+    setEstado({ativo:!!r.ativo,automacao:r.automacao||null,desatualizada:!!r.automacao_desatualizada,gatilhoAvisos:r.gatilho_avisos||[]}); };
   const apagarBloco=(id)=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
   function duplicar(){
     const n=grafo.nos.find(x=>x.id===sel); if(!n||n.tipo==="inicio") return;
@@ -3745,15 +4027,33 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     setErro("");setOcupado(true);
     try{
       const r=await acoes.salvarFluxoMarketing(inicial.id,{nome,grafo});
-      setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome); setSujo(false); setSalvoEm(Date.now());
+      absorver(r); setSujo(false); setSalvoEm(Date.now());
       return true;
     }catch(e){ setErro(e.message); return false; } finally{ setOcupado(false); }
   }
   salvarRef.current=()=>{ if(sujo&&!ocupado) salvar(); };
+  // Ligar salva antes: a automação usa a versão SALVA do fluxo.
+  async function ligar(ativo){
+    setErro("");
+    if(ativo&&sujo&&!(await salvar())) return;
+    setOcupado(true);
+    try{ absorver(await acoes.ativarFluxoMarketing(inicial.id,ativo)); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
   function voltar(){ if(sujo&&!window.confirm("Sair sem salvar? As alterações deste fluxo se perdem.")) return; aoVoltar(); }
+  /* Um lugar livre para o bloco novo: à direita do escolhido, descendo até
+     não cobrir nenhum outro. Sem isso, o bloco da paleta caía em cima do
+     que já estava ligado ao gatilho e escondia o fluxo. */
+  function lugarLivre(x,y,tipo){
+    const alt=alturaDoBloco(blocoNovo(tipo,0,0));
+    const cobre=(yy)=>grafo.nos.some(n=>x<n.x+LARG_BLOCO+20&&x+LARG_BLOCO+20>n.x&&yy<n.y+alturaDoBloco(n)+20&&yy+alt+20>n.y);
+    let yy=y; for(let i=0;i<40&&cobre(yy);i++) yy+=40;
+    return yy;
+  }
   function adicionar(tipo){
     const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
-    const b=blocoNovo(tipo,base?base.x+LARG_BLOCO+70:300,base?base.y:120);
+    const x=base?base.x+LARG_BLOCO+70:300;
+    const b=blocoNovo(tipo,x,lugarLivre(x,base?base.y:120,tipo));
     setGrafo({...grafo,nos:[...grafo.nos,b]}); setSel(b.id);
     if(isMobile) setFolha(b.id);
   }
@@ -3761,13 +4061,14 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
      No celular é o jeito principal (puxar uma bolinha de 16px com o dedo não
      acerta); no computador fica como atalho, ao lado das setas. "Novo bloco"
      cria o próximo já ligado, logo à direita. */
-  function ligar(de,saida,valor){
+  function ligarSaida(de,saida,valor){
     const origem=grafo.nos.find(n=>n.id===de); if(!origem) return;
     const sem=grafo.ligacoes.filter(l=>!(l.de===de&&l.saida===saida));
     if(!valor) return setGrafo({...grafo,ligacoes:sem});
     if(valor.startsWith("novo:")){
       const i=Math.max(0,saidasDoBloco(origem).findIndex(([id])=>id===saida));
-      const b=blocoNovo(valor.slice(5),origem.x+LARG_BLOCO+70,origem.y+i*(LINHA_SAIDA*3));
+      const x=origem.x+LARG_BLOCO+70;
+      const b=blocoNovo(valor.slice(5),x,lugarLivre(x,origem.y+i*(LINHA_SAIDA*3),valor.slice(5)));
       setGrafo({...grafo,nos:[...grafo.nos,b],ligacoes:[...sem,{de,saida,para:b.id}]});
       setSel(b.id); if(isMobile) setFolha(b.id);
       return;
@@ -3776,41 +4077,59 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   }
   const noSel=grafo.nos.find(n=>n.id===sel);
   const noFolha=grafo.nos.find(n=>n.id===folha);
-  const editor=(no)=><EditorDeBloco no={no} acoes={acoes} isMobile={isMobile}
+  const contagens=estado.automacao?{...estado.automacao.por_bloco,inicio:{enviados:estado.automacao.entraram,parados_aqui:0}}:null;
+  const painelAutomacao=<PainelDaAutomacao manual={manual} ativo={estado.ativo} automacao={estado.automacao} desatualizada={estado.desatualizada}
+    avisos={[...estado.gatilhoAvisos,...avisos]} ocupado={ocupado} aoLigar={ligar} isMobile={isMobile}/>;
+  const editor=(no)=><EditorDeBloco no={no} acoes={acoes} isMobile={isMobile} op={op} pipelines={pipelines}
+    topoDoGatilho={painelAutomacao}
     aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
     aoDuplicar={duplicar}
     aoApagar={()=>{apagarBloco(no.id);setFolha(null);}}
     caminhos={saidasDoBloco(no).map(([saida,rotulo])=>({saida,rotulo,para:(grafo.ligacoes.find(l=>l.de===no.id&&l.saida===saida)||{}).para||""}))}
     destinos={grafo.nos.filter(x=>x.tipo!=="inicio"&&x.id!==no.id)}
-    aoLigar={(saida,valor)=>ligar(no.id,saida,valor)}/>;
-  const avisoDisparo=avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:isMobile?0:12,fontSize:12.5,lineHeight:1.5}}>
+    aoLigar={(saida,valor)=>ligarSaida(no.id,saida,valor)}/>;
+  const avisoDisparo=manual&&avisos.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"9px 11px",marginTop:isMobile?0:12,fontSize:12.5,lineHeight:1.5}}>
     <b>Para disparar, falta:</b>{avisos.map((a,i)=><div key={i}>• {a}</div>)}</div>;
-  const botoesAdicionar=["mensagem","espera","resposta","botoes"].map(t=><button key={t} onClick={()=>adicionar(t)}
-    style={{...botaoLeveMkt,display:"inline-flex",alignItems:"center",gap:7,padding:"7px 12px",flexShrink:0,whiteSpace:"nowrap"}}>
-    <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{isMobile?"+ ":""}{TIPO_BLOCO[t].nome}</button>);
+  const pilulaStatus=manual?<Pill c={C.sub} bg={C.surface}>Disparo em massa</Pill>
+    :estado.ativo?<Pill c={C.greenDeep} bg={C.greenSoft}>● Ativa</Pill>:<Pill c={C.sub} bg={C.surface}>Desligada</Pill>;
+  const botaoLigar=!manual&&<button onClick={()=>ligar(!estado.ativo)} disabled={ocupado}
+    style={{...(estado.ativo?botaoLeveMkt:botaoMkt(!ocupado)),...(isMobile?{padding:"7px 10px"}:{})}}>
+    {estado.ativo?"Desativar":"Ativar"}</button>;
+  const botaoLogs=!manual&&estado.automacao&&<button onClick={()=>setVendoLogs(true)} style={{...botaoLeveMkt,...(isMobile?{padding:"7px 10px"}:{})}}>Logs</button>;
+  const itemPaleta=(t)=><button key={t} onClick={()=>adicionar(t)} title={`Adicionar: ${TIPO_BLOCO[t].nome}`}
+    style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:isMobile?"7px 11px":"7px 9px",
+      cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:500,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
+    <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO[t].cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={TIPO_BLOCO[t].icone} size={12}/></span>
+    {TIPO_BLOCO[t].nome}</button>;
+  const logs=vendoLogs&&<LogsDoFluxo acoes={acoes} fluxoId={inicial.id} grafo={grafo} isMobile={isMobile} aoFechar={()=>setVendoLogs(false)}/>;
 
   /* NO CELULAR (27/09/2026, pedido do Ali): a tela livre ocupa a largura toda,
      tocar num bloco abre o editor numa folha que sobe de baixo (sem espaço para
      painel ao lado), e as ligações se fazem pelo "Vai para" do editor. Arrastar
      o fundo com o dedo anda pela tela; arrastar um bloco o muda de lugar. */
-  if(isMobile) return <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+  if(isMobile) return <OpcoesDoFluxo.Provider value={op}><div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
     <div style={{display:"flex",gap:8,alignItems:"center"}}>
       <button onClick={voltar} style={{...botaoLeveMkt,padding:"8px 11px"}} title="Voltar aos fluxos"><Icon n="voltar" size={15}/></button>
       <input value={nome} onChange={e=>{setNome(e.target.value);setSujo(true);}} maxLength={80}
         style={{...campoMkt(isMobile),flex:1,minWidth:0,fontFamily:DISPLAY,fontWeight:700,padding:"8px 10px"}}/>
       <button onClick={salvar} disabled={ocupado||!sujo} style={{...botaoMkt(!ocupado&&sujo),padding:"9px 13px"}}>{ocupado?"…":"Salvar"}</button>
     </div>
-    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-      <span style={{flex:1,fontSize:12,color:sujo?"#8a6d1f":C.faint}}>{sujo?"Alterações não salvas":salvoEm?"Salvo":"Toque num bloco para editar"}</span>
+    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+      {pilulaStatus}
+      <span style={{flex:1,fontSize:12,color:sujo?"#8a6d1f":C.faint,minWidth:60}}>{sujo?"Não salvo":salvoEm?"Salvo":""}</span>
+      <button onClick={()=>setFolha("inicio")} style={{...botaoLeveMkt,padding:"7px 10px"}}>Gatilho</button>
+      {botaoLogs}{botaoLigar}
+    </div>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
       <button onClick={organizar} style={{...botaoLeveMkt,padding:"7px 10px"}}>Organizar</button>
       <button onClick={()=>setTestando(!testando)} style={{...botaoLeveMkt,padding:"7px 10px"}}>Teste</button>
     </div>
     {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
-    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{botoesAdicionar}</div>
+    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{TIPOS_NOVOS.map(itemPaleta)}</div>
     <div style={{flex:1,minHeight:0}}>
       <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" focar={sel}
-        enquadrarSinal={enquadrar} aoTocar={(id)=>setFolha(id)}/>
+        enquadrarSinal={enquadrar} aoTocar={(id)=>setFolha(id)} contagens={contagens}/>
     </div>
     {!sujo&&avisoDisparo}
     {noFolha&&<div onClick={()=>setFolha(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:30}}>
@@ -3823,50 +4142,56 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
         <button onClick={()=>setFolha(null)} style={{...botaoMkt(),width:"100%",marginTop:16,padding:"12px 16px"}}>Pronto</button>
       </div>
     </div>}
-  </div>;
+    {logs}
+  </div></OpcoesDoFluxo.Provider>;
 
-  return <div style={{display:"flex",flexDirection:"column",gap:12,height:"100%"}}>
+  return <OpcoesDoFluxo.Provider value={op}><div style={{display:"flex",flexDirection:"column",gap:12,height:"100%"}}>
     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
       <button onClick={voltar} style={{...botaoLeveMkt,padding:"7px 10px"}} title="Voltar aos fluxos"><Icon n="voltar" size={14}/></button>
       <input value={nome} onChange={e=>{setNome(e.target.value);setSujo(true);}} maxLength={80}
         style={{...campoMkt(isMobile),maxWidth:320,fontFamily:DISPLAY,fontWeight:700,fontSize:15}}/>
+      {pilulaStatus}
       <div style={{flex:1}}/>
       <span style={{fontSize:12,color:sujo?"#8a6d1f":C.faint}}>{sujo?"Alterações não salvas":salvoEm?"Salvo":""}</span>
+      <button onClick={organizar} title="Arrumar os blocos em colunas, na ordem do fluxo" style={botaoLeveMkt}>Organizar</button>
+      {botaoLogs}
       <button onClick={()=>setTestando(!testando)} style={botaoLeveMkt}>Enviar teste</button>
+      {botaoLigar}
       <button onClick={salvar} disabled={ocupado||!sujo} style={botaoMkt(!ocupado&&sujo)}>{ocupado?"Salvando…":"Salvar"}</button>
     </div>
     {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      <span style={{fontSize:12,color:C.sub,marginRight:4}}>Adicionar:</span>
-      {botoesAdicionar}
-      <div style={{flex:1}}/>
-      <button onClick={organizar} title="Arrumar os blocos em colunas, na ordem do fluxo" style={{...botaoLeveMkt,padding:"7px 12px"}}>Organizar</button>
-    </div>
-    {/* A tela e o painel ocupam o resto da altura da janela: o construtor não
+    {/* A tela e os painéis ocupam o resto da altura da janela: o construtor não
         rola a página — quem anda é a tela (arrastando o fundo ou com a roda). */}
     <div style={{display:"flex",gap:12,flex:1,minHeight:0}}>
+      <div style={{...CARTAO_MKT,marginBottom:0,width:196,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box",padding:12}}>
+        <div style={{fontSize:11.5,color:C.faint,marginBottom:8}}>Clique para adicionar</div>
+        {GRUPOS_DE_BLOCO.map(([g,tipos])=><div key={g} style={{marginBottom:12}}>
+          <div style={{...ROTULO_MKT,fontSize:10.5}}>{g}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>{tipos.map(itemPaleta)}</div>
+        </div>)}
+      </div>
       <div style={{flex:1,minWidth:0,height:"100%"}}>
-        <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" aoPedirBloco focar={sel} enquadrarSinal={enquadrar}/>
+        <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" aoPedirBloco focar={sel} enquadrarSinal={enquadrar} contagens={contagens}/>
       </div>
       <div style={{...CARTAO_MKT,marginBottom:0,width:330,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box"}}>
         {noSel
           ?editor(noSel)
           :<div style={{fontSize:12.5,color:C.sub,lineHeight:1.6}}>
             <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,marginBottom:6}}>Como montar</div>
+            <div>• Comece pelo <b>Gatilho</b>: é ele que diz quando o fluxo roda sozinho.</div>
             <div>• Clique num bloco para editar. Arraste para mudar de lugar.</div>
             <div>• Puxe a bolinha da direita de uma saída até outro bloco para ligar — ou use o "Vai para" no editor do bloco. Soltando no vazio, cria o próximo bloco ali.</div>
-            <div>• Clique numa seta para apagá-la.</div>
-            <div>• Para andar pela tela, arraste o fundo ou use a roda do mouse. Ctrl + roda aproxima e afasta.</div>
-            <div>• <b>Organizar</b> arruma os blocos em colunas, na ordem do fluxo.</div>
-            <div>• Delete apaga o bloco escolhido; Ctrl + S salva.</div>
+            <div>• Clique numa seta para apagá-la. Delete apaga o bloco escolhido; Ctrl + S salva.</div>
+            <div>• Arraste o fundo ou use a roda do mouse para andar; Ctrl + roda aproxima.</div>
             <div>• Saída sem seta termina o fluxo daquela pessoa.</div>
             {avisoDisparo}
-            {!sujo&&avisos.length===0&&salvoEm&&<div style={{background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"9px 11px",marginTop:12}}>Pronto para disparar.</div>}
+            {manual&&!sujo&&avisos.length===0&&salvoEm&&<div style={{background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"9px 11px",marginTop:12}}>Pronto para disparar.</div>}
           </div>}
       </div>
     </div>
-  </div>;
+    {logs}
+  </div></OpcoesDoFluxo.Provider>;
 }
 
 /* "Enviar teste": o começo do fluxo no celular de quem está montando, antes de
@@ -3916,7 +4241,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
     catch(e){ setErro(e.message); }
   }
   async function apagar(f){
-    if(!window.confirm(`Apagar o fluxo "${f.nome}"? Os disparos que já usaram este fluxo continuam com a cópia deles.`)) return;
+    if(!window.confirm(`Apagar o fluxo "${f.nome}"? Os disparos que já usaram este fluxo continuam com a cópia deles.${f.ativo?" A automação dele para — inclusive para quem está no meio.":""}`)) return;
     try{ await acoes.apagarFluxoMarketing(f.id); await rever(); }catch(e){ setErro(e.message); }
   }
   if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
@@ -3934,7 +4259,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        A sequência de mensagens que cada pessoa do disparo recebe: mensagem, espera, botões e caminhos conforme a resposta.</div>
+        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta) e ligue para rodar sozinho.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
@@ -3946,8 +4271,13 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         :<div style={{display:"flex",flexDirection:"column",gap:8}}>
           {fluxos.map(f=><div key={f.id} style={{border:`1px solid ${C.line}`,borderRadius:11,padding:"11px 12px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:200}}>
-              <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{f.nome}</div>
-              <div style={{color:C.faint,fontSize:11.5}}>{f.blocos} blocos · {f.disparos} disparo(s) · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
+              <div style={{color:C.ink,fontSize:13.5,fontWeight:600,display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{f.nome}
+                {f.gatilho&&f.gatilho.tipo!=="manual"
+                  ?(f.ativo?<Pill c={C.greenDeep} bg={C.greenSoft}>● Ativa</Pill>:<Pill c={C.sub} bg={C.surface}>Desligada</Pill>)
+                  :<Pill c={C.sub} bg={C.surface}>Disparo em massa</Pill>}</div>
+              <div style={{color:C.faint,fontSize:11.5,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{f.gatilho.form_nome?`: ${f.gatilho.form_nome}`:""} ·</span>}
+                {f.blocos} blocos · {f.gatilho&&f.gatilho.tipo!=="manual"?`${f.entraram} entraram`:`${f.disparos} disparo(s)`} · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
             <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>
             <button onClick={()=>apagar(f)} title="Apagar fluxo" style={{...botaoLeveMkt,color:C.hot,padding:"8px 10px"}}><Icon n="trash" size={14}/></button>
@@ -5605,7 +5935,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal",ATENDER_FILHOS,{navegar:true}],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -5657,10 +5987,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        deixam de significar qualquer coisa. Some a tela inteira, e some junto o
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")))
-    // Marketing só existe para a conta que o ConHub liberou.
-    .filter(item=>item[0]!=="marketing"||!!(org&&org.marketing_liberado));
+    /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
+       ferramenta, o grupo Marketing fica só com Formulários. */
+    .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item);
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Atender · Formulários",fluxos:"Marketing · Fluxos"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -5835,16 +6166,16 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
    filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
    próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
-/* ATENDER É UM GRUPO PARA O GESTOR (03/10/2026, pedido do Ali): Conversas e
-   Formulários (de que funil é o lead de cada formulário do anúncio). Diferente
-   de Operação, o clique em "Atender" LEVA às conversas (`navegar`): é o item
-   mais usado do menu, e dois cliques para chegar na caixa seria um passo a
-   mais todo dia. O corretor e a atendente continuam com o item simples. */
-const ATENDER_FILHOS=[["atendimento","whatsapp","Conversas"],["formularios","form","Formulários"]];
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
    o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
-const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"]];
+/* FORMULÁRIOS (03/10/2026, pedido do Ali): os formulários dos anúncios — o
+   funil e as catracas de cada um — moram em Marketing, ao lado dos disparos
+   e dos fluxos (de 03/10 até aqui ficavam em Atender). Disparos e Fluxos só
+   existem com o Marketing liberado pelo ConHub; Formulários não depende
+   disso, e a conta sem a ferramenta vê o grupo só com ele. */
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["formularios","form","Formulários"]];
+const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 // O grupo está "ativo" quando a tela aberta é um dos filhos dele.
 const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
@@ -8854,13 +9185,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   const nomeDe=(id)=>(pessoas.find(p=>p.id===id)||{}).name||"";
   const nomes=Object.fromEntries(d.catracas.map(c=>[c.id,c.nome]));
   async function salvar(id,dados){
-    const {formularios,...resto}=dados;
-    let alvo=id;
-    if(id==="nova") alvo=(await acoes.criarCatraca(resto)).id; else await acoes.editarCatraca(id,resto);
-    /* Os formulários marcados no editor (03/10/2026): o vínculo é o MESMO
-       que se escolhe em Atender → Formulários, gravado pela mesma rota. */
-    for(const f of formularios||[])
-      await acoes.catracaDoFormulario(f.id,{catraca_id:f.ligado?alvo:null,nome:f.nome,page_id:f.page_id});
+    if(id==="nova") await acoes.criarCatraca(dados); else await acoes.editarCatraca(id,dados);
     esquecerCatracas(); setEditando(null); await carregar();
   }
   async function apagar(c){
@@ -8891,8 +9216,10 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
           color:p?C.ink:C.faint,background:p===1?C.greenSoft:C.surface,border:`1px solid ${p===1?C.green+"55":C.line}`,borderRadius:999,padding:"2px 9px"}}>
           {p&&<span style={{fontFamily:MONO,fontSize:10.5,fontWeight:700,color:p===1?C.greenDeep:C.faint}}>{p}º</span>}{first(nomeDe(id))}</span>;})}
       </div>}
-      <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>
-        {c.formularios} formulário{c.formularios===1?"":"s"} · {c.leads_abertos} lead{c.leads_abertos===1?"":"s"} em aberto</div>
+      <div style={{color:C.sub,fontSize:11,marginTop:7,lineHeight:1.5}}>
+        <b style={{fontWeight:600}}>Recebe:</b> {resumoDosCanais(c.canais)}
+        {" · "}<b style={{fontWeight:600}}>Aciona em:</b> {c.etapa?(c.etapa.ok?`${c.etapa.funil} › ${c.etapa.nome}`:<span style={{color:C.hot}}>etapa apagada ou desativada</span>):"nenhuma etapa"}</div>
+      <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{c.leads_abertos} lead{c.leads_abertos===1?"":"s"} em aberto</div>
     </div>;
   };
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
@@ -8903,9 +9230,9 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
         borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
     </div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
-      Cada produto com a sua fila. O formulário do anúncio escolhe a catraca em Atender → Formulários; o lead do WhatsApp, na ficha.
+      Cada produto com a sua fila: de onde vêm os leads dela e a etapa do funil que entrega o lead ao próximo corretor.
     </div>
-    {editando==="nova"&&<EditorDeCatraca inicial={{nome:"",entrega:"atendente",membros:[],ativa:true}} pessoas={pessoas} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
+    {editando==="nova"&&<EditorDeCatraca inicial={{nome:"",entrega:"atendente",membros:[],ativa:true,canais:{whatsapp:false,portal:false,site:false,formularios:[]},pipeline_id:null,stage_id:null}} pessoas={pessoas} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
       onSalvar={(x)=>salvar("nova",x)} onCancelar={()=>setEditando(null)}/>}
     {!ativas.length&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12}}>Nenhuma ainda — todos os leads usam a catraca principal.</div>}
     {ativas.map(cartao)}
@@ -8915,52 +9242,121 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   </div>;
 }
 
+/* "Recebe: WhatsApp, Site, 2 formulários" — o resumo dos canais no cartão. */
+function resumoDosCanais(c){
+  if(!c) return "nenhum canal";
+  const l=[c.whatsapp&&"WhatsApp",c.portal&&"Portais",c.site&&"Site",
+    c.formularios&&c.formularios.length?`${c.formularios.length} formulário${c.formularios.length===1?"":"s"}`:null].filter(Boolean);
+  return l.length?l.join(", "):"nenhum canal (só pela ficha do lead)";
+}
+
+/* O EDITOR DA CATRACA (03/10/2026, pedido do Ali): o nome, como o lead chega,
+   os corretores, DE ONDE VÊM os leads (canais de aquisição: WhatsApp da
+   imobiliária, portais, site e formulários específicos — um canal pode estar
+   em várias catracas) e a ETAPA que aciona a catraca: o lead desses canais
+   que entra nela vai para o próximo corretor disponível desta catraca. */
 function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,acoes,nomesDasCatracas={}}){
   const [nome,setNome]=useState(inicial.nome);
   const [entrega,setEntrega]=useState(inicial.entrega);
   const [membros,setMembros]=useState(inicial.membros);
   const [ativa,setAtiva]=useState(inicial.ativa);
+  const can0=inicial.canais||{};
+  const [canais,setCanais]=useState({whatsapp:!!can0.whatsapp,portal:!!can0.portal,site:!!can0.site});
+  const [ligados,setLigados]=useState(()=>new Set(can0.formularios||[]));
+  const [pipe,setPipe]=useState(inicial.pipeline_id||"");
+  const [etapa,setEtapa]=useState(inicial.stage_id||"");
+  const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
   const alternar=(id)=>setMembros(m=>m.includes(id)?m.filter(x=>x!==id):[...m,id]);
-  /* OS FORMULÁRIOS DESTA CATRACA, escolhidos daqui mesmo. A lista vem da
-     mesma rota de Atender → Formulários; sem página do Facebook conectada ou
-     sem permissão, ela vem vazia e a seção diz isso. */
+  /* OS FORMULÁRIOS DOS ANÚNCIOS: a lista da página conectada (e os que já
+     trouxeram lead). Sem página ou sem permissão, vem vazia e a seção diz. */
   const [forms,setForms]=useState(null), [errForms,setErrForms]=useState("");
-  const [ligados,setLigados]=useState(null);
   useEffect(()=>{ if(!acoes) return; let vivo=true;
     acoes.formulariosMeta().then(r=>{ if(!vivo) return;
-      const lista=(r.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE"||f.catraca_id===inicial.id);
-      setForms(lista); setLigados(new Set(lista.filter(f=>inicial.id&&f.catraca_id===inicial.id).map(f=>f.id)));
+      setForms((r.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE"||(can0.formularios||[]).includes(f.id)));
     }).catch(e=>vivo&&setErrForms(e.message));
     return()=>{vivo=false;}; },[]);
   const alternarForm=(id)=>setLigados(l=>{const n=new Set(l);n.has(id)?n.delete(id):n.add(id);return n;});
-  const mudancasDeForm=()=>!forms||!ligados?[]:forms
-    .filter(f=>ligados.has(f.id)!==(!!inicial.id&&f.catraca_id===inicial.id))
-    .map(f=>({id:f.id,nome:f.nome,page_id:f.page_id,ligado:ligados.has(f.id)}));
+  const ativosP=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
+  const escolhido=ativosP.find(p=>p.id===pipe);
+  const etapasP=(escolhido?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  const etapaEscolhida=etapasP.find(e=>e.id===etapa);
   async function salvar(){
+    if(pipe&&!etapa){ setErro("Escolha a etapa do funil que aciona a catraca — ou deixe o funil em branco."); return; }
     setOcupado(true); setErro("");
-    try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),formularios:mudancasDeForm()}); }
+    try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
+      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null}); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
   async function apagar(){
     setOcupado(true); setErro("");
     try{ await onApagar(); } catch(e){ setErro(e.message); setOcupado(false); }
   }
+  const rotulo={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"13px 0 5px"};
+  const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"9px 10px":"7px 9px",
+    background:C.card,color:C.ink,outline:"none",cursor:"pointer",fontFamily:FONT};
   const opcao=(v,titulo,texto)=><label key={v} style={{flex:1,minWidth:isMobile?"100%":160,display:"flex",gap:7,alignItems:"flex-start",cursor:"pointer",
     border:`1px solid ${entrega===v?C.green:C.line}`,background:entrega===v?C.greenSoft:C.card,borderRadius:10,padding:"8px 10px"}}>
     <input type="radio" checked={entrega===v} onChange={()=>setEntrega(v)} style={{marginTop:2}}/>
     <span><span style={{display:"block",color:C.ink,fontSize:12,fontWeight:600}}>{titulo}</span>
       <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{texto}</span></span></label>;
+  const marca=(on,aoClicar,titulo,detalhe,chave)=><label key={chave} style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",
+    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:9,padding:isMobile?"9px 10px":"6px 9px"}}>
+    <input type="checkbox" checked={on} onChange={aoClicar} style={{marginTop:2}}/>
+    <span style={{minWidth:0}}>
+      <span style={{display:"block",color:C.ink,fontSize:12,fontWeight:on?600:500,overflowWrap:"anywhere"}}>{titulo}</span>
+      {detalhe&&<span style={{display:"block",color:C.faint,fontSize:10.5,lineHeight:1.4}}>{detalhe}</span>}
+    </span></label>;
+  const outrasDo=(f)=>(f.catraca_ids||[]).filter(id=>id!==inicial.id).map(id=>nomesDasCatracas[id]).filter(Boolean);
   return <div style={{border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginBottom:8,background:C.card}}>
     <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Nome (ex.: Lançamento Jardins, Aluguel)" maxLength={60}
       style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink}}/>
-    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>Lead do formulário vai</div>
-    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-      {opcao("atendente","Pela atendente","A atendente da vez recebe e repassa por esta catraca.")}
-      {opcao("corretor","Direto ao corretor","O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
+
+    <div style={rotulo}>De onde vêm os leads</div>
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      {marca(canais.whatsapp,()=>setCanais(c=>({...c,whatsapp:!c.whatsapp})),"WhatsApp","Quem escreve no número da imobiliária.","w")}
+      {marca(canais.portal,()=>setCanais(c=>({...c,portal:!c.portal})),"Portais","ZAP, VivaReal, OLX, Chaves na Mão e os outros ligados em Imóveis → Portais.","p")}
+      {marca(canais.site,()=>setCanais(c=>({...c,site:!c.site})),"Site","Quem chega pelo botão de WhatsApp do site da imobiliária.","s")}
     </div>
-    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>Corretores ({membros.length})</div>
+    {acoes&&<>
+      <div style={{...rotulo,marginTop:10}}>Formulários dos anúncios{ligados.size?` (${ligados.size})`:""}</div>
+      {!forms&&!errForms&&<div style={{color:C.faint,fontSize:12}}>Buscando os formulários…</div>}
+      {errForms&&<div style={{color:C.hot,fontSize:12}}>{errForms}</div>}
+      {forms&&!forms.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum formulário encontrado — conecte a página em Configurações → Anúncios do Meta.</div>}
+      {forms&&forms.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:isMobile?"none":320,overflowY:isMobile?"visible":"auto"}}>
+        {forms.map(f=>{const outras=outrasDo(f);
+          /* O formulário com funil próprio (escolhido no gatilho de um
+             fluxo): o lead nasce lá. Dito aqui para não ser uma regra escondida. */
+          const detalhe=[outras.length?`também na catraca ${outras.join(", ")}`:null,
+            f.entrada?`nasce em ${f.entrada.funil} › ${f.entrada.nome}`:null].filter(Boolean).join(" · ");
+          return marca(ligados.has(f.id),()=>alternarForm(f.id),f.nome,detalhe||null,f.id);})}
+      </div>}
+    </>}
+
+    <div style={rotulo}>Etapa que aciona a catraca</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8}}>
+      <select aria-label="Funil da catraca" value={pipe} onChange={e=>{setPipe(e.target.value);setEtapa("");}} style={caixa}>
+        <option value="">Nenhuma — só pelo repasse</option>
+        {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      {escolhido&&<select aria-label="Etapa da catraca" value={etapa} onChange={e=>setEtapa(e.target.value)} style={caixa}>
+        <option value="">Escolha a etapa…</option>
+        {etapasP.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+      </select>}
+    </div>
+    {inicial.etapa&&!inicial.etapa.ok&&!pipe&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>A etapa escolhida antes foi apagada ou desativada — escolha outra.</div>}
+    <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+      {etapaEscolhida?<>Quando um lead destes canais entra em <b>{etapaEscolhida.name}</b>, ele vai para o próximo corretor disponível desta catraca. Lead que já está com um corretor não é tirado dele.</>
+        :"Sem etapa, a catraca entrega pelo repasse da atendente (botão da ficha)."}</div>
+
+    <div style={rotulo}>Como o lead chega</div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      {opcao("atendente","Pela atendente",etapaEscolhida?`A atendente da vez recebe. Ao mover para ${etapaEscolhida.name}, a catraca entrega ao corretor.`:"A atendente da vez recebe e repassa por esta catraca.")}
+      {opcao("corretor","Direto ao corretor",etapaEscolhida?`Já nasce em ${etapaEscolhida.name}, com o próximo disponível desta catraca. Sem ninguém disponível, vai para a atendente.`:"O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
+    </div>
+
+    <div style={rotulo}>Corretores ({membros.length})</div>
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
       {!pessoas.length&&<span style={{color:C.faint,fontSize:12}}>Nenhum corretor na equipe ainda.</span>}
       {pessoas.map(p=>{const on=membros.includes(p.id);return <button key={p.id} onClick={()=>alternar(p.id)} style={{display:"flex",alignItems:"center",gap:6,
@@ -8968,24 +9364,6 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
         <Avatar ini={p.ini} color={p.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:on?600:500}}>{first(p.name)}</span>
         {on&&<Icon n="check" size={13} color={C.green}/>}</button>;})}
     </div>
-    {acoes&&<>
-      <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>
-        Formulários dos anúncios{ligados&&ligados.size?` (${ligados.size})`:""}</div>
-      {!forms&&!errForms&&<div style={{color:C.faint,fontSize:12}}>Buscando os formulários…</div>}
-      {errForms&&<div style={{color:C.hot,fontSize:12}}>{errForms}</div>}
-      {forms&&!forms.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum formulário encontrado — conecte a página em Configurações → Anúncios do Meta.</div>}
-      {forms&&forms.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {forms.map(f=>{const on=ligados.has(f.id);
-          const outra=f.catraca_id&&f.catraca_id!==inicial.id?nomesDasCatracas[f.catraca_id]:null;
-          return <label key={f.id} style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",
-            border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:9,padding:isMobile?"9px 10px":"6px 9px"}}>
-            <input type="checkbox" checked={on} onChange={()=>alternarForm(f.id)} style={{marginTop:2}}/>
-            <span style={{minWidth:0}}>
-              <span style={{display:"block",color:C.ink,fontSize:12,fontWeight:on?600:500,overflowWrap:"anywhere"}}>{f.nome}</span>
-              {outra&&<span style={{display:"block",color:C.amber,fontSize:10.5}}>{on?`sai da catraca ${outra}`:`hoje na catraca ${outra}`}</span>}
-            </span></label>;})}
-      </div>}
-    </>}
     {!novo&&<label style={{display:"flex",alignItems:"center",gap:7,marginTop:11,color:C.sub,fontSize:12,cursor:"pointer"}}>
       <input type="checkbox" checked={ativa} onChange={e=>setAtiva(e.target.checked)}/> Ativa
       {!ativa&&<span style={{color:C.amber,fontSize:11}}>— desativada, os leads dela vão pela catraca principal</span>}</label>}
@@ -9294,7 +9672,7 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
     <div style={{marginBottom:14}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
-        {semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Escolha em que funil nasce o lead de cada formulário e por qual catraca ele é distribuído. Sem escolha, vale a regra de sempre."}
+        {semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Escolha em que funil nasce o lead de cada formulário e por quais catracas ele é distribuído. Sem escolha, vale a regra de sempre."}
 </div>
     </div>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
@@ -9319,18 +9697,23 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
 
 function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,aoSalvar}){
   const [pipe,setPipe]=useState(f.pipeline_id||"");
-  const [catraca,setCatraca]=useState(f.catraca_id||"");
-  useEffect(()=>{setCatraca(f.catraca_id||"");},[f.catraca_id]);
+  /* AS CATRACAS DESTE FORMULÁRIO (03/10/2026): um formulário pode estar em
+     várias (decisão do Ali). É a MESMA marcação de "De onde vêm os leads" no
+     editor da catraca — gravada pela mesma rota, então as duas telas mostram
+     sempre o mesmo vínculo. */
+  const [marcadas,setMarcadas]=useState(f.catraca_ids||[]);
+  useEffect(()=>{setMarcadas(f.catraca_ids||[]);},[(f.catraca_ids||[]).join(",")]);
   const catracasAtivas=(catracas?.catracas||[]).filter(c=>c.ativa);
-  const catracaEscolhida=catracasAtivas.find(c=>c.id===catraca);
   // A catraca grava por rota própria: escolher uma não mexe no funil.
-  async function salvarCatraca(v){
-    setCatraca(v); setEstado("salvando");
+  async function alternarCatraca(id){
+    const ativasMarcadas=marcadas.filter(x=>catracasAtivas.some(c=>c.id===x));
+    const nova=ativasMarcadas.includes(id)?ativasMarcadas.filter(x=>x!==id):[...ativasMarcadas,id];
+    setMarcadas(nova); setEstado("salvando");
     try{
-      await acoes.catracaDoFormulario(f.id,{catraca_id:v||null,nome:f.nome,page_id:f.page_id});
+      await acoes.catracaDoFormulario(f.id,{catraca_ids:nova,nome:f.nome,page_id:f.page_id});
       esquecerCatracas(); setEstado("salvo"); aoSalvar&&aoSalvar();
       setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
-    }catch(e){ setEstado("erro:"+e.message); setCatraca(f.catraca_id||""); }
+    }catch(e){ setEstado("erro:"+e.message); setMarcadas(f.catraca_ids||[]); }
   }
   const [etapa,setEtapa]=useState(f.stage_id||"");
   const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
@@ -9378,25 +9761,26 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
     {/* Sempre à vista (pedido do Ali, 03/10/2026): escondida enquanto não
         existia catraca nenhuma, a escolha parecia não existir. Sem catraca
         criada, a última opção leva à tela onde ela se cria. */}
-    {!semCatraca&&<div style={rotuloForm}>Catraca</div>}
+    {!semCatraca&&<div style={rotuloForm}>Catracas</div>}
     {!semCatraca&&<div>
-      <select aria-label="Catraca do formulário" value={catracaEscolhida?catraca:""} disabled={estado==="salvando"}
-        onChange={e=>{ if(e.target.value==="__nova"){ irPara&&irPara("catraca"); return; } salvarCatraca(e.target.value); }} style={caixa}>
-        <option value="">Catraca principal (regra de sempre)</option>
-        {catracasAtivas.map(c=><option key={c.id} value={c.id}>{c.nome} · {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</option>)}
-        {irPara&&<option value="__nova">+ Criar uma catraca nova…</option>}
-      </select>
-      {!catracas&&<div style={{color:C.faint,fontSize:11,marginTop:5}}>Carregando as catracas…</div>}
-      {catracas&&!catracas.erro&&!catracasAtivas.length&&<div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>
-        Nenhuma catraca de produto criada ainda — escolha “Criar uma catraca nova”.</div>}
-      {catracas&&catracas.erro&&<div style={{color:C.hot,fontSize:11,marginTop:5}}>Não consegui ler as catracas: {catracas.erro}</div>}
-      {catracaEscolhida&&<div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>
-        {catracaEscolhida.entrega==="corretor"
-          ?"O lead vai direto para o próximo corretor disponível desta catraca. Sem ninguém disponível, vai para a atendente."
-          :"A atendente da vez recebe, e o repasse dela usa esta catraca."}</div>}
+      {!catracas&&<div style={{color:C.faint,fontSize:11}}>Carregando as catracas…</div>}
+      {catracas&&catracas.erro&&<div style={{color:C.hot,fontSize:11}}>Não consegui ler as catracas: {catracas.erro}</div>}
+      {catracas&&!catracas.erro&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {catracasAtivas.map(c=>{const on=marcadas.includes(c.id);
+          return <button key={c.id} onClick={()=>alternarCatraca(c.id)} disabled={estado==="salvando"} aria-pressed={on}
+            title={c.etapa&&c.etapa.ok?`Aciona em ${c.etapa.funil} › ${c.etapa.nome}`:"Sem etapa: entrega pelo repasse"}
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
+              borderRadius:999,padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,color:C.ink,fontWeight:on?600:500,fontFamily:FONT}}>
+            {on&&<Icon n="check" size={13} color={C.green}/>}{c.nome}
+            <span style={{color:C.faint,fontSize:10.5,fontWeight:500}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></button>;})}
+        {irPara&&<button onClick={()=>irPara("catraca")} style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.sub,borderRadius:999,
+          padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,fontFamily:FONT}}>+ Criar uma catraca nova</button>}
+      </div>}
+      {catracas&&!catracas.erro&&<div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.4}}>
+        {!catracasAtivas.length?"Nenhuma catraca de produto criada ainda — os leads deste formulário usam a catraca principal."
+          :!marcadas.some(x=>catracasAtivas.some(c=>c.id===x))?"Nenhuma marcada: os leads deste formulário usam a catraca principal."
+          :"Com mais de uma marcada, elas se revezam. O funil e a etapa que acionam cada uma se escolhem na tela Catraca."}</div>}
     </div>}
-    {f.catraca_invalida&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
-      A catraca escolhida foi desativada — os leads deste formulário estão seguindo a regra de sempre.</div>}
     {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
       O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
     {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}

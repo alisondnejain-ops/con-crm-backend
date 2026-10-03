@@ -25,7 +25,8 @@ import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { entradaDoFormulario } from "./formularios.js";
-import { catracaDoFormulario, pegarDaCatraca } from "./catracas.js";
+import { catracaNoNascimento, etapaDeEntrada } from "./catracas.js";
+import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
@@ -468,19 +469,23 @@ export function receberLead(orgId, dados) {
     if (!lead) {
       novo = true;
       const id = "l_" + randomUUID();
-      /* A CATRACA DO FORMULÁRIO (03/10/2026, Atender → Formulários). Sem
-         catraca ligada, a regra de sempre: a atendente da vez. Com catraca:
-         'atendente' — a atendente da vez recebe, e o lead lembra a catraca
-         para ela repassar pelo produto; 'corretor' — vai direto para o
-         próximo disponível da catraca, e sem ninguém disponível nela cai na
-         atendente da vez, como qualquer lead novo. */
-      const catraca = formulario ? catracaDoFormulario(orgId, anuncio.form_id) : null;
-      const dono = (catraca && catraca.entrega === "corretor" && pegarDaCatraca(orgId, catraca.id))
-        || proximoAtendente(orgId);
-      /* O formulário com funil escolhido (Atender → Formulários) manda no
-         funil e na etapa; o responsável continua vindo da catraca. Sem
-         escolha, o funil de quem recebe, como sempre. */
-      const entrada = (formulario && entradaDoFormulario(orgId, anuncio.form_id)) || entradaDe(orgId, dono);
+      /* A CATRACA DO CANAL (03/10/2026): a catraca escolhe de onde vêm os
+         leads dela — o formulário específico, ou "portais". Sem catraca, a
+         regra de sempre: a atendente da vez. Com catraca "direto ao
+         corretor", o próximo disponível dela recebe na hora (e o lead nasce
+         na etapa que aciona a catraca, quando ela tem uma); "pela atendente",
+         ou ninguém disponível, a atendente da vez recebe e o lead lembra a
+         catraca para o repasse dela. */
+      const canal = formulario ? (anuncio.form_id ? { canal: "formulario", ref: String(anuncio.form_id) } : null) : { canal: "portal", ref: "" };
+      const vez = catracaNoNascimento(orgId, canal);
+      const catraca = vez.catraca;
+      const dono = vez.dono || proximoAtendente(orgId);
+      /* O funil: o do formulário escolhido no gatilho do fluxo manda; senão a
+         etapa da catraca que entregou direto ao corretor; senão o funil de
+         quem recebe, como sempre. */
+      const entrada = (formulario && entradaDoFormulario(orgId, anuncio.form_id))
+        || (vez.dono && catraca.stage_id && etapaDeEntrada(orgId, catraca.stage_id))
+        || entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at,catraca_id)
         VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?,?)`)
@@ -514,6 +519,12 @@ export function receberLead(orgId, dados) {
       .run(orgId, portal, externo, lead.id, agora);
   })();
 
+  /* Os gatilhos dos fluxos (services/automacoes.js): o lead novo e o
+     formulário preenchido — este, também quando a pessoa já era lead e
+     preencheu de novo. Depois da transação: a automação lê o lead gravado. */
+  if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: formulario ? "formulario" : "portal" });
+  if (formulario && anuncio.form_id) dispararGatilho(orgId, "formulario", { leadId: lead.id, ref: String(anuncio.form_id) });
+
   if (lead.assigned_to)
     avisar(lead.assigned_to, {
       titulo: novo ? `Lead novo do ${portal}` : `${lead.name} voltou pelo ${portal}`,
@@ -525,6 +536,6 @@ export function receberLead(orgId, dados) {
   console.log(`[portais] lead ${novo ? "NOVO" : "existente"} do ${portal} (${mascararTelefone(telefone || "")})${
     novo ? (!lead.assigned_to ? " — sem atendente, foi para a fila"
       : lead.catraca_id && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor"
-        ? " — direto ao corretor da catraca do formulário" : " — para a atendente da vez") : ""}`);
+        ? " — direto ao corretor pela catraca" : " — para a atendente da vez") : ""}`);
   return { ok: true, novo, lead_id: lead.id };
 }

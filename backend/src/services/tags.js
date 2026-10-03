@@ -21,6 +21,7 @@
 
 import { randomUUID } from "crypto";
 import db, { emLotes } from "../db.js";
+import { dispararGatilho } from "./automacoes.js";
 
 /* A PALETA É FECHADA, e isso é decisão, não preguiça.
 
@@ -160,8 +161,10 @@ export function marcarTag(orgId, leadId, tagId, userId) {
      casa, sem ninguém conseguir tirá-la pela tela. */
   const t = db.prepare("SELECT id FROM tags WHERE id = ? AND org_id = ?").get(tagId, orgId);
   if (!t) return { erro: "Essa tag não é desta imobiliária." };
-  db.prepare(`INSERT OR IGNORE INTO lead_tags (lead_id,tag_id,org_id,marcada_em,marcada_por)
+  const r = db.prepare(`INSERT OR IGNORE INTO lead_tags (lead_id,tag_id,org_id,marcada_em,marcada_por)
               VALUES (?,?,?,?,?)`).run(leadId, tagId, orgId, agora(), userId || null);
+  // Só quando a etiqueta ENTROU agora — marcar de novo o que já estava não é evento.
+  if (r.changes) dispararGatilho(orgId, "etiqueta", { leadId, ref: tagId });
   return { ok: true, tags: tagsDoLead(leadId) };
 }
 

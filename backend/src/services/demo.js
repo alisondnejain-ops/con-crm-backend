@@ -222,7 +222,7 @@ function semearLead(spec, i, pipeline) {
     .run(id, ORG_ID, spec.nome, fone(i), spec.temp || null, spec.temp ? "mao" : null, spec.temp ? criado : null,
       dono, criado, pipeline.id, etapaLead ? etapaLead.id : null, criado, criado, dono ? criado : null);
 
-  if (spec.stage !== "Lead") moverEtapa({ leadId: id, para: spec.stage, motivo: "mao", userId: dono });
+  if (spec.stage !== "Lead") moverEtapa({ leadId: id, para: spec.stage, motivo: "mao", userId: dono, gatilhos: false });
   // Backdata a entrada na etapa — sem isso todo lead pareceria ter chegado
   // NESTA etapa agora mesmo, e "há 8 dias em Pasta" é parte do que o Kanban
   // existe para mostrar.

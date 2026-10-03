@@ -239,7 +239,7 @@ export async function rodarEtapaIA(orgId, { limite = 20, userId = null } = {}) {
       .run(JSON.stringify(r.sugestao), Date.now(), msgs.length, l.id);
 
     if (r.sugestao.etapa !== l.stage) {
-      moverEtapa({ leadId: l.id, para: r.sugestao.etapa, motivo: "ia_lote", userId });
+      moverEtapa({ leadId: l.id, para: r.sugestao.etapa, motivo: "ia_lote", userId, gatilhos: false });
       mudancas.push({ nome: l.name, corretor: l.corretor, de: l.stage, para: r.sugestao.etapa, confianca: r.sugestao.confianca });
     }
   }
@@ -368,7 +368,7 @@ export function moverParaFunil(orgId, { userId, pipelineId, stageId = null, mant
       const destinoEtapa = (manterEtapa && porNome.get(l.stage)) || primeira;
       if (!destinoEtapa) continue;
       if (moverEtapa({ leadId: l.id, paraEtapaId: destinoEtapa.id,
-        motivo: "mao", userId: quemMandou })) movidos++;
+        motivo: "mao", userId: quemMandou, gatilhos: false })) movidos++;
     }
   });
   rodar();
