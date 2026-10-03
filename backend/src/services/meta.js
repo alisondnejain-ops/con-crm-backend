@@ -100,6 +100,11 @@ export async function buscarLead(leadgenId, token = TOKEN_ANTIGO()) {
   catch (e) {
     // Token sem `ads_read` recusa os campos de campanha; o lead vale mais que a atribuição.
     dados = await graph(String(leadgenId), { token, params: { fields: "id,created_time,field_data,platform,form_id" } });
+    /* Mas a recusa não pode sumir: sem ela, "o lead entrou sem campanha" fica
+       indistinguível de "o anúncio não tinha campanha", e o filtro de campanha
+       do Atender mostraria tudo como "campanha não informada" sem ninguém saber
+       por quê. Vai para o quadro "O que a Meta mandou". */
+    dados.sem_campanha = String(e.message || "a Meta recusou os campos de campanha").slice(0, 160);
   }
   if (dados.form_id) dados.form_name = await nomeDoFormulario(dados.form_id, token);
   return dados;
