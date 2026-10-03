@@ -5783,7 +5783,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
         {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
-        {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView}/>}
+        {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
@@ -8719,7 +8719,7 @@ function usarCatracas(acoes,ativo=true){
     if(memoriaCatracas.d&&Date.now()-memoriaCatracas.em<60000){ setD(memoriaCatracas.d); return; }
     if(!memoriaCatracas.pedido) memoriaCatracas.pedido=acoes.catracas()
       .then(x=>{memoriaCatracas={em:Date.now(),d:x,pedido:null};return x;})
-      .catch(()=>{memoriaCatracas.pedido=null;return null;});
+      .catch(e=>{memoriaCatracas.pedido=null;return {catracas:[],principal:null,erro:e.message};});
     memoriaCatracas.pedido.then(x=>vivo&&x&&setD(x));
     return()=>{vivo=false;}; },[ativo]);
   return d;
@@ -8833,8 +8833,15 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   const ativas=d.catracas.filter(c=>c.ativa), desativadas=d.catracas.filter(c=>!c.ativa);
   if(!podeEditar&&!d.catracas.length) return null;
   const nomeDe=(id)=>(pessoas.find(p=>p.id===id)||{}).name||"";
+  const nomes=Object.fromEntries(d.catracas.map(c=>[c.id,c.nome]));
   async function salvar(id,dados){
-    if(id==="nova") await acoes.criarCatraca(dados); else await acoes.editarCatraca(id,dados);
+    const {formularios,...resto}=dados;
+    let alvo=id;
+    if(id==="nova") alvo=(await acoes.criarCatraca(resto)).id; else await acoes.editarCatraca(id,resto);
+    /* Os formulários marcados no editor (03/10/2026): o vínculo é o MESMO
+       que se escolhe em Atender → Formulários, gravado pela mesma rota. */
+    for(const f of formularios||[])
+      await acoes.catracaDoFormulario(f.id,{catraca_id:f.ligado?alvo:null,nome:f.nome,page_id:f.page_id});
     esquecerCatracas(); setEditando(null); await carregar();
   }
   async function apagar(c){
@@ -8843,7 +8850,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     return r;
   }
   const cartao=(c)=>{
-    if(editando===c.id) return <EditorDeCatraca key={c.id} inicial={c} pessoas={pessoas} isMobile={isMobile}
+    if(editando===c.id) return <EditorDeCatraca key={c.id} inicial={c} pessoas={pessoas} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
       onSalvar={(x)=>salvar(c.id,x)} onCancelar={()=>setEditando(null)} onApagar={()=>apagar(c)}/>;
     const f=c.fila, pos=new Map((f?f.fila:[]).map(x=>[x.id,x.posicao]));
     const membros=[...c.membros].sort((a,b)=>(pos.get(a)||99)-(pos.get(b)||99)||nomeDe(a).localeCompare(nomeDe(b)));
@@ -8879,7 +8886,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
       Cada produto com a sua fila. O formulário do anúncio escolhe a catraca em Atender → Formulários; o lead do WhatsApp, na ficha.
     </div>
-    {editando==="nova"&&<EditorDeCatraca inicial={{nome:"",entrega:"atendente",membros:[],ativa:true}} pessoas={pessoas} isMobile={isMobile}
+    {editando==="nova"&&<EditorDeCatraca inicial={{nome:"",entrega:"atendente",membros:[],ativa:true}} pessoas={pessoas} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
       onSalvar={(x)=>salvar("nova",x)} onCancelar={()=>setEditando(null)}/>}
     {!ativas.length&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12}}>Nenhuma ainda — todos os leads usam a catraca principal.</div>}
     {ativas.map(cartao)}
@@ -8889,7 +8896,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   </div>;
 }
 
-function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar}){
+function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,acoes,nomesDasCatracas={}}){
   const [nome,setNome]=useState(inicial.nome);
   const [entrega,setEntrega]=useState(inicial.entrega);
   const [membros,setMembros]=useState(inicial.membros);
@@ -8897,9 +8904,24 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar}
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
   const alternar=(id)=>setMembros(m=>m.includes(id)?m.filter(x=>x!==id):[...m,id]);
+  /* OS FORMULÁRIOS DESTA CATRACA, escolhidos daqui mesmo. A lista vem da
+     mesma rota de Atender → Formulários; sem página do Facebook conectada ou
+     sem permissão, ela vem vazia e a seção diz isso. */
+  const [forms,setForms]=useState(null), [errForms,setErrForms]=useState("");
+  const [ligados,setLigados]=useState(null);
+  useEffect(()=>{ if(!acoes) return; let vivo=true;
+    acoes.formulariosMeta().then(r=>{ if(!vivo) return;
+      const lista=(r.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE"||f.catraca_id===inicial.id);
+      setForms(lista); setLigados(new Set(lista.filter(f=>inicial.id&&f.catraca_id===inicial.id).map(f=>f.id)));
+    }).catch(e=>vivo&&setErrForms(e.message));
+    return()=>{vivo=false;}; },[]);
+  const alternarForm=(id)=>setLigados(l=>{const n=new Set(l);n.has(id)?n.delete(id):n.add(id);return n;});
+  const mudancasDeForm=()=>!forms||!ligados?[]:forms
+    .filter(f=>ligados.has(f.id)!==(!!inicial.id&&f.catraca_id===inicial.id))
+    .map(f=>({id:f.id,nome:f.nome,page_id:f.page_id,ligado:ligados.has(f.id)}));
   async function salvar(){
     setOcupado(true); setErro("");
-    try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa})}); }
+    try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),formularios:mudancasDeForm()}); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
   async function apagar(){
@@ -8927,6 +8949,24 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar}
         <Avatar ini={p.ini} color={p.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:on?600:500}}>{first(p.name)}</span>
         {on&&<Icon n="check" size={13} color={C.green}/>}</button>;})}
     </div>
+    {acoes&&<>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>
+        Formulários dos anúncios{ligados&&ligados.size?` (${ligados.size})`:""}</div>
+      {!forms&&!errForms&&<div style={{color:C.faint,fontSize:12}}>Buscando os formulários…</div>}
+      {errForms&&<div style={{color:C.hot,fontSize:12}}>{errForms}</div>}
+      {forms&&!forms.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum formulário encontrado — conecte a página em Configurações → Anúncios do Meta.</div>}
+      {forms&&forms.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {forms.map(f=>{const on=ligados.has(f.id);
+          const outra=f.catraca_id&&f.catraca_id!==inicial.id?nomesDasCatracas[f.catraca_id]:null;
+          return <label key={f.id} style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",
+            border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:9,padding:isMobile?"9px 10px":"6px 9px"}}>
+            <input type="checkbox" checked={on} onChange={()=>alternarForm(f.id)} style={{marginTop:2}}/>
+            <span style={{minWidth:0}}>
+              <span style={{display:"block",color:C.ink,fontSize:12,fontWeight:on?600:500,overflowWrap:"anywhere"}}>{f.nome}</span>
+              {outra&&<span style={{display:"block",color:C.amber,fontSize:10.5}}>{on?`sai da catraca ${outra}`:`hoje na catraca ${outra}`}</span>}
+            </span></label>;})}
+      </div>}
+    </>}
     {!novo&&<label style={{display:"flex",alignItems:"center",gap:7,marginTop:11,color:C.sub,fontSize:12,cursor:"pointer"}}>
       <input type="checkbox" checked={ativa} onChange={e=>setAtiva(e.target.checked)}/> Ativa
       {!ativa&&<span style={{color:C.amber,fontSize:11}}>— desativada, os leads dela vão pela catraca principal</span>}</label>}
@@ -9219,12 +9259,12 @@ function SeloDoFormulario({l}){
    isso uma vez, no topo. Salva ao escolher: é uma escolha por linha, e um
    botão "Salvar" para cada formulário seria um clique a mais sem proteger
    nada (a escolha não mexe em lead nenhum que já entrou). */
-function Formularios({acoes,isMobile,irPara}){
+function Formularios({acoes,isMobile,irPara,semCatraca}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   const [verArquivados,setVerArquivados]=useState(false);
   const {pipelines}=usarPipelines(acoes,true);
-  const catracas=usarCatracas(acoes);
+  const catracas=usarCatracas(acoes,!semCatraca);
   const carregar=()=>acoes.formulariosMeta().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const ativos=(d?.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE");
@@ -9234,8 +9274,8 @@ function Formularios({acoes,isMobile,irPara}){
     <div style={{marginBottom:14}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
-        Escolha em que funil nasce o lead de cada formulário e por qual catraca ele é distribuído. Sem escolha, vale a regra de sempre.
-        {catracas&&!catracas.catracas.some(c=>c.ativa)&&<> Catracas por produto se criam na tela <b>Catraca</b>.</>}</div>
+        {semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Escolha em que funil nasce o lead de cada formulário e por qual catraca ele é distribuído. Sem escolha, vale a regra de sempre."}
+</div>
     </div>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
@@ -9248,16 +9288,16 @@ function Formularios({acoes,isMobile,irPara}){
       <button onClick={()=>irPara("config")} style={botaoMkt()}>Ir para Configurações</button>
     </div>}
     {d&&!d.formularios.length&&!semPagina&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum formulário encontrado na página.</div>}
-    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
     {arquivados.length>0&&<button onClick={()=>setVerArquivados(v=>!v)}
       style={{background:"transparent",border:"none",color:C.sub,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:"6px 2px",display:"flex",alignItems:"center",gap:6}}>
       <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       Arquivados ({arquivados.length})</button>}
-    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
   </div>;
 }
 
-function LinhaFormulario({f,pipelines,catracas,acoes,isMobile,aoSalvar}){
+function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,aoSalvar}){
   const [pipe,setPipe]=useState(f.pipeline_id||"");
   const [catraca,setCatraca]=useState(f.catraca_id||"");
   useEffect(()=>{setCatraca(f.catraca_id||"");},[f.catraca_id]);
@@ -9287,6 +9327,7 @@ function LinhaFormulario({f,pipelines,catracas,acoes,isMobile,aoSalvar}){
     }catch(e){ setEstado("erro:"+e.message); setPipe(f.pipeline_id||""); setEtapa(f.stage_id||""); }
   }
   const caixa={...campoMkt(isMobile),cursor:"pointer",padding:"9px 10px"};
+  const rotuloForm={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"12px 0 5px"};
   const quando=f.ultimo_lead_em?`último lead ${fmtQuando(f.ultimo_lead_em)}`:null;
   return <div style={{...CARTAO_MKT,padding:14,marginBottom:10}}>
     <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
@@ -9301,7 +9342,8 @@ function LinhaFormulario({f,pipelines,catracas,acoes,isMobile,aoSalvar}){
           {[f.pagina,`${f.leads_crm} ${f.leads_crm===1?"lead":"leads"} no CRM`,quando].filter(Boolean).join(" · ")}</div>
       </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8,marginTop:12}}>
+    <div style={rotuloForm}>Funil</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8}}>
       <select aria-label="Funil do formulário" value={pipe} disabled={estado==="salvando"}
         onChange={e=>{const v=e.target.value;setPipe(v);setEtapa("");salvar(v,"");}} style={caixa}>
         <option value="">Funil de quem recebe (padrão)</option>
@@ -9313,12 +9355,21 @@ function LinhaFormulario({f,pipelines,catracas,acoes,isMobile,aoSalvar}){
         {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
       </select>}
     </div>
-    {(catracasAtivas.length>0||f.catraca_id)&&<div style={{marginTop:8}}>
+    {/* Sempre à vista (pedido do Ali, 03/10/2026): escondida enquanto não
+        existia catraca nenhuma, a escolha parecia não existir. Sem catraca
+        criada, a última opção leva à tela onde ela se cria. */}
+    {!semCatraca&&<div style={rotuloForm}>Catraca</div>}
+    {!semCatraca&&<div>
       <select aria-label="Catraca do formulário" value={catracaEscolhida?catraca:""} disabled={estado==="salvando"}
-        onChange={e=>salvarCatraca(e.target.value)} style={caixa}>
+        onChange={e=>{ if(e.target.value==="__nova"){ irPara&&irPara("catraca"); return; } salvarCatraca(e.target.value); }} style={caixa}>
         <option value="">Catraca principal (regra de sempre)</option>
-        {catracasAtivas.map(c=><option key={c.id} value={c.id}>Catraca {c.nome} · {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</option>)}
+        {catracasAtivas.map(c=><option key={c.id} value={c.id}>{c.nome} · {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</option>)}
+        {irPara&&<option value="__nova">+ Criar uma catraca nova…</option>}
       </select>
+      {!catracas&&<div style={{color:C.faint,fontSize:11,marginTop:5}}>Carregando as catracas…</div>}
+      {catracas&&!catracas.erro&&!catracasAtivas.length&&<div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>
+        Nenhuma catraca de produto criada ainda — escolha “Criar uma catraca nova”.</div>}
+      {catracas&&catracas.erro&&<div style={{color:C.hot,fontSize:11,marginTop:5}}>Não consegui ler as catracas: {catracas.erro}</div>}
       {catracaEscolhida&&<div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>
         {catracaEscolhida.entrega==="corretor"
           ?"O lead vai direto para o próximo corretor disponível desta catraca. Sem ninguém disponível, vai para a atendente."
