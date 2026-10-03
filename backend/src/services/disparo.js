@@ -44,7 +44,7 @@ import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmC
 import { gatilhoLimpo, refDoGatilho, problemasDoGatilho } from "./automacoes.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
-import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead } from "./catracas.js";
+import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
 import { marcarTag, desmarcarTag } from "./tags.js";
 import { avisar } from "./push.js";
 
@@ -126,7 +126,8 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
       // Carona do formulário: vai para o formulário no salvar, não fica no fluxo.
       ...(d.gatilho && d.gatilho.tipo === "formulario" && "pipeline_id" in d.gatilho ? { carona: {
         pipeline_id: idLimpo(d.gatilho.pipeline_id) || null, stage_id: idLimpo(d.gatilho.stage_id) || null,
-        catraca_id: idLimpo(d.gatilho.catraca_id) || null } } : {}) };
+        catraca_ids: (Array.isArray(d.gatilho.catraca_ids) ? d.gatilho.catraca_ids : d.gatilho.catraca_id ? [d.gatilho.catraca_id] : [])
+          .map(idLimpo).filter(Boolean).slice(0, 30) } } : {}) };
     if (n.tipo === "condicao") dados = { regra: REGRAS_DE_CONDICAO.includes(d.regra) ? d.regra : "tag", valor: texto(d.valor, 80) };
     if (n.tipo === "add_tag" || n.tipo === "remover_tag") dados = { tag_id: idLimpo(d.tag_id) };
     if (n.tipo === "mover_etapa") dados = { etapa_id: idLimpo(d.etapa_id) };
@@ -276,8 +277,9 @@ export function lerFluxo(orgId, id) {
   const ini = grafo.nos.find(n => n.tipo === "inicio");
   const g = gatilhoDo(grafo);
   if (ini && g.tipo === "formulario" && g.form_id) {
-    const fm = db.prepare("SELECT pipeline_id, stage_id, catraca_id FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, g.form_id) || {};
-    ini.dados = { ...ini.dados, gatilho: { ...g, pipeline_id: fm.pipeline_id || null, stage_id: fm.stage_id || null, catraca_id: fm.catraca_id || null } };
+    const fm = db.prepare("SELECT pipeline_id, stage_id FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, g.form_id) || {};
+    ini.dados = { ...ini.dados, gatilho: { ...g, pipeline_id: fm.pipeline_id || null, stage_id: fm.stage_id || null,
+      catraca_ids: catracasDoFormulario(orgId, g.form_id).filter(id => catracaAtiva(orgId, id)) } };
   }
   const avisos = [...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
   return { id: f.id, nome: f.nome, grafo, atualizado_em: f.atualizado_em, avisos,
@@ -325,7 +327,7 @@ export function salvarFluxo(orgId, id, { nome, grafo }, user = null) {
   if (carona && g.tipo === "formulario" && g.form_id) {
     try {
       definirFunil(orgId, user?.id || null, g.form_id, { pipeline_id: carona.pipeline_id, stage_id: carona.stage_id, nome: g.form_nome });
-      definirCatraca(orgId, user?.id || null, g.form_id, { catraca_id: carona.catraca_id, nome: g.form_nome });
+      definirCatraca(orgId, user?.id || null, g.form_id, { catraca_ids: carona.catraca_ids, nome: g.form_nome });
     } catch (e) {
       if (e instanceof ErroFormulario) throw new ErroMarketing(e.status, e.message);
       throw e;

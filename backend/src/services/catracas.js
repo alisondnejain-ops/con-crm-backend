@@ -123,11 +123,121 @@ export function pegarDaCatraca(orgId, catracaId) {
   return proximo.id;
 }
 
-/* A catraca ligada a um formulário — só se ela ainda vale. */
+/* ===== CANAIS DE AQUISIÇÃO E ETAPA QUE ACIONA (03/10/2026) =====
+
+   Cada catraca diz de onde vêm os leads dela (WhatsApp da imobiliária,
+   portais, site, formulários específicos) e, se quiser, a etapa que a aciona.
+   Um canal pode estar em várias catracas (decisão do Ali): quando mais de uma
+   disputa o mesmo lead, elas se revezam (`ultima_entrega_em`), e cada uma
+   entrega pela vez dela. */
+export const CANAIS = ["whatsapp", "portal", "site", "formulario"];
+
+/* De que canal o lead veio. Nulo = nenhum que uma catraca escolha: a linha
+   pessoal de um corretor (o cliente escolheu a pessoa), o disparo (já é
+   campanha), o cadastro na mão e a planilha. */
+export function canalDoLead(lead) {
+  if (!lead) return null;
+  if (lead.source === "meta") return lead.form_id ? { canal: "formulario", ref: String(lead.form_id) } : null;
+  if (lead.source === "portal") return { canal: "portal", ref: "" };
+  if (lead.canal_id || lead.platform === "disparo" || lead.origem === "Disparo") return null;
+  if (lead.origem === "Site") return { canal: "site", ref: "" };
+  if (lead.source === "whatsapp" || (!lead.source && !lead.import_id && /whatsapp/i.test(lead.origem || "")))
+    return { canal: "whatsapp", ref: "" };
+  return null;
+}
+
+/* A primeira mensagem de quem chega pelo site traz o texto que o próprio site
+   escreve no botão do WhatsApp (services/site.js): "Vim pelo site da…",
+   "…que vi no site: https://…/imoveis/…", "Tentei acessar o site da…". */
+export const veioDoSite = (texto) => /\b(pelo|no|o) site\b|\/imoveis\/[\w-]+/i.test(String(texto || ""));
+
+/* As catracas ATIVAS que recebem leads deste canal, na ordem do revezamento
+   (quem entregou há mais tempo primeiro). */
+export function catracasDoCanal(orgId, c) {
+  if (!c || ehAutonomo(orgId)) return [];
+  return db.prepare(`SELECT k.* FROM catraca_canais x JOIN catracas k ON k.id = x.catraca_id
+    WHERE x.org_id = ? AND x.canal = ? AND x.ref = ? AND k.org_id = ? AND k.ativa = 1
+    ORDER BY COALESCE(k.ultima_entrega_em, 0), k.created_at`).all(orgId, c.canal, c.ref || "", orgId);
+}
+
+/* Os ids das catracas que recebem os leads de um formulário (todas, ativas ou
+   não — a tela marca a desativada). */
+export function catracasDoFormulario(orgId, formId) {
+  if (!formId) return [];
+  return db.prepare("SELECT catraca_id FROM catraca_canais WHERE org_id = ? AND canal = 'formulario' AND ref = ?")
+    .all(orgId, String(formId)).map(r => r.catraca_id);
+}
+
+/* Liga um formulário exatamente a estas catracas (o gatilho de formulário do
+   fluxo escolhe por aqui). Só catracas ativas desta conta. */
+export function definirCatracasDoFormulario(orgId, formId, ids) {
+  const fid = String(formId || "").trim();
+  if (!/^[\w-]{1,64}$/.test(fid)) throw new ErroCatraca(400, "Formulário inválido.");
+  const lista = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean).map(String))];
+  for (const id of lista) if (!catracaAtiva(orgId, id)) throw new ErroCatraca(400, "Essa catraca não existe nesta conta ou está desativada.");
+  db.transaction(() => {
+    db.prepare(`DELETE FROM catraca_canais WHERE org_id = ? AND canal = 'formulario' AND ref = ?
+      AND catraca_id IN (SELECT id FROM catracas WHERE org_id = ? AND ativa = 1)`).run(orgId, fid, orgId);
+    const ins = db.prepare("INSERT OR IGNORE INTO catraca_canais (catraca_id, org_id, canal, ref) VALUES (?,?,'formulario',?)");
+    for (const id of lista) ins.run(id, orgId, fid);
+  })();
+  return lista;
+}
+
+/* A etapa da catraca como entrada de lead novo (a "direto ao corretor" faz
+   o lead nascer nela). Nula se a etapa foi apagada ou desativada: aí vale o
+   funil de quem recebe, como sempre. */
+export function etapaDeEntrada(orgId, stageId) {
+  if (!stageId) return null;
+  const e = db.prepare(`SELECT s.id, s.name, s.pipeline_id FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id
+    WHERE s.id = ? AND s.org_id = ? AND COALESCE(s.is_active,1) = 1 AND COALESCE(p.is_active,1) = 1`).get(stageId, orgId);
+  return e ? { pipeline_id: e.pipeline_id, stage_id: e.id, nome: e.name } : null;
+}
+
+const entregou = (c) => db.prepare("UPDATE catracas SET ultima_entrega_em = ? WHERE id = ?").run(Date.now(), c.id);
+
+/* O LEAD NOVO de um canal: qual catraca ele lembra e, se alguma delas é
+   "direto ao corretor", quem o recebe na hora. Devolve
+   { catraca, dono } — dono nulo = a regra de sempre (atendente da vez), com o
+   lead lembrando a catraca para o repasse dela. Sem catraca: { null, null }. */
+export function catracaNoNascimento(orgId, canal) {
+  const lista = catracasDoCanal(orgId, canal);
+  if (!lista.length) return { catraca: null, dono: null };
+  for (const c of lista.filter(c => c.entrega === "corretor")) {
+    const dono = pegarDaCatraca(orgId, c.id);
+    if (dono) { entregou(c); return { catraca: c, dono }; }
+  }
+  /* Ninguém disponível nas "direto ao corretor" (ou todas são "pela
+     atendente"): o lead lembra a primeira da vez, preferindo a que passa pela
+     atendente — é ela quem vai repassar. */
+  const c = lista.find(c => c.entrega === "atendente") || lista[0];
+  return { catraca: c, dono: null };
+}
+
+/* A ETAPA QUE ACIONA: o lead entrou em `stageId`. As catracas candidatas são
+   as que têm esta etapa e recebem o canal do lead — mais a catraca que o lead
+   já lembra (escolhida na ficha, por exemplo), se a etapa dela for esta.
+   Devolve { catraca, userId } de quem recebe, { catraca, ninguem: true }
+   quando ninguém está disponível, ou null quando nenhuma catraca é desta
+   etapa. Quem troca o dono é quem chama (services/movimento.js). */
+export function catracaDaEtapa(orgId, lead, stageId) {
+  if (!stageId || ehAutonomo(orgId)) return null;
+  const porCanal = catracasDoCanal(orgId, canalDoLead(lead)).filter(c => c.stage_id === stageId);
+  const doLead = lead.catraca_id ? catracaAtiva(orgId, lead.catraca_id) : null;
+  const lista = [...porCanal];
+  if (doLead && doLead.stage_id === stageId && !lista.some(c => c.id === doLead.id)) lista.unshift(doLead);
+  if (!lista.length) return null;
+  for (const c of lista) {
+    const userId = pegarDaCatraca(orgId, c.id);
+    if (userId) { entregou(c); return { catraca: resumo(c), userId }; }
+  }
+  return { catraca: resumo(lista[0]), ninguem: true };
+}
+
+/* Uma das catracas que recebem os leads deste formulário — compatibilidade
+   com quem pergunta por UMA (o repasse usa a do lead). */
 export function catracaDoFormulario(orgId, formId) {
-  if (!formId) return null;
-  const f = db.prepare("SELECT catraca_id FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, String(formId));
-  return f ? catracaAtiva(orgId, f.catraca_id) : null;
+  return catracasDoCanal(orgId, formId ? { canal: "formulario", ref: String(formId) } : null)[0] || null;
 }
 
 /* ===== GESTÃO (tela Catraca) ===== */
@@ -138,14 +248,19 @@ export function listar(orgId) {
     `SELECT m.user_id FROM catraca_membros m JOIN users u ON u.id = m.user_id
      WHERE m.catraca_id = ? AND u.org_id = ? AND u.role = 'corretor' AND u.status = 'ativo'${semMaster("u")}`);
   const leads = db.prepare("SELECT COUNT(*) n FROM leads WHERE org_id = ? AND catraca_id = ? AND closed_at IS NULL");
-  const forms = db.prepare("SELECT COUNT(*) n FROM meta_formularios WHERE org_id = ? AND catraca_id = ?");
+  const etapa = db.prepare(`SELECT s.name AS etapa, p.name AS funil, (COALESCE(s.is_active,1) = 1 AND COALESCE(p.is_active,1) = 1) AS ok
+    FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id WHERE s.id = ? AND s.org_id = ?`);
   return {
     principal: { ...filaDaVez(orgId), catraca: null },
     catracas: lista.map(c => ({
       id: c.id, nome: c.nome, entrega: c.entrega, ativa: !!c.ativa, created_at: c.created_at,
       membros: membros.all(c.id, orgId).map(m => m.user_id),
       leads_abertos: leads.get(orgId, c.id).n,
-      formularios: forms.get(orgId, c.id).n,
+      ...canaisDe(c.id),
+      pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null,
+      /* A etapa escolhida, com nomes; `etapa_invalida` quando foi apagada ou
+         desativada depois — a catraca deixa de ser acionada e a tela avisa. */
+      etapa: c.stage_id ? (() => { const e = etapa.get(c.stage_id, orgId); return e ? { funil: e.funil, nome: e.etapa, ok: !!e.ok } : { ok: false }; })() : null,
       fila: c.ativa ? montarFila(rodaDaCatraca(orgId, c.id), c.ultimo_user_id) : null,
     })),
   };
@@ -180,6 +295,37 @@ function membrosValidos(orgId, ids) {
   return unicos;
 }
 
+/* Os canais de uma catraca no formato da tela. */
+function canaisDe(catracaId) {
+  const linhas = db.prepare("SELECT canal, ref FROM catraca_canais WHERE catraca_id = ?").all(catracaId);
+  const tem = (k) => linhas.some(l => l.canal === k);
+  const formularios = linhas.filter(l => l.canal === "formulario").map(l => l.ref);
+  return { canais: { whatsapp: tem("whatsapp"), portal: tem("portal"), site: tem("site"), formularios }, formularios: formularios.length };
+}
+function canaisValidos(c) {
+  if (c == null) return null;
+  if (typeof c !== "object") throw new ErroCatraca(400, "Canais inválidos.");
+  const forms = Array.isArray(c.formularios) ? c.formularios : [];
+  const ids = [...new Set(forms.map(f => String(f || "").trim()).filter(Boolean))];
+  if (ids.some(id => !/^[\w-]{1,64}$/.test(id))) throw new ErroCatraca(400, "Formulário inválido.");
+  return { whatsapp: !!c.whatsapp, portal: !!c.portal, site: !!c.site, formularios: ids };
+}
+function gravarCanais(orgId, catracaId, c) {
+  db.prepare("DELETE FROM catraca_canais WHERE catraca_id = ?").run(catracaId);
+  const ins = db.prepare("INSERT OR IGNORE INTO catraca_canais (catraca_id, org_id, canal, ref) VALUES (?,?,?,?)");
+  for (const k of ["whatsapp", "portal", "site"]) if (c[k]) ins.run(catracaId, orgId, k, "");
+  for (const f of c.formularios) ins.run(catracaId, orgId, "formulario", f);
+}
+/* A etapa que aciona: do funil escolhido, desta conta e ativa. Vazio tira. */
+function etapaValida(orgId, pipelineId, stageId) {
+  if (!stageId) return { pipeline_id: null, stage_id: null };
+  const e = db.prepare(`SELECT s.id, s.pipeline_id FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id
+    WHERE s.id = ? AND s.org_id = ? AND p.org_id = ? AND COALESCE(s.is_active,1) = 1 AND COALESCE(p.is_active,1) = 1`).get(String(stageId), orgId, orgId);
+  if (!e || (pipelineId && e.pipeline_id !== String(pipelineId)))
+    throw new ErroCatraca(400, "Essa etapa não existe neste funil ou está desativada.");
+  return { pipeline_id: e.pipeline_id, stage_id: e.id };
+}
+
 function gravarMembros(orgId, catracaId, ids) {
   db.prepare("DELETE FROM catraca_membros WHERE catraca_id = ?").run(catracaId);
   const ins = db.prepare("INSERT INTO catraca_membros (catraca_id,user_id,org_id,added_at) VALUES (?,?,?,?)");
@@ -187,34 +333,40 @@ function gravarMembros(orgId, catracaId, ids) {
   for (const id of ids) ins.run(catracaId, id, orgId, agora);
 }
 
-export function criar(orgId, userId, { nome, entrega, membros = [] } = {}) {
+export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id } = {}) {
   if (ehAutonomo(orgId)) throw new ErroCatraca(403, "Conta de corretor autônomo não tem catraca.");
   const n = nomeValido(nome);
   nomeLivre(orgId, n);
   const e = entregaValida(entrega);
   const ids = membrosValidos(orgId, membros);
+  const ch = canaisValidos(canais);
+  const et = etapaValida(orgId, pipeline_id, stage_id);
   const id = "cat_" + randomUUID();
   db.transaction(() => {
-    db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,criada_por,created_at) VALUES (?,?,?,?,1,?,?)")
-      .run(id, orgId, n, e, userId, Date.now());
+    db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,criada_por,created_at,pipeline_id,stage_id) VALUES (?,?,?,?,1,?,?,?,?)")
+      .run(id, orgId, n, e, userId, Date.now(), et.pipeline_id, et.stage_id);
     gravarMembros(orgId, id, ids);
+    if (ch) gravarCanais(orgId, id, ch);
   })();
   return id;
 }
 
-export function editar(orgId, catracaId, { nome, entrega, ativa, membros } = {}) {
+export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id } = {}) {
   const c = db.prepare("SELECT * FROM catracas WHERE id = ? AND org_id = ?").get(String(catracaId), orgId);
   if (!c) throw new ErroCatraca(404, "Catraca não encontrada.");
   const campos = {};
   if (nome !== undefined) { campos.nome = nomeValido(nome); nomeLivre(orgId, campos.nome, c.id); }
   if (entrega !== undefined) campos.entrega = entregaValida(entrega);
   if (ativa !== undefined) campos.ativa = ativa ? 1 : 0;
+  if (stage_id !== undefined) Object.assign(campos, etapaValida(orgId, pipeline_id, stage_id));
   const ids = membros !== undefined ? membrosValidos(orgId, membros) : null;
+  const ch = canais !== undefined ? canaisValidos(canais) : null;
   db.transaction(() => {
     const ks = Object.keys(campos);
     if (ks.length) db.prepare(`UPDATE catracas SET ${ks.map(k => `${k} = ?`).join(", ")} WHERE id = ?`)
       .run(...ks.map(k => campos[k]), c.id);
     if (ids) gravarMembros(orgId, c.id, ids);
+    if (ch) gravarCanais(orgId, c.id, ch);
   })();
 }
 
@@ -233,7 +385,7 @@ export function apagar(orgId, catracaId) {
   }
   db.transaction(() => {
     db.prepare("DELETE FROM catraca_membros WHERE catraca_id = ?").run(c.id);
-    db.prepare("UPDATE meta_formularios SET catraca_id = NULL WHERE org_id = ? AND catraca_id = ?").run(orgId, c.id);
+    db.prepare("DELETE FROM catraca_canais WHERE catraca_id = ?").run(c.id);
     db.prepare("DELETE FROM catracas WHERE id = ?").run(c.id);
   })();
   return { apagada: true };

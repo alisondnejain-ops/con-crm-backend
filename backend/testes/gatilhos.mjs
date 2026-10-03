@@ -161,14 +161,23 @@ try {
   };
   r = await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo });
   assert.equal(r.status, 200, JSON.stringify(r.d));
-  const fm = db.prepare("SELECT pipeline_id, stage_id, catraca_id FROM meta_formularios WHERE org_id = ? AND form_id = 'F1'").get(orgA);
-  assert.deepEqual(fm, { pipeline_id: loc.id, stage_id: etapasLoc[1].id, catraca_id: catAluguel });
+  const fm = db.prepare("SELECT pipeline_id, stage_id FROM meta_formularios WHERE org_id = ? AND form_id = 'F1'").get(orgA);
+  assert.deepEqual(fm, { pipeline_id: loc.id, stage_id: etapasLoc[1].id });
+  // A catraca vai para a própria catraca (canais de aquisição), aceitando o formato antigo de uma só.
+  assert.deepEqual(C.catracasDoFormulario(orgA, "F1"), [catAluguel]);
   const salvo = JSON.parse(db.prepare("SELECT grafo FROM marketing_fluxos WHERE id = ?").get(fluxo).grafo);
   assert.equal(salvo.nos[0].dados.carona, undefined);
   assert.equal(salvo.nos[0].dados.gatilho.pipeline_id, undefined);
   r = await chamar(tGestora, `/marketing/fluxos/${fluxo}`);
-  assert.equal(r.d.grafo.nos[0].dados.gatilho.catraca_id, catAluguel, "a leitura traz o funil e a catraca do formulário");
+  assert.deepEqual(r.d.grafo.nos[0].dados.gatilho.catraca_ids, [catAluguel], "a leitura traz o funil e as catracas do formulário");
   assert.deepEqual(r.d.avisos, []);
+  // Várias catracas por formulário: a lista que a tela manda substitui a de antes.
+  const comLista = (ids) => ({ ...r.d.grafo, nos: r.d.grafo.nos.map(x => x.id === "inicio"
+    ? { ...x, dados: { gatilho: { ...x.dados.gatilho, catraca_ids: ids } } } : x) });
+  assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo: comLista([]) })).status, 200);
+  assert.deepEqual(C.catracasDoFormulario(orgA, "F1"), []);
+  assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo: comLista([catAluguel]) })).status, 200);
+  assert.deepEqual(C.catracasDoFormulario(orgA, "F1"), [catAluguel]);
 
   caso("Ligar; um segundo fluxo no mesmo formulário é recusado");
   r = await chamar(tGestora, `/marketing/fluxos/${fluxo}/ativar`, "POST", { ativo: true });

@@ -165,7 +165,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      ter nascido enquanto a mídia baixava (a mesma pessoa mandou duas fotos
      seguidas): procura de novo antes de criar. */
   if (!lead) lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId)
-    || nascerLeadDoWhatsapp({ canal, phone, nome });
+    || nascerLeadDoWhatsapp({ canal, phone, nome, texto });
 
   /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
      único e o WhatsApp não diz qual corretor digitou. A tela mostra
