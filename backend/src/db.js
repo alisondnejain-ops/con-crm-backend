@@ -1172,6 +1172,38 @@ db.exec(`CREATE TABLE IF NOT EXISTS meta_formularios (
   atualizado_em INTEGER,
   PRIMARY KEY (org_id, form_id)
 )`);
+/* CATRACAS POR PRODUTO (03/10/2026, pedido do Ali: "várias catracas de
+   atendimento para vários produtos que a imobiliária tenha, e cada formulário
+   vinculado a uma catraca"). A catraca de sempre (todos os corretores, a vez em
+   `orgs.rodizio_ultimo`) continua existindo SEM linha aqui — ela é a "Catraca
+   principal". Esta tabela só guarda as catracas NOVAS, então nenhum cliente
+   muda de comportamento enquanto não criar uma.
+
+   `entrega`: 'atendente' (o lead do formulário vai para a atendente da vez e
+   ela repassa pela catraca do produto) ou 'corretor' (vai direto para o
+   próximo corretor disponível desta catraca). `ultimo_user_id` é a vez desta
+   catraca — separada da principal, senão uma embaralharia a outra. */
+db.exec(`CREATE TABLE IF NOT EXISTS catracas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  entrega TEXT NOT NULL DEFAULT 'atendente',
+  ativa INTEGER NOT NULL DEFAULT 1,
+  ultimo_user_id TEXT,
+  criada_por TEXT,
+  created_at INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_catracas_org ON catracas(org_id)");
+// Um corretor pode estar em várias catracas (decisão do Ali).
+db.exec(`CREATE TABLE IF NOT EXISTS catraca_membros (
+  catraca_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (catraca_id, user_id)
+)`);
+const metaFormCols = db.prepare("PRAGMA table_info(meta_formularios)").all().map(c => c.name);
+if (!metaFormCols.includes("catraca_id")) db.exec("ALTER TABLE meta_formularios ADD COLUMN catraca_id TEXT");
 db.exec(`CREATE TABLE IF NOT EXISTS portais_config (
   org_id TEXT PRIMARY KEY,
   token_feed TEXT UNIQUE NOT NULL,
@@ -1555,6 +1587,9 @@ db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_phone ON canais(phone_numbe
    um desconhecido. */
 addLeadCol("canal_id", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS idx_leads_canal ON leads(org_id, canal_id)");
+/* Por qual catraca este lead é repassado (03/10/2026). Nulo = a catraca
+   principal, que é o que todo lead existente é — nada precisa ser migrado. */
+addLeadCol("catraca_id", "TEXT");
 /* E por qual linha CADA mensagem passou. O lead aponta para o presente; a
    mensagem guarda o passado. Sem ela, uma conversa que começou no número da
    casa e migrou para o do corretor ficaria toda marcada como se tivesse saído

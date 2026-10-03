@@ -25,6 +25,7 @@ import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { entradaDoFormulario } from "./formularios.js";
+import { catracaDoFormulario, pegarDaCatraca } from "./catracas.js";
 import { normalizePhone } from "./stages.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
@@ -467,18 +468,26 @@ export function receberLead(orgId, dados) {
     if (!lead) {
       novo = true;
       const id = "l_" + randomUUID();
-      const dono = proximoAtendente(orgId);
+      /* A CATRACA DO FORMULÁRIO (03/10/2026, Atender → Formulários). Sem
+         catraca ligada, a regra de sempre: a atendente da vez. Com catraca:
+         'atendente' — a atendente da vez recebe, e o lead lembra a catraca
+         para ela repassar pelo produto; 'corretor' — vai direto para o
+         próximo disponível da catraca, e sem ninguém disponível nela cai na
+         atendente da vez, como qualquer lead novo. */
+      const catraca = formulario ? catracaDoFormulario(orgId, anuncio.form_id) : null;
+      const dono = (catraca && catraca.entrega === "corretor" && pegarDaCatraca(orgId, catraca.id))
+        || proximoAtendente(orgId);
       /* O formulário com funil escolhido (Atender → Formulários) manda no
          funil e na etapa; o responsável continua vindo da catraca. Sem
          escolha, o funil de quem recebe, como sempre. */
       const entrada = (formulario && entradaDoFormulario(orgId, anuncio.form_id)) || entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
-                  pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at)
-        VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?)`)
+                  pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at,catraca_id)
+        VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?,?)`)
         .run(id, orgId, nome || (formulario ? "Contato do anúncio" : `Contato do ${portal}`), telefone || null, email || null, portal,
              JSON.stringify(formulario ? qual : {}),
              entrada.nome, dono, agora, entrada.pipeline_id, entrada.stage_id, agora, agora,
-             formulario ? "meta" : "portal", dono ? agora : null);
+             formulario ? "meta" : "portal", dono ? agora : null, catraca ? catraca.id : null);
       /* A atribuição do anúncio vai para as MESMAS colunas do webhook nativo
          da Meta: é o que faz o lead aparecer em Operação → Campanhas e nos
          filtros de campanha, sem nenhuma tela saber por onde ele veio. */
@@ -514,6 +523,8 @@ export function receberLead(orgId, dados) {
       leadId: lead.id,
     }).catch(() => {});
   console.log(`[portais] lead ${novo ? "NOVO" : "existente"} do ${portal} (${mascararTelefone(telefone || "")})${
-    novo ? (lead.assigned_to ? " — para a atendente da vez" : " — sem atendente, foi para a fila") : ""}`);
+    novo ? (!lead.assigned_to ? " — sem atendente, foi para a fila"
+      : lead.catraca_id && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor"
+        ? " — direto ao corretor da catraca do formulário" : " — para a atendente da vez") : ""}`);
   return { ok: true, novo, lead_id: lead.id };
 }

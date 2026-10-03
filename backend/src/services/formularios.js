@@ -21,6 +21,7 @@
 import db from "../db.js";
 import { abrir } from "./cofre.js";
 import { formulariosDaPagina } from "./meta.js";
+import { catracaAtiva } from "./catracas.js";
 
 export class ErroFormulario extends Error {
   constructor(status, mensagem) { super(mensagem); this.status = status; }
@@ -91,6 +92,10 @@ export async function listarFormularios(orgId) {
       // Escolhido, mas o funil foi desativado depois: a tela avisa.
       funil_invalido: !!(c?.pipeline_id && !entrada),
       entrada,
+      // A catraca do formulário (03/10/2026). Desativada ou apagada depois:
+      // a tela avisa, e o lead segue a regra de sempre.
+      catraca_id: c?.catraca_id || null,
+      catraca_invalida: !!(c?.catraca_id && !catracaAtiva(orgId, c.catraca_id)),
     };
   });
   // Ativos primeiro; dentro deles, quem trouxe lead por último.
@@ -135,4 +140,25 @@ export function definirFunil(orgId, userId, formId, { pipeline_id, stage_id, nom
     atualizado_por = excluded.atualizado_por, atualizado_em = excluded.atualizado_em`)
     .run(orgId, id, pagina, nomeLimpo, p.id, etapa?.id || null, userId, Date.now());
   return { pipeline_id: p.id, stage_id: etapa?.id || null, entrada };
+}
+
+/* Ligar um formulário a uma catraca de produto (services/catracas.js).
+   Vazio volta à regra de sempre (a atendente da vez, catraca principal no
+   repasse). Gravado à parte do funil: escolher um não mexe no outro. */
+export function definirCatraca(orgId, userId, formId, { catraca_id, nome, page_id } = {}) {
+  const id = String(formId || "").trim();
+  if (!/^[\w-]{1,64}$/.test(id)) throw new ErroFormulario(400, "Formulário inválido.");
+  const nomeLimpo = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 160) || null;
+  const pagina = page_id ? String(page_id).replace(/[^\d]/g, "").slice(0, 40) || null : null;
+  let catraca = null;
+  if (catraca_id) {
+    catraca = catracaAtiva(orgId, catraca_id);
+    if (!catraca) throw new ErroFormulario(400, "Essa catraca não existe nesta conta ou está desativada.");
+  }
+  db.prepare(`INSERT INTO meta_formularios (org_id,form_id,page_id,nome,catraca_id,atualizado_por,atualizado_em)
+    VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id,form_id) DO UPDATE SET catraca_id = excluded.catraca_id,
+    nome = COALESCE(excluded.nome, nome), page_id = COALESCE(excluded.page_id, page_id),
+    atualizado_por = excluded.atualizado_por, atualizado_em = excluded.atualizado_em`)
+    .run(orgId, id, pagina, nomeLimpo, catraca ? catraca.id : null, userId, Date.now());
+  return { catraca_id: catraca ? catraca.id : null };
 }

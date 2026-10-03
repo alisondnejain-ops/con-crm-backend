@@ -176,6 +176,8 @@ function adaptLead(l,anterior){
     fonte:l.source!==undefined?(l.source||null):(anterior?anterior.fonte:null),
     origemCrua:l.origem!==undefined?(l.origem||null):(anterior?anterior.origemCrua:null),
     formulario:l.form_name!==undefined?(l.form_name||null):(anterior?anterior.formulario:null),
+    // A catraca do produto (03/10/2026). Nulo = a catraca principal.
+    catracaId:l.catraca_id!==undefined?(l.catraca_id||null):(anterior?anterior.catracaId:null),
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
     // Pediu contato pelo anúncio ou portal e ninguém falou com ele ainda (ver esperandoContato).
@@ -1483,12 +1485,16 @@ function ConCRM(){
     try{
       const r=await fn(...a);
       await recarregar(); if(selRef.current) await abrir(selRef.current,true);
+      /* Ninguém da catraca do produto estava disponível e o lead foi pela
+         principal: a tela diz, senão parece que a catraca do produto falhou. */
+      const reserva=r&&r.reserva&&r.catraca_do_lead
+        ?` Ninguém da catraca ${r.catraca_do_lead.nome} estava disponível — foi pela catraca principal.`:"";
       if(r&&r.aviso&&r.aviso.push===false){
         const quem=(equipe.find(u=>u.id===r.assigned_to)||{}).name;
-        setRecado(r.aviso.motivo==="sem_push_no_servidor"
+        setRecado((r.aviso.motivo==="sem_push_no_servidor"
           ?`Lead repassado${quem?" para "+first(quem):""}. O aviso no celular não está ligado nesta instalação — avise por outro canal.`
-          :`Lead repassado${quem?" para "+first(quem):""}, mas ${quem?first(quem):"o corretor"} não tem notificação ligada no celular. Ele só vai ver ao abrir o CRM.`);
-      } else setRecado("");
+          :`Lead repassado${quem?" para "+first(quem):""}, mas ${quem?first(quem):"o corretor"} não tem notificação ligada no celular. Ele só vai ver ao abrir o CRM.`)+reserva);
+      } else setRecado(reserva?reserva.trim():"");
     }catch(e){ setErro(e.message); }
   };
 
@@ -1612,7 +1618,14 @@ function ConCRM(){
       api(`/leads/${leadId}/ligacao/${ligId}`,{method:"PATCH",body:{resultado,obs}}),
     pushChave:()=>api("/push/chave"),
     recolherBarra:(recolhida)=>api("/auth/me/barra",{method:"POST",body:{recolhida}}),
-    rodizio:()=>api("/distribution/rodizio"),
+    // Com o lead, a fila que vale para ELE (a da catraca do produto, ou a principal).
+    rodizio:(leadId)=>api("/distribution/rodizio"+(leadId?`?lead_id=${encodeURIComponent(leadId)}`:"")),
+    catracas:()=>api("/distribution/catracas"),
+    criarCatraca:(dados)=>api("/distribution/catracas",{method:"POST",body:dados}),
+    editarCatraca:(id,dados)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"PATCH",body:dados}),
+    apagarCatraca:(id)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"DELETE"}),
+    catracaDoLead:(leadId,catracaId)=>api("/distribution/catraca-do-lead",{method:"POST",body:{lead_id:leadId,catraca_id:catracaId||null}})
+      .then(r=>{recarregar();return r;}),
     pushSituacao:()=>api("/push/situacao"),
     pushInscrever:(subscription)=>api("/push/inscrever",{method:"POST",body:{subscription}}),
     pushCancelar:(endpoint)=>api("/push/cancelar",{method:"POST",body:{endpoint}}),
@@ -1686,6 +1699,7 @@ function ConCRM(){
     anunciosMeta:()=>api("/anuncios-meta"),
     formulariosMeta:()=>api("/anuncios-meta/formularios"),
     funilDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}`,{method:"POST",body:dados}),
+    catracaDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/catraca`,{method:"POST",body:dados}),
     iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
     escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
     conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
@@ -5752,7 +5766,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
-        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session)}}/>}
+        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {/* O corretor entrou aqui em 08/09/2026: a tela de indicadores (KPIs,
             metas, funil de atividade) é a mesma para toda conta, cada uma
@@ -7207,7 +7221,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
-  const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff);
+  const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
   /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
      embaixo dentro do `{showFicha&&...}`. (18/09/2026, relatado pelo Ali:
      "Algo quebrou nesta tela" / React error #310.) `usarEtapasDoLead` chama
@@ -7493,7 +7507,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
           <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
-          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>é a vez de {proximoDaVez.name} no rodízio</div>}
+          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>{textoDaVez(proximoDaVez)}</div>}
           <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
             {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
@@ -8682,14 +8696,74 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 
    Recarrega quando o lead muda: entre abrir uma ficha e outra, alguém pode ter
    recebido e a vez já é de outra pessoa. */
-function usarProximoDaVez(acoes,gatilho,ativo=true){
+function usarProximoDaVez(acoes,leadId,ativo=true,catracaId){
   const [p,setP]=useState(null);
   // Quem não repassa (o corretor) não pergunta: a rota é da supervisão e
   // respondia 403 a cada lead aberto.
+  /* A fila é a DESTE lead (03/10/2026): a da catraca do produto dele, ou a
+     principal. Trocar a catraca do lead na ficha busca de novo. */
   useEffect(()=>{ if(!ativo) return; let vivo=true;
-    acoes.rodizio().then(d=>vivo&&setP(d.proximo)).catch(()=>{});
-    return()=>{vivo=false;}; },[gatilho,ativo]);
+    acoes.rodizio(leadId).then(d=>vivo&&setP(d.proximo?{...d.proximo,catraca:d.catraca||null,
+      reserva:!!d.reserva,catracaDoLead:d.catraca_do_lead||null}:null)).catch(()=>{});
+    return()=>{vivo=false;}; },[leadId,ativo,catracaId]);
   return p;
+}
+/* AS CATRACAS DE PRODUTO DA CONTA (03/10/2026), guardadas por um minuto.
+   Cada ficha aberta pergunta "existem catracas?" — sem a memória, seriam uma
+   requisição por lead aberto. Quem cria/edita/apaga chama `esquecerCatracas`. */
+let memoriaCatracas={em:0,d:null,pedido:null};
+const esquecerCatracas=()=>{memoriaCatracas={em:0,d:null,pedido:null};};
+function usarCatracas(acoes,ativo=true){
+  const [d,setD]=useState(memoriaCatracas.d);
+  useEffect(()=>{ if(!ativo) return; let vivo=true;
+    if(memoriaCatracas.d&&Date.now()-memoriaCatracas.em<60000){ setD(memoriaCatracas.d); return; }
+    if(!memoriaCatracas.pedido) memoriaCatracas.pedido=acoes.catracas()
+      .then(x=>{memoriaCatracas={em:Date.now(),d:x,pedido:null};return x;})
+      .catch(()=>{memoriaCatracas.pedido=null;return null;});
+    memoriaCatracas.pedido.then(x=>vivo&&x&&setD(x));
+    return()=>{vivo=false;}; },[ativo]);
+  return d;
+}
+
+/* De qual catraca é este lead — o que entrou pelo WhatsApp e só na conversa
+   se descobriu de que produto é. Muda o caminho do PRÓXIMO repasse, não o
+   dono. Só aparece quando a conta tem catraca de produto (ou o lead está numa
+   que foi desativada). */
+function CatracaDoLead({lead,acoes}){
+  const d=usarCatracas(acoes);
+  const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState("");
+  if(!d) return null;
+  const ativas=d.catracas.filter(c=>c.ativa);
+  const atual=d.catracas.find(c=>c.id===lead.catracaId);
+  if(!ativas.length&&!atual) return null;
+  async function trocar(id){
+    setOcupado(true); setErro("");
+    try{ await acoes.catracaDoLead(lead.id,id); esquecerCatracas(); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(false); }
+  }
+  return <div style={{marginTop:10,paddingTop:9,borderTop:`1px solid ${C.green}22`}}>
+    <label style={{display:"flex",alignItems:"center",gap:8,color:C.greenDeep,fontSize:11,fontWeight:600}}>
+      Catraca
+      <select value={lead.catracaId||""} disabled={ocupado} onChange={e=>trocar(e.target.value)}
+        style={{flex:1,minWidth:0,fontSize:16,fontWeight:500,color:C.ink,background:C.card,border:`1px solid ${C.line}`,
+          borderRadius:8,padding:"6px 8px",outline:"none"}}>
+        <option value="">Catraca principal</option>
+        {ativas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
+        {atual&&!atual.ativa&&<option value={atual.id} disabled>{atual.nome} (desativada)</option>}
+      </select>
+    </label>
+    {atual&&!atual.ativa&&<div style={{color:C.amber,fontSize:10.5,marginTop:4}}>A catraca {atual.nome} foi desativada — o repasse vai pela principal.</div>}
+    {erro&&<div style={{color:C.hot,fontSize:11,marginTop:4}}>{erro}</div>}
+  </div>;
+}
+
+/* A linha embaixo do botão de repasse: de quem é a vez, e em qual catraca. */
+function textoDaVez(p){
+  if(!p) return null;
+  if(p.catraca) return `é a vez de ${p.name} na catraca ${p.catraca.nome}`;
+  if(p.reserva&&p.catracaDoLead) return `ninguém da catraca ${p.catracaDoLead.nome} disponível — vai pela principal: ${p.name}`;
+  return `é a vez de ${p.name} no rodízio`;
 }
 
 /* A ordem do rodízio, com número.
@@ -8697,7 +8771,7 @@ function usarProximoDaVez(acoes,gatilho,ativo=true){
    `versao` é quantos estão disponíveis: quando alguém é marcado ou
    desmarcado, a fila é buscada de novo. Sem isso a tela mostraria a ordem de
    antes do clique, que é justamente quando ela mudou. */
-function FilaDaVez({acoes,isMobile,versao}){
+function FilaDaVez({acoes,isMobile,versao,principal}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   useEffect(()=>{ let vivo=true;
@@ -8710,7 +8784,7 @@ function FilaDaVez({acoes,isMobile,versao}){
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,display:"flex",alignItems:"center",gap:8}}>
-      <Icon n="transfer" size={15} color={C.green}/> Ordem da catraca</div>
+      <Icon n="transfer" size={15} color={C.green}/> {principal?"Catraca principal":"Ordem da catraca"}</div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
       Quem recebe o próximo lead do rodízio. Recebeu, vai para o fim da fila —
       inclusive quando a escolha é feita na mão.
@@ -8741,11 +8815,143 @@ function FilaDaVez({acoes,isMobile,versao}){
   </div>;
 }
 
-function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente}){
+/* ===== CATRACAS POR PRODUTO (03/10/2026, services/catracas.js) =====
+
+   A catraca de sempre continua lá em cima, como "Catraca principal". Aqui
+   ficam as de produto: cada uma com os corretores dela, a vez própria e o
+   modo de entrega do lead do formulário. O gestor cria e edita; a atendente
+   vê (é ela quem repassa). A disponibilidade é a mesma do quadro de baixo. */
+function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
+  const [d,setD]=useState(null), [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null);   // id, "nova" ou null
+  const [verDesativadas,setVerDesativadas]=useState(false);
+  const carregar=()=>acoes.catracas().then(x=>{setD(x);setErro("");memoriaCatracas={em:Date.now(),d:x,pedido:null};})
+    .catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[versao]);
+  if(erro) return <div style={{color:C.hot,fontSize:12,marginBottom:16}}>{erro}</div>;
+  if(!d) return null;
+  const ativas=d.catracas.filter(c=>c.ativa), desativadas=d.catracas.filter(c=>!c.ativa);
+  if(!podeEditar&&!d.catracas.length) return null;
+  const nomeDe=(id)=>(pessoas.find(p=>p.id===id)||{}).name||"";
+  async function salvar(id,dados){
+    if(id==="nova") await acoes.criarCatraca(dados); else await acoes.editarCatraca(id,dados);
+    esquecerCatracas(); setEditando(null); await carregar();
+  }
+  async function apagar(c){
+    const r=await acoes.apagarCatraca(c.id);
+    esquecerCatracas(); setEditando(null); await carregar();
+    return r;
+  }
+  const cartao=(c)=>{
+    if(editando===c.id) return <EditorDeCatraca key={c.id} inicial={c} pessoas={pessoas} isMobile={isMobile}
+      onSalvar={(x)=>salvar(c.id,x)} onCancelar={()=>setEditando(null)} onApagar={()=>apagar(c)}/>;
+    const f=c.fila, pos=new Map((f?f.fila:[]).map(x=>[x.id,x.posicao]));
+    const membros=[...c.membros].sort((a,b)=>(pos.get(a)||99)-(pos.get(b)||99)||nomeDe(a).localeCompare(nomeDe(b)));
+    return <div key={c.id} style={{border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:8,background:c.ativa?C.card:C.surface}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>{c.nome}</span>
+        <span style={{color:C.sub,fontSize:10.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"2px 8px"}}>
+          {c.entrega==="corretor"?"direto ao corretor":"passa pela atendente"}</span>
+        {!c.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
+        {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{marginLeft:"auto",border:`1px solid ${C.line}`,background:C.card,color:C.sub,
+          borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+      </div>
+      {c.ativa&&<div style={{color:f&&f.proximo?C.greenDeep:C.amber,fontSize:11.5,marginTop:5}}>
+        {!c.membros.length?"Sem corretores — os leads desta catraca vão pela principal."
+          :f&&f.proximo?<>É a vez de <b>{f.proximo.name}</b></>
+          :"Ninguém dela disponível agora — o repasse vai pela catraca principal."}</div>}
+      {membros.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:7}}>
+        {membros.map(id=>{const p=pos.get(id);return <span key={id} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,
+          color:p?C.ink:C.faint,background:p===1?C.greenSoft:C.surface,border:`1px solid ${p===1?C.green+"55":C.line}`,borderRadius:999,padding:"2px 9px"}}>
+          {p&&<span style={{fontFamily:MONO,fontSize:10.5,fontWeight:700,color:p===1?C.greenDeep:C.faint}}>{p}º</span>}{first(nomeDe(id))}</span>;})}
+      </div>}
+      <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>
+        {c.formularios} formulário{c.formularios===1?"":"s"} · {c.leads_abertos} lead{c.leads_abertos===1?"":"s"} em aberto</div>
+    </div>;
+  };
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="transfer" size={15} color={C.green}/>
+      <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Catracas por produto</span>
+      {podeEditar&&editando!=="nova"&&<button onClick={()=>setEditando("nova")} style={{border:"none",background:C.greenDeep,color:"#fff",
+        borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
+    </div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
+      Cada produto com a sua fila. O formulário do anúncio escolhe a catraca em Atender → Formulários; o lead do WhatsApp, na ficha.
+    </div>
+    {editando==="nova"&&<EditorDeCatraca inicial={{nome:"",entrega:"atendente",membros:[],ativa:true}} pessoas={pessoas} isMobile={isMobile}
+      onSalvar={(x)=>salvar("nova",x)} onCancelar={()=>setEditando(null)}/>}
+    {!ativas.length&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12}}>Nenhuma ainda — todos os leads usam a catraca principal.</div>}
+    {ativas.map(cartao)}
+    {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
+      fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
+    {verDesativadas&&desativadas.map(cartao)}
+  </div>;
+}
+
+function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar}){
+  const [nome,setNome]=useState(inicial.nome);
+  const [entrega,setEntrega]=useState(inicial.entrega);
+  const [membros,setMembros]=useState(inicial.membros);
+  const [ativa,setAtiva]=useState(inicial.ativa);
+  const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
+  const novo=!inicial.id;
+  const alternar=(id)=>setMembros(m=>m.includes(id)?m.filter(x=>x!==id):[...m,id]);
+  async function salvar(){
+    setOcupado(true); setErro("");
+    try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa})}); }
+    catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  async function apagar(){
+    setOcupado(true); setErro("");
+    try{ await onApagar(); } catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  const opcao=(v,titulo,texto)=><label key={v} style={{flex:1,minWidth:isMobile?"100%":160,display:"flex",gap:7,alignItems:"flex-start",cursor:"pointer",
+    border:`1px solid ${entrega===v?C.green:C.line}`,background:entrega===v?C.greenSoft:C.card,borderRadius:10,padding:"8px 10px"}}>
+    <input type="radio" checked={entrega===v} onChange={()=>setEntrega(v)} style={{marginTop:2}}/>
+    <span><span style={{display:"block",color:C.ink,fontSize:12,fontWeight:600}}>{titulo}</span>
+      <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{texto}</span></span></label>;
+  return <div style={{border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginBottom:8,background:C.card}}>
+    <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Nome (ex.: Lançamento Jardins, Aluguel)" maxLength={60}
+      style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink}}/>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>Lead do formulário vai</div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      {opcao("atendente","Pela atendente","A atendente da vez recebe e repassa por esta catraca.")}
+      {opcao("corretor","Direto ao corretor","O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"11px 0 5px"}}>Corretores ({membros.length})</div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+      {!pessoas.length&&<span style={{color:C.faint,fontSize:12}}>Nenhum corretor na equipe ainda.</span>}
+      {pessoas.map(p=>{const on=membros.includes(p.id);return <button key={p.id} onClick={()=>alternar(p.id)} style={{display:"flex",alignItems:"center",gap:6,
+        border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:isMobile?"6px 12px 6px 6px":"3px 10px 3px 3px",cursor:"pointer"}}>
+        <Avatar ini={p.ini} color={p.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:on?600:500}}>{first(p.name)}</span>
+        {on&&<Icon n="check" size={13} color={C.green}/>}</button>;})}
+    </div>
+    {!novo&&<label style={{display:"flex",alignItems:"center",gap:7,marginTop:11,color:C.sub,fontSize:12,cursor:"pointer"}}>
+      <input type="checkbox" checked={ativa} onChange={e=>setAtiva(e.target.checked)}/> Ativa
+      {!ativa&&<span style={{color:C.amber,fontSize:11}}>— desativada, os leads dela vão pela catraca principal</span>}</label>}
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap",alignItems:"center"}}>
+      <button onClick={salvar} disabled={ocupado} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,
+        padding:isMobile?"10px 16px":"7px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>{novo?"Criar catraca":"Salvar"}</button>
+      <button onClick={onCancelar} disabled={ocupado} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,
+        padding:isMobile?"10px 16px":"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      {!novo&&onApagar&&(confirmar
+        ?<span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span style={{color:C.sub,fontSize:11.5}}>{inicial.leads_abertos||inicial.formularios?"Com leads ligados ela é desativada, não apagada.":"Apagar de vez?"}</span>
+          <button onClick={apagar} disabled={ocupado} style={{border:"none",background:C.hot,color:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Confirmar</button></span>
+        :<button onClick={()=>setConfirmar(true)} style={{marginLeft:"auto",border:"none",background:"none",color:C.hot,fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar</button>)}
+    </div>
+  </div>;
+}
+
+function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente,podeEditarCatracas}){
   const novos=[...fila].sort((a,b)=>ordemTemp(a.prio)-ordemTemp(b.prio));
   const brokers=pessoas, disp=disponiveis;
   const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
   const catracaNext=(leadId)=>acoes.proximo(leadId);
+  const catracas=usarCatracas(acoes);
+  const nomeDaCatraca=(id)=>id&&catracas?((catracas.catracas.find(c=>c.id===id)||{}).nome||null):null;
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
       {/* Antes da fila e do roster: cliente parado é o que custa venda, e é a
@@ -8757,7 +8963,8 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
           ordem vem do servidor, calculada pela MESMA função que a
           transferência usa — número na tela que o botão não cumpre é pior do
           que número nenhum. */}
-      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length}/>
+      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal={!!(catracas&&catracas.catracas.some(c=>c.ativa))}/>
+      <CatracasDeProduto acoes={acoes} isMobile={isMobile} pessoas={brokers.filter(b=>b.role==="corretor")} podeEditar={!!podeEditarCatracas} versao={disp.length}/>
 
       {/* roster de disponibilidade */}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
@@ -8785,7 +8992,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
           return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
-              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span>{l.prio&&<Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill>}</div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
+              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span>{l.prio&&<Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill>}{nomeDaCatraca(l.catracaId)&&<Pill c={C.greenDeep} bg={C.greenSoft}>{nomeDaCatraca(l.catracaId)}</Pill>}</div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:4,marginRight:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
               {/* no celular o botão desce para a linha de baixo, em largura total */}
               {!isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:12,fontWeight:600,padding:"8px 12px",borderRadius:10,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><Icon n="transfer" size={14}/> Próximo</button>}
@@ -9017,6 +9224,7 @@ function Formularios({acoes,isMobile,irPara}){
   const [erro,setErro]=useState("");
   const [verArquivados,setVerArquivados]=useState(false);
   const {pipelines}=usarPipelines(acoes,true);
+  const catracas=usarCatracas(acoes);
   const carregar=()=>acoes.formulariosMeta().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const ativos=(d?.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE");
@@ -9026,7 +9234,8 @@ function Formularios({acoes,isMobile,irPara}){
     <div style={{marginBottom:14}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
-        Escolha em que funil nasce o lead de cada formulário. Sem escolha, ele vai para o funil de quem o recebe. Quem recebe continua sendo a catraca.</div>
+        Escolha em que funil nasce o lead de cada formulário e por qual catraca ele é distribuído. Sem escolha, vale a regra de sempre.
+        {catracas&&!catracas.catracas.some(c=>c.ativa)&&<> Catracas por produto se criam na tela <b>Catraca</b>.</>}</div>
     </div>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
@@ -9039,17 +9248,30 @@ function Formularios({acoes,isMobile,irPara}){
       <button onClick={()=>irPara("config")} style={botaoMkt()}>Ir para Configurações</button>
     </div>}
     {d&&!d.formularios.length&&!semPagina&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum formulário encontrado na página.</div>}
-    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
     {arquivados.length>0&&<button onClick={()=>setVerArquivados(v=>!v)}
       style={{background:"transparent",border:"none",color:C.sub,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:"6px 2px",display:"flex",alignItems:"center",gap:6}}>
       <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       Arquivados ({arquivados.length})</button>}
-    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
   </div>;
 }
 
-function LinhaFormulario({f,pipelines,acoes,isMobile,aoSalvar}){
+function LinhaFormulario({f,pipelines,catracas,acoes,isMobile,aoSalvar}){
   const [pipe,setPipe]=useState(f.pipeline_id||"");
+  const [catraca,setCatraca]=useState(f.catraca_id||"");
+  useEffect(()=>{setCatraca(f.catraca_id||"");},[f.catraca_id]);
+  const catracasAtivas=(catracas?.catracas||[]).filter(c=>c.ativa);
+  const catracaEscolhida=catracasAtivas.find(c=>c.id===catraca);
+  // A catraca grava por rota própria: escolher uma não mexe no funil.
+  async function salvarCatraca(v){
+    setCatraca(v); setEstado("salvando");
+    try{
+      await acoes.catracaDoFormulario(f.id,{catraca_id:v||null,nome:f.nome,page_id:f.page_id});
+      esquecerCatracas(); setEstado("salvo"); aoSalvar&&aoSalvar();
+      setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
+    }catch(e){ setEstado("erro:"+e.message); setCatraca(f.catraca_id||""); }
+  }
   const [etapa,setEtapa]=useState(f.stage_id||"");
   const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
   useEffect(()=>{setPipe(f.pipeline_id||"");setEtapa(f.stage_id||"");},[f.pipeline_id,f.stage_id]);
@@ -9091,6 +9313,19 @@ function LinhaFormulario({f,pipelines,acoes,isMobile,aoSalvar}){
         {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
       </select>}
     </div>
+    {(catracasAtivas.length>0||f.catraca_id)&&<div style={{marginTop:8}}>
+      <select aria-label="Catraca do formulário" value={catracaEscolhida?catraca:""} disabled={estado==="salvando"}
+        onChange={e=>salvarCatraca(e.target.value)} style={caixa}>
+        <option value="">Catraca principal (regra de sempre)</option>
+        {catracasAtivas.map(c=><option key={c.id} value={c.id}>Catraca {c.nome} · {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</option>)}
+      </select>
+      {catracaEscolhida&&<div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>
+        {catracaEscolhida.entrega==="corretor"
+          ?"O lead vai direto para o próximo corretor disponível desta catraca. Sem ninguém disponível, vai para a atendente."
+          :"A atendente da vez recebe, e o repasse dela usa esta catraca."}</div>}
+    </div>}
+    {f.catraca_invalida&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
+      A catraca escolhida foi desativada — os leads deste formulário estão seguindo a regra de sempre.</div>}
     {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
       O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
     {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
@@ -10043,7 +10278,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
 }
 
 function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
-  const proximoDaVez=usarProximoDaVez(acoes,lead.id);
+  const proximoDaVez=usarProximoDaVez(acoes,lead.id,true,lead.catracaId);
   const [simulando,setSimulando]=useState(false);
   /* AS ETAPAS DO FUNIL DESTE LEAD, buscadas AQUI — antes do `if(simulando)
      return` logo abaixo. (18/09/2026, relatado pelo Ali com um print de
@@ -10094,7 +10329,8 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
           <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
         </button>
         {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>
-          é a vez de {proximoDaVez.name} no rodízio</div>}
+          {textoDaVez(proximoDaVez)}</div>}
+        <CatracaDoLead lead={lead} acoes={acoes}/>
         <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher:</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
           {corretoresDisponiveis.length
