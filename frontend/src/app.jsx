@@ -5935,7 +5935,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal",ATENDER_FILHOS,{navegar:true}],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -5987,10 +5987,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        deixam de significar qualquer coisa. Some a tela inteira, e some junto o
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")))
-    // Marketing só existe para a conta que o ConHub liberou.
-    .filter(item=>item[0]!=="marketing"||!!(org&&org.marketing_liberado));
+    /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
+       ferramenta, o grupo Marketing fica só com Formulários. */
+    .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item);
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Atender · Formulários",fluxos:"Marketing · Fluxos"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -6165,16 +6166,16 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
    filhos], e cada filho é [view, ícone, rótulo]. Os ícones dos filhos são
    próprios — com a barra recolhida, é só o ícone que sobra para distinguir. */
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
-/* ATENDER É UM GRUPO PARA O GESTOR (03/10/2026, pedido do Ali): Conversas e
-   Formulários (de que funil é o lead de cada formulário do anúncio). Diferente
-   de Operação, o clique em "Atender" LEVA às conversas (`navegar`): é o item
-   mais usado do menu, e dois cliques para chegar na caixa seria um passo a
-   mais todo dia. O corretor e a atendente continuam com o item simples. */
-const ATENDER_FILHOS=[["atendimento","whatsapp","Conversas"],["formularios","form","Formulários"]];
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
    o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
-const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"]];
+/* FORMULÁRIOS (03/10/2026, pedido do Ali): os formulários dos anúncios — o
+   funil e as catracas de cada um — moram em Marketing, ao lado dos disparos
+   e dos fluxos (de 03/10 até aqui ficavam em Atender). Disparos e Fluxos só
+   existem com o Marketing liberado pelo ConHub; Formulários não depende
+   disso, e a conta sem a ferramenta vê o grupo só com ele. */
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["formularios","form","Formulários"]];
+const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 // O grupo está "ativo" quando a tela aberta é um dos filhos dele.
 const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
