@@ -8607,6 +8607,12 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
   const [abrindoRecado,setAbrindoRecado]=useState("");
   const [recado,setRecado]=useState("");
   const [rascunho,setRascunho]=useState("");
+  /* RECOLHIDO POR PADRÃO (03/10/2026, pedido do Ali com print: quinze clientes
+     esperando há semanas tomavam a tela inteira da Catraca). Fechado, é uma
+     linha com quantos esperam e há quanto tempo o mais antigo; aberto, a
+     lista vai de 8 em 8. A escolha fica guardada na aba. */
+  const [aberto,setAberto]=usarEscolha("catraca.esperando",false);
+  const [limite,maisLimite]=usarLimite(8,aberto);
 
   /* O campo dos minutos é preenchido UMA vez, na primeira leitura. Depois disso
      ele é de quem está digitando.
@@ -8633,14 +8639,25 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
   const salvarMin=async()=>{ try{ const r=await acoes.definirEspera(rascunho); setD(x=>({...x,minutos:r.minutos})); }catch(e){ setErro(e.message); } };
 
   if(!d) return null;
-  const tempo=(min)=>min<60?`${min} min`:`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`;
+  // "1295h48" não se lê: passou de um dia, conta em dias.
+  const tempo=(min)=>min<60?`${min} min`:min<1440?`${Math.floor(min/60)}h${String(min%60).padStart(2,"0")}`
+    :`${Math.floor(min/1440)} ${Math.floor(min/1440)===1?"dia":"dias"}`;
+  const n=d.leads.length;
+  const maisAntigo=n?Math.max(...d.leads.map(l=>l.esperando_min||0)):0;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-      <Icon n="timer" size={15} color={d.leads.length?C.hot:C.greenMid}/>
-      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Clientes esperando resposta</span>
-      {d.minutos>0&&<span style={{color:C.faint,fontSize:11}}>aviso automático em {d.minutos} min</span>}
-    </div>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:16,marginBottom:16}}>
+    <button onClick={()=>setAberto(a=>!a)} aria-expanded={aberto}
+      style={{width:"100%",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
+      <Icon n="timer" size={15} color={n?C.hot:C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Clientes esperando resposta</span>
+      {n>0&&<span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,
+        fontFamily:MONO,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{n}</span>}
+      <span style={{flex:1}}/>
+      {n>0&&!aberto&&<span style={{color:C.faint,fontSize:11}}>o mais antigo há {tempo(maisAntigo)}</span>}
+      <span style={{display:"inline-flex",color:C.sub,transform:aberto?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={14}/></span>
+    </button>
+    {aberto&&<div style={{marginTop:10}}>
+    {d.minutos>0&&<div style={{color:C.faint,fontSize:11,marginBottom:8}}>Aviso automático ao corretor depois de {d.minutos} min sem resposta.</div>}
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
 
@@ -8649,7 +8666,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
         {d.minutos?"Ninguém esperando além do tempo combinado.":"Aviso automático desligado."}
       </div>
       :<div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:6}}>
-        {d.leads.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"9px 11px"}}>
+        {d.leads.slice(0,limite).map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"9px 11px"}}>
           <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
             <div style={{flex:"1 1 130px",minWidth:0}}>
               <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.name}</div>
@@ -8672,6 +8689,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
               {enviando===l.id?"Enviando…":"Enviar"}</button>
           </div>}
         </div>)}
+        <MostrarMais total={n} mostrando={limite} aoClicar={maisLimite} passo={8}/>
       </div>}
 
     {podeConfigurar&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:10,paddingTop:10}}>
@@ -8683,6 +8701,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
           style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
         <span style={{color:C.faint,fontSize:11}}>0 desliga o aviso automático</span>
       </div>
+    </div>}
     </div>}
   </div>;
 }
@@ -8994,17 +9013,16 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
   const nomeDaCatraca=(id)=>id&&catracas?((catracas.catracas.find(c=>c.id===id)||{}).nome||null):null;
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:860,margin:"0 auto"}}>
-      {/* Antes da fila e do roster: cliente parado é o que custa venda, e é a
-          primeira coisa que a gestão precisa ver ao abrir esta tela. */}
-      <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
       {/* A FILA DA VEZ, numerada.
 
           Pedido do Ali: dá para saber quem é o próximo antes de transferir. A
           ordem vem do servidor, calculada pela MESMA função que a
           transferência usa — número na tela que o botão não cumpre é pior do
           que número nenhum. */}
-      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal={!!(catracas&&catracas.catracas.some(c=>c.ativa))}/>
+      {/* Ordem (03/10/2026, pedido do Ali): criar e ver as catracas primeiro;
+          os clientes esperando ficam recolhidos mais abaixo. */}
       <CatracasDeProduto acoes={acoes} isMobile={isMobile} pessoas={brokers.filter(b=>b.role==="corretor")} podeEditar={!!podeEditarCatracas} versao={disp.length}/>
+      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal={!!(catracas&&catracas.catracas.some(c=>c.ativa))}/>
 
       {/* roster de disponibilidade */}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
@@ -9016,6 +9034,8 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
         </div>
         <div style={{color:C.faint,fontSize:11,marginTop:8}}>Clique para marcar quem falou com você e está pronto para atender. Só quem está verde entra na catraca.</div>
       </div>
+
+      <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
 
       {/* Histórico logo abaixo do roster: é aqui que a atendente confere se
           quem está verde se prontificou hoje ou ficou de ontem. */}
