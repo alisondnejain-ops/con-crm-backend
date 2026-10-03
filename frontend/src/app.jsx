@@ -1687,6 +1687,12 @@ function ConCRM(){
     plantoes:(params)=>api("/plantoes?"+new URLSearchParams(params||{})),
     plantaoDeHoje:()=>api("/plantoes/hoje"),
     canais:()=>api("/canais"),
+    // Triagem de números novos (services/triagem.js): quem escreveu e ainda não é lead.
+    triagem:()=>api("/triagem"),
+    decidirContato:(id,decisao)=>api(`/triagem/novos/${id}`,{method:"POST",body:{decisao}}).then(r=>{recarregar();return r;}),
+    definirTriagem:(linha,ligada)=>api("/triagem/linhas",{method:"POST",body:{linha,ligada}}),
+    voltarAReceber:(linha,phone)=>api("/triagem/pessoais/voltar",{method:"POST",body:{linha,phone}}),
+    marcarPessoal:(id)=>api(`/triagem/leads/${id}/pessoal`,{method:"POST",body:{confirmar:"PESSOAL"}}).then(r=>{recarregar();return r;}),
     criarLead:(dados)=>api("/leads",{method:"POST",body:dados}),
     funilDeEntrada:()=>api("/pipelines/entrada"),
     definirFunilDeEntrada:(user_id,pipeline_id)=>api("/pipelines/entrada",{method:"POST",body:{user_id,pipeline_id}}),
@@ -7061,11 +7067,15 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
 
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}){
-  const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
-  // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
-  const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
-  const [entrada,setEntrada]=usarEscolha("atendimento.entrada","todos");
+  // A pastilha da caixa — ver TopoDaCaixa (03/10/2026).
+  const [vistaGuardada,setVista]=usarEscolha("atendimento.vista","todos");
+  const vista=VISTAS_DA_CAIXA.includes(vistaGuardada)?vistaGuardada:"todos";
+  /* Por qual LINHA de WhatsApp: todos os números, o da imobiliária ou o meu.
+     Só aparece para quem ligou o número pessoal — era uma faixa de abas e
+     virou o seletor da terceira linha do topo. */
+  const [linha,setLinha]=usarEscolha("atendimento.linha","todas");
   const [campanha,setCampanha]=usarEscolha("atendimento.campanha","");
+  const [triagem,lerTriagem]=usarTriagem(acoes);
   const [novoLead,setNovoLead]=useState(false);
   const [simulando,setSimulando]=useState(false);
   // Trocar de lead fecha a simulação aberta: número de financiamento de um
@@ -7083,7 +7093,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [gaveta,setGaveta]=usarEscolha("atendimento.gaveta",false);
   const [fEtapa,setFEtapa]=usarEscolha("atendimento.etapa","");
   const [fPrio,setFPrio]=usarEscolha("atendimento.prio","");
-  const [esperando,setEsperando]=usarEscolha("atendimento.esperando",false);
   const [de,setDe]=usarEscolha("atendimento.de","");
   const [ate,setAte]=usarEscolha("atendimento.ate","");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
@@ -7154,19 +7163,15 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
-  const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
-  const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
-  const [limiteLista,maisLista]=usarLimite(150,[linha,filter,busca,fEtapa,fPrio,esperando,de,ate,entrada,campanha].join("|"));
+  const filtrosAtivos=[fEtapa,fPrio,de,ate].filter(Boolean).length;
+  const limparFiltros=()=>{setFEtapa("");setFPrio("");setDe("");setAte("");};
+  const [limiteLista,maisLista]=usarLimite(150,[linha,vista,busca,fEtapa,fPrio,de,ate,campanha].join("|"));
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
-  const daCasa=myLeads.filter(l=>!minhaLinha||l.canalId!==minhaLinha.id).length;
-  const daMinha=minhaLinha?myLeads.filter(l=>l.canalId===minhaLinha.id).length:0;
-  const list=myLeads
-    // A linha, antes de tudo: as abas são a divisão mais alta da caixa dele, e
-    // os outros filtros valem dentro da que estiver aberta.
-    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
-    .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
-    .filter(l=>passaNaEntrada(l,entrada,campanha))
-    .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?esperandoContato(l):l.prio===filter.toUpperCase())
+  // A linha, antes de tudo: os outros filtros valem dentro do número escolhido.
+  const daLinha=myLeads.filter(l=>!minhaLinha||linha==="todas"?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id);
+  const contagem=contagemDaCaixa(daLinha,triagem);
+  const list=daLinha
+    .filter(l=>passaNaVista(l,vista,campanha))
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
 
        Até 02/09/2026 a última condição era `soNumeros(l.tel).includes(soNumeros(t))`,
@@ -7196,7 +7201,6 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     })
     .filter(l=>fEtapa?l.status===fEtapa:true)
     .filter(l=>fPrio?l.prio===fPrio:true)
-    .filter(l=>esperando?esperandoContato(l):true)
     .filter(l=>{
       if(!de&&!ate) return true;
       const q=l.createdAt||0;
@@ -7229,70 +7233,35 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           disparava um "mover o lead 'Fulano cadastrado.'" e a faixa vermelha
           dizia "Este lead não está com você". Achado em 30/09/2026. */}
     {showList&&<div style={{width:isMobile?"100%":isCompact?250:300,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
-      <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
-            <Icon n="search" size={15} color={C.faint}/>
-            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
-              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
-          </div>
-          {/* CADASTRAR NA MÃO fica ao lado da busca, e não escondido num menu:
-              é o gesto de quem acabou de desligar o telefone, e recurso atrás
-              de dois cliques é recurso que volta para o papel. */}
-          <button onClick={()=>setNovoLead(true)} title="Cadastrar um lead na mão"
-            style={{width:38,height:38,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
-              color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <Icon n="userplus" size={16}/></button>
+      <TopoDaCaixa isMobile={isMobile} busca={busca} setBusca={setBusca} onNovoLead={()=>setNovoLead(true)}
+        vista={vista} setVista={setVista} contagem={contagem} lista={daLinha} campanha={campanha} setCampanha={setCampanha}
+        seletor={minhaLinha?{rotulo:"Número",valor:linha,mudar:setLinha,opcoes:[
+          {v:"todas",t:"Todos os números"},{v:"casa",t:"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
+        filtrosAtivos={filtrosAtivos} gaveta={gaveta} setGaveta={setGaveta}
+        contador={(filtrosAtivos||busca.trim()||vista!=="todos")?`${list.length} ${list.length===1?"conversa":"conversas"}`:""}>
+        {filtrosAtivos>0&&<button onClick={limparFiltros}
+          style={{alignSelf:"flex-end",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>limpar filtros</button>}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {seloCorretor("Etapa",fEtapa,setFEtapa,opcoesDeEtapa(funisDaConta))}
+          {seloCorretor("Temperatura",fPrio,setFPrio,[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
         </div>
-        {/* As duas linhas de WhatsApp, acima de tudo: é a divisão mais alta da
-            caixa dele. Só aparece para quem ligou o número pessoal. */}
-        {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
-          contarCasa={daCasa} contarMinha={daMinha}/>}
-        <AbasDeEntrada entrada={entrada} setEntrada={setEntrada} campanha={campanha} setCampanha={setCampanha}
-          lista={myLeads.filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)} isMobile={isMobile}/>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
-
-        {/* Recolhidos, como na tela da atendente: abertos, empurram a lista de
-            conversas para fora da tela do celular. O contador avisa quando
-            algum ficou ligado. */}
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setGaveta(a=>!a)}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="columns" size={13}/>Filtros
-            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
-            <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
-          </button>
-          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{list.length} conversa(s)</span>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+          <input type="date" value={de} onChange={e=>setDe(e.target.value)}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${de?C.green+"66":C.line}`,background:de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+          <input type="date" value={ate} onChange={e=>setAte(e.target.value)}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${ate?C.green+"66":C.line}`,background:ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
         </div>
-
-        {gaveta&&<React.Fragment>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <button onClick={()=>setEsperando(v=>!v)}
-              style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${esperando?C.hot+"66":C.line}`,
-                background:esperando?C.hotSoft:C.surface,color:esperando?C.hot:C.sub,borderRadius:9,
-                padding:isMobile?"11px 13px":"7px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
-              <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
-            {filtrosAtivos>0&&<button onClick={limparFiltros}
-              style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
-          </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {seloCorretor("Etapa",fEtapa,setFEtapa,opcoesDeEtapa(funisDaConta))}
-            {seloCorretor("Temperatura",fPrio,setFPrio,[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
-          </div>
-          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
-            <input type="date" value={de} onChange={e=>setDe(e.target.value)}
-              style={{fontSize:isMobile?16:12,border:`1px solid ${de?C.green+"66":C.line}`,background:de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
-            <input type="date" value={ate} onChange={e=>setAte(e.target.value)}
-              style={{fontSize:isMobile?16:12,border:`1px solid ${ate?C.green+"66":C.line}`,background:ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-          </div>
-        </React.Fragment>}
-      </div>
+      </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
-        {list.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
-        <MostrarMais total={list.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
+        {vista==="novos"
+          ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");openChat(id);}} isMobile={isMobile} session={session}/>
+          :<React.Fragment>
+            {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
+            {list.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
+            <MostrarMais total={list.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
+          </React.Fragment>}
       </div>
     </div>}
     {showChat&&<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
@@ -7356,7 +7325,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           janela, e o corretor conclui que perdeu o lead. */}
       <LinhaDaConversa canal={sel.canal} acoes={acoes} leadId={sel.id} isMobile={isMobile}
         sugerir={(t)=>setDraft(t)}
-        aoTrocar={(c)=>{setLinha(c&&c.onde==="corretor"?"minha":"casa");acoes.abrir(sel.id);}}/>
+        aoTrocar={(c)=>{if(linha!=="todas")setLinha(c&&c.onde==="corretor"?"minha":"casa");acoes.abrir(sel.id);}}/>
       <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
         <FaixaMensagensProntas lead={sel} acoes={acoes} session={session} versao={versaoMsgs}
           onEscolher={setDraft} onEnviarImovel={()=>setEnviandoImovel(true)}/>
@@ -7458,6 +7427,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="clock" size={12} color={C.faint}/> entrou há {fmtAge(Date.now()-sel.createdAt)}</div>
+          <ConversaPessoal lead={sel} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
         </div>
       </div>
     </div>}
@@ -8733,83 +8703,188 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
    para analisar atendimento por atendimento. Somente leitura — supervisionar
    não marca a conversa como lida, para não apagar o aviso do corretor. */
 
-/* AS SUBCATEGORIAS DE "ATENDER": por qual número esta conversa acontece.
+/* ===== O TOPO DAS DUAS CAIXAS DO ATENDER (03/10/2026) =====
 
-   Aparecem só para quem TEM duas linhas. Para todo o resto — que é a maior
-   parte da equipe — a pergunta não existe, e uma chave de uma opção só ocuparia
-   a linha mais visível da tela para não dizer nada.
+   Pedido do Ali: "organiza melhor essas novas funções, está se acumulando
+   muitos botões". A caixa tinha crescido uma faixa por recurso — abas de
+   número, pastilhas de entrada, "Minha caixa / Toda a equipe", "Todos / Meus",
+   "Filtros", "Finalizados" — e no celular a lista de conversas começava no
+   meio da tela.
 
-   A contagem vai no rótulo de propósito. Sem ela, "Meu WhatsApp" vazio e "Meu
-   WhatsApp" com trinta conversas são a mesma aba, e a pessoa clica para
-   descobrir. */
-function AbasDeLinha({linha,setLinha,contarCasa,contarMinha,isMobile}){
-  const aba=(v,rot,n)=><button key={v} onClick={()=>setLinha(v)}
-    style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-      fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"9px 0":"7px 0",borderRadius:8,border:"none",
-      cursor:"pointer",background:linha===v?C.card:"transparent",color:linha===v?C.greenDeep:C.sub,
-      boxShadow:linha===v?"0 1px 2px rgba(0,0,0,.06)":"none"}}>
-    <Icon n="whatsapp" size={12}/>{rot}
-    <span style={{fontFamily:MONO,fontSize:10.5,color:linha===v?C.greenMid:C.faint}}>{n}</span>
-  </button>;
-  return <div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
-    {aba("casa","Da imobiliária",contarCasa)}
-    {aba("minha","Meu WhatsApp",contarMinha)}
+   Agora são três linhas, e cada uma responde uma pergunta:
+
+     1. QUEM procuro?          busca + cadastrar lead
+     2. O QUE quero ver?       pastilhas, como as do WhatsApp: Tudo · Aguardando
+                               · Formulário · Novos contatos · Finalizados
+     3. DE QUEM e com que      a caixa (minha / da equipe) ou o número, e o
+        detalhe?               botão Filtros (etapa, temperatura, período…)
+
+   As pastilhas são ESCOLHA ÚNICA, como no WhatsApp: cada uma é um jeito de
+   olhar a caixa, e o que combina com elas (etapa, corretor, período) mora nos
+   Filtros. "Formulário" e "Novos contatos" só aparecem quando existe algo
+   neles — numa conta sem anúncio e sem triagem, seriam duas pastilhas
+   prometendo uma coisa que não existe. O componente é UM para as duas caixas
+   (corretor e supervisão): já divergiram antes, quando cada uma tinha o seu. */
+const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","finalizados"];
+function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem,lista,campanha,setCampanha,seletor,filtrosAtivos,gaveta,setGaveta,contador,children}){
+  const chips=[
+    ["todos","Tudo"],
+    ["aguardando","Aguardando",contagem.aguardando,true],
+    (contagem.formulario||vista==="formulario")&&["formulario","Formulário",contagem.formulario],
+    (contagem.novos||vista==="novos")&&["novos","Novos contatos",contagem.novos,true],
+    ["finalizados","Finalizados"],
+  ].filter(Boolean);
+  const chip=([v,rot,n,urgente])=>{
+    const ativo=vista===v, quente=urgente&&n>0;
+    return <button key={v} onClick={()=>{setVista(v);if(v!=="formulario")setCampanha("");}}
+      style={{display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+        fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"7px 12px":"4px 9px",borderRadius:999,cursor:"pointer",
+        border:`1px solid ${ativo?C.greenDeep:C.line}`,background:ativo?C.greenDeep:C.card,color:ativo?"#fff":C.sub}}>
+      {rot}
+      {n>0&&<span style={{minWidth:16,height:16,padding:"0 4px",borderRadius:999,fontSize:10,fontWeight:700,fontFamily:MONO,
+        display:"flex",alignItems:"center",justifyContent:"center",
+        background:ativo?"rgba(255,255,255,.22)":quente?C.hot:C.surface,color:ativo||quente?"#fff":C.faint}}>{n}</span>}
+    </button>;
+  };
+  return <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:9}}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
+        <Icon n="search" size={15} color={C.faint}/>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+          style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
+      </div>
+      {/* Cadastrar na mão fica ao lado da busca: é o gesto de quem acabou de
+          desligar o telefone, e recurso atrás de dois cliques volta para o papel. */}
+      <button onClick={onNovoLead} title="Cadastrar um lead na mão" aria-label="Cadastrar um lead na mão"
+        style={{width:38,height:38,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
+          color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <Icon n="userplus" size={16}/></button>
+    </div>
+    <div style={{display:"flex",gap:isMobile?6:5,flexWrap:"wrap"}}>{chips.map(chip)}</div>
+    {vista==="formulario"&&<SeletorDeCampanha lista={lista} campanha={campanha} setCampanha={setCampanha} isMobile={isMobile}/>}
+    {vista!=="novos"&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      {seletor&&<select value={seletor.valor} onChange={e=>seletor.mudar(e.target.value)} aria-label={seletor.rotulo}
+        title={seletor.rotulo}
+        style={{fontSize:isMobile?16:12,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
+          borderRadius:9,padding:isMobile?"9px 10px":"6px 8px",outline:"none",maxWidth:"60%",minWidth:0,cursor:"pointer"}}>
+        {seletor.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+      </select>}
+      {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista
+          para baixo. O número ao lado avisa quando algum ficou ligado. */}
+      <button onClick={()=>setGaveta(a=>!a)}
+        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
+        <Icon n="columns" size={13}/>Filtros
+        {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
+        <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
+      </button>
+      {/* O total só aparece quando algo está peneirando a lista: sem filtro, as
+          pastilhas já dizem quantos esperam, e o número sobrando empurrava a
+          linha para baixo na coluna estreita do corretor. */}
+      {contador&&<span style={{marginLeft:"auto",color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>{contador}</span>}
+    </div>}
+    {vista!=="novos"&&gaveta&&children}
   </div>;
 }
 
-/* AS ABAS DE ENTRADA: Todos · WhatsApp · Formulário (03/10/2026). Contam sobre a
-   lista inteira, como as abas de linha — filtrando antes, a aba que não está
-   aberta mostraria zero. Só aparecem quando há lead de formulário na caixa:
-   numa conta sem anúncio, "Formulário 0" ocuparia a faixa mais visível da tela
-   para dizer que não existe nada. Ficam também enquanto uma aba que não é
-   "Todos" estiver escolhida — senão a escolha guardada esconderia a lista sem
-   deixar caminho de volta.
-
-   Com "Formulário" aberto, o seletor de campanha. "Campanha não informada" é
+/* O seletor de campanha da pastilha "Formulário". "Campanha não informada" é
    um item próprio, e não some: é o lead que a Meta entregou sem dizer o
    anúncio (o de teste nunca tem; e quando falta permissão, o quadro "O que a
    Meta mandou" em Configurações → Anúncios diz isso por escrito). */
-function AbasDeEntrada({entrada,setEntrada,campanha,setCampanha,lista,isMobile}){
-  const conta={todos:lista.length,whatsapp:0,formulario:0,outros:0};
-  const campanhas=new Map(); let semCampanha=0;
+function SeletorDeCampanha({lista,campanha,setCampanha,isMobile}){
+  const campanhas=new Map(); let semCampanha=0, total=0;
   for(const l of lista){
-    const e=entradaDoLead(l); conta[e]++;
-    if(e==="formulario"){ if(l.campanha) campanhas.set(l.campanha,(campanhas.get(l.campanha)||0)+1); else semCampanha++; }
+    if(entradaDoLead(l)!=="formulario") continue;
+    total++;
+    if(l.campanha) campanhas.set(l.campanha,(campanhas.get(l.campanha)||0)+1); else semCampanha++;
   }
-  const atual=entrada||"todos";
-  if(!conta.formulario&&atual==="todos") return null;
-  /* Pastilhas que quebram de linha, e não abas coladas: a coluna do corretor
-     tem 250px no notebook, e "WhatsApp" e "Formulário" saíam cortados em
-     "What…" e "Form…" — justamente as palavras que a pessoa vem procurar. */
-  const aba=(v,rot,icone)=><button key={v} onClick={()=>{setEntrada(v);if(v!=="formulario")setCampanha("");}}
-    title={v==="outros"?"Portal, cadastro na mão, planilha":undefined}
-    style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap",
-      fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"7px 12px":"4px 10px",borderRadius:999,
-      border:`1px solid ${atual===v?C.green+"66":C.line}`,cursor:"pointer",
-      background:atual===v?C.greenSoft:C.surface,color:atual===v?C.greenDeep:C.sub}}>
-    {icone&&<Icon n={icone} size={12}/>}{rot}
-    <span style={{fontFamily:MONO,fontSize:10.5,color:atual===v?C.greenMid:C.faint}}>{conta[v]}</span>
-  </button>;
   const ordenadas=[...campanhas.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],"pt-BR"));
   // Campanha guardada que não está mais na caixa continua no seletor, com 0 —
   // senão o select mostraria "Todas" enquanto a lista continua peneirada.
   const sumiu=campanha&&campanha!==SEM_CAMPANHA&&!campanhas.has(campanha);
-  return <React.Fragment>
-    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-      {aba("todos","Todos")}
-      {aba("whatsapp","WhatsApp","whatsapp")}
-      {aba("formulario","Formulário","lista")}
-      {conta.outros>0&&aba("outros","Outros")}
+  return <select value={campanha||""} onChange={e=>setCampanha(e.target.value)} aria-label="Campanha"
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:campanha?C.ink:C.sub,background:campanha?C.greenSoft:C.surface,
+      border:`1px solid ${campanha?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",width:"100%",minWidth:0}}>
+    <option value="">Todas as campanhas ({total})</option>
+    {ordenadas.map(([c,n])=><option key={c} value={c}>{c} ({n})</option>)}
+    {sumiu&&<option value={campanha}>{campanha} (0)</option>}
+    {(semCampanha>0||campanha===SEM_CAMPANHA)&&<option value={SEM_CAMPANHA}>Campanha não informada ({semCampanha})</option>}
+  </select>;
+}
+
+/* Quantos esperam em cada pastilha. Conta sobre a lista INTEIRA da caixa, antes
+   dos filtros — filtrando antes, a pastilha que não está aberta mostraria zero. */
+const contagemDaCaixa=(lista,triagem)=>({
+  aguardando:lista.filter(l=>!l.finalizado&&esperandoContato(l)).length,
+  formulario:lista.filter(l=>!l.finalizado&&entradaDoLead(l)==="formulario").length,
+  novos:triagem&&triagem.novos?triagem.novos.length:0,
+});
+// A pastilha escolhida, aplicada a um lead (Novos contatos não mostra leads).
+const passaNaVista=(l,vista,campanha)=>{
+  if(vista==="finalizados") return l.finalizado;
+  if(l.finalizado) return false;
+  if(vista==="aguardando") return esperandoContato(l);
+  if(vista==="formulario") return passaNaEntrada(l,"formulario",campanha);
+  return true;
+};
+
+/* ===== NOVOS CONTATOS: quem escreveu e ainda não é lead (services/triagem.js) =====
+
+   Só nome, número e quantas mensagens — o texto não fica no CRM até alguém
+   dizer que é lead. A lista é buscada de 20 em 20 segundos com a aba visível,
+   e sempre que a pessoa volta para ela. */
+function usarTriagem(acoes){
+  const [d,setD]=useState(null);
+  const ler=React.useCallback(()=>acoes.triagem().then(setD).catch(()=>{}),[]);
+  useEffect(()=>{
+    ler();
+    const t=setInterval(()=>{ if(document.visibilityState==="visible") ler(); },20000);
+    const volta=()=>{ if(document.visibilityState==="visible") ler(); };
+    document.addEventListener("visibilitychange",volta);
+    return()=>{ clearInterval(t); document.removeEventListener("visibilitychange",volta); };
+  },[]);
+  return [d,ler];
+}
+function NovosContatos({triagem,recarregar,acoes,abrir,isMobile,session}){
+  const [ocupado,setOcupado]=useState(null), [erro,setErro]=useState("");
+  const novos=(triagem&&triagem.novos)||[];
+  const variasLinhas=new Set(novos.map(n=>n.linha)).size>1;
+  async function decidir(n,decisao){
+    setOcupado(n.id+decisao); setErro("");
+    try{
+      const r=await acoes.decidirContato(n.id,decisao);
+      await recarregar();
+      if(decisao==="lead"&&r&&r.lead_id) abrir(r.lead_id);
+    }catch(e){ setErro(e.message); }
+    finally{ setOcupado(null); }
+  }
+  const ondeConfigura=podeSupervisionar(session)?"Configurações → Conexão":"Minha conta → Meu WhatsApp";
+  return <div style={{padding:isMobile?"12px 14px":"12px"}}>
+    <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>
+      Escreveram e ainda não estão no CRM. Nada da conversa é guardado até você tocar em <b>É lead</b> — a partir daí ela entra.
     </div>
-    {atual==="formulario"&&<select value={campanha||""} onChange={e=>setCampanha(e.target.value)} aria-label="Campanha"
-      style={{fontSize:isMobile?16:12.5,fontWeight:500,color:campanha?C.ink:C.sub,background:campanha?C.greenSoft:C.surface,
-        border:`1px solid ${campanha?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",width:"100%",minWidth:0}}>
-      <option value="">Todas as campanhas ({conta.formulario})</option>
-      {ordenadas.map(([c,n])=><option key={c} value={c}>{c} ({n})</option>)}
-      {sumiu&&<option value={campanha}>{campanha} (0)</option>}
-      {(semCampanha>0||campanha===SEM_CAMPANHA)&&<option value={SEM_CAMPANHA}>Campanha não informada ({semCampanha})</option>}
-    </select>}
-  </React.Fragment>;
+    {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
+    {!novos.length&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:"24px 8px"}}>Nenhum número novo esperando.</div>}
+    {novos.map(n=><div key={n.id} style={{border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:8,background:C.card}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{n.nome||"Sem nome"}</span>
+        <span style={{color:C.faint,fontSize:10.5,whiteSpace:"nowrap"}} title={new Date(n.ultima_em).toLocaleString("pt-BR")}>{fmtQuando(n.ultima_em)}</span>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
+        {fmtTel(n.phone)} · {n.quantas} {n.quantas===1?"mensagem":"mensagens"}{variasLinhas?` · ${n.linha_nome}`:""}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:9}}>
+        <button onClick={()=>decidir(n,"lead")} disabled={!!ocupado}
+          style={{flex:1,border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+          {ocupado===n.id+"lead"?"Criando…":"É lead"}</button>
+        <button onClick={()=>decidir(n,"pessoal")} disabled={!!ocupado} title="Este número deixa de entrar no CRM. Dá para desfazer."
+          style={{flex:1,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:600,cursor:"pointer",opacity:ocupado?.6:1}}>
+          {ocupado===n.id+"pessoal"?"Marcando…":"É pessoal"}</button>
+      </div>
+    </div>)}
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:6}}>
+      Ligar ou desligar esta confirmação, e desfazer um "É pessoal": {ondeConfigura}.
+    </div>
+  </div>;
 }
 
 /* O selo do formulário em cada conversa: o nome da campanha, que é a pergunta
@@ -8819,7 +8894,7 @@ function SeloDoFormulario({l}){
   const texto=l.campanha||"Formulário";
   return <span title={["Veio do formulário do anúncio",l.campanha&&`Campanha: ${l.campanha}`,l.anuncio&&`Anúncio: ${l.anuncio}`,
       l.formulario&&`Formulário: ${l.formulario}`,!l.campanha&&"A Meta não informou a campanha"].filter(Boolean).join("\n")}
-    style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:1,minWidth:0,maxWidth:130,
+    style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:1,minWidth:62,maxWidth:130,
       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
       fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:999,
       color:"#0B57D0",background:"#EAF1FE",border:"1px solid #0866FF33"}}>
@@ -8877,30 +8952,21 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   const [escopo,setEscopo]=usarEscolha("conversas.escopo",session.role==="sdr"?"meus":"todos");
   const [f,setF]=usarEscolha("conversas.filtros",{atendente:"",etapa:"",prioridade:"",q:"",de:"",ate:""});
   const {pipelines:funisDaConta}=usarPipelines(acoes,session);
-  /* Só "Todos" e "Meus" ficam à vista. Temperatura e "aguardando" desceram para
-     a gaveta: cinco pastilhas numa coluna de 340px quebravam em duas linhas e
-     comiam o espaço da lista de conversas, que é o que interessa. */
-  const [rapido,setRapido]=usarEscolha("conversas.rapido","Todos");
-  const [esperando,setEsperando]=usarEscolha("conversas.esperando",false);   // só quem está sem resposta
+  /* A PASTILHA (Tudo · Aguardando · Formulário · Novos contatos · Finalizados),
+     ver TopoDaCaixa. Substituiu, em 03/10/2026, quatro controles soltos:
+     "Todos/Meus", "Finalizados", as pastilhas de entrada e o "só quem está
+     aguardando" da gaveta. "Meus" virou a caixa "Minha caixa" do seletor. */
+  const [vistaGuardada,setVista]=usarEscolha("conversas.vista","todos");
+  const vista=VISTAS_DA_CAIXA.includes(vistaGuardada)?vistaGuardada:"todos";
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("conversas.gaveta",false);
   // Por qual número (imobiliária ou o pessoal de um corretor) — ver usarLinhas.
   const [numero,setNumero]=usarEscolha("conversas.numero","");
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
-  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0)+(numero?1:0);
-  const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
-  // Por onde entrou e de qual campanha — ver AbasDeEntrada.
-  const [entrada,setEntrada]=usarEscolha("conversas.entrada","todos");
+  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(numero?1:0);
+  const verFinalizados=vista==="finalizados";
   const [campanha,setCampanha]=usarEscolha("conversas.campanha","");
-  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,rapido,esperando,verFinalizados,entrada,campanha]));
-  /* Por qual LINHA de WhatsApp. Só existe para quem tem número pessoal ligado;
-     para o resto a chave nem aparece e o valor fica em "casa", que é o
-     comportamento de sempre.
-
-     A peneira roda NO NAVEGADOR, sobre a lista já carregada, e não no servidor
-     — é o que mantém o contador de cada aba honesto. Filtrando no servidor, a
-     lista voltaria só com a linha escolhida e a outra aba mostraria zero: duas
-     afirmações contrárias na mesma barra. */
-  const [linha,setLinha]=usarEscolha("conversas.linha","casa");
+  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,vista,campanha,numero]));
+  const [triagem,lerTriagem]=usarTriagem(acoes);
   const [novoLead,setNovoLead]=useState(false);
   const [lista,setLista]=useState([]);
   const [carregando,setCarregando]=useState(true);
@@ -8927,15 +8993,14 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   const corretoresDisponiveis=pessoas.filter(p=>p.role==="corretor"&&p.available);
   // Aplicados sobre o resultado já filtrado pelo servidor. "Aguardando" é o
   // cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
+  /* O número (o da casa ou o pessoal de alguém) é um filtro da gaveta; as
+     abas "Da imobiliária / Meu WhatsApp" que existiam aqui saíram — quem
+     supervisiona escolhe o número no mesmo seletor que já listava os da equipe. */
   const visiveis=useMemo(()=>lista
-    .filter(l=>rapido==="Meus"?l.assignedTo===session.id:true)
-    .filter(l=>esperando?esperandoContato(l):true)
-    // A linha só peneira quando existe uma segunda: sem número pessoal ligado,
-    // "da imobiliária" seria a caixa inteira com outro nome.
-    .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
+    .filter(l=>passaNaVista(l,vista,campanha))
     .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
-    .filter(l=>passaNaEntrada(l,entrada,campanha))
-    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero,entrada,campanha]);
+    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,vista,campanha,numero]);
+  const contagem=contagemDaCaixa(lista,triagem);
   const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
@@ -8954,101 +9019,46 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       aoFechar={()=>setNovoLead(false)} abrirLead={abrir}
       aoCriar={(l)=>{setLista(a=>[adaptLead(l),...a]);abrir(l.id);}}/>}
     {mostrarLista&&<div style={{width:isMobile?"100%":340,flexShrink:0,borderRight:isMobile?"none":`1px solid ${C.line}`,background:C.card,display:"flex",flexDirection:"column",minHeight:0}}>
-      <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
-            <Icon n="search" size={15} color={C.faint}/>
-            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
-              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"9px 0",color:C.ink,minWidth:0}}/>
-          </div>
-          {/* O mesmo botão da tela do corretor, no mesmo lugar: quem cadastra
-              na mão com mais frequência é justamente quem atende o telefone. */}
-          <button onClick={()=>setNovoLead(true)} title="Cadastrar um lead na mão"
-            style={{width:38,height:38,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
-              color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <Icon n="userplus" size={16}/></button>
+      <TopoDaCaixa isMobile={isMobile} busca={busca} setBusca={setBusca} onNovoLead={()=>setNovoLead(true)}
+        vista={vista} setVista={setVista} contagem={contagem} lista={lista} campanha={campanha} setCampanha={setCampanha}
+        /* A atendente abre na PRÓPRIA caixa (o que está com ela + a fila); o
+           gestor, na equipe inteira. Os dois trocam aqui, no mesmo lugar. */
+        seletor={{rotulo:"Caixa (a minha inclui a fila, sem dono)",valor:escopo,mudar:setEscopo,opcoes:[{v:"meus",t:"Minha caixa"},{v:"todos",t:"Toda a equipe"}]}}
+        filtrosAtivos={filtrosAtivos} gaveta={filtrosAbertos} setGaveta={setFiltrosAbertos}
+        contador={carregando?"Buscando…":(filtrosAtivos||busca.trim()||vista!=="todos")?`${visiveis.length} ${visiveis.length===1?"conversa":"conversas"}`:""}>
+        {/* O "limpar" só existe com a gaveta aberta, longe do botão que se
+            aperta o tempo todo — errar o dedo apagava tudo de uma vez. */}
+        {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setNumero("");}}
+          style={{alignSelf:"flex-end",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>limpar filtros</button>}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
+          {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          {/* Por qual número: a peneira é no navegador. */}
+          {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
+            style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+            <option value="">Todos os números</option>
+            {linhas.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+          </select>}
         </div>
-        {/* Só a atendente vê esta chave: ela atende e supervisiona, e precisa
-            separar as duas coisas. O gestor já enxerga tudo por padrão. */}
-        {/* As duas linhas de WhatsApp. Só para quem tem a segunda: com um número
-            só, a chave ocuparia a faixa mais visível da tela para não dizer nada. */}
-        {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
-          contarCasa={lista.filter(l=>l.canalId!==minhaLinha.id).length} contarMinha={lista.filter(l=>l.canalId===minhaLinha.id).length}/>}
-        <AbasDeEntrada entrada={entrada} setEntrada={setEntrada} campanha={campanha} setCampanha={setCampanha} lista={lista} isMobile={isMobile}/>
-        {session.role==="sdr"&&<div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
-          {[["meus","Minha caixa"],["todos","Toda a equipe"]].map(([v,t])=><button key={v} onClick={()=>setEscopo(v)}
-            style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:8,border:"none",cursor:"pointer",
-              background:escopo===v?C.card:"transparent",color:escopo===v?C.greenDeep:C.sub,
-              boxShadow:escopo===v?"0 1px 2px rgba(0,0,0,.06)":"none"}}>{t}</button>)}
-        </div>}
-        <div style={{display:"flex",gap:6}}>
-          {["Todos","Meus"].map(a=><button key={a} onClick={()=>setRapido(a)}
-            style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:999,border:"none",cursor:"pointer",
-              background:rapido===a?C.greenDeep:C.surface,color:rapido===a?"#fff":C.sub}}>{a}</button>)}
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+          <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
+          <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
         </div>
-        {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista de
-            conversas para baixo e sobravam duas visíveis. O contador ao lado do
-            botão avisa quando algum está ativo, para ninguém esquecer ligado. */}
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setFiltrosAbertos(a=>!a)}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="columns" size={13}/>Filtros
-            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
-            <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
-          </button>
-          {/* Atendimento finalizado sai da lista; este é o caminho de volta,
-              para consultar ou reabrir sem precisar caçar no funil. */}
-          <button onClick={()=>setVerFinalizados(v=>!v)} title="Mostrar também os atendimentos finalizados"
-            style={{border:`1px solid ${verFinalizados?C.green+"66":C.line}`,background:verFinalizados?C.greenSoft:C.surface,
-              color:verFinalizados?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"10px 13px":"6px 10px",fontSize:isMobile?13:11.5,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-            Finalizados</button>
-          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{carregando?"Buscando…":`${visiveis.length} conversa(s)`}</span>
-        </div>
-
-        {filtrosAbertos&&<React.Fragment>
-          {/* "Aguardando resposta" era pastilha lá em cima. Aqui embaixo ele
-              soma com os outros filtros em vez de substituí-los: dá para ver
-              quem está esperando DENTRO de uma etapa ou de um corretor. */}
-          {/* O "limpar" morava lá em cima, colado no botão Filtros — dois alvos
-              a poucos pixels um do outro no celular. Errar o dedo apagava tudo
-              de uma vez, e do lado de quem usa isso é o filtro se desmarcando
-              sozinho. Aqui embaixo ele só existe com a gaveta aberta, longe do
-              botão que se aperta o tempo todo. */}
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <button onClick={()=>setEsperando(v=>!v)}
-              style={{display:"flex",alignItems:"center",gap:6,
-                border:`1px solid ${esperando?C.hot+"66":C.line}`,background:esperando?C.hotSoft:C.surface,
-                color:esperando?C.hot:C.sub,borderRadius:9,padding:isMobile?"11px 13px":"7px 11px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
-              <Icon n="timer" size={13}/>Só quem está aguardando resposta</button>
-            {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setEsperando(false);setNumero("");}}
-              style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
-          </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
-            {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
-            {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
-            {/* Por qual número: a peneira é no navegador, como a das abas. */}
-            {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
-              style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
-              <option value="">Todos os números</option>
-              {linhas.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
-            </select>}
-          </div>
-          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
-            <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
-              style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
-            <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
-              style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
-          </div>
-        </React.Fragment>}
-      </div>
+      </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
-        {visiveis.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}
-          linha={linhas.varias?linhas.rotulo(l.canalId):null}/>)}
-        <MostrarMais total={visiveis.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
+        {vista==="novos"
+          ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");abrir(id);}} isMobile={isMobile} session={session}/>
+          :<React.Fragment>
+            {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
+            {visiveis.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>abrir(l.id)} isMobile={isMobile} mostrarDono cutucar={acoes.cutucar}
+              linha={linhas.varias?linhas.rotulo(l.canalId):null}/>)}
+            <MostrarMais total={visiveis.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
+          </React.Fragment>}
       </div>
     </div>}
 
@@ -9099,7 +9109,6 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         {sel.finalizado&&sel.finalizadoEm&&<FechoAtendimento lead={sel}/>}
       </div>
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}
-        aoMudarLinha={(c)=>setLinha(c&&c.onde==="corretor"?"minha":"casa")}
         editando={editando} setEditando={setEditando} versaoMsgs={versao}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
@@ -9190,7 +9199,7 @@ function Observacoes({lead,acoes,session,isMobile}){
     </div>
 
     {!o.lista.length&&!escrevendo&&<div style={{color:"#9a8550",fontSize:11.5,lineHeight:1.5}}>
-      Nenhuma ainda. Aparece no alto da conversa.
+      Nenhuma ainda.
     </div>}
 
     {escrevendo&&<React.Fragment>
@@ -9708,6 +9717,47 @@ function EtapaIA({lead,acoes,isMobile}){
    e anonimizar não tem desfazer — são as duas ações mais pesadas que existem
    sobre um lead, e quem responde por elas perante a LGPD é quem responde pela
    empresa. */
+/* "ISTO É CONVERSA PESSOAL" (03/10/2026, services/triagem.js). Para o que
+   entrou no CRM por engano — a mãe, o amigo — antes de existir a triagem, ou
+   numa linha com ela desligada. Apaga o lead e a conversa do CRM (não do
+   WhatsApp) e faz o número deixar de entrar; o "voltar a receber" fica na
+   configuração da linha.
+
+   Fica no FIM da ficha, discreto: é uma faxina rara, e no meio dos botões do
+   atendimento seria um toque errado esperando para acontecer. Quem vê: a
+   supervisão (qualquer número) e o dono do WhatsApp pessoal, no lead que fala
+   por ele — no número da casa o corretor não marca, porque ali quem escreve
+   é cliente da imobiliária, não dele. */
+function ConversaPessoal({lead,acoes,session,minhaLinha,isMobile}){
+  const [confirmando,setConfirmando]=useState(false), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState("");
+  useEffect(()=>{ setConfirmando(false); setErro(""); },[lead.id]);
+  const pode=podeSupervisionar(session)||(minhaLinha&&lead.canalId===minhaLinha.id);
+  if(!pode||lead.venda) return null;
+  async function apagar(){
+    setOcupado(true); setErro("");
+    try{ await acoes.marcarPessoal(lead.id); }
+    catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  if(!confirmando) return <button onClick={()=>setConfirmando(true)}
+    style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:"4px 0",marginTop:4,textAlign:"left"}}>
+    Isto é conversa pessoal, não um lead</button>;
+  return <div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:8}}>
+    <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Tirar esta conversa do CRM?</div>
+    <div style={{color:C.ink,fontSize:12,lineHeight:1.55,marginBottom:10}}>
+      O lead, as mensagens e os arquivos saem do CRM, e este número deixa de entrar. No WhatsApp nada muda.
+      Para voltar a receber o número, vá na configuração do número (o histórico apagado não volta).
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={apagar} disabled={ocupado}
+        style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+        {ocupado?"Tirando…":"Tirar do CRM"}</button>
+      <button onClick={()=>setConfirmando(false)} disabled={ocupado}
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+    </div>
+  </div>;
+}
+
 function DadosDoTitular({lead,acoes,session,isMobile}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
@@ -9824,6 +9874,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <ConversaPessoal lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
@@ -10106,6 +10157,63 @@ async function atualizarConHub(){
 
    3. QUE SÓ O GESTOR LIBERA. Sem a explicação, o botão desabilitado vira
       chamado. */
+/* A CHAVE DA TRIAGEM E OS NÚMEROS MARCADOS COMO PESSOAIS, de UMA linha
+   (03/10/2026, services/triagem.js). Mora onde a linha é configurada: no "Meu
+   WhatsApp" (a linha pessoal, só o dono) e em Configurações → Conexão (o
+   número da casa, só o gestor muda; a atendente vê e desfaz).
+
+   "Voltar a receber" existe porque o "É pessoal" errado tiraria um cliente de
+   verdade do CRM sem ninguém perceber — sem caminho de volta, um toque errado
+   no celular seria um lead perdido para sempre. */
+function ConfigTriagem({acoes,linha,isMobile}){
+  const [d,setD]=useState(null), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [abrir,setAbrir]=useState(false);
+  const ler=()=>acoes.triagem().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{ ler(); },[linha]);
+  if(!d) return null;
+  const minha=(d.linhas||[]).find(l=>l.linha===linha);
+  if(!minha) return null;
+  const pessoais=(d.pessoais||[]).filter(p=>p.linha===linha);
+  async function mudar(ligada){
+    setOcupado(true); setErro("");
+    try{ await acoes.definirTriagem(linha,ligada); await ler(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function voltar(p){
+    setOcupado(true); setErro("");
+    try{ await acoes.voltarAReceber(p.linha,p.phone); await ler(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:isMobile?12:14,marginBottom:12,background:C.card}}>
+    <label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:minha.pode_mudar?"pointer":"default"}}>
+      <input type="checkbox" checked={!!minha.ligada} disabled={ocupado||!minha.pode_mudar} onChange={e=>mudar(e.target.checked)}
+        style={{marginTop:2,width:17,height:17,accentColor:C.green,cursor:"pointer",flexShrink:0}}/>
+      <span style={{fontSize:12.5,color:C.sub,lineHeight:1.55}}>
+        <b style={{color:C.ink}}>Confirmar números novos antes de entrarem no CRM.</b>{" "}
+        Quem ainda não é lead aparece em <b>Atender → Novos contatos</b>, só com nome e número, e você toca em
+        “É lead” ou “É pessoal”. Nada da conversa é guardado antes disso.
+        {!minha.pode_mudar&&<span style={{display:"block",color:C.faint,marginTop:3}}>Só o gestor liga ou desliga isto.</span>}
+      </span>
+    </label>
+    {minha.ligada&&minha.robo&&<div style={{background:C.amberSoft,color:C.ink,fontSize:12,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginTop:9}}>
+      Com isto ligado, o Autoatendimento com IA só responde um número novo <b>depois</b> do “É lead”.
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
+    {pessoais.length>0&&<div style={{marginTop:10}}>
+      <button onClick={()=>setAbrir(a=>!a)} style={{border:"none",background:"transparent",color:C.green,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:0}}>
+        {abrir?"Esconder":"Ver"} números marcados como pessoais ({pessoais.length})</button>
+      {abrir&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+        {pessoais.map(p=><div key={p.phone} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,borderTop:`1px solid ${C.line}`,paddingTop:6}}>
+          <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.ink}}>
+            {p.nome||"Sem nome"} <span style={{color:C.faint}}>· {fmtTel(p.phone)}</span></span>
+          <button onClick={()=>voltar(p)} disabled={ocupado}
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:isMobile?"8px 10px":"4px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+            Voltar a receber</button>
+        </div>)}
+      </div>}
+    </div>}
+  </div>;
+}
+
 function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [f,setF]=useState({host:"",token:""});
   const [fMeta,setFMeta]=useState({phone_number_id:""});
@@ -10228,7 +10336,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     {ligado&&<React.Fragment>
       <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,marginBottom:11}}>
         {meu.wa_number&&<div><b style={{color:C.ink}}>Número:</b> {meu.wa_number}</div>}
-        <div><b style={{color:C.ink}}>Onde aparece:</b> Atender → Meu WhatsApp.</div>
+        <div><b style={{color:C.ink}}>Onde aparece:</b> Atender → escolha “Meu WhatsApp” no seletor de número.</div>
         <div><b style={{color:C.ink}}>Como levar um cliente para cá:</b> abra a conversa dele e toque
           em “Continuar no meu WhatsApp”, logo acima do campo de escrever.</div>
       </div>
@@ -10248,6 +10356,9 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
           Assim que você responder, ela sai da conversa.
         </span>
       </label>
+
+      {/* Conversa pessoal não entra no CRM: ligado por padrão no WhatsApp pessoal. */}
+      <ConfigTriagem acoes={acoes} linha={meu.id} isMobile={isMobile}/>
 
       {!confirmando
         ?<button onClick={()=>setConfirmando(true)}
@@ -16115,6 +16226,10 @@ function ConexaoConfig({acoes,session,isMobile}){
         conexão porque é a outra metade dela: conectado quer dizer que envia;
         recebendo quer dizer que a mensagem do cliente chega aqui. */}
     {(d.ativo==="uazapi"||d.recebimento)&&<RecebimentoDasLinhas acoes={acoes} isMobile={isMobile} automatico={d.recebimento_automatico}/>}
+
+    {/* Número novo vira lead sozinho, ou espera alguém confirmar? No número da
+        casa nasce desligado (quem escreve ali quase sempre é cliente). */}
+    <ConfigTriagem acoes={acoes} linha="" isMobile={isMobile}/>
 
     {/* "Marquei a mensagem e não apareceu no WhatsApp" (22/09/2026). A
         Uazapi falha CALADA nisso — aceita e ignora, sem erro nenhum — então

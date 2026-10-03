@@ -22,6 +22,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
+import triagemRoutes from "./routes/triagem.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./routes/meta-conexao.routes.js";
@@ -356,6 +357,7 @@ app.use("/pipelines", cobrando, pipelinesRoutes);
 app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
+app.use("/triagem", cobrando, triagemRoutes); // números novos: é lead ou é pessoal?
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 app.use("/anuncios-meta", cobrando, metaConexaoGestao); // "Conectar com Facebook" (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)

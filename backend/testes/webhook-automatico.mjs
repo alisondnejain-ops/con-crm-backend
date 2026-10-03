@@ -173,6 +173,10 @@ assert.deepEqual(r.d.linhas.map(l => [l.tipo, l.estado]).sort(),
 assert.equal(nosso("tok-casa").length, 1, "a casa, zerada no caso 8, foi religada pelo botão");
 
 console.log("10. A mensagem que chega pelo número do corretor aparece para o gestor");
+/* A triagem de números novos (03/10/2026) nasce LIGADA na linha pessoal.
+   Este teste confere a ROTA do lead que nasce ali — então ela fica desligada
+   aqui; a triagem tem teste próprio (npm run teste:triagem). */
+db.prepare("UPDATE canais SET triagem = 0 WHERE tipo = 'corretor'").run();
 const w = await fetch(BASE + "/webhooks/uazapi", { method: "POST", headers: { "content-type": "application/json" },
   body: JSON.stringify({ EventType: "messages", token: "tok-marina", owner: "5582999990000",
     message: { chatid: "5582988887777@s.whatsapp.net", sender: "5582988887777@s.whatsapp.net", fromMe: false,

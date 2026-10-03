@@ -18,17 +18,16 @@
    o motivo de este arquivo existir em vez de copiar o corpo do handler. */
 
 import { registrarPedidoDeSaida } from "./marketing.js";
-import { mensagemRecebida as respostaAoDisparo, campanhaQueAlcancou, ecoDeDisparo } from "./disparo.js";
+import { mensagemRecebida as respostaAoDisparo, ecoDeDisparo } from "./disparo.js";
 import { ROTULO_DISPARO, ecoDoCrm } from "./marca-disparo.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { proximoAtendente } from "./catraca.js";
-import { entradaDe } from "./pipelines.js";
+import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
+import { triarNumeroNovo } from "./triagem.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { atender, pararPorGente } from "./robo.js";
 import { avisar } from "./push.js";
 import { advanceStage } from "../routes/messages.routes.js";
-import { mascararTelefone } from "../seguranca.js";
 
 // Guarda os últimos webhooks recebidos, dos DOIS provedores, só em memória,
 // para diagnóstico. Não persiste e some a cada reinício — é ferramenta de
@@ -68,7 +67,6 @@ const emAndamento = new Set();
 
 export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome, enviadaPelaApi }) {
   const orgId = canal.org_id;
-  const ehPessoal = canal.tipo === "corretor";
   /* A linha em que a conversa passa a acontecer: nula é a da CASA. A do
      disparo (marketing) conta como linha própria — quem respondeu a um
      disparo continua a conversa pelo número que recebeu, senão a resposta da
@@ -114,6 +112,28 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   async function processar() {
 
+  let lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId);
+  const ehNovo = !lead;
+
+  /* Saiu do celular para um número que ainda não é lead: não cria lead.
+     O número da imobiliária também fala com colega, fornecedor e parente —
+     e cada uma dessas conversas viraria um lead na fila da atendente.
+     Quando for cliente de verdade, ele responde, e aí o lead nasce pelo
+     caminho normal, na regra da catraca. (Só acontece na Uazapi.) */
+  if (!lead && fromMe)
+    return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: enviada para um número que ainda não é lead" });
+
+  /* NÚMERO DESCONHECIDO PASSA PELA TRIAGEM ANTES DE QUALQUER COISA
+     (03/10/2026, services/triagem.js). Antes de baixar a foto ou o áudio:
+     se for conversa pessoal, nada dela pode ficar gravado — nem o arquivo.
+     Número marcado como pessoal é ignorado; com a triagem ligada na linha,
+     ele vai para "Novos contatos" (só nome e número) e espera alguém dizer
+     se é lead. */
+  if (!lead) {
+    const t = triarNumeroNovo({ canal, phone, nome });
+    if (t) return lembrar({ em: Date.now(), evento, provider, resultado: t });
+  }
+
   // Foto, áudio ou documento: baixa e guarda o arquivo antes de gravar a
   // mensagem, para a conversa já nascer com a mídia. Se não der, `midia`
   // volta nulo e a mensagem entra como antes — o marcador de texto, sem
@@ -134,60 +154,18 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   if (temMidia) lembrar({ em: Date.now(), evento, provider, tipo, resultado: midia ? "mídia guardada" : "MÍDIA NÃO BAIXOU — ver log do servidor" });
 
-  let lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId);
-  const ehNovo = !lead;
-
-  /* Saiu do celular para um número que ainda não é lead: não cria lead.
-     O número da imobiliária também fala com colega, fornecedor e parente —
-     e cada uma dessas conversas viraria um lead na fila da atendente.
-     Quando for cliente de verdade, ele responde, e aí o lead nasce pelo
-     caminho normal, na regra da catraca. (Só acontece na Uazapi.) */
-  if (!lead && fromMe)
-    return lembrar({ em: Date.now(), evento, provider, resultado: "ignorado: enviada para um número que ainda não é lead" });
-
-  /* Número desconhecido = lead novo entrando pelo WhatsApp. Vai direto para
-     a atendente da vez, exatamente como um lead vindo da Meta Lead Ads.
-
-     SEM TEMPERATURA. Todo lead do WhatsApp nascia "MORNO", e isso não era
-     leitura de nada — era o padrão da coluna. Lead sem temperatura é
-     honesto: quem sabe a temperatura é quem conversou. */
   /* Eco de um envio do DISPARO que saiu pelo número da casa (ou chegou antes
      do registro). Entra como mensagem do disparo, não de gente: não carimba
      a primeira resposta, não tira o robô, não conta como atendimento. */
   const campanhaDoEco = fromMe ? (ecoDeDisparo(orgId, phone, messageid) || (ehDisparo ? "" : null)) : null;
   const doDisparo = campanhaDoEco !== null;
 
-  if (!lead) {
-    const id = "l_" + randomUUID();
-    /* LEAD QUE CHEGA NUMA LINHA PESSOAL JÁ NASCE DO DONO DA LINHA.
-
-       A catraca das atendentes existe para repartir o que chega no número
-       da CASA, que é de todo mundo e de ninguém. O cliente que escreveu
-       para o número da Marina escolheu a Marina — sortear esse lead para
-       outra pessoa seria o CRM desfazendo uma decisão do cliente. */
-    const dono = ehPessoal ? canal.user_id : proximoAtendente(orgId);
-    /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa. Os
-       leads que caem na atendente pertencem ao funil de pré-atendimento;
-       os do corretor, ao comercial. */
-    const entrada = entradaDe(orgId, dono);
-    const quando = Date.now();
-    /* Respondeu a um disparo: origem "Disparo" E a campanha gravada, como o
-       lead da Meta vem com a campanha do anúncio. É o que põe este lead na
-       linha certa de Operação → Campanhas e nos filtros de campanha. */
-    const campanha = campanhaQueAlcancou(orgId, phone);
-    const veioDoDisparo = ehDisparo || !!campanha;
-    db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
-                pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at,platform,campaign_name)
-      VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?,?,?)`)
-      .run(id, orgId, nome || "Contato do WhatsApp", phone, veioDoDisparo ? "Disparo" : "WhatsApp", entrada.nome, dono, quando,
-           entrada.pipeline_id, entrada.stage_id, quando, quando,
-           linhaDaConversa, dono ? quando : null, veioDoDisparo ? "disparo" : null, campanha);
-    lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
-    console.log(`[mensageria] lead NOVO pelo WhatsApp/${provider} (${mascararTelefone(phone)}) — ${
-      ehPessoal ? `chegou no número pessoal de ${canal.nome}` :
-      ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
-      dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
-  }
+  /* Número desconhecido = lead novo entrando pelo WhatsApp (services/lead-whatsapp.js).
+     SEM TEMPERATURA: quem sabe a temperatura é quem conversou. O lead pode já
+     ter nascido enquanto a mídia baixava (a mesma pessoa mandou duas fotos
+     seguidas): procura de novo antes de criar. */
+  if (!lead) lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId)
+    || nascerLeadDoWhatsapp({ canal, phone, nome });
 
   /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
      único e o WhatsApp não diz qual corretor digitou. A tela mostra
