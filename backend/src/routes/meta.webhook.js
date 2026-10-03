@@ -156,7 +156,13 @@ r.post("/meta", async (req, res) => {
           if (!out.ok) throw new Error(out.erro + (lido.campos?.length ? ` Campos que vieram: ${lido.campos.join(", ")}.` : ""));
           if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_lead_em = ?, ultimo_erro = NULL WHERE page_id = ?").run(Date.now(), pageId);
           console.log(`[meta] lead entregue (página ${pageId})`);
-          registrar([pageId], "entregue");
+          /* Entregue, e com ou sem campanha: é o que separa no quadro "a
+             campanha não vem porque falta permissão" de "este lead não veio de
+             anúncio" (o de teste da Meta, por exemplo, nunca tem). */
+          registrar([pageId], "entregue", dados.sem_campanha
+            ? `sem a campanha — a Meta recusou ler: ${dados.sem_campanha}`
+            : dados.campaign_name ? `campanha “${String(dados.campaign_name).slice(0, 80)}”`
+            : "sem campanha (lead de teste ou fora de anúncio)");
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);
           registrar([pageId], "erro", String(e.message).slice(0, 200));

@@ -31,6 +31,9 @@ const leads = {
   L2: { page: "P2", id: "L2", field_data: [{ name: "full_name", values: ["Beto da Casa B"] }, { name: "phone_number", values: ["+5587991110002"] }] },
   L3: { page: "P3", id: "L3", field_data: [{ name: "full_name", values: ["Ninguém"] }, { name: "phone_number", values: ["+5587991110003"] }] },
   L4: { page: "PAGE_ANTIGA", id: "L4", field_data: [{ name: "full_name", values: ["Cliente antigo"] }, { name: "phone_number", values: ["+5587991110004"] }] },
+  // Token sem permissão de anúncio: a Meta recusa os campos de campanha (03/10/2026).
+  L6: { page: "P2", id: "L6", semCampanha: true, form_id: "F1",
+    field_data: [{ name: "full_name", values: ["Sem campanha"] }, { name: "phone_number", values: ["+5587991110006"] }] },
   L5: { page: "P1", id: "L5", field_data: [{ name: "full_name", values: ["Depois de desconectar"] }, { name: "phone_number", values: ["+5587991110005"] }] },
 };
 const tokenDaPagina = (pg) => (pg === "PAGE_ANTIGA" ? "tok-antigo" : "tokpage-" + pg);
@@ -61,7 +64,9 @@ const meta = http.createServer((req, res) => {
   const l = leads[p];
   if (l) {
     if (tok !== tokenDaPagina(l.page)) return erro("este token não lê leads desta página");
-    const { page, ...dados } = l;
+    if (l.semCampanha && (u.searchParams.get("fields") || "").includes("campaign_name"))
+      return erro("(#100) Requires ads_read permission");
+    const { page, semCampanha, ...dados } = l;
     return ok(dados);
   }
   erro("não existe: " + p);
@@ -204,6 +209,28 @@ try {
   const lb = leadPorTel("5587991110002");
   assert.equal(lb.length, 1);
   assert.equal(lb[0].org_id, orgB);
+
+  caso("A caixa do Atender recebe por onde o lead entrou e de qual campanha (abas Formulário/WhatsApp)");
+  {
+    const lista = (await A.get("/leads")).body;
+    const ana = lista.find((x) => x.phone === "5587991110001");
+    assert.equal(ana.source, "meta");
+    assert.equal(ana.campaign_name, "Casas Centro");
+    assert.equal(ana.form_name, "Formulário Casas");
+    const quadro = (await A.get("/anuncios-meta")).body.avisos.lista.find((x) => x.resultado === "entregue");
+    assert.match(quadro.detalhe || "", /campanha “Casas Centro”/);
+  }
+
+  caso("Sem permissão para ler a campanha, o lead entra assim mesmo e o quadro diz por que veio sem ela");
+  assert.equal(await avisar("P2", "L6"), 200);
+  {
+    const l6 = leadPorTel("5587991110006");
+    assert.equal(l6.length, 1);
+    assert.equal(l6[0].campaign_name, null);
+    const quadro = (await B.get("/anuncios-meta")).body.avisos.lista.find((x) => x.resultado === "entregue" && /sem a campanha/.test(x.detalhe || ""));
+    assert.ok(quadro, "o quadro precisa dizer que a Meta recusou a campanha");
+    assert.match(quadro.detalhe, /ads_read/);
+  }
 
   caso("A Meta reenviando o mesmo aviso não cria lead nem observação a mais");
   await avisar("P1", "L1");

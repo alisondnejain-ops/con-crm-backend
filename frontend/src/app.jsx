@@ -171,6 +171,11 @@ function adaptLead(l,anterior){
        atualização de dez segundos. */
     tags:l.tags!==undefined?l.tags:(anterior?anterior.tags:[]),
     campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
+    // Por onde o lead ENTROU (ver entradaDoLead). `origem` acima ganha
+    // "WhatsApp" quando vem vazia; aqui fica o valor como veio.
+    fonte:l.source!==undefined?(l.source||null):(anterior?anterior.fonte:null),
+    origemCrua:l.origem!==undefined?(l.origem||null):(anterior?anterior.origemCrua:null),
+    formulario:l.form_name!==undefined?(l.form_name||null):(anterior?anterior.formulario:null),
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
     // Pediu contato pelo anúncio ou portal e ninguém falou com ele ainda (ver esperandoContato).
@@ -659,6 +664,33 @@ const chegouAgora=(l)=>!!l.assignedAt&&(Date.now()-l.assignedAt)<NOVO_NA_MAO;
    primeira mensagem enviada ou ligação). Uma regra só para ordenar, filtrar
    "aguardando" e pintar o item. */
 const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
+
+/* POR ONDE O LEAD ENTROU (03/10/2026, pedido do Ali: separar na caixa quem veio
+   do formulário do anúncio de quem chamou direto no WhatsApp, e de qual
+   campanha veio). Vale a ENTRADA, não a conversa de hoje: o lead do formulário
+   que já trocou cem mensagens continua sendo "do formulário" — é isso que diz
+   se o anúncio está trazendo gente. Quem já conversava pelo WhatsApp e depois
+   preencheu um formulário continua "WhatsApp"; as respostas dele estão nas
+   observações.
+
+   `source` existe desde junho; lead mais antigo que ela tem a origem escrita,
+   e "WhatsApp"/"Disparo" ali é quem nasceu pelo webhook. O resto (portal,
+   cadastro na mão, planilha) é "outros" — misturar com WhatsApp faria a aba
+   prometer uma coisa e mostrar outra. */
+function entradaDoLead(l){
+  if(l.fonte==="meta") return "formulario";
+  if(l.fonte==="whatsapp") return "whatsapp";
+  if(!l.fonte&&(l.origemCrua==="WhatsApp"||l.origemCrua==="Disparo")) return "whatsapp";
+  return "outros";
+}
+const SEM_CAMPANHA="__sem_campanha__";
+// A peneira das abas, a mesma nas duas caixas (supervisão e corretor).
+const passaNaEntrada=(l,entrada,campanha)=>{
+  if(!entrada||entrada==="todos") return true;
+  if(entradaDoLead(l)!==entrada) return false;
+  if(entrada!=="formulario"||!campanha) return true;
+  return campanha===SEM_CAMPANHA?!l.campanha:l.campanha===campanha;
+};
 /* O CRONÔMETRO DA CAIXA SÓ APARECE EM TRÊS SITUAÇÕES (02/10/2026, pedido do Ali:
    "o temporizador está atrapalhando"). Antes ele aparecia em toda conversa
    com mensagem não lida e contava da última mensagem, fosse de quem fosse —
@@ -6127,6 +6159,7 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
       {relogio
         ?<span title={relogio.titulo} style={{display:"flex",alignItems:"center",gap:4,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:600,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={12} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtEspera(espera)}</span><span style={{fontWeight:500}}>· {relogio.rotulo}</span></span>
         :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4}}>{l.status}</span>}
+      <SeloDoFormulario l={l}/>
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
       <span style={{flex:1}}/>
@@ -7031,6 +7064,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [filter,setFilter]=usarEscolha("atendimento.filtro","Todos");
   // Por qual LINHA de WhatsApp. Só aparece para quem ligou o número pessoal.
   const [linha,setLinha]=usarEscolha("atendimento.linha","casa");
+  const [entrada,setEntrada]=usarEscolha("atendimento.entrada","todos");
+  const [campanha,setCampanha]=usarEscolha("atendimento.campanha","");
   const [novoLead,setNovoLead]=useState(false);
   const [simulando,setSimulando]=useState(false);
   // Trocar de lead fecha a simulação aberta: número de financiamento de um
@@ -7121,7 +7156,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
   const filtrosAtivos=[fEtapa,fPrio,esperando,de,ate].filter(Boolean).length;
   const limparFiltros=()=>{setFEtapa("");setFPrio("");setEsperando(false);setDe("");setAte("");};
-  const [limiteLista,maisLista]=usarLimite(150,[linha,filter,busca,fEtapa,fPrio,esperando,de,ate].join("|"));
+  const [limiteLista,maisLista]=usarLimite(150,[linha,filter,busca,fEtapa,fPrio,esperando,de,ate,entrada,campanha].join("|"));
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   const daCasa=myLeads.filter(l=>!minhaLinha||l.canalId!==minhaLinha.id).length;
   const daMinha=minhaLinha?myLeads.filter(l=>l.canalId===minhaLinha.id).length:0;
@@ -7130,6 +7165,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     // os outros filtros valem dentro da que estiver aberta.
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .filter(l=>filter==="Finalizados"?l.finalizado:!l.finalizado)
+    .filter(l=>passaNaEntrada(l,entrada,campanha))
     .filter(l=>["Todos","Finalizados"].includes(filter)?true:filter==="Aguardando"?esperandoContato(l):l.prio===filter.toUpperCase())
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
 
@@ -7212,6 +7248,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             caixa dele. Só aparece para quem ligou o número pessoal. */}
         {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
           contarCasa={daCasa} contarMinha={daMinha}/>}
+        <AbasDeEntrada entrada={entrada} setEntrada={setEntrada} campanha={campanha} setCampanha={setCampanha}
+          lista={myLeads.filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)} isMobile={isMobile}/>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{["Todos","Aguardando","Finalizados"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{fontSize:isMobile?12.5:11,fontWeight:500,padding:isMobile?"7px 14px":"4px 10px",borderRadius:999,border:"none",cursor:"pointer",background:filter===f?C.greenDeep:C.surface,color:filter===f?"#fff":C.sub}}>{f}</button>)}</div>
 
         {/* Recolhidos, como na tela da atendente: abertos, empurram a lista de
@@ -8719,6 +8757,76 @@ function AbasDeLinha({linha,setLinha,contarCasa,contarMinha,isMobile}){
   </div>;
 }
 
+/* AS ABAS DE ENTRADA: Todos · WhatsApp · Formulário (03/10/2026). Contam sobre a
+   lista inteira, como as abas de linha — filtrando antes, a aba que não está
+   aberta mostraria zero. Só aparecem quando há lead de formulário na caixa:
+   numa conta sem anúncio, "Formulário 0" ocuparia a faixa mais visível da tela
+   para dizer que não existe nada. Ficam também enquanto uma aba que não é
+   "Todos" estiver escolhida — senão a escolha guardada esconderia a lista sem
+   deixar caminho de volta.
+
+   Com "Formulário" aberto, o seletor de campanha. "Campanha não informada" é
+   um item próprio, e não some: é o lead que a Meta entregou sem dizer o
+   anúncio (o de teste nunca tem; e quando falta permissão, o quadro "O que a
+   Meta mandou" em Configurações → Anúncios diz isso por escrito). */
+function AbasDeEntrada({entrada,setEntrada,campanha,setCampanha,lista,isMobile}){
+  const conta={todos:lista.length,whatsapp:0,formulario:0,outros:0};
+  const campanhas=new Map(); let semCampanha=0;
+  for(const l of lista){
+    const e=entradaDoLead(l); conta[e]++;
+    if(e==="formulario"){ if(l.campanha) campanhas.set(l.campanha,(campanhas.get(l.campanha)||0)+1); else semCampanha++; }
+  }
+  const atual=entrada||"todos";
+  if(!conta.formulario&&atual==="todos") return null;
+  /* Pastilhas que quebram de linha, e não abas coladas: a coluna do corretor
+     tem 250px no notebook, e "WhatsApp" e "Formulário" saíam cortados em
+     "What…" e "Form…" — justamente as palavras que a pessoa vem procurar. */
+  const aba=(v,rot,icone)=><button key={v} onClick={()=>{setEntrada(v);if(v!=="formulario")setCampanha("");}}
+    title={v==="outros"?"Portal, cadastro na mão, planilha":undefined}
+    style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap",
+      fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"7px 12px":"4px 10px",borderRadius:999,
+      border:`1px solid ${atual===v?C.green+"66":C.line}`,cursor:"pointer",
+      background:atual===v?C.greenSoft:C.surface,color:atual===v?C.greenDeep:C.sub}}>
+    {icone&&<Icon n={icone} size={12}/>}{rot}
+    <span style={{fontFamily:MONO,fontSize:10.5,color:atual===v?C.greenMid:C.faint}}>{conta[v]}</span>
+  </button>;
+  const ordenadas=[...campanhas.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],"pt-BR"));
+  // Campanha guardada que não está mais na caixa continua no seletor, com 0 —
+  // senão o select mostraria "Todas" enquanto a lista continua peneirada.
+  const sumiu=campanha&&campanha!==SEM_CAMPANHA&&!campanhas.has(campanha);
+  return <React.Fragment>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {aba("todos","Todos")}
+      {aba("whatsapp","WhatsApp","whatsapp")}
+      {aba("formulario","Formulário","lista")}
+      {conta.outros>0&&aba("outros","Outros")}
+    </div>
+    {atual==="formulario"&&<select value={campanha||""} onChange={e=>setCampanha(e.target.value)} aria-label="Campanha"
+      style={{fontSize:isMobile?16:12.5,fontWeight:500,color:campanha?C.ink:C.sub,background:campanha?C.greenSoft:C.surface,
+        border:`1px solid ${campanha?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",width:"100%",minWidth:0}}>
+      <option value="">Todas as campanhas ({conta.formulario})</option>
+      {ordenadas.map(([c,n])=><option key={c} value={c}>{c} ({n})</option>)}
+      {sumiu&&<option value={campanha}>{campanha} (0)</option>}
+      {(semCampanha>0||campanha===SEM_CAMPANHA)&&<option value={SEM_CAMPANHA}>Campanha não informada ({semCampanha})</option>}
+    </select>}
+  </React.Fragment>;
+}
+
+/* O selo do formulário em cada conversa: o nome da campanha, que é a pergunta
+   do Ali ("de que campanha eles vieram"), com o formulário no title. */
+function SeloDoFormulario({l}){
+  if(entradaDoLead(l)!=="formulario") return null;
+  const texto=l.campanha||"Formulário";
+  return <span title={["Veio do formulário do anúncio",l.campanha&&`Campanha: ${l.campanha}`,l.anuncio&&`Anúncio: ${l.anuncio}`,
+      l.formulario&&`Formulário: ${l.formulario}`,!l.campanha&&"A Meta não informou a campanha"].filter(Boolean).join("\n")}
+    style={{display:"inline-flex",alignItems:"center",gap:3,flexShrink:1,minWidth:0,maxWidth:130,
+      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+      fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:999,
+      color:"#0B57D0",background:"#EAF1FE",border:"1px solid #0866FF33"}}>
+    <span style={{flexShrink:0,display:"inline-flex"}}><Icon n="megafone" size={10}/></span>
+    <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{texto}</span></span>;
+}
+
 /* A FAIXA ACIMA DO CAMPO: por qual número a próxima mensagem sai.
 
    Ela não é enfeite nem aviso educado. Numa conversa que pode sair por duas
@@ -8780,7 +8888,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
   const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(esperando?1:0)+(numero?1:0);
   const [verFinalizados,setVerFinalizados]=usarEscolha("conversas.finalizados",false);
-  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,rapido,esperando,verFinalizados]));
+  // Por onde entrou e de qual campanha — ver AbasDeEntrada.
+  const [entrada,setEntrada]=usarEscolha("conversas.entrada","todos");
+  const [campanha,setCampanha]=usarEscolha("conversas.campanha","");
+  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,rapido,esperando,verFinalizados,entrada,campanha]));
   /* Por qual LINHA de WhatsApp. Só existe para quem tem número pessoal ligado;
      para o resto a chave nem aparece e o valor fica em "casa", que é o
      comportamento de sempre.
@@ -8823,7 +8934,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     // "da imobiliária" seria a caixa inteira com outro nome.
     .filter(l=>!minhaLinha?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id)
     .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
-    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero]);
+    .filter(l=>passaNaEntrada(l,entrada,campanha))
+    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,rapido,esperando,session.id,linha,minhaLinha,numero,entrada,campanha]);
   const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
@@ -8862,6 +8974,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
             só, a chave ocuparia a faixa mais visível da tela para não dizer nada. */}
         {minhaLinha&&<AbasDeLinha linha={linha} setLinha={setLinha} isMobile={isMobile}
           contarCasa={lista.filter(l=>l.canalId!==minhaLinha.id).length} contarMinha={lista.filter(l=>l.canalId===minhaLinha.id).length}/>}
+        <AbasDeEntrada entrada={entrada} setEntrada={setEntrada} campanha={campanha} setCampanha={setCampanha} lista={lista} isMobile={isMobile}/>
         {session.role==="sdr"&&<div style={{display:"flex",gap:0,background:C.surface,borderRadius:10,padding:3}}>
           {[["meus","Minha caixa"],["todos","Toda a equipe"]].map(([v,t])=><button key={v} onClick={()=>setEscopo(v)}
             style={{flex:1,fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"8px 0":"6px 0",borderRadius:8,border:"none",cursor:"pointer",
