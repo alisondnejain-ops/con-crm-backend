@@ -25,6 +25,8 @@
        liga com a primeira cobrança no próximo vencimento.
    11. Trocar de plano no meio do período pago começa no vencimento; o Marketing
        vem no Essencial semestral/anual e no Plus, não no Essencial mensal.
+   13. O cadastro do site com o cartão na mesma página: recusado não cria
+       conta; aceito nasce ativo, com teste de 7 dias e plano assinado.
    12. O cliente cancela: nada mais é cobrado, o acesso vai até o que foi pago,
        o aviso de cancelamento do Pagar.me não trava antes da hora, e passado
        o prazo a conta trava.
@@ -495,6 +497,54 @@ try {
   r = await chamar(tSite, "/assinatura/cancelar", "POST", {});
   assert.equal(r.status, 409);
   assert.match(r.body.error, /anual/);
+
+  caso("Cadastro do site com o cartão na mesma página: conta ativa, teste correndo e plano assinado");
+  let pub = await (await fetch(`${BASE}/publico/planos`)).json();
+  assert.equal(pub.checkout.pagarme, true);
+  assert.equal(pub.checkout.chave_publica, "pk_chave_publica");
+  assert.equal(pub.trial_dias, 7);
+  const assinar = async (corpo) => {
+    const rr = await fetch(`${BASE}/publico/assinar`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) });
+    return { status: rr.status, body: await rr.json().catch(() => ({})) };
+  };
+  const base = { nome: "Rita Corretora", email: "rita@pm.com", telefone: "(87) 9 9555-1234", senha: "segredo1",
+    tipo: "autonomo", plano: "mensal", cpfCnpj: "111.444.777-35", token: "token_rita" };
+  pm.recusarCartao = true;
+  r = await assinar(base);
+  assert.equal(r.status, 402, "cartão recusado");
+  assert.match(r.body.error, /Cartão recusado pelo emissor/);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE email = ?").get("rita@pm.com").n, 0, "cartão recusado não cria conta nenhuma");
+  pm.recusarCartao = false;
+  r = await assinar({ ...base, plano: "essencial-mensal" });
+  assert.equal(r.status, 400, "plano de imobiliária num cadastro de autônomo");
+  r = await assinar({ ...base, senha: "123" });
+  assert.equal(r.status, 400);
+  r = await assinar(base);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.ok(r.body.token, "volta o crachá para entrar direto");
+  assert.equal(r.body.aviso, null);
+  const rita = db.prepare("SELECT * FROM users WHERE email = ?").get("rita@pm.com");
+  assert.equal(rita.status, "ativo");
+  assert.equal(rita.role, "corretor");
+  const casaRita = linhaOrg(rita.org_id);
+  assert.equal(casaRita.cobranca, "pagarme");
+  assert.ok(casaRita.cartao_confirmado_em);
+  assert.ok(Math.abs(casaRita.trial_ate - (Date.now() + 7 * DIA)) < 60000, "o teste de 7 dias começa no cadastro");
+  assert.equal(casaRita.plano_id, "mensal");
+  sub = [...pm.assinaturas.values()].at(-1);
+  const fimRita = new Date(casaRita.trial_ate - new Date(casaRita.trial_ate).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  assert.equal(sub.start_at, fimRita, "a primeira cobrança é no fim do teste");
+  assert.equal(pagamentos(rita.org_id).length, 0, "nada cobrado no cadastro");
+  r = await chamar(r.body.token, "/assinatura");
+  assert.equal(r.body.status, "teste");
+  {
+    const l = await (await fetch(`${BASE}/auth/login`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "rita@pm.com", password: "segredo1" }) })).json();
+    assert.ok(l.token, "a senha criada no cadastro vale para entrar");
+  }
+  r = await assinar(base);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.ja_tem_conta, true);
 
   console.log("\nTudo certo ✅");
 } catch (e) {
