@@ -23,6 +23,7 @@ import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../servic
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
 import { dominiosDaPlataforma, definirDestino, verificarDominio } from "../services/site.js";
+import { removerDominio, railwayPronto } from "../services/railway.js";
 import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
@@ -501,12 +502,13 @@ const gravarConfig = (chave, valor) =>
    certificado do https). Aqui o master vê quem está esperando, ativa o domínio
    no painel da hospedagem e anota o destino de DNS que ela deu — é esse
    destino que a imobiliária passa a ver na tela dela para apontar o DNS. */
-r.get("/dominios", (_req, res) => res.json({ dominios: dominiosDaPlataforma() }));
+const listaDeDominios = () => ({ dominios: dominiosDaPlataforma(), automatico: railwayPronto().ok, falta: railwayPronto().falta });
+r.get("/dominios", (_req, res) => res.json(listaDeDominios()));
 r.patch("/dominios/:orgId", async (req, res) => {
   const x = definirDestino(req.params.orgId, (req.body || {}).destino);
   if (x.erro) return res.status(400).json({ error: x.erro });
   try { await verificarDominio(req.params.orgId); } catch (e) { console.warn("[site] conferência:", e.message); }
-  res.json({ dominios: dominiosDaPlataforma() });
+  res.json(listaDeDominios());
 });
 
 r.get("/login-fundo", (req, res) => res.json({ fundo: lerConfig(CHAVE_FUNDO) }));
@@ -672,6 +674,11 @@ r.delete("/:id", async (req, res) => {
       asaasAviso = [asaasAviso, `Não consegui cancelar a ferramenta ${RECURSOS[l.recurso]?.nome || l.recurso} no Asaas — cancele por lá.`].filter(Boolean).join(" ");
     }
   }
+
+  // O domínio próprio do site sai também do Railway — senão ficaria
+  // cadastrado lá, servindo uma conta que não existe mais.
+  const site = db.prepare("SELECT dominio_railway_id FROM sites WHERE org_id = ?").get(org.id);
+  if (site && site.dominio_railway_id) await removerDominio(site.dominio_railway_id);
 
   const apagar = db.transaction(() => {
     const leads = db.prepare("SELECT id FROM leads WHERE org_id = ?").all(org.id).map(l => l.id);

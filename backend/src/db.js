@@ -1289,7 +1289,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
   const cols = db.prepare("PRAGMA table_info(sites)").all().map(c => c.name);
   for (const [c, ddl] of [["dominio", "TEXT"], ["dominio_destino", "TEXT"], ["dominio_estado", "TEXT"],
     ["dominio_detalhe", "TEXT"], ["dominio_conferido_em", "INTEGER"], ["gtm_id", "TEXT"],
-    ["seo_titulo", "TEXT"], ["seo_descricao", "TEXT"]])
+    ["seo_titulo", "TEXT"], ["seo_descricao", "TEXT"],
+    // Domínio cadastrado no Railway pela API: o id lá e os registros de DNS
+    // (JSON [{tipo,nome,valor,ok}]) que a imobiliária tem que criar.
+    ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"]])
     if (!cols.includes(c)) db.exec(`ALTER TABLE sites ADD COLUMN ${c} ${ddl}`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dominio ON sites(dominio) WHERE dominio IS NOT NULL");
 }

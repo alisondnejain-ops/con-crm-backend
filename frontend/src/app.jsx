@@ -4973,6 +4973,28 @@ function Socios({acoes,session,isMobile}){
    no painel da hospedagem (Railway → serviço → Settings → Networking → Custom
    Domain), copiar o destino CNAME que ela mostra e colar aqui. A partir daí a
    imobiliária vê para onde apontar o DNS. */
+/* Um registro de DNS para a imobiliária criar, com botão de copiar em cada
+   valor: o TXT de verificação é um código comprido, e um caractere errado na
+   digitação deixa o domínio esperando para sempre sem dizer por quê. */
+function RegistroDns({r,isMobile}){
+  const [copiado,setCopiado]=React.useState("");
+  const copiar=(campo,v)=>{try{navigator.clipboard.writeText(v);setCopiado(campo);setTimeout(()=>setCopiado(""),1500);}catch(e){}};
+  const linha=(rot,campo,v)=><>
+    <span style={{color:C.faint}}>{rot}</span>
+    <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+      <span style={{overflowWrap:"anywhere",minWidth:0}}>{v}</span>
+      {campo&&<button onClick={()=>copiar(campo,v)} style={{flexShrink:0,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:7,
+        padding:isMobile?"5px 9px":"2px 8px",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>{copiado===campo?"Copiado":"Copiar"}</button>}
+    </span></>;
+  return <div style={{background:C.card,border:`1px solid ${r.ok?C.green+"66":C.line}`,borderRadius:9,padding:"8px 10px",margin:"8px 0",
+    display:"grid",gridTemplateColumns:"auto 1fr",gap:"4px 10px",fontFamily:MONO,fontSize:12,color:C.ink,alignItems:"center"}}>
+    {linha("Tipo",null,r.tipo)}
+    {linha("Nome","nome",r.nome)}
+    {linha(r.tipo==="TXT"?"Valor":"Destino","valor",r.valor)}
+    {r.ok&&<><span/><span style={{color:C.greenDeep,fontFamily:FONT,fontWeight:600,fontSize:11.5}}>✓ a hospedagem já enxerga este</span></>}
+  </div>;
+}
+
 function DominiosDosSites({acoes,isMobile}){
   const [d,setD]=useState(null), [erro,setErro]=useState(""), [rasc,setRasc]=useState({}), [ocupado,setOcupado]=useState(null);
   useEffect(()=>{acoes.dominiosHub().then(setD).catch(e=>setErro(e.message));},[]);
@@ -4988,10 +5010,16 @@ function DominiosDosSites({acoes,isMobile}){
   return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
       Domínios dos sites{pendentes?` · ${pendentes} esperando`:""}</div>
-    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
-      Para ativar: no Railway, abra o serviço → Settings → Networking → <b>Custom Domain</b> e adicione o domínio.
-      Copie o destino que ele mostrar (algo como <code>abc123.up.railway.app</code>) e cole aqui — a imobiliária passa a ver para onde apontar o DNS.
-    </div>
+    {d&&d.automatico
+      ?<div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+        O cadastro na hospedagem é <b>automático</b>: a imobiliária escreve o domínio, o ConHub cadastra no Railway e mostra a ela os registros de DNS para criar. Esta lista é só para acompanhar.</div>
+      :<div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+        <div style={{background:C.amberSoft,color:"#6b561a",borderRadius:10,padding:"9px 11px",marginBottom:10}}>
+          Para a imobiliária fazer tudo sozinha, crie um token no Railway (Account Settings → Tokens) e coloque-o no serviço como <code>RAILWAY_API_TOKEN</code>.
+          {d&&d.falta&&d.falta.filter(v=>v!=="RAILWAY_API_TOKEN").length>0&&<> Faltam também: <code>{d.falta.filter(v=>v!=="RAILWAY_API_TOKEN").join(", ")}</code>.</>}</div>
+        Enquanto isso, ative à mão: no Railway, abra o serviço → Settings → Networking → <b>Custom Domain</b> e adicione o domínio.
+        Copie o destino que ele mostrar (algo como <code>abc123.up.railway.app</code>) e cole aqui — a imobiliária passa a ver para onde apontar o DNS.
+      </div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     {!lista.length&&<div style={{color:C.faint,fontSize:12.5}}>Nenhuma imobiliária cadastrou domínio ainda.</div>}
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -5003,13 +5031,18 @@ function DominiosDosSites({acoes,isMobile}){
             <span style={{color:C.faint,fontSize:11.5}}>{x.org_nome}{x.ligado?"":" · site desligado"}</span>
           </div>
           {x.dominio_detalhe&&<div style={{color:C.sub,fontSize:11.5,marginTop:5,lineHeight:1.45}}>{x.dominio_detalhe}</div>}
-          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+          {d.automatico&&x.automatico?<div style={{display:"flex",gap:8,marginTop:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{color:C.faint,fontSize:11.5,flex:"1 1 200px"}}>Cadastrado no Railway automaticamente{x.dominio_destino?` · destino ${x.dominio_destino}`:""}</span>
+            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,
+              padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado===x.org_id?"Conferindo…":"Conferir de novo"}</button>
+          </div>
+          :<div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
             <input value={rasc[x.org_id]??x.dominio_destino??""} onChange={e=>setRasc(r=>({...r,[x.org_id]:e.target.value}))}
               placeholder="Destino do DNS (ex.: abc123.up.railway.app)" style={{flex:"1 1 220px",minWidth:0,fontSize:isMobile?16:13,
                 border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink,background:C.surface}}/>
             <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,
               padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado===x.org_id?"Conferindo…":"Salvar e conferir"}</button>
-          </div>
+          </div>}
         </div>;})}
     </div>
   </div>;
@@ -14160,22 +14193,24 @@ function TelaSite({acoes,isMobile,aoFechar}){
           <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>O site abre no endereço da imobiliária, como www.suaimobiliaria.com.br.</div>
           {rotulo("Domínio")}
           <input value={f.dominio} onChange={e=>setF({...f,dominio:e.target.value.trim().toLowerCase()})} placeholder="www.suaimobiliaria.com.br" style={entrada} autoCapitalize="none"/>
-          {ajuda("Use o endereço com www. O domínio sem www é aceito também e abre o mesmo site.")}
+          {ajuda("Use o endereço com www. Para quem digitar sem o www também chegar, crie no painel do domínio um redirecionamento do endereço sem www para o com www.")}
           {d.dominio&&f.dominio===d.dominio&&(()=>{
             const est=d.dominio_estado;
             const cor=est==="ativo"?C.greenDeep:est==="aguardando_dns"?"#6b561a":C.sub;
             const fundo=est==="ativo"?C.greenSoft:est==="aguardando_dns"?C.amberSoft:C.surface;
+            /* Os registros vêm do Railway (CNAME de rota + TXT de verificação);
+               sem o cadastro automático, só o CNAME que o ConHub anotou. */
+            const regs=(d.dominio_registros&&d.dominio_registros.length)?d.dominio_registros
+              :d.dominio_destino?[{tipo:"CNAME",nome:d.dominio.startsWith("www.")?"www":d.dominio,valor:d.dominio_destino,ok:false}]:[];
             return <div style={{background:fundo,borderRadius:10,padding:"11px 12px",marginTop:12,color:cor,fontSize:12.5,lineHeight:1.55}}>
-              <div style={{fontWeight:700,marginBottom:4}}>{est==="ativo"?"No ar pelo domínio":est==="aguardando_dns"?"Falta apontar o DNS":"Esperando o ConHub ativar"}</div>
-              {est==="aguardando_conhub"&&<div>Recebemos o domínio. O ConHub ativa ele na hospedagem (é ela que emite o cadeado do https) e aqui aparece para onde apontar o DNS.</div>}
-              {est==="aguardando_dns"&&d.dominio_destino&&<div>
-                No painel onde o domínio foi registrado (Registro.br, GoDaddy, Hostinger…), crie um registro:
-                <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"3px 10px",margin:"8px 0",fontFamily:MONO,fontSize:12,color:C.ink}}>
-                  <span style={{color:C.faint}}>Tipo</span><span>CNAME</span>
-                  <span style={{color:C.faint}}>Nome</span><span>{d.dominio.startsWith("www.")?"www":d.dominio}</span>
-                  <span style={{color:C.faint}}>Destino</span><span style={{overflowWrap:"anywhere"}}>{d.dominio_destino}</span>
-                </div>
-                Depois de criado, pode levar algumas horas para valer.</div>}
+              <div style={{fontWeight:700,marginBottom:4}}>{est==="ativo"?"No ar pelo domínio":est==="aguardando_dns"?"Falta criar os registros no DNS":d.dominio_automatico?"Preparando o domínio":"Esperando o ConHub ativar"}</div>
+              {est==="aguardando_conhub"&&!d.dominio_detalhe&&<div>{d.dominio_automatico
+                ?"O domínio está sendo preparado na hospedagem. Em instantes aparecem aqui os registros para criar no DNS."
+                :"Recebemos o domínio. O ConHub ativa ele na hospedagem (é ela que emite o cadeado do https) e aqui aparece para onde apontar o DNS."}</div>}
+              {est==="aguardando_dns"&&regs.length>0&&<div>
+                No painel onde o domínio foi registrado, crie {regs.length>1?`estes ${regs.length} registros`:"este registro"}. No Registro.br fica em <b>DNS → Editar zona → Nova entrada</b>; se o domínio usa o DNS de outro lugar (Hostinger, Cloudflare…), é lá.
+                {regs.map((r,i)=><RegistroDns key={i} r={r} isMobile={isMobile}/>)}
+                Depois de criar, pode levar algumas horas para valer. O ConHub confere sozinho a cada 15 minutos.</div>}
               {d.dominio_detalhe&&est!=="ativo"&&<div style={{marginTop:6,opacity:.85}}>{d.dominio_detalhe}</div>}
               {est!=="ativo"&&<button onClick={conferirDominio} disabled={conferindo} style={{marginTop:9,border:`1px solid ${C.line}`,background:C.card,color:C.ink,
                 borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{conferindo?"Conferindo…":"Conferir agora"}</button>}

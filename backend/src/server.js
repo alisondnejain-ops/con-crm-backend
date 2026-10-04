@@ -49,6 +49,7 @@ import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js";
 import { processarDisparos } from "./services/disparo.js";
 import { garantirWebhooksEmTodas } from "./services/webhook-uazapi.js";
+import { conferirDominiosPendentes } from "./services/site.js";
 
 const app = express();
 
@@ -499,6 +500,11 @@ app.listen(PORT, () => {
      já existem, e a que alguém configurou errado depois, sem ninguém mexer. */
   setTimeout(() => garantirWebhooksEmTodas(), 20000);
   setInterval(() => garantirWebhooksEmTodas(), 30 * 60000);
+  /* DOMÍNIO PRÓPRIO DO SITE (04/10/2026): o que ainda não está no ar é
+     conferido sozinho a cada 15 minutos — a imobiliária cria o DNS e o site
+     passa a abrir sem ela voltar à tela. `SITE_DOMINIO_AGENDADOR=0` desliga. */
+  if (process.env.SITE_DOMINIO_AGENDADOR !== "0")
+    setInterval(() => conferirDominiosPendentes().catch(e => console.error("[site] conferência:", e.message)), 15 * 60000);
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
