@@ -1598,6 +1598,7 @@ function ConCRM(){
     // só o token chega aqui — ver `tokenizarCartao`.
     salvarCartao:(dados)=>api("/assinatura/cartao",{method:"POST",body:dados}),
     ligarCombinada:()=>api("/assinatura/combinada",{method:"POST",body:{}}),
+    cancelarAssinatura:()=>api("/assinatura/cancelar",{method:"POST",body:{}}),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -5408,7 +5409,7 @@ function CartaoPagarme({dados,acoes,isMobile,aoSalvar,aoCancelar,botao="Salvar c
 
 /* O PLANO NO PAGAR.ME: cartão guardado → um clique. Sem cartão, o formulário
    aparece no lugar do botão; com ele, o botão diz em qual cartão vai sair. */
-function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,aguardandoCartao,fimDoTeste,aoMudar}){
+function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,aguardandoCartao,fimDoTeste,pagoAte,aoMudar}){
   const [trocando,setTrocando]=useState(false);
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
@@ -5450,10 +5451,12 @@ function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,a
           {parcelado
             ?(aguardandoCartao||emTeste
               ?"O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do teste de 14 dias."
+              :pagoAte?`O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir de ${fmtData(pagoAte)}, quando termina o período já pago.`
               :"O anual é cobrado hoje, em 12x no cartão.")
             :(aguardandoCartao
               ?"Nada é cobrado agora: o teste de 14 dias começa com o cartão aceito, e a primeira cobrança só cai no fim dele."
               :emTeste?"Nada é cobrado agora: a primeira cobrança só cai no fim do teste."
+              :pagoAte?`Nada é cobrado agora: a primeira cobrança cai em ${fmtData(pagoAte)}, quando termina o período já pago.`
               :`A primeira cobrança (${fmtMoeda(plano.total)}) sai hoje no cartão.`)}</div>}
         <CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile}
           botao={cartao?"Usar este cartão":parcelado?`Salvar cartão e pagar ${plano.parcelas}x de ${fmtMoeda(plano.mensal)}`:`Salvar cartão e assinar o ${plano.nome}`}
@@ -5480,8 +5483,10 @@ function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,a
         {!(atual&&!parcelado)&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.5}}>
           {parcelado
             ?(emTeste?"Cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do seu teste — os dias grátis continuam seus."
+              :pagoAte?`Cobrado hoje, em 12x no cartão. Os 12 meses contam a partir de ${fmtData(pagoAte)}, quando termina o período já pago.`
               :"Cobrado hoje, em 12x no cartão. Um ano de acesso; no fim dele você renova.")
             :(emTeste&&fimDoTeste?`A primeira cobrança só cai no fim do teste (${fmtData(fimDoTeste)}). Renova sozinho; cancele quando quiser.`
+              :pagoAte?`A primeira cobrança cai em ${fmtData(pagoAte)}, quando termina o período já pago. Renova sozinho; cancele quando quiser.`
               :`Cobrado hoje (${fmtMoeda(plano.total)}) e renova sozinho. Cancele quando quiser.`)}
         </div>}
       </React.Fragment>}
@@ -5618,9 +5623,36 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
   </div>;
 }
 
+/* OS PLANOS AGRUPADOS POR NOME (04/10/2026, pedido do Ali: "seis opções de
+   plano está estranho… escolhe o Essencial e, dentro dele, o prazo"). Cada
+   plano é UM cartão (Essencial, Plus · Básico, Completo) e o ciclo — mensal,
+   semestral, anual — se escolhe dentro dele. A lista do servidor continua
+   sendo uma linha por ciclo (é o que vira cobrança); só a tela agrupa. */
+function familiasDosPlanos(planos){
+  const m=new Map();
+  for(const p of planos){
+    const k=p.plano||"Completo";
+    if(!m.has(k)) m.set(k,{chave:k,nome:k,limite:p.limite,ciclos:[]});
+    m.get(k).ciclos.push(p);
+  }
+  return [...m.values()];
+}
+/* O que o plano traz, olhando TODOS os ciclos: o Essencial ganha o Marketing
+   só no semestral e no anual, e o cartão precisa dizer isso antes do clique. */
+function oQueTrazAFamilia(f){
+  const com=(r)=>f.ciclos.filter(c=>(c.inclui||[]).includes(r));
+  const ia=com("autoatendimento"), mkt=com("marketing");
+  const parte=(lista)=>lista.map(c=>(c.ciclo_nome||"").toLowerCase()).join(" e no ");
+  return {
+    ia: ia.length===f.ciclos.length?"sim":ia.length?"no "+parte(ia):"nao",
+    mkt: mkt.length===f.ciclos.length?"sim":mkt.length?"no "+parte(mkt):"nao",
+  };
+}
+
 function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual}){
   const [d,setD]=useState(null);
   const [escolhido,setEscolhido]=useState("");
+  const [familia,setFamilia]=useState("");
   const [cpf,setCpf]=useState("");
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
@@ -5646,7 +5678,8 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
     acoes.planos().then(r=>{
       setD(r); setCartao(r.pagarme?r.pagarme.cartao:null);
       const sugerido=r.atual||r.escolhido;
-      if(sugerido&&r.planos.some(p=>p.id===sugerido)) setEscolhido(sugerido);
+      const p=sugerido&&r.planos.find(x=>x.id===sugerido);
+      if(p){ setEscolhido(p.id); setFamilia(p.plano||"Completo"); }
     }).catch(e=>setErro(e.message));
   },[]);
   /* O cartão cadastrado em "Cartão de cobrança", no alto do painel, vale aqui
@@ -5708,64 +5741,77 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
       ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
         A cobrança automática ainda não está ligada neste servidor (falta <b>{pm?"PAGARME_SECRET_KEY / PAGARME_PUBLIC_KEY":"ASAAS_API_KEY"}</b>).</div>
       :<React.Fragment>
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))",gap:9}}>
-          {d.planos.map(p=>{
-            const meu=d.atual===p.id, sel=escolhido===p.id;
-            return <button key={p.id} onClick={()=>setEscolhido(sel?"":p.id)}
-              style={{textAlign:"left",cursor:"pointer",background:sel?C.greenSoft:C.surface,
-                border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:13,
-                padding:sel?"12px 13px":"13px 14px",display:"flex",flexDirection:"column",gap:5}}>
-              {/* O SELO FICA AO LADO DO NOME, e não embaixo. (02/09/2026)
-
-                  Antes esta linha quebrava: "Semestral" é mais largo que
-                  "Anual", e o conjunto nome + selo passava da largura do card
-                  por poucos pixels — então o "-R$ 360/ano" descia sozinho para
-                  a segunda linha enquanto o "-R$ 600/ano" do anual ficava ao
-                  lado. Os três cards viravam três alturas diferentes, e a
-                  comparação entre planos, que é o que esta tela existe para
-                  permitir, deixava de acontecer na horizontal.
-
-                  O nome encolhe (`minWidth:0`) antes de o selo descer: o selo é
-                  a razão de existir do semestral e do anual, e "Semestral"
-                  cortado ainda se lê — a economia escondida, não. */}
-              <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
-                <span style={{color:C.ink,fontSize:13,fontWeight:700,minWidth:0,
-                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nome}</span>
-                {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,
-                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>SEU PLANO</span>}
-                {/* Só quando NÃO há plano contratado: com um contratado, a
-                    pergunta desta tela é "quer trocar?", e lembrar do que foi
-                    escolhido antes de assinar só atrapalharia a leitura. O
-                    selo existe para a pessoa reconhecer a própria escolha —
-                    sem ele, a tela parece ter adivinhado sozinha. */}
-                {!d.atual&&d.escolhido===p.id&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,
-                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>ESCOLHIDO NO SITE</span>}
-                {/* A economia é a razão de existir do semestral e do anual.
-                    Sem ela na frente, os três viram três preços soltos. */}
-                {p.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,
-                  padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>-{fmtMoeda(p.economia_ano)}/ano</span>}
+        {(()=>{
+          const fams=familiasDosPlanos(d.planos);
+          const famSel=fams.find(f=>f.chave===familia);
+          const linhaTraz=(estado,rotulo)=>estado==="nao"
+            ?<div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Sem {rotulo}</div>
+            :<div style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+              <Icon n="check" size={11}/>{rotulo}{estado==="sim"?"":` ${estado}`}</div>;
+          return <React.Fragment>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(fams.length,3)},minmax(0,1fr))`,gap:9}}>
+              {fams.map(f=>{
+                const sel=familia===f.chave, meu=f.ciclos.some(c=>c.id===d.atual);
+                const desde=Math.min(...f.ciclos.map(c=>c.mensal));
+                const traz=oQueTrazAFamilia(f);
+                return <button key={f.chave} onClick={()=>{
+                    if(sel){ setFamilia(""); setEscolhido(""); return; }
+                    setFamilia(f.chave);
+                    const atualAqui=f.ciclos.find(c=>c.id===d.atual);
+                    setEscolhido((atualAqui||f.ciclos[0]).id);
+                  }}
+                  style={{textAlign:"left",cursor:"pointer",background:sel?C.greenSoft:C.surface,
+                    border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:13,
+                    padding:sel?"12px 13px":"13px 14px",display:"flex",flexDirection:"column",gap:5}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                    <span style={{color:C.ink,fontSize:14,fontWeight:700,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nome}</span>
+                    {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>SEU PLANO</span>}
+                    {!d.atual&&f.ciclos.some(c=>c.id===d.escolhido)&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>ESCOLHIDO NO SITE</span>}
+                  </div>
+                  <div style={{color:C.faint,fontSize:11}}>{f.limite}</div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                    {f.ciclos.length>1&&<span style={{color:C.faint,fontSize:11}}>a partir de</span>}
+                    <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{fmtMoeda(desde)}</span>
+                    <span style={{color:C.faint,fontSize:11}}>/mês</span>
+                  </div>
+                  {f.ciclos.length===1&&<div style={{color:C.faint,fontSize:10.5}}>Só no mensal</div>}
+                  {linhaTraz(traz.ia,"Autoatendimento com IA")}
+                  {linhaTraz(traz.mkt,"Marketing (disparos e fluxos)")}
+                </button>;})}
+            </div>
+            {/* O PRAZO, dentro do plano escolhido. */}
+            {famSel&&famSel.ciclos.length>1&&<div style={{marginTop:10}}>
+              <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:6}}>Prazo do {famSel.nome}</div>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(${famSel.ciclos.length},minmax(0,1fr))`,gap:7}}>
+                {famSel.ciclos.map(c=>{
+                  const sel=escolhido===c.id, meu=d.atual===c.id;
+                  return <button key={c.id} onClick={()=>setEscolhido(c.id)}
+                    style={{textAlign:"left",cursor:"pointer",background:sel?C.card:C.surface,
+                      border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:11,padding:sel?"9px 10px":"10px 11px",
+                      display:"flex",flexDirection:"column",gap:3}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                      <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{c.ciclo_nome}</span>
+                      {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999}}>ATUAL</span>}
+                      {c.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999,whiteSpace:"nowrap"}}>-{fmtMoeda(c.economia_ano)}/ano</span>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:3}}>
+                      <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{fmtMoeda(c.mensal)}</span>
+                      <span style={{color:C.faint,fontSize:10.5}}>/mês</span>
+                    </div>
+                    <div style={{color:C.sub,fontSize:10.5,lineHeight:1.4}}>
+                      {c.forma==="parcelado"?`${c.parcelas}x de ${fmtMoeda(c.parcela)} no cartão`
+                        :c.meses===1?"Cobrado todo mês":`${fmtMoeda(c.total)} a cada ${c.meses} meses`}</div>
+                    {(c.inclui||[]).includes("marketing")&&!famSel.ciclos.every(x=>(x.inclui||[]).includes("marketing"))&&
+                      <div style={{color:C.greenDeep,fontSize:10,fontWeight:600}}>+ Marketing incluso</div>}
+                  </button>;})}
               </div>
-              <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:22,fontWeight:700,lineHeight:1}}>{fmtMoeda(p.mensal)}</span>
-                <span style={{color:C.faint,fontSize:11}}>/mês</span>
-              </div>
-              <div style={{color:C.sub,fontSize:11,lineHeight:1.45}}>
-                {p.forma==="parcelado"
-                  ? `${p.parcelas}x de ${fmtMoeda(p.parcela)} no cartão`
-                  : p.meses===1 ? `Cobrado ${fmtMoeda(p.total)} por mês`
-                  : `Cobrado ${fmtMoeda(p.total)} a cada ${p.meses} meses`}
-              </div>
-              <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>{p.resumo}</div>
-              {/* O que o plano traz, escrito no card: é a diferença entre o
-                  básico e o completo, e sem ela os dois seriam dois preços. */}
-              {Array.isArray(p.inclui)&&(p.inclui.includes("autoatendimento")
-                ?<div style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
-                  <Icon n="check" size={11}/>Autoatendimento com IA</div>
-                :<div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Sem Autoatendimento com IA</div>)}
-            </button>;})}
-        </div>
+            </div>}
+          </React.Fragment>;
+        })()}
 
-        {pm&&plano&&<PlanoNoPagarme key={plano.id} plano={plano} pm={pm} cartao={cartao} aoCartao={setCartao} atual={d.atual===plano.id}
+        {pm&&plano&&<PlanoNoPagarme key={plano.id} plano={plano} pm={pm} cartao={cartao} aoCartao={setCartao}
+          atual={d.atual===plano.id&&!(atualSituacao&&atualSituacao.cancelada_em)}
+          pagoAte={!emTeste&&!aguardandoCartao&&atualSituacao&&atualSituacao.vence_em>Date.now()+86400000?atualSituacao.vence_em:null}
           acoes={acoes} isMobile={isMobile} emTeste={emTeste} aguardandoCartao={aguardandoCartao}
           fimDoTeste={emTeste?atualSituacao.vence_em:null} aoMudar={aoMudar}/>}
         {!pm&&plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
@@ -5934,6 +5980,52 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
   </div>;
 }
 
+/* CANCELAR A ASSINATURA (04/10/2026, pedido do Ali: "uma opção discreta, mas
+   disponível"). Um link pequeno no fim do painel; o clique pede confirmação
+   escrita com a data até quando o acesso continua — cancelar não corta o que
+   já foi pago, só as próximas cobranças. */
+function CancelarAssinatura({a,acoes,aoMudar}){
+  const [confirmar,setConfirmar]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const c=a.cancelamento||{};
+  if(a.cancelada_em) return <div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px"}}>
+    Assinatura cancelada em {fmtData(a.cancelada_em)}. Nada mais será cobrado{a.acesso_ate?<React.Fragment>, e o acesso continua até <b>{fmtData(a.acesso_ate)}</b></React.Fragment>:""}.
+    Para voltar, escolha um plano acima.</div>;
+  if(!c.pode){
+    if(c.motivo==="anual"&&a.vence_em) return <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5}}>
+      O plano anual não renova sozinho: o acesso vai até {fmtData(a.vence_em)}.</div>;
+    return null;
+  }
+  async function cancelar(){
+    setErro("");setOcupado(true);
+    try{ await acoes.cancelarAssinatura(); setConfirmar(false); if(aoMudar) await aoMudar(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  const ate=a.vence_em;
+  return <div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
+    {!confirmar
+      ?<button onClick={()=>setConfirmar(true)}
+        style={{background:"none",border:"none",padding:0,color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>
+        Cancelar assinatura</button>
+      :<div style={{border:`1px solid ${C.line}`,borderRadius:11,padding:11,background:C.surface}}>
+        <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
+          Cancelar a assinatura? Nenhuma cobrança nova será feita{ate?<React.Fragment>, e o acesso continua até <b>{fmtData(ate)}</b></React.Fragment>:""}.
+          {a.status==="teste"?" Cancelando no teste, você não paga nada.":""}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={()=>setConfirmar(false)} disabled={ocupado}
+            style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            Manter assinatura</button>
+          <button onClick={cancelar} disabled={ocupado}
+            style={{background:"transparent",color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"10px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            {ocupado?"Cancelando…":"Sim, cancelar"}</button>
+        </div>
+      </div>}
+  </div>;
+}
+
 function PainelAssinatura({acoes,isMobile,autonomo}){
   /* O PAINEL MANUAL DE MENSALIDADE FOI REMOVIDO (22/09/2026, pedido do Ali,
      depois de continuar vendo a seção antiga num print: "essa seção não faz
@@ -5991,6 +6083,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
       {pm.combinada&&<div style={sep}><MensalidadeCombinada pm={pm} acoes={acoes} aoMudar={rever}/></div>}
       {pm.configurado&&<GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever} cartaoAtual={pm.cartao}/>}
       {pm.configurado&&<div style={sep}><FerramentasDaConta acoes={acoes} isMobile={isMobile} versao={chave}/></div>}
+      {pm.configurado&&<div style={sep}><CancelarAssinatura a={a} acoes={acoes} aoMudar={rever}/></div>}
     </div>;
   }
 
@@ -5998,7 +6091,8 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
      ConHub no meio. */
   if(autonomo)
     return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
-      {(a.asaas||a.provedor==="pagarme")&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}</div>;
+      {(a.asaas||a.provedor==="pagarme")&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}
+      <CancelarAssinatura a={a} acoes={acoes} aoMudar={rever}/></div>;
 
   /* IMOBILIÁRIA COM PREÇO NEGOCIADO: o único campo que falta é o CPF/CNPJ —
      nome, e-mail e telefone o CRM já tem, e o valor é o que o master
@@ -6068,6 +6162,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
           </React.Fragment>}
       </React.Fragment>}
     <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>
+    <CancelarAssinatura a={a} acoes={acoes} aoMudar={rever}/>
   </div>;
 }
 

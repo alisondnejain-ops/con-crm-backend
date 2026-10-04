@@ -50,7 +50,7 @@ export function ehDono(orgId, userId) {
   return donoDa(orgId) === userId;
 }
 
-const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
+export const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
 
 /* Recalcula o vencimento a partir da base e dos MESES pagos.
 
@@ -117,14 +117,24 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
   /* Qual plano de prateleira está valendo. Só do autônomo, e só para o dono:
      é o que a tela de gerenciar assinatura marca como "seu plano atual". */
   const escolhido = planoPorId(org.plano_id);
+  /* Cancelada pelo cliente: o acesso vai até o que já foi pago — o fim do
+     teste (se nada foi pago) ou o vencimento. Passada a data, trava sem a
+     carência de atraso: não há cobrança pendente a esperar. */
+  const pagosAqui = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId).n;
+  const acessoAte = org.cancelado_em ? ((!pagosAqui && org.trial_ate) || org.vence_em || null) : null;
   const conforme = (s) => dono
     ? { ...s, dono, plano_id: org.plano_id || null,
+        cancelada_em: org.cancelado_em || null, acesso_ate: acessoAte,
         plano_nome: escolhido ? escolhido.nome : null,
         plano_renova: escolhido ? escolhido.forma === "assinatura" : null }
     : {
     status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo, teste: s.teste,
     dias: s.dias, atraso: s.atraso, restam: s.restam, carencia: s.carencia,
   };
+
+  if (org.cancelado_em && (!acessoAte || meiaNoite(acessoAte) < meiaNoite(Date.now())))
+    return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada. Para voltar, escolha um plano.",
+      plano: org.plano, valor: org.valor_mensal });
 
   if (org.assinatura_status === "cancelado")
     return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });

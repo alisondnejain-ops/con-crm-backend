@@ -23,6 +23,11 @@
     9. Só o dono mexe na cobrança.
    10. Preço combinado (a Conecta): guardar o cartão não cobra; a mensalidade
        liga com a primeira cobrança no próximo vencimento.
+   11. Trocar de plano no meio do período pago começa no vencimento; o Marketing
+       vem no Essencial semestral/anual e no Plus, não no Essencial mensal.
+   12. O cliente cancela: nada mais é cobrado, o acesso vai até o que foi pago,
+       o aviso de cancelamento do Pagar.me não trava antes da hora, e passado
+       o prazo a conta trava.
 
    Rodar:  npm run teste:pagarme
 */
@@ -407,6 +412,10 @@ try {
   await aviso({ type: "charge.paid", data: { id: cobrancaConecta.id } });
   assert.equal(pagamentos(conecta.org).length, 1, "a cobrança do vencimento credita um mês");
   assert.equal(pagamentos(conecta.org)[0].meses, 1);
+  {
+    const d = new Date(VENCE_CONECTA); d.setMonth(d.getMonth() + 1);
+    assert.equal(linhaOrg(conecta.org).vence_em, d.getTime(), "o mês pago conta a partir do vencimento combinado");
+  }
   r = await chamar(tConecta, "/assinatura");
   assert.equal(r.body.pagarme.combinada.ligada, true);
 
@@ -421,6 +430,71 @@ try {
   assert.equal(pagamentos(atrasada.org).length, 1);
   r = await chamar(tSite, "/assinatura/combinada", "POST", {});
   assert.equal(r.status, 409, "conta com plano da tabela não usa a mensalidade combinada");
+
+  caso("Trocar de plano no meio do período pago começa no vencimento, e o Marketing vem com o plano");
+  const { temRecurso: tem } = await import("../src/services/recursos.js");
+  const { planoPorId } = await import("../src/services/planos.js");
+  assert.equal(planoPorId("essencial-mensal").inclui.includes("marketing"), false, "o Essencial mensal não traz Marketing");
+  for (const id of ["essencial-semestral", "essencial-anual", "plus-mensal", "plus-semestral", "plus-anual"])
+    assert.ok(planoPorId(id).inclui.includes("marketing"), `${id} traz Marketing`);
+  assert.ok(!planoPorId("mensal").inclui.includes("marketing"), "o corretor autônomo continua sem");
+  assert.equal(tem(conecta.org, "marketing"), false);
+  const pagoAteConecta = linhaOrg(conecta.org).vence_em;
+  const subCombinada = linhaOrg(conecta.org).pagarme_subscription_id;
+  r = await chamar(tConecta, "/assinatura/plano", "POST", { plano_id: "essencial-semestral" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.pago, false, "o período já pago não é cobrado de novo");
+  sub = [...pm.assinaturas.values()].at(-1);
+  const isoPagoAte = new Date(pagoAteConecta - new Date(pagoAteConecta).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  assert.equal(sub.start_at, isoPagoAte, "a assinatura nova começa no vencimento");
+  assert.equal(sub.interval_count, 6);
+  assert.ok(pm.canceladas.includes(subCombinada), "a mensalidade combinada sai");
+  assert.equal(linhaOrg(conecta.org).vence_em, pagoAteConecta, "o vencimento não anda para trás nem para frente");
+  assert.equal(tem(conecta.org, "marketing"), true, "Essencial semestral traz o Marketing");
+  const semestral = novaCobranca({ amount: 256200, customer_id: linhaOrg(conecta.org).pagarme_customer_id, invoice: { subscription_id: sub.id } });
+  await aviso({ type: "charge.paid", data: { id: semestral.id } });
+  {
+    const d = new Date(pagoAteConecta); d.setMonth(d.getMonth() + 6);
+    assert.equal(linhaOrg(conecta.org).vence_em, d.getTime(), "seis meses a partir do vencimento, sem somar os meses antigos de novo");
+  }
+
+  caso("O cliente cancela: nada mais é cobrado e o acesso vai até o que foi pago");
+  r = await chamar(tConecta, "/assinatura");
+  assert.equal(r.body.cancelamento.pode, true);
+  const subParaCancelar = linhaOrg(conecta.org).pagarme_subscription_id;
+  r = await chamar(tConecta, "/assinatura/cancelar", "POST", {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(pm.canceladas.includes(subParaCancelar), "cancelado no Pagar.me");
+  assert.notEqual(r.body.status, "bloqueado", "o acesso continua até o vencimento");
+  assert.equal(r.body.acesso_ate, linhaOrg(conecta.org).vence_em);
+  assert.ok(r.body.cancelada_em);
+  await aviso({ type: "subscription.canceled", data: { id: subParaCancelar } });
+  r = await chamar(tConecta, "/assinatura");
+  assert.notEqual(r.body.status, "bloqueado", "o aviso de cancelamento do Pagar.me não trava antes da hora");
+  assert.equal(r.body.cancelamento.pode, false);
+  r = await chamar(tConecta, "/assinatura/cancelar", "POST", {});
+  assert.equal(r.status, 409);
+  db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
+    VALUES (?,?,?,?,?,'sdr',1,?,'ativo')`).run("u_" + randomUUID(), conecta.org, "Atendente Conecta", "at-conecta@pm.com", senha, Date.now());
+  r = await chamar(await login("at-conecta@pm.com"), "/assinatura/cancelar", "POST", {});
+  assert.equal(r.status, 403, "só o titular cancela");
+  // Passado o que foi pago, a conta trava, sem carência.
+  db.prepare("UPDATE orgs SET vence_em = ?, vence_base = NULL WHERE id = ?").run(Date.now() - 2 * DIA, conecta.org);
+  db.prepare("DELETE FROM pagamentos WHERE org_id = ?").run(conecta.org);
+  r = await chamar(tConecta, "/assinatura");
+  assert.equal(r.body.status, "bloqueado");
+  assert.match(r.body.motivo, /cancelada/);
+  // Escolher um plano de novo volta.
+  r = await chamar(tConecta, "/assinatura/plano", "POST", { plano_id: "essencial-mensal" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(linhaOrg(conecta.org).cancelado_em, null);
+  assert.equal(r.body.pago, true, "sem período pago pela frente, cobra hoje");
+  // O anual do Pagar.me não tem cobrança futura para cancelar.
+  r = await chamar(tSite, "/assinatura");
+  assert.equal(r.body.cancelamento.motivo, "anual");
+  r = await chamar(tSite, "/assinatura/cancelar", "POST", {});
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /anual/);
 
   console.log("\nTudo certo ✅");
 } catch (e) {

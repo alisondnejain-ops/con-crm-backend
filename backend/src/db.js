@@ -913,6 +913,10 @@ addOrgCol("pagarme_card_id", "TEXT");
 addOrgCol("pagarme_card_json", "TEXT");
 addOrgCol("pagarme_subscription_id", "TEXT");
 addOrgCol("pagarme_order_id", "TEXT");
+/* O CLIENTE CANCELOU A ASSINATURA (04/10/2026). Não trava na hora: o que já
+   foi pago vale até o fim (vencimento ou fim do teste). Escolher um plano de
+   novo zera a marca. */
+addOrgCol("cancelado_em", "INTEGER");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");
