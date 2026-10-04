@@ -16,9 +16,17 @@
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;background:#F4F6F5;font-family:'Inter',sans-serif;color:#14181F;
        display:flex;align-items:center;justify-content:center;padding:20px}
-  .card{width:100%;max-width:900px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;overflow:hidden;
+  .card{width:100%;max-width:900px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;overflow:hidden;overflow:clip;
         box-shadow:0 20px 60px rgba(0,0,0,.10);display:grid;grid-template-columns:1fr 1fr}
-  .side{background:#0A3D30;color:#fff;padding:36px;display:flex;flex-direction:column;justify-content:space-between;gap:28px}
+  .side{background:#0A3D30;color:#fff;padding:36px}
+  /* TUDO NO ALTO, COMO NO CHECKOUT DO STRIPE (04/10/2026, pedido do Ali): a
+     marca, a promessa e os passos ficam na primeira dobra, e acompanham a
+     rolagem enquanto a pessoa preenche o cartão. Antes a coluna jogava o texto
+     para o pé, e com o formulário do cartão ele só aparecia no fim da página. */
+  /* overflow:clip no cartão (e não só hidden): hidden cria uma área de rolagem
+     própria, e aí o sticky se prende ao cartão, que não rola — a coluna ficava
+     vazia ao descer. Navegador antigo fica com o hidden e só não acompanha. */
+  .side-fixo{position:sticky;top:36px;display:flex;flex-direction:column;gap:30px}
   .logo{display:flex;align-items:center;gap:10px}
   .assinatura{display:block;height:30px;width:auto}
   .tag{font-size:10px;letter-spacing:.6px;color:rgba(255,255,255,.55);margin-top:6px}
@@ -68,7 +76,8 @@
   .cadeado{display:flex;gap:7px;font-size:11.5px;color:#8A93A0;line-height:1.5;margin-top:10px}
   @media (max-width:760px){
     .card{grid-template-columns:1fr}
-    .side{padding:26px;gap:18px}
+    .side{padding:26px}
+    .side-fixo{position:static;gap:18px}
     .side h1{font-size:21px}
     .form{padding:26px}
   }
@@ -77,6 +86,7 @@
 <body>
 <div class="card">
   <div class="side">
+   <div class="side-fixo">
     <div>
       <div class="logo">
         <div>
@@ -88,7 +98,7 @@
     <div>
       <div class="selo">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-        7 dias grátis · cartão necessário para começar
+        7 dias grátis para testar
       </div>
       <h1>Nenhum cliente esperando resposta.</h1>
       <p>Seu WhatsApp, seu funil e a sua produtividade num lugar só — do jeito que
@@ -100,6 +110,7 @@
         <li><b>4</b><span>Depois de 7 dias, a cobrança acontece sozinha — cancele antes se não quiser continuar.</span></li>
       </ul>
     </div>
+   </div>
   </div>
 
   <div class="form">
