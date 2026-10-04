@@ -11,6 +11,8 @@ import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from
 import { RECURSOS, ehRecurso, recursosDaOrg, situacaoDoRecurso, registrarContratacao, avulsoDaAssinatura,
   avulsoPago, avulsoCancelado } from "../services/recursos.js";
 import { cobrancasDaAssinatura } from "../services/asaas.js";
+import * as pagarme from "../services/pagarme.js";
+import { provedorDe } from "../services/cobranca.js";
 
 const r = Router();
 
@@ -209,8 +211,26 @@ r.get("/assinatura", authRequired, async (req, res) => {
        caminhos que criam cobrança de verdade (mensal, semestral e anual de
        prateleira, e a ativação por CPF da imobiliária negociada) — é o sinal
        que sobrevive aos três. */
-    asaas_ligado: dono ? !!orgAtual.asaas_customer_id : undefined });
+    asaas_ligado: dono ? !!orgAtual.asaas_customer_id : undefined,
+    /* QUAL PROVEDOR COBRA ESTA CONTA (04/10/2026). É o que decide se a tela
+       abre a fatura do Asaas ou o formulário de cartão do ConHub. */
+    provedor: dono ? provedorDe(orgAtual) : undefined,
+    pagarme: dono && provedorDe(orgAtual) === "pagarme" ? dadosDoPagarme(orgAtual) : undefined });
 });
+
+/* O que a tela precisa para cobrar pelo Pagar.me: a chave PÚBLICA (só cria
+   token de cartão), o cartão guardado (bandeira e final) e se ainda falta o
+   CPF/CNPJ — que só é pedido na primeira vez. */
+function dadosDoPagarme(org) {
+  let cartao = null;
+  try { cartao = org.pagarme_card_json ? JSON.parse(org.pagarme_card_json) : null; } catch {}
+  return {
+    configurado: pagarme.pagarmeConfigurado(), ambiente: pagarme.ambientePagarme(),
+    chave_publica: pagarme.CHAVE_PUBLICA() || null,
+    cartao: org.pagarme_card_id ? cartao : null,
+    pede_cpf: !org.pagarme_customer_id,
+  };
+}
 
 // Histórico de pagamentos — a lista que dá para conferir, corrigir e apagar.
 r.get("/assinatura/pagamentos", authRequired, soDono, (req, res) => {
@@ -360,6 +380,10 @@ r.get("/assinatura/gestores", authRequired, soDono, (req, res) => {
    digita. Master continua podendo mandar o valor no corpo, porque é ele quem
    está configurando a conta. */
 r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
+  /* Conta que o master passou para o Pagar.me não ganha cobrança nova no
+     Asaas por este caminho — seria cobrança nos dois provedores. */
+  if (provedorDe(orgCompleta(req.user.org_id)) === "pagarme")
+    return res.status(409).json({ error: "A cobrança desta conta é pelo Pagar.me. Escolha o plano em Gerenciar assinatura ou fale com o ConHub." });
   if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const { cpfCnpj, vencimento } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
@@ -437,8 +461,12 @@ r.get("/assinatura/planos", authRequired, soDono, comPrateleira, (req, res) => {
        na tela que decide se ela paga ou some. */
     escolhido: org.plano_escolhido || null,
     asaas: asaasConfigurado(), ambiente: ambienteAsaas(),
+    provedor: provedorDe(orgCompleta(req.user.org_id)),
+    pagarme: provedorDe(orgCompleta(req.user.org_id)) === "pagarme" ? dadosDoPagarme(orgCompleta(req.user.org_id)) : undefined,
   });
 });
+
+const orgCompleta = (id) => db.prepare("SELECT * FROM orgs WHERE id = ?").get(id);
 
 /* QUEM PAGA, NO ASAAS — um lugar só para o plano e para a ferramenta avulsa.
    Nome, e-mail e telefone o CRM já tem (são os do titular); o CPF/CNPJ é o
@@ -481,6 +509,7 @@ async function clienteDoAsaas(org, userId, cpfCnpj) {
    da tabela do servidor. É a mesma trava de 27/08/2026, que existe porque a
    rota é `soDono` e num cliente o dono é ele mesmo. */
 r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res) => {
+  if (provedorDe(orgCompleta(req.user.org_id)) === "pagarme") return contratarPlanoPagarme(req, res);
   if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const { plano_id, cpfCnpj } = req.body || {};
   /* O plano tem que existir E ser da família desta conta. As duas perguntas
@@ -568,7 +597,8 @@ const PAGO = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
 /* Segunda chance além do webhook: a ferramenta contratada e ainda não
    confirmada é conferida no Asaas quando a tela abre. Nunca lança. */
 async function conferirAvulsosPendentes(orgId) {
-  for (const l of db.prepare("SELECT * FROM org_recursos WHERE org_id = ? AND avulso_status = 'aguardando' AND avulso_sub_id IS NOT NULL").all(orgId)) {
+  for (const l of db.prepare(`SELECT * FROM org_recursos WHERE org_id = ? AND avulso_status = 'aguardando'
+      AND avulso_sub_id IS NOT NULL AND COALESCE(avulso_provedor, 'asaas') = 'asaas'`).all(orgId)) {
     try {
       const pago = ((await cobrancasDaAssinatura(l.avulso_sub_id))?.data || []).find(c => PAGO.includes(c.status));
       if (pago) avulsoPago(l, pago.id);
@@ -578,9 +608,13 @@ async function conferirAvulsosPendentes(orgId) {
 
 r.get("/assinatura/recursos", authRequired, soDono, async (req, res) => {
   if (asaasConfigurado()) await conferirAvulsosPendentes(req.user.org_id);
-  const org = db.prepare("SELECT plano_id, asaas_customer_id FROM orgs WHERE id = ?").get(req.user.org_id);
+  if (pagarme.pagarmeConfigurado()) await conferirAvulsosPagarme(req.user.org_id);
+  const org = orgCompleta(req.user.org_id);
+  const provedor = provedorDe(org);
   res.json({ recursos: recursosDaOrg(req.user.org_id), plano: planoPorId(org.plano_id)?.nome || null,
-    pede_cpf: !org.asaas_customer_id, asaas: asaasConfigurado() });
+    pede_cpf: provedor === "pagarme" ? !org.pagarme_customer_id : !org.asaas_customer_id,
+    asaas: asaasConfigurado(), provedor,
+    pagarme: provedor === "pagarme" ? dadosDoPagarme(org) : undefined });
 });
 
 /* Contrata a ferramenta avulsa: assinatura MENSAL própria no Asaas, no
@@ -589,7 +623,8 @@ r.get("/assinatura/recursos", authRequired, soDono, async (req, res) => {
 r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) => {
   const recurso = req.params.recurso;
   if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
-  if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
+  const pelaPagarme = provedorDe(orgCompleta(req.user.org_id)) === "pagarme";
+  if (!pelaPagarme && !asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const antes = situacaoDoRecurso(req.user.org_id, recurso);
   if (antes.master === "retirado")
     return res.status(403).json({ error: "Esta ferramenta foi desligada pelo ConHub nesta conta. Fale com a gente." });
@@ -597,6 +632,7 @@ r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) =
     return res.status(409).json({ error: antes.origem === "plano" ? "Esta ferramenta já vem no seu plano." : "Esta ferramenta já está ligada na sua conta." });
 
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
+  if (provedorDe(org) === "pagarme") return contratarFerramentaPagarme(req, res, org, recurso);
   const recusa = conferirDadosDoCliente(org, req.user.id, req.body?.cpfCnpj);
   if (recusa) return res.status(400).json({ error: recusa });
 
@@ -635,11 +671,313 @@ r.delete("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res)
   const l = db.prepare("SELECT * FROM org_recursos WHERE org_id = ? AND recurso = ?").get(req.user.org_id, recurso);
   if (!l?.avulso_sub_id || !["aguardando", "ativo"].includes(l.avulso_status))
     return res.status(404).json({ error: "Esta ferramenta não está contratada avulsa." });
-  try { await cancelarAssinatura(l.avulso_sub_id); }
-  catch (e) { return res.status(502).json({ error: "O Asaas não confirmou o cancelamento: " + e.message }); }
+  if (l.avulso_provedor === "pagarme") {
+    try { await pagarme.cancelarAssinatura(l.avulso_sub_id); }
+    catch (e) { return res.status(502).json({ error: "O Pagar.me não confirmou o cancelamento: " + e.message }); }
+  } else {
+    try { await cancelarAssinatura(l.avulso_sub_id); }
+    catch (e) { return res.status(502).json({ error: "O Asaas não confirmou o cancelamento: " + e.message }); }
+  }
   avulsoCancelado(l);
   console.log(`[asaas] ${req.user.name} cancelou ${RECURSOS[recurso].nome} avulso`);
   res.json({ ok: true, recurso: situacaoDoRecurso(req.user.org_id, recurso) });
 });
+
+/* ===== COBRANÇA PELO PAGAR.ME (04/10/2026) — ver services/pagarme.js =====
+
+   O que muda em relação ao Asaas é o lugar do cartão: no Asaas a pessoa ia
+   para a fatura hospedada e digitava o cartão lá; aqui ela digita DENTRO do
+   ConHub, num formulário que manda o número direto do navegador para o
+   Pagar.me (com a chave pública) e devolve só um token. É esse token que
+   chega a estas rotas — o número do cartão nunca passa pelo nosso servidor.
+
+   Com o cartão guardado no cliente do Pagar.me, plano e ferramenta passam a
+   ser UM clique: a cobrança sai no cartão que já está lá. */
+const dataISO = (ms) => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const brl = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function exigePagarme(res) {
+  if (pagarme.pagarmeConfigurado()) return false;
+  res.status(503).json({ error: "O Pagar.me não está configurado no servidor (PAGARME_SECRET_KEY e PAGARME_PUBLIC_KEY)." });
+  return true;
+}
+
+async function clienteDoPagarme(org, userId, cpfCnpj) {
+  if (org.pagarme_customer_id) return org.pagarme_customer_id;
+  const t = titularDaConta(org, userId);
+  const c = await pagarme.criarCliente({ nome: t.nome, email: t.email, telefone: t.telefone, documento: cpfCnpj, orgId: org.id });
+  db.prepare("UPDATE orgs SET pagarme_customer_id = ? WHERE id = ?").run(c.id, org.id);
+  return c.id;
+}
+
+/* GUARDA (OU TROCA) O CARTÃO. Não cobra nada: é o passo que dá o "um clique"
+   ao resto. Nas contas do site, que exigem cartão para começar o teste, é
+   também o que COMEÇA o teste — o mesmo `cartao_confirmado_em` que, no
+   Asaas, só chegava depois da fatura. Aqui o cartão é confirmado na hora,
+   porque é o próprio Pagar.me que o aceita (ou recusa) ao guardar. */
+r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  if (provedorDe(org) !== "pagarme") return res.status(409).json({ error: "A cobrança desta conta é pelo Asaas." });
+  if (exigePagarme(res)) return;
+  const token = String(req.body?.token || "");
+  if (!/^token_[A-Za-z0-9]+$/.test(token)) return res.status(400).json({ error: "Os dados do cartão não chegaram. Digite de novo." });
+  const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
+  if (!org.pagarme_customer_id && doc.length !== 11 && doc.length !== 14)
+    return res.status(400).json({ error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)." });
+  const t = titularDaConta(org, req.user.id);
+  if (!t.nome || !t.email) return res.status(400).json({ error: "A sua conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo." });
+
+  try {
+    const clienteId = await clienteDoPagarme(org, req.user.id, doc);
+    const cartao = await pagarme.salvarCartao(clienteId, token);
+    const resumo = pagarme.resumoDoCartao(cartao);
+    const antigo = org.pagarme_card_id;
+
+    /* As assinaturas que já existem passam para o cartão novo — a mensalidade
+       e cada ferramenta avulsa. Se alguma não trocar, o cartão velho NÃO é
+       apagado: apagar deixaria aquela assinatura sem cartão nenhum. */
+    const assinaturas = [org.pagarme_subscription_id,
+      ...db.prepare(`SELECT avulso_sub_id FROM org_recursos WHERE org_id = ? AND avulso_provedor = 'pagarme'
+          AND avulso_status IN ('aguardando','ativo') AND avulso_sub_id IS NOT NULL`).all(org.id).map(x => x.avulso_sub_id)]
+      .filter(Boolean);
+    let todasTrocaram = true;
+    for (const sub of assinaturas) {
+      try { await pagarme.trocarCartaoDaAssinatura(sub, cartao.id); }
+      catch (e) { todasTrocaram = false; console.warn(`[pagarme] a assinatura ${sub} não passou para o cartão novo: ${e.message}`); }
+    }
+    db.prepare("UPDATE orgs SET pagarme_card_id = ?, pagarme_card_json = ? WHERE id = ?")
+      .run(cartao.id, JSON.stringify(resumo), org.id);
+    if (antigo && antigo !== cartao.id && todasTrocaram) {
+      try { await pagarme.apagarCartao(clienteId, antigo); } catch (e) { console.warn(`[pagarme] cartão antigo não apagado: ${e.message}`); }
+    }
+
+    if (org.exige_cartao && !org.cartao_confirmado_em) {
+      const agora = Date.now();
+      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?").run(agora, agora + 14 * 86400000, org.id);
+      console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+    }
+    res.json({ ok: true, cartao: resumo,
+      aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o ConHub.",
+      ...situacao(org.id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+/* Um pagamento confirmado do PLANO: grava no histórico com o id da cobrança
+   (é o que impede o webhook repetido de dar dois meses) e anda o vencimento. */
+function creditarPlano(orgId, cobranca) {
+  const org = orgCompleta(orgId);
+  const valor = Number(cobranca.amount || cobranca.paid_amount || 0) / 100;
+  return registrarPagamento(orgId, { valor, origem: "pagarme", asaasId: cobranca.id,
+    meses: mesesPagos(org.plano_id, valor) });
+}
+
+/* A primeira cobrança já saiu? O Pagar.me cobra a assinatura sem `start_at` e
+   o pedido na hora — conferir logo depois evita a tela dizer "aguardando" por
+   causa de um webhook que ainda não chegou. Nunca lança: o webhook continua
+   sendo o caminho principal. */
+async function cobrancaPagaDaAssinatura(subId) {
+  try {
+    const lista = (await pagarme.faturasDaAssinatura(subId))?.data || [];
+    const paga = lista.find(f => pagarme.PAGA.has(f.status) && f.charge && f.charge.id);
+    return paga ? { ...paga.charge, amount: paga.charge.amount ?? paga.amount } : null;
+  } catch (e) { console.warn(`[pagarme] não consegui conferir a assinatura ${subId}: ${e.message}`); return null; }
+}
+
+async function contratarPlanoPagarme(req, res) {
+  if (exigePagarme(res)) return;
+  const plano = planoDaFamilia(req.body?.plano_id, req.tipoDaConta);
+  if (!plano) return res.status(400).json({ error: "Escolha um dos planos disponíveis." });
+  const org = orgCompleta(req.user.org_id);
+  if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de escolher o plano." });
+  /* O MESMO PLANO DE NOVO NÃO É CONTRATADO DE NOVO. Com o cartão guardado,
+     "assinar" é um clique — e um segundo clique no plano que já está valendo
+     cancelaria a assinatura e criaria outra, cobrando hoje de novo. O anual
+     pode ser renovado quando falta menos de um mês para acabar. */
+  if (org.plano_id === plano.id) {
+    const renovacaoDoAnual = plano.forma === "parcelado" && (!org.vence_em || org.vence_em < Date.now() + 30 * 86400000);
+    const valendo = plano.forma === "assinatura" ? !!org.pagarme_subscription_id : !!org.pagarme_order_id;
+    if (valendo && !renovacaoDoAnual) return res.status(409).json({ error: "Este já é o seu plano." });
+  }
+
+  /* Em teste, a primeira cobrança do mensal e do semestral cai no FIM do
+     teste (`start_at`), como no Asaas. O anual é um pedido só, cobrado hoje —
+     e os doze meses contam a partir do fim do teste, para quem paga adiantado
+     não perder os dias grátis. */
+  const emTeste = org.trial_ate && org.trial_ate > Date.now()
+    && !db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(org.id).n;
+  const inicio = emTeste ? org.trial_ate : Date.now();
+  const porMes = brl(plano.mensal);
+  const descricao = plano.meses > 1
+    ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
+    : `ConHub — Plano ${plano.nome} (${porMes}/mês)`;
+  const meta = { org_id: org.id, plano_id: plano.id };
+
+  try {
+    let assinaturaId = null, pedidoId = null, paga = null;
+    if (plano.forma === "assinatura") {
+      const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
+        valor: plano.total, meses: plano.meses, descricao, codigo: plano.id, metadata: meta,
+        inicio: emTeste ? dataISO(org.trial_ate) : undefined });
+      assinaturaId = a.id;
+    } else {
+      const p = await pagarme.criarPedido({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
+        valor: plano.total, parcelas: plano.parcelas, descricao, codigo: plano.id, metadata: meta });
+      pedidoId = p.id;
+      const cobranca = (p.charges || [])[0];
+      if (p.status === "failed" || (cobranca && cobranca.status === "failed"))
+        return res.status(402).json({ error: "O cartão recusou a cobrança do plano anual. Confira o limite ou use outro cartão." });
+      if (cobranca && pagarme.PAGA.has(cobranca.status)) paga = cobranca;
+    }
+
+    // As assinaturas ANTERIORES saem depois de a nova existir — no Pagar.me e,
+    // se a conta veio do Asaas, lá também. A falha não derruba a troca.
+    if (org.pagarme_subscription_id && org.pagarme_subscription_id !== assinaturaId) {
+      try { await pagarme.cancelarAssinatura(org.pagarme_subscription_id); }
+      catch (e) { console.warn(`[pagarme] plano trocado, mas a assinatura antiga ${org.pagarme_subscription_id} não foi cancelada: ${e.message}`); }
+    }
+    if (org.asaas_subscription_id) {
+      try { await cancelarAssinatura(org.asaas_subscription_id); console.log(`[pagarme] assinatura do Asaas ${org.asaas_subscription_id} cancelada — a conta passou para o Pagar.me`); }
+      catch (e) { console.warn(`[pagarme] a assinatura do Asaas ${org.asaas_subscription_id} não foi cancelada: ${e.message}`); }
+    }
+
+    db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, pagarme_subscription_id = ?, pagarme_order_id = ?,
+        asaas_subscription_id = NULL, vence_em = ?, vence_base = ?, link_pagamento = NULL, assinatura_status = NULL WHERE id = ?`)
+      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, pedidoId, inicio, inicio, org.id);
+
+    if (!paga && assinaturaId && !emTeste) paga = await cobrancaPagaDaAssinatura(assinaturaId);
+    if (paga) creditarPlano(org.id, paga);
+    console.log(`[pagarme] ${req.user.name} contratou o plano ${plano.nome} (${org.name})${paga ? " — pago" : ""}`);
+    res.json({ ok: true, plano: plano.id, pago: !!paga, cobra_em: emTeste ? org.trial_ate : null, ...situacao(org.id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+}
+
+/* A FERRAMENTA EM UM CLIQUE: assinatura mensal própria no cartão guardado,
+   cobrada hoje. A tela já mostra "no cartão final 4242" no botão — é a
+   confirmação que a pessoa precisa antes de clicar. */
+async function contratarFerramentaPagarme(req, res, org, recurso) {
+  if (exigePagarme(res)) return;
+  if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de contratar." });
+  const preco = RECURSOS[recurso].avulso;
+  try {
+    const velha = db.prepare("SELECT avulso_sub_id, avulso_status, avulso_provedor FROM org_recursos WHERE org_id = ? AND recurso = ?").get(org.id, recurso);
+    if (velha?.avulso_sub_id && velha.avulso_status === "aguardando") {
+      try {
+        if (velha.avulso_provedor === "pagarme") await pagarme.cancelarAssinatura(velha.avulso_sub_id);
+        else await cancelarAssinatura(velha.avulso_sub_id);
+      } catch (e) { console.warn(`[pagarme] tentativa anterior da ferramenta ${recurso} não foi cancelada: ${e.message}`); }
+    }
+    const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
+      valor: preco, meses: 1, codigo: recurso, metadata: { org_id: org.id, recurso },
+      descricao: `ConHub — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${brl(preco)}/mês)` });
+    registrarContratacao(org.id, recurso, { assinaturaId: a.id, link: null });
+    db.prepare("UPDATE org_recursos SET avulso_provedor = 'pagarme' WHERE org_id = ? AND recurso = ?").run(org.id, recurso);
+    const paga = await cobrancaPagaDaAssinatura(a.id);
+    if (paga) avulsoPago(db.prepare("SELECT * FROM org_recursos WHERE org_id = ? AND recurso = ?").get(org.id, recurso), paga.id);
+    console.log(`[pagarme] ${req.user.name} contratou ${RECURSOS[recurso].nome} avulso (${org.name})${paga ? " — pago" : ""}`);
+    res.json({ ok: true, pago: !!paga, recurso: situacaoDoRecurso(org.id, recurso) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+}
+
+async function conferirAvulsosPagarme(orgId) {
+  for (const l of db.prepare(`SELECT * FROM org_recursos WHERE org_id = ? AND avulso_status = 'aguardando'
+      AND avulso_provedor = 'pagarme' AND avulso_sub_id IS NOT NULL`).all(orgId)) {
+    const paga = await cobrancaPagaDaAssinatura(l.avulso_sub_id);
+    if (paga) avulsoPago(l, paga.id);
+  }
+}
+
+/* ===== WEBHOOK DO PAGAR.ME =====
+
+   NÃO CONFIA NO QUE CHEGA. O aviso diz "a cobrança X mudou"; a rota busca a
+   cobrança X no Pagar.me com a chave SECRETA e decide pelo que a API
+   responder. Quem inventar um aviso consegue, no máximo, fazer o servidor
+   conferir uma cobrança que não existe ou que não está paga — e uma cobrança
+   paga de verdade, repetida, não credita duas vezes (id no histórico).
+   Por isso não depende de segredo configurado; se `PAGARME_WEBHOOK_USUARIO`
+   e `PAGARME_WEBHOOK_SENHA` existirem (autenticação básica cadastrada no
+   painel), eles são exigidos também. */
+r.post("/webhooks/pagarme", async (req, res) => {
+  const usuario = process.env.PAGARME_WEBHOOK_USUARIO, senha = process.env.PAGARME_WEBHOOK_SENHA;
+  if (usuario && senha) {
+    const [tipo, valor] = String(req.get("authorization") || "").split(" ");
+    const [u, p] = tipo === "Basic" && valor ? Buffer.from(valor, "base64").toString().split(":") : [];
+    if (!segredoConfere(u, usuario) || !segredoConfere(p, senha)) {
+      console.warn("[pagarme] webhook recusado: usuário/senha não conferem");
+      return res.sendStatus(401);
+    }
+  }
+  res.sendStatus(200);
+  try { await processarAvisoPagarme(req.body || {}); }
+  catch (e) { console.error("[pagarme] erro ao processar webhook:", e.message); }
+});
+
+export async function processarAvisoPagarme(corpo) {
+  if (!pagarme.pagarmeConfigurado()) return;
+  const tipo = String(corpo.type || "");
+  const id = corpo.data && corpo.data.id;
+  if (!id) return;
+
+  if (tipo === "subscription.canceled") {
+    const sub = await pagarme.lerAssinatura(id);
+    if (sub.status !== "canceled") return;
+    const avulso = avulsoDaAssinatura(sub.id);
+    if (avulso && avulso.avulso_provedor === "pagarme") {
+      if (["aguardando", "ativo"].includes(avulso.avulso_status)) avulsoCancelado(avulso);
+      return;
+    }
+    const org = db.prepare("SELECT * FROM orgs WHERE pagarme_subscription_id = ?").get(sub.id);
+    if (org) {
+      db.prepare("UPDATE orgs SET assinatura_status = 'cancelado' WHERE id = ?").run(org.id);
+      console.log(`[pagarme] assinatura cancelada (${org.name})`);
+    }
+    return;
+  }
+  if (!tipo.startsWith("charge.")) return;
+
+  const c = await pagarme.lerCobranca(id);
+  const clienteId = pagarme.clienteDaCobranca(c);
+  const org = clienteId ? db.prepare("SELECT * FROM orgs WHERE pagarme_customer_id = ?").get(clienteId) : null;
+  if (!org) { console.warn(`[pagarme] cobrança ${c.id} de um cliente que não é de nenhuma conta — ignorada`); return; }
+
+  const subId = pagarme.assinaturaDaCobranca(c);
+  const pedidoId = pagarme.pedidoDaCobranca(c);
+  const avulso = subId ? avulsoDaAssinatura(subId) : null;
+  const daFerramenta = avulso && avulso.org_id === org.id && avulso.avulso_provedor === "pagarme";
+  const doPlano = (subId && subId === org.pagarme_subscription_id) || (pedidoId && pedidoId === org.pagarme_order_id);
+  if (!daFerramenta && !doPlano) { console.warn(`[pagarme] cobrança ${c.id} não é do plano nem de ferramenta de "${org.name}" — ignorada`); return; }
+
+  if (pagarme.PAGA.has(c.status)) {
+    if (daFerramenta) { if (avulsoPago(avulso, c.id)) console.log(`[pagarme] ferramenta ${avulso.recurso} paga (${org.name})`); }
+    else { const prox = creditarPlano(org.id, c); console.log(`[pagarme] pagamento confirmado (${org.name}) — próximo vencimento ${new Date(prox).toLocaleDateString("pt-BR")}`); }
+  } else if (pagarme.ESTORNADA.has(c.status)) {
+    if (daFerramenta) avulsoCancelado(avulso, { estorno: true });
+    else db.prepare("UPDATE orgs SET assinatura_status = 'cancelado' WHERE id = ?").run(org.id);
+    console.log(`[pagarme] cobrança ${c.status === "chargedback" ? "contestada" : "estornada"} (${org.name})`);
+  } else if (c.status === "failed") {
+    if (!daFerramenta) marcarAtraso(org.id, null);
+    console.log(`[pagarme] cartão recusou a cobrança (${org.name})`);
+  }
+}
+
+/* Cancela tudo que a conta tem no Pagar.me — usado ao apagar a conta.
+   Devolve a lista do que não deu para cancelar, para o aviso na tela. */
+export async function cancelarTudoNoPagarme(org) {
+  const falhas = [];
+  if (!pagarme.pagarmeConfigurado()) return falhas;
+  const subs = [org.pagarme_subscription_id,
+    ...db.prepare(`SELECT avulso_sub_id FROM org_recursos WHERE org_id = ? AND avulso_provedor = 'pagarme'
+        AND avulso_status IN ('aguardando','ativo') AND avulso_sub_id IS NOT NULL`).all(org.id).map(x => x.avulso_sub_id)].filter(Boolean);
+  for (const s of subs) {
+    try { await pagarme.cancelarAssinatura(s); } catch (e) { falhas.push(s); console.warn(`[pagarme] não consegui cancelar ${s}: ${e.message}`); }
+  }
+  return falhas;
+}
+
 
 export default r;

@@ -1594,6 +1594,9 @@ function ConCRM(){
     ferramentas:()=>api("/assinatura/recursos"),
     contratarFerramenta:(id,cpfCnpj)=>api(`/assinatura/recursos/${id}`,{method:"POST",body:{cpfCnpj}}),
     cancelarFerramenta:(id)=>api(`/assinatura/recursos/${id}`,{method:"DELETE"}),
+    // Pagar.me (04/10/2026): o navegador manda o cartão DIRETO ao Pagar.me e
+    // só o token chega aqui — ver `tokenizarCartao`.
+    salvarCartao:(dados)=>api("/assinatura/cartao",{method:"POST",body:dados}),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -1876,6 +1879,8 @@ function ConCRM(){
     resumoParaApagar:(id)=>api(`/orgs/${id}/apagar`),
     liberarMarketing:(id,liberado)=>api(`/orgs/${id}/marketing`,{method:"POST",body:{liberado}}),
     definirFerramenta:(id,recurso,estado)=>api(`/orgs/${id}/recursos/${recurso}`,{method:"POST",body:{estado}}),
+    // Por qual provedor a conta é cobrada (04/10/2026): "asaas", "pagarme" ou null (regra padrão).
+    definirCobranca:(id,provedor)=>api(`/orgs/${id}/cobranca`,{method:"POST",body:{provedor}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -2022,7 +2027,13 @@ function ConCRM(){
      para adaptar o texto. */
   if(assinatura&&(assinatura.status==="bloqueado"||assinatura.status==="aguardando_cartao")&&!session.master)
     return <Bloqueado assinatura={assinatura} session={session} acoes={acoes} aoSair={sair} org={org}
-      aoRever={()=>acoes.assinatura().then(setAssinatura).catch(()=>{})}/>;
+      aoRever={()=>acoes.assinatura().then(a=>{
+        setAssinatura(a);
+        /* Liberou aqui mesmo (cartão do Pagar.me, 04/10/2026): o aviso de
+           "conta travada" que as buscas guardaram enquanto ela estava presa
+           não vale mais, e ficaria no alto da tela já liberada. */
+        if(a&&a.status!=="bloqueado"&&a.status!=="aguardando_cartao") setErro("");
+      }).catch(()=>{})}/>;
 
   return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}}/>;
 }
@@ -4370,6 +4381,30 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   {ocupado===r.id+v?"…":t}</button>;})}
             </div>
           </div>;})}
+        {/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026). Trocar não
+            cancela nada no provedor antigo: a cobrança de lá só sai quando o
+            cliente contratar o plano no novo. */}
+        {conta.cobranca&&<div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Cobrança</div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Hoje pelo <b>{conta.cobranca.provedor==="pagarme"?"Pagar.me":"Asaas"}</b>
+            {conta.cobranca.escolhido?" (escolhido por você)":" (regra padrão)"}
+            {conta.cobranca.tem_asaas&&conta.cobranca.provedor==="pagarme"?" · ainda tem cobrança no Asaas, que é cancelada quando o cliente contratar o plano no Pagar.me":""}
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {[[null,"Regra padrão"],["asaas","Asaas"],["pagarme","Pagar.me"]].map(([v,t])=>{
+              const sel=(conta.cobranca.escolhido||null)===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  setOcupado("cobranca"+v);
+                  try{ await acoes.definirCobranca(conta.id,v); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="cobranca"+v?"…":t}</button>;})}
+          </div>
+        </div>}
       </div>
     </div>}
   </React.Fragment>;
@@ -5265,6 +5300,236 @@ function FundoDoLogin({acoes,isMobile}){
    COMBINADO (a `Rede`, e as imobiliárias negociadas fora da tabela) — para ela
    o servidor responde 404, porque três preços que não são os dela seriam três
    ofertas que não existem. */
+/* ===== CARTÃO PELO PAGAR.ME (04/10/2026) =====
+
+   O cartão é digitado AQUI, na tela do ConHub, e vai DIRETO do navegador para
+   o Pagar.me com a chave pública (`tokenizarCartao`). O que volta é um token
+   descartável, e é só ele que chega ao nosso servidor — o número, a validade e
+   o código de segurança nunca passam por lá. É o que permite ter o checkout
+   com a cara do ConHub sem o servidor tocar em dado de cartão.
+
+   Guardado no Pagar.me, o cartão vira o "um clique": plano e ferramenta saem
+   nele sem a pessoa digitar de novo, e a tela sempre diz em qual ("Visa final
+   4242") antes do botão. */
+const URL_TOKENS_PAGARME="https://api.pagar.me/core/v5/tokens";
+async function tokenizarCartao(chavePublica,{numero,nome,validade,cvv}){
+  const [mes,ano]=String(validade).split("/").map(x=>x.trim());
+  let r;
+  try{
+    r=await fetch(`${URL_TOKENS_PAGARME}?appId=${encodeURIComponent(chavePublica)}`,{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"card",card:{number:numero.replace(/\D/g,""),holder_name:nome.trim(),
+        exp_month:Number(mes),exp_year:Number(ano.length===2?"20"+ano:ano),cvv:cvv.replace(/\D/g,"")}})});
+  }catch(e){
+    // Sem resposta nenhuma: internet, bloqueador ou domínio não autorizado no painel da Stone.
+    throw new Error("Não consegui falar com o Pagar.me. Confira a internet e tente de novo — se continuar, avise o ConHub.");
+  }
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok||!d.id){
+    const lista=d&&d.errors&&typeof d.errors==="object"?Object.values(d.errors).flat():[];
+    throw new Error(lista[0]||d.message||"O Pagar.me recusou os dados do cartão. Confira e tente de novo.");
+  }
+  return d.id;
+}
+
+const resumoCartao=(c)=>c?`${c.bandeira||"Cartão"} final ${c.final||"····"}`:"";
+
+function CartaoPagarme({dados,acoes,isMobile,aoSalvar,aoCancelar,botao="Salvar cartão"}){
+  const [numero,setNumero]=useState("");
+  const [nome,setNome]=useState("");
+  const [validade,setValidade]=useState("");
+  const [cvv,setCvv]=useState("");
+  const [cpf,setCpf]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const dig=(v)=>String(v||"").replace(/\D/g,"");
+  const mes=Number(validade.slice(0,2));
+  const ok=dig(numero).length>=13&&dig(numero).length<=19&&nome.trim().length>=3
+    &&/^\d{2}\/\d{2}$/.test(validade)&&mes>=1&&mes<=12&&dig(cvv).length>=3
+    &&(!dados.pede_cpf||[11,14].includes(dig(cpf).length));
+  async function salvar(e){
+    e&&e.preventDefault();
+    if(!ok||ocupado) return;
+    setErro("");setOcupado(true);
+    try{
+      const token=await tokenizarCartao(dados.chave_publica,{numero,nome,validade,cvv});
+      const r=await acoes.salvarCartao({token,cpfCnpj:cpf});
+      // O formulário se esvazia: o número não fica nem na memória da tela.
+      setNumero("");setCvv("");setValidade("");
+      await aoSalvar(r);
+    }catch(e2){ setErro(e2.message); }
+    finally{ setOcupado(false); }
+  }
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.card,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none",fontFamily:"inherit"};
+  const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
+  return <form onSubmit={salvar} style={{display:"flex",flexDirection:"column",gap:9}}>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45}}>{erro}</div>}
+    <div>{rot("Número do cartão")}
+      <input value={numero} onChange={e=>setNumero(dig(e.target.value).slice(0,19).replace(/(\d{4})(?=\d)/g,"$1 "))}
+        inputMode="numeric" autoComplete="cc-number" name="cardnumber" placeholder="0000 0000 0000 0000" style={{...entrada,fontFamily:MONO}}/></div>
+    <div>{rot("Nome impresso no cartão")}
+      <input value={nome} onChange={e=>setNome(e.target.value.toUpperCase())} autoComplete="cc-name" name="ccname"
+        placeholder="COMO ESTÁ NO CARTÃO" style={entrada}/></div>
+    <div style={{display:"flex",gap:9}}>
+      <div style={{flex:1}}>{rot("Validade")}
+        <input value={validade} onChange={e=>{const d=dig(e.target.value).slice(0,4);setValidade(d.length>2?d.slice(0,2)+"/"+d.slice(2):d);}}
+          inputMode="numeric" autoComplete="cc-exp" name="cc-exp" placeholder="MM/AA" style={{...entrada,fontFamily:MONO}}/></div>
+      <div style={{flex:1}}>{rot("Código (CVV)")}
+        <input value={cvv} onChange={e=>setCvv(dig(e.target.value).slice(0,4))} inputMode="numeric" autoComplete="cc-csc" name="cvc"
+          placeholder="123" style={{...entrada,fontFamily:MONO}}/></div>
+    </div>
+    {dados.pede_cpf&&<div>{rot("CPF ou CNPJ do titular da conta")}
+      <input value={cpf} onChange={e=>setCpf(e.target.value)} inputMode="numeric" placeholder="só números" style={entrada}/></div>}
+    <div style={{display:"flex",gap:8}}>
+      {aoCancelar&&<button type="button" onClick={aoCancelar} disabled={ocupado}
+        style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"11px 14px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        Cancelar</button>}
+      <button type="submit" disabled={!ok||ocupado}
+        style={{flex:1,background:ok?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"12px",
+          fontSize:13.5,fontWeight:600,cursor:ok?"pointer":"default"}}>
+        {ocupado?"Conferindo o cartão…":botao}</button>
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,display:"flex",gap:6}}>
+      <Icon n="lock" size={12}/>
+      <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.
+        {dados.ambiente==="teste"?" Ambiente de TESTE: use um cartão de teste.":""}</span>
+    </div>
+  </form>;
+}
+
+/* O PLANO NO PAGAR.ME: cartão guardado → um clique. Sem cartão, o formulário
+   aparece no lugar do botão; com ele, o botão diz em qual cartão vai sair. */
+function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,aguardandoCartao,fimDoTeste,aoMudar}){
+  const [trocando,setTrocando]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [feito,setFeito]=useState(null);
+  const parcelado=plano.forma==="parcelado";
+  async function assinar(){
+    setErro("");setOcupado(true);
+    try{ const r=await acoes.contratarPlano({plano_id:plano.id}); setFeito(r); if(aoMudar) await aoMudar(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  /* NA PRIMEIRA VEZ, cartão e plano saem no MESMO botão. Separados, guardar o
+     cartão já começaria o teste (e liberaria a conta do site) com plano
+     nenhum assinado — e a pessoa só descobriria no fim do teste, travada de
+     novo. É o que o fluxo do Asaas fazia sem dizer: escolher o plano criava a
+     assinatura, e o cartão ia junto. */
+  async function cartaoEAssinatura(r){
+    aoCartao(r.cartao);
+    setOcupado(true);
+    try{ const x=await acoes.contratarPlano({plano_id:plano.id}); setFeito(x); }
+    catch(e){ setErro("O cartão foi salvo, mas o plano não foi assinado: "+e.message); }
+    finally{ setOcupado(false); if(aoMudar) await aoMudar(); }
+  }
+  return <div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>
+      Plano {plano.nome} — {fmtMoeda(plano.total)}
+      {parcelado?` em ${plano.parcelas}x`:plano.meses>1?` a cada ${plano.meses} meses`:" por mês"}
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
+    {feito
+      ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px",display:"flex",gap:7}}>
+        <Icon n="check" size={14}/>
+        <span>{feito.pago?"Plano contratado e pago. Obrigado!"
+          :feito.cobra_em?`Plano contratado. A primeira cobrança cai em ${fmtData(feito.cobra_em)}, no ${resumoCartao(cartao)}.`
+          :"Plano contratado. Assim que o cartão confirmar a cobrança, ela aparece aqui."}</span>
+      </div>
+      :(!cartao||trocando)
+      ?<React.Fragment>
+        {!cartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+          {parcelado
+            ?(aguardandoCartao||emTeste
+              ?"O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do teste de 14 dias."
+              :"O anual é cobrado hoje, em 12x no cartão.")
+            :(aguardandoCartao
+              ?"Nada é cobrado agora: o teste de 14 dias começa com o cartão aceito, e a primeira cobrança só cai no fim dele."
+              :emTeste?"Nada é cobrado agora: a primeira cobrança só cai no fim do teste."
+              :`A primeira cobrança (${fmtMoeda(plano.total)}) sai hoje no cartão.`)}</div>}
+        <CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile}
+          botao={cartao?"Usar este cartão":parcelado?`Salvar cartão e pagar ${plano.parcelas}x de ${fmtMoeda(plano.mensal)}`:`Salvar cartão e assinar o ${plano.nome}`}
+          aoCancelar={cartao?()=>setTrocando(false):null}
+          aoSalvar={cartao
+            ?async r=>{ aoCartao(r.cartao); setTrocando(false); if(aoMudar) await aoMudar(); }
+            :cartaoEAssinatura}/>
+      </React.Fragment>
+      :<React.Fragment>
+        <div style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",marginBottom:10}}>
+          <Icon n="lock" size={13}/>
+          <span style={{flex:1,color:C.ink,fontSize:12.5,fontWeight:600}}>{resumoCartao(cartao)}{cartao.validade?<span style={{color:C.faint,fontWeight:500}}> · validade {cartao.validade}</span>:null}</span>
+          <button onClick={()=>setTrocando(true)} style={{background:"none",border:"none",color:C.greenDeep,fontSize:12,fontWeight:700,cursor:"pointer",padding:4}}>Trocar</button>
+        </div>
+        {/* O plano que já está valendo não ganha botão de assinar: com o
+            cartão guardado seria um clique para cobrar de novo. Aqui só se
+            troca o cartão. */}
+        {atual&&!parcelado
+          ?<div style={{color:C.greenDeep,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            <Icon n="check" size={13}/> Este é o seu plano. Ele renova sozinho neste cartão.</div>
+          :<button onClick={assinar} disabled={ocupado}
+          style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>
+          {ocupado?"Processando…":parcelado?`${atual?"Renovar: ":""}Pagar ${plano.parcelas}x de ${fmtMoeda(plano.mensal)} no cartão`:`Assinar o plano ${plano.nome}`}</button>}
+        {!(atual&&!parcelado)&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.5}}>
+          {parcelado
+            ?(emTeste?"Cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do seu teste — os dias grátis continuam seus."
+              :"Cobrado hoje, em 12x no cartão. Um ano de acesso; no fim dele você renova.")
+            :(emTeste&&fimDoTeste?`A primeira cobrança só cai no fim do teste (${fmtData(fimDoTeste)}). Renova sozinho; cancele quando quiser.`
+              :`Cobrado hoje (${fmtMoeda(plano.total)}) e renova sozinho. Cancele quando quiser.`)}
+        </div>}
+      </React.Fragment>}
+  </div>;
+}
+
+/* A FERRAMENTA NO PAGAR.ME: um clique no cartão guardado, com um passo de
+   confirmação que diz o valor e o cartão — cobrança não pode sair de um toque
+   sem querer. */
+function FerramentaNoPagarme({r,pm,acoes,isMobile,aoMudar}){
+  const [aberto,setAberto]=useState(false);
+  const [trocando,setTrocando]=useState(false);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [aviso,setAviso]=useState("");
+  const cartao=pm.cartao;
+  const aguardando=r.avulso&&r.avulso.status==="aguardando";
+  async function contratar(){
+    setErro("");setOcupado(true);
+    try{
+      const x=await acoes.contratarFerramenta(r.id);
+      setAviso(x.pago?"":"Contratada — aguardando a confirmação do cartão. Liga sozinha assim que o Pagar.me confirmar.");
+      setAberto(false); await aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={{marginTop:9}}>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
+    {(aviso||aguardando)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+      {aviso||"Contratação aguardando a confirmação do cartão."}{" "}
+      <button onClick={aoMudar} style={{background:"none",border:"none",padding:0,color:"inherit",fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:11.5}}>verificar de novo</button>
+    </div>}
+    {!aberto
+      ?<button onClick={()=>{setErro("");setAberto(true);}}
+        style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+      :(!cartao||trocando)
+      ?<CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile} botao={cartao?"Usar este cartão":"Salvar cartão e continuar"}
+        aoCancelar={()=>{setTrocando(false);if(!cartao)setAberto(false);}}
+        aoSalvar={async()=>{ setTrocando(false); await aoMudar(); }}/>
+      :<div style={{background:C.card,border:`1px solid ${C.green}44`,borderRadius:11,padding:11}}>
+        <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
+          <b>{fmtMoeda(r.preco_avulso)}/mês</b> no {resumoCartao(cartao)}, cobrado hoje e todo mês.{" "}
+          <button onClick={()=>setTrocando(true)} style={{background:"none",border:"none",padding:0,color:C.greenDeep,fontWeight:700,cursor:"pointer",fontSize:12}}>Trocar cartão</button>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setAberto(false)} disabled={ocupado}
+            style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Voltar</button>
+          <button onClick={contratar} disabled={ocupado}
+            style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            {ocupado?"Processando…":"Confirmar contratação"}</button>
+        </div>
+        <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>Cancele quando quiser; o que já foi pago vale até o fim do mês.</div>
+      </div>}
+  </div>;
+}
+
 function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   const [d,setD]=useState(null);
   const [escolhido,setEscolhido]=useState("");
@@ -5275,6 +5540,8 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
   // o endereço à vista o corretor ficava com um plano contratado e nenhum
   // caminho para pagar.
   const [fatura,setFatura]=useState("");
+  // O cartão guardado no Pagar.me (bandeira e final), quando a conta é cobrada por lá.
+  const [cartao,setCartao]=useState(null);
 
   /* A TELA JÁ ABRE COM O PLANO QUE A PESSOA ESCOLHEU NO SITE. (02/09/2026)
 
@@ -5289,12 +5556,14 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
      Um passo a mais aqui é caro. */
   useEffect(()=>{
     acoes.planos().then(r=>{
-      setD(r);
+      setD(r); setCartao(r.pagarme?r.pagarme.cartao:null);
       const sugerido=r.atual||r.escolhido;
       if(sugerido&&r.planos.some(p=>p.id===sugerido)) setEscolhido(sugerido);
     }).catch(e=>setErro(e.message));
   },[]);
   if(!d) return null;
+  // Conta cobrada pelo Pagar.me: o cartão é digitado aqui e o plano sai num clique.
+  const pm=d.provedor==="pagarme"?d.pagarme:null;
 
   const emTeste=atualSituacao&&atualSituacao.status==="teste";
   /* O TESTE AINDA NEM COMEÇOU (22/09/2026) — é o estado de quem acabou de se
@@ -5335,14 +5604,15 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
             <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
         : d.atual
         ? "Você pode trocar de plano quando quiser. O plano anterior é cancelado na troca."
+        : pm ? "Escolha o seu plano. O pagamento é no cartão de crédito, aqui mesmo."
         : "Escolha o seu plano. O pagamento é feito na tela do Asaas, no cartão de crédito."}
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
 
-    {!d.asaas
+    {!(pm?pm.configurado:d.asaas)
       ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-        A cobrança automática ainda não está ligada neste servidor (falta <b>ASAAS_API_KEY</b>).</div>
+        A cobrança automática ainda não está ligada neste servidor (falta <b>{pm?"PAGARME_SECRET_KEY / PAGARME_PUBLIC_KEY":"ASAAS_API_KEY"}</b>).</div>
       :<React.Fragment>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:9}}>
           {d.planos.map(p=>{
@@ -5401,7 +5671,10 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar}){
             </button>;})}
         </div>
 
-        {plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
+        {pm&&plano&&<PlanoNoPagarme key={plano.id} plano={plano} pm={pm} cartao={cartao} aoCartao={setCartao} atual={d.atual===plano.id}
+          acoes={acoes} isMobile={isMobile} emTeste={emTeste} aguardandoCartao={aguardandoCartao}
+          fimDoTeste={emTeste?atualSituacao.vence_em:null} aoMudar={aoMudar}/>}
+        {!pm&&plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
           {aguardandoCartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,
             borderRadius:9,padding:"8px 10px",marginBottom:10}}>
             Cadastrar o cartão não cobra nada agora — o teste de 14 dias começa
@@ -5483,6 +5756,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar}){
   if(!d) return null;
   const lista=d.recursos.filter(r=>!so||r.id===so);
   const digitos=cpf.replace(/\D/g,"").length;
+  const pm=d.provedor==="pagarme"?d.pagarme:null;
 
   async function contratar(r){
     setErro("");setOcupado(r.id);
@@ -5528,7 +5802,10 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar}){
         {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
           Cancelada — continua ligada até {fmtData(r.avulso.pago_ate)}.</div>}
         {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo ConHub nesta conta. Fale com a gente.</div>}
-        {!r.ativo&&r.origem==="fora_do_plano"&&(d.asaas
+        {!r.ativo&&r.origem==="fora_do_plano"&&pm&&(pm.configurado
+          ?<FerramentaNoPagarme r={r} pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={async()=>{await carregar(); if(aoMudar) aoMudar();}}/>
+          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
+        {!r.ativo&&r.origem==="fora_do_plano"&&!pm&&(d.asaas
           ?<div style={{marginTop:9}}>
             {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
               Contratação aguardando pagamento.{" "}
@@ -5609,11 +5886,16 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
      ConHub no meio. */
   if(autonomo)
     return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
-      {a.asaas&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}</div>;
+      {(a.asaas||a.provedor==="pagarme")&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}</div>;
 
   /* IMOBILIÁRIA COM PREÇO NEGOCIADO: o único campo que falta é o CPF/CNPJ —
      nome, e-mail e telefone o CRM já tem, e o valor é o que o master
      combinou (`orgs.valor_mensal`), nunca editável aqui. */
+  /* Imobiliária cobrada pelo Pagar.me (04/10/2026): planos de prateleira com
+     o cartão aqui mesmo. A ativação por CPF abaixo é só do Asaas. */
+  if(a.provedor==="pagarme")
+    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
+      <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div></div>;
   if(!a.asaas) return null; // Asaas não configurado no servidor — nada para ativar.
 
   async function ativar(){
@@ -5719,7 +6001,9 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
       <div style={{color:C.sub,fontSize:13.5,lineHeight:1.6,marginBottom:16}}>
         {assinatura.motivo||"Mensalidade em atraso."}{" "}
         {aguardandoCartao
-          ?"É rápido: escolha um plano logo abaixo e você cai na tela segura do Asaas — a cobrança só acontece depois dos 14 dias de teste."
+          ?(assinatura.provedor==="pagarme"
+            ?"É rápido: escolha um plano logo abaixo e cadastre o cartão aqui mesmo — a cobrança só acontece depois dos 14 dias de teste."
+            :"É rápido: escolha um plano logo abaixo e você cai na tela segura do Asaas — a cobrança só acontece depois dos 14 dias de teste.")
           :gestor
           ?"Assim que o pagamento for confirmado, o sistema volta sozinho — não precisa avisar ninguém."
           :"Fale com a gestão da imobiliária. Assim que a mensalidade for regularizada, tudo volta ao normal."}

@@ -1,3 +1,4 @@
+import { pagarmeConfigurado, ambientePagarme, ambientePagarmeConfere } from "../services/pagarme.js";
 import { Router } from "express";
 import db from "../db.js";
 import { conferirCrachaDeSessao } from "../auth.js";
@@ -199,6 +200,11 @@ r.get("/integracoes", async (_req, res) => {
       criptografia_do_backup: cofreLigado() ? "ligada" : "DESLIGADA — a cópia de segurança sobe em claro para o R2 (falta CRYPTO_KEY)",
       webhook_do_asaas: process.env.ASAAS_WEBHOOK_TOKEN
         ? "protegido" : "SEM TOKEN — o webhook está recusando tudo (falta ASAAS_WEBHOOK_TOKEN)",
+      /* Pagar.me (04/10/2026): sem valor de chave, só se está ligado, em que
+         ambiente, e se as duas chaves combinam. */
+      cobranca_pagarme: pagarmeConfigurado()
+        ? (ambientePagarmeConfere() || `ligado (${ambientePagarme()})`)
+        : (ambientePagarmeConfere() || "não configurado"),
       webhook_da_meta: process.env.META_APP_SECRET
         ? "assinatura conferida" : "sem conferência de assinatura (falta META_APP_SECRET)",
       whatsapp_aceita_por_numero: process.env.UAZAPI_ACEITAR_POR_NUMERO === "1"

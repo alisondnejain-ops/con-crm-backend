@@ -24,6 +24,9 @@ import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../serv
 import { marcaDaOrg } from "../services/marca.js";
 import { dominiosDaPlataforma, definirDestino, verificarDominio } from "../services/site.js";
 import { removerDominio, railwayPronto } from "../services/railway.js";
+import { provedorDe, PROVEDORES } from "../services/cobranca.js";
+import { pagarmeConfigurado } from "../services/pagarme.js";
+import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
@@ -82,6 +85,10 @@ function resumo(req, org) {
        é o que o hub mostra ao lado dos botões de liberar e retirar. */
     recursos: recursosDaOrg(org.id),
     marketing_liberado: recursosDaOrg(org.id).find(x => x.id === "marketing").ativo,
+    /* Por qual provedor esta conta é cobrada, e se foi escolha do master ou
+       a regra padrão (04/10/2026). */
+    cobranca: { provedor: provedorDe(org), escolhido: org.cobranca || null,
+      tem_asaas: !!org.asaas_customer_id, tem_pagarme: !!org.pagarme_customer_id },
   };
 }
 
@@ -390,6 +397,26 @@ r.post("/:id/recursos/:recurso", (req, res) => {
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
+/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026) — Asaas ou Pagar.me.
+
+   É a troca conta por conta que permite ligar o Pagar.me primeiro numa conta
+   de teste, e depois cliente por cliente, sem mexer em quem já paga. Trocar
+   NÃO cancela nada no provedor antigo: a cobrança de lá só sai quando o
+   cliente contratar o plano no novo (aí a assinatura antiga é cancelada
+   junto). `null` devolve a conta à regra padrão. */
+r.post("/:id/cobranca", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  const provedor = req.body?.provedor ?? null;
+  if (provedor !== null && !PROVEDORES.includes(provedor))
+    return res.status(400).json({ error: "Escolha Asaas ou Pagar.me." });
+  if (provedor === "pagarme" && !pagarmeConfigurado())
+    return res.status(409).json({ error: "O Pagar.me não está configurado no servidor (PAGARME_SECRET_KEY e PAGARME_PUBLIC_KEY)." });
+  db.prepare("UPDATE orgs SET cobranca = ? WHERE id = ?").run(provedor, org.id);
+  console.log(`[master] ${req.user.name} → cobrança de ${org.name}: ${provedor || "regra padrão"}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
 /* MIGRAR O TIPO DA CONTA — imobiliária ⇄ autônomo (22/09/2026, pedido do Ali:
    um cliente se cadastrou como imobiliária, mas é corretor autônomo).
 
@@ -674,6 +701,12 @@ r.delete("/:id", async (req, res) => {
       asaasAviso = [asaasAviso, `Não consegui cancelar a ferramenta ${RECURSOS[l.recurso]?.nome || l.recurso} no Asaas — cancele por lá.`].filter(Boolean).join(" ");
     }
   }
+
+  /* E no Pagar.me (04/10/2026): a mensalidade e as ferramentas avulsas de lá
+     também são canceladas antes de a conta sumir. */
+  const falhasPagarme = await cancelarTudoNoPagarme(org);
+  if (falhasPagarme.length)
+    asaasAviso = [asaasAviso, `Não consegui cancelar ${falhasPagarme.length} cobrança(s) no Pagar.me — cancele pelo painel da Stone.`].filter(Boolean).join(" ");
 
   // O domínio próprio do site sai também do Railway — senão ficaria
   // cadastrado lá, servindo uma conta que não existe mais.
