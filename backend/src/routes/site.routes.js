@@ -6,8 +6,9 @@
 import { Router } from "express";
 import { roles } from "../auth.js";
 import db from "../db.js";
+import { railwayPronto, removerDominio } from "../services/railway.js";
 import {
-  configDoSite, salvarSite, siteDoSlug, siteDoDominio, orgDoDominio, imovelDoSite, slugify, marcaDoSite, verificarDominio,
+  configDoSite, salvarSite, registrosDoSite, siteDoSlug, siteDoDominio, orgDoDominio, imovelDoSite, slugify, marcaDoSite, verificarDominio,
   paginaPortal, paginaImovel, paginaAviso, paginaInexistente, paginaPausada, sitemap, robots, FRASE_PADRAO,
 } from "../services/site.js";
 
@@ -110,14 +111,24 @@ function resposta(req) {
     dominio: c.dominio || "", dominio_destino: c.dominio_destino || "", dominio_estado: c.dominio_estado || null,
     dominio_detalhe: c.dominio_detalhe || "", dominio_conferido_em: c.dominio_conferido_em || null,
     url_dominio: c.dominio ? `https://${c.dominio}` : null,
+    // Os registros que a imobiliária cria no DNS (CNAME de rota + TXT de
+    // verificação), lidos do Railway. Vazio sem o cadastro automático.
+    dominio_registros: registrosDoSite(c),
+    dominio_automatico: railwayPronto().ok,
   };
 }
 
 gestao.get("/", (req, res) => res.json(resposta(req)));
 
-gestao.patch("/", (req, res) => {
+gestao.patch("/", async (req, res) => {
   const r = salvarSite(req.user.org_id, req.body || {});
   if (r.erro) return res.status(400).json({ error: r.erro });
+  // Domínio trocado: sai o cadastro antigo no Railway e entra o novo — a tela
+  // já volta com os registros de DNS para a imobiliária criar.
+  if (r.remover) await removerDominio(r.remover);
+  if (r.mudouDominio && r.cfg.dominio) {
+    try { await verificarDominio(req.user.org_id); } catch (e) { console.warn("[site] conferência:", e.message); }
+  }
   res.json(resposta(req));
 });
 

@@ -211,6 +211,31 @@ registros na Cloudflare → só então trocar os servidores de DNS.
    novo** pelo endereço novo — para o navegador é outro site, e a autorização
    de notificação não vai junto.
 
+## Domínio próprio do site de cada imobiliária (04/10/2026)
+
+Cada imobiliária pode pôr o site dela no próprio domínio (Imóveis → Site →
+Domínio próprio). Para ela fazer **tudo sozinha**, o servidor precisa de UMA
+variável a mais no Railway:
+
+1. No Railway, clique na sua foto → **Account Settings → Tokens** →
+   **Create Token** (dê um nome como "ConHub domínios"). Copie o token.
+2. No serviço do ConHub → **Variables** → crie `RAILWAY_API_TOKEN` com o
+   token copiado.
+
+Projeto, ambiente e serviço o próprio Railway já informa ao servidor
+(`RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID`) — não
+precisa criar. Com o token, a imobiliária escreve o domínio, o ConHub cadastra
+no Railway e mostra a ela os dois registros para criar no DNS (um CNAME e um
+TXT). O hub, em "Domínios dos sites", diz se o cadastro está automático.
+
+Sem o token, continua o caminho manual: você adiciona o domínio no Railway
+(serviço → Settings → Networking → Custom Domain) e cola no hub o destino que
+ele mostrar.
+
+**Limite do plano do Railway:** cada serviço aceita um número máximo de
+domínios próprios, que depende do plano. Quando passar, o Railway recusa e a
+frase aparece no quadro da imobiliária e no hub.
+
 ---
 
 ## Passo 5 — Ligar o e-mail automático (Resend)

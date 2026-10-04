@@ -24,6 +24,7 @@ import db from "../db.js";
 import { normalizePhone } from "./stages.js";
 import { marcaDaOrg } from "./marca.js";
 import { situacao } from "./assinatura.js";
+import { railwayPronto, cadastrarDominio, estadoDoDominio } from "./railway.js";
 
 /* ===== CONFIGURAÇÃO ===== */
 
@@ -111,14 +112,20 @@ export function salvarSite(orgId, b = {}) {
     }
     if ((d || null) !== (atual.dominio || null)) {
       novo.dominio = d || null;
-      /* Domínio novo recomeça a conferência. Com destino padrão no servidor
-         (SITE_DNS_DESTINO) a imobiliária já pode apontar o DNS; sem ele, o
-         ConHub precisa ativar o domínio na hospedagem primeiro. */
+      /* Domínio novo recomeça a conferência. Com o Railway ligado pela API, a
+         rota cadastra o domínio lá logo depois de salvar (`ativarDominio`);
+         com destino fixo no servidor (SITE_DNS_DESTINO) a imobiliária já pode
+         apontar o DNS; sem nenhum dos dois, o master ativa no hub. O cadastro
+         antigo no Railway sai (`remover`) — senão ficaria sobrando lá. */
       const padrao = destinoPadrao();
       novo.dominio_destino = d ? padrao : null;
       novo.dominio_estado = d ? (padrao ? "aguardando_dns" : "aguardando_conhub") : null;
       novo.dominio_detalhe = null;
       novo.dominio_conferido_em = null;
+      novo.dominio_registros = null;
+      novo.dominio_railway_id = null;
+      novo._remover = atual.dominio_railway_id || null;
+      novo._mudouDominio = true;
     }
   }
   if (b.gtm_id !== undefined) {
@@ -143,12 +150,14 @@ export function salvarSite(orgId, b = {}) {
   if (novo.ligado && !novo.whatsapp) return { erro: "Informe o WhatsApp da imobiliária antes de ligar o site — é para ele que o botão de contato leva." };
 
   db.prepare(`UPDATE sites SET slug=?, ligado=?, whatsapp=?, pixel_id=?, frase=?, dominio=?, dominio_destino=?, dominio_estado=?,
-      dominio_detalhe=?, dominio_conferido_em=?, gtm_id=?, seo_titulo=?, seo_descricao=?, atualizado_em=? WHERE org_id=?`)
+      dominio_detalhe=?, dominio_conferido_em=?, dominio_railway_id=?, dominio_registros=?, gtm_id=?, seo_titulo=?, seo_descricao=?,
+      atualizado_em=? WHERE org_id=?`)
     .run(novo.slug, novo.ligado, novo.whatsapp, novo.pixel_id, novo.frase, novo.dominio || null, novo.dominio_destino || null,
       novo.dominio_estado || null, novo.dominio_detalhe || null, novo.dominio_conferido_em || null,
+      novo.dominio_railway_id || null, novo.dominio_registros || null,
       novo.gtm_id || null, novo.seo_titulo || null, novo.seo_descricao || null, Date.now(), orgId);
   esquecerDominios();
-  return { cfg: configDoSite(orgId) };
+  return { cfg: configDoSite(orgId), remover: novo._remover || null, mudouDominio: !!novo._mudouDominio };
 }
 
 /* ===== O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026, pedido do Ali) =====
@@ -156,14 +165,17 @@ export function salvarSite(orgId, b = {}) {
    A imobiliária cadastra o domínio dela (ex.: www.imobiliaria.com.br) e o
    site abre nele, na raiz — /, /<id>/<titulo>, /sitemap.xml, /robots.txt.
 
-   SÃO TRÊS PASSOS, e dois não são do código: (1) a imobiliária registra o
-   domínio aqui; (2) o ConHub ativa o domínio na hospedagem, que é quem emite
-   o certificado (o cadeado do https) — a hospedagem dá um destino de DNS, que
-   o master anota no hub; (3) a imobiliária cria no DNS dela um registro CNAME
-   apontando para esse destino. A conferência (`verificarDominio`) diz em qual
-   passo está, em português, e o domínio só fica "ativo" quando o site
-   responde DE VERDADE por ele, com https. `SITE_DNS_DESTINO` no servidor pula o
-   passo 2 quando a hospedagem aceita qualquer domínio sozinha.
+   QUEM FAZ TUDO É A IMOBILIÁRIA (pedido do Ali, no mesmo dia): ela escreve o
+   domínio, o servidor cadastra na hospedagem pela API do Railway
+   (`services/railway.js`) e a tela mostra os registros de DNS que ela cria no
+   Registro.br — a rota (CNAME) e a verificação (TXT). A conferência
+   (`verificarDominio`) diz em que passo está, em português, roda sozinha a
+   cada 15 minutos enquanto o domínio não está no ar, e o domínio só fica
+   "ativo" quando o site responde DE VERDADE por ele, com https.
+
+   Sem o token do Railway no servidor, volta o caminho manual: o master ativa
+   no Railway e anota no hub o destino (`definirDestino`). `SITE_DNS_DESTINO`
+   serve a uma hospedagem que aceite qualquer domínio sozinha.
 
    Endereços do próprio ConHub e da hospedagem são recusados: registrar o
    domínio da plataforma como "site da imobiliária" sequestraria a porta de
@@ -220,7 +232,37 @@ export function orgDoDominio(host) {
    (ninguém ganha nada imitando), só um "sim, sou eu". */
 export const marcaDoSite = (orgId) => createHash("sha256").update("conhub-site:" + orgId).digest("hex").slice(0, 24);
 
+/* Cadastra o domínio no Railway (se ainda não está) e atualiza os registros
+   de DNS que a imobiliária precisa criar. Nunca lança: a falha vira a frase
+   do quadro, com o erro do Railway escrito. */
+export async function ativarDominio(orgId) {
+  if (!railwayPronto().ok) return;
+  const cfg = configDoSite(orgId);
+  if (!cfg.dominio) return;
+  try {
+    const r = cfg.dominio_railway_id
+      ? { id: cfg.dominio_railway_id, ...(await estadoDoDominio(cfg.dominio_railway_id, cfg.dominio)) }
+      : await cadastrarDominio(cfg.dominio);
+    // O domínio pode ter sido trocado enquanto o Railway respondia.
+    const agora = db.prepare("SELECT dominio FROM sites WHERE org_id = ?").get(orgId);
+    if (!agora || agora.dominio !== cfg.dominio) return;
+    const cname = r.registros.find(x => x.tipo === "CNAME");
+    db.prepare(`UPDATE sites SET dominio_railway_id = ?, dominio_registros = ?, dominio_destino = COALESCE(?, dominio_destino),
+        dominio_estado = CASE WHEN dominio_estado = 'ativo' THEN 'ativo' ELSE 'aguardando_dns' END WHERE org_id = ?`)
+      .run(r.id, JSON.stringify(r.registros), cname ? cname.valor : null, orgId);
+  } catch (e) {
+    console.warn("[site] cadastro do domínio no Railway:", e.message);
+    if (cfg.dominio_estado !== "ativo")
+      db.prepare("UPDATE sites SET dominio_estado = 'aguardando_conhub', dominio_detalhe = ?, dominio_conferido_em = ? WHERE org_id = ?")
+        .run(`Não deu para preparar o domínio na hospedagem (${String(e.message).slice(0, 200)}). Tente “Conferir agora” em alguns minutos; se continuar, fale com o ConHub.`,
+          Date.now(), orgId);
+  }
+}
+
+export const registrosDoSite = (cfg) => { try { return JSON.parse(cfg.dominio_registros || "[]") || []; } catch { return []; } };
+
 export async function verificarDominio(orgId) {
+  await ativarDominio(orgId);
   const cfg = configDoSite(orgId);
   if (!cfg.dominio) return { cfg };
   const dominio = cfg.dominio;
@@ -241,8 +283,19 @@ export async function verificarDominio(orgId) {
     erroHttp = /certificate|cert|SSL|TLS/i.test(String(e.cause && e.cause.code || e.cause || e.message)) ? "certificado" : "sem_resposta";
   }
   // 2. Ainda não: em que passo está.
+  if (cfg.dominio_estado === "aguardando_conhub" && cfg.dominio_detalhe && cfg.dominio_railway_id == null && railwayPronto().ok)
+    return { cfg };   // o cadastro no Railway falhou agora: a frase do erro fica
   if (!destino) return grava("aguardando_conhub",
     "Falta o ConHub ativar este domínio na hospedagem. Depois disso aparece aqui para onde apontar o DNS.");
+  const registros = registrosDoSite(cfg);
+  const faltando = registros.filter(x => !x.ok);
+  if (faltando.length) return grava("aguardando_dns",
+    `A hospedagem ainda não enxerga ${faltando.map(x => `o ${x.tipo} ${x.nome}`).join(" e ")}. Depois de criar, pode levar algumas horas para valer.`);
+  // A hospedagem já enxerga todos os registros: o DNS está feito, e o que
+  // falta é dela (o certificado) — perguntar ao nosso DNS de novo só poderia
+  // contradizer quem de fato decide.
+  if (registros.length) return grava("aguardando_dns",
+    "Os registros estão certos. Falta a hospedagem emitir o certificado (o cadeado do https) — costuma levar alguns minutos.");
   let cnames = [];
   try { cnames = (await dnsP.resolveCname(dominio)).map(x => x.toLowerCase().replace(/\.$/, "")); } catch {}
   if (!cnames.includes(destino)) return grava("aguardando_dns", cnames.length
@@ -267,7 +320,23 @@ export function definirDestino(orgId, destino) {
 
 export function dominiosDaPlataforma() {
   return db.prepare(`SELECT s.org_id, o.name AS org_nome, s.dominio, s.dominio_destino, s.dominio_estado, s.dominio_detalhe,
-      s.dominio_conferido_em, s.ligado FROM sites s JOIN orgs o ON o.id = s.org_id WHERE s.dominio IS NOT NULL ORDER BY o.name`).all();
+      s.dominio_conferido_em, s.ligado, s.dominio_railway_id IS NOT NULL AS automatico
+      FROM sites s JOIN orgs o ON o.id = s.org_id WHERE s.dominio IS NOT NULL ORDER BY o.name`).all();
+}
+
+/* Batimento: o domínio que ainda não está no ar é conferido sozinho a cada 15
+   minutos — a imobiliária cria o DNS e não precisa voltar à tela para o site
+   começar a abrir. O que já está no ar não é reconferido sozinho: uma falha
+   passageira de DNS trocaria os links do site de volta para o endereço do
+   ConHub sem ninguém ter mexido em nada. Vinte por rodada, os mais antigos
+   primeiro. */
+export async function conferirDominiosPendentes() {
+  const lista = db.prepare(`SELECT org_id FROM sites WHERE dominio IS NOT NULL AND COALESCE(dominio_estado,'') <> 'ativo'
+      AND COALESCE(dominio_conferido_em,0) < ? ORDER BY COALESCE(dominio_conferido_em,0) LIMIT 20`).all(Date.now() - 14 * 60000);
+  for (const { org_id } of lista) {
+    try { await verificarDominio(org_id); } catch (e) { console.warn("[site] conferência automática:", e.message); }
+  }
+  if (lista.length) esquecerDominios();
 }
 
 /* Caminho público de um imóvel, ou null se o site não está no ar. O título vai
