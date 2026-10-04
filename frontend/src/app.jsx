@@ -5630,11 +5630,14 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
   </div>;
 }
 
-/* OS PLANOS AGRUPADOS POR NOME (04/10/2026, pedido do Ali: "seis opções de
-   plano está estranho… escolhe o Essencial e, dentro dele, o prazo"). Cada
-   plano é UM cartão (Essencial, Plus · Básico, Completo) e o ciclo — mensal,
-   semestral, anual — se escolhe dentro dele. A lista do servidor continua
-   sendo uma linha por ciclo (é o que vira cobrança); só a tela agrupa. */
+/* OS PLANOS EM GAVETAS (04/10/2026, pedido do Ali: "engavetado, estaria o
+   plano Essencial e o plano Plus. Somente isso. Apertou no Essencial, abriu
+   mensal, semestral e anual. Apertou de novo, fechou"). Cada plano é uma
+   linha fechada (Essencial, Plus · Básico, Completo) e os prazos aparecem só
+   dentro dela, cada um com o PRÓPRIO preço. A primeira versão era um cartão
+   com "a partir de R$ 377" e, embaixo, "Mensal R$ 497": dois preços para o
+   mesmo plano, e nenhum dos dois explicava o outro. A lista do servidor
+   continua sendo uma linha por ciclo (é o que vira cobrança); só a tela agrupa. */
 /* Quantos dias dura o teste grátis — o espelho de TRIAL_DIAS
    (services/assinatura.js). Mudou lá, muda aqui. */
 const DIAS_TESTE=7;
@@ -5647,16 +5650,16 @@ function familiasDosPlanos(planos){
   }
   return [...m.values()];
 }
-/* O que o plano traz, olhando TODOS os ciclos: o Essencial ganha o Marketing
-   só no semestral e no anual, e o cartão precisa dizer isso antes do clique. */
-function oQueTrazAFamilia(f){
-  const com=(r)=>f.ciclos.filter(c=>(c.inclui||[]).includes(r));
-  const ia=com("autoatendimento"), mkt=com("marketing");
-  const parte=(lista)=>lista.map(c=>(c.ciclo_nome||"").toLowerCase()).join(" e no ");
-  return {
-    ia: ia.length===f.ciclos.length?"sim":ia.length?"no "+parte(ia):"nao",
-    mkt: mkt.length===f.ciclos.length?"sim":mkt.length?"no "+parte(mkt):"nao",
-  };
+/* O que UM prazo traz. É por prazo e não por plano: o Essencial ganha o
+   Marketing só no semestral e no anual, e escrever isso no plano inteiro era
+   o que obrigava a frase "no semestral e no anual" a morar no lugar errado. */
+function oQueTrazOCiclo(c){
+  const tem=(r)=>(c.inclui||[]).includes(r);
+  const ia=tem("autoatendimento"), mkt=tem("marketing");
+  if(ia&&mkt) return "Autoatendimento com IA + Marketing";
+  if(ia) return "Autoatendimento com IA · sem Marketing";
+  if(mkt) return "Marketing · sem Autoatendimento com IA";
+  return "Sem Autoatendimento com IA e sem Marketing";
 }
 
 function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual}){
@@ -5673,22 +5676,17 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
   // O cartão guardado no Pagar.me (bandeira e final), quando a conta é cobrada por lá.
   const [cartao,setCartao]=useState(null);
 
-  /* A TELA JÁ ABRE COM O PLANO QUE A PESSOA ESCOLHEU NO SITE. (02/09/2026)
-
-     `escolhido` é a intenção que ela declarou no popup do "Testar 14 dias
-     grátis", guardada em `orgs.plano_escolhido`. `atual` é o plano contratado,
-     e vem primeiro quando existe — quem já contratou está aqui para trocar, e
-     abrir marcando outra coisa faria a tela sugerir uma troca que ninguém
-     pediu.
-
-     Perguntar de novo o que ela respondeu no primeiro clique parece pequeno,
-     mas isto acontece no fim do teste: é a tela que decide se ela paga ou some.
-     Um passo a mais aqui é caro. */
+  /* AS GAVETAS NASCEM FECHADAS (04/10/2026, pedido do Ali). A exceção é quem
+     ainda não tem plano e está esperando o cartão para começar o teste: aí a
+     gaveta do plano que ela escolheu no site já abre com o prazo marcado —
+     perguntar de novo o que ela respondeu no primeiro clique, justamente na
+     tela que decide se ela entra ou desiste, é um passo caro (regra de
+     02/09/2026). `escolhido` vem de `orgs.plano_escolhido`. */
   useEffect(()=>{
     acoes.planos().then(r=>{
       setD(r); setCartao(r.pagarme?r.pagarme.cartao:null);
-      const sugerido=r.atual||r.escolhido;
-      const p=sugerido&&r.planos.find(x=>x.id===sugerido);
+      const esperandoCartao=atualSituacao&&atualSituacao.status==="aguardando_cartao";
+      const p=!r.atual&&esperandoCartao&&r.escolhido&&r.planos.find(x=>x.id===r.escolhido);
       if(p){ setEscolhido(p.id); setFamilia(p.plano||"Completo"); }
     }).catch(e=>setErro(e.message));
   },[]);
@@ -5708,8 +5706,6 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
      teste começar — por isso o texto muda: não é "aproveite os dias que
      faltam", é "escolha para começar". */
   const aguardandoCartao=atualSituacao&&atualSituacao.status==="aguardando_cartao";
-  const plano=d.planos.find(p=>p.id===escolhido);
-
   async function contratar(){
     setErro("");setOcupado(true);
     try{
@@ -5730,101 +5726,15 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
 
-  return <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Gerenciar assinatura</div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      {aguardandoCartao
-        ? <React.Fragment>Escolha um plano e cadastre o cartão para <b style={{color:C.sub}}>começar o seu teste de {DIAS_TESTE} dias grátis</b> — a primeira cobrança só cai quando o teste acabar.</React.Fragment>
-        : emTeste
-        ? <React.Fragment>Você está no teste grátis. Escolha um plano agora e a{" "}
-            <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
-        : d.atual
-        ? "Você pode trocar de plano quando quiser. O plano anterior é cancelado na troca."
-        : pm&&pm.combinada ? "Quer mudar para um plano da tabela? Escolha abaixo — o plano substitui a mensalidade combinada."
-        : pm ? "Escolha o seu plano. O pagamento é no cartão de crédito, aqui mesmo."
-        : "Escolha o seu plano. O pagamento é feito na tela do Asaas, no cartão de crédito."}
-    </div>
-
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
-
-    {!(pm?pm.configurado:d.asaas)
-      ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-        A cobrança automática ainda não está ligada neste servidor (falta <b>{pm?"PAGARME_SECRET_KEY / PAGARME_PUBLIC_KEY":"ASAAS_API_KEY"}</b>).</div>
-      :<React.Fragment>
-        {(()=>{
-          const fams=familiasDosPlanos(d.planos);
-          const famSel=fams.find(f=>f.chave===familia);
-          const linhaTraz=(estado,rotulo)=>estado==="nao"
-            ?<div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Sem {rotulo}</div>
-            :<div style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
-              <Icon n="check" size={11}/>{rotulo}{estado==="sim"?"":` ${estado}`}</div>;
-          return <React.Fragment>
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(${Math.min(fams.length,3)},minmax(0,1fr))`,gap:9}}>
-              {fams.map(f=>{
-                const sel=familia===f.chave, meu=f.ciclos.some(c=>c.id===d.atual);
-                const desde=Math.min(...f.ciclos.map(c=>c.mensal));
-                const traz=oQueTrazAFamilia(f);
-                return <button key={f.chave} onClick={()=>{
-                    if(sel){ setFamilia(""); setEscolhido(""); return; }
-                    setFamilia(f.chave);
-                    const atualAqui=f.ciclos.find(c=>c.id===d.atual);
-                    setEscolhido((atualAqui||f.ciclos[0]).id);
-                  }}
-                  style={{textAlign:"left",cursor:"pointer",background:sel?C.greenSoft:C.surface,
-                    border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:13,
-                    padding:sel?"12px 13px":"13px 14px",display:"flex",flexDirection:"column",gap:5}}>
-                  <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
-                    <span style={{color:C.ink,fontSize:14,fontWeight:700,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nome}</span>
-                    {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>SEU PLANO</span>}
-                    {!d.atual&&f.ciclos.some(c=>c.id===d.escolhido)&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0}}>ESCOLHIDO NO SITE</span>}
-                  </div>
-                  <div style={{color:C.faint,fontSize:11}}>{f.limite}</div>
-                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                    {f.ciclos.length>1&&<span style={{color:C.faint,fontSize:11}}>a partir de</span>}
-                    <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700,lineHeight:1}}>{fmtMoeda(desde)}</span>
-                    <span style={{color:C.faint,fontSize:11}}>/mês</span>
-                  </div>
-                  {f.ciclos.length===1&&<div style={{color:C.faint,fontSize:10.5}}>Só no mensal</div>}
-                  {linhaTraz(traz.ia,"Autoatendimento com IA")}
-                  {linhaTraz(traz.mkt,"Marketing (disparos e fluxos)")}
-                </button>;})}
-            </div>
-            {/* O PRAZO, dentro do plano escolhido. */}
-            {famSel&&famSel.ciclos.length>1&&<div style={{marginTop:10}}>
-              <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:6}}>Prazo do {famSel.nome}</div>
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(${famSel.ciclos.length},minmax(0,1fr))`,gap:7}}>
-                {famSel.ciclos.map(c=>{
-                  const sel=escolhido===c.id, meu=d.atual===c.id;
-                  return <button key={c.id} onClick={()=>setEscolhido(c.id)}
-                    style={{textAlign:"left",cursor:"pointer",background:sel?C.card:C.surface,
-                      border:`${sel?2:1}px solid ${sel?C.green:C.line}`,borderRadius:11,padding:sel?"9px 10px":"10px 11px",
-                      display:"flex",flexDirection:"column",gap:3}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-                      <span style={{color:C.ink,fontSize:12.5,fontWeight:700}}>{c.ciclo_nome}</span>
-                      {meu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999}}>ATUAL</span>}
-                      {c.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999,whiteSpace:"nowrap"}}>-{fmtMoeda(c.economia_ano)}/ano</span>}
-                    </div>
-                    <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-                      <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700}}>{fmtMoeda(c.mensal)}</span>
-                      <span style={{color:C.faint,fontSize:10.5}}>/mês</span>
-                    </div>
-                    <div style={{color:C.sub,fontSize:10.5,lineHeight:1.4}}>
-                      {c.forma==="parcelado"?`${c.parcelas}x de ${fmtMoeda(c.parcela)} no cartão`
-                        :c.meses===1?"Cobrado todo mês":`${fmtMoeda(c.total)} a cada ${c.meses} meses`}</div>
-                    {(c.inclui||[]).includes("marketing")&&!famSel.ciclos.every(x=>(x.inclui||[]).includes("marketing"))&&
-                      <div style={{color:C.greenDeep,fontSize:10,fontWeight:600}}>+ Marketing incluso</div>}
-                  </button>;})}
-              </div>
-            </div>}
-          </React.Fragment>;
-        })()}
-
-        {pm&&plano&&<PlanoNoPagarme key={plano.id} plano={plano} pm={pm} cartao={cartao} aoCartao={setCartao}
+  /* O que se assina, dentro da gaveta aberta e logo abaixo do prazo marcado —
+     longe dele, a pessoa marca "Semestral" e procura o botão no fim da página. */
+  const blocoDeCompra=(plano)=><React.Fragment>
+        {pm&&<PlanoNoPagarme key={plano.id} plano={plano} pm={pm} cartao={cartao} aoCartao={setCartao}
           atual={d.atual===plano.id&&!(atualSituacao&&atualSituacao.cancelada_em)}
           pagoAte={!emTeste&&!aguardandoCartao&&atualSituacao&&atualSituacao.vence_em>Date.now()+86400000?atualSituacao.vence_em:null}
           acoes={acoes} isMobile={isMobile} emTeste={emTeste} aguardandoCartao={aguardandoCartao}
           fimDoTeste={emTeste?atualSituacao.vence_em:null} aoMudar={aoMudar}/>}
-        {!pm&&plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
+        {!pm&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
           {aguardandoCartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,
             borderRadius:9,padding:"8px 10px",marginBottom:10}}>
             Cadastrar o cartão não cobra nada agora — o teste de {DIAS_TESTE} dias começa
@@ -5856,6 +5766,89 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
               Os dados do cartão são digitados lá — o ConHub não recebe nem guarda nenhum deles.</span>
           </div>
         </div>}
+  </React.Fragment>;
+
+  return <div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Gerenciar assinatura</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      {aguardandoCartao
+        ? <React.Fragment>Escolha um plano e cadastre o cartão para <b style={{color:C.sub}}>começar o seu teste de {DIAS_TESTE} dias grátis</b> — a primeira cobrança só cai quando o teste acabar.</React.Fragment>
+        : emTeste
+        ? <React.Fragment>Você está no teste grátis. Escolha um plano agora e a{" "}
+            <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
+        : d.atual
+        ? "Você pode trocar de plano quando quiser. O plano anterior é cancelado na troca."
+        : pm&&pm.combinada ? "Quer mudar para um plano da tabela? Escolha abaixo — o plano substitui a mensalidade combinada."
+        : pm ? "Escolha o seu plano. O pagamento é no cartão de crédito, aqui mesmo."
+        : "Escolha o seu plano. O pagamento é feito na tela do Asaas, no cartão de crédito."}
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.45}}>{erro}</div>}
+
+    {!(pm?pm.configurado:d.asaas)
+      ?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+        A cobrança automática ainda não está ligada neste servidor (falta <b>{pm?"PAGARME_SECRET_KEY / PAGARME_PUBLIC_KEY":"ASAAS_API_KEY"}</b>).</div>
+      :<React.Fragment>
+        {familiasDosPlanos(d.planos).map(f=>{
+          const aberto=familia===f.chave, meu=f.ciclos.some(c=>c.id===d.atual);
+          const doSite=!d.atual&&f.ciclos.some(c=>c.id===d.escolhido);
+          const doPlano=f.ciclos.find(c=>c.id===escolhido);
+          return <div key={f.chave} style={{border:`1px solid ${aberto?C.green:C.line}`,borderRadius:13,
+            background:C.card,marginBottom:8,overflow:"hidden"}}>
+            <button aria-expanded={aberto} onClick={()=>{
+                if(aberto){ setFamilia(""); setEscolhido(""); return; }
+                setFamilia(f.chave);
+                /* Abrir marca o prazo que já é dela (ou o do site); sem nenhum
+                   dos dois, nada marcado — o preço só aparece depois de ela
+                   escolher. Plano de um prazo só já abre marcado. */
+                const ja=f.ciclos.find(c=>c.id===d.atual)||f.ciclos.find(c=>c.id===d.escolhido)
+                  ||(f.ciclos.length===1?f.ciclos[0]:null);
+                setEscolhido(ja?ja.id:"");
+              }}
+              style={{width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left",cursor:"pointer",
+                background:aberto?C.greenSoft:"transparent",border:"none",padding:"13px 14px"}}>
+              <span style={{flex:1,minWidth:0}}>
+                <span style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{f.nome}</span>
+                  {meu&&<span style={{background:C.green,color:"#fff",fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap"}}>SEU PLANO</span>}
+                  {doSite&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9.5,fontWeight:700,padding:"2px 6px",borderRadius:999,whiteSpace:"nowrap"}}>ESCOLHIDO NO SITE</span>}
+                </span>
+                {f.limite&&<span style={{display:"block",color:C.faint,fontSize:11.5,marginTop:2}}>{f.limite}</span>}
+              </span>
+              <span style={{display:"inline-flex",color:C.sub,transform:aberto?"rotate(90deg)":"none",transition:"transform .15s"}}>
+                <Icon n="chevron" size={16}/></span>
+            </button>
+            {aberto&&<div style={{padding:"4px 12px 12px",borderTop:`1px solid ${C.line}`}}>
+              <div style={{color:C.faint,fontSize:11,fontWeight:600,margin:"9px 2px 7px"}}>
+                {f.ciclos.length>1?"Escolha o prazo":"Prazo"}</div>
+              {f.ciclos.map(c=>{
+                const sel=escolhido===c.id, atualAqui=d.atual===c.id;
+                return <button key={c.id} onClick={()=>setEscolhido(c.id)}
+                  style={{width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left",cursor:"pointer",
+                    background:sel?C.greenSoft:C.surface,border:`${sel?2:1}px solid ${sel?C.green:C.line}`,
+                    borderRadius:11,padding:sel?"9px 10px":"10px 11px",marginBottom:6}}>
+                  <span style={{width:16,height:16,borderRadius:999,flexShrink:0,boxSizing:"border-box",
+                    border:`${sel?5:2}px solid ${sel?C.green:C.line}`,background:C.card}}/>
+                  <span style={{flex:1,minWidth:0}}>
+                    <span style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                      <span style={{color:C.ink,fontSize:13,fontWeight:700}}>{c.ciclo_nome}</span>
+                      {atualAqui&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999}}>ATUAL</span>}
+                      {c.economia_ano>0&&<span style={{background:C.amberSoft,color:"#8a6d1f",fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:999,whiteSpace:"nowrap"}}>economiza {fmtMoeda(c.economia_ano)}/ano</span>}
+                    </span>
+                    <span style={{display:"block",color:C.sub,fontSize:11,lineHeight:1.4,marginTop:2}}>
+                      {c.forma==="parcelado"?`${fmtMoeda(c.total)} em ${c.parcelas}x no cartão`
+                        :c.meses===1?"Cobrado todo mês":`${fmtMoeda(c.total)} a cada ${c.meses} meses`}</span>
+                    <span style={{display:"block",color:(c.inclui||[]).length?C.greenDeep:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
+                      {oQueTrazOCiclo(c)}</span>
+                  </span>
+                  <span style={{textAlign:"right",flexShrink:0}}>
+                    <span style={{display:"block",color:C.greenDeep,fontFamily:MONO,fontSize:15,fontWeight:700,whiteSpace:"nowrap"}}>{fmtMoeda(c.mensal)}</span>
+                    <span style={{display:"block",color:C.faint,fontSize:10}}>por mês</span>
+                  </span>
+                </button>;})}
+              {doPlano&&blocoDeCompra(doPlano)}
+            </div>}
+          </div>;})}
 
         {fatura&&<div style={{marginTop:10,background:C.greenSoft,border:`1px solid ${C.green}44`,borderRadius:12,padding:12}}>
           <div style={{color:C.greenDeep,fontSize:12.5,fontWeight:700,marginBottom:3}}>
