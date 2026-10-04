@@ -22,6 +22,7 @@ import { definirLiberacao } from "../services/marketing.js";
 import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../services/recursos.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { marcaDaOrg } from "../services/marca.js";
+import { dominiosDaPlataforma, definirDestino, verificarDominio } from "../services/site.js";
 import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
@@ -494,6 +495,19 @@ const gravarConfig = (chave, valor) =>
   db.prepare(`INSERT INTO config_plataforma (chave,valor,atualizado_em) VALUES (?,?,?)
     ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor, atualizado_em=excluded.atualizado_em`)
     .run(chave, valor ? JSON.stringify(valor) : null, Date.now());
+
+/* DOMÍNIOS DOS SITES (04/10/2026). A imobiliária cadastra o domínio no site
+   dela; quem ATIVA na hospedagem é o ConHub (é a hospedagem que emite o
+   certificado do https). Aqui o master vê quem está esperando, ativa o domínio
+   no painel da hospedagem e anota o destino de DNS que ela deu — é esse
+   destino que a imobiliária passa a ver na tela dela para apontar o DNS. */
+r.get("/dominios", (_req, res) => res.json({ dominios: dominiosDaPlataforma() }));
+r.patch("/dominios/:orgId", async (req, res) => {
+  const x = definirDestino(req.params.orgId, (req.body || {}).destino);
+  if (x.erro) return res.status(400).json({ error: x.erro });
+  try { await verificarDominio(req.params.orgId); } catch (e) { console.warn("[site] conferência:", e.message); }
+  res.json({ dominios: dominiosDaPlataforma() });
+});
 
 r.get("/login-fundo", (req, res) => res.json({ fundo: lerConfig(CHAVE_FUNDO) }));
 

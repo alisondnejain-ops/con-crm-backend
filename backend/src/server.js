@@ -23,7 +23,7 @@ import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
-import { paginas as sitePaginas, gestao as siteGestao } from "./routes/site.routes.js";
+import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./routes/meta-conexao.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
@@ -181,6 +181,13 @@ const RECURSOS = [
   "configuracoes",        // aba Configuracoes: mensagens automaticas + conexao
   "whatsapp-oficial",     // API oficial da Meta (Cloud API) como segundo provedor de WhatsApp
 ];
+/* O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026): pedido que chega pelo
+   domínio de um site cadastrado é o site, na raiz. A única peça montada SEM
+   caminho no servidor, e de propósito: ela não barra nada do endereço do
+   ConHub — pedido de outro endereço passa direto, sem consulta ao banco
+   (routes/site.routes.js → dominioProprio). Fica antes de tudo para que o
+   domínio do cliente nunca abra o CRM nem a API. */
+app.use(dominioProprio);
 app.get("/health", (_req, res) => res.json({
   ok: true,
   service: "con-crm",

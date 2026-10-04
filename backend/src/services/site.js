@@ -18,6 +18,8 @@
    a partir da linha inteira seria confiar que ninguém nunca vai escrever
    `p.observacoes` num template; montar a partir de um objeto que não TEM esse
    campo é a garantia. */
+import { createHash } from "node:crypto";
+import { promises as dnsP } from "node:dns";
 import db from "../db.js";
 import { normalizePhone } from "./stages.js";
 import { marcaDaOrg } from "./marca.js";
@@ -100,22 +102,183 @@ export function salvarSite(orgId, b = {}) {
     if (f.length > 90) return { erro: "A frase de apresentação passa de 90 caracteres — no celular ela ocuparia a tela inteira." };
     novo.frase = f || null;
   }
+  if (b.dominio !== undefined) {
+    const d = normalizarDominio(b.dominio);
+    if (d && d.erro) return { erro: d.erro };
+    if (d) {
+      const dono = db.prepare("SELECT org_id FROM sites WHERE dominio = ?").get(d);
+      if (dono && dono.org_id !== orgId) return { erro: "Esse domínio já está ligado ao site de outra imobiliária no ConHub." };
+    }
+    if ((d || null) !== (atual.dominio || null)) {
+      novo.dominio = d || null;
+      /* Domínio novo recomeça a conferência. Com destino padrão no servidor
+         (SITE_DNS_DESTINO) a imobiliária já pode apontar o DNS; sem ele, o
+         ConHub precisa ativar o domínio na hospedagem primeiro. */
+      const padrao = destinoPadrao();
+      novo.dominio_destino = d ? padrao : null;
+      novo.dominio_estado = d ? (padrao ? "aguardando_dns" : "aguardando_conhub") : null;
+      novo.dominio_detalhe = null;
+      novo.dominio_conferido_em = null;
+    }
+  }
+  if (b.gtm_id !== undefined) {
+    const g = String(b.gtm_id || "").replace(/\s/g, "").toUpperCase();
+    if (g && !/^GTM-[A-Z0-9]{4,12}$/.test(g))
+      return { erro: "O ID do Google Tag Manager começa com GTM- e fica no topo do painel do Tag Manager (ex.: GTM-ABC1234)." };
+    novo.gtm_id = g || null;
+  }
+  if (b.seo_titulo !== undefined) {
+    const t = String(b.seo_titulo || "").replace(/\s+/g, " ").trim();
+    if (t.length > 70) return { erro: "O título para o Google passa de 70 caracteres — o Google corta o resto." };
+    novo.seo_titulo = t || null;
+  }
+  if (b.seo_descricao !== undefined) {
+    const t = String(b.seo_descricao || "").replace(/\s+/g, " ").trim();
+    if (t.length > 160) return { erro: "A descrição para o Google passa de 160 caracteres — o Google corta o resto." };
+    novo.seo_descricao = t || null;
+  }
   if (b.ligado !== undefined) novo.ligado = b.ligado ? 1 : 0;
   // Site no ar sem WhatsApp seria uma vitrine sem porta: o visitante gosta do
   // imóvel e não tem como falar com ninguém.
   if (novo.ligado && !novo.whatsapp) return { erro: "Informe o WhatsApp da imobiliária antes de ligar o site — é para ele que o botão de contato leva." };
 
-  db.prepare("UPDATE sites SET slug=?, ligado=?, whatsapp=?, pixel_id=?, frase=?, atualizado_em=? WHERE org_id=?")
-    .run(novo.slug, novo.ligado, novo.whatsapp, novo.pixel_id, novo.frase, Date.now(), orgId);
+  db.prepare(`UPDATE sites SET slug=?, ligado=?, whatsapp=?, pixel_id=?, frase=?, dominio=?, dominio_destino=?, dominio_estado=?,
+      dominio_detalhe=?, dominio_conferido_em=?, gtm_id=?, seo_titulo=?, seo_descricao=?, atualizado_em=? WHERE org_id=?`)
+    .run(novo.slug, novo.ligado, novo.whatsapp, novo.pixel_id, novo.frase, novo.dominio || null, novo.dominio_destino || null,
+      novo.dominio_estado || null, novo.dominio_detalhe || null, novo.dominio_conferido_em || null,
+      novo.gtm_id || null, novo.seo_titulo || null, novo.seo_descricao || null, Date.now(), orgId);
+  esquecerDominios();
   return { cfg: configDoSite(orgId) };
+}
+
+/* ===== O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026, pedido do Ali) =====
+
+   A imobiliária cadastra o domínio dela (ex.: www.imobiliaria.com.br) e o
+   site abre nele, na raiz — /, /<id>/<titulo>, /sitemap.xml, /robots.txt.
+
+   SÃO TRÊS PASSOS, e dois não são do código: (1) a imobiliária registra o
+   domínio aqui; (2) o ConHub ativa o domínio na hospedagem, que é quem emite
+   o certificado (o cadeado do https) — a hospedagem dá um destino de DNS, que
+   o master anota no hub; (3) a imobiliária cria no DNS dela um registro CNAME
+   apontando para esse destino. A conferência (`verificarDominio`) diz em qual
+   passo está, em português, e o domínio só fica "ativo" quando o site
+   responde DE VERDADE por ele, com https. `SITE_DNS_DESTINO` no servidor pula o
+   passo 2 quando a hospedagem aceita qualquer domínio sozinha.
+
+   Endereços do próprio ConHub e da hospedagem são recusados: registrar o
+   domínio da plataforma como "site da imobiliária" sequestraria a porta de
+   entrada de todo mundo. */
+const DOMINIO_VALIDO = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
+function hostsDaPlataforma() {
+  const h = new Set(["localhost"]);
+  for (const v of [process.env.APP_URL, process.env.SITE_URL]) {
+    try { if (v) h.add(new URL(v).hostname.toLowerCase().replace(/^www\./, "")); } catch {}
+  }
+  h.add("conhubcrm.com.br");
+  return h;
+}
+export function normalizarDominio(bruto) {
+  const t = String(bruto || "").trim();
+  if (!t) return null;
+  let host;
+  try { host = new URL("https://" + t.replace(/^[a-z]+:\/\//i, "")).hostname.toLowerCase().replace(/\.$/, ""); }
+  catch { return { erro: "Domínio inválido. Escreva só o endereço, ex.: www.suaimobiliaria.com.br" }; }
+  if (!DOMINIO_VALIDO.test(host)) return { erro: "Domínio inválido. Escreva só o endereço, ex.: www.suaimobiliaria.com.br" };
+  const raiz = host.replace(/^www\./, "");
+  const plataforma = hostsDaPlataforma();
+  if ([...plataforma].some(p => raiz === p || raiz.endsWith("." + p)) || /(^|\.)(railway\.app|up\.railway\.app|onrender\.com)$/.test(raiz))
+    return { erro: "Esse é um endereço do ConHub ou da hospedagem — use o domínio da imobiliária." };
+  return host;
+}
+const destinoPadrao = () => {
+  const d = String(process.env.SITE_DNS_DESTINO || "").trim().toLowerCase().replace(/\.$/, "");
+  return DOMINIO_VALIDO.test(d) ? d : null;
+};
+
+/* Qual site atende um endereço. Lido a cada pedido que chega ao servidor, por
+   isso numa tabela em memória (refeita a cada minuto e a cada salvamento): o
+   pedido do CRM, que é a imensa maioria, não pode pagar uma consulta ao banco
+   por causa do site. O domínio vale com e sem o "www". */
+let mapaDominios = null, mapaEm = 0;
+export function esquecerDominios() { mapaDominios = null; }
+export function orgDoDominio(host) {
+  const h = String(host || "").toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+  if (!h || h === "localhost" || /^[\d.]+$/.test(h)) return null;
+  if (!mapaDominios || Date.now() - mapaEm > 60000) {
+    mapaDominios = new Map();
+    for (const r of db.prepare("SELECT org_id, dominio FROM sites WHERE dominio IS NOT NULL").all()) {
+      mapaDominios.set(r.dominio, r);
+      mapaDominios.set(r.dominio.startsWith("www.") ? r.dominio.slice(4) : "www." + r.dominio, r);
+    }
+    mapaEm = Date.now();
+  }
+  return mapaDominios.get(h) || null;
+}
+
+/* A prova de que o domínio chega AQUI e é desta imobiliária: o site responde
+   em /.well-known/conhub-site com uma marca derivada da conta. Não é segredo
+   (ninguém ganha nada imitando), só um "sim, sou eu". */
+export const marcaDoSite = (orgId) => createHash("sha256").update("conhub-site:" + orgId).digest("hex").slice(0, 24);
+
+export async function verificarDominio(orgId) {
+  const cfg = configDoSite(orgId);
+  if (!cfg.dominio) return { cfg };
+  const dominio = cfg.dominio;
+  const destino = cfg.dominio_destino || destinoPadrao();
+  const grava = (estado, detalhe) => {
+    db.prepare("UPDATE sites SET dominio_estado = ?, dominio_detalhe = ?, dominio_conferido_em = ? WHERE org_id = ?")
+      .run(estado, detalhe, Date.now(), orgId);
+    return { cfg: configDoSite(orgId) };
+  };
+  // 1. O site responde pelo domínio, com https? Então está tudo certo.
+  let erroHttp = null;
+  try {
+    const r = await fetch(`https://${dominio}/.well-known/conhub-site`, { signal: AbortSignal.timeout(8000), redirect: "manual" });
+    const j = r.ok ? await r.json().catch(() => null) : null;
+    if (j && j.site === marcaDoSite(orgId)) return grava("ativo", "O site está abrindo pelo domínio, com https.");
+    erroHttp = r.ok ? "respondeu, mas não é o site desta imobiliária no ConHub" : `respondeu ${r.status}`;
+  } catch (e) {
+    erroHttp = /certificate|cert|SSL|TLS/i.test(String(e.cause && e.cause.code || e.cause || e.message)) ? "certificado" : "sem_resposta";
+  }
+  // 2. Ainda não: em que passo está.
+  if (!destino) return grava("aguardando_conhub",
+    "Falta o ConHub ativar este domínio na hospedagem. Depois disso aparece aqui para onde apontar o DNS.");
+  let cnames = [];
+  try { cnames = (await dnsP.resolveCname(dominio)).map(x => x.toLowerCase().replace(/\.$/, "")); } catch {}
+  if (!cnames.includes(destino)) return grava("aguardando_dns", cnames.length
+    ? `O DNS de ${dominio} aponta para ${cnames[0]}, e precisa apontar para ${destino}.`
+    : `Ainda não há o registro CNAME de ${dominio} apontando para ${destino}. Depois de criar, pode levar algumas horas para valer.`);
+  return grava("aguardando_dns", erroHttp === "certificado"
+    ? "O DNS está certo; o certificado (o cadeado do https) ainda está sendo emitido. Confira de novo em alguns minutos."
+    : `O DNS está certo, mas o site ainda não respondeu pelo domínio (${erroHttp === "sem_resposta" ? "sem resposta" : erroHttp}). Confira de novo em alguns minutos.`);
+}
+
+/* Destino do DNS anotado pelo master no hub, depois de ativar o domínio na
+   hospedagem. Vazio volta ao "aguardando o ConHub". */
+export function definirDestino(orgId, destino) {
+  const cfg = db.prepare("SELECT dominio, dominio_estado FROM sites WHERE org_id = ?").get(orgId);
+  if (!cfg || !cfg.dominio) return { erro: "Esta imobiliária não tem domínio cadastrado no site." };
+  const d = String(destino || "").trim().toLowerCase().replace(/^[a-z]+:\/\//, "").replace(/[/.]+$/, "");
+  if (d && !DOMINIO_VALIDO.test(d)) return { erro: "Destino inválido: é um endereço como abc123.up.railway.app." };
+  db.prepare("UPDATE sites SET dominio_destino = ?, dominio_estado = ?, dominio_detalhe = NULL WHERE org_id = ?")
+    .run(d || null, cfg.dominio_estado === "ativo" ? "ativo" : (d ? "aguardando_dns" : "aguardando_conhub"), orgId);
+  return { ok: true };
+}
+
+export function dominiosDaPlataforma() {
+  return db.prepare(`SELECT s.org_id, o.name AS org_nome, s.dominio, s.dominio_destino, s.dominio_estado, s.dominio_detalhe,
+      s.dominio_conferido_em, s.ligado FROM sites s JOIN orgs o ON o.id = s.org_id WHERE s.dominio IS NOT NULL ORDER BY o.name`).all();
 }
 
 /* Caminho público de um imóvel, ou null se o site não está no ar. O título vai
    no fim do endereço só para ele ser legível no WhatsApp; quem manda é o id. */
 export function caminhoDoImovel(orgId, p) {
-  const cfg = db.prepare("SELECT slug, ligado FROM sites WHERE org_id = ?").get(orgId);
+  const cfg = db.prepare("SELECT slug, ligado, dominio, dominio_estado FROM sites WHERE org_id = ?").get(orgId);
   if (!cfg || !cfg.ligado) return null;
-  return `/imoveis/${cfg.slug}/${p.id}/${slugify(p.titulo) || "imovel"}`;
+  const resto = `/${p.id}/${slugify(p.titulo) || "imovel"}`;
+  // Domínio próprio no ar: o link que o corretor copia já sai com o endereço da imobiliária.
+  if (cfg.dominio && cfg.dominio_estado === "ativo") return `https://${cfg.dominio}${resto}`;
+  return `/imoveis/${cfg.slug}${resto}`;
 }
 
 /* ===== O QUE PODE SAIR PARA A INTERNET ===== */
@@ -172,7 +335,13 @@ export function publico(p) {
    não some com um 404: o visitante vê "voltamos em breve", porque o link pode
    estar num anúncio pago rodando agora. */
 export function siteDoSlug(slug) {
-  const cfg = db.prepare("SELECT * FROM sites WHERE slug = ? AND ligado = 1").get(String(slug || "").toLowerCase());
+  return montarSite(db.prepare("SELECT * FROM sites WHERE slug = ? AND ligado = 1").get(String(slug || "").toLowerCase()));
+}
+export function siteDoDominio(host) {
+  const achado = orgDoDominio(host);
+  return achado ? montarSite(db.prepare("SELECT * FROM sites WHERE org_id = ? AND ligado = 1").get(achado.org_id)) : null;
+}
+function montarSite(cfg) {
   if (!cfg) return null;
   const org = db.prepare("SELECT id, name, logo_url, cor_barra FROM orgs WHERE id = ?").get(cfg.org_id);
   if (!org) return null;
@@ -232,6 +401,26 @@ export function imovelDoSite(orgId, id) {
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const abs = (base, u) => (!u ? "" : /^https?:\/\//i.test(u) ? u : base + (u.startsWith("/") ? "" : "/") + u);
+/* Onde o site mora: em /imoveis/<slug> no endereço do ConHub, ou na RAIZ do
+   domínio da imobiliária (`ctx.raiz` vazio). Todo link interno passa por aqui —
+   escrito à mão, um "/imoveis/" esquecido levaria o visitante do domínio
+   próprio de volta ao endereço do ConHub. */
+const inicio = (ctx) => ctx.raiz || "/";
+const caminho = (ctx, resto) => (ctx.raiz || "") + resto;
+const hrefImovel = (ctx, i) => caminho(ctx, `/${i.id}/${slugify(i.titulo) || "imovel"}`);
+// Dados para o Google (schema.org). O "<" vira \u003c para nenhum texto fechar a tag.
+const jsonLd = (x) => x ? `<script type="application/ld+json">${JSON.stringify(x).replace(/</g, "\\u003c")}</script>` : "";
+
+/* Google Tag Manager: o código padrão do Google, só com o ID — conferido no
+   salvamento como GTM- e letras/números, então não carrega mais nada. */
+function gtmHead(cfg) {
+  if (!cfg.gtm_id) return "";
+  return `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${esc(cfg.gtm_id)}');</script>`;
+}
+function gtmBody(cfg) {
+  if (!cfg.gtm_id) return "";
+  return `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${esc(cfg.gtm_id)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>`;
+}
 
 const moeda = (v) => {
   if (v == null) return "";
@@ -501,14 +690,15 @@ svg{width:1em;height:1em;flex-shrink:0;fill:none;stroke:currentColor;stroke-widt
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 `;
 
-function moldura({ ctx, titulo, descricao, url, imagem, corpo, extraHead = "", pixelExtra = "", indexar = true, classeBody = "" }) {
+function moldura({ ctx, titulo, descricao, url, imagem, corpo, extraHead = "", pixelExtra = "", indexar = true, classeBody = "", dados = null }) {
   const { org, marca, cfg, base } = ctx;
   const cor = marca.cor;
   const logo = marca.logo ? abs(base, marca.logo) : null;
-  const portal = `/imoveis/${cfg.slug}`;
+  const portal = inicio(ctx);
   const numeroWa = cfg.whatsapp;
   const msgGeral = `Olá! Vim pelo site da ${org.name} e gostaria de ajuda para encontrar um imóvel.`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+${gtmHead(cfg)}
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(titulo)}</title>
 <meta name="description" content="${esc(descricao)}">
@@ -522,8 +712,8 @@ ${logo ? `<link rel="icon" href="${esc(logo)}">` : ""}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>:root{--marca:${cor};--suave:${suave(cor)}}${CSS}</style>
-${extraHead}${pixel(cfg, pixelExtra)}
-</head><body class="${classeBody}">
+${extraHead}${pixel(cfg, pixelExtra)}${jsonLd(dados)}
+</head><body class="${classeBody}">${gtmBody(cfg)}
 <header class="topo"><div class="wrap">
   <a class="marca" href="${portal}" aria-label="${esc(org.name)} — início">${logo ? `<img src="${esc(logo)}" alt="${esc(org.name)}">` : `<span>${esc(org.name)}</span>`}</a>
   <a class="btn btn-marca" data-contato href="${esc(wa(numeroWa, msgGeral))}" target="_blank" rel="noopener">${ICO.wpp}<span>Fale conosco</span></a>
@@ -531,7 +721,7 @@ ${extraHead}${pixel(cfg, pixelExtra)}
 ${corpo}
 <footer class="rodape"><div class="wrap">
   <div><b>${esc(org.name)}</b><br>WhatsApp ${esc(telefoneLegivel(numeroWa))}</div>
-  <div class="fina">${cfg.pixel_id ? "Este site usa cookies do Facebook para medir anúncios. · " : ""}© ${new Date().getFullYear()} ${esc(org.name)} · Site por ConHub</div>
+  <div class="fina">${cfg.pixel_id || cfg.gtm_id ? "Este site usa cookies para medir anúncios e visitas. · " : ""}© ${new Date().getFullYear()} ${esc(org.name)} · Site por ConHub</div>
 </div></footer>
 <script>
 document.querySelectorAll('[data-contato]').forEach(function(a){a.addEventListener('click',function(){try{if(window.fbq)fbq('track','Lead',{content_name:a.getAttribute('data-nome')||'Site'})}catch(e){}})});
@@ -539,8 +729,8 @@ document.querySelectorAll('[data-contato]').forEach(function(a){a.addEventListen
 </body></html>`;
 }
 
-function cartao(i, slug) {
-  const href = `/imoveis/${slug}/${i.id}/${slugify(i.titulo) || "imovel"}`;
+function cartao(i, ctx) {
+  const href = hrefImovel(ctx, i);
   const feats = caracteristicas(i, true).map(([ic, v, r]) => `<span>${ICO[ic]}${esc(v)}${r ? " " + esc(r) : ""}</span>`).join("");
   return `<a class="card" href="${href}">
   <div class="foto">${i.fotos[0] ? `<img src="${esc(i.fotos[0])}" alt="${esc(i.titulo)}" loading="lazy">` : `<div class="sem-foto">${ICO.casa}</div>`}
@@ -557,7 +747,7 @@ export function paginaPortal(ctx, query) {
   const { org, cfg, base } = ctx;
   const f = filtrosDe(query);
   const c = catalogo(org.id, f);
-  const portal = `/imoveis/${cfg.slug}`;
+  const portal = inicio(ctx);
   const link = (mudar) => {
     const q = { ...f, ...mudar };
     if (!q.finalidade) delete q.ate;
@@ -571,7 +761,8 @@ export function paginaPortal(ctx, query) {
   const opt = (v, t, atual) => `<option value="${esc(v)}"${String(atual) === String(v) ? " selected" : ""}>${esc(t)}</option>`;
   const faixas = f.finalidade ? FAIXAS[f.finalidade] : null;
   const filtrando = f.tipo || f.cidade || f.quartos || f.ate || f.finalidade;
-  const titulo = `${org.name} — Imóveis à venda e para alugar`;
+  // SEO (04/10/2026): título e descrição escolhidos pela imobiliária valem na página inicial.
+  const titulo = cfg.seo_titulo || `${org.name} — Imóveis à venda e para alugar`;
   const capa = c.itens.find(i => i.fotos[0]);
   const imagem = ctx.marca.logo ? abs(base, ctx.marca.logo) : capa ? abs(base, capa.fotos[0]) : null;
   const nomeLista = f.finalidade === "aluguel" ? "para alugar" : f.finalidade === "venda" ? "à venda" : "disponíveis";
@@ -600,22 +791,30 @@ export function paginaPortal(ctx, query) {
     ${filtrando ? `<a href="${portal}">Limpar filtros</a>` : ""}
   </div>
   ${c.itens.length
-    ? `<div class="grade">${c.itens.map(i => cartao(i, cfg.slug)).join("")}</div>`
+    ? `<div class="grade">${c.itens.map(i => cartao(i, ctx)).join("")}</div>`
     : `<div class="vazio"><h3>Nenhum imóvel com esses filtros</h3><p>Conte pra gente o que você procura — muitas vezes o imóvel certo ainda não foi anunciado.</p>
        <a class="btn btn-marca" data-contato href="${esc(wa(cfg.whatsapp, `Olá! Vim pelo site da ${org.name} e não encontrei o que procuro. Pode me ajudar?`))}" target="_blank" rel="noopener">${ICO.wpp}Falar no WhatsApp</a></div>`}
   ${c.paginas > 1 ? `<nav class="paginas">${f.p > 1 ? `<a class="btn btn-claro" href="${esc(link({ p: f.p - 1 }))}">Anterior</a>` : ""}<span class="btn btn-claro" aria-current="page">${f.p} de ${c.paginas}</span>${f.p < c.paginas ? `<a class="btn btn-claro" href="${esc(link({ p: f.p + 1 }))}">Próxima</a>` : ""}</nav>` : ""}
 </main>`;
   return moldura({
     ctx, titulo, corpo, imagem,
-    descricao: `${c.disponiveis} imóveis à venda e para alugar. Fale com a ${org.name} pelo WhatsApp.`,
+    descricao: cfg.seo_descricao || `${c.disponiveis} imóveis à venda e para alugar. Fale com a ${org.name} pelo WhatsApp.`,
     url: base + link({}),
+    // Página de busca filtrada não entra no Google: seria a mesma vitrine com mil endereços.
+    indexar: !filtrando && f.p === 1,
+    dados: {
+      "@context": "https://schema.org", "@type": "RealEstateAgent", name: org.name, url: base + portal,
+      ...(ctx.marca.logo ? { logo: abs(base, ctx.marca.logo), image: abs(base, ctx.marca.logo) } : {}),
+      ...(cfg.whatsapp ? { telephone: "+" + cfg.whatsapp } : {}),
+      ...(cfg.seo_descricao ? { description: cfg.seo_descricao } : {}),
+    },
   });
 }
 
 export function paginaImovel(ctx, i) {
   const { org, cfg, base } = ctx;
-  const portal = `/imoveis/${cfg.slug}`;
-  const url = `${base}${portal}/${i.id}/${slugify(i.titulo) || "imovel"}`;
+  const portal = inicio(ctx);
+  const url = base + hrefImovel(ctx, i);
   const msg = `Olá! Tenho interesse no imóvel "${i.titulo}" (cód. ${i.codigo}) que vi no site: ${url}`;
   const linkWa = wa(cfg.whatsapp, msg);
   const fotos = i.fotos;
@@ -692,6 +891,15 @@ export function paginaImovel(ctx, i) {
     ctx, corpo, url, pixelExtra, classeBody: "tem-barra",
     titulo: `${i.titulo} — ${org.name}`,
     descricao,
+    dados: {
+      "@context": "https://schema.org", "@type": "RealEstateListing", name: i.titulo, url,
+      ...(i.descricao ? { description: i.descricao.slice(0, 500) } : {}),
+      ...(fotos.length ? { image: fotos.slice(0, 10).map(u => abs(base, u)) } : {}),
+      ...(i.local.curta ? { contentLocation: { "@type": "Place", name: i.local.curta } } : {}),
+      offers: { "@type": "Offer", availability: "https://schema.org/InStock", businessFunction: i.finalidade === "aluguel" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell",
+        ...(i.valor ? { price: Number(i.valor), priceCurrency: "BRL" } : {}),
+        seller: { "@type": "RealEstateAgent", name: org.name } },
+    },
     imagem: fotos[0] ? abs(base, fotos[0]) : (ctx.marca.logo ? abs(base, ctx.marca.logo) : null),
   });
 }
@@ -699,9 +907,9 @@ export function paginaImovel(ctx, i) {
 export function paginaAviso(ctx, { titulo, texto, indexar = false }) {
   const { org, cfg } = ctx;
   const corpo = `<main class="wrap"><div class="aviso"><h1>${esc(titulo)}</h1><p>${esc(texto)}</p>
-    <div class="acoes"><a class="btn btn-claro" href="/imoveis/${cfg.slug}">Ver outros imóveis</a>
+    <div class="acoes"><a class="btn btn-claro" href="${inicio(ctx)}">Ver outros imóveis</a>
     <a class="btn btn-marca" data-contato href="${esc(wa(cfg.whatsapp, `Olá! Vim pelo site da ${org.name} e gostaria de ajuda para encontrar um imóvel.`))}" target="_blank" rel="noopener">${ICO.wpp}Falar no WhatsApp</a></div></div></main>`;
-  return moldura({ ctx, titulo: `${titulo} — ${org.name}`, descricao: texto, url: ctx.base + `/imoveis/${cfg.slug}`, corpo, indexar });
+  return moldura({ ctx, titulo: `${titulo} — ${org.name}`, descricao: texto, url: ctx.base + inicio(ctx), corpo, indexar });
 }
 
 /* Site que não existe (ou está desligado): página neutra, sem marca de
@@ -718,4 +926,22 @@ export function paginaPausada(ctx) {
 <style>body{font-family:Inter,system-ui,sans-serif;background:#F6F6F3;color:#16181D;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:20px;text-align:center}h1{font-size:22px;margin:0 0 8px}p{color:#5F6670;margin:0 0 20px}a{display:inline-block;background:${esc(ctx.marca.cor)};color:#fff;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px}</style></head>
 <body><div><h1>${esc(org.name)}</h1><p>Nosso site está passando por uma atualização. Enquanto isso, fale com a gente pelo WhatsApp.</p>
 <a href="${esc(wa(ctx.cfg.whatsapp, `Olá! Tentei acessar o site da ${org.name} e gostaria de ver os imóveis disponíveis.`))}">Falar no WhatsApp</a></div></body></html>`;
+}
+
+/* ===== SITEMAP E ROBOTS (04/10/2026) =====
+   O mapa que o Google lê para achar cada imóvel: a página inicial e todo
+   imóvel disponível. No domínio próprio, /sitemap.xml e /robots.txt moram na
+   raiz, que é onde o Google procura; no endereço do ConHub o mapa fica em
+   /imoveis/<slug>/sitemap.xml e é informado no Search Console. */
+export function sitemap(ctx) {
+  const itens = db.prepare("SELECT id, titulo, COALESCE(atualizado_em, created_at) AS em FROM produtos WHERE org_id = ? AND status = 'ativo' ORDER BY created_at DESC LIMIT 5000").all(ctx.org.id);
+  const dia = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
+  const url = (loc, em) => `<url><loc>${esc(loc)}</loc>${em ? `<lastmod>${dia(em)}</lastmod>` : ""}</url>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`
+    + url(ctx.base + inicio(ctx), itens[0] && itens[0].em)
+    + itens.map(i => url(ctx.base + hrefImovel(ctx, i), i.em)).join("")
+    + "</urlset>";
+}
+export function robots(ctx) {
+  return `User-agent: *\nAllow: /\nSitemap: ${ctx.base}/sitemap.xml\n`;
 }

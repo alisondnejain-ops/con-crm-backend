@@ -958,6 +958,7 @@ const ICO={
   phone2:<React.Fragment><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></React.Fragment>,
   wifi:<React.Fragment><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></React.Fragment>,
   wifioff:<React.Fragment><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.9 15.9 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></React.Fragment>,
+  ajustes:<React.Fragment><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></React.Fragment>,
   key:<React.Fragment><circle cx="7.5" cy="15.5" r="5.5"/><path d="M11.4 11.6 21 2"/><path d="m16 7 3 3"/></React.Fragment>,
   loader:<path d="M21 12a9 9 0 1 1-6.219-8.56"/>,
   columns:<React.Fragment><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></React.Fragment>,
@@ -987,6 +988,14 @@ const ICO={
   xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
 };
 function Icon({n,size=18,color,fill="none",spin}){
+  /* "letra:X" é um ícone com a inicial escrita dentro de um círculo — o das
+     catracas no menu (04/10/2026). Cada catraca é um nome que o gestor
+     inventa, sem desenho próprio; com a barra recolhida, sem a inicial todas
+     seriam o mesmo ícone. */
+  if(typeof n==="string"&&n.startsWith("letra:")) return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{display:"block"}}>
+    <circle cx="12" cy="12" r="9.5" stroke={color||"currentColor"} strokeWidth="2"/>
+    <text x="12" y="16.2" textAnchor="middle" fontSize="11.5" fontWeight="700" fontFamily="Inter, sans-serif" fill={color||"currentColor"}>{n.slice(6,7).toUpperCase()}</text>
+  </svg>;
   return <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={spin?"spin":""} style={{display:"block"}}>{ICO[n]}</svg>;
 }
 
@@ -1711,6 +1720,9 @@ function ConCRM(){
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
     salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
+    verificarDominio:()=>api("/site/dominio/verificar",{method:"POST"}),
+    dominiosHub:()=>api("/orgs/dominios"),
+    destinoDoDominio:(orgId,destino)=>api(`/orgs/dominios/${orgId}`,{method:"PATCH",body:{destino}}),
     salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
     situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
     apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
@@ -4572,6 +4584,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
       <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever} aoEntrar={aoEntrar}/>
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
+      <DominiosDosSites acoes={acoes} isMobile={isMobile}/>
       <Backup acoes={acoes} isMobile={isMobile}/>
     </div>
   </div>;
@@ -4954,6 +4967,54 @@ function Socios({acoes,session,isMobile}){
 
    E a data vem da LISTA DO R2, não de um registro nosso: registro nosso diz o
    que o servidor acha que aconteceu; a lista diz o que está guardado lá. */
+/* DOMÍNIOS DOS SITES, no hub (04/10/2026). A imobiliária cadastra o domínio
+   dela na tela Site; quem ATIVA na hospedagem é o ConHub, porque é a
+   hospedagem que emite o certificado do https. O caminho: adicionar o domínio
+   no painel da hospedagem (Railway → serviço → Settings → Networking → Custom
+   Domain), copiar o destino CNAME que ela mostra e colar aqui. A partir daí a
+   imobiliária vê para onde apontar o DNS. */
+function DominiosDosSites({acoes,isMobile}){
+  const [d,setD]=useState(null), [erro,setErro]=useState(""), [rasc,setRasc]=useState({}), [ocupado,setOcupado]=useState(null);
+  useEffect(()=>{acoes.dominiosHub().then(setD).catch(e=>setErro(e.message));},[]);
+  if(!d&&!erro) return null;
+  const lista=(d&&d.dominios)||[];
+  const pendentes=lista.filter(x=>x.dominio_estado!=="ativo").length;
+  async function salvar(x){
+    setOcupado(x.org_id); setErro("");
+    try{ setD(await acoes.destinoDoDominio(x.org_id,rasc[x.org_id]??x.dominio_destino??"")); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(null); }
+  }
+  const ESTADO={ativo:["no ar",C.greenDeep,C.greenSoft],aguardando_dns:["esperando o DNS",C.amber,C.amberSoft],aguardando_conhub:["falta ativar",C.hot,C.hotSoft]};
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
+      Domínios dos sites{pendentes?` · ${pendentes} esperando`:""}</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+      Para ativar: no Railway, abra o serviço → Settings → Networking → <b>Custom Domain</b> e adicione o domínio.
+      Copie o destino que ele mostrar (algo como <code>abc123.up.railway.app</code>) e cole aqui — a imobiliária passa a ver para onde apontar o DNS.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+    {!lista.length&&<div style={{color:C.faint,fontSize:12.5}}>Nenhuma imobiliária cadastrou domínio ainda.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {lista.map(x=>{const [rot,cor,fundo]=ESTADO[x.dominio_estado]||["—",C.sub,C.surface];
+        return <div key={x.org_id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{color:C.ink,fontSize:13.5,fontWeight:700,overflowWrap:"anywhere"}}>{x.dominio}</span>
+            <span style={{color:cor,background:fundo,fontSize:10.5,fontWeight:700,borderRadius:999,padding:"2px 8px"}}>{rot}</span>
+            <span style={{color:C.faint,fontSize:11.5}}>{x.org_nome}{x.ligado?"":" · site desligado"}</span>
+          </div>
+          {x.dominio_detalhe&&<div style={{color:C.sub,fontSize:11.5,marginTop:5,lineHeight:1.45}}>{x.dominio_detalhe}</div>}
+          <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+            <input value={rasc[x.org_id]??x.dominio_destino??""} onChange={e=>setRasc(r=>({...r,[x.org_id]:e.target.value}))}
+              placeholder="Destino do DNS (ex.: abc123.up.railway.app)" style={{flex:"1 1 220px",minWidth:0,fontSize:isMobile?16:13,
+                border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink,background:C.surface}}/>
+            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,
+              padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado===x.org_id?"Conferindo…":"Salvar e conferir"}</button>
+          </div>
+        </div>;})}
+    </div>
+  </div>;
+}
+
 function Backup({acoes,isMobile}){
   const [d,setD]=useState(null);
   const [ocupado,setOcupado]=useState(false);
@@ -5794,6 +5855,10 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   const [canais,setCanais]=useState(null);
   const reverCanais=()=>acoes.canais().then(setCanais).catch(()=>{});
   useEffect(()=>{reverCanais();},[org&&org.id]);
+  /* AS CATRACAS NO MENU (04/10/2026, pedido do Ali): com catraca de produto
+     criada, o item "Catraca" vira um grupo — "Configurações da catraca" em
+     primeiro, depois a principal e cada catraca, cada uma com a tela dela. */
+  const catracasMenu=usarCatracas(acoes,supervisor&&!(org&&org.tipo==="autonomo"),org&&org.id);
   const minhaLinha=canais&&canais.meu&&canais.meu.conectado?canais.meu:null;
   const chatEl=useRef(null);
   const isMobile=useIsMobile();
@@ -5989,12 +6054,26 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")))
     /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
-    .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item);
+    .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item)
+    /* Com catraca de produto ativa, "Catraca" vira grupo: Configurações (a
+       tela de sempre) e uma tela por catraca. Sem nenhuma, continua um item
+       só — um grupo de um filho seria um clique a mais por nada. */
+    .map(item=>{
+      const ativas=item[0]==="catraca"&&catracasMenu?(catracasMenu.catracas||[]).filter(c=>c.ativa):[];
+      if(!ativas.length) return item;
+      return [item[0],item[1],item[2],item[3],[["catraca","ajustes","Configurações da catraca"],
+        ["catraca:principal","transfer","Catraca principal"],
+        ...ativas.map(c=>["catraca:"+c.id,"letra:"+c.nome,c.nome])]];
+    });
   const sozinho=!!(org&&org.tipo==="autonomo");
   const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
+  if(view.startsWith("catraca:")){
+    const c=view==="catraca:principal"?null:((catracasMenu&&catracasMenu.catracas)||[]).find(x=>"catraca:"+x.id===view);
+    TITLES[view]=c?`Catraca · ${c.nome}`:"Catraca principal";
+  }
   usarTitulo(org&&org.nome?`${TITLES[view]||"Painel"} · ${org.nome}`:(TITLES[view]||"Painel"));
 
   // O aviso na navegação conta só o que ainda está em aberto: atendimento
@@ -6098,6 +6177,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
+        {supervisor&&view.startsWith("catraca:")&&<TelaDaCatraca key={view} id={view.slice(8)} {...{leads,pessoas,toggleAvail,acoes,isMobile,openLead}}
+          catracas={catracasMenu} podeEditar={podeGerir(session)} irParaConfig={()=>setView("catraca")}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
         {/* O corretor entrou aqui em 08/09/2026: a tela de indicadores (KPIs,
             metas, funil de atividade) é a mesma para toda conta, cada uma
@@ -7314,11 +7395,115 @@ function TextoDaMensagem({texto}){
   const partes=String(texto).split(MARCACAO);
   return <span style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>
     {partes.map((p,i)=>{
-      if(/^\*[^*\n]+\*$/.test(p)) return <b key={i}>{p.slice(1,-1)}</b>;
-      if(/^_[^_\n]+_$/.test(p)) return <i key={i}>{p.slice(1,-1)}</i>;
-      return <React.Fragment key={i}>{p}</React.Fragment>;
+      if(/^\*[^*\n]+\*$/.test(p)) return <b key={i}><ComLinks texto={p.slice(1,-1)}/></b>;
+      if(/^_[^_\n]+_$/.test(p)) return <i key={i}><ComLinks texto={p.slice(1,-1)}/></i>;
+      return <ComLinks key={i} texto={p}/>;
     })}
   </span>;
+}
+
+/* LINK NA CONVERSA ABRE NO APLICATIVO (04/10/2026, pedido do Ali: "se é
+   identificado que é do Instagram, que direcione automaticamente para o
+   aplicativo; se a pessoa não tiver o aplicativo, direciona para baixar").
+
+   O texto da mensagem não tinha link nenhum: o endereço que o cliente mandava
+   era texto corrido. Agora todo endereço vira link, e os de rede social abrem
+   no app — que é onde a pessoa está logada e onde o vídeo toca.
+
+   Cada aparelho tem um jeito próprio, e o de cada um é o mais confiável que
+   existe nele:
+   - ANDROID: endereço "intent://" com o pacote do app e uma página de reserva.
+     O Android abre o app se ele existe; se não, vai para a reserva, que é a
+     página do app na Play Store. É o mecanismo oficial do Chrome, e não erra.
+   - IPHONE: não existe "intent". Os apps registram um endereço próprio
+     (instagram://, fb://, youtube://, whatsapp://). Mandamos para ele e, se a
+     tela continua aqui um segundo e meio depois, o app não está instalado: vai
+     para a App Store. O Instagram só tem endereço próprio para PERFIL — post e
+     reel abrem na página do Instagram, que tem o botão "abrir no app" dele.
+   - COMPUTADOR: aba nova, como sempre. */
+const APPS_DE_LINK=[
+  {id:"instagram",nome:"Instagram",hosts:["instagram.com","instagr.am"],android:"com.instagram.android",ios:"389801252",
+    esquema:(u)=>{const m=u.pathname.match(/^\/([A-Za-z0-9._]{1,30})\/?$/);
+      const reservado=/^(p|reel|reels|tv|stories|explore|accounts|direct)$/i;
+      return m&&!reservado.test(m[1])?`instagram://user?username=${m[1]}`:null;}},
+  {id:"facebook",nome:"Facebook",hosts:["facebook.com","fb.com","fb.watch","fb.me"],android:"com.facebook.katana",ios:"284882215",
+    esquema:(u)=>`fb://facewebmodal/f?href=${encodeURIComponent(u.href)}`},
+  {id:"youtube",nome:"YouTube",hosts:["youtube.com","youtu.be"],android:"com.google.android.youtube",ios:"544007664",
+    esquema:(u)=>`youtube://${u.host}${u.pathname}${u.search}`},
+  {id:"tiktok",nome:"TikTok",hosts:["tiktok.com"],android:"com.zhiliaoapp.musically",ios:"835599320",esquema:()=>null},
+  {id:"whatsapp",nome:"WhatsApp",hosts:["wa.me","whatsapp.com"],android:"com.whatsapp",ios:"310633997",
+    esquema:(u)=>{const n=u.host.endsWith("wa.me")?u.pathname.replace(/\D/g,""):(u.searchParams.get("phone")||"");
+      const t=u.searchParams.get("text");
+      return n?`whatsapp://send?phone=${n}${t?`&text=${encodeURIComponent(t)}`:""}`:null;}},
+];
+const URL_NO_TEXTO=/((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+function limparUrl(bruto){
+  let u=bruto.replace(/[.,;:!?…]+$/,"");
+  while(/[)\]}]$/.test(u)){
+    const fecha=u.slice(-1), abre={")":"(","]":"[","}":"{"}[fecha];
+    if(u.split(abre).length>=u.split(fecha).length) break;
+    u=u.slice(0,-1);
+  }
+  return u;
+}
+function appDoLink(href){
+  try{
+    const u=new URL(href);
+    const host=u.hostname.toLowerCase().replace(/^(www\.|m\.|mobile\.|web\.)/,"");
+    const app=APPS_DE_LINK.find(a=>a.hosts.some(h=>host===h||host.endsWith("."+h)));
+    return app?{app,url:u}:null;
+  }catch(e){ return null; }
+}
+const ehAndroid=()=>/Android/i.test(navigator.userAgent);
+const ehIOS=()=>/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+/* Para onde o toque no link leva, por aparelho — separado de quem navega para
+   poder ser conferido sem um celular na mão:
+   { tipo:"intent", url } no Android; { tipo:"esquema", url, loja } no iPhone
+   (se o app não abrir em 1,5s, vai para a loja); { tipo:"web" } no resto. */
+function destinoDoLink(href,aparelho){
+  const achado=appDoLink(href);
+  if(!achado||!aparelho) return {tipo:"web",url:href};
+  const {app,url}=achado;
+  if(aparelho==="android"){
+    const loja=`https://play.google.com/store/apps/details?id=${app.android}`;
+    return {tipo:"intent",url:`intent://${url.host}${url.pathname}${url.search}${url.hash}#Intent;scheme=https;package=${app.android};S.browser_fallback_url=${encodeURIComponent(loja)};end`};
+  }
+  const esquema=app.esquema(url);
+  return esquema?{tipo:"esquema",url:esquema,loja:`https://apps.apple.com/app/id${app.ios}`}:{tipo:"web",url:url.href};
+}
+function abrirLink(e,href){
+  if(e){ e.stopPropagation(); }
+  const d=destinoDoLink(href,ehAndroid()?"android":ehIOS()?"ios":null);
+  if(d.tipo==="web") return;   // o <a target=_blank> faz o resto
+  e&&e.preventDefault();
+  if(d.tipo==="intent"){ window.location.href=d.url; return; }
+  let saiu=false;
+  const marcar=()=>{ if(document.hidden) saiu=true; };
+  document.addEventListener("visibilitychange",marcar);
+  window.addEventListener("pagehide",marcar);
+  setTimeout(()=>{
+    document.removeEventListener("visibilitychange",marcar);
+    window.removeEventListener("pagehide",marcar);
+    if(!saiu&&!document.hidden) window.location.href=d.loja;
+  },1500);
+  window.location.href=d.url;
+}
+function ComLinks({texto}){
+  const pedacos=String(texto||"").split(URL_NO_TEXTO);
+  if(pedacos.length===1) return texto;
+  return <>{pedacos.map((p,i)=>{
+    if(i%2===0) return p?<React.Fragment key={i}>{p}</React.Fragment>:null;
+    const limpo=limparUrl(p), resto=p.slice(limpo.length);
+    const href=/^https?:\/\//i.test(limpo)?limpo:"https://"+limpo;
+    const achado=appDoLink(href);
+    return <React.Fragment key={i}>
+      <a href={href} target="_blank" rel="noopener noreferrer" onClick={ev=>abrirLink(ev,href)}
+        title={achado?`Abrir no ${achado.app.nome}`:"Abrir o link"}
+        style={{color:"inherit",textDecoration:"underline",textUnderlineOffset:2,fontWeight:achado?600:"inherit"}}>{limpo}</a>
+      {achado&&(ehAndroid()||ehIOS())&&<span style={{fontSize:"0.8em",opacity:.75,whiteSpace:"nowrap"}}> · abre no {achado.app.nome}</span>}
+      {resto}
+    </React.Fragment>;
+  })}</>;
 }
 
 /* Áudio esperando conferência, no campo de mensagem.
@@ -9061,17 +9246,27 @@ function usarProximoDaVez(acoes,leadId,ativo=true,catracaId){
 /* AS CATRACAS DE PRODUTO DA CONTA (03/10/2026), guardadas por um minuto.
    Cada ficha aberta pergunta "existem catracas?" — sem a memória, seriam uma
    requisição por lead aberto. Quem cria/edita/apaga chama `esquecerCatracas`. */
-let memoriaCatracas={em:0,d:null,pedido:null};
-const esquecerCatracas=()=>{memoriaCatracas={em:0,d:null,pedido:null};};
-function usarCatracas(acoes,ativo=true){
-  const [d,setD]=useState(memoriaCatracas.d);
+let memoriaCatracas={em:0,d:null,pedido:null,chave:null};
+/* Quem está olhando as catracas é avisado quando elas mudam (04/10/2026): o
+   menu da barra lista cada catraca, e criar ou apagar uma na tela de
+   configurações precisa aparecer no menu na hora, sem recarregar. */
+const ouvintesCatracas=new Set();
+const guardarCatracas=(d)=>{memoriaCatracas={...memoriaCatracas,em:Date.now(),d,pedido:null};ouvintesCatracas.forEach(f=>f(d));};
+const esquecerCatracas=()=>{memoriaCatracas={...memoriaCatracas,em:0,d:null,pedido:null};};
+/* `chave` é a conta: o master entra numa imobiliária pelo hub sem trocar de
+   sessão, e a memória da casa anterior não pode virar o menu da seguinte. */
+function usarCatracas(acoes,ativo=true,chave){
+  const [d,setD]=useState(()=>chave===undefined||chave===memoriaCatracas.chave?memoriaCatracas.d:null);
+  useEffect(()=>{ ouvintesCatracas.add(setD); return()=>ouvintesCatracas.delete(setD); },[]);
   useEffect(()=>{ if(!ativo) return; let vivo=true;
+    if(chave!==undefined&&chave!==memoriaCatracas.chave){ memoriaCatracas={em:0,d:null,pedido:null,chave}; setD(null); }
     if(memoriaCatracas.d&&Date.now()-memoriaCatracas.em<60000){ setD(memoriaCatracas.d); return; }
+    const daConta=memoriaCatracas.chave;
     if(!memoriaCatracas.pedido) memoriaCatracas.pedido=acoes.catracas()
-      .then(x=>{memoriaCatracas={em:Date.now(),d:x,pedido:null};return x;})
+      .then(x=>{ if(memoriaCatracas.chave===daConta) guardarCatracas(x); return x;})
       .catch(e=>{memoriaCatracas.pedido=null;return {catracas:[],principal:null,erro:e.message};});
     memoriaCatracas.pedido.then(x=>vivo&&x&&setD(x));
-    return()=>{vivo=false;}; },[ativo]);
+    return()=>{vivo=false;}; },[ativo,chave]);
   return d;
 }
 
@@ -9175,7 +9370,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   const [d,setD]=useState(null), [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null);   // id, "nova" ou null
   const [verDesativadas,setVerDesativadas]=useState(false);
-  const carregar=()=>acoes.catracas().then(x=>{setD(x);setErro("");memoriaCatracas={em:Date.now(),d:x,pedido:null};})
+  const carregar=()=>acoes.catracas().then(x=>{setD(x);setErro("");guardarCatracas(x);})
     .catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[versao]);
   if(erro) return <div style={{color:C.hot,fontSize:12,marginBottom:16}}>{erro}</div>;
@@ -9444,6 +9639,128 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       </div>
     </div>
   </div>;
+}
+
+/* ===== A TELA DE UMA CATRACA (04/10/2026, pedido do Ali) =====
+
+   Com mais de uma catraca, "Catraca" no menu virou um grupo: a tela de
+   configurações de sempre em primeiro, e embaixo cada catraca. Esta é a tela
+   de UMA delas — o que se olha no dia a dia: de quem é a vez, quem dela está
+   disponível, e os leads dela que ainda esperam um corretor.
+
+   "Esperando" é o lead da catraca sem dono OU com a atendente: os dois ainda
+   vão ser entregues por ela. Lead que já está com um corretor só entra na
+   contagem. Na principal, só o lead sem dono e sem catraca — com a atendente,
+   na principal, é a caixa inteira dela, e isso é a tela de Atender. */
+function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,openLead,podeEditar,irParaConfig}){
+  const principal=id==="principal";
+  const [editando,setEditando]=useState(false);
+  const [ocupado,setOcupado]=useState(null);
+  const [erro,setErro]=useState("");
+  if(!catracas) return <div style={{padding:30,color:C.faint,fontSize:13,textAlign:"center"}}>Carregando…</div>;
+  const c=principal?null:(catracas.catracas||[]).find(x=>x.id===id);
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16};
+  const moldura=(filhos)=><div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}><div style={{maxWidth:860,margin:"0 auto"}}>{filhos}</div></div>;
+  if(!principal&&!c) return moldura(<div style={caixa}>
+    <div style={{color:C.ink,fontSize:14,fontWeight:600}}>Esta catraca não existe mais.</div>
+    <button onClick={irParaConfig} style={{marginTop:10,border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Ir para Configurações da catraca</button>
+  </div>);
+  const corretores=pessoas.filter(p=>p.role==="corretor");
+  const membros=principal?corretores:corretores.filter(p=>c.membros.includes(p.id));
+  const disponiveis=membros.filter(p=>p.available);
+  const filaDaVez=principal?catracas.principal:(c.ativa?c.fila:null);
+  const naFila=filaDaVez?filaDaVez.fila.filter(x=>x.posicao):[];
+  const ehCorretor=(uid)=>corretores.some(p=>p.id===uid);
+  const deles=leads.filter(l=>!l.finalizado&&(principal?!l.catracaId:l.catracaId===id));
+  const esperando=deles.filter(l=>principal?!l.assignedTo:!ehCorretor(l.assignedTo)).sort((a,b)=>a.createdAt-b.createdAt);
+  const comCorretor=deles.filter(l=>ehCorretor(l.assignedTo)).length;
+  const nomeDe=(uid)=>(pessoas.find(p=>p.id===uid)||{}).name||"";
+  async function repassar(leadId,userId){
+    setOcupado(leadId+(userId||"")); setErro("");
+    try{ await acoes.repassar(leadId,userId); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(null); }
+  }
+  async function salvar(dados){
+    await acoes.editarCatraca(c.id,dados);
+    esquecerCatracas(); guardarCatracas(await acoes.catracas()); setEditando(false);
+  }
+  return moldura(<>
+    <div style={caixa}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <Icon n="transfer" size={16} color={C.green}/>
+        <span style={{fontFamily:DISPLAY,color:C.ink,fontSize:16,fontWeight:700}}>{principal?"Catraca principal":c.nome}</span>
+        {!principal&&<span style={{color:C.sub,fontSize:10.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"2px 8px"}}>
+          {c.entrega==="corretor"?"direto ao corretor":"passa pela atendente"}</span>}
+        {!principal&&podeEditar&&!editando&&<button onClick={()=>setEditando(true)} style={{marginLeft:"auto",border:`1px solid ${C.line}`,background:C.card,color:C.sub,
+          borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+      </div>
+      <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.5}}>
+        {principal?"Todos os corretores. Recebe o lead que não é de nenhuma catraca de produto."
+          :<><b style={{fontWeight:600}}>Recebe:</b> {resumoDosCanais(c.canais)} · <b style={{fontWeight:600}}>Aciona em:</b> {c.etapa?(c.etapa.ok?`${c.etapa.funil} › ${c.etapa.nome}`:<span style={{color:C.hot}}>etapa apagada ou desativada</span>):"nenhuma etapa"}</>}
+      </div>
+    </div>
+    {editando&&<EditorDeCatraca inicial={c} pessoas={corretores} isMobile={isMobile} acoes={acoes}
+      nomesDasCatracas={Object.fromEntries((catracas.catracas||[]).map(x=>[x.id,x.nome]))}
+      onSalvar={salvar} onCancelar={()=>setEditando(false)}/>}
+
+    <div style={caixa}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>De quem é a vez</div>
+      {!principal&&!c.ativa&&<div style={{color:C.amber,fontSize:12}}>Catraca desativada — os leads dela vão pela principal.</div>}
+      {filaDaVez&&!naFila.length&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>
+        {principal?"Nenhum corretor disponível hoje — o repasse não tem para quem ir.":membros.length?"Ninguém desta catraca está disponível — o repasse vai pela principal.":"Sem corretores nesta catraca — os leads dela vão pela principal."}</div>}
+      {naFila.map((p,i)=><div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:i===0?C.greenSoft:"transparent",
+        border:`1px solid ${i===0?C.green+"55":"transparent"}`,borderRadius:11,padding:isMobile?"9px 10px":"7px 10px",marginBottom:4}}>
+        <span style={{fontFamily:MONO,fontSize:13,fontWeight:700,color:i===0?C.greenDeep:C.faint,minWidth:20,textAlign:"right"}}>{p.posicao}º</span>
+        <Avatar ini={initials(p.name)} color={i===0?C.green:C.cool} size={26}/>
+        <span style={{color:C.ink,fontSize:12.5,fontWeight:i===0?700:500,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+        {i===0&&<span style={{background:C.green,color:"#fff",borderRadius:999,padding:"3px 10px",fontSize:10.5,fontWeight:700,flexShrink:0}}>é a vez</span>}
+      </div>)}
+    </div>
+
+    <div style={caixa}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Disponíveis hoje ({disponiveis.length}/{membros.length})</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {!membros.length&&<span style={{color:C.faint,fontSize:12}}>Nenhum corretor nesta catraca.{podeEditar?" Escolha em Editar.":""}</span>}
+        {membros.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on).catch(()=>{})} style={{display:"flex",alignItems:"center",gap:8,
+          border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
+          <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span>
+          <Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:8}}>A disponibilidade é uma só: vale para todas as catracas da pessoa.</div>
+    </div>
+
+    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:10}}>
+      <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>{esperando.length} esperando corretor</span>
+      {!principal&&<span style={{color:C.faint,fontSize:12}}>· {comCorretor} já com corretor</span>}
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
+    {!esperando.length&&<div style={{...caixa,textAlign:"center",padding:30}}><Icon n="check" size={26} color={C.green}/>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:600,marginTop:6}}>Nenhum lead esperando</div></div>}
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {esperando.map(l=>{const age=Date.now()-l.createdAt;
+        return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={36}/>
+            <button onClick={()=>openLead(l.id)} style={{minWidth:0,flex:1,border:"none",background:"transparent",padding:0,textAlign:"left",cursor:"pointer"}}>
+              <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</div>
+              <div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {l.assignedTo?`com ${first(nomeDe(l.assignedTo))}`:"na fila"}{l.status?` · ${l.status}`:""}</div>
+            </button>
+            <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/>
+              <span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.line}`,flexWrap:"wrap"}}>
+            <button onClick={()=>repassar(l.id)} disabled={!!ocupado||!naFila.length&&!principal&&!disponiveis.length}
+              style={{background:C.greenDeep,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,padding:isMobile?"9px 12px":"6px 11px",borderRadius:9,display:"flex",alignItems:"center",gap:6}}>
+              <Icon n="transfer" size={13}/>{naFila[0]?`Passar para ${first(naFila[0].name)}`:"Passar para o próximo"}</button>
+            {disponiveis.filter(b=>!naFila[0]||b.id!==naFila[0].id).map(b=><button key={b.id} onClick={()=>repassar(l.id,b.id)} disabled={!!ocupado} title={`Passar para ${b.name}`}
+              style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}>
+              <Avatar ini={b.ini} color={b.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(b.name)}</span></button>)}
+          </div>
+        </div>;})}
+    </div>
+  </>);
 }
 
 /* ===== CONVERSAS (ADM) =====
@@ -11395,7 +11712,6 @@ const base64ParaBytes=(b64)=>{
   const p=(b64+"=".repeat((4-b64.length%4)%4)).replace(/-/g,"+").replace(/_/g,"/");
   const cru=atob(p); return Uint8Array.from([...cru].map(c=>c.charCodeAt(0)));
 };
-const ehIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent);
 const naTelaDeInicio=()=>window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
 
 /* CONSERTA A INSCRIÇÃO SOZINHO, sem pedir nada de novo (14/09/2026, relatado
@@ -13750,8 +14066,14 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
 function TelaSite({acoes,isMobile,aoFechar}){
   const [d,setD]=useState(null); const [f,setF]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
-  const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id});};
+  const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id,
+    gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||""});};
   useEffect(()=>{acoes.site().then(carregar).catch(e=>setErro(e.message));},[]);
+  const [conferindo,setConferindo]=useState(false);
+  async function conferirDominio(){
+    setConferindo(true); setErro("");
+    try{ carregar(await acoes.verificarDominio()); }catch(e){ setErro(e.message); }finally{ setConferindo(false); }
+  }
   async function salvar(extra,aviso){
     setErro("");setOk("");setSalvando(true);
     try{ const r=await acoes.salvarSite({...f,...extra}); carregar(r); setOk(aviso||"Salvo."); setTimeout(()=>setOk(""),2600); }
@@ -13785,8 +14107,9 @@ function TelaSite({acoes,isMobile,aoFechar}){
                 background:d.ligado?C.surface:C.green,color:d.ligado?C.sub:"#fff"}}>{d.ligado?"Desligar":"Ligar o site"}</button>
           </div>
           {d.ligado&&<div style={{marginTop:14}}>
-            <CopiarEndereco url={d.url}/>
-            <a href={d.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,color:C.greenMid,fontSize:13,fontWeight:600}}>Abrir o site <Icon n="chevron" size={13}/></a>
+            {/* Domínio próprio no ar: é ele que a imobiliária divulga. */}
+            <CopiarEndereco url={d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url}/>
+            <a href={d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,color:C.greenMid,fontSize:13,fontWeight:600}}>Abrir o site <Icon n="chevron" size={13}/></a>
           </div>}
         </div>
 
@@ -13825,6 +14148,75 @@ function TelaSite({acoes,isMobile,aoFechar}){
               acabou de clicar em Salvar lá embaixo, e a recusa passava como
               se tivesse salvo. */}
           {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12}}>{erro}</div>}
+        </div>
+
+        {/* DOMÍNIO PRÓPRIO (04/10/2026, pedido do Ali): o site abrindo no
+            endereço da imobiliária. São três passos, e a tela diz em qual está:
+            registrar aqui → o ConHub ativa na hospedagem → a imobiliária aponta
+            o DNS. "No ar" só aparece quando o site responde de verdade pelo
+            domínio, com https. */}
+        <div style={cartao}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Domínio próprio</div>
+          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>O site abre no endereço da imobiliária, como www.suaimobiliaria.com.br.</div>
+          {rotulo("Domínio")}
+          <input value={f.dominio} onChange={e=>setF({...f,dominio:e.target.value.trim().toLowerCase()})} placeholder="www.suaimobiliaria.com.br" style={entrada} autoCapitalize="none"/>
+          {ajuda("Use o endereço com www. O domínio sem www é aceito também e abre o mesmo site.")}
+          {d.dominio&&f.dominio===d.dominio&&(()=>{
+            const est=d.dominio_estado;
+            const cor=est==="ativo"?C.greenDeep:est==="aguardando_dns"?"#6b561a":C.sub;
+            const fundo=est==="ativo"?C.greenSoft:est==="aguardando_dns"?C.amberSoft:C.surface;
+            return <div style={{background:fundo,borderRadius:10,padding:"11px 12px",marginTop:12,color:cor,fontSize:12.5,lineHeight:1.55}}>
+              <div style={{fontWeight:700,marginBottom:4}}>{est==="ativo"?"No ar pelo domínio":est==="aguardando_dns"?"Falta apontar o DNS":"Esperando o ConHub ativar"}</div>
+              {est==="aguardando_conhub"&&<div>Recebemos o domínio. O ConHub ativa ele na hospedagem (é ela que emite o cadeado do https) e aqui aparece para onde apontar o DNS.</div>}
+              {est==="aguardando_dns"&&d.dominio_destino&&<div>
+                No painel onde o domínio foi registrado (Registro.br, GoDaddy, Hostinger…), crie um registro:
+                <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"3px 10px",margin:"8px 0",fontFamily:MONO,fontSize:12,color:C.ink}}>
+                  <span style={{color:C.faint}}>Tipo</span><span>CNAME</span>
+                  <span style={{color:C.faint}}>Nome</span><span>{d.dominio.startsWith("www.")?"www":d.dominio}</span>
+                  <span style={{color:C.faint}}>Destino</span><span style={{overflowWrap:"anywhere"}}>{d.dominio_destino}</span>
+                </div>
+                Depois de criado, pode levar algumas horas para valer.</div>}
+              {d.dominio_detalhe&&est!=="ativo"&&<div style={{marginTop:6,opacity:.85}}>{d.dominio_detalhe}</div>}
+              {est!=="ativo"&&<button onClick={conferirDominio} disabled={conferindo} style={{marginTop:9,border:`1px solid ${C.line}`,background:C.card,color:C.ink,
+                borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{conferindo?"Conferindo…":"Conferir agora"}</button>}
+            </div>;})()}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
+            <button onClick={()=>salvar({},f.dominio?"Domínio salvo.":"Domínio removido.")} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>Salvar domínio</button>
+          </div>
+        </div>
+
+        {/* COMO O SITE APARECE NO GOOGLE (04/10/2026). O resto da otimização
+            é automática: cada imóvel tem título, descrição, foto, dados
+            estruturados e entra no mapa do site (sitemap). */}
+        <div style={cartao}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Aparência no Google (SEO)</div>
+          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como a página inicial aparece na busca. Cada imóvel já entra com o próprio título, descrição e foto.</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div>
+              {rotulo(`Título (${f.seo_titulo.length}/70)`)}
+              <input value={f.seo_titulo} onChange={e=>setF({...f,seo_titulo:e.target.value.slice(0,70)})} placeholder={`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`} style={entrada}/>
+            </div>
+            <div>
+              {rotulo(`Descrição (${f.seo_descricao.length}/160)`)}
+              <textarea value={f.seo_descricao} onChange={e=>setF({...f,seo_descricao:e.target.value.slice(0,160)})} rows={3}
+                placeholder="Ex.: Casas, apartamentos e terrenos em Petrolina e Juazeiro. Financiamento e Minha Casa Minha Vida." style={{...entrada,resize:"vertical",fontFamily:FONT}}/>
+            </div>
+            {/* A prévia é o que a pessoa vê no Google — escrever sem ela é escrever no escuro. */}
+            <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",background:"#fff"}}>
+              <div style={{color:"#4d5156",fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url}</div>
+              <div style={{color:"#1a0dab",fontSize:16,lineHeight:1.3,marginTop:2}}>{f.seo_titulo||`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`}</div>
+              <div style={{color:"#4d5156",fontSize:12.5,lineHeight:1.45,marginTop:3}}>{f.seo_descricao||"Imóveis à venda e para alugar. Fale com a imobiliária pelo WhatsApp."}</div>
+            </div>
+            <div>
+              {rotulo("Google Tag Manager (opcional)")}
+              <input value={f.gtm_id} onChange={e=>setF({...f,gtm_id:e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,"")})} placeholder="GTM-ABC1234" style={entrada}/>
+              {ajuda("Para o Google Analytics e o Google Ads: o ID fica no topo do painel do Tag Manager. O site já envia o mapa de imóveis ao Google em "+((d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url)+"/sitemap.xml")+" — informe esse endereço no Search Console.")}
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
+            <button onClick={()=>salvar({})} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+            {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
+          </div>
         </div>
 
         <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"0 4px 20px"}}>
