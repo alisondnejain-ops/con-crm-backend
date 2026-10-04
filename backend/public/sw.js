@@ -69,11 +69,12 @@ self.addEventListener("pushsubscriptionchange", (e) => {
 });
 
 // Clicar no aviso abre o CRM — e, se já estiver aberto numa aba, foca nela em
-// vez de abrir outra.
+// vez de abrir outra. Abre em /app, que é o escopo do app instalado: fora dele
+// o aviso abriria o navegador em vez do app (manifest.json, 04/10/2026).
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const destino = e.notification.data && e.notification.data.leadId
-    ? "/?lead=" + e.notification.data.leadId : "/";
+    ? "/app?lead=" + e.notification.data.leadId : "/app";
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((janelas) => {
     for (const j of janelas) if ("focus" in j) return j.focus();
     return self.clients.openWindow(destino);

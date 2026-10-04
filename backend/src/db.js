@@ -1278,6 +1278,21 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
   created_at INTEGER NOT NULL,
   atualizado_em INTEGER
 )`);
+/* O SITE NO DOMÍNIO DA IMOBILIÁRIA, Google Tag Manager e SEO (04/10/2026,
+   pedido do Ali). `dominio` é o endereço que a imobiliária registrou (ex.:
+   www.imobiliaria.com.br), único na plataforma; `dominio_destino` é para onde
+   o DNS dela tem que apontar (o ConHub ativa o domínio na hospedagem e anota
+   aqui o destino que ela deu); `dominio_estado` é aguardando_conhub |
+   aguardando_dns | ativo; `dominio_detalhe` é o motivo da última conferência,
+   em português. */
+{
+  const cols = db.prepare("PRAGMA table_info(sites)").all().map(c => c.name);
+  for (const [c, ddl] of [["dominio", "TEXT"], ["dominio_destino", "TEXT"], ["dominio_estado", "TEXT"],
+    ["dominio_detalhe", "TEXT"], ["dominio_conferido_em", "INTEGER"], ["gtm_id", "TEXT"],
+    ["seo_titulo", "TEXT"], ["seo_descricao", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE sites ADD COLUMN ${c} ${ddl}`);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dominio ON sites(dominio) WHERE dominio IS NOT NULL");
+}
 
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
