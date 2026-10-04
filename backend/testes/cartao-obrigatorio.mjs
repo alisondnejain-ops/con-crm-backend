@@ -196,7 +196,7 @@ r = await chamar(login1.token, "/assinatura");
 d = await r.json();
 console.log(`   status=${d.status} · dias=${d.dias}`);
 assert.equal(d.status, "teste");
-assert.equal(d.dias, 14);
+assert.equal(d.dias, 7);
 const orgBrunoConfirmado = db.prepare("SELECT cartao_confirmado_em, trial_ate FROM orgs WHERE id = ?").get(orgBruno2.id);
 assert.ok(orgBrunoConfirmado.cartao_confirmado_em, "cartao_confirmado_em foi gravado");
 assert.ok(orgBrunoConfirmado.trial_ate, "e SÓ AGORA o teste começou a contar");

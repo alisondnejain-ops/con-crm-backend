@@ -5450,11 +5450,11 @@ function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,a
         {!cartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
           {parcelado
             ?(aguardandoCartao||emTeste
-              ?"O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do teste de 14 dias."
+              ?`O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do teste de ${DIAS_TESTE} dias.`
               :pagoAte?`O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir de ${fmtData(pagoAte)}, quando termina o período já pago.`
               :"O anual é cobrado hoje, em 12x no cartão.")
             :(aguardandoCartao
-              ?"Nada é cobrado agora: o teste de 14 dias começa com o cartão aceito, e a primeira cobrança só cai no fim dele."
+              ?`Nada é cobrado agora: o teste de ${DIAS_TESTE} dias começa com o cartão aceito, e a primeira cobrança só cai no fim dele.`
               :emTeste?"Nada é cobrado agora: a primeira cobrança só cai no fim do teste."
               :pagoAte?`Nada é cobrado agora: a primeira cobrança cai em ${fmtData(pagoAte)}, quando termina o período já pago.`
               :`A primeira cobrança (${fmtMoeda(plano.total)}) sai hoje no cartão.`)}</div>}
@@ -5628,6 +5628,9 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
    plano é UM cartão (Essencial, Plus · Básico, Completo) e o ciclo — mensal,
    semestral, anual — se escolhe dentro dele. A lista do servidor continua
    sendo uma linha por ciclo (é o que vira cobrança); só a tela agrupa. */
+/* Quantos dias dura o teste grátis — o espelho de TRIAL_DIAS
+   (services/assinatura.js). Mudou lá, muda aqui. */
+const DIAS_TESTE=7;
 function familiasDosPlanos(planos){
   const m=new Map();
   for(const p of planos){
@@ -5724,7 +5727,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Gerenciar assinatura</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
       {aguardandoCartao
-        ? <React.Fragment>Escolha um plano e cadastre o cartão para <b style={{color:C.sub}}>começar o seu teste de 14 dias grátis</b> — a primeira cobrança só cai quando o teste acabar.</React.Fragment>
+        ? <React.Fragment>Escolha um plano e cadastre o cartão para <b style={{color:C.sub}}>começar o seu teste de {DIAS_TESTE} dias grátis</b> — a primeira cobrança só cai quando o teste acabar.</React.Fragment>
         : emTeste
         ? <React.Fragment>Você está no teste grátis. Escolha um plano agora e a{" "}
             <b style={{color:C.sub}}>primeira cobrança só cai quando o teste acabar</b> — os dias que faltam continuam seus.</React.Fragment>
@@ -5817,7 +5820,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
         {!pm&&plano&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
           {aguardandoCartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,
             borderRadius:9,padding:"8px 10px",marginBottom:10}}>
-            Cadastrar o cartão não cobra nada agora — o teste de 14 dias começa
+            Cadastrar o cartão não cobra nada agora — o teste de {DIAS_TESTE} dias começa
             assim que o Asaas confirmar, e a primeira cobrança só cai no fim dele.
           </div>}
           <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>
@@ -5852,7 +5855,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
             {aguardandoCartao?"Plano escolhido — falta cadastrar o cartão":"Plano contratado — falta pagar"}</div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
             {aguardandoCartao
-              ?"A tela do Asaas abriu numa aba nova. Se ela não apareceu, use o link abaixo. Assim que o cartão for cadastrado, o seu teste de 14 dias começa sozinho."
+              ?`A tela do Asaas abriu numa aba nova. Se ela não apareceu, use o link abaixo. Assim que o cartão for cadastrado, o seu teste de ${DIAS_TESTE} dias começa sozinho.`
               :"A tela de pagamento abriu numa aba nova. Se ela não apareceu, use o link abaixo. Assim que o pagamento for confirmado, o acesso é liberado sozinho."}
           </div>
           <a href={fatura} target="_blank" rel="noreferrer"
@@ -6204,15 +6207,15 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
         {assinatura.motivo||"Mensalidade em atraso."}{" "}
         {aguardandoCartao
           ?(assinatura.provedor==="pagarme"
-            ?"É rápido: escolha um plano logo abaixo e cadastre o cartão aqui mesmo — a cobrança só acontece depois dos 14 dias de teste."
-            :"É rápido: escolha um plano logo abaixo e você cai na tela segura do Asaas — a cobrança só acontece depois dos 14 dias de teste.")
+            ?`É rápido: escolha um plano logo abaixo e cadastre o cartão aqui mesmo — a cobrança só acontece depois dos ${DIAS_TESTE} dias de teste.`
+            :`É rápido: escolha um plano logo abaixo e você cai na tela segura do Asaas — a cobrança só acontece depois dos ${DIAS_TESTE} dias de teste.`)
           :gestor
           ?"Assim que o pagamento for confirmado, o sistema volta sozinho — não precisa avisar ninguém."
           :"Fale com a gestão da imobiliária. Assim que a mensalidade for regularizada, tudo volta ao normal."}
       </div>
       {aguardandoCartao
         ?<div style={{background:C.surface,borderRadius:11,padding:12,marginBottom:16,fontSize:12.5,color:C.sub,lineHeight:1.7}}>
-          <div>Teste grátis de <b style={{color:C.ink}}>14 dias</b> — os dias só começam a contar quando o cartão for cadastrado.</div>
+          <div>Teste grátis de <b style={{color:C.ink}}>{DIAS_TESTE} dias</b> — os dias só começam a contar quando o cartão for cadastrado.</div>
           <div style={{color:C.greenMid,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
             <Icon n="check" size={12}/> Sem cobrança nenhuma agora.
           </div>

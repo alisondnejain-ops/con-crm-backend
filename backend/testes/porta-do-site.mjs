@@ -61,7 +61,7 @@ let r = await comecar({ nome: "Marcos Corretor", email: "marcos@teste.com", tele
 let d = await r.json();
 console.log(`   ${r.status} · ${d.nome} · ${d.dias} dias · link: ${d.link ? "sim" : "NÃO"}`);
 assert.equal(r.status, 201);
-assert.equal(d.dias, 14);
+assert.equal(d.dias, 7);
 assert.ok(d.link, "o link volta na resposta — sem ele o site não tem para onde mandar a pessoa");
 
 console.log("2. Nasce como conta de AUTÔNOMO, com ele de dono");
@@ -155,7 +155,7 @@ d = await r.json();
 console.log(`   ${r.status} · ${d.planos.map(p => `${p.nome} R$ ${p.mensal}`).join(" · ")}`);
 assert.equal(r.status, 200);
 assert.ok(d.planos.length >= 3);
-assert.equal(d.trial_dias, 14);
+assert.equal(d.trial_dias, 7);
 
 console.log("13. E o resto do sistema continua fechado");
 /* A rota nova é aberta; montá-la no lugar errado abriria as vizinhas junto —

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { TRIAL_DIAS } from "../services/assinatura.js";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
@@ -17,7 +18,7 @@ import { mapaDeRecursos } from "../services/recursos.js";
 const r = Router();
 const INVITE_DAYS = 7;
 // O teste grátis do corretor autônomo. Ver orgs.routes.js -> /autonomos.
-const TRIAL_DIAS = 14;
+// O número mora em services/assinatura.js (7 dias desde 04/10/2026).
 
 // URL pública deste backend — usada para montar o link "definir senha" do e-mail.
 const appUrl = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");

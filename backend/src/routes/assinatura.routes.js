@@ -4,7 +4,7 @@ import { authRequired, roles, semMaster } from "../auth.js";
 import { segredoConfere } from "../seguranca.js";
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
-  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses } from "../services/assinatura.js";
+  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses, TRIAL_DIAS } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
@@ -169,8 +169,8 @@ async function tentarConfirmarCartao(org) {
     if (await cartaoRegistrado(org.asaas_subscription_id)) {
       const agora = Date.now();
       db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?")
-        .run(agora, agora + 14 * 86400000, org.id);
-      console.log(`[asaas] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+        .run(agora, agora + TRIAL_DIAS * 86400000, org.id);
+      console.log(`[asaas] cartão confirmado para "${org.name}" — teste de ${TRIAL_DIAS} dias começou agora`);
     }
   } catch (e) {
     console.warn(`[asaas] não consegui confirmar o cartão de "${org.name}": ${e.message}`);
@@ -764,8 +764,8 @@ r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
 
     if (org.exige_cartao && !org.cartao_confirmado_em) {
       const agora = Date.now();
-      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?").run(agora, agora + 14 * 86400000, org.id);
-      console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?").run(agora, agora + TRIAL_DIAS * 86400000, org.id);
+      console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de ${TRIAL_DIAS} dias começou agora`);
     }
     res.json({ ok: true, cartao: resumo,
       aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o ConHub.",

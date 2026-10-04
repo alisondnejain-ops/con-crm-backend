@@ -21,6 +21,14 @@ import { mesesPagos, planoPorId } from "./planos.js";
 const DIA = 86400000;
 export const AVISO_ANTES = 3;
 
+/* QUANTOS DIAS DURA O TESTE GRÁTIS (04/10/2026, pedido do Ali: "preciso que
+   seja 7 dias de teste e não 14"). Um número só, para o cadastro do site, o
+   hub, o cartão confirmado e as frases da tela — eram quatro cópias de 14.
+   Mudar aqui vale para as contas NOVAS; quem já está no teste mantém a data
+   que recebeu. O site de vendas e as páginas públicas escrevem o número no
+   texto: mudou aqui, mudam lá também. */
+export const TRIAL_DIAS = 7;
+
 // Meia-noite do dia, para a conta ser em dias inteiros e não em horas.
 const meiaNoite = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
@@ -163,7 +171,7 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
     if (!pagos)
       return conforme({ status: "aguardando_cartao", cobranca: true,
         plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
-        motivo: "Cadastre um cartão de crédito para começar o seu teste de 14 dias grátis." });
+        motivo: `Cadastre um cartão de crédito para começar o seu teste de ${TRIAL_DIAS} dias grátis.` });
   }
 
   /* O TESTE GRÁTIS, que é um estado só do corretor autônomo.
@@ -184,7 +192,7 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
           vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
       return conforme({ status: "bloqueado", cobranca: true, teste: true, atraso: -faltam,
         vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
-        motivo: "O teste de 14 dias terminou." });
+        motivo: "O teste grátis terminou." });
     }
   }
 

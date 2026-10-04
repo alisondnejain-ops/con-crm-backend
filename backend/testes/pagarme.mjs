@@ -242,7 +242,7 @@ try {
   const pedidosDeCartao = pm.pedidos.filter(p => /\/cards$/.test(p.url));
   assert.ok(pedidosDeCartao.every(p => Object.keys(p.corpo).join() === "token"), "ao Pagar.me vai só o token");
   let o = linhaOrg(site.org);
-  assert.ok(o.cartao_confirmado_em && Math.abs(o.trial_ate - (Date.now() + 14 * DIA)) < 60000, "o teste de 14 dias começa com o cartão");
+  assert.ok(o.cartao_confirmado_em && Math.abs(o.trial_ate - (Date.now() + 7 * DIA)) < 60000, "o teste de 7 dias começa com o cartão");
   console.log(`   cliente ${o.pagarme_customer_id}, cartão final ${r.body.cartao.final}, teste até ${new Date(o.trial_ate).toLocaleDateString("pt-BR")}`);
 
   caso("Mensal em teste: a primeira cobrança fica para o fim do teste");
