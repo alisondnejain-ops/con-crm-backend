@@ -41,7 +41,11 @@ import { codigoLivre } from "../services/codigo.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
 import { planosDe, planoDaFamilia, PLANOS_COMPLETOS, PLANO_BASICO } from "../services/planos.js";
-import { resumoDeConvite } from "../auth.js";
+import { resumoDeConvite, sign } from "../auth.js";
+import bcrypt from "bcryptjs";
+import * as pagarme from "../services/pagarme.js";
+import { pagarmePadrao } from "../services/cobranca.js";
+import { assinarPlanoNoPagarme } from "./assinatura.routes.js";
 
 const r = Router();
 
@@ -104,6 +108,12 @@ r.get("/publico/planos", (_req, res) => {
        for ajustado para ler este campo. */
     autonomo_basico: [PLANO_BASICO].map(paraVitrine),
     imobiliaria: planosDe("imobiliaria").map(paraVitrine),
+    /* O cadastro do site pode pedir o cartão na própria página? Só quando a
+       conta nova vai ser cobrada pelo Pagar.me (chaves de produção). A chave
+       PÚBLICA vai junto: com ela só se cria o token do cartão. */
+    checkout: pagarmePadrao()
+      ? { pagarme: true, chave_publica: pagarme.CHAVE_PUBLICA() }
+      : { pagarme: false },
   });
 });
 
@@ -264,6 +274,115 @@ r.post("/publico/comecar", async (req, res) => {
        não quando ninguém escolheu nada. A tela precisa saber a diferença: no
        primeiro caso ela pergunta de novo, no segundo não há nada a perguntar. */
     plano_reconhecido: planoPedido ? !!plano : null,
+  });
+});
+
+/* CADASTRO COM O CARTÃO NA MESMA PÁGINA (04/10/2026, pedido do Ali: "o cara
+   tem que acessar a conta dele para cadastrar o cartão… por que ele não
+   cadastra na hora que clica lá no site e aí sim é redirecionado para o
+   dashboard?").
+
+   Uma página só: nome, e-mail, WhatsApp, SENHA, plano, CPF/CNPJ e cartão. O
+   cartão vai do navegador direto para o Pagar.me (token); aqui chega só o
+   token. Deu certo, a conta nasce ATIVA, com o cartão confirmado, o teste
+   correndo e o plano assinado (primeira cobrança no fim do teste), e a
+   resposta traz o crachá — a página guarda e abre o CRM já logado.
+
+   A ORDEM É O QUE PROTEGE: o cartão é guardado no Pagar.me ANTES de qualquer
+   linha nascer aqui. Cartão recusado = nenhuma conta criada, e o e-mail não
+   fica preso numa conta pela metade.
+
+   A SENHA É CRIADA AQUI, sem passar pelo e-mail de confirmação: é o que leva
+   a pessoa direto ao painel. Quem digitar o e-mail de outro não ganha nada que
+   o dono não recupere — "esqueci minha senha" manda o link para a caixa do
+   dono do endereço.
+
+   Só vale com o Pagar.me como provedor padrão. Sem ele (chaves de teste ou
+   Asaas), a página usa o caminho antigo, `/publico/comecar`. */
+r.post("/publico/assinar", async (req, res) => {
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+    || req.socket?.remoteAddress || "sem-ip";
+  if (!passouNoFreio(ip))
+    return res.status(429).json({
+      error: "Muitos cadastros seguidos deste computador. Espere uma hora ou fale com a gente pelo WhatsApp." });
+  if (!pagarmePadrao())
+    return res.status(409).json({ error: "O cadastro com cartão não está disponível agora.", sem_checkout: true });
+
+  const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const telefone = normalizePhone(String(req.body?.telefone || "").trim());
+  const marca = String(req.body?.marca || "").trim().slice(0, 80) || nome;
+  const senha = String(req.body?.senha || "");
+  const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
+  const token = String(req.body?.token || "");
+  const tipo = String(req.body?.tipo || "").trim() === "imobiliaria" ? "imobiliaria" : "autonomo";
+  const plano = planoDaFamilia(String(req.body?.plano || "").trim(), tipo);
+
+  if (nome.length < 2) return res.status(400).json({ error: "Escreva o seu nome." });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return res.status(400).json({ error: "Confira o e-mail: parece que falta alguma coisa." });
+  if (!/^55\d{10,11}$/.test(telefone))
+    return res.status(400).json({ error: "Informe um WhatsApp válido, com DDD." });
+  if (senha.length < 6) return res.status(400).json({ error: "A senha precisa ter pelo menos 6 caracteres." });
+  if (!plano) return res.status(400).json({ error: "Escolha um dos planos." });
+  if (doc.length !== 11 && doc.length !== 14)
+    return res.status(400).json({ error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)." });
+  if (!/^token_[A-Za-z0-9]+$/.test(token))
+    return res.status(400).json({ error: "Os dados do cartão não chegaram. Digite de novo." });
+
+  const jaExiste = db.prepare("SELECT id,name,status FROM users WHERE email = ?").get(email);
+  if (jaExiste && jaExiste.status === "ativo")
+    return res.status(409).json({
+      error: "Esse e-mail já tem conta no ConHub. Entre com a sua senha — ou peça uma nova na tela de entrada.",
+      ja_tem_conta: true, entrar: `${siteUrl(req)}/app`,
+    });
+
+  const orgId = "org_" + randomUUID().slice(0, 8);
+  // 1) O cartão, antes de qualquer conta existir.
+  let cliente, cartao;
+  try {
+    cliente = await pagarme.criarCliente({ nome, email, telefone, documento: doc, orgId });
+    cartao = await pagarme.salvarCartao(cliente.id, token);
+  } catch (e) {
+    console.warn(`[publico] cartão recusado no cadastro de ${email}: ${e.message}`);
+    return res.status(402).json({ error: "O cartão não foi aceito: " + e.message.replace(/^Pagar\.me: /, "") });
+  }
+
+  // 2) A conta, já ativa, com o cartão confirmado e o teste correndo.
+  const agora = Date.now();
+  const userId = jaExiste ? jaExiste.id : "u_" + randomUUID();
+  const papel = tipo === "autonomo" ? "corretor" : "adm";
+  const prontidao = tipo === "autonomo" ? 1 : 0;
+  const hash = bcrypt.hashSync(senha, 10);
+  db.transaction(() => {
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,plano_escolhido,
+        exige_cartao,cartao_confirmado_em,trial_ate,cobranca,pagarme_customer_id,pagarme_card_id,pagarme_card_json)
+      VALUES (?,?,?,'',0,0,?,?,?,1,?,?,'pagarme',?,?,?)`)
+      .run(orgId, marca, codigoLivre(marca), agora, tipo, plano.id, agora, agora + TRIAL_DIAS * 86400000,
+        cliente.id, cartao.id, JSON.stringify(pagarme.resumoDoCartao(cartao)));
+    if (jaExiste) {
+      db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role=?, available=?, status='ativo', pass_hash=?,
+        invite_token=NULL, invite_hash=NULL, invite_expires=NULL, invite_tipo=NULL WHERE id=?`)
+        .run(orgId, nome, telefone, papel, prontidao, hash, userId);
+    } else {
+      db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status)
+        VALUES (?,?,?,?,?,?,?,?,?,'ativo')`)
+        .run(userId, orgId, nome, email, telefone, hash, papel, prontidao, agora);
+    }
+    db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
+  })();
+
+  // 3) O plano: com o teste correndo, a primeira cobrança cai no fim dele.
+  const assinatura = await assinarPlanoNoPagarme(orgId, plano, nome);
+  const aviso = assinatura.error
+    ? `A conta foi criada e o cartão salvo, mas o plano não foi assinado (${assinatura.error}). Escolha o plano em Minha conta.`
+    : null;
+  console.log(`[publico] conta criada com cartão pelo site: ${nome} <${email}> — ${tipo}, plano ${plano.id}${aviso ? " — SEM PLANO: " + assinatura.error : ""}`);
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+  res.status(201).json({
+    ok: true, token: sign(user), nome, dias: TRIAL_DIAS, plano: { id: plano.id, nome: plano.nome },
+    cobra_em: assinatura.body?.cobra_em || null, pago: !!assinatura.body?.pago, aviso,
   });
 });
 

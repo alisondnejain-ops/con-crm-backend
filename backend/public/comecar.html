@@ -59,6 +59,13 @@
   .passos li{display:flex;gap:10px;font-size:13px;color:#5A6472;line-height:1.5;align-items:flex-start}
   .passos .n{flex-shrink:0;width:21px;height:21px;border-radius:50%;background:#E5F2EC;color:#0C6B52;
              font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  select{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 12px;outline:none}
+  .linha{display:flex;gap:10px}
+  .linha .field{flex:1}
+  .secao{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#0C6B52;font-weight:700;margin:20px 0 10px}
+  .nota{font-size:12.5px;color:#4A5A55;background:#F0FAF6;border:1px solid #BFE3D8;border-radius:12px;padding:11px 13px;line-height:1.5;margin:-4px 0 15px}
+  .cadeado{display:flex;gap:7px;font-size:11.5px;color:#8A93A0;line-height:1.5;margin-top:10px}
   @media (max-width:760px){
     .card{grid-template-columns:1fr}
     .side{padding:26px;gap:18px}
@@ -86,7 +93,7 @@
       <h1>Nenhum cliente esperando resposta.</h1>
       <p>Seu WhatsApp, seu funil e a sua produtividade num lugar só — do jeito que
          imobiliária grande trabalha, no tamanho de quem trabalha sozinho.</p>
-      <ul class="steps">
+      <ul class="steps" id="passosLado">
         <li><b>1</b><span>Você cria a conta agora e entra em seguida.</span></li>
         <li><b>2</b><span>Escolhe um plano e cadastra o cartão — sem cobrança nesse momento. É isso que liga o teste.</span></li>
         <li><b>3</b><span>Conecta o seu WhatsApp e começa a atender pelo sistema.</span></li>
@@ -98,7 +105,7 @@
   <div class="form">
     <div id="formView">
       <h2>Comece o seu teste</h2>
-      <p class="lead">Três campos e você já está dentro. No próximo passo você escolhe um plano e
+      <p class="lead" id="leadTexto">Três campos e você já está dentro. No próximo passo você escolhe um plano e
         <b>cadastra o cartão</b> — sem cobrança agora, só depois dos 7 dias de teste.</p>
 
       <!-- O QUE A PESSOA ESCOLHEU NO POPUP DO SITE.
@@ -135,10 +142,57 @@
         <label for="phone">Seu WhatsApp (com DDD)</label>
         <input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999"/>
       </div>
+      <div class="field" id="campoMarca" style="display:none">
+        <label for="marca">Nome da imobiliária</label>
+        <input id="marca" autocomplete="organization" placeholder="Como sua equipe conhece a imobiliária"/>
+      </div>
+
+      <!-- O CHECKOUT NA MESMA PÁGINA (04/10/2026). Só aparece quando o servidor
+           diz que a conta nova é cobrada pelo Pagar.me; senão a página segue o
+           caminho antigo (criar a senha pelo link). O número do cartão vai do
+           navegador direto para o Pagar.me — para o ConHub chega só um token. -->
+      <div id="checkout" style="display:none">
+        <div class="field">
+          <label for="senha">Crie uma senha</label>
+          <input id="senha" type="password" autocomplete="new-password" placeholder="Pelo menos 6 caracteres"/>
+        </div>
+        <div class="secao">Plano</div>
+        <div class="field">
+          <select id="plano"></select>
+        </div>
+        <div class="nota" id="notaCobranca"></div>
+        <div class="secao">Cartão de crédito</div>
+        <div class="field">
+          <label for="cartao">Número do cartão</label>
+          <input id="cartao" inputmode="numeric" autocomplete="cc-number" name="cardnumber" placeholder="0000 0000 0000 0000"/>
+        </div>
+        <div class="field">
+          <label for="titular">Nome impresso no cartão</label>
+          <input id="titular" autocomplete="cc-name" name="ccname" placeholder="COMO ESTÁ NO CARTÃO"/>
+        </div>
+        <div class="linha">
+          <div class="field">
+            <label for="validade">Validade</label>
+            <input id="validade" inputmode="numeric" autocomplete="cc-exp" name="cc-exp" placeholder="MM/AA"/>
+          </div>
+          <div class="field">
+            <label for="cvv">Código (CVV)</label>
+            <input id="cvv" inputmode="numeric" autocomplete="cc-csc" name="cvc" placeholder="123"/>
+          </div>
+        </div>
+        <div class="field">
+          <label for="doc">CPF ou CNPJ do titular</label>
+          <input id="doc" inputmode="numeric" placeholder="só números"/>
+        </div>
+      </div>
       <button id="go">Começar meu teste grátis</button>
+      <div class="cadeado" id="cadeado" style="display:none">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+        <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.</span>
+      </div>
       <div class="rodape">
         <b>Tem imobiliária com equipe?</b> A sua tela é outra:
-        <a href="/criar-imobiliaria">cadastrar minha imobiliária</a>.
+        <a href="/comecar?perfil=imobiliaria">cadastrar minha imobiliária</a>.
         <br/><br/>Já tem conta? <a href="/app">Entrar no ConHub</a>
       </div>
     </div>
@@ -211,24 +265,64 @@
       + 'Depois de entrar, é você quem convida a equipe.<br/><br/>Já tem conta? <a href="/app">Entrar no ConHub</a>';
   }
 
-  /* O NOME E O PREÇO DO PLANO VÊM DO SERVIDOR. Ver o comentário do bloco
-     #escolha, acima: o endereço diz QUAL plano, nunca QUANTO ele custa.
+  if (TIPO === "imobiliaria") document.getElementById("campoMarca").style.display = "block";
 
-     Falhar aqui não atrapalha nada — o cartão simplesmente não aparece e o
-     cadastro segue igual. É a parte mais dispensável da tela, e não pode ser a
-     que impede alguém de se cadastrar. */
-  if (PLANO && TIPO) {
-    fetch(API + "/publico/planos").then(function(r){ return r.json(); }).then(function(d){
-      var lista = (TIPO === "imobiliaria" ? d.imobiliaria : d.autonomo) || d.planos || [];
-      var p = lista.filter(function(x){ return x.id === PLANO; })[0];
-      if (!p) return;
-      document.getElementById("escolhaNome").textContent =
-        (TIPO === "imobiliaria" ? p.nome : "Plano " + (p.ciclo_nome || p.nome));
-      document.getElementById("escolhaPreco").textContent =
-        "R$ " + p.mensal.toLocaleString("pt-BR") + "/mês · " + (p.resumo || "");
-      document.getElementById("escolha").style.display = "block";
-    }).catch(function(){});
+  /* O NOME E O PREÇO DO PLANO VÊM DO SERVIDOR — o endereço diz QUAL plano,
+     nunca QUANTO ele custa. A mesma resposta diz se dá para cadastrar o cartão
+     aqui mesmo (`checkout.pagarme`). Falhar aqui não impede o cadastro: a
+     página segue no caminho antigo. */
+  var CHECKOUT = null, PLANOS = [], DIAS = 7;
+  var reais = function(v){ return "R$ " + Number(v).toLocaleString("pt-BR", {minimumFractionDigits: v % 1 ? 2 : 0}); };
+  function dataFimTeste(){ var d = new Date(Date.now() + DIAS * 86400000); return d.toLocaleDateString("pt-BR"); }
+  function rotulo(p){
+    var familia = p.plano || (TIPO === "imobiliaria" ? "" : "Completo");
+    var preco = p.forma === "parcelado" ? p.parcelas + "x de " + reais(p.mensal)
+      : p.meses > 1 ? reais(p.mensal) + "/mês (" + reais(p.total) + " a cada " + p.meses + " meses)" : reais(p.mensal) + "/mês";
+    return (familia ? familia + " " : "") + (p.ciclo_nome || "").toLowerCase() + " — " + preco;
   }
+  function atualizarNota(){
+    var p = PLANOS.filter(function(x){ return x.id === document.getElementById("plano").value; })[0];
+    var nota = document.getElementById("notaCobranca");
+    if (!p) { nota.style.display = "none"; return; }
+    nota.style.display = "block";
+    nota.innerHTML = p.forma === "parcelado"
+      ? "O anual é cobrado <b>hoje</b>, em " + (p.parcelas || 12) + "x de " + reais(p.mensal) + " no cartão. Os 12 meses contam a partir do fim do teste."
+      : "<b>Nada é cobrado hoje.</b> A primeira cobrança (" + reais(p.total) + ") é em <b>" + dataFimTeste() + "</b>, quando o teste de " + DIAS + " dias acaba. Cancele antes e não paga nada.";
+  }
+  fetch(API + "/publico/planos").then(function(r){ return r.json(); }).then(function(d){
+    DIAS = d.trial_dias || 7;
+    var lista = TIPO === "imobiliaria" ? (d.imobiliaria || []) : (d.autonomo_basico || []).concat(d.autonomo || d.planos || []);
+    if (d.checkout && d.checkout.pagarme && d.checkout.chave_publica && lista.length) {
+      /* Nos planos do autônomo o `forma`/`parcelas` não vêm na vitrine antiga:
+         o anual é sempre parcelado em 12x. */
+      PLANOS = lista.map(function(p){ return Object.assign({ parcelas: p.forma === "parcelado" ? 12 : null }, p); });
+      CHECKOUT = d.checkout;
+      var sel = document.getElementById("plano");
+      sel.innerHTML = PLANOS.map(function(p){ return '<option value="' + p.id + '">' + rotulo(p) + "</option>"; }).join("");
+      var inicial = PLANOS.filter(function(p){ return p.id === PLANO; })[0]
+        || PLANOS.filter(function(p){ return p.id === (TIPO === "imobiliaria" ? "essencial-mensal" : "mensal"); })[0] || PLANOS[0];
+      sel.value = inicial.id;
+      sel.addEventListener("change", atualizarNota);
+      atualizarNota();
+      document.getElementById("checkout").style.display = "block";
+      document.getElementById("cadeado").style.display = "flex";
+      document.getElementById("leadTexto").innerHTML = "Crie a conta e cadastre o cartão aqui mesmo — <b>nada é cobrado hoje</b>. Em seguida você já entra no sistema.";
+      document.getElementById("go").textContent = "Começar meu teste de " + DIAS + " dias";
+      document.getElementById("passosLado").innerHTML =
+        "<li><b>1</b><span>Você cria a conta e cadastra o cartão — nada é cobrado hoje.</span></li>" +
+        "<li><b>2</b><span>Entra direto no sistema e conecta o seu WhatsApp.</span></li>" +
+        "<li><b>3</b><span>Depois de " + DIAS + " dias, a cobrança acontece sozinha — cancele antes se não quiser continuar.</span></li>";
+      return;
+    }
+    if (!PLANO || !TIPO) return;
+    var p = lista.filter(function(x){ return x.id === PLANO; })[0];
+    if (!p) return;
+    document.getElementById("escolhaNome").textContent =
+      (TIPO === "imobiliaria" ? p.nome : "Plano " + (p.ciclo_nome || p.nome));
+    document.getElementById("escolhaPreco").textContent =
+      "R$ " + p.mensal.toLocaleString("pt-BR") + "/mês · " + (p.resumo || "");
+    document.getElementById("escolha").style.display = "block";
+  }).catch(function(){});
 
   var phone = document.getElementById("phone");
   phone.addEventListener("input", function(){
@@ -239,6 +333,66 @@
     else if (d.length > 6) out = "(" + d.slice(0,2) + ") " + d.slice(2,7);
     phone.value = out;
   });
+
+  var dig = function(v){ return String(v || "").replace(/\D/g, ""); };
+  var cartaoEl = document.getElementById("cartao"), validadeEl = document.getElementById("validade"), cvvEl = document.getElementById("cvv"),
+      titularEl = document.getElementById("titular");
+  cartaoEl.addEventListener("input", function(){ cartaoEl.value = dig(cartaoEl.value).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 "); });
+  validadeEl.addEventListener("input", function(){ var d = dig(validadeEl.value).slice(0, 4); validadeEl.value = d.length > 2 ? d.slice(0, 2) + "/" + d.slice(2) : d; });
+  cvvEl.addEventListener("input", function(){ cvvEl.value = dig(cvvEl.value).slice(0, 4); });
+  titularEl.addEventListener("input", function(){ titularEl.value = titularEl.value.toUpperCase(); });
+
+  /* O cartão vira token no navegador, direto no Pagar.me, com a chave PÚBLICA.
+     O número nunca chega ao servidor do ConHub. */
+  async function tokenizar(){
+    var partes = validadeEl.value.split("/"), mes = Number(partes[0]), ano = String(partes[1] || "");
+    var r;
+    try {
+      r = await fetch("https://api.pagar.me/core/v5/tokens?appId=" + encodeURIComponent(CHECKOUT.chave_publica), {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ type: "card", card: { number: dig(cartaoEl.value), holder_name: titularEl.value.trim(),
+          exp_month: mes, exp_year: Number(ano.length === 2 ? "20" + ano : ano), cvv: dig(cvvEl.value) } })
+      });
+    } catch (e) { throw new Error("Não consegui falar com o Pagar.me. Confira a internet e tente de novo."); }
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !d.id) {
+      var lista = d && d.errors && typeof d.errors === "object" ? [].concat.apply([], Object.values(d.errors)) : [];
+      throw new Error(lista[0] || d.message || "O Pagar.me recusou os dados do cartão. Confira e tente de novo.");
+    }
+    return d.id;
+  }
+
+  async function assinar(body){
+    body.senha = document.getElementById("senha").value;
+    body.plano = document.getElementById("plano").value;
+    body.cpfCnpj = document.getElementById("doc").value;
+    var mes = Number(validadeEl.value.slice(0, 2));
+    if (body.senha.length < 6) return erro("A senha precisa ter pelo menos 6 caracteres.");
+    if (dig(cartaoEl.value).length < 13 || titularEl.value.trim().length < 3 || !/^\d{2}\/\d{2}$/.test(validadeEl.value) || mes < 1 || mes > 12 || dig(cvvEl.value).length < 3)
+      return erro("Confira os dados do cartão: número, nome, validade (MM/AA) e código.");
+    if ([11, 14].indexOf(dig(body.cpfCnpj).length) < 0) return erro("Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) do titular.");
+    btn.disabled = true; btn.textContent = "Conferindo o cartão…";
+    try {
+      body.token = await tokenizar();
+      var res = await fetch(API + "/publico/assinar", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if (res.status === 409 && data.ja_tem_conta)
+        return erro('Esse e-mail já tem conta no ConHub. <a href="' + (data.entrar || "/app") + '">Entrar agora</a> — ou peça uma senha nova na tela de entrada.');
+      if (!res.ok || !data.token) return erro(data.error || "Não foi possível criar a conta agora.");
+      // O cartão não fica nem na memória da página.
+      cartaoEl.value = ""; cvvEl.value = "";
+      try { localStorage.setItem("concrm_token", data.token); } catch (e) {}
+      if (data.aviso) { try { sessionStorage.setItem("conhub_aviso_cadastro", data.aviso); } catch (e) {} }
+      btn.textContent = "Tudo certo — entrando…";
+      location.href = "/app";
+    } catch (e) {
+      erro(e.message || "Sem conexão com o servidor. Tente de novo em instantes.");
+    } finally {
+      if (location.pathname !== "/app") { btn.disabled = false; btn.textContent = "Começar meu teste de " + DIAS + " dias"; }
+    }
+  }
 
   async function enviar(){
     var body = {
@@ -251,10 +405,13 @@
        vir de não ter sido informado, não de ter sido informado em branco. */
     if (TIPO) body.tipo = TIPO;
     if (PLANO) body.plano = PLANO;
+    var marca = document.getElementById("marca").value.trim();
+    if (TIPO === "imobiliaria" && marca) body.marca = marca;
     if (!body.nome || !body.email || !body.telefone)
-      return erro("Preencha os três campos para continuar.");
+      return erro("Preencha nome, e-mail e WhatsApp para continuar.");
     if (body.telefone.replace(/\D/g,"").length < 10)
       return erro("Confira o WhatsApp: informe DDD + número.");
+    if (CHECKOUT) return assinar(body);
 
     btn.disabled = true; btn.textContent = "Criando…";
     try {

@@ -895,8 +895,19 @@ async function contratarPlanoPagarme(req, res) {
   if (exigePagarme(res)) return;
   const plano = planoDaFamilia(req.body?.plano_id, req.tipoDaConta);
   if (!plano) return res.status(400).json({ error: "Escolha um dos planos disponíveis." });
-  const org = orgCompleta(req.user.org_id);
-  if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de escolher o plano." });
+  const r = await assinarPlanoNoPagarme(req.user.org_id, plano, req.user.name);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json(r.body);
+}
+
+/* ASSINAR UM PLANO NO CARTÃO GUARDADO — o miolo, sem req/res, porque são dois
+   caminhos: a tela de Minha conta e o cadastro do site (`/publico/assinar`),
+   que cadastra o cartão e assina o plano antes de a pessoa entrar. Duas cópias
+   desta conta (início, prazo pago, cancelamento do plano anterior) iam
+   divergir no primeiro ajuste. Devolve `{status, error}` ou `{body}`. */
+export async function assinarPlanoNoPagarme(orgId, plano, quem = "") {
+  const org = orgCompleta(orgId);
+  if (!org.pagarme_card_id) return { status: 400, error: "Cadastre o cartão de crédito antes de escolher o plano." };
   /* O MESMO PLANO DE NOVO NÃO É CONTRATADO DE NOVO. Com o cartão guardado,
      "assinar" é um clique — e um segundo clique no plano que já está valendo
      cancelaria a assinatura e criaria outra, cobrando hoje de novo. O anual
@@ -904,7 +915,7 @@ async function contratarPlanoPagarme(req, res) {
   if (org.plano_id === plano.id && !org.cancelado_em) {
     const renovacaoDoAnual = plano.forma === "parcelado" && (!org.vence_em || org.vence_em < Date.now() + 30 * 86400000);
     const valendo = plano.forma === "assinatura" ? !!org.pagarme_subscription_id : !!org.pagarme_order_id;
-    if (valendo && !renovacaoDoAnual) return res.status(409).json({ error: "Este já é o seu plano." });
+    if (valendo && !renovacaoDoAnual) return { status: 409, error: "Este já é o seu plano." };
   }
 
   /* Em teste, a primeira cobrança do mensal e do semestral cai no FIM do
@@ -939,7 +950,7 @@ async function contratarPlanoPagarme(req, res) {
       pedidoId = p.id;
       const cobranca = (p.charges || [])[0];
       if (p.status === "failed" || (cobranca && cobranca.status === "failed"))
-        return res.status(402).json({ error: "O cartão recusou a cobrança do plano anual. Confira o limite ou use outro cartão." });
+        return { status: 402, error: "O cartão recusou a cobrança do plano anual. Confira o limite ou use outro cartão." };
       if (cobranca && pagarme.PAGA.has(cobranca.status)) paga = cobranca;
     }
 
@@ -964,10 +975,10 @@ async function contratarPlanoPagarme(req, res) {
 
     if (!paga && assinaturaId && !comecaDepois) paga = await cobrancaPagaDaAssinatura(assinaturaId);
     if (paga) creditarPlano(org.id, paga);
-    console.log(`[pagarme] ${req.user.name} contratou o plano ${plano.nome} (${org.name})${paga ? " — pago" : ""}`);
-    res.json({ ok: true, plano: plano.id, pago: !!paga, cobra_em: comecaDepois && assinaturaId ? inicio : null, ...situacao(org.id) });
+    console.log(`[pagarme] ${quem} contratou o plano ${plano.nome} (${org.name})${paga ? " — pago" : ""}`);
+    return { body: { ok: true, plano: plano.id, pago: !!paga, cobra_em: comecaDepois && assinaturaId ? inicio : null, ...situacao(org.id) } };
   } catch (e) {
-    res.status(502).json({ error: e.message });
+    return { status: 502, error: e.message };
   }
 }
 

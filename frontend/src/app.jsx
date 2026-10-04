@@ -1990,6 +1990,13 @@ function ConCRM(){
      conta por outro motivo — às vezes nunca. Roda uma vez por sessão aberta,
      sem pedir nada: só reaproveita a permissão que a pessoa já deu. */
   useEffect(()=>{ if(session) curarInscricaoPush(acoes); },[session&&session.id]);
+  /* Recado do cadastro do site (04/10/2026): a conta nasceu e o cartão foi
+     salvo, mas o plano não foi assinado. Dito uma vez, ao entrar. */
+  useEffect(()=>{
+    if(!session) return;
+    try{ const m=sessionStorage.getItem("conhub_aviso_cadastro");
+      if(m){ sessionStorage.removeItem("conhub_aviso_cadastro"); setTimeout(()=>window.alert(m),400); } }catch(e){}
+  },[session&&session.id]);
 
   function sair(){ setToken(null); marcarOrg(null); setSession(null); setOrg(null); setLeads([]); setFila([]); }
 
