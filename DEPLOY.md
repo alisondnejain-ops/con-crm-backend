@@ -236,6 +236,33 @@ ele mostrar.
 domínios próprios, que depende do plano. Quando passar, o Railway recusa e a
 frase aparece no quadro da imobiliária e no hub.
 
+## Cobrança pelo Pagar.me (Stone) — 04/10/2026
+
+As chaves ficam na conta Stone: **Configurações da conta → Acesso e segurança →
+Chaves de autenticação**. Comece pelas de **teste** (entre em "Ambiente de
+testes" antes): a pública começa com `pk_test_`, a secreta com `sk_test_`.
+
+No Railway → serviço do ConHub → **Variables**:
+- `PAGARME_SECRET_KEY` = a secreta (`sk_test_…`). Nunca mande por mensagem.
+- `PAGARME_PUBLIC_KEY` = a pública (`pk_test_…`).
+
+Aviso de pagamento: na conta Stone, **Vendas online → Webhooks**, cadastre
+`https://www.conhubcrm.com.br/webhooks/pagarme` com os eventos
+`charge.paid`, `charge.payment_failed`, `charge.refunded`,
+`charge.chargedback` e `subscription.canceled`.
+
+**Chaves de TESTE** (`sk_test_…`/`pk_test_…`): nada muda para os clientes. O
+checkout só aparece nas contas que você puser no Pagar.me, no hub, em
+**Ferramentas → Cobrança → Pagar.me** — é como se testa, com cartão de teste.
+
+**Chaves de PRODUÇÃO** (`sk_…`/`pk_…`, sem o "test"): o checkout passa a valer
+sozinho para **todas as contas que não têm cobrança no Asaas**. Quem tem (a VJ)
+continua no Asaas até você trocar a conta no hub. Para garantir, marque a VJ
+como **Asaas** no hub antes de colar as chaves de produção. Para voltar todo
+mundo ao Asaas, crie `COBRANCA_PADRAO=asaas`. Cadastrar o cartão não cobra
+nada; a cobrança só sai quando o cliente escolhe o plano ou liga a mensalidade.
+Não use "Gerenciar IPs" na Stone: o Railway não tem IP fixo.
+
 ---
 
 ## Passo 5 — Ligar o e-mail automático (Resend)

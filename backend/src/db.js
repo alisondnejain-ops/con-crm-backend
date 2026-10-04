@@ -901,6 +901,18 @@ addOrgCol("plano_escolhido", "TEXT");
    `situacao()` em services/assinatura.js). */
 addOrgCol("exige_cartao", "INTEGER DEFAULT 0");
 addOrgCol("cartao_confirmado_em", "INTEGER");
+/* COBRANÇA PELO PAGAR.ME (04/10/2026) — ver services/pagarme.js.
+   `cobranca`: 'pagarme' | 'asaas' | NULL. Nulo segue a regra de
+   `provedorDe` (quem já tem cliente no Asaas fica lá). O cartão guardado no
+   Pagar.me é o que permite o "um clique": `pagarme_card_id` é o id dele lá,
+   `pagarme_card_json` é só bandeira/final/validade para a tela — o número
+   nunca existe aqui. */
+addOrgCol("cobranca", "TEXT");
+addOrgCol("pagarme_customer_id", "TEXT");
+addOrgCol("pagarme_card_id", "TEXT");
+addOrgCol("pagarme_card_json", "TEXT");
+addOrgCol("pagarme_subscription_id", "TEXT");
+addOrgCol("pagarme_order_id", "TEXT");
 addOrgCol("logo_url", "TEXT");
 addOrgCol("logo_key", "TEXT");
 addOrgCol("cor_barra", "TEXT");
@@ -2072,6 +2084,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS org_recursos (
   PRIMARY KEY (org_id, recurso)
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_org_recursos_sub ON org_recursos(avulso_sub_id)");
+// Por qual provedor a ferramenta avulsa foi contratada (04/10/2026). Nulo é
+// o Asaas — todas as linhas anteriores ao Pagar.me.
+if (!db.prepare("PRAGMA table_info(org_recursos)").all().some(c => c.name === "avulso_provedor"))
+  db.exec("ALTER TABLE org_recursos ADD COLUMN avulso_provedor TEXT");
 /* O Marketing liberado pelo master em `orgs.marketing_liberado` passa a ser
    uma liberação do master aqui, uma vez só. A coluna antiga fica, sem uso. */
 if (!db.prepare("SELECT 1 FROM config_plataforma WHERE chave = 'recursos_marketing_migrado'").get()) {

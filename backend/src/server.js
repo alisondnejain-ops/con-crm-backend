@@ -35,6 +35,7 @@ import plantaoRoutes from "./routes/plantao.routes.js";
 import configRoutes from "./routes/config.routes.js";
 import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
+import { ambientePagarmeConfere } from "./services/pagarme.js";
 import { mailConfigured } from "./services/mail.js";
 import { uazapiConfigured } from "./services/uazapi.js";
 import { bootstrap } from "./bootstrap.js";
@@ -454,6 +455,8 @@ app.listen(PORT, () => {
     for (const p of r2.problemas) console.log(`Atenção (R2): ${p}`);
   const asaas = ambienteConfere();
   if (asaas) console.log(`Atenção (Asaas): ${asaas}`);
+  const pgm = ambientePagarmeConfere();
+  if (pgm) console.log(`Atenção (Pagar.me): ${pgm}`);
   /* Fim de expediente: derruba a prontidão de quem ficou de ontem. Roda aqui
      no start (cobre o servidor que estava fora do ar às 18:00) e a cada minuto
      (para o corte acontecer na hora certa com o sistema em uso). */
