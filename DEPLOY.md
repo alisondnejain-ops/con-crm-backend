@@ -251,10 +251,17 @@ Aviso de pagamento: na conta Stone, **Vendas online → Webhooks**, cadastre
 `charge.paid`, `charge.payment_failed`, `charge.refunded`,
 `charge.chargedback` e `subscription.canceled`.
 
-Nada muda para ninguém até você escolher, no hub, **Ferramentas → Cobrança →
-Pagar.me** numa conta (comece por uma conta de teste). Para as contas NOVAS
-nascerem no Pagar.me, crie `COBRANCA_PADRAO=pagarme` — quem já tem cobrança
-no Asaas continua lá. Não use "Gerenciar IPs" na Stone: o Railway não tem IP fixo.
+**Chaves de TESTE** (`sk_test_…`/`pk_test_…`): nada muda para os clientes. O
+checkout só aparece nas contas que você puser no Pagar.me, no hub, em
+**Ferramentas → Cobrança → Pagar.me** — é como se testa, com cartão de teste.
+
+**Chaves de PRODUÇÃO** (`sk_…`/`pk_…`, sem o "test"): o checkout passa a valer
+sozinho para **todas as contas que não têm cobrança no Asaas**. Quem tem (a VJ)
+continua no Asaas até você trocar a conta no hub. Para garantir, marque a VJ
+como **Asaas** no hub antes de colar as chaves de produção. Para voltar todo
+mundo ao Asaas, crie `COBRANCA_PADRAO=asaas`. Cadastrar o cartão não cobra
+nada; a cobrança só sai quando o cliente escolhe o plano ou liga a mensalidade.
+Não use "Gerenciar IPs" na Stone: o Railway não tem IP fixo.
 
 ---
 

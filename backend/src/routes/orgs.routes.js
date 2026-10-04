@@ -24,8 +24,8 @@ import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../serv
 import { marcaDaOrg } from "../services/marca.js";
 import { dominiosDaPlataforma, definirDestino, verificarDominio } from "../services/site.js";
 import { removerDominio, railwayPronto } from "../services/railway.js";
-import { provedorDe, PROVEDORES } from "../services/cobranca.js";
-import { pagarmeConfigurado } from "../services/pagarme.js";
+import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../services/cobranca.js";
+import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
@@ -88,7 +88,9 @@ function resumo(req, org) {
     /* Por qual provedor esta conta é cobrada, e se foi escolha do master ou
        a regra padrão (04/10/2026). */
     cobranca: { provedor: provedorDe(org), escolhido: org.cobranca || null,
-      tem_asaas: !!org.asaas_customer_id, tem_pagarme: !!org.pagarme_customer_id },
+      tem_asaas: temCobrancaNoAsaas(org), tem_pagarme: !!org.pagarme_customer_id,
+      padrao: pagarmePadrao() ? "pagarme" : "asaas",
+      pagarme_ambiente: pagarmeConfigurado() ? ambientePagarme() : null },
   };
 }
 

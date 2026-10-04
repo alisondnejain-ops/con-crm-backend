@@ -203,7 +203,9 @@ r.get("/integracoes", async (_req, res) => {
       /* Pagar.me (04/10/2026): sem valor de chave, só se está ligado, em que
          ambiente, e se as duas chaves combinam. */
       cobranca_pagarme: pagarmeConfigurado()
-        ? (ambientePagarmeConfere() || `ligado (${ambientePagarme()})`)
+        ? (ambientePagarmeConfere() || (ambientePagarme() === "teste"
+          ? "ligado em TESTE — o checkout só aparece nas contas que o master pôs no Pagar.me; troque pelas chaves de produção para valer para todos"
+          : "ligado (produção) — padrão das contas sem cobrança no Asaas"))
         : (ambientePagarmeConfere() || "não configurado"),
       webhook_da_meta: process.env.META_APP_SECRET
         ? "assinatura conferida" : "sem conferência de assinatura (falta META_APP_SECRET)",

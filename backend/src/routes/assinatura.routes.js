@@ -229,6 +229,13 @@ function dadosDoPagarme(org) {
     chave_publica: pagarme.CHAVE_PUBLICA() || null,
     cartao: org.pagarme_card_id ? cartao : null,
     pede_cpf: !org.pagarme_customer_id,
+    /* A mensalidade COMBINADA (preço negociado, sem plano da tabela): o valor
+       e quando cairia a primeira cobrança, para a tela dizer antes do botão. */
+    combinada: !org.plano_id && Number(org.valor_mensal) > 0 ? {
+      valor: Number(org.valor_mensal),
+      ligada: !!org.pagarme_subscription_id,
+      primeira_cobranca: inicioDaCombinada(org),
+    } : null,
   };
 }
 
@@ -759,6 +766,56 @@ r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
     res.json({ ok: true, cartao: resumo,
       aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o ConHub.",
       ...situacao(org.id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+/* A MENSALIDADE COMBINADA NO CARTÃO (04/10/2026, pedido do Ali: "a Conecta
+   consiga fazer o cadastro do cartão deles para poder cobrar").
+
+   É a conta com preço negociado (`orgs.valor_mensal`, sem plano da tabela) —
+   a Conecta e quem o Ali configurou à mão. O valor é o gravado pelo ConHub,
+   nunca o que vem no corpo (a mesma trava de 27/08/2026).
+
+   A PRIMEIRA COBRANÇA CAI NO PRÓXIMO VENCIMENTO, nunca antes dele: quem já
+   pagou até o dia 20 não é cobrado hoje por ligar o cartão. Sem vencimento
+   futuro gravado (conta em atraso, ou que nunca teve vencimento), a cobrança
+   sai hoje — e a tela escreve a data antes do botão, nos dois casos. O
+   vencimento e o histórico de pagamentos não são tocados: a conta continua
+   contando os meses de onde estava. */
+function inicioDaCombinada(org) {
+  return org.vence_em && org.vence_em > Date.now() + 86400000 ? org.vence_em : null;
+}
+
+r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  if (provedorDe(org) !== "pagarme") return res.status(409).json({ error: "A cobrança desta conta é pelo Asaas." });
+  if (exigePagarme(res)) return;
+  if (org.plano_id) return res.status(409).json({ error: "A sua conta está num plano da tabela. Para mudar, escolha em Gerenciar assinatura." });
+  const valor = Number(org.valor_mensal);
+  if (!valor) return res.status(400).json({ error: "O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano." });
+  if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de ligar a mensalidade." });
+  if (org.pagarme_subscription_id) return res.status(409).json({ error: "A mensalidade já está ligada neste cartão." });
+
+  const inicio = inicioDaCombinada(org);
+  try {
+    const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
+      valor, meses: 1, codigo: "combinada", metadata: { org_id: org.id, plano: "combinada" },
+      descricao: `ConHub — Mensalidade ${org.name} (${brl(valor)}/mês)`,
+      inicio: inicio ? dataISO(inicio) : undefined });
+    if (org.asaas_subscription_id) {
+      try { await cancelarAssinatura(org.asaas_subscription_id); }
+      catch (e) { console.warn(`[pagarme] a assinatura do Asaas ${org.asaas_subscription_id} não foi cancelada: ${e.message}`); }
+    }
+    const agora = Date.now();
+    db.prepare(`UPDATE orgs SET pagarme_subscription_id = ?, pagarme_order_id = NULL, asaas_subscription_id = NULL,
+        vence_em = COALESCE(vence_em, ?), vence_base = COALESCE(vence_base, ?), link_pagamento = NULL WHERE id = ?`)
+      .run(a.id, agora, agora, org.id);
+    const paga = inicio ? null : await cobrancaPagaDaAssinatura(a.id);
+    if (paga) creditarPlano(org.id, paga);
+    console.log(`[pagarme] ${req.user.name} ligou a mensalidade combinada no cartão (${org.name})${paga ? " — paga" : ""}`);
+    res.json({ ok: true, pago: !!paga, cobra_em: inicio || null, ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }

@@ -5,8 +5,9 @@
    prova aqui é o NOSSO lado: o que é pedido, com que dados, e o que a conta
    vira com cada resposta.
 
-    1. Conta que já tem Asaas continua no Asaas; a padrão nova segue
-       COBRANCA_PADRAO; o master troca conta por conta, e só ele.
+    1. Conta com cobrança no Asaas (a VJ) continua no Asaas; ter só o
+       cadastro lá não prende; o resto vai para o Pagar.me — só com chaves de
+       produção; o master troca conta por conta, e só ele.
     2. O cartão chega como TOKEN (o número nunca passa pelo servidor), cria o
        cliente com o CPF e começa o teste de 14 dias das contas do site.
     3. Mensal em teste: assinatura com a primeira cobrança no fim do teste.
@@ -20,6 +21,8 @@
     7. Trocar o cartão leva as assinaturas para o cartão novo.
     8. Cancelar a ferramenta e apagar a conta cancelam no Pagar.me.
     9. Só o dono mexe na cobrança.
+   10. Preço combinado (a Conecta): guardar o cartão não cobra; a mensalidade
+       liga com a primeira cobrança no próximo vencimento.
 
    Rodar:  npm run teste:pagarme
 */
@@ -32,9 +35,10 @@ import http from "node:http";
 process.env.DB_PATH = path.join(os.tmpdir(), "concrm-teste-pagarme.db");
 process.env.JWT_SECRET = "teste";
 process.env.PORT = "4667";
-process.env.PAGARME_SECRET_KEY = "sk_test_chave_de_teste";
-process.env.PAGARME_PUBLIC_KEY = "pk_test_chave_publica";
-process.env.COBRANCA_PADRAO = "pagarme";
+// Chaves com cara de PRODUÇÃO: é com elas que o Pagar.me vira o padrão.
+process.env.PAGARME_SECRET_KEY = "sk_chave_de_producao";
+process.env.PAGARME_PUBLIC_KEY = "pk_chave_publica";
+delete process.env.COBRANCA_PADRAO;
 process.env.MARKETING_AGENDADOR = "0";
 process.env.SITE_DOMINIO_AGENDADOR = "0";
 process.env.UAZAPI_AUTOCONFIGURAR = "0";
@@ -44,7 +48,7 @@ for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH 
 let seq = 0;
 const pm = { pedidos: [], clientes: new Map(), cartoes: new Map(), assinaturas: new Map(), cobrancas: new Map(),
   faturas: new Map(), canceladas: [], cartoesApagados: [], trocasDeCartao: [], recusarCartao: false };
-const AUTH = "Basic " + Buffer.from("sk_test_chave_de_teste:").toString("base64");
+const AUTH = "Basic " + Buffer.from("sk_chave_de_producao:").toString("base64");
 const novaCobranca = (dados) => { const c = { id: "ch_" + (++seq), status: "paid", ...dados }; pm.cobrancas.set(c.id, c); return c; };
 const mock = http.createServer((req, res) => {
   let corpo = "";
@@ -124,14 +128,26 @@ db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,cre
 
 function conta(nome, tipo, email, extra = {}) {
   const org = "org_" + randomUUID().slice(0, 8), dono = "u_" + randomUUID();
-  db.prepare(`INSERT INTO orgs (id,name,adm_code,created_at,tipo,dono_user_id,exige_cartao,asaas_customer_id) VALUES (?,?,?,?,?,?,?,?)`)
-    .run(org, nome, "C-" + org.slice(4), Date.now(), tipo, dono, extra.exige ? 1 : 0, extra.asaas || null);
+  db.prepare(`INSERT INTO orgs (id,name,adm_code,created_at,tipo,dono_user_id,exige_cartao,asaas_customer_id,asaas_subscription_id,valor_mensal,vence_em)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(org, nome, "C-" + org.slice(4), Date.now(), tipo, dono, extra.exige ? 1 : 0, extra.asaas || null,
+      extra.asaasSub || null, extra.valor || null, extra.vence || null);
   db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,phone)
     VALUES (?,?,?,?,?,?,1,?,'ativo','87991112222')`).run(dono, org, nome + " Dono", email, senha, tipo === "autonomo" ? "corretor" : "adm", Date.now());
   return { org, dono };
 }
 const site = conta("Corretor do Site", "autonomo", "site@pm.com", { exige: true });
-const vj = conta("VJ Imóveis", "imobiliaria", "vj@pm.com", { asaas: "cus_asaas_vj" });
+const vj = conta("VJ Imóveis", "imobiliaria", "vj@pm.com", { asaas: "cus_asaas_vj", asaasSub: "sub_asaas_vj" });
+// Só o CADASTRO no Asaas (um CPF digitado num teste), sem cobrança nenhuma.
+const soCadastro = conta("Só Cadastro", "imobiliaria", "socadastro@pm.com", { asaas: "cus_asaas_teste" });
+// Pagou pelo Asaas no plano anual (parcelado: sem assinatura) — fica no Asaas.
+const anualAsaas = conta("Anual no Asaas", "autonomo", "anualasaas@pm.com", { asaas: "cus_asaas_anual" });
+db.prepare("INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,created_at) VALUES (?,?,?,?,'asaas',?)")
+  .run("pg_" + randomUUID(), anualAsaas.org, 147, Date.now(), Date.now());
+// Preço COMBINADO (a Conecta): sem plano da tabela, pago até daqui a 10 dias.
+const VENCE_CONECTA = Date.now() + 10 * 86400000;
+const conecta = conta("Conecta Teste", "imobiliaria", "conecta@pm.com", { valor: 1500, vence: VENCE_CONECTA });
+const atrasada = conta("Atrasada", "imobiliaria", "atrasada@pm.com", { valor: 800, vence: Date.now() - 5 * 86400000 });
 const outra = conta("Outra Conta", "autonomo", "outra@pm.com");
 const atendente = "u_" + randomUUID();
 db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status)
@@ -164,14 +180,30 @@ try {
   const tVj = await login("vj@pm.com");
   const tOutra = await login("outra@pm.com");
 
-  caso("Quem já tem Asaas fica no Asaas; conta nova segue o padrão; o master troca, e só ele");
+  caso("Quem tem cobrança no Asaas fica no Asaas; o resto vai para o Pagar.me; o master troca, e só ele");
   let r = await chamar(tVj, "/assinatura");
-  assert.equal(r.body.provedor, "asaas", "a VJ tem cliente no Asaas e continua lá mesmo com COBRANCA_PADRAO=pagarme");
+  assert.equal(r.body.provedor, "asaas", "a VJ tem assinatura no Asaas e continua lá");
+  r = await chamar(await login("anualasaas@pm.com"), "/assinatura");
+  assert.equal(r.body.provedor, "asaas", "pagou pelo Asaas (anual, sem assinatura) — continua lá");
+  r = await chamar(await login("socadastro@pm.com"), "/assinatura");
+  assert.equal(r.body.provedor, "pagarme", "só o cadastro no Asaas, sem cobrança, não prende ninguém lá");
   r = await chamar(tSite, "/assinatura");
   assert.equal(r.body.provedor, "pagarme");
   assert.equal(r.body.status, "aguardando_cartao");
-  assert.equal(r.body.pagarme.chave_publica, "pk_test_chave_publica", "a tela recebe a chave PÚBLICA");
-  assert.ok(!JSON.stringify(r.body).includes("sk_test"), "a chave secreta nunca sai do servidor");
+  assert.equal(r.body.pagarme.chave_publica, "pk_chave_publica", "a tela recebe a chave PÚBLICA");
+  assert.ok(!JSON.stringify(r.body).includes("sk_chave"), "a chave secreta nunca sai do servidor");
+  {
+    // Com chaves de TESTE o padrão não muda — cartão de verdade seria recusado.
+    const { provedorDe } = await import("../src/services/cobranca.js");
+    const [s0, p0] = [process.env.PAGARME_SECRET_KEY, process.env.PAGARME_PUBLIC_KEY];
+    process.env.PAGARME_SECRET_KEY = "sk_test_x"; process.env.PAGARME_PUBLIC_KEY = "pk_test_x";
+    assert.equal(provedorDe(linhaOrg(conecta.org)), "asaas", "chave de teste não leva cliente nenhum ao Pagar.me sozinho");
+    assert.equal(provedorDe({ ...linhaOrg(conecta.org), cobranca: "pagarme" }), "pagarme", "a conta posta pelo master, sim");
+    process.env.COBRANCA_PADRAO = "asaas"; process.env.PAGARME_SECRET_KEY = s0; process.env.PAGARME_PUBLIC_KEY = p0;
+    assert.equal(provedorDe(linhaOrg(conecta.org)), "asaas", "COBRANCA_PADRAO=asaas desliga o padrão");
+    delete process.env.COBRANCA_PADRAO;
+    assert.equal(provedorDe(linhaOrg(conecta.org)), "pagarme");
+  }
   r = await chamar(tVj, `/orgs/${vj.org}/cobranca`, "POST", { provedor: "pagarme" });
   assert.equal(r.status, 403, "o cliente não troca o próprio provedor");
   r = await chamar(tMaster, `/orgs/${vj.org}/cobranca`, "POST", { provedor: "stripe" });
@@ -345,6 +377,50 @@ try {
   r = await chamar(tMaster, `/orgs/${outra.org}`, "DELETE", { confirmar: "Outra Conta" });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.ok(pm.canceladas.includes(subPlano), "a mensalidade no Pagar.me foi cancelada antes de apagar");
+
+  caso("Preço combinado (a Conecta): cartão sem cobrar; a mensalidade liga no próximo vencimento");
+  const tConecta = await login("conecta@pm.com");
+  r = await chamar(tConecta, "/assinatura");
+  assert.equal(r.body.provedor, "pagarme");
+  assert.deepEqual(r.body.pagarme.combinada, { valor: 1500, ligada: false, primeira_cobranca: VENCE_CONECTA });
+  r = await chamar(tConecta, "/assinatura/combinada", "POST", {});
+  assert.equal(r.status, 400, "sem cartão não liga");
+  const assinaturasAntes = pm.assinaturas.size, pedidosAntes2 = pm.pedidos.filter(p => p.url === "/orders").length;
+  r = await chamar(tConecta, "/assinatura/cartao", "POST", { token: "token_conecta", cpfCnpj: "11.222.333/0001-81" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(pm.assinaturas.size, assinaturasAntes, "cadastrar o cartão não cria cobrança nenhuma");
+  assert.equal(pm.pedidos.filter(p => p.url === "/orders").length, pedidosAntes2);
+  assert.equal(pagamentos(conecta.org).length, 0);
+  assert.equal([...pm.clientes.values()].at(-1).document_type, "CNPJ");
+  r = await chamar(tConecta, "/assinatura/combinada", "POST", { valor: 1 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  sub = [...pm.assinaturas.values()].at(-1);
+  assert.equal(sub.items[0].pricing_scheme.price, 150000, "o valor é o combinado, não o que veio no corpo");
+  const venceIso = new Date(VENCE_CONECTA - new Date(VENCE_CONECTA).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  assert.equal(sub.start_at, venceIso, "a primeira cobrança cai no próximo vencimento, não hoje");
+  assert.equal(r.body.pago, false);
+  assert.equal(r.body.cobra_em, VENCE_CONECTA);
+  assert.equal(linhaOrg(conecta.org).vence_em, VENCE_CONECTA, "o vencimento não é tocado");
+  r = await chamar(tConecta, "/assinatura/combinada", "POST", {});
+  assert.equal(r.status, 409, "ligar de novo não cria outra assinatura");
+  const cobrancaConecta = novaCobranca({ amount: 150000, customer_id: linhaOrg(conecta.org).pagarme_customer_id, invoice: { subscription_id: sub.id } });
+  await aviso({ type: "charge.paid", data: { id: cobrancaConecta.id } });
+  assert.equal(pagamentos(conecta.org).length, 1, "a cobrança do vencimento credita um mês");
+  assert.equal(pagamentos(conecta.org)[0].meses, 1);
+  r = await chamar(tConecta, "/assinatura");
+  assert.equal(r.body.pagarme.combinada.ligada, true);
+
+  caso("Preço combinado em atraso: a cobrança sai hoje, e a tela sabe disso antes");
+  const tAtrasada = await login("atrasada@pm.com");
+  r = await chamar(tAtrasada, "/assinatura");
+  assert.equal(r.body.pagarme.combinada.primeira_cobranca, null, "sem vencimento futuro, a tela diz 'hoje'");
+  await chamar(tAtrasada, "/assinatura/cartao", "POST", { token: "token_atrasada", cpfCnpj: "52998224725" });
+  r = await chamar(tAtrasada, "/assinatura/combinada", "POST", {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.pago, true);
+  assert.equal(pagamentos(atrasada.org).length, 1);
+  r = await chamar(tSite, "/assinatura/combinada", "POST", {});
+  assert.equal(r.status, 409, "conta com plano da tabela não usa a mensalidade combinada");
 
   console.log("\nTudo certo ✅");
 } catch (e) {
