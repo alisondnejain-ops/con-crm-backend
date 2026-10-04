@@ -16,7 +16,7 @@ import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSessoes } from "../auth.js";
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
-import { situacao } from "../services/assinatura.js";
+import { situacao, TRIAL_DIAS } from "../services/assinatura.js";
 import { cancelarAssinatura } from "../services/asaas.js";
 import { definirLiberacao } from "../services/marketing.js";
 import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../services/recursos.js";
@@ -257,7 +257,7 @@ r.delete("/masters/:id", (req, res) => {
    O corretor entra como GESTOR da própria casa: é ele quem conecta o WhatsApp,
    sobe a lista de leads, escolhe a logo e a cor. Controle total da conta, que
    é o que ele está pagando. */
-const TRIAL_DIAS = 14;
+// O número mora em services/assinatura.js (7 dias desde 04/10/2026).
 
 r.post("/autonomos", async (req, res) => {
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);

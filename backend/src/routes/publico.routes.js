@@ -33,6 +33,7 @@
       de 27/08/2026, e aqui ela pesa mais: do outro lado não tem nem cliente
       logado, tem a internet. */
 
+import { TRIAL_DIAS } from "../services/assinatura.js";
 import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
@@ -73,7 +74,7 @@ function passouNoFreio(ip) {
 
 /* Quantos dias o teste dura. O mesmo número do resto do sistema — e ele mora
    aqui repetido de propósito NÃO: é importado de onde já era. */
-const TRIAL_DIAS = 14;
+// O número mora em services/assinatura.js (7 dias desde 04/10/2026).
 
 /* Os planos, para o site montar a tela de preços a partir do servidor.
 

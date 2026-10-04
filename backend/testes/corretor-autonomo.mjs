@@ -69,7 +69,7 @@ let d = await r.json();
 console.log(`   ${r.status} · ${d.org.nome} (${d.org.codigo}) · teste de ${d.dias} dias`);
 assert.equal(r.status, 200);
 assert.equal(d.org.tipo, "autonomo");
-assert.equal(d.dias, 14);
+assert.equal(d.dias, 7);
 const orgId = d.org.id, codigo = d.org.codigo, token = d.link.split("token=")[1];
 
 console.log("2. O relógio do teste NÃO começou ainda");
@@ -116,7 +116,7 @@ const s1 = situacao(orgId);
 console.log(`   status: ${s1.status} · faltam ${s1.dias} dia(s) · é teste? ${!!s1.teste}`);
 assert.equal(s1.status, "teste");
 assert.equal(s1.teste, true);
-assert.equal(s1.dias, 14);
+assert.equal(s1.dias, 7);
 
 console.log("5. A contagem regressiva anda sozinha");
 /* É o que alimenta a barra no painel dele: "faltam 14", "faltam 13"… */

@@ -4,7 +4,7 @@ import { authRequired, roles, semMaster } from "../auth.js";
 import { segredoConfere } from "../seguranca.js";
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
-  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento } from "../services/assinatura.js";
+  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses, TRIAL_DIAS } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
@@ -119,6 +119,9 @@ r.post("/webhooks/asaas", async (req, res) => {
       marcarAtraso(alvo.id, link);
       console.log("[asaas] cobrança em atraso registrada");
     } else if (acao === "cancelado") {
+      // Cancelada pelo próprio cliente (Minha conta): o acesso vai até o fim
+      // do que foi pago, e quem decide isso é `cancelado_em`, não este aviso.
+      if (alvo.cancelado_em) return;
       db.prepare("UPDATE orgs SET assinatura_status = 'cancelado' WHERE id = ?").run(alvo.id);
       console.log("[asaas] assinatura cancelada");
     }
@@ -166,8 +169,8 @@ async function tentarConfirmarCartao(org) {
     if (await cartaoRegistrado(org.asaas_subscription_id)) {
       const agora = Date.now();
       db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?")
-        .run(agora, agora + 14 * 86400000, org.id);
-      console.log(`[asaas] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+        .run(agora, agora + TRIAL_DIAS * 86400000, org.id);
+      console.log(`[asaas] cartão confirmado para "${org.name}" — teste de ${TRIAL_DIAS} dias começou agora`);
     }
   } catch (e) {
     console.warn(`[asaas] não consegui confirmar o cartão de "${org.name}": ${e.message}`);
@@ -215,6 +218,7 @@ r.get("/assinatura", authRequired, async (req, res) => {
     /* QUAL PROVEDOR COBRA ESTA CONTA (04/10/2026). É o que decide se a tela
        abre a fatura do Asaas ou o formulário de cartão do ConHub. */
     provedor: dono ? provedorDe(orgAtual) : undefined,
+    cancelamento: dono ? cancelamentoParaTela(orgAtual) : undefined,
     pagarme: dono && provedorDe(orgAtual) === "pagarme" ? dadosDoPagarme(orgAtual) : undefined });
 });
 
@@ -425,8 +429,8 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
       clienteId, valor: Number(valor), vencimento: venc,
       descricao: `ConHub — ${org.name}`,
     });
-    db.prepare(`UPDATE orgs SET asaas_customer_id = ?, asaas_subscription_id = ?, valor_mensal = ?, vence_em = ?, vence_base = ?
-                WHERE id = ?`).run(clienteId, assinatura.id, Number(valor), dataDoFormulario(venc), dataDoFormulario(venc), org.id);
+    db.prepare(`UPDATE orgs SET asaas_customer_id = ?, asaas_subscription_id = ?, valor_mensal = ?, vence_em = ?, vence_base = ?,
+                cancelado_em = NULL WHERE id = ?`).run(clienteId, assinatura.id, Number(valor), dataDoFormulario(venc), dataDoFormulario(venc), org.id);
     res.json({ ok: true, assinatura: assinatura.id, ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
@@ -579,7 +583,7 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
        contar. */
     const data = dataDoFormulario(venc);
     db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, asaas_subscription_id = ?,
-                vence_em = ?, vence_base = ?, link_pagamento = ?, assinatura_status = NULL WHERE id = ?`)
+                vence_em = ?, vence_base = ?, link_pagamento = ?, assinatura_status = NULL, cancelado_em = NULL WHERE id = ?`)
       .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, data, data, link, org.id);
 
     /* Sem `url` a tela não tem para onde mandar o corretor, e ele ficaria com
@@ -760,8 +764,8 @@ r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
 
     if (org.exige_cartao && !org.cartao_confirmado_em) {
       const agora = Date.now();
-      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?").run(agora, agora + 14 * 86400000, org.id);
-      console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de 14 dias começou agora`);
+      db.prepare("UPDATE orgs SET cartao_confirmado_em = ?, trial_ate = ? WHERE id = ?").run(agora, agora + TRIAL_DIAS * 86400000, org.id);
+      console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de ${TRIAL_DIAS} dias começou agora`);
     }
     res.json({ ok: true, cartao: resumo,
       aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o ConHub.",
@@ -796,7 +800,7 @@ r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
   const valor = Number(org.valor_mensal);
   if (!valor) return res.status(400).json({ error: "O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano." });
   if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de ligar a mensalidade." });
-  if (org.pagarme_subscription_id) return res.status(409).json({ error: "A mensalidade já está ligada neste cartão." });
+  if (org.pagarme_subscription_id && !org.cancelado_em) return res.status(409).json({ error: "A mensalidade já está ligada neste cartão." });
 
   const inicio = inicioDaCombinada(org);
   try {
@@ -810,7 +814,7 @@ r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
     }
     const agora = Date.now();
     db.prepare(`UPDATE orgs SET pagarme_subscription_id = ?, pagarme_order_id = NULL, asaas_subscription_id = NULL,
-        vence_em = COALESCE(vence_em, ?), vence_base = COALESCE(vence_base, ?), link_pagamento = NULL WHERE id = ?`)
+        vence_em = COALESCE(vence_em, ?), vence_base = COALESCE(vence_base, vence_em, ?), link_pagamento = NULL, cancelado_em = NULL WHERE id = ?`)
       .run(a.id, agora, agora, org.id);
     const paga = inicio ? null : await cobrancaPagaDaAssinatura(a.id);
     if (paga) creditarPlano(org.id, paga);
@@ -819,6 +823,51 @@ r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+/* CANCELAR A ASSINATURA, PELO PRÓPRIO CLIENTE (04/10/2026, pedido do Ali:
+   "uma opção discreta, mas disponível para o cliente poder cancelar").
+
+   Cancela a COBRANÇA no provedor e marca `cancelado_em`; o acesso continua
+   até o fim do que já foi pago (o vencimento, ou o fim do teste — cancelar
+   durante o teste não cobra nada). Falhou no provedor, nada é marcado: dizer
+   "cancelado" com a assinatura ainda cobrando seria o pior desfecho.
+
+   O anual do Pagar.me é um pedido só, já pago em 12x no cartão: não renova e
+   não há cobrança futura a cancelar — a resposta diz até quando vale. As
+   ferramentas avulsas têm a própria assinatura e se cancelam na lista delas. */
+function oQueCancelar(org) {
+  const prov = provedorDe(org);
+  if (org.cancelado_em) return { pode: false, motivo: "ja_cancelada" };
+  if (prov === "pagarme" && org.pagarme_subscription_id) return { pode: true, prov, sub: org.pagarme_subscription_id };
+  if (prov === "asaas" && org.asaas_subscription_id && org.assinatura_status !== "cancelado") return { pode: true, prov, sub: org.asaas_subscription_id };
+  if (org.pagarme_order_id || planoPorId(org.plano_id)?.forma === "parcelado") return { pode: false, motivo: "anual" };
+  return { pode: false, motivo: "sem_assinatura" };
+}
+
+function cancelamentoParaTela(org) {
+  const c = oQueCancelar(org);
+  return { pode: c.pode, motivo: c.motivo || null, cancelada_em: org.cancelado_em || null };
+}
+
+r.post("/assinatura/cancelar", authRequired, soDono, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  const c = oQueCancelar(org);
+  if (!c.pode) {
+    const frase = c.motivo === "ja_cancelada" ? "A assinatura já está cancelada."
+      : c.motivo === "anual" ? "O plano anual já foi pago em 12x no cartão e não renova sozinho — não há cobrança futura para cancelar."
+      : "Não há assinatura ativa para cancelar.";
+    return res.status(409).json({ error: frase });
+  }
+  try {
+    if (c.prov === "pagarme") await pagarme.cancelarAssinatura(c.sub);
+    else await cancelarAssinatura(c.sub);
+  } catch (e) {
+    return res.status(502).json({ error: "Não consegui cancelar no provedor de pagamento: " + e.message + " Tente de novo ou fale com o ConHub." });
+  }
+  db.prepare("UPDATE orgs SET cancelado_em = ? WHERE id = ?").run(Date.now(), org.id);
+  console.log(`[assinatura] ${req.user.name} cancelou a assinatura de "${org.name}" (${c.prov})`);
+  res.json({ ok: true, ...situacao(org.id) });
 });
 
 /* Um pagamento confirmado do PLANO: grava no histórico com o id da cobrança
@@ -852,7 +901,7 @@ async function contratarPlanoPagarme(req, res) {
      "assinar" é um clique — e um segundo clique no plano que já está valendo
      cancelaria a assinatura e criaria outra, cobrando hoje de novo. O anual
      pode ser renovado quando falta menos de um mês para acabar. */
-  if (org.plano_id === plano.id) {
+  if (org.plano_id === plano.id && !org.cancelado_em) {
     const renovacaoDoAnual = plano.forma === "parcelado" && (!org.vence_em || org.vence_em < Date.now() + 30 * 86400000);
     const valendo = plano.forma === "assinatura" ? !!org.pagarme_subscription_id : !!org.pagarme_order_id;
     if (valendo && !renovacaoDoAnual) return res.status(409).json({ error: "Este já é o seu plano." });
@@ -864,7 +913,13 @@ async function contratarPlanoPagarme(req, res) {
      não perder os dias grátis. */
   const emTeste = org.trial_ate && org.trial_ate > Date.now()
     && !db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(org.id).n;
-  const inicio = emTeste ? org.trial_ate : Date.now();
+  /* QUEM JÁ PAGOU ATÉ UMA DATA NÃO PAGA DUAS VEZES O MESMO PERÍODO (04/10/2026).
+     Trocar de plano no meio do mês pago começa o plano novo no vencimento,
+     não hoje: a primeira cobrança da assinatura cai lá, e o anual (cobrado
+     hoje) conta os 12 meses a partir de lá. */
+  const pagoAte = !emTeste && org.vence_em && org.vence_em > Date.now() + 86400000 ? org.vence_em : null;
+  const inicio = emTeste ? org.trial_ate : (pagoAte || Date.now());
+  const comecaDepois = emTeste || !!pagoAte;
   const porMes = brl(plano.mensal);
   const descricao = plano.meses > 1
     ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
@@ -876,7 +931,7 @@ async function contratarPlanoPagarme(req, res) {
     if (plano.forma === "assinatura") {
       const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
         valor: plano.total, meses: plano.meses, descricao, codigo: plano.id, metadata: meta,
-        inicio: emTeste ? dataISO(org.trial_ate) : undefined });
+        inicio: comecaDepois ? dataISO(inicio) : undefined });
       assinaturaId = a.id;
     } else {
       const p = await pagarme.criarPedido({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
@@ -899,14 +954,18 @@ async function contratarPlanoPagarme(req, res) {
       catch (e) { console.warn(`[pagarme] a assinatura do Asaas ${org.asaas_subscription_id} não foi cancelada: ${e.message}`); }
     }
 
+    /* O vencimento é a base mais os meses já pagos (recalcularVencimento), então
+       a base recua o que já foi pago — senão os meses antigos seriam somados
+       por cima do início do plano novo e virariam acesso grátis. */
+    const { n: jaPagos } = db.prepare("SELECT COALESCE(SUM(COALESCE(meses,1)),0) n FROM pagamentos WHERE org_id = ?").get(org.id);
     db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, pagarme_subscription_id = ?, pagarme_order_id = ?,
-        asaas_subscription_id = NULL, vence_em = ?, vence_base = ?, link_pagamento = NULL, assinatura_status = NULL WHERE id = ?`)
-      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, pedidoId, inicio, inicio, org.id);
+        asaas_subscription_id = NULL, vence_em = ?, vence_base = ?, link_pagamento = NULL, assinatura_status = NULL, cancelado_em = NULL WHERE id = ?`)
+      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, pedidoId, inicio, somaMeses(inicio, -jaPagos), org.id);
 
-    if (!paga && assinaturaId && !emTeste) paga = await cobrancaPagaDaAssinatura(assinaturaId);
+    if (!paga && assinaturaId && !comecaDepois) paga = await cobrancaPagaDaAssinatura(assinaturaId);
     if (paga) creditarPlano(org.id, paga);
     console.log(`[pagarme] ${req.user.name} contratou o plano ${plano.nome} (${org.name})${paga ? " — pago" : ""}`);
-    res.json({ ok: true, plano: plano.id, pago: !!paga, cobra_em: emTeste ? org.trial_ate : null, ...situacao(org.id) });
+    res.json({ ok: true, plano: plano.id, pago: !!paga, cobra_em: comecaDepois && assinaturaId ? inicio : null, ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
@@ -989,7 +1048,7 @@ export async function processarAvisoPagarme(corpo) {
       return;
     }
     const org = db.prepare("SELECT * FROM orgs WHERE pagarme_subscription_id = ?").get(sub.id);
-    if (org) {
+    if (org && !org.cancelado_em) {
       db.prepare("UPDATE orgs SET assinatura_status = 'cancelado' WHERE id = ?").run(org.id);
       console.log(`[pagarme] assinatura cancelada (${org.name})`);
     }

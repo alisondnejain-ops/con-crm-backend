@@ -19,8 +19,8 @@
    CONTA SEM PLANO DE PRATELEIRA (a Conecta, os preços combinados, as contas
    criadas à mão pelo hub) MANTÉM O AUTOATENDIMENTO — decisão do Ali: a regra
    por plano vale para quem está num plano, e ninguém perde o que já usava por
-   causa de uma publicação. O Marketing, que nunca veio em plano nenhum,
-   continua dependendo de liberação ou de contratação. */
+   causa de uma publicação. O Marketing vem no Essencial semestral e anual e
+   no Plus (04/10/2026); fora deles, depende de liberação ou de contratação. */
 import db from "../db.js";
 import { planoPorId } from "./planos.js";
 

@@ -58,11 +58,14 @@
    copiar trinta linhas — foi copiando que o `total` de um plano ficou
    divergindo do `mensal` dele em outros sistemas. Aqui `total` é sempre
    calculado, nunca digitado. */
-function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, inclui = [] }) {
+function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, inclui = [], incluiPorCiclo = {} }) {
   const id = (c) => (prefixo ? `${prefixo}-${c}` : c);
+  // O que vem no plano pode mudar com o CICLO (o Essencial ganha o Marketing
+  // no semestral e no anual) — sem a chave, vale o `inclui` de sempre.
+  const ferramentas = (c) => incluiPorCiclo[c] || inclui;
   return [
     {
-      id: id("mensal"), familia, plano: nome, limite, inclui,
+      id: id("mensal"), familia, plano: nome, limite, inclui: ferramentas("mensal"),
       nome: nome ? `${nome} mensal` : "Mensal",
       ciclo_nome: "Mensal",
       mensal, meses: 1, total: mensal,
@@ -70,7 +73,7 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, in
       resumo: "Renova sozinho todo mês. Cancele quando quiser.",
     },
     {
-      id: id("semestral"), familia, plano: nome, limite, inclui,
+      id: id("semestral"), familia, plano: nome, limite, inclui: ferramentas("semestral"),
       nome: nome ? `${nome} semestral` : "Semestral",
       ciclo_nome: "Semestral",
       mensal: semestral, meses: 6, total: semestral * 6,
@@ -78,7 +81,7 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, in
       resumo: "Uma cobrança a cada 6 meses. Renova sozinho.",
     },
     {
-      id: id("anual"), familia, plano: nome, limite, inclui,
+      id: id("anual"), familia, plano: nome, limite, inclui: ferramentas("anual"),
       nome: nome ? `${nome} anual` : "Anual",
       ciclo_nome: "Anual",
       mensal: anual, meses: 12, total: anual * 12,
@@ -93,9 +96,16 @@ function ciclosDe({ familia, prefixo, nome, limite, mensal, semestral, anual, in
 /* CORRETOR AUTÔNOMO. Sem prefixo no id: são os ids históricos, já gravados em
    contas que pagam. Ver "OS IDs SÃO PARA SEMPRE", acima. */
 /* O QUE CADA PLANO INCLUI (29/09/2026). As ferramentas moram em
-   services/recursos.js; aqui só se diz quais vêm no plano. O Marketing não
-   vem em nenhum: é liberado pelo master ou contratado avulso. */
+   services/recursos.js; aqui só se diz quais vêm no plano.
+
+   O MARKETING ENTRA A PARTIR DO ESSENCIAL SEMESTRAL (04/10/2026, pedido do
+   Ali: "o de R$ 497 inclui o autoatendimento com IA mas não inclui o
+   marketing; a partir do Essencial semestral já inclui"). Fica: Essencial
+   semestral e anual, e o Plus inteiro. O Essencial mensal e os planos do
+   corretor autônomo continuam sem ele — ali é liberado pelo master ou
+   contratado avulso. */
 const COM_IA = ["autoatendimento"];
+const COM_IA_E_MARKETING = ["autoatendimento", "marketing"];
 
 /* O BÁSICO DO AUTÔNOMO (29/09/2026, pedido do Ali: "o basicão, atendimento
    liberado sem IA, funil e sem a função marketing"). Só mensal: é o plano de
@@ -127,11 +137,12 @@ export const PLANOS_IMOBILIARIA = [
     familia: "imobiliaria", prefixo: "essencial", nome: "Essencial",
     limite: "até 10 corretores",
     mensal: 497, semestral: 427, anual: 377, inclui: COM_IA,
+    incluiPorCiclo: { semestral: COM_IA_E_MARKETING, anual: COM_IA_E_MARKETING },
   }),
   ...ciclosDe({
     familia: "imobiliaria", prefixo: "plus", nome: "Plus",
     limite: "até 25 corretores",
-    mensal: 797, semestral: 677, anual: 597, inclui: COM_IA,
+    mensal: 797, semestral: 677, anual: 597, inclui: COM_IA_E_MARKETING,
   }),
 ];
 

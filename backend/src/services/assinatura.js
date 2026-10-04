@@ -21,6 +21,14 @@ import { mesesPagos, planoPorId } from "./planos.js";
 const DIA = 86400000;
 export const AVISO_ANTES = 3;
 
+/* QUANTOS DIAS DURA O TESTE GRÁTIS (04/10/2026, pedido do Ali: "preciso que
+   seja 7 dias de teste e não 14"). Um número só, para o cadastro do site, o
+   hub, o cartão confirmado e as frases da tela — eram quatro cópias de 14.
+   Mudar aqui vale para as contas NOVAS; quem já está no teste mantém a data
+   que recebeu. O site de vendas e as páginas públicas escrevem o número no
+   texto: mudou aqui, mudam lá também. */
+export const TRIAL_DIAS = 7;
+
 // Meia-noite do dia, para a conta ser em dias inteiros e não em horas.
 const meiaNoite = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
@@ -50,7 +58,7 @@ export function ehDono(orgId, userId) {
   return donoDa(orgId) === userId;
 }
 
-const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
+export const somaMeses = (ms, n) => { const d = new Date(ms); d.setMonth(d.getMonth() + n); return d.getTime(); };
 
 /* Recalcula o vencimento a partir da base e dos MESES pagos.
 
@@ -117,14 +125,24 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
   /* Qual plano de prateleira está valendo. Só do autônomo, e só para o dono:
      é o que a tela de gerenciar assinatura marca como "seu plano atual". */
   const escolhido = planoPorId(org.plano_id);
+  /* Cancelada pelo cliente: o acesso vai até o que já foi pago — o fim do
+     teste (se nada foi pago) ou o vencimento. Passada a data, trava sem a
+     carência de atraso: não há cobrança pendente a esperar. */
+  const pagosAqui = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(orgId).n;
+  const acessoAte = org.cancelado_em ? ((!pagosAqui && org.trial_ate) || org.vence_em || null) : null;
   const conforme = (s) => dono
     ? { ...s, dono, plano_id: org.plano_id || null,
+        cancelada_em: org.cancelado_em || null, acesso_ate: acessoAte,
         plano_nome: escolhido ? escolhido.nome : null,
         plano_renova: escolhido ? escolhido.forma === "assinatura" : null }
     : {
     status: s.status, cobranca: s.cobranca, dono, motivo: s.motivo, teste: s.teste,
     dias: s.dias, atraso: s.atraso, restam: s.restam, carencia: s.carencia,
   };
+
+  if (org.cancelado_em && (!acessoAte || meiaNoite(acessoAte) < meiaNoite(Date.now())))
+    return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada. Para voltar, escolha um plano.",
+      plano: org.plano, valor: org.valor_mensal });
 
   if (org.assinatura_status === "cancelado")
     return conforme({ status: "bloqueado", cobranca: true, motivo: "Assinatura cancelada.", plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
@@ -153,7 +171,7 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
     if (!pagos)
       return conforme({ status: "aguardando_cartao", cobranca: true,
         plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
-        motivo: "Cadastre um cartão de crédito para começar o seu teste de 14 dias grátis." });
+        motivo: `Cadastre um cartão de crédito para começar o seu teste de ${TRIAL_DIAS} dias grátis.` });
   }
 
   /* O TESTE GRÁTIS, que é um estado só do corretor autônomo.
@@ -174,7 +192,7 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
           vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento });
       return conforme({ status: "bloqueado", cobranca: true, teste: true, atraso: -faltam,
         vence_em: org.trial_ate, plano: org.plano, valor: org.valor_mensal, link: org.link_pagamento,
-        motivo: "O teste de 14 dias terminou." });
+        motivo: "O teste grátis terminou." });
     }
   }
 

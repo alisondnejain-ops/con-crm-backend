@@ -85,7 +85,7 @@ function conta(nome, tipo, planoId, email) {
 const basico = conta("Corretor Básico", "autonomo", "basico", "basico@fe.com");
 const completo = conta("Corretor Completo", "autonomo", "anual", "completo@fe.com");
 const antiga = conta("Imobiliária Antiga", "imobiliaria", null, "antiga@fe.com");
-const essencial = conta("Imobiliária Essencial", "imobiliaria", "essencial-semestral", "essencial@fe.com");
+const essencial = conta("Imobiliária Essencial", "imobiliaria", "essencial-mensal", "essencial@fe.com");
 
 const login = async (email) => {
   const d = await (await fetch(`${BASE}/auth/login`, { method: "POST", headers: { "content-type": "application/json" },
@@ -103,9 +103,14 @@ assert.equal(temRecurso(basico, "autoatendimento"), false, "o básico (R$ 97) n�
 assert.equal(temRecurso(completo, "autoatendimento"), true, "o completo traz, em qualquer ciclo");
 assert.equal(temRecurso(essencial, "autoatendimento"), true, "o Essencial traz");
 assert.equal(temRecurso(antiga, "autoatendimento"), true, "conta sem plano de prateleira MANTÉM a IA (decisão do Ali)");
+// Marketing (04/10/2026): vem no Essencial semestral/anual e no Plus; nos
+// planos do autônomo e na conta sem plano, não.
 for (const o of [basico, completo, antiga, essencial])
-  assert.equal(temRecurso(o, "marketing"), false, "Marketing não vem em plano nenhum");
-console.log("   básico ✗ · completo ✓ · Essencial ✓ · antiga ✓ · Marketing ✗ em todas");
+  assert.equal(temRecurso(o, "marketing"), false, "Marketing não vem no autônomo, na conta sem plano nem no Essencial mensal");
+db.prepare("UPDATE orgs SET plano_id = 'essencial-semestral' WHERE id = ?").run(essencial);
+assert.equal(temRecurso(essencial, "marketing"), true, "o Essencial semestral traz o Marketing");
+db.prepare("UPDATE orgs SET plano_id = 'essencial-mensal' WHERE id = ?").run(essencial);
+console.log("   básico ✗ · completo ✓ · Essencial ✓ · antiga ✓ · Marketing só a partir do Essencial semestral");
 
 console.log("2. Sem a ferramenta o robô não fala, e não se liga");
 db.prepare("UPDATE orgs SET robo_ativo = 1, robo_sempre = 1 WHERE id = ?").run(basico);
