@@ -221,6 +221,16 @@ caso("repassar ao WhatsApp continua como opção do hub, pela linha do ambiente 
   assert.ok(msg, "o WhatsApp do suporte sabe quem respondeu");
   assert.equal(msg.token, "token-interno", "saiu pela linha do ambiente interno, não pela da Conecta");
   assert.equal(msg.number, "5581999353988");
+  // A linha que envia é o MESMO número que recebe: recusado com a frase certa, nada sai.
+  db.prepare("UPDATE canais SET wa_number = '5581999353988' WHERE org_id = ? AND tipo = 'imobiliaria'").run(interna);
+  const cfg = await api("u_ali", "GET", "/suporte/hub");
+  assert.equal(cfg.body.config.mesmo_numero, true);
+  const antes2 = enviados.length;
+  const teste = await api("u_ali", "POST", "/suporte/hub/teste");
+  assert.equal(teste.status, 502);
+  assert.ok(/mesmo que recebe/.test(teste.body.error), teste.body.error);
+  assert.equal(enviados.length, antes2);
+  db.prepare("UPDATE canais SET wa_number = NULL WHERE org_id = ? AND tipo = 'imobiliaria'").run(interna);
   await api("u_ali", "PATCH", "/suporte/hub/config", { whatsapp: false });
   // Quem sai da equipe do ConHub perde a fila na hora.
   db.prepare("UPDATE users SET status='removido' WHERE id='u_caio'").run();

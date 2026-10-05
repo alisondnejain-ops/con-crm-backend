@@ -6747,8 +6747,9 @@ function SuporteNoHub({isMobile,equipe}){
       </select>
     </label>
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <span style={{fontSize:12,fontWeight:600,color:d.config.linha_ligada?C.greenDeep:C.hot}}>
-        {d.config.linha_ligada?"● A linha está conectada":"● Essa conta não tem WhatsApp conectado — os chamados ficam só aqui no painel"}</span>
+      <span style={{fontSize:12,fontWeight:600,color:d.config.linha_ligada&&!d.config.mesmo_numero?C.greenDeep:C.hot}}>
+        {d.config.mesmo_numero?"● A linha que envia é o MESMO número que recebe: a mensagem cairia em “conversa com você” e não tocaria. Conecte outro número na linha que envia."
+          :d.config.linha_ligada?"● A linha está conectada":"● Essa conta não tem WhatsApp conectado — os chamados ficam só aqui no painel"}</span>
       <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
     </div>
     </React.Fragment>}
