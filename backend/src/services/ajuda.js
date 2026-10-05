@@ -71,6 +71,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 ## Assistente Claude (botão no alto da tela)
 - Gestor: configura a conta conversando (funis, etapas, prazos, campos, tags, mensagens prontas).
 - Atendente e corretor: só consulta — tira dúvidas, procura leads e números dele e pesquisa na internet. Não muda nada na conta.
+- Todos: o Claude reorganiza a ORDEM do menu de quem pede (ex.: "coloque Imóveis no topo do meu menu"), só para ela. Os nomes das telas não mudam e nada some; "volte o menu ao padrão" desfaz.
 
 ## Equipe e acesso
 - Convidar: Equipe → copie o link de cadastro e mande para a pessoa; depois aprove.

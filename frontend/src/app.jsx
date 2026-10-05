@@ -1306,6 +1306,8 @@ function toSession(u){
              servidor e é jogada fora em silêncio — a barra voltava aberta a
              cada login sem nenhum erro aparecer. */
           barra_recolhida:!!u.barra_recolhida,
+          // A ordem do menu escolhida pela pessoa (pelo Claude); nulo = padrão.
+          menu_ordem:Array.isArray(u.menu_ordem)?u.menu_ordem:null,
           /* PODE GERIR A PRÓPRIA CASA sem ser `adm` — é o corretor autônomo.
              Mesma armadilha do `master` e do `barra_recolhida` acima: sem estar
              listado aqui, o campo chega do servidor e é jogado fora em
@@ -2056,7 +2058,11 @@ function ConCRM(){
         if(a&&a.status!=="bloqueado"&&a.status!=="aguardando_cartao") setErro("");
       }).catch(()=>{})}/>;
 
-  return <Workspace {...{session,setSession:sair,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}}/>;
+  /* A ordem do menu muda a sessão aqui, no dono dela: dentro do Workspace
+     `setSession` é o "Sair" — chamar aquele para guardar uma preferência
+     deslogava a pessoa. */
+  const mudarMenuOrdem=(ordem)=>setSession(s=>s?{...s,menu_ordem:ordem}:s);
+  return <Workspace {...{session,setSession:sair,mudarMenuOrdem,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}}/>;
 }
 
 /* ===== PLANTÃO =====
@@ -6507,7 +6513,7 @@ function BotaoClaude({onClick,isMobile}){
 }
 
 /* O PAINEL DO ASSISTENTE: folha à direita no computador, tela cheia no celular. */
-function PainelAssistente({aoFechar,isMobile,irPara}){
+function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [d,setD]=useState(null);
   const [texto,setTexto]=useState("");
   const [ocupado,setOcupado]=useState(false);
@@ -6521,8 +6527,10 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
     const t=texto.trim(); if(!t||ocupado) return;
     setTexto(""); setErro(""); setNavegar(null); setOcupado(true); setPendente(t);
     try{
-      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t}});
+      // O menu de quem pergunta vai junto: é a tela que sabe quais itens ela vê.
+      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[]}});
       setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
+      if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
     }catch(e){ setErro(e.message); setTexto(t); }
     finally{ setOcupado(false); setPendente(null); }
   }
@@ -6531,7 +6539,7 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
      atendente e o corretor só consultam — tiram dúvidas e pesquisam. */
   const consulta=!!(d&&d.modo==="consulta");
   const sugestoes=consulta
-    ?["Quais leads meus estão esperando resposta?","Como estão meus números neste mês?","Quais documentos pedir para financiar pela Caixa?","Como eu repasso um lead para outro corretor?"]
+    ?["Quais leads meus estão esperando resposta?","Como estão meus números neste mês?","Quais documentos pedir para financiar pela Caixa?","Como eu repasso um lead para outro corretor?","Coloque Imóveis no topo do meu menu"]
     :["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
   return <div style={{position:"fixed",inset:0,zIndex:80,background:isMobile?C.card:"rgba(10,61,48,.18)",display:"flex",justifyContent:"flex-end"}}
     onClick={e=>{ if(e.target===e.currentTarget) aoFechar(); }}>
@@ -6551,7 +6559,7 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
         {d&&!itens.length&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
           {consulta?<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
             Pergunte o que quiser: como usar o sistema, como estão seus leads e seus números, ou algo de fora — financiamento, documentação, mercado. Eu pesquiso e te respondo.
-            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu só consulto: não mudo nada na conta. Para mudar, te levo até a tela certa.</div>
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu só consulto: não mudo nada na conta. A única exceção é a ordem do seu menu — peça e eu reorganizo. Para o resto, te levo até a tela certa.</div>
           </div>
           :<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
             Diga o que você quer montar e eu faço na sua conta: funis e etapas, prazos, o que acontece quando o lead chega numa etapa, campos, tags, mensagens prontas e as orientações do Autoatendimento.
@@ -6809,7 +6817,7 @@ function SuporteNoHub({isMobile,equipe}){
   </div>;
 }
 
-function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}){
+function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
@@ -7065,6 +7073,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         ["catraca:principal","transfer","Catraca principal"],
         ...ativas.map(c=>["catraca:"+c.id,"letra:"+c.nome,c.nome])]];
     });
+  /* A ORDEM QUE A PESSOA ESCOLHEU (05/10/2026): o Claude reorganiza o menu de
+     quem pede — só a posição, os nomes continuam vindo daqui. Por último,
+     depois de todos os filtros: o que a pessoa não pode ver não volta por
+     estar na lista dela. */
+  NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
   const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
@@ -7215,7 +7228,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       </div>
     </main>
     {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
-    {assistenteAberto&&<PainelAssistente aoFechar={()=>setAssistenteAberto(false)} isMobile={isMobile} irPara={setView}/>}
+    {assistenteAberto&&<PainelAssistente aoFechar={()=>setAssistenteAberto(false)} isMobile={isMobile} irPara={setView}
+      menu={NAV.map(i=>({id:i[0],rotulo:i[2],secao:i[3]||"Principal"}))}
+      aoMudarMenu={mudarMenuOrdem}/>}
     {/* O master não ganha a nuvem: o suporte é ele. */}
     {/* Nem a equipe do ConHub: o suporte também é ela. */}
     {!ehMaster&&!contaInterna()&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view} nome={session.name}/>}
@@ -7266,6 +7281,14 @@ const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart",
 const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["formularios","form","Formulários"]];
 const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
+/* Aplica a ordem escolhida pela pessoa. O que não está na lista dela (uma
+   tela nova, por exemplo) fica depois, na ordem padrão. A barra do computador
+   continua agrupando por seção, então lá a ordem vale dentro de cada seção. */
+function ordenarMenu(nav,ordem){
+  if(!Array.isArray(ordem)||!ordem.length) return nav;
+  const pos=(item)=>{const i=ordem.indexOf(item[0]);return i<0?ordem.length:i;};
+  return nav.map((item,i)=>[item,i]).sort((a,b)=>pos(a[0])-pos(b[0])||a[1]-b[1]).map(x=>x[0]);
+}
 // O grupo está "ativo" quando a tela aberta é um dos filhos dele.
 const grupoContem=(item,view)=>!!(filhosDe(item)||[]).some(([v])=>v===view);
 function dividirNav(nav,limite=LIMITE_NAV){

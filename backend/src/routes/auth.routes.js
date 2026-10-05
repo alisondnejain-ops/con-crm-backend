@@ -469,6 +469,31 @@ r.post("/me/barra", authRequired, (req, res) => {
   res.json({ barra_recolhida: !!recolhida });
 });
 
+/* A ordem do menu da própria pessoa. `POST /auth/me/menu`
+
+   Preferência de tela, como a barra recolhida, e pelo mesmo motivo numa rota
+   própria. Guarda só CHAVES de tela (nunca nomes): o rótulo de cada item
+   continua vindo do código, então não há como renomear uma função por aqui.
+   Chave que não existe no menu dela é ignorada na tela. Lista vazia volta à
+   ordem padrão. */
+const CHAVE_DE_TELA = /^[a-z][a-z0-9_:-]{0,39}$/;
+export function ordemDoMenu(valor) {
+  if (!Array.isArray(valor)) return null;
+  const vistas = [];
+  for (const v of valor.slice(0, 40)) {
+    const k = String(v || "").trim();
+    if (CHAVE_DE_TELA.test(k) && !vistas.includes(k)) vistas.push(k);
+  }
+  return vistas.length ? vistas : null;
+}
+r.post("/me/menu", authRequired, (req, res) => {
+  if (req.body?.ordem !== undefined && !Array.isArray(req.body.ordem))
+    return res.status(400).json({ error: "Mande a ordem como uma lista de telas." });
+  const ordem = ordemDoMenu(req.body?.ordem);
+  db.prepare("UPDATE users SET menu_ordem=? WHERE id=?").run(ordem ? JSON.stringify(ordem) : null, req.user.id);
+  res.json({ menu_ordem: ordem });
+});
+
 r.post("/me/senha", authRequired, (req, res) => {
   const { atual, nova } = req.body || {};
   const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
@@ -862,6 +887,8 @@ function publicUser(u) {
            available: !!u.available, avatar_url: u.avatar_url || null,
            // Preferência de tela: a barra lateral nasce recolhida ou aberta.
            barra_recolhida: !!u.barra_recolhida,
+           // A ordem do menu que a pessoa escolheu (nulo = padrão do papel).
+           menu_ordem: (() => { try { return ordemDoMenu(JSON.parse(u.menu_ordem || "null")); } catch { return null; } })(),
            /* PODE GERIR A PRÓPRIA CASA sem ser `adm`. (02/09/2026)
 
               É o corretor autônomo: o papel dele é `corretor`, porque é isso

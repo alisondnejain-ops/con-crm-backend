@@ -649,6 +649,10 @@ addUserCol("avatar_url", "TEXT");
    "por conta" o que o Ali pediu. */
 addUserCol("barra_recolhida", "INTEGER DEFAULT 0");                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
+/* A ORDEM DO MENU de cada pessoa (05/10/2026, pedido do Ali): o corretor
+   reorganiza o próprio menu pelo Claude. Lista JSON das telas na ordem
+   escolhida; nulo = a ordem padrão do papel. Só a posição — nome não muda. */
+addUserCol("menu_ordem", "TEXT");
 /* Gestor MASTER — dono da plataforma, não da imobiliária.
 
    É uma coluna e não um papel novo porque o papel manda no que a pessoa PODE
