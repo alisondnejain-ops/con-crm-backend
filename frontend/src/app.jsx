@@ -4458,28 +4458,35 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
   const m=conta.mensalidade;
   const [data,setData]=useState(paraCampoData(m.vence_em));
   const [tolerancia,setTolerancia]=useState(String(m.dias_carencia));
+  // Centavos só quando existem: "1.500" ou "2.350,50" — como se escreve no Brasil.
+  const valorTexto=(v)=>v?Number(v).toLocaleString("pt-BR",{minimumFractionDigits:Number(v)%1?2:0,maximumFractionDigits:2}):"";
+  const [valor,setValor]=useState(valorTexto(m.valor));
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
   const [ok,setOk]=useState(false);
-  useEffect(()=>{ setData(paraCampoData(m.vence_em)); setTolerancia(String(m.dias_carencia)); },[m.vence_em,m.dias_carencia]);
+  useEffect(()=>{ setData(paraCampoData(m.vence_em)); setTolerancia(String(m.dias_carencia)); setValor(valorTexto(m.valor)); },[m.vence_em,m.dias_carencia,m.valor]);
+  // "1500", "1500,50" ou "1.500,50" — como se digita no Brasil.
+  const valorNum=valor.trim()?Number(valor.replace(/\./g,"").replace(",",".")):null;
+  const mudouValor=valorNum!==(m.valor==null?null:Number(m.valor));
   const tol=/^\d+$/.test(tolerancia)?Number(tolerancia):null;
   // Conta cancelada: salvar a mesma data também vale — é o que desfaz o cancelamento.
-  const mudou=data!==paraCampoData(m.vence_em)||tol!==m.dias_carencia||!!(m.cancelado_em&&data);
+  const mudou=data!==paraCampoData(m.vence_em)||tol!==m.dias_carencia||!!(m.cancelado_em&&data)||mudouValor;
   const naAsaas=conta.cobranca&&conta.cobranca.provedor==="asaas";
   const ESTADO={ativo:"em dia",vence_em_breve:"vence em breve",atrasado:"em atraso (dentro da tolerância)",bloqueado:"TRAVADA",
     teste:"em teste",liberado:"liberada por você",aguardando_cartao:"esperando o cartão"};
   const travaEm=data&&tol!=null?(()=>{ const d=new Date(data+"T12:00:00"); d.setDate(d.getDate()+tol+1); return d.getTime(); })():null;
   async function salvar(){
     if(tol==null||tol>60) return setErro("A tolerância vai de 0 a 60 dias.");
+    if(mudouValor&&(!valorNum||!isFinite(valorNum)||valorNum<=0)) return setErro("Escreva o valor da mensalidade, por exemplo 1500 ou 1.500,00.");
     setErro("");setOk(false);setOcupado(true);
-    try{ await acoes.definirMensalidade(conta.id,{vence_em:data||null,dias_carencia:tol}); setOk(true); await aoMudar(); }
+    try{ await acoes.definirMensalidade(conta.id,{vence_em:data||null,dias_carencia:tol,...(mudouValor?{valor_mensal:valorNum}:{})}); setOk(true); await aoMudar(); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   const campo={boxSizing:"border-box",fontSize:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Mensalidade</div>
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
-      {m.valor?<React.Fragment><b>{fmtMoeda(m.valor)}</b>/mês{m.plano_id?" (plano da tabela)":" (valor combinado)"}</React.Fragment>:"Sem valor definido"}
+      {m.valor?<React.Fragment><b>R$ {valorTexto(m.valor)}</b>/mês{m.plano_id?" (plano da tabela)":" (valor combinado)"}</React.Fragment>:"Sem valor definido"}
       {" · "}{m.cartao?"cartão cadastrado":"sem cartão cadastrado"}
       {" · "}{m.ligada?"cobrança automática ligada":"cobrança automática não ligada"}
     </div>
@@ -4491,6 +4498,10 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
     {naAsaas&&!m.plano_id&&<div style={{background:C.surface,color:C.sub,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
       Esta conta está na cobrança do <b>Asaas</b>. Para o cliente cadastrar o cartão no ConHub e ligar a mensalidade, escolha <b>Pagar.me</b> em Cobrança, logo abaixo.</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 120px"}}>
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Valor por mês (R$)</span>
+        <input inputMode="decimal" value={valor} placeholder="ex.: 1.500,00" onChange={e=>{setValor(e.target.value.replace(/[^\d.,]/g,"").slice(0,12));setOk(false);}} style={campo}/>
+      </label>
       <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 150px"}}>
         <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Vencimento (1ª cobrança)</span>
         <input type="date" value={data} onChange={e=>{setData(e.target.value);setOk(false);}} style={campo}/>
@@ -4507,7 +4518,8 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
       {data
         ?<React.Fragment>Nada é cobrado antes de <b style={{color:C.ink}}>{fmtData(new Date(data+"T12:00:00").getTime())}</b>. Sem pagamento até lá, a conta trava em <b style={{color:C.ink}}>{travaEm?fmtData(travaEm):"—"}</b> até pagar.</React.Fragment>
         :"Sem vencimento: a conta não trava por mensalidade."}
-      {m.ligada?" A cobrança já ligada no cartão segue a data dela — mudar aqui não a move.":""}
+      {m.ligada?" A cobrança já ligada no cartão segue a data e o valor dela — mudar aqui não muda o que o cartão cobra.":""}
+      {m.plano_id?" Esta conta está num plano da tabela: o valor combinado só vale para a mensalidade combinada, sem plano.":""}
     </div>
     {ok&&!mudou&&<div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,marginTop:6}}>Salvo.</div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}

@@ -560,6 +560,15 @@ try {
     assert.equal(r.status, 400);
     r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { vence_em: ymd(DATA), dias_carencia: 0 });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+    // O valor também é do master, como se digita no Brasil.
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { valor_mensal: "abc" });
+    assert.equal(r.status, 400);
+    r = await chamar(tNov, `/orgs/${nov.org}/mensalidade`, "POST", { valor_mensal: 1 });
+    assert.equal(r.status, 403, "o cliente não escolhe quanto paga");
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { valor_mensal: "2.350,50" });
+    assert.equal(r.body.org.mensalidade.valor, 2350.5);
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { valor_mensal: 2000 });
+    assert.equal(r.body.org.mensalidade.valor, 2000);
     assert.equal(ymd(r.body.org.mensalidade.vence_em), ymd(DATA));
     assert.equal(r.body.org.mensalidade.dias_carencia, 0);
     const vence = linhaOrg(nov.org).vence_em;
