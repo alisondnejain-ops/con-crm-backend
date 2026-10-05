@@ -34,7 +34,7 @@ import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
 import configRoutes from "./routes/config.routes.js";
-import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
+import { pastaLocal, modoArmazenamento, conferirR2, conferirPublicoR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
 import { ambientePagarmeConfere } from "./services/pagarme.js";
 import { mailConfigured } from "./services/mail.js";
@@ -457,6 +457,11 @@ app.listen(PORT, () => {
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
   console.log(`WhatsApp (Uazapi) de ${org.name}: ${uazapiConfigured(org.id) ? "conectado" : "NÃO conectado — ligue em Configurações → Conexão"}`);
   console.log(`Fotos e vídeos dos imóveis: ${modoArmazenamento()}`);
+  /* O endereço público do R2 abre? Sem isso, áudio e foto ficam guardados num
+     endereço que ninguém abre (ver conferirPublicoR2). A cada 10 minutos,
+     para voltar ao R2 sozinho quando o Cloudflare for arrumado. */
+  conferirPublicoR2().catch(() => {});
+  setInterval(() => conferirPublicoR2().catch(() => {}), 10 * 60000).unref();
   // Erro de digitação nas variáveis é o que mais trava a instalação, e o erro
   // que Cloudflare e Asaas devolvem não diz qual campo está errado. Aqui diz.
   const r2 = conferirR2();
