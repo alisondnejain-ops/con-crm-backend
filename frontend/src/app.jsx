@@ -8444,27 +8444,54 @@ function BotaoBaixar({url,nome,corner,leadId,messageId}){
    gente mostra. Clicar na imagem abre o tamanho real em outra aba — é como o
    corretor confere um comprovante sem sair do CRM; o botão no canto BAIXA de
    verdade, como o clipe de baixar do WhatsApp. */
+/* O ARQUIVO TOCA NA CONVERSA MESMO QUANDO O ENDEREÇO DELE NÃO ABRE
+   (05/10/2026, relato do Ali: "agora precisa baixar o áudio para ouvir").
+
+   O reprodutor carrega pelo endereço público do arquivo. Quando esse endereço
+   não abre (R2 sem acesso público — foi o caso), o áudio ficava mudo, a foto
+   quebrada, e só o "baixar" funcionava, porque ele passa pelo servidor do CRM
+   com o login. Aqui o reprodutor faz o mesmo caminho na primeira falha: busca
+   pela rota do CRM e toca ali mesmo, sem a pessoa precisar baixar nada. */
+function usarFonteDaMidia(url,mime,leadId,messageId){
+  const [src,setSrc]=useState(url);
+  const tentou=useRef(false);
+  useEffect(()=>{ setSrc(url); tentou.current=false; },[url]);
+  useEffect(()=>()=>{ if(src&&src.startsWith("blob:")) URL.revokeObjectURL(src); },[src]);
+  async function aoFalhar(){
+    if(tentou.current||!leadId||!messageId) return;
+    tentou.current=true;
+    try{
+      const resp=await fetch(`${API}/leads/${leadId}/anexo/${messageId}/baixar`,{headers:TOKEN?{authorization:"Bearer "+TOKEN}:{}});
+      if(!resp.ok) return;
+      const blob=await resp.blob();
+      setSrc(URL.createObjectURL(new Blob([blob],{type:mime||blob.type})));
+    }catch(e){}
+  }
+  return [src,aoFalhar];
+}
+
 function Midia({m,mine,isMobile,leadId}){
   const {url,mime,nome}=m.midia;
+  const [src,aoFalhar]=usarFonteDaMidia(url,mime,leadId,m.id);
   const larguraMax=isMobile?220:260;
   if(/^image\//.test(mime))
     return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
       <a href={url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-        <img src={url} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
+        <img src={src} onError={aoFalhar} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
           style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
       </a>
       <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner leadId={leadId} messageId={m.id}/>
     </div>;
   if(/^video\//.test(mime))
     return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
-      <video src={url} controls preload="metadata"
+      <video src={src} onError={aoFalhar} controls preload="metadata"
         style={{maxWidth:larguraMax,borderRadius:10,display:"block",background:"#000"}}/>
       <BotaoBaixar url={url} nome={nome||"video.mp4"} corner leadId={leadId} messageId={m.id}/>
     </div>;
   if(/^audio\//.test(mime))
     // O áudio de voz é o formato que mais chega: o cliente responde falando.
     return <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:m.text?6:0}}>
-      <audio src={url} controls preload="metadata" style={{maxWidth:isMobile?190:230,display:"block"}}/>
+      <audio src={src} onError={aoFalhar} controls preload="metadata" style={{maxWidth:isMobile?190:230,display:"block"}}/>
       <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"} leadId={leadId} messageId={m.id}/></span>
     </div>;
   // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.

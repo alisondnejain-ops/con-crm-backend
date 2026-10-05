@@ -43,7 +43,10 @@ const R2 = {
   publico: limpar(CRU.publico).replace(/\/$/, ""),
 };
 export const usandoR2 = () => !!(R2.conta && R2.chave && R2.segredo && R2.bucket && R2.publico);
-export const modoArmazenamento = () => (usandoR2() ? "Cloudflare R2" : "disco da hospedagem");
+export const modoArmazenamento = () => (!usandoR2() ? "disco da hospedagem"
+  : (estadoPublicoR2 && estadoPublicoR2.ok === false)
+    ? "disco da hospedagem (o R2 está configurado, mas o endereço público dele não abre)"
+    : "Cloudflare R2");
 
 /* Conferência das variáveis do R2, para o painel de integrações.
 
@@ -234,7 +237,9 @@ async function s3() {
   const { S3Client } = await import("@aws-sdk/client-s3");
   clienteR2 = new S3Client({
     region: "auto",
-    endpoint: `https://${R2.conta}.r2.cloudflarestorage.com`,
+    // R2_ENDPOINT só existe para os testes apontarem um R2 de mentira.
+    ...(process.env.R2_ENDPOINT ? { endpoint: process.env.R2_ENDPOINT, forcePathStyle: true }
+      : { endpoint: `https://${R2.conta}.r2.cloudflarestorage.com` }),
     credentials: { accessKeyId: R2.chave, secretAccessKey: R2.segredo },
   });
   return clienteR2;
@@ -251,6 +256,60 @@ async function gravarNoDisco(chave, buffer) {
   await writeFile(destino, buffer);
   const base = (process.env.APP_URL || "").replace(/\/$/, "");
   return { url: `${base}/arquivos/${chave}`, chave };
+}
+
+/* O ENDEREÇO PÚBLICO DO R2 ABRE DE VERDADE? (05/10/2026)
+
+   Corrigida a chave do R2 (o backup voltou a subir), os arquivos da conversa
+   passaram a ir para o R2 — e o endereço que vai na mensagem é o de
+   `R2_PUBLIC_URL`. Gravar e ler pela API não dizem nada sobre esse endereço:
+   se o bucket não está aberto ao público (ou a variável aponta para o
+   endereço da API, que pede senha), o arquivo sobe, mas ninguém abre — o
+   áudio não toca na conversa, a foto aparece quebrada e o WhatsApp não
+   consegue buscar o que o corretor mandou. Só "baixar" funcionava, porque o
+   download passa pelo servidor com a chave. Foi exatamente o relato do Ali:
+   "agora precisa baixar o áudio para ouvir".
+
+   Então o servidor confere: grava um arquivinho, tenta abri-lo pelo endereço
+   público, apaga. Abriu, vale o R2. Não abriu, os arquivos da conversa e dos
+   imóveis vão para o disco (`/arquivos`, como era antes de o R2 funcionar) e
+   o motivo aparece em /integracoes. O backup não muda: ele não usa o
+   endereço público. Confere ao ligar e a cada 10 minutos — quando alguém
+   arrumar o domínio no Cloudflare, volta para o R2 sozinho. */
+let estadoPublicoR2 = null;      // { ok, quando, erro, endereco } — null: ainda não conferido
+let conferindoPublico = null;
+export const publicoR2 = () => estadoPublicoR2;
+export function conferirPublicoR2() {
+  if (!usandoR2()) { estadoPublicoR2 = null; return Promise.resolve(null); }
+  if (conferindoPublico) return conferindoPublico;
+  conferindoPublico = (async () => {
+    const chave = `teste/publico-${Date.now()}-${randomUUID().slice(0, 8)}.txt`;
+    let gravou = false;
+    try {
+      const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+      const cliente = await s3();
+      await cliente.send(new PutObjectCommand({ Bucket: R2.bucket, Key: chave, Body: Buffer.from("conhub"), ContentType: "text/plain" }));
+      gravou = true;
+    } catch (e) {
+      // Não conseguir GRAVAR é outro problema, que `salvar` já trata sozinho
+      // (cai para o disco). Aqui não se decide nada com isso.
+      return estadoPublicoR2;
+    }
+    const antes = estadoPublicoR2 && estadoPublicoR2.ok;
+    let ok = false, erro = null;
+    try {
+      const r = await fetch(`${R2.publico}/${chave}`, { signal: AbortSignal.timeout(10000) });
+      ok = r.ok;
+      if (!ok) erro = `o endereço público respondeu HTTP ${r.status}`;
+    } catch (e) { erro = `o endereço público não abriu (${e.cause?.code || e.message})`; }
+    if (gravou) await apagarNoR2(chave).catch(() => {});
+    estadoPublicoR2 = { ok, quando: Date.now(), erro, endereco: R2.publico };
+    if (ok !== antes) console[ok ? "log" : "error"](ok
+      ? "[storage] o endereço público do R2 abre: arquivos novos vão para o R2."
+      : `[storage] ${erro} (R2_PUBLIC_URL=${R2.publico}). Arquivos novos vão para o disco até isso ser corrigido.`);
+    return estadoPublicoR2;
+  })().finally(() => { conferindoPublico = null; });
+  return conferindoPublico;
 }
 
 // Devolve { url, chave }. A url é pública — é ela que vai para o WhatsApp.
@@ -280,6 +339,11 @@ export async function salvar({ buffer, mime, prefixo = "produtos" }) {
      com risco de perder mídia de conversa antiga. Está na lista do que ficou
      pendente, com o porquê. */
   const chave = `${prefixo}/${Date.now()}-${randomUUID().replace(/-/g, "")}${ext}`;
+
+  // Primeira gravação depois de ligar: espera a conferência do endereço
+  // público (até 10s) em vez de mandar para um endereço que talvez não abra.
+  if (usandoR2() && !estadoPublicoR2) await conferirPublicoR2().catch(() => {});
+  if (usandoR2() && estadoPublicoR2 && estadoPublicoR2.ok === false) return gravarNoDisco(chave, buffer);
 
   if (usandoR2()) {
     try {
@@ -311,6 +375,10 @@ export async function salvar({ buffer, mime, prefixo = "produtos" }) {
 export async function apagar(chave) {
   if (!chave) return;
   try {
+    // Com o R2 ligado, um arquivo pode ter ido para o disco (o R2 recusou, ou o
+    // endereço público não abria). Apaga onde ele estiver.
+    const local = path.join(PASTA, chave);
+    if (existsSync(local)) { await unlink(local); return; }
     if (usandoR2()) {
       const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
       const cliente = await s3();
@@ -333,6 +401,8 @@ export async function apagar(chave) {
    próprio arquivo, o que funciona mesmo com o domínio fora do ar. */
 export async function bytesDoArquivo(chave) {
   if (!chave) throw new Error("sem a chave do arquivo");
+  const local = path.join(PASTA, chave);
+  if (existsSync(local)) return readFile(local);
   if (usandoR2()) {
     const { GetObjectCommand } = await import("@aws-sdk/client-s3");
     const cliente = await s3();

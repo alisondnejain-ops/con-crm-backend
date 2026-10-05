@@ -34,7 +34,7 @@ import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
 import configRoutes from "./routes/config.routes.js";
-import { pastaLocal, modoArmazenamento, conferirR2 } from "./services/storage.js";
+import { pastaLocal, modoArmazenamento, conferirR2, conferirPublicoR2 } from "./services/storage.js";
 import { ambienteConfere } from "./services/asaas.js";
 import { ambientePagarmeConfere } from "./services/pagarme.js";
 import { mailConfigured } from "./services/mail.js";
@@ -257,7 +257,13 @@ function servirPagina(arquivo, req, res, erroSeFaltar) {
     res.status(404).send(erroSeFaltar);
   }
 }
-const servirApp = (req, res) => servirPagina("app.html", req, res, "O CRM ainda nao foi publicado neste servidor.");
+/* A tela do CRM (o login) não vai para o Google (05/10/2026): o resultado da
+   busca por "ConHub" passou a ser "ConHub: Login". Quem procura o ConHub tem
+   que cair no site de vendas (`conhubcrm.com.br`), que é o que se indexa. */
+const servirApp = (req, res) => {
+  res.set("X-Robots-Tag", "noindex");
+  servirPagina("app.html", req, res, "O CRM ainda nao foi publicado neste servidor.");
+};
 app.get(["/app", "/app.html"], servirApp);
 // Qual versão do CRM este servidor está entregando.
 app.get("/versao.txt", (_req, res) =>
@@ -451,6 +457,11 @@ app.listen(PORT, () => {
   if (!mailConfigured()) console.log("Atenção: e-mail não configurado (RESEND_API_KEY/MAIL_FROM). Os links de confirmação vão aparecer aqui no log.");
   console.log(`WhatsApp (Uazapi) de ${org.name}: ${uazapiConfigured(org.id) ? "conectado" : "NÃO conectado — ligue em Configurações → Conexão"}`);
   console.log(`Fotos e vídeos dos imóveis: ${modoArmazenamento()}`);
+  /* O endereço público do R2 abre? Sem isso, áudio e foto ficam guardados num
+     endereço que ninguém abre (ver conferirPublicoR2). A cada 10 minutos,
+     para voltar ao R2 sozinho quando o Cloudflare for arrumado. */
+  conferirPublicoR2().catch(() => {});
+  setInterval(() => conferirPublicoR2().catch(() => {}), 10 * 60000).unref();
   // Erro de digitação nas variáveis é o que mais trava a instalação, e o erro
   // que Cloudflare e Asaas devolvem não diz qual campo está errado. Aqui diz.
   const r2 = conferirR2();

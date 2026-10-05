@@ -6,7 +6,7 @@ import { instanceStatus, citacaoDiagnostico, edicaoDiagnostico, envioSemIdDiagno
 import { mailConfigured , emailDiagnostico } from "../services/mail.js";
 import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { ultimosEventos } from "../services/mensageria.js";
-import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2, falhaDownload } from "../services/storage.js";
+import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2, falhaDownload, publicoR2, conferirPublicoR2 } from "../services/storage.js";
 /* A tradução dos erros do R2 mora no backup.js porque foi lá que ela nasceu.
    Aqui ela vale igual: este teste é a prova de fogo do armazenamento, e devolver
    "@aws-sdk XML parse error… inspect the hidden field {error}.$response" numa
@@ -153,6 +153,9 @@ r.get("/integracoes", async (_req, res) => {
     ia: { configurada: iaConfigurada(), modelo: iaConfigurada() ? modeloIA() : null,
       recursos: iaConfigurada() ? ["resumo da conversa", "leitura do print da Caixa"] : [] },
     arquivos: { modo: modoArmazenamento(), r2: usandoR2(), conferencia: conferirR2(), ultima_falha: falhaR2(),
+      /* O endereço público do R2 abre? Se não, os arquivos novos estão indo
+         para o disco (ver conferirPublicoR2 em services/storage.js). */
+      endereco_publico_r2: publicoR2(),
       /* Falha ao BAIXAR (ler de volta), não ao subir — são caminhos diferentes
          do R2 (GetObject x PutObject) e um token pode ter um sem o outro
          (21/09/2026, ver bytesParaBaixar em services/storage.js). */
@@ -274,6 +277,14 @@ r.get("/integracoes/armazenamento/teste", async (_req, res) => {
   if (usandoR2() && conferencia.problemas.length)
     return responder({ modo: modoArmazenamento(), tudo_certo: false, passos,
       erro: "Tem variável do R2 com problema — veja a conferência abaixo. Corrija no painel da hospedagem e faça o deploy de novo." });
+
+  // O endereço público é conferido ANTES: se ele não abre, `salvar` grava no
+  // disco e o resto do teste leria o disco — dizendo "tudo certo" sobre o R2.
+  const publico = usandoR2() ? await conferirPublicoR2().catch(() => null) : null;
+  if (publico && publico.ok === false)
+    return responder({ modo: modoArmazenamento(), tudo_certo: false, passos: [
+      { passo: "abrir pela URL pública do R2", ok: false, erro: publico.erro, endereco: publico.endereco,
+        dica: "O R2 grava, mas o endereço de R2_PUBLIC_URL não abre para quem está de fora. No Cloudflare: R2 → o bucket → Settings → Public access → ligue o domínio r2.dev (ou um domínio próprio) e cole esse endereço em R2_PUBLIC_URL. Enquanto isso, áudio, foto e vídeo vão para o disco da hospedagem e funcionam normalmente." }] });
 
   let chave = null;
   try {
