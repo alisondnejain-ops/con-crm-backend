@@ -92,7 +92,11 @@ function resumo(req, org) {
        mostra e edita a data e a tolerância (05/10/2026). */
     mensalidade: { valor: org.valor_mensal ?? null, vence_em: org.vence_em || null,
       dias_carencia: org.dias_carencia == null ? 5 : org.dias_carencia, plano_id: org.plano_id || null,
-      cartao: !!org.pagarme_card_id, ligada: !!(org.pagarme_subscription_id || org.asaas_subscription_id) },
+      cartao: !!org.pagarme_card_id, ligada: !!(org.pagarme_subscription_id || org.asaas_subscription_id),
+      /* O que o cliente está vendo HOJE, com o porquê — senão o master salva
+         uma data e não sabe se a conta continua travada por outro motivo. */
+      status: s.status, motivo: s.motivo || null, cancelado_em: org.cancelado_em || null,
+      teste_ate: org.trial_ate || null },
     cobranca: { provedor: provedorDe(org), escolhido: org.cobranca || null,
       tem_asaas: temCobrancaNoAsaas(org), tem_pagarme: !!org.pagarme_customer_id,
       padrao: pagarmePadrao() ? "pagarme" : "asaas",
