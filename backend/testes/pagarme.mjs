@@ -607,6 +607,54 @@ try {
     assert.equal(ymd(linhaOrg(semestral.org).vence_em), ymd(DATA), "o recálculo não desfaz a data escolhida");
   }
 
+  caso("Conta do Asaas cancelada com o pago vencido (o caso da Conecta): a data do hub desfaz o cancelamento e destrava");
+  {
+    const ymd = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    const caso1 = conta("Cancelada Asaas", "imobiliaria", "cancelada@pm.com", { valor: 1500, vence: Date.now() - 4 * DIA,
+      asaas: "cus_asaas_canc", asaasSub: "sub_asaas_canc" });
+    db.prepare("INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,created_at) VALUES (?,?,?,?,'asaas',?)")
+      .run("pg_" + randomUUID(), caso1.org, 1500, Date.now() - 34 * DIA, Date.now());
+    db.prepare("UPDATE orgs SET cancelado_em = ? WHERE id = ?").run(Date.now(), caso1.org);
+    const tCanc = await login("cancelada@pm.com");
+    r = await chamar(tCanc, "/assinatura");
+    assert.equal(r.body.status, "bloqueado", "cancelar com o pago vencido trava na hora (o que aconteceu)");
+    assert.equal(r.body.provedor, "asaas", "pagou pelo Asaas: fica no Asaas pela regra padrão");
+    r = await chamar(tMaster, "/orgs");
+    const noHub = r.body.orgs.find(o => o.id === caso1.org).mensalidade;
+    assert.equal(noHub.status, "bloqueado", "o hub mostra que está travada");
+    assert.ok(noHub.cancelado_em, "e por quê");
+
+    const NOV = Date.now() + 36 * DIA;
+    r = await chamar(tMaster, `/orgs/${caso1.org}/mensalidade`, "POST", { vence_em: ymd(NOV), dias_carencia: 0 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const l = linhaOrg(caso1.org);
+    assert.equal(l.cancelado_em, null, "a data do master desfaz o cancelamento");
+    assert.equal(l.asaas_subscription_id, null, "a assinatura morta sai — aviso atrasado dela não trava de novo");
+    assert.notEqual((await chamar(tCanc, "/assinatura")).body.status, "bloqueado", "destravou");
+    assert.equal((await chamar(tCanc, "/leads")).status, 200);
+    assert.equal(r.body.org.mensalidade.status === "bloqueado", false);
+
+    // Com o Pagar.me escolhido no hub, o cartão e a mensalidade aparecem, cobrando na data.
+    await chamar(tMaster, `/orgs/${caso1.org}/cobranca`, "POST", { provedor: "pagarme" });
+    r = await chamar(tCanc, "/assinatura");
+    assert.equal(r.body.provedor, "pagarme");
+    assert.equal(ymd(r.body.pagarme.combinada.primeira_cobranca), ymd(NOV));
+    assert.equal(r.body.pagarme.combinada.ligada, false);
+    await chamar(tCanc, "/assinatura/cartao", "POST", { token: "token_canc", cpfCnpj: "11.222.333/0001-81" });
+    r = await chamar(tCanc, "/assinatura/combinada", "POST", {});
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.pago, false, "nada cobrado agora");
+    assert.equal([...pm.assinaturas.values()].at(-1).start_at, ymd(linhaOrg(caso1.org).vence_em));
+
+    // Um teste antigo sem pagamento também não manda mais que a data do master.
+    const velho = conta("Teste Velho", "imobiliaria", "velho@pm.com", { valor: 900 });
+    db.prepare("UPDATE orgs SET trial_ate = ? WHERE id = ?").run(Date.now() - 5 * DIA, velho.org);
+    const tVelho = await login("velho@pm.com");
+    assert.equal((await chamar(tVelho, "/assinatura")).body.status, "bloqueado");
+    await chamar(tMaster, `/orgs/${velho.org}/mensalidade`, "POST", { vence_em: ymd(NOV) });
+    assert.notEqual((await chamar(tVelho, "/assinatura")).body.status, "bloqueado");
+  }
+
   console.log("\nTudo certo ✅");
 } catch (e) {
   console.error("\n❌", e.message);

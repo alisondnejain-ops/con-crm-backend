@@ -1,6 +1,7 @@
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { mesesPagos, planoPorId } from "./planos.js";
+import { provedorDe } from "./cobranca.js";
 
 /* Assinatura mensal e bloqueio por atraso.
 
@@ -120,6 +121,26 @@ export function definirVencimento(orgId, { vence_em, dias_carencia } = {}) {
   if (vence_em !== undefined) {
     sets.push("vence_em = ?", "vence_base = ?");
     vals.push(vence_em || null, vence_em ? baseParaVencimento(orgId, vence_em) : null);
+    /* UMA DATA DADA PELO CONHUB PASSA A MANDAR (05/10/2026, a Conecta travou:
+       alguém cancelou a assinatura do Asaas com o pago vencido em 01/10, e
+       salvar 10/11 aqui não mudava nada). Três coisas mandavam mais que o
+       vencimento e são desfeitas aqui, porque o master está dizendo de novo
+       como esta conta é cobrada: o cancelamento (`cancelado_em`, que limita o
+       acesso ao que já foi pago), o aviso de cancelado do provedor
+       (`assinatura_status`) e um teste antigo (`trial_ate`, que sem pagamento
+       registrado vale antes do vencimento). Nenhuma cobrança é recriada. */
+    if (vence_em) {
+      /* A assinatura que o cancelamento derrubou no provedor está morta; o id
+         dela fica de fora. Sem isto, a mensalidade combinada diria "já está
+         ligada" e o cliente não teria como ligar a nova — e um aviso atrasado
+         de "cancelada" daquela assinatura travaria a conta de novo. */
+      if (org.cancelado_em) {
+        if (provedorDe(org) === "pagarme") sets.push("pagarme_subscription_id = NULL");
+        else sets.push("asaas_subscription_id = NULL");
+      }
+      sets.push("cancelado_em = NULL", "trial_ate = NULL",
+        "assinatura_status = CASE WHEN assinatura_status = 'cancelado' THEN NULL ELSE assinatura_status END");
+    }
   }
   if (dias_carencia !== undefined) { sets.push("dias_carencia = ?"); vals.push(dias_carencia); }
   if (sets.length) db.prepare(`UPDATE orgs SET ${sets.join(", ")} WHERE id = ?`).run(...vals, orgId);

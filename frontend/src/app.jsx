@@ -4463,7 +4463,11 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
   const [ok,setOk]=useState(false);
   useEffect(()=>{ setData(paraCampoData(m.vence_em)); setTolerancia(String(m.dias_carencia)); },[m.vence_em,m.dias_carencia]);
   const tol=/^\d+$/.test(tolerancia)?Number(tolerancia):null;
-  const mudou=data!==paraCampoData(m.vence_em)||tol!==m.dias_carencia;
+  // Conta cancelada: salvar a mesma data também vale — é o que desfaz o cancelamento.
+  const mudou=data!==paraCampoData(m.vence_em)||tol!==m.dias_carencia||!!(m.cancelado_em&&data);
+  const naAsaas=conta.cobranca&&conta.cobranca.provedor==="asaas";
+  const ESTADO={ativo:"em dia",vence_em_breve:"vence em breve",atrasado:"em atraso (dentro da tolerância)",bloqueado:"TRAVADA",
+    teste:"em teste",liberado:"liberada por você",aguardando_cartao:"esperando o cartão"};
   const travaEm=data&&tol!=null?(()=>{ const d=new Date(data+"T12:00:00"); d.setDate(d.getDate()+tol+1); return d.getTime(); })():null;
   async function salvar(){
     if(tol==null||tol>60) return setErro("A tolerância vai de 0 a 60 dias.");
@@ -4479,6 +4483,13 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
       {" · "}{m.cartao?"cartão cadastrado":"sem cartão cadastrado"}
       {" · "}{m.ligada?"cobrança automática ligada":"cobrança automática não ligada"}
     </div>
+    {m.status&&<div style={{background:m.status==="bloqueado"?C.hotSoft:C.surface,color:m.status==="bloqueado"?C.hot:C.sub,
+      fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+      <b>Hoje:</b> {ESTADO[m.status]||m.status}{m.motivo?` — ${m.motivo}`:""}</div>}
+    {m.cancelado_em&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+      A assinatura foi cancelada em {fmtData(m.cancelado_em)}. <b>Salvar uma data aqui desfaz o cancelamento</b>: a conta volta a seguir o vencimento abaixo. Nenhuma cobrança é recriada.</div>}
+    {naAsaas&&!m.plano_id&&<div style={{background:C.surface,color:C.sub,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+      Esta conta está na cobrança do <b>Asaas</b>. Para o cliente cadastrar o cartão no ConHub e ligar a mensalidade, escolha <b>Pagar.me</b> em Cobrança, logo abaixo.</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
       <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 150px"}}>
         <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Vencimento (1ª cobrança)</span>
@@ -6145,7 +6156,10 @@ function CancelarAssinatura({a,acoes,aoMudar}){
         Cancelar assinatura</button>
       :<div style={{border:`1px solid ${C.line}`,borderRadius:11,padding:11,background:C.surface}}>
         <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
-          Cancelar a assinatura? Nenhuma cobrança nova será feita{ate?<React.Fragment>, e o acesso continua até <b>{fmtData(ate)}</b></React.Fragment>:""}.
+          Cancelar a assinatura? Nenhuma cobrança nova será feita
+          {ate&&new Date(ate).setHours(23,59,59,999)<Date.now()
+            ?<React.Fragment>. <b style={{color:C.hot}}>O que foi pago venceu em {fmtData(ate)}: cancelando, a conta trava agora.</b></React.Fragment>
+            :ate?<React.Fragment>, e o acesso continua até <b>{fmtData(ate)}</b>.</React.Fragment>:"."}
           {a.status==="teste"?" Cancelando no teste, você não paga nada.":""}
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
