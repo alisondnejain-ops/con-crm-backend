@@ -6266,7 +6266,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
   const celular=useIsMobile();
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     {/* Conta travada é justamente quem mais precisa falar com o suporte. */}
-    {!session.master&&<NuvemDeSuporte isMobile={celular} view="bloqueado"/>}
+    {!session.master&&<NuvemDeSuporte isMobile={celular} view="bloqueado" nome={session.name}/>}
     <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:24,maxWidth:440,width:"100%"}}>
       <div style={{width:44,height:44,borderRadius:13,background:C.hotSoft,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
         <Icon n="lock" size={21} color={C.hot}/></div>
@@ -6583,7 +6583,7 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
    Fica ACIMA da barra do celular (que muda de altura com a faixa do iPhone)
    e, na tela de conversa, mais alta: ali o canto de baixo é o botão de
    enviar a mensagem ao cliente, e a nuvem não pode cobri-lo. */
-function NuvemDeSuporte({isMobile,irPara,view}){
+function NuvemDeSuporte({isMobile,irPara,view,nome}){
   const [aberta,setAberta]=useState(false);
   const [d,setD]=useState(null);
   const [naoLidas,setNaoLidas]=useState(0);
@@ -6593,6 +6593,10 @@ function NuvemDeSuporte({isMobile,irPara,view}){
   const [aviso,setAviso]=useState("");
   const [humano,setHumano]=useState(null);
   const [navegar,setNavegar]=useState(null);
+  /* Antes de abrir o chamado, um formulário curto: quem está pedindo e o que
+     precisa (05/10/2026, pedido do Ali — "para o suporte ser mais ágil"). O
+     resumo da triagem da IA, quando existe, já vem escrito para conferir. */
+  const [formulario,setFormulario]=useState(null);
   const barra=usarAlturaDaBarra();
 
   const carregar=(ler)=>api("/suporte"+(ler?"?ler=1":"")).then(r=>{setD(r);setNaoLidas(ler?0:r.nao_lidas||0);return r;});
@@ -6617,6 +6621,9 @@ function NuvemDeSuporte({isMobile,irPara,view}){
 
   async function enviar(){
     const t=texto.trim(); if(!t||ocupado) return;
+    /* Sem IA, a dúvida vai para uma pessoa — e passa pelo mesmo formulário,
+       com o que foi digitado como resumo, para o nome não ficar de fora. */
+    if(!comPessoa&&d&&d.ia&&d.ia.disponivel===false){ setTexto(""); setErro(""); setFormulario({nome:nome||"",resumo:t}); return; }
     setTexto(""); setErro(""); setAviso(""); setNavegar(null); setOcupado(true);
     try{
       const r=await api("/suporte/mensagem",{method:"POST",body:{texto:t}});
@@ -6624,9 +6631,13 @@ function NuvemDeSuporte({isMobile,irPara,view}){
     }catch(e){ setErro(e.message); setTexto(t); }
     finally{ setOcupado(false); }
   }
+  const abrirFormulario=()=>{ setErro(""); setFormulario({nome:nome||"",resumo:humano?humano.resumo:""}); };
   async function falarComPessoa(){
+    const f=formulario||{};
+    if(String(f.nome||"").trim().length<2) return setErro("Diga o seu nome.");
+    if(String(f.resumo||"").trim().length<5) return setErro("Escreva um breve resumo do que você precisa.");
     setOcupado(true); setErro("");
-    try{ const r=await api("/suporte/humano",{method:"POST",body:{resumo:humano?humano.resumo:""}}); setD(r); setHumano(null);
+    try{ const r=await api("/suporte/humano",{method:"POST",body:{nome:f.nome.trim(),resumo:f.resumo.trim()}}); setD(r); setHumano(null); setFormulario(null);
       if(r.entregue===false) setAviso("Não consegui avisar o suporte pelo WhatsApp agora, mas o pedido ficou registrado."); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
@@ -6666,21 +6677,40 @@ function NuvemDeSuporte({isMobile,irPara,view}){
         </React.Fragment>}
         {ocupado&&<div style={{alignSelf:"flex-start",color:C.faint,fontSize:12}}>{comPessoa?"Enviando…":"Pensando…"}</div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);if(isMobile)setAberta(false);}:null}/>
-        {humano&&!comPessoa&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:11}}>
+        {humano&&!comPessoa&&!formulario&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:11}}>
           <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Falar com uma pessoa do suporte</div>
-          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginBottom:8,whiteSpace:"pre-wrap"}}>Vamos enviar: {humano.resumo}</div>
-          <button onClick={falarComPessoa} disabled={ocupado} style={{width:"100%",border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Falar com o suporte</button>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginBottom:8}}>Eu já deixo o resumo pronto — você só confere.</div>
+          <button onClick={abrirFormulario} disabled={ocupado} style={{width:"100%",border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Falar com o suporte</button>
+        </div>}
+        {formulario&&!comPessoa&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:9}}>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Antes de chamar o suporte</div>
+          <label style={{display:"flex",flexDirection:"column",gap:4}}>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Seu nome</span>
+            <input value={formulario.nome} onChange={e=>setFormulario(f=>({...f,nome:e.target.value}))} maxLength={80} autoFocus={!formulario.nome}
+              style={{boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+          </label>
+          <label style={{display:"flex",flexDirection:"column",gap:4}}>
+            <span style={{color:C.faint,fontSize:11,fontWeight:600}}>O que você precisa? (um breve resumo)</span>
+            <textarea value={formulario.resumo} onChange={e=>setFormulario(f=>({...f,resumo:e.target.value}))} rows={4} maxLength={1500} autoFocus={!!formulario.nome}
+              placeholder="Ex.: os leads do anúncio pararam de entrar desde ontem."
+              style={{boxSizing:"border-box",resize:"vertical",fontFamily:FONT,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",lineHeight:1.45}}/>
+          </label>
+          <div style={{display:"flex",gap:7}}>
+            <button onClick={falarComPessoa} disabled={ocupado} style={{flex:1,border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              {ocupado?"Enviando…":"Enviar ao suporte"}</button>
+            <button onClick={()=>{setFormulario(null);setErro("");}} disabled={ocupado} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"10px 13px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Voltar</button>
+          </div>
         </div>}
         {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{aviso}</div>}
         {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
       </div>
-      {d&&!comPessoa&&!humano&&<button onClick={falarComPessoa} disabled={ocupado}
+      {d&&!comPessoa&&!humano&&!formulario&&<button onClick={abrirFormulario} disabled={ocupado}
         style={{border:"none",borderTop:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,fontSize:12,fontWeight:600,padding:"9px",cursor:"pointer"}}>
         Prefere falar direto com uma pessoa? <u>Falar com o suporte</u></button>}
       {d&&comPessoa&&<button onClick={encerrar}
         style={{border:"none",borderTop:`1px solid ${C.line}`,background:C.card,color:C.sub,fontSize:11.5,padding:"8px",cursor:"pointer"}}>
         Já resolveu? <u>Encerrar a conversa</u></button>}
-      {d&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado} isMobile={isMobile}
+      {d&&!formulario&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado} isMobile={isMobile}
         placeholder={comPessoa?"Escreva para o suporte…":"Escreva sua dúvida…"}/>}
     </div>}
   </React.Fragment>;
@@ -7188,7 +7218,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     {assistenteAberto&&<PainelAssistente aoFechar={()=>setAssistenteAberto(false)} isMobile={isMobile} irPara={setView}/>}
     {/* O master não ganha a nuvem: o suporte é ele. */}
     {/* Nem a equipe do ConHub: o suporte também é ela. */}
-    {!ehMaster&&!contaInterna()&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view}/>}
+    {!ehMaster&&!contaInterna()&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view} nome={session.name}/>}
   </div>;
 }
 

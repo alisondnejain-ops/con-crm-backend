@@ -158,7 +158,7 @@ function gravarMsg(chamadoId, de, texto, { waId = null, entregue = 1 } = {}) {
 
 /* Abre o chamado e manda o primeiro aviso ao WhatsApp do suporte, com quem é,
    de qual conta, o resumo da triagem e o pedido. */
-export async function abrirChamado(user, { resumo, contato }) {
+export async function abrirChamado(user, { resumo, contato, nome }) {
   const ja = chamadoAberto(user.id);
   if (ja) return { chamado: ja };
   const org = db.prepare("SELECT name, tipo FROM orgs WHERE id = ?").get(user.org_id) || {};
@@ -166,12 +166,16 @@ export async function abrirChamado(user, { resumo, contato }) {
   const numero = (db.prepare("SELECT MAX(numero) m FROM suporte_chamados").get().m || 0) + 1;
   const id = "sc_" + randomUUID();
   const res = String(resumo || "").trim().slice(0, 1500) || "Pediu para falar com o suporte.";
-  db.prepare(`INSERT INTO suporte_chamados (id,numero,org_id,user_id,status,resumo,entregue,created_at,updated_at)
-    VALUES (?,?,?,?, 'aberto', ?, 0, ?, ?)`).run(id, numero, user.org_id, user.id, res, agora(), agora());
+  const solicitante = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 80) || null;
+  db.prepare(`INSERT INTO suporte_chamados (id,numero,org_id,user_id,status,resumo,entregue,created_at,updated_at,solicitante)
+    VALUES (?,?,?,?, 'aberto', ?, 0, ?, ?, ?)`).run(id, numero, user.org_id, user.id, res, agora(), agora(), solicitante);
+  // O nome escrito no formulário vem primeiro; o do login fica ao lado quando é outro.
+  const quem = solicitante && solicitante !== (pessoa.name || user.name)
+    ? `${solicitante} (login de ${pessoa.name || user.name})` : (solicitante || pessoa.name || user.name);
 
   const linhas = [
     `🆘 *Suporte #${numero}*`,
-    `${org.name || "Conta"} (${org.tipo === "autonomo" ? "autônomo" : "imobiliária"}) · ${pessoa.name || user.name} · ${papelTexto(user)}`,
+    `${org.name || "Conta"} (${org.tipo === "autonomo" ? "autônomo" : "imobiliária"}) · ${quem} · ${papelTexto(user)}`,
     [pessoa.email, contato || pessoa.phone].filter(Boolean).join(" · "),
     "",
     res,
@@ -179,7 +183,7 @@ export async function abrirChamado(user, { resumo, contato }) {
     `_Responda citando esta mensagem ou começando com #${numero}. "/fechar" encerra._`,
   ].filter((l, i) => l !== "" || i > 2);
   const envio = await mandarAoSuporte(linhas.join("\n"));
-  avisarEquipe({ titulo: `Suporte #${numero} · ${org.name || "Conta"}`, corpo: `${pessoa.name || user.name}: ${res}` });
+  avisarEquipe({ titulo: `Suporte #${numero} · ${org.name || "Conta"}`, corpo: `${quem}: ${res}` });
   // Sem encaminhamento, "entregue" é ter chegado à fila da equipe — e chegou.
   const entregue = envio.ok || !!envio.desligado;
   gravarMsg(id, "sistema", "Chamado aberto. " + (entregue
@@ -317,7 +321,7 @@ export const executorDeSuporte = () => async (nome, e, efeitos) => {
 
 /* ===== LISTA DO HUB ===== */
 export function chamadosParaOHub(limite = 50) {
-  return db.prepare(`SELECT c.*, o.name AS conta, u.name AS pessoa, u.email,
+  return db.prepare(`SELECT c.*, o.name AS conta, COALESCE(c.solicitante, u.name) AS pessoa, u.email,
       (SELECT COUNT(*) FROM suporte_mensagens m WHERE m.chamado_id = c.id) AS mensagens
     FROM suporte_chamados c LEFT JOIN orgs o ON o.id = c.org_id LEFT JOIN users u ON u.id = c.user_id
     ORDER BY (c.status = 'aberto') DESC, c.updated_at DESC LIMIT ?`).all(limite)

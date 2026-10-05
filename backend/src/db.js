@@ -2206,4 +2206,10 @@ CREATE INDEX IF NOT EXISTS idx_suporte_msgs ON suporte_mensagens(chamado_id, cre
 CREATE INDEX IF NOT EXISTS idx_suporte_msgs_wa ON suporte_mensagens(wa_id) WHERE wa_id IS NOT NULL;
 `);
 
+/* Quem pediu o suporte, como a pessoa escreveu no formulário da nuvem
+   (05/10/2026). O login pode ser de uma pessoa e quem está na frente da
+   tela, outra — e o suporte precisa saber com quem fala. */
+if (!db.prepare("PRAGMA table_info(suporte_chamados)").all().some(c => c.name === "solicitante"))
+  db.exec("ALTER TABLE suporte_chamados ADD COLUMN solicitante TEXT");
+
 export default db;
