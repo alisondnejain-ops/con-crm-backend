@@ -159,19 +159,27 @@ caso("não se apaga nem muda de tipo pelo hub");
   console.log("   ok");
 }
 
-caso("o chamado do cliente sai pelo WhatsApp do ambiente interno, não pelo da Conecta");
+caso("o chamado cai no ambiente interno SEM repassar a WhatsApp nenhum (e a fila conta quem espera)");
 let chamadoId;
 {
   db.prepare("UPDATE orgs SET uazapi_host='http://127.0.0.1:4883', uazapi_token='token-interno' WHERE id=?").run(interna);
   C.garantirCasa(interna);
+  const antes = enviados.length;
   const r = await api("u_gisele", "POST", "/suporte/humano", { resumo: "Não consigo importar a planilha." });
   assert.equal(r.status, 200);
+  assert.equal(r.body.entregue, true, "chegou à fila da equipe");
   await esperar();
-  const msg = enviados.find(e => /Suporte #/.test(e.text || ""));
-  assert.ok(msg, "o chamado foi enviado");
-  assert.equal(msg.token, "token-interno", "saiu pela linha do ambiente interno");
-  assert.equal(msg.number, "5581999353988");
+  assert.equal(enviados.length, antes, "nada saiu para WhatsApp: " + JSON.stringify(enviados.slice(antes)));
+  assert.ok(r.body.chamado.mensagens.some(m => /O suporte foi avisado/.test(m.texto)));
   chamadoId = db.prepare("SELECT id FROM suporte_chamados ORDER BY created_at DESC LIMIT 1").get().id;
+  const fila = await api("u_bia", "GET", "/suporte/chamados/esperando");
+  assert.equal(fila.body.esperando, 1);
+  // A mensagem seguinte do cliente também fica só no sistema.
+  const m = await api("u_gisele", "POST", "/suporte/mensagem", { texto: "É uma planilha do Excel." });
+  assert.equal(m.status, 200);
+  assert.equal(m.body.aviso, undefined);
+  await esperar();
+  assert.equal(enviados.length, antes);
   console.log("   ok");
 }
 
@@ -180,7 +188,7 @@ caso("a equipe do ConHub vê e responde os chamados; o cliente não");
   for (const quem of ["u_bia", "u_caio", "u_ali"]) {
     const r = await api(quem, "GET", "/suporte/chamados");
     assert.equal(r.status, 200, quem);
-    assert.ok(r.body.chamados.some(c => c.id === chamadoId));
+    assert.ok(r.body.chamados.some(c => c.id === chamadoId && c.aguardando));
   }
   const cliente = await api("u_gisele", "GET", "/suporte/chamados");
   assert.equal(cliente.status, 403);
@@ -192,9 +200,28 @@ caso("a equipe do ConHub vê e responde os chamados; o cliente não");
   const resp = await api("u_caio", "POST", `/suporte/hub/chamados/${chamadoId}/responder`, { texto: "Já vou te ajudar." });
   assert.equal(resp.status, 200);
   await esperar();
-  assert.ok(enviados.slice(antes).some(e => /por Caio/.test(e.text || "")), "o WhatsApp do suporte sabe quem respondeu");
+  assert.equal(enviados.length, antes, "responder pelo sistema não manda nada a WhatsApp");
   const naNuvem = await api("u_gisele", "GET", "/suporte");
   assert.ok(naNuvem.body.chamado.mensagens.some(m => m.de === "suporte" && /Já vou te ajudar/.test(m.texto)));
+  assert.equal((await api("u_bia", "GET", "/suporte/chamados/esperando")).body.esperando, 0, "respondido, sai da conta");
+  console.log("   ok");
+}
+
+caso("repassar ao WhatsApp continua como opção do hub, pela linha do ambiente interno");
+{
+  const liga = await api("u_ali", "PATCH", "/suporte/hub/config", { whatsapp: true });
+  assert.equal(liga.status, 200);
+  assert.equal(liga.body.config.whatsapp, true);
+  assert.equal((await api("u_bia", "PATCH", "/suporte/hub/config", { whatsapp: false })).status, 403, "só o master liga e desliga");
+  const antes = enviados.length;
+  const resp = await api("u_caio", "POST", `/suporte/hub/chamados/${chamadoId}/responder`, { texto: "Pode mandar o arquivo." });
+  assert.equal(resp.status, 200);
+  await esperar();
+  const msg = enviados.slice(antes).find(e => /por Caio/.test(e.text || ""));
+  assert.ok(msg, "o WhatsApp do suporte sabe quem respondeu");
+  assert.equal(msg.token, "token-interno", "saiu pela linha do ambiente interno, não pela da Conecta");
+  assert.equal(msg.number, "5581999353988");
+  await api("u_ali", "PATCH", "/suporte/hub/config", { whatsapp: false });
   // Quem sai da equipe do ConHub perde a fila na hora.
   db.prepare("UPDATE users SET status='removido' WHERE id='u_caio'").run();
   assert.equal((await api("u_caio", "GET", "/suporte/chamados")).status, 401);

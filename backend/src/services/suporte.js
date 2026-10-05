@@ -7,10 +7,11 @@
    1. TRIAGEM pela IA, com o manual do sistema (services/ajuda.js). Ela
       responde o que é de uso e, quando não dá (cobrança, erro, algo que só
       olhando a conta), oferece a pessoa do suporte.
-   2. CHAMADO com uma pessoa do ConHub. O que o cliente escreve na nuvem sai
-      para o WhatsApp do suporte (`suporte_destino`), pela linha de uma conta
-      escolhida no hub (`suporte_org`, a linha da casa dela). A resposta do
-      suporte no WhatsApp volta para a nuvem do cliente.
+   2. CHAMADO com uma pessoa do ConHub. Ele cai na aba Suporte do ambiente
+      interno do ConHub, a equipe é avisada no celular e responde por lá
+      (05/10/2026). Opcional, no hub: repassar também ao WhatsApp do suporte
+      (`suporte_destino`), pela linha de uma conta (`suporte_org`) — aí a
+      resposta dada no WhatsApp volta para a nuvem do cliente.
 
    COMO A RESPOSTA ACHA O CHAMADO CERTO — várias conversas chegam no MESMO
    WhatsApp do suporte, então cada mensagem que sai leva "#número". A
@@ -56,6 +57,22 @@ export function orgDoSuporte() {
   return db.prepare("SELECT org_id FROM users WHERE master = 1 ORDER BY created_at LIMIT 1").get()?.org_id
     || db.prepare("SELECT id FROM orgs ORDER BY created_at LIMIT 1").get()?.id || null;
 }
+/* ENCAMINHAR AO WHATSAPP É OPÇÃO, NÃO O CAMINHO (05/10/2026, pedido do Ali:
+   "a nuvem de suporte, quando o cliente solicitar, cai no atendimento dentro
+   do sistema interno do ConHub… sem intermediação"). Com o ambiente interno
+   criado, o chamado mora LÁ: a equipe é avisada no celular e responde pela
+   aba Suporte, e a resposta aparece na nuvem do cliente. Repassar cada
+   mensagem para um WhatsApp pessoal vira escolha do hub (`suporte_whatsapp`).
+   Sem ambiente interno, continua como era — senão o chamado não chegaria a
+   ninguém. */
+const temAmbienteInterno = () => !!db.prepare("SELECT 1 FROM orgs WHERE tipo = 'interna' LIMIT 1").get();
+export function encaminhaAoWhatsapp() {
+  const escolha = lerCfg("suporte_whatsapp");
+  if (escolha === "1") return true;
+  if (escolha === "0") return false;
+  return !temAmbienteInterno();
+}
+
 export function configDoSuporte() {
   const orgId = orgDoSuporte();
   const org = orgId ? db.prepare("SELECT id, name FROM orgs WHERE id = ?").get(orgId) : null;
@@ -64,9 +81,12 @@ export function configDoSuporte() {
     destino: destinoDoSuporte(), destino_padrao: !lerCfg("suporte_destino"),
     org: org ? { id: org.id, nome: org.name } : null, org_escolhida: !!lerCfg("suporte_org"),
     linha_ligada: !!(casa && casa.token),
+    whatsapp: encaminhaAoWhatsapp(), whatsapp_escolhido: lerCfg("suporte_whatsapp") !== null,
+    ambiente_interno: temAmbienteInterno(),
   };
 }
-export function salvarConfig({ destino, org_id }) {
+export function salvarConfig({ destino, org_id, whatsapp }) {
+  if (whatsapp !== undefined) gravarCfg("suporte_whatsapp", whatsapp ? "1" : "0");
   if (destino !== undefined) {
     let d = soDigitos(destino);
     if (d.length === 10 || d.length === 11) d = "55" + d; // com DDD, sem o 55
@@ -89,7 +109,10 @@ const mesmoNumero = (a, b) => {
 };
 
 /* ===== ENVIO PARA O WHATSAPP DO SUPORTE ===== */
-async function mandarAoSuporte(texto) {
+async function mandarAoSuporte(texto, { forcar = false } = {}) {
+  // Sem encaminhamento, nada sai para WhatsApp nenhum: o chamado é atendido
+  // de dentro do sistema. `forcar` é só o "Enviar teste" do hub.
+  if (!forcar && !encaminhaAoWhatsapp()) return { ok: false, desligado: true };
   const orgId = orgDoSuporte();
   if (!orgId) return { ok: false, erro: "Nenhuma conta escolhida para enviar o suporte." };
   try {
@@ -103,7 +126,15 @@ async function mandarAoSuporte(texto) {
 }
 
 // O botão "Enviar teste" do hub.
-export const testarEnvio = () => mandarAoSuporte("✅ Teste do suporte ConHub: as mensagens da nuvem de suporte vão chegar aqui.");
+export const testarEnvio = () => mandarAoSuporte("✅ Teste do suporte ConHub: as mensagens da nuvem de suporte vão chegar aqui.", { forcar: true });
+
+/* Quem atende o suporte: a equipe ativa do ambiente interno e os masters.
+   É a eles que vai o aviso no celular de chamado novo e de mensagem nova. */
+function avisarEquipe({ titulo, corpo }) {
+  const ids = db.prepare(`SELECT u.id FROM users u LEFT JOIN orgs o ON o.id = u.org_id
+    WHERE u.status = 'ativo' AND (u.master = 1 OR o.tipo = 'interna')`).all().map(r => r.id);
+  for (const id of ids) avisar(id, { titulo, corpo: String(corpo || "").slice(0, 140) }).catch(() => {});
+}
 
 /* ===== CHAMADOS ===== */
 const papelTexto = (u) => (u.gestor || u.role === "adm" ? "Gestor(a)" : u.role === "sdr" ? "Atendente" : "Corretor(a)");
@@ -142,12 +173,15 @@ export async function abrirChamado(user, { resumo, contato }) {
     `_Responda citando esta mensagem ou começando com #${numero}. "/fechar" encerra._`,
   ].filter((l, i) => l !== "" || i > 2);
   const envio = await mandarAoSuporte(linhas.join("\n"));
-  gravarMsg(id, "sistema", "Chamado aberto. " + (envio.ok
+  avisarEquipe({ titulo: `Suporte #${numero} · ${org.name || "Conta"}`, corpo: `${pessoa.name || user.name}: ${res}` });
+  // Sem encaminhamento, "entregue" é ter chegado à fila da equipe — e chegou.
+  const entregue = envio.ok || !!envio.desligado;
+  gravarMsg(id, "sistema", "Chamado aberto. " + (entregue
     ? "O suporte foi avisado e responde por aqui."
     : "Não consegui avisar o suporte pelo WhatsApp agora, mas o pedido ficou registrado e o suporte vê no painel."),
-  { waId: envio.waId, entregue: envio.ok });
-  if (envio.ok) db.prepare("UPDATE suporte_chamados SET entregue = 1 WHERE id = ?").run(id);
-  return { chamado: db.prepare("SELECT * FROM suporte_chamados WHERE id = ?").get(id), entregue: envio.ok };
+  { waId: envio.waId, entregue });
+  if (entregue) db.prepare("UPDATE suporte_chamados SET entregue = 1 WHERE id = ?").run(id);
+  return { chamado: db.prepare("SELECT * FROM suporte_chamados WHERE id = ?").get(id), entregue };
 }
 
 // O cliente escreveu na nuvem com o chamado aberto.
@@ -157,8 +191,10 @@ export async function mensagemDoCliente(user, texto) {
   const t = String(texto || "").trim().slice(0, 4000);
   if (!t) return { erro: "Escreva a mensagem." };
   const envio = await mandarAoSuporte(`*#${ch.numero}* · ${user.name}: ${t}`);
-  gravarMsg(ch.id, "cliente", t, { waId: envio.waId, entregue: envio.ok });
-  return { ok: true, entregue: envio.ok, aviso: envio.ok ? null : "Não consegui entregar pelo WhatsApp agora; ficou registrado para o suporte." };
+  avisarEquipe({ titulo: `Suporte #${ch.numero} · nova mensagem`, corpo: `${user.name}: ${t}` });
+  const entregue = envio.ok || !!envio.desligado;
+  gravarMsg(ch.id, "cliente", t, { waId: envio.waId, entregue });
+  return { ok: true, entregue, aviso: entregue ? null : "Não consegui entregar pelo WhatsApp agora; ficou registrado para o suporte." };
 }
 
 export async function fecharChamado(chamado, quem) {
@@ -185,6 +221,9 @@ export async function respostaDoSuporte(chamado, texto, { viaPainel = false, por
    Devolve o texto do registro (para o log de webhooks) ou null quando a
    mensagem não é do suporte — aí ela segue o caminho normal de lead. */
 export async function mensagemDoSuporte({ canal, phone, fromMe, texto, citada }) {
+  // Sem encaminhamento ao WhatsApp, ninguém responde chamado por lá: a
+  // mensagem segue o caminho normal da linha.
+  if (!encaminhaAoWhatsapp()) return null;
   if (!canal || canal.tipo !== "imobiliaria" || canal.org_id !== orgDoSuporte()) return null;
   if (!mesmoNumero(phone, destinoDoSuporte())) return null;
   if (fromMe) return "suporte: eco do que saiu para o WhatsApp do suporte (não vira lead)";
@@ -277,5 +316,14 @@ export function chamadosParaOHub(limite = 50) {
     FROM suporte_chamados c LEFT JOIN orgs o ON o.id = c.org_id LEFT JOIN users u ON u.id = c.user_id
     ORDER BY (c.status = 'aberto') DESC, c.updated_at DESC LIMIT ?`).all(limite)
     .map(c => ({ id: c.id, numero: c.numero, status: c.status, conta: c.conta, pessoa: c.pessoa, email: c.email,
-      resumo: c.resumo, entregue: !!c.entregue, mensagens: c.mensagens, criado_em: c.created_at, atualizado_em: c.updated_at }));
+      resumo: c.resumo, entregue: !!c.entregue, mensagens: c.mensagens, criado_em: c.created_at, atualizado_em: c.updated_at,
+      aguardando: c.status === "aberto" && aguardaSuporte(c.id) }));
 }
+
+/* O chamado espera a equipe quando a última fala de gente é do cliente (a
+   mensagem automática de "chamado aberto" conta como pedido ainda sem
+   resposta). É o número do menu Suporte. */
+const aguardaSuporte = (chamadoId) => db.prepare(`SELECT de FROM suporte_mensagens
+  WHERE chamado_id = ? AND de IN ('cliente','suporte') ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(chamadoId)?.de !== "suporte";
+export const chamadosEsperando = () => db.prepare("SELECT id FROM suporte_chamados WHERE status = 'aberto'").all()
+  .filter(c => aguardaSuporte(c.id)).length;

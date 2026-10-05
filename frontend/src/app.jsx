@@ -6699,11 +6699,24 @@ function SuporteNoHub({isMobile,equipe}){
   const fmtNum=(n)=>{const x=String(n||"");return x.length>=12?`(${x.slice(2,4)}) ${x.slice(4,x.length-4)}-${x.slice(-4)}`:x;};
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     {equipe&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>
-      Os pedidos de ajuda que os clientes abrem na nuvem de suporte. Responda aqui ou pelo WhatsApp {fmtNum(d.config.destino)}
-      {" "}— a resposta aparece na nuvem do cliente.
-      {!d.config.linha_ligada&&<div style={{color:C.hot,fontWeight:600,marginTop:4}}>O WhatsApp do ConHub não está conectado: os chamados não chegam ao celular, só aqui. Conecte em Configurações → Conexão.</div>}
+      Os pedidos de ajuda que os clientes abrem na nuvem de suporte. Responda aqui — a resposta aparece na nuvem do cliente,
+      e a equipe é avisada no celular a cada chamado e mensagem nova.
+      {d.config.whatsapp&&<React.Fragment>{" "}Também dá para responder pelo WhatsApp {fmtNum(d.config.destino)}.</React.Fragment>}
+      {d.config.whatsapp&&!d.config.linha_ligada&&<div style={{color:C.hot,fontWeight:600,marginTop:4}}>O repasse ao WhatsApp está ligado, mas a linha que envia não está conectada.</div>}
     </div>}
     {!equipe&&<React.Fragment>
+    {/* Onde o chamado é atendido. Com o ambiente interno, é lá dentro, sem
+        repassar a WhatsApp nenhum; o repasse continua existindo como opção. */}
+    <div style={{background:C.surface,borderRadius:11,padding:"10px 12px",fontSize:12,color:C.sub,lineHeight:1.5}}>
+      {d.config.ambiente_interno
+        ?"Os chamados caem na aba Suporte do ambiente interno do ConHub. A equipe é avisada no celular e responde por lá."
+        :"Crie o ambiente interno (no alto desta tela) para os chamados caírem dentro do sistema. Sem ele, eles vão para o WhatsApp abaixo."}
+    </div>
+    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:C.ink,cursor:"pointer"}}>
+      <input type="checkbox" checked={!!d.config.whatsapp} onChange={e=>salvar({whatsapp:e.target.checked})}/>
+      Também repassar cada chamado para um WhatsApp
+    </label>
+    {d.config.whatsapp&&<React.Fragment>
     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
       <label style={{display:"flex",flexDirection:"column",gap:4,flex:"1 1 200px"}}>
         <span style={{color:C.faint,fontSize:11,fontWeight:600}}>WhatsApp que recebe o suporte</span>
@@ -6724,6 +6737,7 @@ function SuporteNoHub({isMobile,equipe}){
       <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
     </div>
     </React.Fragment>}
+    </React.Fragment>}
     {msg&&<div style={{color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{msg}</div>}
     {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginTop:4}}>Chamados</div>
@@ -6732,6 +6746,7 @@ function SuporteNoHub({isMobile,equipe}){
       <button onClick={()=>setAberto(aberto===c.id?null:c.id)} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",padding:"9px 11px",cursor:"pointer",display:"flex",gap:8,alignItems:"center"}}>
         <span style={{fontFamily:MONO,fontSize:12,color:C.faint}}>#{c.numero}</span>
         <span style={{flex:1,minWidth:0,fontSize:12.5,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><b>{c.conta}</b> · {c.pessoa}</span>
+        {c.aguardando&&<span style={{fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:999,background:C.hotSoft,color:C.hot}}>aguardando resposta</span>}
         <span style={{fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:999,background:c.status==="aberto"?C.greenSoft:C.coolSoft,color:c.status==="aberto"?C.greenDeep:C.cool}}>{c.status}</span>
       </button>
       {aberto===c.id&&conversa&&<div style={{padding:"0 11px 11px",display:"flex",flexDirection:"column",gap:7}}>
@@ -6770,6 +6785,15 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // conversas abertas buscarem a lista nova sem recarregar a página.
   const [versaoMsgs,setVersaoMsgs]=useState(0);
   const [assistenteAberto,setAssistenteAberto]=useState(false);
+  /* Chamados de suporte esperando a equipe — o número ao lado de "Suporte" no
+     menu do ambiente interno. Confere de 30 em 30s, só com a aba visível. */
+  const [suporteEsperando,setSuporteEsperando]=useState(0);
+  const ehInterna=!!(org&&org.tipo==="interna");
+  useEffect(()=>{
+    if(!ehInterna){ setSuporteEsperando(0); return; }
+    const ler=()=>{ if(document.hidden) return; api("/suporte/chamados/esperando").then(r=>setSuporteEsperando(r.esperando||0)).catch(()=>{}); };
+    ler(); const t=setInterval(ler,30000); return()=>clearInterval(t);
+  },[ehInterna,org&&org.id]);
   /* AS LINHAS DE WHATSAPP desta conta, buscadas uma vez.
 
      Quem tem número pessoal ligado ganha as subcategorias em Atender e o
@@ -7010,7 +7034,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // finalizado não pode ficar cobrando resposta.
   const naoLidas=myLeads.reduce((s,l)=>s+(esperandoContato(l)&&!l.finalizado?1:0),0);
   const aprovacoesPendentes=equipe.filter(u=>u.status==="aguardando_aprovacao").length;
-  const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:0;
+  const aviso=(v)=>v==="atendimento"?naoLidas:v==="catraca"?fila.length:v==="equipe"?aprovacoesPendentes:v==="suporte"?suporteEsperando:0;
 
   /* O master enxerga tudo, mas não é da equipe da imobiliária — e nenhuma tela
      diria isso a ele. Sem este aviso, é fácil esquecer de qual lado da conta
