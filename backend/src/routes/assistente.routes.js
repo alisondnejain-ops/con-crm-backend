@@ -23,7 +23,7 @@ import {
 import {
   sistemaDeSuporte, FERRAMENTAS_SUPORTE, executorDeSuporte,
   chamadoAberto, mensagensDo, abrirChamado, mensagemDoCliente, fecharChamado,
-  respostaDoSuporte, configDoSuporte, salvarConfig, testarEnvio, chamadosParaOHub,
+  respostaDoSuporte, configDoSuporte, salvarConfig, testarEnvio, chamadosParaOHub, chamadosEsperando,
 } from "../services/suporte.js";
 
 const orgDe = (orgId) => db.prepare("SELECT id, name, tipo FROM orgs WHERE id = ?").get(orgId);
@@ -139,7 +139,9 @@ const equipeDeSuporte = (req, res, next) => {
   res.status(403).json({ error: "Área restrita à equipe do ConHub." });
 };
 
-suporte.get("/chamados", equipeDeSuporte, (req, res) => res.json({ chamados: chamadosParaOHub(), config: configDoSuporte() }));
+suporte.get("/chamados", equipeDeSuporte, (req, res) => res.json({ chamados: chamadosParaOHub(), config: configDoSuporte(), esperando: chamadosEsperando() }));
+// O número ao lado de "Suporte" no menu do ambiente interno.
+suporte.get("/chamados/esperando", equipeDeSuporte, (req, res) => res.json({ esperando: chamadosEsperando() }));
 
 suporte.get("/hub", soMaster, (req, res) => res.json({
   config: configDoSuporte(), chamados: chamadosParaOHub(),
