@@ -114,7 +114,7 @@ export function baseParaVencimento(orgId, vence) {
    (`dias_carencia`) é quantos dias depois do vencimento a conta ainda abre;
    0 trava no dia seguinte. Não mexe em nada no provedor: a assinatura já
    ligada no cartão continua cobrando na data dela. */
-export function definirVencimento(orgId, { vence_em, dias_carencia } = {}) {
+export function definirVencimento(orgId, { vence_em, dias_carencia, valor_mensal } = {}) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return null;
   const sets = [], vals = [];
@@ -143,6 +143,9 @@ export function definirVencimento(orgId, { vence_em, dias_carencia } = {}) {
     }
   }
   if (dias_carencia !== undefined) { sets.push("dias_carencia = ?"); vals.push(dias_carencia); }
+  // O valor combinado com o cliente (05/10/2026, pedido do Ali: "definir o
+  // valor da mensalidade para clientes especiais"). Só o master chega aqui.
+  if (valor_mensal !== undefined) { sets.push("valor_mensal = ?"); vals.push(valor_mensal); }
   if (sets.length) db.prepare(`UPDATE orgs SET ${sets.join(", ")} WHERE id = ?`).run(...vals, orgId);
   return db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
 }

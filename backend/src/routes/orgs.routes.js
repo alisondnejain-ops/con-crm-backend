@@ -468,9 +468,16 @@ r.post("/:id/mensalidade", (req, res) => {
     if (!Number.isInteger(d) || d < 0 || d > 60) return res.status(400).json({ error: "A tolerância vai de 0 a 60 dias." });
     mudar.dias_carencia = d;
   }
+  if (corpo.valor_mensal !== undefined) {
+    // Número vem como número; texto vem como se digita no Brasil ("1.500,00").
+    const v = typeof corpo.valor_mensal === "number" ? corpo.valor_mensal
+      : Number(String(corpo.valor_mensal).replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(v) || v <= 0 || v > 100000) return res.status(400).json({ error: "Valor da mensalidade inválido (de R$ 1 a R$ 100.000)." });
+    mudar.valor_mensal = Math.round(v * 100) / 100;
+  }
   if (!Object.keys(mudar).length) return res.status(400).json({ error: "Nada para mudar." });
   const nova = definirVencimento(org.id, mudar);
-  console.log(`[master] ${req.user.name} → mensalidade de ${org.name}: vence ${nova.vence_em ? new Date(nova.vence_em).toLocaleDateString("pt-BR") : "sem data"}, tolerância ${nova.dias_carencia ?? 5}`);
+  console.log(`[master] ${req.user.name} → mensalidade de ${org.name}: R$ ${nova.valor_mensal ?? "—"}, vence ${nova.vence_em ? new Date(nova.vence_em).toLocaleDateString("pt-BR") : "sem data"}, tolerância ${nova.dias_carencia ?? 5}`);
   res.json({ ok: true, org: resumo(req, nova) });
 });
 
