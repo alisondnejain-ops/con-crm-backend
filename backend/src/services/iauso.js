@@ -25,6 +25,8 @@ const PRECOS = {
   "claude-haiku-4-5": { entrada: 1, saida: 5 },
   "claude-sonnet-5": { entrada: 3, saida: 15 },
   "claude-opus-5": { entrada: 5, saida: 25 },
+  "claude-opus-5-5": { entrada: 4, saida: 20 },
+  "claude-sonnet-5-5": { entrada: 2, saida: 10 },
 };
 
 export function custoDe(uso, modelo) {
@@ -35,22 +37,26 @@ export function custoDe(uso, modelo) {
 
 /* Nunca lança: a IA já respondeu ao usuário quando isto roda. Falhar em gravar
    a estatística não pode transformar um resumo entregue em erro na tela. */
-export function registrar({ orgId, userId, leadId, recurso, uso }) {
+/* `modelo` e `custo` vêm de quem usa outro modelo que não o do resumo (o
+   assistente e o suporte, services/claude.js), e já sabem o próprio custo —
+   inclusive o desconto do cache, que esta conta simples não enxerga. */
+export function registrar({ orgId, userId, leadId, recurso, uso, modelo: modeloUsado, custo }) {
   try {
     if (!orgId || !uso) return;
-    const modelo = modeloIA();
+    const modelo = modeloUsado || modeloIA();
     db.prepare(`INSERT INTO ia_uso
       (id,org_id,user_id,lead_id,recurso,modelo,tokens_entrada,tokens_saida,custo_usd,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run("iu_" + randomUUID(), orgId, userId || null, leadId || null, recurso, modelo,
-        uso.entrada || 0, uso.saida || 0, custoDe(uso, modelo), Date.now());
+        uso.entrada || 0, uso.saida || 0, custo ?? custoDe(uso, modelo), Date.now());
   } catch (e) {
     console.warn("[ia] não consegui registrar o consumo:", e.message);
   }
 }
 
 const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa",
-  etapa: "Leitura da etapa do funil", temperatura: "Leitura da temperatura do lead" };
+  etapa: "Leitura da etapa do funil", temperatura: "Leitura da temperatura do lead",
+  assistente: "Assistente de configuração", suporte: "Suporte (triagem pela IA)" };
 
 /* O painel de consumo: total da imobiliária, por pessoa e por recurso.
 

@@ -2130,4 +2130,80 @@ CREATE INDEX IF NOT EXISTS idx_etapas_org_para_id ON lead_etapas(org_id, para_st
 CREATE INDEX IF NOT EXISTS idx_etapas_pendentes ON lead_etapas(org_id) WHERE etapa_fonte IS NULL;
 `);
 
+/* ===== ASSISTENTE (CLAUDE) E SUPORTE (05/10/2026) =====
+
+   `assistente_conversas` guarda as duas conversas com a IA — a de configurar a
+   conta (`tipo='config'`) e a triagem da nuvem de suporte (`tipo='suporte'`).
+   `mensagens` é o histórico NO FORMATO DA API, como veio: as respostas do
+   modelo voltam sem nenhuma edição na chamada seguinte (o modelo recusa
+   histórico mexido). `itens` é o que a tela mostra.
+
+   `assistente_turnos` conta as perguntas do mês, por conta — é o teto de
+   custo. `assistente_acoes` registra o que o assistente MUDOU na conta, e a
+   pedido de quem.
+
+   `suporte_chamados`/`suporte_mensagens`: a conversa com uma pessoa do
+   ConHub, levada para o WhatsApp do suporte e trazida de volta. `wa_id` é o
+   id da mensagem que saiu para o WhatsApp — é por ele que a resposta citada
+   volta para o chamado certo. */
+db.exec(`
+CREATE TABLE IF NOT EXISTS assistente_conversas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  mensagens TEXT NOT NULL DEFAULT '[]',
+  itens TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assist_conv_user ON assistente_conversas(user_id, tipo, updated_at);
+CREATE TABLE IF NOT EXISTS assistente_turnos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT,
+  tipo TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assist_turnos ON assistente_turnos(org_id, tipo, created_at);
+CREATE TABLE IF NOT EXISTS assistente_acoes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT,
+  conversa_id TEXT,
+  ferramenta TEXT NOT NULL,
+  entrada TEXT,
+  resultado TEXT,
+  ok INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assist_acoes ON assistente_acoes(org_id, created_at);
+CREATE TABLE IF NOT EXISTS suporte_chamados (
+  id TEXT PRIMARY KEY,
+  numero INTEGER NOT NULL UNIQUE,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'aberto',
+  resumo TEXT,
+  entregue INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  fechado_em INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_suporte_cham_user ON suporte_chamados(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_suporte_cham_status ON suporte_chamados(status, updated_at);
+CREATE TABLE IF NOT EXISTS suporte_mensagens (
+  id TEXT PRIMARY KEY,
+  chamado_id TEXT NOT NULL,
+  de TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  wa_id TEXT,
+  entregue INTEGER NOT NULL DEFAULT 1,
+  lida INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_suporte_msgs ON suporte_mensagens(chamado_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_suporte_msgs_wa ON suporte_mensagens(wa_id) WHERE wa_id IS NOT NULL;
+`);
+
 export default db;

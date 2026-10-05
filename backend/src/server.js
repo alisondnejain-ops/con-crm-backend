@@ -25,6 +25,7 @@ import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
+import { assistente as assistenteRoutes, suporte as suporteRoutes } from "./routes/assistente.routes.js";
 import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./routes/meta-conexao.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
@@ -371,6 +372,10 @@ app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 app.use("/anuncios-meta", cobrando, metaConexaoGestao); // "Conectar com Facebook" (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
 app.use("/marketing", cobrando, marketingRoutes); // Marketing: termo, listas, bloqueio, número de disparo (só gestor)
+app.use("/assistente", cobrando, assistenteRoutes); // assistente de configuração (Claude), só gestão
+/* A nuvem de suporte fica FORA do porteiro: conta travada por pagamento é a
+   que mais precisa falar com o suporte. O router exige login sozinho. */
+app.use("/suporte", suporteRoutes);
 // Fotos e vídeos dos imóveis enquanto o armazenamento é o disco da hospedagem.
 // Com o Cloudflare R2 ligado, as URLs passam a apontar direto para lá e esta
 // rota deixa de ser usada sozinha.

@@ -24,6 +24,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
 import { triarNumeroNovo } from "./triagem.js";
+import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { atender, pararPorGente } from "./robo.js";
 import { avisar } from "./push.js";
@@ -67,6 +68,13 @@ const emAndamento = new Set();
 
 export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome, enviadaPelaApi }) {
   const orgId = canal.org_id;
+  /* O WHATSAPP DO SUPORTE DO CONHUB, na linha que o empresta (05/10/2026,
+     services/suporte.js). Antes de tudo: a resposta do suporte vai para a
+     nuvem do cliente que abriu o chamado, e o número do suporte nunca vira
+     lead da conta que empresta a linha. */
+  const doSuporte = await mensagemDoSuporte({ canal, phone, fromMe, texto, citada });
+  if (doSuporte) return lembrar({ em: Date.now(), evento, provider: canal.provider || "uazapi", resultado: doSuporte });
+
   /* A linha em que a conversa passa a acontecer: nula é a da CASA. A do
      disparo (marketing) conta como linha própria — quem respondeu a um
      disparo continua a conversa pelo número que recebeu, senão a resposta da
