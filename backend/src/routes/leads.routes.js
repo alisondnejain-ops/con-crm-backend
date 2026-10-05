@@ -1737,8 +1737,17 @@ r.patch("/:id/venda", (req, res) => {
     .run(v, quando, (imovel || "").trim() || null, comissaoPct, lead.id);
   // A etapa vai junto, mas pelo caminho que deixa rastro — registrar venda é a
   // mudança de etapa que mais importa no histórico.
-  moverEtapa({ leadId: lead.id, para: "Venda", motivo: "venda", userId: req.user.id });
-  res.json({ ok: true, stage: "Venda" });
+  /* Funil sem etapa chamada "Venda" (o do ambiente interno fecha em
+     "Cliente"; funil próprio pode fechar em "Assinado"): vai para a etapa de
+     GANHO dele. Sem isto o lead ficava com a etapa "Venda" num funil que não
+     a tem — fora de todas as colunas do Kanban. */
+  const temVenda = lead.pipeline_id && db.prepare(`SELECT 1 FROM pipeline_stages
+    WHERE pipeline_id = ? AND name = 'Venda' AND is_active = 1`).get(lead.pipeline_id);
+  const ganho = lead.pipeline_id && !temVenda ? db.prepare(`SELECT id, name FROM pipeline_stages
+    WHERE pipeline_id = ? AND status_type = 'ganho' AND is_active = 1 ORDER BY ordem LIMIT 1`).get(lead.pipeline_id) : null;
+  moverEtapa({ leadId: lead.id, para: ganho ? ganho.name : "Venda", paraEtapaId: ganho ? ganho.id : null,
+    motivo: "venda", userId: req.user.id });
+  res.json({ ok: true, stage: ganho ? ganho.name : "Venda" });
 });
 
 /* ===== OS DIREITOS DO TITULAR (LGPD, art. 18) =====

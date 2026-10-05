@@ -28,6 +28,7 @@ import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../se
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
+import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
 
@@ -102,10 +103,19 @@ r.get("/", (req, res) => {
      assinatura individual, quase sempre em teste, e nele o que importa é
      quantos dias faltam. Misturados, a segunda pergunta se perde no meio. */
   res.json({
-    orgs: orgs.filter(o => o.tipo !== "autonomo"),
+    orgs: orgs.filter(o => o.tipo !== "autonomo" && o.tipo !== TIPO_INTERNO),
     autonomos: orgs.filter(o => o.tipo === "autonomo"),
+    /* O ambiente interno do ConHub tem lugar próprio no hub: não é cliente, e
+       no meio das imobiliárias ele pareceria uma conta a cobrar. */
+    interna: orgs.find(o => o.tipo === TIPO_INTERNO) || null,
     atual: req.user.org_id,
   });
+});
+
+/* Cria o ambiente interno do ConHub (ou devolve o que já existe — há um só). */
+r.post("/interna", (req, res) => {
+  const { org, criado } = criarAmbienteInterno(req.body?.nome);
+  res.json({ ok: true, criado, org: resumo(req, org) });
 });
 
 /* Entrar numa imobiliária. Devolve um token novo — mesma pessoa, outra casa.
@@ -453,6 +463,8 @@ r.post("/:id/cobranca", (req, res) => {
 r.post("/:id/tipo", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
+  if (org.tipo === TIPO_INTERNO)
+    return res.status(409).json({ error: "O ambiente interno do ConHub não muda de tipo." });
   const tipoAtual = org.tipo || "imobiliaria";
   const pedido = req.body?.tipo;
   const tipoNovo = pedido === "autonomo" ? "autonomo" : pedido === "imobiliaria" ? "imobiliaria" : null;
@@ -649,6 +661,11 @@ r.get("/:id/apagar", (req, res) => {
 r.delete("/:id", async (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
+  /* Apagar o ambiente interno levaria junto a equipe do ConHub, o comercial e
+     o número que manda os chamados de suporte — e o suporte cairia em
+     silêncio na linha de um cliente. Não sai por aqui. */
+  if (org.tipo === TIPO_INTERNO)
+    return res.status(409).json({ error: "O ambiente interno do ConHub não pode ser apagado." });
   if (String(req.body?.confirmar || "").trim() !== org.name)
     return res.status(400).json({ error: `Para apagar, digite o nome exato: ${org.name}` });
   if (db.prepare("SELECT COUNT(*) n FROM orgs").get().n <= 1)

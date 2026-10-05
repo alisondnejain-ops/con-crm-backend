@@ -1,3 +1,4 @@
+import { ehInterna } from "../services/interno.js";
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, semMaster } from "../auth.js";
@@ -138,9 +139,15 @@ r.post("/webhooks/asaas", async (req, res) => {
 /* Trava do dono. Papel 'adm' abre o CRM inteiro, mas a mensalidade é de quem
    paga: outro gestor não vê valor, histórico nem dados de cobrança, e não
    mexe em nada disso. Por isso não basta roles("adm") aqui. */
-const soDono = (req, res, next) => ehDono(req.user.org_id, req.user.id)
-  ? next()
-  : res.status(403).json({ error: "A mensalidade é visível apenas para o titular da conta." });
+const soDono = (req, res, next) => {
+  if (!ehDono(req.user.org_id, req.user.id))
+    return res.status(403).json({ error: "A mensalidade é visível apenas para o titular da conta." });
+  /* O ambiente interno do ConHub não tem mensalidade: assinar um plano ali
+     seria o ConHub cobrando a si mesmo no cartão de alguém da equipe. */
+  if (req.method !== "GET" && ehInterna(req.user.org_id))
+    return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  next();
+};
 
 /* Data que veio de um <input type="date"> ("2026-08-10"). O meio-dia evita o
    clássico: interpretada como UTC, ela vira o dia ANTERIOR em Recife. */

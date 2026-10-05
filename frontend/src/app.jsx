@@ -77,6 +77,14 @@ const linkDeCadastro=(codigo)=>(typeof window!=="undefined"?window.location.orig
 // Token guardado no navegador para o corretor não ter que logar toda vez (importante no celular).
 const STORE="concrm_token";
 let TOKEN=null;
+/* O TIPO DA CONTA ABERTA (05/10/2026). O ambiente interno do ConHub
+   ("interna") é um CRM que não é imobiliário: some tudo que é de imóvel —
+   catálogo, plantão, simulação de financiamento. São dezenas de telas
+   espalhadas, e passar o tipo de mão em mão por todas elas seria o tipo de
+   fio que alguém esquece. Vale a mesma solução do TOKEN: o ConCRM escreve,
+   qualquer tela lê. */
+let TIPO_CONTA=null;
+const contaInterna=()=>TIPO_CONTA==="interna";
 try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
 function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
 
@@ -443,6 +451,8 @@ const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprov
    e o lead vai", ele prometia um automatismo que não existe mais — e regra que
    a tela ensina errado é pior do que regra nenhuma. */
 function DicaEtapa({etapa}){
+  // As palavras são de venda de imóvel; o ambiente interno do ConHub não as usa.
+  if(contaInterna()) return null;
   const i=LINEAR.indexOf(etapa);
   const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
   // Só a dica que ensina alguma coisa: qual palavra sugere a próxima etapa.
@@ -977,6 +987,7 @@ const ICO={
   // Seta de responder: a mesma forma que o WhatsApp usa, para não ter dúvida.
   reply:<React.Fragment><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></React.Fragment>,
   msg:<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,
+  boia:<><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="4"/><path d="M5.3 5.3l3.9 3.9M14.8 14.8l3.9 3.9M14.8 9.2l3.9-3.9M5.3 18.7l3.9-3.9"/></>,
   pin:<React.Fragment><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></React.Fragment>,
   link:<React.Fragment><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></React.Fragment>,
   edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
@@ -1328,6 +1339,7 @@ function ConCRM(){
   // Em qual imobiliária o crachá está valendo agora. Para quem não é master é
   // sempre a própria; para o master é a que ele escolheu no hub.
   const [org,setOrg]=useState(null);
+  TIPO_CONTA=(org&&org.tipo)||null;
   const isMobileRaiz=useIsMobile();
   const [carregando,setCarregando]=useState(!!TOKEN);
   const [leads,setLeads]=useState([]);
@@ -4490,10 +4502,51 @@ function ApagarConta({conta,acoes,isMobile,aoApagar,aoFechar}){
    Cada cartão mostra o que decide a escolha em dois segundos: tamanho da
    equipe, leads na fila, quem tem cadastro esperando aprovação e a situação da
    mensalidade. */
+/* O AMBIENTE INTERNO DO CONHUB no hub (05/10/2026): um cartão só, acima das
+   imobiliárias, porque não é cliente — é a casa da equipe do ConHub, onde
+   ficam o comercial e o suporte. Cada pessoa da equipe entra pelo link de
+   cadastro, com o próprio login, e o master aprova. */
+function AmbienteInterno({conta,isMobile,ocupado,copiado,entrar,copiar,criar}){
+  const caixa={background:C.card,border:`1px solid ${C.green}55`,borderRadius:16,padding:15,marginBottom:18,display:"flex",flexDirection:"column",gap:11};
+  const botao={border:"none",background:C.green,color:"#fff",borderRadius:11,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:"pointer"};
+  const cabeca=<div style={{display:"flex",alignItems:"flex-start",gap:9}}>
+    <div style={{background:C.greenSoft,width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+      <ConHubLogo variant="symbol" size={20}/></div>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,lineHeight:1.2}}>Ambiente interno do ConHub</div>
+      <div style={{color:C.sub,fontSize:12,marginTop:3,lineHeight:1.45}}>
+        O CRM da equipe do ConHub: comercial e suporte aos clientes, sem nada de imóvel. Não é cliente — não tem mensalidade nem aparece na lista abaixo.</div>
+    </div>
+  </div>;
+  if(!conta) return <div style={caixa}>{cabeca}
+    <div><button onClick={criar} disabled={ocupado==="interna"} style={botao}>{ocupado==="interna"?"Criando…":"Criar o ambiente interno"}</button></div>
+  </div>;
+  return <div style={caixa}>{cabeca}
+    <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+      {[["Equipe",conta.equipe],["Leads",conta.leads],["Na fila",conta.na_fila]].map(([t,v])=>
+        <div key={t}><div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
+          <div style={{color:C.faint,fontSize:10}}>{t}</div></div>)}
+    </div>
+    {conta.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
+      <Icon n="clock" size={12}/>{conta.pendentes} cadastro(s) aguardando aprovação — entre e aprove em Equipe</div>}
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>
+      {conta.whatsapp?"WhatsApp conectado.":"Conecte o WhatsApp do suporte em Configurações → Conexão, dentro do ambiente."}
+      {" "}Para pôr alguém da equipe, mande o link de cadastro.</div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+      <button onClick={()=>entrar(conta)} disabled={ocupado===conta.id} style={{...botao,flex:isMobile?"1 1 100%":"0 0 auto"}}>
+        {ocupado===conta.id?"Entrando…":"Entrar no ambiente"}</button>
+      <button onClick={()=>copiar(conta)} style={{background:copiado===conta.id?C.greenSoft:C.surface,color:copiado===conta.id?C.greenDeep:C.sub,
+        border:`1px solid ${C.line}`,borderRadius:11,padding:"10px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        {copiado===conta.id?"Link copiado!":"Copiar link de cadastro da equipe"}</button>
+    </div>
+  </div>;
+}
+
 function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   usarTitulo("Suas imobiliárias");
   const [contas,setContas]=useState(null);
   const [autonomos,setAutonomos]=useState([]);
+  const [interna,setInterna]=useState(null);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
   const [criando,setCriando]=useState(false);
@@ -4505,7 +4558,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   const [apagada,setApagada]=useState("");
 
   const rever=()=>acoes.listarContas()
-    .then(d=>{setContas(d.orgs||[]);setAutonomos(d.autonomos||[]);})
+    .then(d=>{setContas(d.orgs||[]);setAutonomos(d.autonomos||[]);setInterna(d.interna||null);})
     .catch(e=>{setErro(e.message);setContas([]);});
 
   const abrirExclusao=(c)=>{ setErro(""); setApagada(""); setApagando(apagando===c.id?null:c.id); };
@@ -4550,6 +4603,10 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
       </div>
 
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
+      {contas!==null&&<AmbienteInterno conta={interna} isMobile={isMobile} ocupado={ocupado} copiado={copiado}
+        entrar={entrar} copiar={copiar} criar={async()=>{ setErro(""); setOcupado("interna");
+          try{ await api("/orgs/interna",{method:"POST",body:{}}); await rever(); }
+          catch(e){ setErro(e.message); } finally{ setOcupado(""); } }}/>}
       {apagada&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{apagada}</div>}
 
       {contas===null
@@ -6617,7 +6674,10 @@ function NuvemDeSuporte({isMobile,irPara,view}){
 /* O SUPORTE NO HUB DO MASTER: para onde vão as mensagens, de que linha saem,
    o teste, e os chamados — com resposta pelo painel para quando o WhatsApp
    do suporte estiver fora. */
-function SuporteNoHub({isMobile}){
+/* No hub (master): configuração + chamados. Com `equipe` (a aba Suporte do
+   ambiente interno do ConHub): só os chamados — quem configura o número é o
+   master, e a equipe só precisa atender. */
+function SuporteNoHub({isMobile,equipe}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   const [msg,setMsg]=useState("");
@@ -6625,8 +6685,10 @@ function SuporteNoHub({isMobile}){
   const [aberto,setAberto]=useState(null);
   const [conversa,setConversa]=useState(null);
   const [resposta,setResposta]=useState("");
-  const carregar=()=>api("/suporte/hub").then(r=>{setD(r);setDestino(r.config.destino);}).catch(e=>setErro(e.message));
+  const carregar=()=>api(equipe?"/suporte/chamados":"/suporte/hub").then(r=>{setD(r);setDestino(r.config.destino);}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
+  // Na aba da equipe a fila precisa andar sozinha: é a tela de trabalho dela.
+  useEffect(()=>{ if(!equipe) return; const t=setInterval(()=>{ if(!document.hidden) carregar(); },20000); return()=>clearInterval(t); },[equipe]);
   useEffect(()=>{ if(!aberto){setConversa(null);return;} api(`/suporte/hub/chamados/${aberto}`).then(setConversa).catch(e=>setErro(e.message)); },[aberto]);
   async function salvar(corpo){ setErro("");setMsg(""); try{ const r=await api("/suporte/hub/config",{method:"PATCH",body:corpo}); setD(x=>({...x,config:r.config})); setDestino(r.config.destino); setMsg("Salvo."); }catch(e){ setErro(e.message); } }
   async function testar(){ setErro("");setMsg(""); try{ await api("/suporte/hub/teste",{method:"POST"}); setMsg("Mensagem de teste enviada. Confira o WhatsApp do suporte."); }catch(e){ setErro(e.message); } }
@@ -6636,6 +6698,12 @@ function SuporteNoHub({isMobile}){
   if(!d) return erro?<div style={{color:C.hot,fontSize:12.5}}>{erro}</div>:null;
   const fmtNum=(n)=>{const x=String(n||"");return x.length>=12?`(${x.slice(2,4)}) ${x.slice(4,x.length-4)}-${x.slice(-4)}`:x;};
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    {equipe&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>
+      Os pedidos de ajuda que os clientes abrem na nuvem de suporte. Responda aqui ou pelo WhatsApp {fmtNum(d.config.destino)}
+      {" "}— a resposta aparece na nuvem do cliente.
+      {!d.config.linha_ligada&&<div style={{color:C.hot,fontWeight:600,marginTop:4}}>O WhatsApp do ConHub não está conectado: os chamados não chegam ao celular, só aqui. Conecte em Configurações → Conexão.</div>}
+    </div>}
+    {!equipe&&<React.Fragment>
     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
       <label style={{display:"flex",flexDirection:"column",gap:4,flex:"1 1 200px"}}>
         <span style={{color:C.faint,fontSize:11,fontWeight:600}}>WhatsApp que recebe o suporte</span>
@@ -6655,6 +6723,7 @@ function SuporteNoHub({isMobile}){
         {d.config.linha_ligada?"● A linha está conectada":"● Essa conta não tem WhatsApp conectado — os chamados ficam só aqui no painel"}</span>
       <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
     </div>
+    </React.Fragment>}
     {msg&&<div style={{color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{msg}</div>}
     {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginTop:4}}>Chamados</div>
@@ -6908,6 +6977,11 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
        deixam de significar qualquer coisa. Some a tela inteira, e some junto o
        lembrete do plantão no alto do sistema. */
     .filter(item=>!(org&&org.tipo==="autonomo"&&(item[0]==="catraca"||item[0]==="plantao")))
+    /* AMBIENTE INTERNO DO CONHUB: não vende imóvel nem tem escala de plantão
+       numa loja — Imóveis e Plantão saem. Entra "Suporte", a fila de
+       chamados dos clientes, para toda a equipe: o suporte é deles. */
+    .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao")))
+    .concat(org&&org.tipo==="interna"?[["suporte","boia","Suporte","Principal"]]:[])
     /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
     .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item)
@@ -6922,7 +6996,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         ...ativas.map(c=>["catraca:"+c.id,"letra:"+c.nome,c.nome])]];
     });
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -7056,8 +7130,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
-        {view==="plantao"&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
-        {view==="imoveis"&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
+        {view==="plantao"&&!contaInterna()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
+        {view==="imoveis"&&!contaInterna()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
+        {view==="suporte"&&contaInterna()&&<div style={molduraMkt(isMobile)}><SuporteNoHub isMobile={isMobile} equipe/></div>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,org,isMobile,versao}}/>}
@@ -7070,7 +7145,8 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
     {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
     {assistenteAberto&&<PainelAssistente aoFechar={()=>setAssistenteAberto(false)} isMobile={isMobile} irPara={setView}/>}
     {/* O master não ganha a nuvem: o suporte é ele. */}
-    {!ehMaster&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view}/>}
+    {/* Nem a equipe do ConHub: o suporte também é ela. */}
+    {!ehMaster&&!contaInterna()&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view}/>}
   </div>;
 }
 
@@ -7486,7 +7562,7 @@ function usarLinhas(acoes,session,lista){
   const equipe=(d&&d.equipe)||(d&&d.meu?[d.meu]:[]);
   const porId=new Map(equipe.map(c=>[c.id,c]));
   const rotulo=(canalId)=>{
-    if(!canalId) return {texto:"Imobiliária",pessoal:false};
+    if(!canalId) return {texto:contaInterna()?"ConHub":"Imobiliária",pessoal:false};
     const c=porId.get(canalId);
     if(!c) return {texto:"Outro número",pessoal:true};
     if(c.tipo==="disparo") return {texto:"Disparo",pessoal:false};
@@ -7495,7 +7571,7 @@ function usarLinhas(acoes,session,lista){
   };
   const pessoais=equipe.filter(c=>c.tipo==="corretor"&&(c.conectado||(lista||[]).some(l=>l.canalId===c.id)));
   const varias=pessoais.length>0||(lista||[]).some(l=>l.canalId);
-  const opcoes=[{v:"casa",t:"Número da imobiliária"},...pessoais.map(c=>({v:c.id,t:"Número de "+first(c.pessoa||c.nome||"corretor")}))];
+  const opcoes=[{v:"casa",t:contaInterna()?"Número do ConHub":"Número da imobiliária"},...pessoais.map(c=>({v:c.id,t:"Número de "+first(c.pessoa||c.nome||"corretor")}))];
   return {rotulo,varias,opcoes};
 }
 function SeloDaLinha({linha,grande}){
@@ -7506,7 +7582,7 @@ function SeloDaLinha({linha,grande}){
       fontSize:grande?11:10,fontWeight:700,padding:grande?"2px 8px":"1px 6px",borderRadius:999,
       color:linha.pessoal?C.greenDeep:C.sub,background:linha.pessoal?C.greenSoft:C.surface,
       border:`1px solid ${linha.pessoal?C.green+"55":C.line}`}}>
-    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:"Nº da imobiliária"):linha.texto}</span>;
+    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:contaInterna()?"Nº do ConHub":"Nº da imobiliária"):linha.texto}</span>;
 }
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
@@ -7767,7 +7843,7 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     <Icon n="zap" size={11}/> {tp.titulo}</button>;
   const rotulo=(t)=><span style={{color:C.faint,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
   return <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-    <button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>
+    {!contaInterna()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
     {daEtapa.length>0&&rotulo(`${lead.status}:`)}
     {daEtapa.map(m=>chip(m,true))}
     {daEtapa.length>0&&gerais.length>0&&rotulo("Gerais:")}
@@ -8729,7 +8805,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <TopoDaCaixa isMobile={isMobile} busca={busca} setBusca={setBusca} onNovoLead={()=>setNovoLead(true)}
         vista={vista} setVista={setVista} contagem={contagem} lista={daLinha} campanha={campanha} setCampanha={setCampanha}
         seletor={minhaLinha?{rotulo:"Número",valor:linha,mudar:setLinha,opcoes:[
-          {v:"todas",t:"Todos os números"},{v:"casa",t:"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
+          {v:"todas",t:"Todos os números"},{v:"casa",t:contaInterna()?"Do ConHub":"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
         filtrosAtivos={filtrosAtivos} gaveta={gaveta} setGaveta={setGaveta}
         contador={(filtrosAtivos||busca.trim()||vista!=="todos")?`${list.length} ${list.length===1?"conversa":"conversas"}`:""}>
         {filtrosAtivos>0&&<button onClick={limparFiltros}
@@ -8904,18 +8980,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         })()}
         <DicaEtapa etapa={sel.status}/>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {CAMPOS_QUAL.map(([k,n,campo])=>
+          {(contaInterna()?[]:CAMPOS_QUAL).map(([k,n,campo])=>
             <CampoQual key={k} rotulo={k} valor={sel.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
           <CamposPersonalizadosDoLead lead={sel} acoes={acoes} session={session}/>
         </div>
         {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
             do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
             no cadastro do imóvel. */}
-        <button onClick={()=>setSimulando(true)}
+        {!contaInterna()&&<button onClick={()=>setSimulando(true)}
           style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
             borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
           <Icon n="chart" size={15}/> Registrar simulação
-        </button>
+        </button>}
         <FichaVenda lead={sel} onSalvar={(d)=>acoes.registrarVenda(sel.id,d)}/>
         <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
           <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
@@ -8930,6 +9006,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 /* ===== REGISTRO DE VENDA (pedido do Ali: valor, data e qual imóvel) ===== */
 function FichaVenda({lead,onSalvar}){
   const v=lead.venda;
+  // No ambiente interno do ConHub a venda é uma assinatura, não um imóvel.
+  const interna=contaInterna();
   const [aberto,setAberto]=useState(false);
   const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:"",comissao:""});
   const [erro,setErro]=useState("");
@@ -8951,12 +9029,12 @@ function FichaVenda({lead,onSalvar}){
   if(v&&!aberto) return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:8}}><Icon n="check" size={13} color={C.greenMid}/> Venda registrada</div>
     <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
-    <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||"Imóvel não informado"} · {fmtData(v.data)}</div>
+    <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||(interna?"Plano não informado":"Imóvel não informado")} · {fmtData(v.data)}</div>
     {/* Comissão é opcional — sem ela, some do VGC do painel de indicadores em
         vez de virar 0% inventado, e a tela diz isso em vez de fingir zero. */}
-    <div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
+    {!interna&&<div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
       {v.comissao!=null?<React.Fragment>Comissão {v.comissao}% · {fmtMoeda(v.valor*v.comissao/100)}</React.Fragment>:"Comissão não informada"}
-    </div>
+    </div>}
     <button onClick={()=>setAberto(true)} style={{marginTop:8,border:"none",background:"transparent",color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Editar registro</button>
   </div>;
 
@@ -8964,23 +9042,25 @@ function FichaVenda({lead,onSalvar}){
 
   return <div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:8}}>Registrar venda</div>
-    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Valor do imóvel</label>
-    <div style={{margin:"3px 0 8px"}}><CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder="285.000,00"/></div>
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{interna?"Valor da venda":"Valor do imóvel"}</label>
+    <div style={{margin:"3px 0 8px"}}><CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={interna?"497,00":"285.000,00"}/></div>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Data da venda</label>
     <input type="date" value={f.data} onChange={e=>setF({...f,data:e.target.value})}
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
-    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Qual imóvel</label>
-    <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder="Ex.: Jardim Amazonas — Casa 14"
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{interna?"Qual plano":"Qual imóvel"}</label>
+    <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder={interna?"Ex.: Essencial semestral":"Ex.: Jardim Amazonas — Casa 14"}
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    {!interna&&<React.Fragment>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Comissão desta venda (%) — opcional</label>
     <input type="number" min="0" max="100" step="0.1" value={f.comissao} onChange={e=>setF({...f,comissao:e.target.value})} placeholder="Ex.: 5"
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    </React.Fragment>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:6}}>
       <button onClick={salvar} style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
       <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
     </div>
-    <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>{interna?<React.Fragment>Ao salvar, o lead vai para a etapa de ganho do funil e entra no seu relatório.</React.Fragment>:<React.Fragment>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</React.Fragment>}</div>
   </div>;
 }
 
@@ -11987,18 +12067,18 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <MoverParaOutroFunil lead={lead} acoes={acoes} session={session}/>
 
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {CAMPOS_QUAL.map(([k,n,campo])=>
+        {(contaInterna()?[]:CAMPOS_QUAL).map(([k,n,campo])=>
           <CampoQual key={k} rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
         <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
       </div>
 
       {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do
           subsídio de quem vai comprar. Por isso o botão mora aqui na ficha. */}
-      <button onClick={()=>setSimulando(true)}
+      {!contaInterna()&&<button onClick={()=>setSimulando(true)}
         style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
           borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
         <Icon n="chart" size={15}/> Registrar simulação
-      </button>
+      </button>}
 
       <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
 
@@ -12551,7 +12631,8 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           acima das notificações porque é o que muda o dia dele. */}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
-      {podeGerir(session)&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
+      {/* O ambiente interno do ConHub não tem mensalidade. */}
+      {podeGerir(session)&&!contaInterna()&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
         autonomo={!!org&&org.tipo==="autonomo"}/>}
       <VersaoDoApp/>
     </div>
@@ -15852,8 +15933,10 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
      na imobiliária e "Atendimento pela IA" no autônomo; virou uma ferramenta
      com nome próprio, o mesmo no plano, no hub e na assinatura — e o horário
      passou a ser uma opção dentro dela, não o nome dela. */
+  /* No ambiente interno do ConHub o Autoatendimento não existe: o texto da IA
+     atende comprador de imóvel. */
   const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
-    ["robo","Autoatendimento"],
+    ...(contaInterna()?[]:[["robo","Autoatendimento"]]),
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
     ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
@@ -19515,22 +19598,31 @@ function KpiCard({label,valor,comp,sub,isMobile}){
 }
 
 function LinhaKpis({kpis,isMobile}){
+  /* Ambiente interno do ConHub: VGV e VGC são termos de imobiliária (valor
+     geral de vendas e de comissão). Lá é "valor vendido", sem comissão, e a
+     visita ao imóvel é a demonstração do sistema — a conta é a mesma. */
+  const interna=contaInterna();
   const cards=[
-    {label:"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv},
+    {label:interna?"Valor vendido":"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv},
     {label:"Ticket médio",valor:dinheiro(kpis.ticket_medio.atual),comp:kpis.ticket_medio},
-    {label:"VGC",valor:dinheiro(kpis.vgc.atual),comp:kpis.vgc,
-      sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"},
+    ...(interna?[]:[{label:"VGC",valor:dinheiro(kpis.vgc.atual),comp:kpis.vgc,
+      sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"}]),
     {label:"Vendas",valor:naoDisp(kpis.vendas.atual),comp:kpis.vendas},
     {label:"Leads",valor:naoDisp(kpis.leads.atual),comp:kpis.leads},
     {label:"Lead em venda",valor:pctBR(kpis.lead_em_venda_pct.atual),comp:kpis.lead_em_venda_pct},
     // Mesmo nome do degrau do funil de atividade e da meta: é o mesmo número.
-    {label:"Visitas realizadas",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
+    {label:interna?"Demonstrações feitas":"Visitas realizadas",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
   ];
   return <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
     {cards.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile}/>)}
   </div>;
 }
 
+/* Os nomes que mudam no ambiente interno do ConHub: lá não há visita ao
+   imóvel nem VGV — há demonstração do sistema e valor vendido. */
+const ROTULOS_INTERNOS={visitas_agendadas:"Demonstrações agendadas",visitas_realizadas:"Demonstrações feitas",vgv:"Valor vendido",
+  visita_agendada:"Demonstração agendada",visita_realizada:"Demonstração feita"};
+const rotuloDaConta=(chave,padrao)=>contaInterna()?(ROTULOS_INTERNOS[chave]||padrao):padrao;
 const CAMPOS_META=[["ligacoes","Ligações"],["contatos","Contatos"],["visitas_agendadas","Visitas Agendadas"],
   ["visitas_realizadas","Visitas Realizadas"],["propostas","Propostas"],["vgv","VGV"]];
 
@@ -19615,7 +19707,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
         const alturaTotal=total?Math.max(2,Math.round((total/maxTotal)*altura)):0;
         return <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:isMobile?15:24}}>
           <div style={{width:"100%",height:altura,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-            <div title={`${d.rotulo}: ${CHAVES_SERIE.map(([k,n])=>`${n} ${d[k]||0}`).join(" · ")}`}
+            <div title={`${d.rotulo}: ${CHAVES_SERIE.map(([k,n])=>`${rotuloDaConta(k,n)} ${d[k]||0}`).join(" · ")}`}
               style={{height:alturaTotal,width:"100%",borderRadius:"3px 3px 0 0",overflow:"hidden",display:"flex",flexDirection:"column-reverse"}}>
               {total>0&&CHAVES_SERIE.map(([k],j)=><div key={k} style={{height:((d[k]||0)/total*100)+"%",background:PALETA_FUNIL[j],flexShrink:0}}/>)}
             </div>
@@ -19627,7 +19719,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
       {CHAVES_SERIE.map(([k,n],j)=><div key={k} style={{display:"flex",alignItems:"center",gap:5}}>
         <span style={{width:9,height:9,borderRadius:2,background:PALETA_FUNIL[j],flexShrink:0}}/>
-        <span style={{color:C.sub,fontSize:10.5}}>{n}</span>
+        <span style={{color:C.sub,fontSize:10.5}}>{rotuloDaConta(k,n)}</span>
       </div>)}
     </div>
   </div>;
@@ -19714,7 +19806,7 @@ function LinhaMeta({alvo,nome,valores,status,onCampo,onSalvar,isMobile}){
     </div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
       {CAMPOS_META.map(([campo,rotulo])=><label key={campo} style={{display:"flex",flexDirection:"column",gap:3}}>
-        <span style={{color:C.faint,fontSize:10}}>{rotulo}</span>
+        <span style={{color:C.faint,fontSize:10}}>{rotuloDaConta(campo,rotulo)}</span>
         <input type="text" inputMode="numeric" placeholder="—" value={valores?.[campo]??""}
           onChange={e=>onCampo(alvo,campo,soDigitosMeta(e.target.value))} style={campo==="vgv"?inputStyleVgv:inputStyle}/>
       </label>)}

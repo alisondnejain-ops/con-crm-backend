@@ -20,6 +20,7 @@ import {
   etapasDoPipeline, etapaPorId, criarEtapa, editarEtapa, reordenarEtapas, apagarEtapa,
   criarDoTemplate, pipelinePadrao, TEMPLATES,
 } from "../services/pipelines.js";
+import { templatesDaConta } from "../services/templates.js";
 
 const r = Router();
 r.use(authRequired);
@@ -48,7 +49,7 @@ r.get("/", (req, res) => {
     padrao: pipelinePadrao(req.user.org_id)?.id || null,
     // Os modelos prontos só interessam a quem pode criar.
     templates: supervisiona(req.user)
-      ? TEMPLATES.map(t => ({ id: t.id, nome: t.nome, tipo: t.tipo, descricao: t.descricao,
+      ? templatesDaConta(db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(req.user.org_id)?.tipo).map(t => ({ id: t.id, nome: t.nome, tipo: t.tipo, descricao: t.descricao,
           para: t.para, etapas: t.etapas.map(e => e.name) }))
       : undefined,
   });

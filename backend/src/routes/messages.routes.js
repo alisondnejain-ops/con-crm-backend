@@ -559,6 +559,10 @@ export function sugerirEtapa(leadId) {
   try {
     const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
     if (!lead) return;
+    /* As palavras-chave são de venda de imóvel ("documentação" → Pasta,
+       "visita" → Agendamento). No ambiente interno do ConHub elas apontariam
+       para etapas que o funil dele não tem. */
+    if (db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(lead.org_id)?.tipo === "interna") return;
     const msgs = db.prepare("SELECT direction,body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
     const sugerida = inferStage(lead.stage, msgs);
     /* `inferStage` só anda para a frente, então "igual à atual" quer dizer que
