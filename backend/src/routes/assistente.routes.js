@@ -19,7 +19,7 @@ import { daEquipeConHub } from "../services/interno.js";
 import {
   conversar, conversaAtual, novaConversa, itensDa, disponibilidade,
   FERRAMENTAS_CONFIG, executorDeConfig, sistemaDeConfig,
-  FERRAMENTAS_CONSULTA, executorDeConsulta, sistemaDeConsulta,
+  FERRAMENTAS_CONSULTA, executorDeConsulta, sistemaDeConsulta, menuDoCorpo,
 } from "../services/assistente.js";
 import {
   sistemaDeSuporte, FERRAMENTAS_SUPORTE, executorDeSuporte,
@@ -58,16 +58,17 @@ assistente.post("/mensagem", async (req, res) => {
   if (!disp.disponivel) return res.status(409).json({ error: disp.motivo });
   const conversa = conversaAtual(req.user.id, modo) || novaConversa(req.user, modo);
   const autorizacao = req.headers.authorization;
+  const menu = menuDoCorpo(req.body?.menu);
   const r = await conversar(modo === "config" ? {
     conversa, user: req.user, tipo: "config", texto, effort: "medium",
     system: sistemaDeConfig(req.user, orgDe(req.user.org_id)),
     tools: FERRAMENTAS_CONFIG,
-    executar: executorDeConfig({ autorizacao, user: req.user, conversaId: conversa.id }),
+    executar: executorDeConfig({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
   } : {
     conversa, user: req.user, tipo: "consulta", texto, effort: "medium",
     system: sistemaDeConsulta(req.user, orgDe(req.user.org_id)),
     tools: FERRAMENTAS_CONSULTA(),
-    executar: executorDeConsulta({ autorizacao }),
+    executar: executorDeConsulta({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
   });
   res.json({ ...r, ...disponibilidade(req.user, modo), modo });
 });

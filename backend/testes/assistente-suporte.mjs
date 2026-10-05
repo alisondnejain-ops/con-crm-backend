@@ -165,6 +165,38 @@ caso("Consulta do corretor: nenhuma ferramenta que mude a conta, pesquisa na web
   assert.ok(/NUNCA coloque nome, telefone/.test(primeiro.system[0].text), "a instrução de privacidade vai junto");
 }
 
+caso("O corretor reorganiza o PRÓPRIO menu pelo Claude: só a ordem, nunca o nome, e só o dele");
+{
+  const menu = [{ id: "dashboard", rotulo: "Painel", secao: "Principal" }, { id: "atendimento", rotulo: "Atender", secao: "Principal" },
+    { id: "funil", rotulo: "Funil", secao: "Principal" }, { id: "imoveis", rotulo: "Imóveis", secao: "Ferramentas" }];
+  // id que não está no menu dela é recusado, e nada é gravado.
+  roteiro.push(usa("tu_m0", "organizar_meu_menu", { ordem: ["equipe", "dashboard"] }), fala("Esse item não existe no seu menu."));
+  r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "Põe Equipe no topo", menu });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.menu, undefined, "recusado não muda o menu da tela");
+  assert.equal(db.prepare("SELECT menu_ordem FROM users WHERE id='u_corretor'").get().menu_ordem, null);
+  // Lista parcial: o que ficou de fora segue depois, na ordem em que estava.
+  roteiro.push(usa("tu_m1", "ver_meu_menu", {}), usa("tu_m2", "organizar_meu_menu", { ordem: ["imoveis", "atendimento"] }), fala("Pronto, Imóveis no topo."));
+  const antes = pedidosIA.length;
+  r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "Coloque Imóveis no topo do meu menu", menu });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(pedidosIA[antes].corpo.tools.some(t => t.name === "organizar_meu_menu"), "a ferramenta existe na consulta");
+  assert.ok(/"Imóveis"/.test(pedidosIA[antes + 1].corpo.messages.slice(-1)[0].content[0].content), "ver_meu_menu devolve o menu que a tela mandou");
+  assert.deepEqual(r.body.menu, ["imoveis", "atendimento", "dashboard", "funil"]);
+  assert.ok(r.body.itens.some(i => i.de === "acao" && /Reorganizei/.test(i.texto)));
+  assert.deepEqual((await api("u_corretor", "GET", "/auth/me")).body.user.menu_ordem, ["imoveis", "atendimento", "dashboard", "funil"], "fica guardado na conta dela");
+  assert.equal((await api("u_atendente", "GET", "/auth/me")).body.user.menu_ordem, null, "não mexe no menu de mais ninguém");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM assistente_acoes WHERE user_id='u_corretor' AND ferramenta='organizar_meu_menu' AND ok=1").get().n, 1, "fica registrado");
+  // A rota só guarda chaves de tela — texto com espaço (um "nome") não passa.
+  r = await api("u_corretor", "POST", "/auth/me/menu", { ordem: ["Meus Imóveis", "funil"] });
+  assert.deepEqual(r.body.menu_ordem, ["funil"]);
+  // Voltar ao padrão.
+  roteiro.push(usa("tu_m3", "organizar_meu_menu", { restaurar: true }), fala("Voltei ao padrão."));
+  r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "Volta o menu ao padrão", menu });
+  assert.equal(r.body.menu, null);
+  assert.equal(db.prepare("SELECT menu_ordem FROM users WHERE id='u_corretor'").get().menu_ordem, null);
+}
+
 caso("Pedido de configuração: lê os funis, cria o funil pela ROTA e responde — e o histórico volta sem edição");
 roteiro.push(
   usa("tu_1", "ver_funis", {}),

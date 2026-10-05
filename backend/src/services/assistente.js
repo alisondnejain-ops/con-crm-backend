@@ -81,7 +81,7 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
     novos.push(novoItem("sistema", "A conversa ficou longa e recomeçou daqui. O que já foi feito na conta continua feito."));
   }
   novos.push(novoItem("voce", texto));
-  const efeitos = { navegar: null, humano: null };
+  const efeitos = { navegar: null, humano: null, menu: undefined };
   const inicio = mensagens.length;
   mensagens.push({ role: "user", content: texto });
   db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
@@ -159,7 +159,7 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
   const todosItens = itens.concat(novos).slice(-200);
   db.prepare("UPDATE assistente_conversas SET mensagens = ?, itens = ?, updated_at = ? WHERE id = ?")
     .run(JSON.stringify(guardar), JSON.stringify(todosItens), agora(), conversa.id);
-  return { itens: novos, navegar: efeitos.navegar, humano: efeitos.humano, falhou: !!falhou };
+  return { itens: novos, navegar: efeitos.navegar, humano: efeitos.humano, ...(efeitos.menu !== undefined ? { menu: efeitos.menu } : {}), falhou: !!falhou };
 }
 
 /* As páginas que a pesquisa na web citou, para a pessoa conferir. Vêm nas
@@ -193,6 +193,60 @@ const FERRAMENTA_ABRIR_TELA = T("abrir_tela",
   "Leva a pessoa até uma tela do ConHub. Use para o que você não faz por aqui (apagar, WhatsApp, equipe, cobrança) ou quando ela pedir para ver algo.",
   { tela: { type: "string", enum: Object.keys(TELAS) }, motivo: { type: "string", description: "Uma frase curta: o que ela vai fazer lá (ex.: 'na aba Conexão, toque em Conectar')." } },
   ["tela", "motivo"]);
+
+/* A ORDEM DO MENU DA PRÓPRIA PESSOA (05/10/2026, pedido do Ali: o corretor
+   "consegue reorganizar a própria conta… mudar função de posição, só não pode
+   mudar o nome das funções"). Vale nos dois modos e mexe só no menu de quem
+   conversa — nunca no de outra pessoa nem no da conta.
+
+   O menu vem da TELA, junto com a pergunta (`menu`): é o navegador que sabe
+   quais telas esta pessoa vê, e uma segunda lista aqui divergiria no primeiro
+   item novo. A ferramenta só aceita chaves que estão nele, e o que vai ao
+   servidor é a lista de chaves — os nomes continuam vindo do código. */
+const FERRAMENTAS_MENU = [
+  T("ver_meu_menu", "Mostra o menu de quem conversa, na ordem atual: cada item com id, nome e seção. Chame antes de reorganizar."),
+  T("organizar_meu_menu", "Muda a ORDEM do menu de quem conversa (só dela). Não renomeia nem esconde nada. No computador os itens ficam agrupados por seção, e a ordem vale dentro de cada seção (a seção sobe ou desce junto com o primeiro item dela); no celular vale a ordem exata e os 4 primeiros ficam na barra de baixo.",
+    { ordem: { type: "array", items: { type: "string" }, description: "ids de ver_meu_menu na ordem nova — mande TODOS" },
+      restaurar: { type: "boolean", description: "true volta à ordem padrão (ignora ordem)" } }),
+];
+
+export function executarMenu({ autorizacao, menu, registrar }) {
+  const lista = Array.isArray(menu) ? menu : [];
+  return async (nome, e, efeitos) => {
+    if (nome === "ver_meu_menu") {
+      if (!lista.length) return { erro: "Não recebi o menu da tela. Peça para a pessoa fechar e abrir o assistente de novo." };
+      return { dados: { menu: lista.map(i => ({ id: i.id, nome: i.rotulo, secao: i.secao })) } };
+    }
+    if (nome !== "organizar_meu_menu") return null;
+    if (!lista.length) return { erro: "Não recebi o menu da tela. Peça para a pessoa fechar e abrir o assistente de novo." };
+    let ordem = [];
+    if (!e.restaurar) {
+      const ids = lista.map(i => i.id);
+      const pedidos = (Array.isArray(e.ordem) ? e.ordem : []).map(String);
+      const fora = pedidos.filter(id => !ids.includes(id));
+      if (fora.length) return { erro: `Estes itens não estão no menu desta pessoa: ${fora.join(", ")}. Use os ids de ver_meu_menu.` };
+      if (!pedidos.length) return { erro: "Mande a ordem nova (ids de ver_meu_menu) ou restaurar: true." };
+      ordem = [...new Set(pedidos)];
+      // O que ficou de fora segue depois, na ordem em que já estava.
+      for (const id of ids) if (!ordem.includes(id)) ordem.push(id);
+    }
+    const r = await chamarRota(autorizacao, "POST", "/auth/me/menu", { ordem });
+    registrar && registrar(nome, e, r);
+    if (r.erro) return { erro: r.erro, mostrar: `Não deu: ${r.erro}` };
+    efeitos.menu = r.dados.menu_ordem || null;
+    const rotulo = (id) => (lista.find(i => i.id === id) || {}).rotulo || id;
+    return { dados: { ok: true, menu: (efeitos.menu || lista.map(i => i.id)).map(rotulo) },
+      mostrar: efeitos.menu ? "✓ Reorganizei o seu menu." : "✓ O seu menu voltou à ordem padrão." };
+  };
+}
+
+// O menu que a tela mandou: só o formato esperado passa.
+export function menuDoCorpo(valor) {
+  if (!Array.isArray(valor)) return [];
+  const limpo = (t, n) => String(t || "").replace(/\s+/g, " ").trim().slice(0, n);
+  return valor.slice(0, 40).map(i => ({ id: limpo(i && i.id, 40), rotulo: limpo(i && i.rotulo, 40), secao: limpo(i && i.secao, 30) }))
+    .filter(i => /^[a-z][a-z0-9_:-]{0,39}$/.test(i.id) && i.rotulo);
+}
 
 export const FERRAMENTAS_CONFIG = [
   T("ver_funis", "Lista os funis da conta com as etapas (ids, prazos, automações) e os modelos prontos. Chame antes de mexer em funil ou etapa — nunca invente id."),
@@ -246,6 +300,7 @@ export const FERRAMENTAS_CONFIG = [
   T("ver_orientacoes_da_ia", "Lista as orientações que ensinam o Autoatendimento (a IA que atende o cliente) a falar."),
   T("adicionar_orientacao_da_ia", "Acrescenta uma orientação curta ao Autoatendimento (como tratar o cliente, o que perguntar).",
     { texto: { type: "string" } }, ["texto"]),
+  ...FERRAMENTAS_MENU,
   FERRAMENTA_ABRIR_TELA,
 ];
 
@@ -289,7 +344,7 @@ const resumoFunis = (d) => ({
 
 /* Executa uma ferramenta. Devolve { dados } para o modelo, e `mostrar` quando
    algo MUDOU na conta — é a linha "✓ Criei a etapa X" que a pessoa vê. */
-export function executorDeConfig({ autorizacao, user, conversaId }) {
+export function executorDeConfig({ autorizacao, user, conversaId, menu }) {
   const registrarAcao = (ferramenta, entrada, r) => {
     try {
       db.prepare(`INSERT INTO assistente_acoes (id,org_id,user_id,conversa_id,ferramenta,entrada,resultado,ok,created_at)
@@ -307,7 +362,10 @@ export function executorDeConfig({ autorizacao, user, conversaId }) {
     return r.erro ? { erro: r.erro } : { dados: montar(r.dados) };
   };
 
+  const doMenu = executarMenu({ autorizacao, menu, registrar: registrarAcao });
   return async (nome, e, efeitos) => {
+    const m = await doMenu(nome, e, efeitos);
+    if (m) return m;
     switch (nome) {
       case "ver_funis": return ler("/pipelines?todos=1", resumoFunis);
       case "criar_funil": return mudar(nome, e, "POST", "/pipelines", sem({ name: e.nome, template: e.modelo_id || undefined }), `✓ Criei o funil “${e.nome}”.`);
@@ -371,6 +429,7 @@ export const FERRAMENTAS_CONSULTA = () => [
   T("ver_meus_numeros", "Os indicadores do período (leads recebidos, vendas, valor vendido, visitas/demonstrações, ligações) e as metas do mês. O corretor vê os dele; a atendente, os da equipe.",
     { periodo: { type: "string", enum: ["hoje", "ontem", "7d", "este_mes", "mes_passado", "30d"] } }),
   T("ver_funis", "Lista os funis da conta e as etapas, só para consulta."),
+  ...FERRAMENTAS_MENU,
   FERRAMENTA_ABRIR_TELA,
   { type: "web_search_20260209", name: "web_search", max_uses: MAX_PESQUISAS() },
 ];
@@ -385,12 +444,23 @@ const resumoDoLead = (l) => sem({
 });
 const semAcento = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-export function executorDeConsulta({ autorizacao }) {
+export function executorDeConsulta({ autorizacao, user, conversaId, menu }) {
   const ler = async (caminho, montar = (d) => d) => {
     const r = await chamarRota(autorizacao, "GET", caminho);
     return r.erro ? { erro: r.erro } : { dados: montar(r.dados) };
   };
+  // A ordem do menu é a única coisa que a consulta muda, e fica registrada como as ações do gestor.
+  const registrar = user ? (ferramenta, entrada, r) => {
+    try {
+      db.prepare(`INSERT INTO assistente_acoes (id,org_id,user_id,conversa_id,ferramenta,entrada,resultado,ok,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run("aa_" + randomUUID(), user.org_id, user.id, conversaId || null, ferramenta,
+        JSON.stringify(entrada).slice(0, 4000), r.erro ? r.erro : "ok", r.erro ? 0 : 1, agora());
+    } catch (e) { console.warn("[assistente] não registrei a ação:", e.message); }
+  } : null;
+  const doMenu = executarMenu({ autorizacao, menu, registrar });
   return async (nome, e, efeitos) => {
+    const m = await doMenu(nome, e, efeitos);
+    if (m) return m;
     switch (nome) {
       case "buscar_leads": {
         const q = String(e.texto || "").trim();
@@ -431,6 +501,8 @@ const INSTRUCOES_CONSULTA = `Você é o assistente do ConHub, um CRM de imobili�
 
 Você SÓ CONSULTA. Não muda nada na conta — nem etapa, nem lead, nem configuração —, e não tem ferramenta para isso. Se pedirem uma mudança, diga onde clicar na tela (use abrir_tela) ou que quem configura é a gestão.
 
+A ÚNICA exceção é o menu da própria pessoa: ela pode reorganizar a ordem das telas do menu dela como quiser (ver_meu_menu, organizar_meu_menu), ou voltar à ordem padrão. Só a posição: os nomes não mudam e nada some do menu — se pedirem para renomear ou esconder, diga que isso não dá. Isso não mexe no menu de mais ninguém.
+
 O que você faz:
 - Tira dúvidas de uso do sistema, pelo manual abaixo, com o caminho exato na tela.
 - Pesquisa os dados da pessoa: leads (buscar_leads, ver_lead), os números dela (ver_meus_numeros) e os funis (ver_funis). Nunca invente lead, número ou etapa: o que não veio das ferramentas, você não sabe.
@@ -462,6 +534,7 @@ Como trabalhar:
 - Pedido claro: faça, e depois diga em poucas linhas o que ficou feito. Pedido ambíguo ou grande (ex.: refazer um funil inteiro): proponha o plano em tópicos curtos e espere o "pode".
 - Uma ferramenta recusou: diga o motivo com as palavras da recusa e o que a pessoa pode fazer. Não tente contornar uma recusa de permissão ou de plano.
 - Você NÃO apaga nada, não mexe em cobrança, plano, WhatsApp/conexão, equipe, senha nem em leads. Para isso, use abrir_tela e diga onde clicar.
+- O menu da própria pessoa pode ser reorganizado (ver_meu_menu, organizar_meu_menu): só a ordem, nunca o nome; nada some do menu.
 - Responda curto, sem jargão técnico, sem markdown pesado (no máximo listas simples). Não fale de ids para a pessoa.
 - Se a dúvida for de uso do sistema e não de configuração, responda pelo manual abaixo.
 
