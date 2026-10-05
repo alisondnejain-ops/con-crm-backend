@@ -49,7 +49,9 @@ export function custoDaChamada(modelo, u) {
   return ((u.input_tokens || 0) * p.entrada
     + (u.cache_creation_input_tokens || 0) * p.entrada * 1.25
     + (u.cache_read_input_tokens || 0) * p.cache
-    + (u.output_tokens || 0) * p.saida) / 1e6;
+    + (u.output_tokens || 0) * p.saida) / 1e6
+    // Pesquisa na web: US$ 10 por mil buscas, cobradas à parte dos tokens.
+    + (u.server_tool_use?.web_search_requests || 0) * 0.01;
 }
 
 /* Uma chamada. Devolve { ok, resposta, uso, custo } ou { ok:false, erro }.

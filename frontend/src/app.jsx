@@ -6455,6 +6455,12 @@ function BaloesDaConversa({itens,isMobile}){
       lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
       {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte ConHub</div>}
       {i.texto}
+      {/* De onde veio o que a pesquisa na internet trouxe — para conferir. */}
+      {Array.isArray(i.fontes)&&i.fontes.length>0&&<div style={{marginTop:7,paddingTop:6,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3,whiteSpace:"normal"}}>
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:700}}>Fontes</span>
+        {i.fontes.map(f=><a key={f.url} href={f.url} target="_blank" rel="noopener noreferrer"
+          style={{color:C.greenMid,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.titulo}</a>)}
+      </div>}
     </div>;
   })}</React.Fragment>;
 }
@@ -6521,7 +6527,12 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
     finally{ setOcupado(false); setPendente(null); }
   }
   async function nova(){ try{ setD(await api("/assistente/nova",{method:"POST"})); setNavegar(null); }catch(e){ setErro(e.message); } }
-  const sugestoes=["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
+  /* Dois modos, e quem decide é o servidor (`d.modo`): o gestor configura; a
+     atendente e o corretor só consultam — tiram dúvidas e pesquisam. */
+  const consulta=!!(d&&d.modo==="consulta");
+  const sugestoes=consulta
+    ?["Quais leads meus estão esperando resposta?","Como estão meus números neste mês?","Quais documentos pedir para financiar pela Caixa?","Como eu repasso um lead para outro corretor?"]
+    :["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
   return <div style={{position:"fixed",inset:0,zIndex:80,background:isMobile?C.card:"rgba(10,61,48,.18)",display:"flex",justifyContent:"flex-end"}}
     onClick={e=>{ if(e.target===e.currentTarget) aoFechar(); }}>
     <div className={isMobile?"tela-cheia":undefined} style={{width:isMobile?"100%":420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
@@ -6530,7 +6541,7 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
         <div style={{width:32,height:32,borderRadius:10,background:"#FBF1EC",display:"flex",alignItems:"center",justifyContent:"center"}}><LogoClaude size={18}/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Assistente Claude</div>
-          <div style={{color:C.faint,fontSize:11}}>Configura a sua conta conversando</div>
+          <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Configura a sua conta conversando"}</div>
         </div>
         {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
         <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
@@ -6538,10 +6549,14 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
       <div ref={lista} style={{flex:1,minHeight:0,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:9}}>
         {!d&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>}
         {d&&!itens.length&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
+          {consulta?<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
+            Pergunte o que quiser: como usar o sistema, como estão seus leads e seus números, ou algo de fora — financiamento, documentação, mercado. Eu pesquiso e te respondo.
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu só consulto: não mudo nada na conta. Para mudar, te levo até a tela certa.</div>
+          </div>
+          :<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
             Diga o que você quer montar e eu faço na sua conta: funis e etapas, prazos, o que acontece quando o lead chega numa etapa, campos, tags, mensagens prontas e as orientações do Autoatendimento.
             <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu não apago nada nem mexo em cobrança, WhatsApp ou equipe — para isso te levo até a tela certa.</div>
-          </div>
+          </div>}
           {d.disponivel&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
             {sugestoes.map(s=><button key={s} onClick={()=>setTexto(s)} style={{textAlign:"left",border:`1px solid ${C.line}`,background:C.card,
               color:C.ink,borderRadius:10,padding:"8px 11px",fontSize:12.5,cursor:"pointer"}}>{s}</button>)}
@@ -6550,15 +6565,15 @@ function PainelAssistente({aoFechar,isMobile,irPara}){
         <BaloesDaConversa itens={itens} isMobile={isMobile}/>
         {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente}]} isMobile={isMobile}/>}
         {ocupado&&<div style={{alignSelf:"flex-start",display:"flex",gap:7,alignItems:"center",color:C.faint,fontSize:12}}>
-          <LogoClaude size={13}/>Pensando e configurando…</div>}
+          <LogoClaude size={13}/>{consulta?"Pesquisando…":"Pensando e configurando…"}</div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
         {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
         {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
       </div>
       {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado}
-        placeholder={isMobile?"O que você quer configurar?":"Ex.: crie a etapa Visita com prazo de 1 dia"} isMobile={isMobile}/>}
+        placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você quer configurar?":"Ex.: crie a etapa Visita com prazo de 1 dia"} isMobile={isMobile}/>}
       {d&&d.disponivel&&<div style={{color:C.faint,fontSize:10,textAlign:"center",padding:"0 0 8px",background:C.card}}>
-        {d.usados}/{d.limite} perguntas neste mês · confira o que foi feito antes de usar</div>}
+        {d.usados}/{d.limite} perguntas da equipe neste mês · {consulta?"confira antes de passar ao cliente":"confira o que foi feito antes de usar"}</div>}
     </div>
   </div>;
 }
@@ -7068,7 +7083,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           </span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
-          {podeGerir(session)&&<BotaoClaude onClick={()=>setAssistenteAberto(true)} isMobile={isMobile}/>}
+          {/* Para todo mundo (05/10/2026): o gestor configura; atendente e
+              corretor só consultam — o modo é decidido pelo servidor. */}
+          <BotaoClaude onClick={()=>setAssistenteAberto(true)} isMobile={isMobile}/>
           {!isMobile&&<div style={{textAlign:"right"}}><div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div><div style={{color:C.faint,fontSize:10.5}}>{roleLabel}</div></div>}
           <button onClick={()=>setView("conta")} title="Minha conta" style={{border:"none",background:"transparent",padding:0,cursor:"pointer",display:"flex"}}>
             <Avatar ini={session.ini} color={session.color} size={isMobile?30:34} foto={session.avatar}/>

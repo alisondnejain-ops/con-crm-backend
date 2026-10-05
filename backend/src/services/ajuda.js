@@ -68,6 +68,10 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 ## Notificações
 - Minha conta → Notificações no celular → Ativar. No iPhone só funciona com o ConHub adicionado à Tela de Início (Compartilhar → Adicionar à Tela de Início).
 
+## Assistente Claude (botão no alto da tela)
+- Gestor: configura a conta conversando (funis, etapas, prazos, campos, tags, mensagens prontas).
+- Atendente e corretor: só consulta — tira dúvidas, procura leads e números dele e pesquisa na internet. Não muda nada na conta.
+
 ## Equipe e acesso
 - Convidar: Equipe → copie o link de cadastro e mande para a pessoa; depois aprove.
 - Esqueci a senha: na tela de entrada, "Esqueci minha senha" (chega por e-mail). O gestor também gera "Nova senha" em Equipe.

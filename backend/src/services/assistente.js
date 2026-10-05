@@ -31,6 +31,8 @@ import { CORES_TAG } from "./tags.js";
    direto para uma pessoa. */
 export const LIMITES = {
   config: () => Number(process.env.ASSISTENTE_LIMITE_MES || 200),
+  // A consulta é de toda a equipe (atendentes e corretores), então o teto é maior.
+  consulta: () => Number(process.env.ASSISTENTE_CONSULTA_LIMITE_MES || 400),
   suporte: () => Number(process.env.SUPORTE_IA_LIMITE_MES || 300),
 };
 const inicioDoMes = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -85,11 +87,11 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
   db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
     .run("at_" + randomUUID(), user.org_id, user.id, tipo, agora());
 
-  let falhou = null;
+  let falhou = null, pausada = false;
   for (let volta = 0; volta < VOLTAS; volta++) {
     const r = await chamarClaude({ system, messages: mensagens, tools, effort });
     if (!r.ok) { falhou = r.erro; break; }
-    registrar({ orgId: user.org_id, userId: user.id, recurso: tipo === "config" ? "assistente" : "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
+    registrar({ orgId: user.org_id, userId: user.id, recurso: { config: "assistente", consulta: "consulta" }[tipo] || "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
     const resp = r.resposta;
 
     /* Recusa do filtro de segurança: o conteúdo pode vir vazio, e resposta
@@ -101,9 +103,18 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
       break;
     }
     if (!Array.isArray(resp.content) || !resp.content.length) { falhou = "A IA não respondeu nada."; break; }
-    mensagens.push({ role: "assistant", content: resp.content });
+    /* PESQUISA NA WEB PAUSADA (`pause_turn`): a pesquisa roda nos servidores
+       da Anthropic e, quando demora, a API devolve a resposta pela metade.
+       Para continuar, ela é mandada de volta como está; o que vem depois é a
+       continuação da MESMA fala, e por isso entra junto dela — duas falas
+       seguidas do assistente não são um histórico válido. */
+    if (pausada) mensagens[mensagens.length - 1] = { role: "assistant", content: mensagens[mensagens.length - 1].content.concat(resp.content) };
+    else mensagens.push({ role: "assistant", content: resp.content });
+    pausada = resp.stop_reason === "pause_turn";
     const fala = textoDe(resp);
-    if (fala) novos.push(novoItem("assistente", fala));
+    const fontes = fontesDe(resp);
+    if (fala) novos.push(novoItem("assistente", fala, fontes.length ? { fontes } : {}));
+    if (pausada) continue;
 
     const pedidos = resp.content.filter(b => b.type === "tool_use");
     if (resp.stop_reason !== "tool_use" || !pedidos.length) break;
@@ -125,6 +136,8 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
      ou numa pergunta da pessoa. Pedido de ferramenta sem resposta ou resposta
      de ferramenta sem continuação deixariam o histórico inválido — então o
      que ficou pela metade sai. */
+  // Terminou ainda pausada (teto de voltas): a fala pela metade não fica.
+  if (pausada && mensagens.length > inicio) mensagens.pop();
   if (falhou) {
     novos.push(novoItem("erro", falhou));
     while (mensagens.length > inicio) {
@@ -147,6 +160,18 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
   db.prepare("UPDATE assistente_conversas SET mensagens = ?, itens = ?, updated_at = ? WHERE id = ?")
     .run(JSON.stringify(guardar), JSON.stringify(todosItens), agora(), conversa.id);
   return { itens: novos, navegar: efeitos.navegar, humano: efeitos.humano, falhou: !!falhou };
+}
+
+/* As páginas que a pesquisa na web citou, para a pessoa conferir. Vêm nas
+   citações dos blocos de texto; repetidas saem, e cinco bastam. */
+function fontesDe(resp) {
+  const vistas = new Map();
+  for (const b of resp?.content || []) {
+    for (const c of (b.type === "text" && Array.isArray(b.citations) ? b.citations : [])) {
+      if (c.url && !vistas.has(c.url)) vistas.set(c.url, { url: c.url, titulo: String(c.title || c.url).slice(0, 120) });
+    }
+  }
+  return [...vistas.values()].slice(0, 5);
 }
 
 /* ===== AS FERRAMENTAS ===== */
@@ -323,6 +348,107 @@ export function abrirTela(e, efeitos) {
   if (!TELAS[e.tela]) return { erro: "Tela desconhecida." };
   efeitos.navegar = { tela: e.tela, rotulo: TELAS[e.tela], motivo: String(e.motivo || "").slice(0, 200) };
   return { dados: { ok: true, mostrado_botao: true } };
+}
+
+/* ===== O MODO CONSULTA (atendente e corretor) =====
+   Pedido do Ali (05/10/2026): o botão do Claude também para a atendente e o
+   corretor, "sem permitir ajustes como a conta de gestor, apenas responder
+   dúvidas e fazer pesquisas". Por isso o modo de consulta não tem UMA
+   ferramenta que escreva: só leitura, pelas mesmas rotas da tela e com o
+   crachá de quem pergunta — o corretor só acha os leads dele, como na caixa
+   dele. E a pesquisa na internet roda nos servidores da Anthropic
+   (`web_search`), sem nada do CRM ir junto: a instrução proíbe pôr nome,
+   telefone ou documento de cliente numa busca. */
+const MAX_PESQUISAS = () => Number(process.env.ASSISTENTE_PESQUISAS_POR_PERGUNTA || 5);
+export const FERRAMENTAS_CONSULTA = () => [
+  T("buscar_leads", "Procura leads que a pessoa pode ver (o corretor, só os dele) por nome, telefone, etapa ou temperatura. Devolve até 20, com id para ver_lead.",
+    { texto: { type: "string", description: "parte do nome ou do telefone (opcional)" },
+      etapa: { type: "string", description: "nome da etapa (opcional)" },
+      temperatura: { type: "string", enum: ["QUENTE", "MORNO", "FRIO", "SEM"] },
+      aguardando: { type: "boolean", description: "só quem está esperando resposta" } }),
+  T("ver_lead", "Abre um lead: dados, etapa, responsável, observações, tarefas e as últimas mensagens da conversa.",
+    { lead_id: { type: "string" } }, ["lead_id"]),
+  T("ver_meus_numeros", "Os indicadores do período (leads recebidos, vendas, valor vendido, visitas/demonstrações, ligações) e as metas do mês. O corretor vê os dele; a atendente, os da equipe.",
+    { periodo: { type: "string", enum: ["hoje", "ontem", "7d", "este_mes", "mes_passado", "30d"] } }),
+  T("ver_funis", "Lista os funis da conta e as etapas, só para consulta."),
+  FERRAMENTA_ABRIR_TELA,
+  { type: "web_search_20260209", name: "web_search", max_uses: MAX_PESQUISAS() },
+];
+
+const resumoDoLead = (l) => sem({
+  id: l.id, nome: l.name, telefone: l.phone || undefined, etapa: l.stage, temperatura: l.priority || "sem",
+  responsavel: l.assigned_name || (l.assigned_to ? undefined : "na fila"), origem: l.origem || undefined,
+  campanha: l.campaign_name || undefined,
+  ultima_mensagem: l.last_at ? new Date(l.last_at).toLocaleString("pt-BR") : undefined,
+  esperando_resposta: l.last_direction === "in" || l.aguarda_contato ? true : undefined,
+  venda: l.sale_value ? { valor: l.sale_value, data: l.sale_date ? new Date(l.sale_date).toLocaleDateString("pt-BR") : undefined } : undefined,
+});
+const semAcento = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+export function executorDeConsulta({ autorizacao }) {
+  const ler = async (caminho, montar = (d) => d) => {
+    const r = await chamarRota(autorizacao, "GET", caminho);
+    return r.erro ? { erro: r.erro } : { dados: montar(r.dados) };
+  };
+  return async (nome, e, efeitos) => {
+    switch (nome) {
+      case "buscar_leads": {
+        const q = String(e.texto || "").trim();
+        const digitos = q.replace(/\D/g, "");
+        const r = await chamarRota(autorizacao, "GET", "/leads" + (q ? `?q=${encodeURIComponent(digitos.length >= 4 ? digitos : q)}` : ""));
+        if (r.erro) return { erro: r.erro };
+        let lista = Array.isArray(r.dados) ? r.dados : (r.dados.leads || []);
+        // A rota do corretor não filtra por texto (a caixa dele já vem inteira): filtra aqui.
+        if (q) lista = lista.filter(l => digitos.length >= 4
+          ? String(l.phone || "").includes(digitos)
+          : semAcento(l.name).includes(semAcento(q)));
+        if (e.etapa) lista = lista.filter(l => semAcento(l.stage) === semAcento(e.etapa));
+        if (e.temperatura) lista = lista.filter(l => (l.priority || "SEM") === e.temperatura);
+        if (e.aguardando) lista = lista.filter(l => l.last_direction === "in" || l.aguarda_contato);
+        lista.sort((a, b) => (b.last_at || b.created_at || 0) - (a.last_at || a.created_at || 0));
+        return { dados: { total: lista.length, leads: lista.slice(0, 20).map(resumoDoLead) } };
+      }
+      case "ver_lead": return ler(`/leads/${encodeURIComponent(e.lead_id)}`, (l) => ({
+        ...resumoDoLead(l),
+        qualificacao: l.qual && Object.keys(l.qual).length ? l.qual : undefined,
+        observacoes: (l.observacoes || []).slice(-10).map(o => ({ texto: o.texto, por: o.autor_nome || o.por || undefined })),
+        tarefas: (l.lista_tarefas || []).slice(0, 10).map(t => sem({ titulo: t.titulo, quando: t.quando ? new Date(t.quando).toLocaleString("pt-BR") : undefined, feita: t.feita ? true : undefined })),
+        conversa: (l.messages || []).filter(m => m.body).slice(-30).map(m => ({
+          de: m.direction === "in" ? "cliente" : "imobiliária", texto: String(m.body).slice(0, 500),
+          em: new Date(m.created_at).toLocaleString("pt-BR") })),
+      }));
+      case "ver_meus_numeros": return ler(`/painel/geral?periodo=${encodeURIComponent(e.periodo || "este_mes")}`, (d) => ({
+        periodo: d.periodo, indicadores: d.kpis, funil_de_atividade: (d.funil_atividade || []).map(p => ({ passo: p.nome, valor: p.valor })),
+        metas: d.metas }));
+      case "ver_funis": return ler("/pipelines", (d) => ({ funis: resumoFunis(d).funis }));
+      case "abrir_tela": return abrirTela(e, efeitos);
+      default: return { erro: "Ferramenta desconhecida." };
+    }
+  };
+}
+
+const INSTRUCOES_CONSULTA = `Você é o assistente do ConHub, um CRM de imobiliárias, e conversa em português do Brasil com quem atende os clientes (atendente ou corretor).
+
+Você SÓ CONSULTA. Não muda nada na conta — nem etapa, nem lead, nem configuração —, e não tem ferramenta para isso. Se pedirem uma mudança, diga onde clicar na tela (use abrir_tela) ou que quem configura é a gestão.
+
+O que você faz:
+- Tira dúvidas de uso do sistema, pelo manual abaixo, com o caminho exato na tela.
+- Pesquisa os dados da pessoa: leads (buscar_leads, ver_lead), os números dela (ver_meus_numeros) e os funis (ver_funis). Nunca invente lead, número ou etapa: o que não veio das ferramentas, você não sabe.
+- Pesquisa na internet (web_search) quando a pergunta é de fora do sistema: financiamento, programas habitacionais, documentação, mercado, como abordar um cliente. Diga de onde veio a informação e, quando for regra que muda (taxa, prazo, valor), avise para conferir na fonte oficial.
+- Pode sugerir texto de mensagem para o cliente; quem envia é a pessoa, pela conversa.
+
+Privacidade: NUNCA coloque nome, telefone, e-mail, CPF ou qualquer dado de cliente numa pesquisa na internet. Pesquise o assunto, não a pessoa.
+
+Responda curto, sem jargão técnico, sem markdown pesado (no máximo listas simples). Não fale de ids.
+
+${MANUAL_CONHUB}`;
+
+export function sistemaDeConsulta(user, org) {
+  const papel = user.role === "sdr" ? "atendente" : "corretor(a)";
+  return [
+    { type: "text", text: INSTRUCOES_CONSULTA },
+    { type: "text", text: `Conta: ${org?.name || "—"}. Quem conversa: ${user.name}, ${papel}. Hoje: ${new Date().toLocaleDateString("pt-BR")}.` },
+  ];
 }
 
 /* ===== AS INSTRUÇÕES =====

@@ -14,11 +14,12 @@
 
 import { Router } from "express";
 import db from "../db.js";
-import { authRequired, roles, soMaster } from "../auth.js";
+import { authRequired, soMaster, ehDonoAutonomo } from "../auth.js";
 import { daEquipeConHub } from "../services/interno.js";
 import {
   conversar, conversaAtual, novaConversa, itensDa, disponibilidade,
   FERRAMENTAS_CONFIG, executorDeConfig, sistemaDeConfig,
+  FERRAMENTAS_CONSULTA, executorDeConsulta, sistemaDeConsulta,
 } from "../services/assistente.js";
 import {
   sistemaDeSuporte, FERRAMENTAS_SUPORTE, executorDeSuporte,
@@ -29,33 +30,46 @@ import {
 const orgDe = (orgId) => db.prepare("SELECT id, name, tipo FROM orgs WHERE id = ?").get(orgId);
 const textoDoCorpo = (req) => String(req.body?.texto || "").trim().slice(0, 4000);
 
-/* ===== ASSISTENTE DE CONFIGURAÇÃO ===== */
+/* ===== O ASSISTENTE =====
+   Dois modos, decididos AQUI e não na tela: quem administra a conta (gestor,
+   ou o dono da conta de autônomo) configura; a atendente e o corretor só
+   CONSULTAM (05/10/2026) — tiram dúvidas e pesquisam, sem nenhuma ferramenta
+   que mude a conta. As conversas dos dois modos são separadas (`tipo`). */
 export const assistente = Router();
-assistente.use(roles("adm"));
+const configura = (user) => user.role === "adm" || ehDonoAutonomo(user);
+const modoDe = (user) => (configura(user) ? "config" : "consulta");
 
 assistente.get("/", (req, res) => {
-  const c = conversaAtual(req.user.id, "config");
-  res.json({ ...disponibilidade(req.user, "config"), itens: itensDa(c) });
+  const modo = modoDe(req.user);
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: itensDa(conversaAtual(req.user.id, modo)) });
 });
 
 assistente.post("/nova", (req, res) => {
-  novaConversa(req.user, "config");
-  res.json({ ...disponibilidade(req.user, "config"), itens: [] });
+  const modo = modoDe(req.user);
+  novaConversa(req.user, modo);
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: [] });
 });
 
 assistente.post("/mensagem", async (req, res) => {
+  const modo = modoDe(req.user);
   const texto = textoDoCorpo(req);
-  if (!texto) return res.status(400).json({ error: "Escreva o que você quer configurar." });
-  const disp = disponibilidade(req.user, "config");
+  if (!texto) return res.status(400).json({ error: modo === "config" ? "Escreva o que você quer configurar." : "Escreva a sua pergunta." });
+  const disp = disponibilidade(req.user, modo);
   if (!disp.disponivel) return res.status(409).json({ error: disp.motivo });
-  const conversa = conversaAtual(req.user.id, "config") || novaConversa(req.user, "config");
-  const r = await conversar({
+  const conversa = conversaAtual(req.user.id, modo) || novaConversa(req.user, modo);
+  const autorizacao = req.headers.authorization;
+  const r = await conversar(modo === "config" ? {
     conversa, user: req.user, tipo: "config", texto, effort: "medium",
     system: sistemaDeConfig(req.user, orgDe(req.user.org_id)),
     tools: FERRAMENTAS_CONFIG,
-    executar: executorDeConfig({ autorizacao: req.headers.authorization, user: req.user, conversaId: conversa.id }),
+    executar: executorDeConfig({ autorizacao, user: req.user, conversaId: conversa.id }),
+  } : {
+    conversa, user: req.user, tipo: "consulta", texto, effort: "medium",
+    system: sistemaDeConsulta(req.user, orgDe(req.user.org_id)),
+    tools: FERRAMENTAS_CONSULTA(),
+    executar: executorDeConsulta({ autorizacao }),
   });
-  res.json({ ...r, ...disponibilidade(req.user, "config") });
+  res.json({ ...r, ...disponibilidade(req.user, modo), modo });
 });
 
 /* ===== NUVEM DE SUPORTE ===== */
