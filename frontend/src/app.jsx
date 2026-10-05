@@ -4634,6 +4634,15 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
 
       <Autonomos acoes={acoes} isMobile={isMobile} contas={autonomos} aoMudar={rever} aoEntrar={aoEntrar}/>
       <Socios acoes={acoes} session={session} isMobile={isMobile}/>
+      {/* Suporte: para onde vão as mensagens da nuvem de suporte dos clientes, e os chamados. */}
+      <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>Suporte</div>
+        <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+          Quando a IA da nuvem de suporte não resolve, o cliente fala com uma pessoa: a mensagem chega no
+          WhatsApp abaixo, e a resposta (citando a mensagem ou começando com #número) volta para ele.
+        </div>
+        <SuporteNoHub isMobile={isMobile}/>
+      </div>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
       <DominiosDosSites acoes={acoes} isMobile={isMobile}/>
       <Backup acoes={acoes} isMobile={isMobile}/>
@@ -6197,7 +6206,10 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
      esqueleto, em vez de ganhar uma tela própria. */
   const aguardandoCartao=assinatura.status==="aguardando_cartao";
   const [baixando,setBaixando]=useState(false);
+  const celular=useIsMobile();
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    {/* Conta travada é justamente quem mais precisa falar com o suporte. */}
+    {!session.master&&<NuvemDeSuporte isMobile={celular} view="bloqueado"/>}
     <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:24,maxWidth:440,width:"100%"}}>
       <div style={{width:44,height:44,borderRadius:13,background:C.hotSoft,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
         <Icon n="lock" size={21} color={C.hot}/></div>
@@ -6346,6 +6358,327 @@ function Splash(){
   </div>;
 }
 
+/* ===== ASSISTENTE (Claude) E NUVEM DE SUPORTE (05/10/2026) =====
+
+   Dois pedidos do Ali que conversam com a mesma IA, com papéis diferentes:
+   - o BOTÃO DO CLAUDE, no alto, para quem administra a conta: configura
+     funis, etapas, campos, tags, mensagens prontas e o Autoatendimento
+     conversando. Quem decide o que ele pode fazer é o servidor — ele usa as
+     mesmas rotas da tela, com o login de quem conversa;
+   - a NUVEM DE SUPORTE, no canto de baixo, para todo mundo: a IA tenta
+     resolver pelo manual do sistema e, quando não dá, abre a conversa com uma
+     pessoa do ConHub, que responde pelo WhatsApp e a resposta volta aqui.
+
+   A cor do Claude (#D97757) aparece só no botão e no selo dele, para separar
+   "a IA está falando" do resto da tela. O símbolo é desenhado aqui (estrela
+   de raios), sem arquivo: não depende de nada carregar. */
+const COR_CLAUDE="#D97757";
+function LogoClaude({size=16,cor=COR_CLAUDE}){
+  const raios=[0,45,90,135,180,225,270,315];
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{flexShrink:0}}>
+    {raios.map((a,i)=><rect key={a} x="10.9" y={i%2?"3.4":"1.6"} width="2.2" height={i%2?"8.6":"10.4"} rx="1.1"
+      fill={cor} transform={`rotate(${a} 12 12)`}/>)}
+  </svg>;
+}
+
+// As falas de uma conversa com a IA ou com o suporte — o mesmo desenho nos dois lugares.
+function BaloesDaConversa({itens,isMobile}){
+  return <React.Fragment>{itens.map(i=>{
+    if(i.de==="acao") return <div key={i.id} style={{alignSelf:"flex-start",display:"flex",gap:6,alignItems:"center",
+      color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"6px 9px",fontSize:12,fontWeight:600,maxWidth:"92%"}}>
+      <Icon n="check" size={12}/><span>{i.texto.replace(/^✓\s*/,"")}</span></div>;
+    if(i.de==="erro") return <div key={i.id} style={{alignSelf:"flex-start",color:C.hot,background:C.hotSoft,borderRadius:9,
+      padding:"6px 9px",fontSize:12,lineHeight:1.45,maxWidth:"92%"}}>{i.texto}</div>;
+    if(i.de==="sistema") return <div key={i.id} style={{alignSelf:"center",color:C.faint,fontSize:11,textAlign:"center",
+      padding:"2px 8px",lineHeight:1.45,maxWidth:"90%"}}>{i.texto}</div>;
+    const meu=i.de==="voce"||i.de==="cliente";
+    return <div key={i.id} style={{alignSelf:meu?"flex-end":"flex-start",maxWidth:"86%",
+      background:meu?C.greenDeep:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,
+      borderRadius:meu?"13px 13px 4px 13px":"13px 13px 13px 4px",padding:"8px 11px",fontSize:isMobile?14:13,
+      lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+      {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte ConHub</div>}
+      {i.texto}
+    </div>;
+  })}</React.Fragment>;
+}
+
+// O campo de escrever, igual nos dois painéis: Enter envia, Shift+Enter quebra a linha.
+function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile}){
+  return <div style={{display:"flex",gap:7,alignItems:"flex-end",padding:10,borderTop:`1px solid ${C.line}`,background:C.card}}>
+    <textarea value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1}
+      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
+      style={{flex:1,resize:"none",maxHeight:110,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
+        border:`1px solid ${C.line}`,background:C.surface,borderRadius:11,padding:"10px 11px",color:C.ink,outline:"none"}}/>
+    <button onClick={enviar} disabled={ocupado||!valor.trim()} aria-label="Enviar"
+      style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,cursor:ocupado||!valor.trim()?"default":"pointer",
+        background:ocupado||!valor.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
+  </div>;
+}
+
+// Rola para a última fala sempre que a lista cresce.
+function usarRolagemNoFim(dep){
+  const ref=useRef(null);
+  useEffect(()=>{ const el=ref.current; if(el) el.scrollTop=el.scrollHeight; },[dep]);
+  return ref;
+}
+
+function BotaoIrPara({navegar,irPara}){
+  if(!navegar||!irPara) return null;
+  return <button onClick={()=>irPara(navegar.tela)} style={{alignSelf:"flex-start",display:"flex",alignItems:"center",gap:6,
+    border:`1px solid ${C.green}66`,background:C.card,color:C.greenDeep,borderRadius:10,padding:"7px 11px",
+    fontSize:12.5,fontWeight:700,cursor:"pointer",maxWidth:"92%",textAlign:"left"}}>
+    <Icon n="arrow" size={13}/><span>Ir para {navegar.rotulo}{navegar.motivo?<span style={{fontWeight:500,color:C.sub}}> — {navegar.motivo}</span>:null}</span>
+  </button>;
+}
+
+/* O BOTÃO DO CLAUDE, no alto da tela. No celular só o símbolo: a faixa de
+   cima tem 375px e já carrega o título da tela e a foto. */
+function BotaoClaude({onClick,isMobile}){
+  return <button onClick={onClick} title="Assistente Claude: configure a conta conversando"
+    style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${COR_CLAUDE}55`,background:"#FBF1EC",
+      color:"#A4492B",borderRadius:999,padding:isMobile?"0":"5px 12px 5px 9px",width:isMobile?34:"auto",height:isMobile?34:32,
+      justifyContent:"center",fontSize:12.5,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+    <LogoClaude size={isMobile?17:15}/>{!isMobile&&"Claude"}
+  </button>;
+}
+
+/* O PAINEL DO ASSISTENTE: folha à direita no computador, tela cheia no celular. */
+function PainelAssistente({aoFechar,isMobile,irPara}){
+  const [d,setD]=useState(null);
+  const [texto,setTexto]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [navegar,setNavegar]=useState(null);
+  const [pendente,setPendente]=useState(null);
+  useEffect(()=>{ api("/assistente").then(setD).catch(e=>setErro(e.message)); },[]);
+  const itens=(d&&d.itens)||[];
+  const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0));
+  async function enviar(){
+    const t=texto.trim(); if(!t||ocupado) return;
+    setTexto(""); setErro(""); setNavegar(null); setOcupado(true); setPendente(t);
+    try{
+      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t}});
+      setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
+    }catch(e){ setErro(e.message); setTexto(t); }
+    finally{ setOcupado(false); setPendente(null); }
+  }
+  async function nova(){ try{ setD(await api("/assistente/nova",{method:"POST"})); setNavegar(null); }catch(e){ setErro(e.message); } }
+  const sugestoes=["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
+  return <div style={{position:"fixed",inset:0,zIndex:80,background:isMobile?C.card:"rgba(10,61,48,.18)",display:"flex",justifyContent:"flex-end"}}
+    onClick={e=>{ if(e.target===e.currentTarget) aoFechar(); }}>
+    <div className={isMobile?"tela-cheia":undefined} style={{width:isMobile?"100%":420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
+      boxShadow:isMobile?"none":"-12px 0 40px rgba(0,0,0,.12)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",background:C.card,borderBottom:`1px solid ${C.line}`}}>
+        <div style={{width:32,height:32,borderRadius:10,background:"#FBF1EC",display:"flex",alignItems:"center",justifyContent:"center"}}><LogoClaude size={18}/></div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Assistente Claude</div>
+          <div style={{color:C.faint,fontSize:11}}>Configura a sua conta conversando</div>
+        </div>
+        {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
+        <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
+      </div>
+      <div ref={lista} style={{flex:1,minHeight:0,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:9}}>
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>}
+        {d&&!itens.length&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
+            Diga o que você quer montar e eu faço na sua conta: funis e etapas, prazos, o que acontece quando o lead chega numa etapa, campos, tags, mensagens prontas e as orientações do Autoatendimento.
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu não apago nada nem mexo em cobrança, WhatsApp ou equipe — para isso te levo até a tela certa.</div>
+          </div>
+          {d.disponivel&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {sugestoes.map(s=><button key={s} onClick={()=>setTexto(s)} style={{textAlign:"left",border:`1px solid ${C.line}`,background:C.card,
+              color:C.ink,borderRadius:10,padding:"8px 11px",fontSize:12.5,cursor:"pointer"}}>{s}</button>)}
+          </div>}
+        </div>}
+        <BaloesDaConversa itens={itens} isMobile={isMobile}/>
+        {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente}]} isMobile={isMobile}/>}
+        {ocupado&&<div style={{alignSelf:"flex-start",display:"flex",gap:7,alignItems:"center",color:C.faint,fontSize:12}}>
+          <LogoClaude size={13}/>Pensando e configurando…</div>}
+        <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
+        {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
+      </div>
+      {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado}
+        placeholder={isMobile?"O que você quer configurar?":"Ex.: crie a etapa Visita com prazo de 1 dia"} isMobile={isMobile}/>}
+      {d&&d.disponivel&&<div style={{color:C.faint,fontSize:10,textAlign:"center",padding:"0 0 8px",background:C.card}}>
+        {d.usados}/{d.limite} perguntas neste mês · confira o que foi feito antes de usar</div>}
+    </div>
+  </div>;
+}
+
+/* A NUVEM DE SUPORTE, no canto de baixo à direita.
+
+   Fica ACIMA da barra do celular (que muda de altura com a faixa do iPhone)
+   e, na tela de conversa, mais alta: ali o canto de baixo é o botão de
+   enviar a mensagem ao cliente, e a nuvem não pode cobri-lo. */
+function NuvemDeSuporte({isMobile,irPara,view}){
+  const [aberta,setAberta]=useState(false);
+  const [d,setD]=useState(null);
+  const [naoLidas,setNaoLidas]=useState(0);
+  const [texto,setTexto]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [aviso,setAviso]=useState("");
+  const [humano,setHumano]=useState(null);
+  const [navegar,setNavegar]=useState(null);
+  const barra=usarAlturaDaBarra();
+
+  const carregar=(ler)=>api("/suporte"+(ler?"?ler=1":"")).then(r=>{setD(r);setNaoLidas(ler?0:r.nao_lidas||0);return r;});
+  // Fechada: só a contagem, de 30 em 30s. Aberta com uma pessoa do outro lado: de 5 em 5s.
+  useEffect(()=>{
+    if(aberta) return;
+    const ver=()=>{ if(document.visibilityState==="visible") api("/suporte/nao-lidas").then(r=>setNaoLidas(r.nao_lidas||0)).catch(()=>{}); };
+    ver(); const t=setInterval(ver,30000); return()=>clearInterval(t);
+  },[aberta]);
+  useEffect(()=>{
+    if(!aberta) return;
+    carregar(true).catch(e=>setErro(e.message));
+    const t=setInterval(()=>{ if(document.visibilityState==="visible") carregar(true).catch(()=>{}); },5000);
+    return()=>clearInterval(t);
+  },[aberta]);
+
+  const chamado=d&&d.chamado;
+  const comPessoa=chamado&&chamado.status==="aberto";
+  const itensIA=(d&&d.ia&&d.ia.itens)||[];
+  const itensChamado=chamado?chamado.mensagens.map(m=>({id:m.id,de:m.de,texto:m.texto+(m.entregue===0&&m.de==="cliente"?" (aguardando entrega)":"")})):[];
+  const lista=usarRolagemNoFim(itensIA.length+itensChamado.length+(ocupado?1:0)+(humano?1:0));
+
+  async function enviar(){
+    const t=texto.trim(); if(!t||ocupado) return;
+    setTexto(""); setErro(""); setAviso(""); setNavegar(null); setOcupado(true);
+    try{
+      const r=await api("/suporte/mensagem",{method:"POST",body:{texto:t}});
+      setD(r); setHumano(r.humano||null); setNavegar(r.navegar||null); if(r.aviso) setAviso(r.aviso);
+    }catch(e){ setErro(e.message); setTexto(t); }
+    finally{ setOcupado(false); }
+  }
+  async function falarComPessoa(){
+    setOcupado(true); setErro("");
+    try{ const r=await api("/suporte/humano",{method:"POST",body:{resumo:humano?humano.resumo:""}}); setD(r); setHumano(null);
+      if(r.entregue===false) setAviso("Não consegui avisar o suporte pelo WhatsApp agora, mas o pedido ficou registrado."); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function encerrar(){ try{ setD(await api("/suporte/fechar",{method:"POST"})); }catch(e){ setErro(e.message); } }
+  async function recomecar(){ try{ setD(await api("/suporte/nova",{method:"POST"})); setHumano(null); setNavegar(null); }catch(e){ setErro(e.message); } }
+
+  const embaixo=isMobile?(barra||0)+(view==="atendimento"?78:12):(view==="atendimento"?86:20);
+  return <React.Fragment>
+    {!aberta&&<button onClick={()=>setAberta(true)} aria-label="Suporte" title="Precisa de ajuda? Fale com o suporte"
+      style={{position:"fixed",right:isMobile?12:20,bottom:embaixo,zIndex:70,width:isMobile?48:52,height:isMobile?48:52,borderRadius:"50%",
+        border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",boxShadow:"0 8px 24px rgba(10,61,48,.28)",
+        display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon n="msg" size={isMobile?21:22}/>
+      {naoLidas>0&&<span style={{position:"absolute",top:-3,right:-3,minWidth:19,height:19,borderRadius:999,background:C.hot,color:"#fff",
+        fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px",border:"2px solid #fff"}}>{naoLidas}</span>}
+    </button>}
+    {aberta&&<div className={isMobile?"tela-cheia":undefined} style={{position:"fixed",zIndex:85,display:"flex",flexDirection:"column",background:C.surface,overflow:"hidden",
+      ...(isMobile?{inset:0,height:"100dvh"}:{right:20,bottom:20,width:370,height:"min(560px, calc(100dvh - 40px))",borderRadius:16,
+        border:`1px solid ${C.line}`,boxShadow:"0 18px 50px rgba(0,0,0,.18)"})}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",background:C.greenDeep,color:"#fff"}}>
+        <Icon n="msg" size={18}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:700}}>{comPessoa?`Suporte ConHub · #${chamado.numero}`:"Suporte ConHub"}</div>
+          <div style={{fontSize:11,opacity:.8}}>{comPessoa?"Você está falando com uma pessoa":"Tire sua dúvida — se precisar, chamo uma pessoa"}</div>
+        </div>
+        {!comPessoa&&itensIA.length>0&&<button onClick={recomecar} style={{border:"1px solid rgba(255,255,255,.35)",background:"transparent",color:"#fff",borderRadius:9,padding:"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Nova</button>}
+        <button onClick={()=>setAberta(false)} aria-label="Fechar" style={{width:32,height:32,border:"none",background:"transparent",color:"#fff",cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
+      </div>
+      <div ref={lista} style={{flex:1,minHeight:0,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>}
+        {d&&!comPessoa&&!itensIA.length&&!chamado&&<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
+          Olá! Conte o que está acontecendo ou o que você quer fazer no sistema. Eu tento resolver na hora; se não der, te coloco em contato com o suporte.</div>}
+        {!comPessoa&&<BaloesDaConversa itens={itensIA} isMobile={isMobile}/>}
+        {chamado&&<React.Fragment>
+          {!comPessoa&&<div style={{alignSelf:"center",color:C.faint,fontSize:11,margin:"4px 0"}}>— Conversa com o suporte #{chamado.numero} —</div>}
+          {(comPessoa||!itensIA.length)&&<BaloesDaConversa itens={itensChamado} isMobile={isMobile}/>}
+        </React.Fragment>}
+        {ocupado&&<div style={{alignSelf:"flex-start",color:C.faint,fontSize:12}}>{comPessoa?"Enviando…":"Pensando…"}</div>}
+        <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);if(isMobile)setAberta(false);}:null}/>
+        {humano&&!comPessoa&&<div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:11}}>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Falar com uma pessoa do suporte</div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginBottom:8,whiteSpace:"pre-wrap"}}>Vamos enviar: {humano.resumo}</div>
+          <button onClick={falarComPessoa} disabled={ocupado} style={{width:"100%",border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Falar com o suporte</button>
+        </div>}
+        {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{aviso}</div>}
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
+      </div>
+      {d&&!comPessoa&&!humano&&<button onClick={falarComPessoa} disabled={ocupado}
+        style={{border:"none",borderTop:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,fontSize:12,fontWeight:600,padding:"9px",cursor:"pointer"}}>
+        Prefere falar direto com uma pessoa? <u>Falar com o suporte</u></button>}
+      {d&&comPessoa&&<button onClick={encerrar}
+        style={{border:"none",borderTop:`1px solid ${C.line}`,background:C.card,color:C.sub,fontSize:11.5,padding:"8px",cursor:"pointer"}}>
+        Já resolveu? <u>Encerrar a conversa</u></button>}
+      {d&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado} isMobile={isMobile}
+        placeholder={comPessoa?"Escreva para o suporte…":"Escreva sua dúvida…"}/>}
+    </div>}
+  </React.Fragment>;
+}
+
+/* O SUPORTE NO HUB DO MASTER: para onde vão as mensagens, de que linha saem,
+   o teste, e os chamados — com resposta pelo painel para quando o WhatsApp
+   do suporte estiver fora. */
+function SuporteNoHub({isMobile}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [msg,setMsg]=useState("");
+  const [destino,setDestino]=useState("");
+  const [aberto,setAberto]=useState(null);
+  const [conversa,setConversa]=useState(null);
+  const [resposta,setResposta]=useState("");
+  const carregar=()=>api("/suporte/hub").then(r=>{setD(r);setDestino(r.config.destino);}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  useEffect(()=>{ if(!aberto){setConversa(null);return;} api(`/suporte/hub/chamados/${aberto}`).then(setConversa).catch(e=>setErro(e.message)); },[aberto]);
+  async function salvar(corpo){ setErro("");setMsg(""); try{ const r=await api("/suporte/hub/config",{method:"PATCH",body:corpo}); setD(x=>({...x,config:r.config})); setDestino(r.config.destino); setMsg("Salvo."); }catch(e){ setErro(e.message); } }
+  async function testar(){ setErro("");setMsg(""); try{ await api("/suporte/hub/teste",{method:"POST"}); setMsg("Mensagem de teste enviada. Confira o WhatsApp do suporte."); }catch(e){ setErro(e.message); } }
+  async function responder(){ const t=resposta.trim(); if(!t)return; try{ const r=await api(`/suporte/hub/chamados/${aberto}/responder`,{method:"POST",body:{texto:t}}); setResposta(""); setConversa(c=>({...c,mensagens:r.mensagens})); carregar(); }catch(e){ setErro(e.message); } }
+  async function fechar(id){ try{ await api(`/suporte/hub/chamados/${id}/fechar`,{method:"POST"}); setAberto(null); carregar(); }catch(e){ setErro(e.message); } }
+  const entrada={boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
+  if(!d) return erro?<div style={{color:C.hot,fontSize:12.5}}>{erro}</div>:null;
+  const fmtNum=(n)=>{const x=String(n||"");return x.length>=12?`(${x.slice(2,4)}) ${x.slice(4,x.length-4)}-${x.slice(-4)}`:x;};
+  return <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <label style={{display:"flex",flexDirection:"column",gap:4,flex:"1 1 200px"}}>
+        <span style={{color:C.faint,fontSize:11,fontWeight:600}}>WhatsApp que recebe o suporte</span>
+        <input value={destino} onChange={e=>setDestino(e.target.value)} inputMode="tel" style={entrada}/>
+        <span style={{color:C.faint,fontSize:10.5}}>{fmtNum(d.config.destino)}{d.config.destino_padrao?" (padrão)":""}</span>
+      </label>
+      <button onClick={()=>salvar({destino})} style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar número</button>
+    </div>
+    <label style={{display:"flex",flexDirection:"column",gap:4}}>
+      <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Linha que envia (o número da casa desta conta)</span>
+      <select value={d.config.org?d.config.org.id:""} onChange={e=>salvar({org_id:e.target.value})} style={entrada}>
+        {d.contas.map(o=><option key={o.id} value={o.id}>{o.nome}{o.linha_ligada?"":" — sem WhatsApp"}</option>)}
+      </select>
+    </label>
+    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <span style={{fontSize:12,fontWeight:600,color:d.config.linha_ligada?C.greenDeep:C.hot}}>
+        {d.config.linha_ligada?"● A linha está conectada":"● Essa conta não tem WhatsApp conectado — os chamados ficam só aqui no painel"}</span>
+      <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
+    </div>
+    {msg&&<div style={{color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{msg}</div>}
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginTop:4}}>Chamados</div>
+    {!d.chamados.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum chamado ainda.</div>}
+    {d.chamados.map(c=><div key={c.id} style={{border:`1px solid ${C.line}`,borderRadius:11,background:C.card}}>
+      <button onClick={()=>setAberto(aberto===c.id?null:c.id)} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",padding:"9px 11px",cursor:"pointer",display:"flex",gap:8,alignItems:"center"}}>
+        <span style={{fontFamily:MONO,fontSize:12,color:C.faint}}>#{c.numero}</span>
+        <span style={{flex:1,minWidth:0,fontSize:12.5,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><b>{c.conta}</b> · {c.pessoa}</span>
+        <span style={{fontSize:10.5,fontWeight:700,padding:"2px 7px",borderRadius:999,background:c.status==="aberto"?C.greenSoft:C.coolSoft,color:c.status==="aberto"?C.greenDeep:C.cool}}>{c.status}</span>
+      </button>
+      {aberto===c.id&&conversa&&<div style={{padding:"0 11px 11px",display:"flex",flexDirection:"column",gap:7}}>
+        <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:280,overflowY:"auto"}}>
+          <BaloesDaConversa itens={conversa.mensagens.map(m=>({id:m.id,de:m.de==="cliente"?"assistente":m.de==="suporte"?"voce":"sistema",texto:m.texto}))} isMobile={isMobile}/>
+        </div>
+        <div style={{display:"flex",gap:7}}>
+          <input value={resposta} onChange={e=>setResposta(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")responder();}} placeholder="Responder pelo painel…" style={{...entrada,flex:1}}/>
+          <button onClick={responder} style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"0 13px",fontWeight:700,cursor:"pointer"}}>Enviar</button>
+        </div>
+        {c.status==="aberto"&&<button onClick={()=>fechar(c.id)} style={{alignSelf:"flex-start",border:"none",background:"transparent",color:C.sub,fontSize:11.5,textDecoration:"underline",cursor:"pointer",padding:0}}>Encerrar chamado</button>}
+      </div>}
+    </div>)}
+  </div>;
+}
+
 function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,setSelId,erro,setErro,recado,setRecado,faltando,setFaltando,versao,assinatura,org,voltarAoHub,plantao}){
   const role=session.role;
   const canAttend=role==="corretor"||role==="sdr";
@@ -6367,6 +6700,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
   // Sobe quando a configuração salva uma mensagem pronta: é o sinal para as
   // conversas abertas buscarem a lista nova sem recarregar a página.
   const [versaoMsgs,setVersaoMsgs]=useState(0);
+  const [assistenteAberto,setAssistenteAberto]=useState(false);
   /* AS LINHAS DE WHATSAPP desta conta, buscadas uma vez.
 
      Quem tem número pessoal ligado ganha as subcategorias em Atender e o
@@ -6636,6 +6970,7 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
           </span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
+          {podeGerir(session)&&<BotaoClaude onClick={()=>setAssistenteAberto(true)} isMobile={isMobile}/>}
           {!isMobile&&<div style={{textAlign:"right"}}><div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div><div style={{color:C.faint,fontSize:10.5}}>{roleLabel}</div></div>}
           <button onClick={()=>setView("conta")} title="Minha conta" style={{border:"none",background:"transparent",padding:0,cursor:"pointer",display:"flex"}}>
             <Avatar ini={session.ini} color={session.color} size={isMobile?30:34} foto={session.avatar}/>
@@ -6733,6 +7068,9 @@ function Workspace({session,setSession,equipe,conecta,leads,fila,acoes,selId,set
       </div>
     </main>
     {isMobile&&<NavCelular nav={NAV} view={view} setView={setView} aviso={aviso} marca={marcaDe(org)}/>}
+    {assistenteAberto&&<PainelAssistente aoFechar={()=>setAssistenteAberto(false)} isMobile={isMobile} irPara={setView}/>}
+    {/* O master não ganha a nuvem: o suporte é ele. */}
+    {!ehMaster&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view}/>}
   </div>;
 }
 
