@@ -93,6 +93,13 @@ export function conferirR2() {
       problemas.push("R2_ACCOUNT_ID tem ponto, e um Account ID não tem. Parece que veio um pedaço do endereço junto. " + VARS[0].ajuda);
     else if (!/^[0-9a-f]{32}$/i.test(R2.conta))
       problemas.push(`R2_ACCOUNT_ID tem ${R2.conta.length} caracteres e o esperado são 32 (números e letras de a-f). ` + VARS[0].ajuda);
+    /* O Access Key ID colado nos DOIS campos (05/10/2026, backup com "SSL alert
+       number 40"). Os dois têm a mesma forma — 32 caracteres de 0-9 e a-f —,
+       então a conferência de formato passa, e o endereço montado vira o de uma
+       conta que não existe: a Cloudflare recusa a conexão antes de olhar a
+       chave, e o erro não diz qual campo. */
+    else if (R2.chave && R2.conta.toLowerCase() === R2.chave.toLowerCase())
+      problemas.push("R2_ACCOUNT_ID está igual ao R2_ACCESS_KEY_ID — o mesmo valor foi colado nos dois. O Account ID é outro número: " + VARS[0].ajuda);
   }
   /* AS DUAS CHAVES TÊM FORMA FIXA, e conferi-la aqui evita a pior mensagem
      possível: "o R2 não reconheceu a chave", que manda procurar defeito sem
