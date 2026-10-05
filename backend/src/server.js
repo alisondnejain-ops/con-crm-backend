@@ -257,7 +257,13 @@ function servirPagina(arquivo, req, res, erroSeFaltar) {
     res.status(404).send(erroSeFaltar);
   }
 }
-const servirApp = (req, res) => servirPagina("app.html", req, res, "O CRM ainda nao foi publicado neste servidor.");
+/* A tela do CRM (o login) não vai para o Google (05/10/2026): o resultado da
+   busca por "ConHub" passou a ser "ConHub: Login". Quem procura o ConHub tem
+   que cair no site de vendas (`conhubcrm.com.br`), que é o que se indexa. */
+const servirApp = (req, res) => {
+  res.set("X-Robots-Tag", "noindex");
+  servirPagina("app.html", req, res, "O CRM ainda nao foi publicado neste servidor.");
+};
 app.get(["/app", "/app.html"], servirApp);
 // Qual versão do CRM este servidor está entregando.
 app.get("/versao.txt", (_req, res) =>
