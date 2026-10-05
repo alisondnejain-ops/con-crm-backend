@@ -8926,7 +8926,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
-        {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
+        {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           /* Aviso central (hoje: as ligações). `maxWidth` e a quebra de palavra
@@ -10631,7 +10631,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div><div style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>{novos.length} lead(s) na fila</div><div style={{color:C.faint,fontSize:12}}>Transfira manualmente para quem está disponível.</div></div>
       </div>
-      {novos.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:40,textAlign:"center"}}><Icon n="check" size={30} color={C.green}/><div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:8}}>Fila zerada</div><div style={{color:C.faint,fontSize:12,marginTop:4}}>Novos leads da campanha caem aqui automaticamente.</div></div>}
+      {novos.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:40,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={30} color={C.green}/><div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:8}}>Fila zerada</div><div style={{color:C.faint,fontSize:12,marginTop:4}}>Novos leads da campanha caem aqui automaticamente.</div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {novos.map(l=>{const age=Date.now()-l.createdAt;
           return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
@@ -10747,7 +10747,7 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
       {!principal&&<span style={{color:C.faint,fontSize:12}}>· {comCorretor} já com corretor</span>}
     </div>
     {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
-    {!esperando.length&&<div style={{...caixa,textAlign:"center",padding:30}}><Icon n="check" size={26} color={C.green}/>
+    {!esperando.length&&<div style={{...caixa,textAlign:"center",padding:30,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={26} color={C.green}/>
       <div style={{color:C.ink,fontSize:13.5,fontWeight:600,marginTop:6}}>Nenhum lead esperando</div></div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {esperando.map(l=>{const age=Date.now()-l.createdAt;
@@ -11326,7 +11326,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       <ComporADM lead={sel} session={session} acoes={acoes} isMobile={isMobile} citando={citando} setCitando={setCitando}
         editando={editando} setEditando={setEditando} versaoMsgs={versao}/>
     </div>:(!isMobile&&!mostrarFicha&&<div style={{flex:1,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{color:C.faint,textAlign:"center",maxWidth:280}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
+      <div style={{color:C.faint,textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
 
     {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} session={session} corretoresDisponiveis={corretoresDisponiveis}
