@@ -119,13 +119,51 @@ const esperar = (ms = 400) => new Promise(r => setTimeout(r, ms));
 let n = 0;
 const caso = (t) => console.log(`\n${++n}. ${t}`);
 
-caso("O assistente é da gestão: corretor e atendente recebem 403; a gestora vê disponível");
-assert.equal((await api("u_corretor", "GET", "/assistente")).status, 403);
-assert.equal((await api("u_atendente", "GET", "/assistente")).status, 403);
-let r = await api("u_gestora", "GET", "/assistente");
+caso("O assistente é de todos: a gestora configura; corretor e atendente só consultam");
+let r = await api("u_corretor", "GET", "/assistente");
 assert.equal(r.status, 200);
+assert.equal(r.body.modo, "consulta");
+assert.equal((await api("u_atendente", "GET", "/assistente")).body.modo, "consulta");
+r = await api("u_gestora", "GET", "/assistente");
+assert.equal(r.status, 200);
+assert.equal(r.body.modo, "config");
 assert.equal(r.body.disponivel, true);
 assert.deepEqual(r.body.itens, []);
+
+caso("Consulta do corretor: nenhuma ferramenta que mude a conta, pesquisa na web, e só os leads DELE");
+{
+  const insLead = db.prepare(`INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,created_at) VALUES (?,?,?,?,?,?,?)`);
+  insLead.run("l_ana_dela", cliente, "Ana Corretor", "5587991110001", "Lead", "u_corretor", Date.now());
+  insLead.run("l_ana_outra", cliente, "Ana Gestora", "5587991110002", "Lead", "u_gestora", Date.now());
+  const busca = { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "documentos financiamento Caixa" } };
+  const achado = { type: "web_search_tool_result", tool_use_id: "srv_1", content: [{ type: "web_search_result", url: "https://www.caixa.gov.br/x", title: "Caixa — documentos", encrypted_content: "zzz" }] };
+  roteiro.push(
+    usa("tu_c1", "buscar_leads", { texto: "Ana" }),
+    { stop_reason: "pause_turn", content: [pensa, busca] },
+    { stop_reason: "end_turn", content: [achado, { type: "text", text: "Sua lead é a Ana. A Caixa pede RG, CPF e comprovante de renda.",
+      citations: [{ type: "web_search_result_location", url: "https://www.caixa.gov.br/x", title: "Caixa — documentos", cited_text: "RG" }] }] },
+  );
+  const antes = pedidosIA.length;
+  r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "Quem é a Ana e que documentos a Caixa pede?" });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(pedidosIA.length - antes, 3);
+  const primeiro = pedidosIA[antes].corpo;
+  assert.ok(primeiro.tools.some(t => t.type === "web_search_20260209" && t.name === "web_search"), "pesquisa na web disponível");
+  assert.ok(!primeiro.tools.some(t => /^(criar|editar|ordenar|definir|adicionar)_/.test(t.name || "")), "nenhuma ferramenta que escreve");
+  const resultado = pedidosIA[antes + 1].corpo.messages.slice(-1)[0].content[0];
+  assert.ok(/Ana Corretor/.test(resultado.content) && !/Ana Gestora/.test(resultado.content), "só o lead dele: " + resultado.content);
+  // A continuação da pesquisa pausada volta como a MESMA fala do assistente.
+  const terceiro = pedidosIA[antes + 2].corpo.messages;
+  assert.equal(terceiro[terceiro.length - 1].role, "assistant", "a fala pausada vai de volta como está");
+  const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_corretor' AND tipo = 'consulta'").get().mensagens);
+  assert.equal(hist[hist.length - 1].role, "assistant");
+  assert.equal(hist[hist.length - 2].role, "user", "sem duas falas seguidas do assistente");
+  assert.ok(hist[hist.length - 1].content.some(b => b.type === "server_tool_use") && hist[hist.length - 1].content.some(b => b.type === "web_search_tool_result"));
+  const resposta = r.body.itens.find(i => i.de === "assistente" && /Caixa pede/.test(i.texto));
+  assert.ok(resposta && resposta.fontes && resposta.fontes[0].url === "https://www.caixa.gov.br/x", "a fonte aparece para conferir");
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM ia_uso WHERE org_id = ? AND recurso = 'consulta'").get(cliente).n >= 3, "o gasto entra no Uso da IA");
+  assert.ok(/NUNCA coloque nome, telefone/.test(primeiro.system[0].text), "a instrução de privacidade vai junto");
+}
 
 caso("Pedido de configuração: lê os funis, cria o funil pela ROTA e responde — e o histórico volta sem edição");
 roteiro.push(

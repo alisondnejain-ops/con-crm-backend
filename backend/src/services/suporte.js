@@ -76,11 +76,14 @@ export function encaminhaAoWhatsapp() {
 export function configDoSuporte() {
   const orgId = orgDoSuporte();
   const org = orgId ? db.prepare("SELECT id, name FROM orgs WHERE id = ?").get(orgId) : null;
-  const casa = orgId ? db.prepare("SELECT host, token, provider FROM canais WHERE org_id = ? AND tipo = 'imobiliaria' LIMIT 1").get(orgId) : null;
+  const casa = orgId ? db.prepare("SELECT host, token, provider, wa_number FROM canais WHERE org_id = ? AND tipo = 'imobiliaria' LIMIT 1").get(orgId) : null;
   return {
     destino: destinoDoSuporte(), destino_padrao: !lerCfg("suporte_destino"),
     org: org ? { id: org.id, nome: org.name } : null, org_escolhida: !!lerCfg("suporte_org"),
     linha_ligada: !!(casa && casa.token),
+    // O número que envia é o mesmo que recebe: a mensagem cairia em "conversa
+    // com você", que não toca, e a resposta digitada lá voltaria como eco.
+    mesmo_numero: !!(casa && casa.wa_number && mesmoNumero(casa.wa_number, destinoDoSuporte())),
     whatsapp: encaminhaAoWhatsapp(), whatsapp_escolhido: lerCfg("suporte_whatsapp") !== null,
     ambiente_interno: temAmbienteInterno(),
   };
@@ -115,6 +118,9 @@ async function mandarAoSuporte(texto, { forcar = false } = {}) {
   if (!forcar && !encaminhaAoWhatsapp()) return { ok: false, desligado: true };
   const orgId = orgDoSuporte();
   if (!orgId) return { ok: false, erro: "Nenhuma conta escolhida para enviar o suporte." };
+  const casa = db.prepare("SELECT wa_number FROM canais WHERE org_id = ? AND tipo = 'imobiliaria' LIMIT 1").get(orgId);
+  if (casa && casa.wa_number && mesmoNumero(casa.wa_number, destinoDoSuporte()))
+    return { ok: false, erro: "O número que envia é o mesmo que recebe o suporte. Conecte outro número na linha que envia (ex.: o (87)) ou troque o número que recebe." };
   try {
     const r = await sendText({ orgId, toPhone: destinoDoSuporte(), text: texto });
     if (r && r.simulated) return { ok: false, erro: "A linha de WhatsApp do suporte não está conectada." };
