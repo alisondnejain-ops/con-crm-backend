@@ -16,7 +16,7 @@ import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSessoes } from "../auth.js";
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
-import { situacao, TRIAL_DIAS } from "../services/assinatura.js";
+import { situacao, TRIAL_DIAS, definirVencimento, dataDoFormulario } from "../services/assinatura.js";
 import { cancelarAssinatura } from "../services/asaas.js";
 import { definirLiberacao } from "../services/marketing.js";
 import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../services/recursos.js";
@@ -88,6 +88,11 @@ function resumo(req, org) {
     marketing_liberado: recursosDaOrg(org.id).find(x => x.id === "marketing").ativo,
     /* Por qual provedor esta conta é cobrada, e se foi escolha do master ou
        a regra padrão (04/10/2026). */
+    /* O que o ConHub combinou com esta conta e onde a cobrança está: o hub
+       mostra e edita a data e a tolerância (05/10/2026). */
+    mensalidade: { valor: org.valor_mensal ?? null, vence_em: org.vence_em || null,
+      dias_carencia: org.dias_carencia == null ? 5 : org.dias_carencia, plano_id: org.plano_id || null,
+      cartao: !!org.pagarme_card_id, ligada: !!(org.pagarme_subscription_id || org.asaas_subscription_id) },
     cobranca: { provedor: provedorDe(org), escolhido: org.cobranca || null,
       tem_asaas: temCobrancaNoAsaas(org), tem_pagarme: !!org.pagarme_customer_id,
       padrao: pagarmePadrao() ? "pagarme" : "asaas",
@@ -427,6 +432,42 @@ r.post("/:id/cobranca", (req, res) => {
   db.prepare("UPDATE orgs SET cobranca = ? WHERE id = ?").run(provedor, org.id);
   console.log(`[master] ${req.user.name} → cobrança de ${org.name}: ${provedor || "regra padrão"}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* VENCIMENTO E TOLERÂNCIA DA MENSALIDADE (05/10/2026, pedido do Ali: "a
+   Conecta só deve ser cobrada a partir do dia 10 de novembro… se até essa
+   data não tiver cadastro do cartão… pode bloquear o acesso até o
+   pagamento"). O painel manual saiu em 22/09/2026 e com ele o único lugar
+   onde o master dizia "esta conta vence dia X" — sem isto, a data de uma
+   conta negociada só mudava pelo banco.
+
+   É o que decide duas coisas ao mesmo tempo: quando cai a primeira cobrança
+   da mensalidade combinada que o cliente ligar no cartão (a data do
+   vencimento), e quando a conta trava se nada for pago (vencimento +
+   tolerância). Não cobra nada nem mexe no provedor. */
+r.post("/:id/mensalidade", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  const corpo = req.body || {};
+  const mudar = {};
+  if (corpo.vence_em !== undefined) {
+    if (corpo.vence_em === null || corpo.vence_em === "") mudar.vence_em = null;
+    else {
+      const data = dataDoFormulario(corpo.vence_em);
+      if (!isFinite(data)) return res.status(400).json({ error: "Data de vencimento inválida." });
+      mudar.vence_em = data;
+    }
+  }
+  if (corpo.dias_carencia !== undefined) {
+    const d = Number(corpo.dias_carencia);
+    if (!Number.isInteger(d) || d < 0 || d > 60) return res.status(400).json({ error: "A tolerância vai de 0 a 60 dias." });
+    mudar.dias_carencia = d;
+  }
+  if (!Object.keys(mudar).length) return res.status(400).json({ error: "Nada para mudar." });
+  const nova = definirVencimento(org.id, mudar);
+  console.log(`[master] ${req.user.name} → mensalidade de ${org.name}: vence ${nova.vence_em ? new Date(nova.vence_em).toLocaleDateString("pt-BR") : "sem data"}, tolerância ${nova.dias_carencia ?? 5}`);
+  res.json({ ok: true, org: resumo(req, nova) });
 });
 
 /* MIGRAR O TIPO DA CONTA — imobiliária ⇄ autônomo (22/09/2026, pedido do Ali:

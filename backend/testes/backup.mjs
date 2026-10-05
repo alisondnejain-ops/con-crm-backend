@@ -263,7 +263,8 @@ const comEnv = async (vars, tag) => {
 const BASE_OK = {
   R2_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
   R2_BUCKET: "conhub", R2_PUBLIC_URL: "https://pub-x.r2.dev",
-  R2_ACCESS_KEY_ID: "0123456789abcdef0123456789abcdef",
+  // Diferente do Account ID de propósito: o mesmo valor nos dois é um erro (caso 16b).
+  R2_ACCESS_KEY_ID: "fedcba9876543210fedcba9876543210",
   R2_SECRET_ACCESS_KEY: "f".repeat(64),
 };
 
@@ -271,6 +272,12 @@ let c = await comEnv(BASE_OK, "ok");
 console.log(`   tudo no formato certo → ${c.problemas.length} problema(s)`);
 assert.equal(c.problemas.length, 0, "chave e segredo bem formados não podem virar alarme");
 assert.equal(c.tudo_certo, true);
+
+console.log("16b. O Access Key ID colado também no Account ID (os dois têm a mesma forma)");
+c = await comEnv({ ...BASE_OK, R2_ACCOUNT_ID: BASE_OK.R2_ACCESS_KEY_ID.toUpperCase() }, "conta-igual-chave");
+console.log(`   ${c.problemas[0]?.slice(0, 70)}…`);
+assert.ok(c.problemas.some(p => /igual ao R2_ACCESS_KEY_ID/.test(p)), "nomeia os dois campos");
+assert.equal(c.tudo_certo, false);
 
 console.log("17. Token da API colado no lugar do Access Key ID");
 /* O erro nº 1 da instalação: a tela do Cloudflare mostra o token em destaque e

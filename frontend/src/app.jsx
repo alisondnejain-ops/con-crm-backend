@@ -1897,6 +1897,7 @@ function ConCRM(){
     definirFerramenta:(id,recurso,estado)=>api(`/orgs/${id}/recursos/${recurso}`,{method:"POST",body:{estado}}),
     // Por qual provedor a conta é cobrada (04/10/2026): "asaas", "pagarme" ou null (regra padrão).
     definirCobranca:(id,provedor)=>api(`/orgs/${id}/cobranca`,{method:"POST",body:{provedor}}),
+    definirMensalidade:(id,dados)=>api(`/orgs/${id}/mensalidade`,{method:"POST",body:dados}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -4408,6 +4409,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   {ocupado===r.id+v?"…":t}</button>;})}
             </div>
           </div>;})}
+        {conta.mensalidade&&<MensalidadeNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>}
         {/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026). Trocar não
             cancela nada no provedor antigo: a cobrança de lá só sai quando o
             cliente contratar o plano no novo. */}
@@ -4442,6 +4444,63 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
       </div>
     </div>}
   </React.Fragment>;
+}
+
+/* VENCIMENTO E TOLERÂNCIA DA MENSALIDADE, pelo master (05/10/2026, pedido do
+   Ali: "a Conecta só deve ser cobrada a partir do dia 10 de novembro… se até
+   essa data não tiver cadastro do cartão… pode bloquear o acesso até o
+   pagamento"). A data é a do vencimento: a mensalidade que o cliente ligar no
+   cartão cobra nela, e sem pagamento a conta trava passada a tolerância. A
+   frase embaixo diz em que dia trava — é a conta que o master quer conferir. */
+const paraCampoData=(ms)=>{ if(!ms) return ""; const d=new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+function MensalidadeNoHub({conta,acoes,aoMudar}){
+  const m=conta.mensalidade;
+  const [data,setData]=useState(paraCampoData(m.vence_em));
+  const [tolerancia,setTolerancia]=useState(String(m.dias_carencia));
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const [ok,setOk]=useState(false);
+  useEffect(()=>{ setData(paraCampoData(m.vence_em)); setTolerancia(String(m.dias_carencia)); },[m.vence_em,m.dias_carencia]);
+  const tol=/^\d+$/.test(tolerancia)?Number(tolerancia):null;
+  const mudou=data!==paraCampoData(m.vence_em)||tol!==m.dias_carencia;
+  const travaEm=data&&tol!=null?(()=>{ const d=new Date(data+"T12:00:00"); d.setDate(d.getDate()+tol+1); return d.getTime(); })():null;
+  async function salvar(){
+    if(tol==null||tol>60) return setErro("A tolerância vai de 0 a 60 dias.");
+    setErro("");setOk(false);setOcupado(true);
+    try{ await acoes.definirMensalidade(conta.id,{vence_em:data||null,dias_carencia:tol}); setOk(true); await aoMudar(); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  const campo={boxSizing:"border-box",fontSize:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Mensalidade</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      {m.valor?<React.Fragment><b>{fmtMoeda(m.valor)}</b>/mês{m.plano_id?" (plano da tabela)":" (valor combinado)"}</React.Fragment>:"Sem valor definido"}
+      {" · "}{m.cartao?"cartão cadastrado":"sem cartão cadastrado"}
+      {" · "}{m.ligada?"cobrança automática ligada":"cobrança automática não ligada"}
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 150px"}}>
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Vencimento (1ª cobrança)</span>
+        <input type="date" value={data} onChange={e=>{setData(e.target.value);setOk(false);}} style={campo}/>
+      </label>
+      <label style={{display:"flex",flexDirection:"column",gap:3,flex:"0 1 120px"}}>
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Tolerância (dias)</span>
+        <input inputMode="numeric" value={tolerancia} onChange={e=>{setTolerancia(e.target.value.replace(/\D/g,"").slice(0,2));setOk(false);}} style={campo}/>
+      </label>
+      <button onClick={salvar} disabled={ocupado||!mudou}
+        style={{background:mudou?C.green:C.surface,color:mudou?"#fff":C.faint,border:mudou?"none":`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:mudou?"pointer":"default"}}>
+        {ocupado?"Salvando…":"Salvar"}</button>
+    </div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:8}}>
+      {data
+        ?<React.Fragment>Nada é cobrado antes de <b style={{color:C.ink}}>{fmtData(new Date(data+"T12:00:00").getTime())}</b>. Sem pagamento até lá, a conta trava em <b style={{color:C.ink}}>{travaEm?fmtData(travaEm):"—"}</b> até pagar.</React.Fragment>
+        :"Sem vencimento: a conta não trava por mensalidade."}
+      {m.ligada?" A cobrança já ligada no cartão segue a data dela — mudar aqui não a move.":""}
+    </div>
+    {ok&&!mudou&&<div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,marginTop:6}}>Salvo.</div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
 }
 
 /* APAGAR UMA CONTA DA PLATAFORMA — imobiliária ou corretor autônomo.
@@ -6270,6 +6329,15 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
   const aguardandoCartao=assinatura.status==="aguardando_cartao";
   const [baixando,setBaixando]=useState(false);
   const celular=useIsMobile();
+  /* MENSALIDADE COMBINADA DE DENTRO DO BLOQUEIO (05/10/2026). A conta com preço
+     negociado (a Conecta) via aqui os planos de prateleira — que não são o
+     plano dela — e nenhum caminho para pagar a mensalidade combinada: ficaria
+     travada sem saída. Para ela, o bloqueio mostra o cartão e a mensalidade,
+     os mesmos de Minha conta; ligada agora, a cobrança sai hoje e destrava. */
+  const [cobr,setCobr]=useState(null);
+  const lerCobr=()=>acoes.assinatura().then(setCobr).catch(()=>{});
+  useEffect(()=>{ if(gestor) lerCobr(); },[]);
+  const combinada=!!(cobr&&cobr.provedor==="pagarme"&&cobr.pagarme&&cobr.pagarme.combinada);
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     {/* Conta travada é justamente quem mais precisa falar com o suporte. */}
     {!session.master&&<NuvemDeSuporte isMobile={celular} view="bloqueado" nome={session.name}/>}
@@ -6324,7 +6392,16 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
 
           `isMobile` vai fixo: o cartão tem 440px, e três planos lado a lado
           aqui ficariam com 130px cada. Empilhado é o certo em qualquer tela. */}
-      {temPrateleira&&<div style={{marginBottom:9,marginTop:2}}>
+      {combinada
+        ?<div style={{marginBottom:12,marginTop:2,display:"flex",flexDirection:"column",gap:12}}>
+          <CartaoDeCobranca pm={cobr.pagarme} acoes={acoes} isMobile={true} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/>
+          {cobr.pagarme.combinada.ligada&&!aguardandoCartao
+            ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:9,padding:"9px 11px"}}>
+              A cobrança automática está ligada, mas o pagamento ainda não foi confirmado. Se o cartão foi recusado, troque-o acima; se continuar travado, fale com o suporte.</div>
+            :<div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
+              <MensalidadeCombinada pm={cobr.pagarme} acoes={acoes} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/></div>}
+        </div>
+        :temPrateleira&&<div style={{marginBottom:9,marginTop:2}}>
         <GerenciarAssinatura acoes={acoes} isMobile={true} atualSituacao={assinatura} aoMudar={aoRever}/>
       </div>}
 
