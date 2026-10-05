@@ -248,12 +248,14 @@ assert.deepEqual(reqSup.output_config, { effort: "low" });
 assert.ok(/Quem pergunta: Marina/.test(reqSup.system[1].text));
 
 caso("Falar com o suporte: chamado #1 chega ao WhatsApp do suporte com conta, pessoa e resumo");
-r = await api("u_corretor", "POST", "/suporte/humano", { resumo: "Cobrança duplicada no cartão em outubro." });
+// O formulário da nuvem: sem resumo, não abre; com nome, o nome escrito vai para o suporte.
+assert.equal((await api("u_corretor", "POST", "/suporte/humano", { nome: "Marina", resumo: "" })).status, 400);
+r = await api("u_corretor", "POST", "/suporte/humano", { nome: "Marina Lopes", resumo: "Cobrança duplicada no cartão em outubro." });
 assert.equal(r.body.chamado.numero, 1);
 assert.equal(r.body.entregue, true);
 let env = enviados[enviados.length - 1];
 assert.equal(env.number, "5581999353988");
-assert.ok(/Suporte #1/.test(env.text) && /Imobiliária Sol/.test(env.text) && /Marina/.test(env.text) && /Cobrança duplicada/.test(env.text));
+assert.ok(/Suporte #1/.test(env.text) && /Imobiliária Sol/.test(env.text) && /Marina Lopes \(login de Marina\)/.test(env.text) && /Cobrança duplicada/.test(env.text), env.text);
 const idDoAviso = env.id;
 
 caso("O cliente escreve na nuvem: a mensagem sai para o suporte com #1, e não passa pela IA");

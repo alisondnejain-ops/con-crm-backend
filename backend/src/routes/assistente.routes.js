@@ -119,14 +119,14 @@ suporte.post("/mensagem", async (req, res) => {
   res.json({ ...estado(req.user), navegar: r.navegar, humano: r.humano });
 });
 
-// "Falar com o suporte" — com o resumo da triagem, ou com o que a pessoa escreveu.
+/* "Falar com o suporte" — pelo formulário da nuvem (05/10/2026, pedido do
+   Ali): o nome de quem está pedindo e um breve resumo vêm ANTES de o chamado
+   abrir, para o suporte já chegar sabendo com quem fala e do que se trata. */
 suporte.post("/humano", async (req, res) => {
-  let resumo = String(req.body?.resumo || "").trim();
-  if (!resumo) {
-    const ditas = itensDa(conversaAtual(req.user.id, "suporte")).filter(i => i.de === "voce").slice(-5).map(i => "• " + i.texto);
-    resumo = ditas.length ? "O cliente escreveu:\n" + ditas.join("\n") : "";
-  }
-  const r = await abrirChamado(req.user, { resumo, contato: req.body?.contato });
+  const resumo = String(req.body?.resumo || "").trim();
+  if (resumo.length < 5) return res.status(400).json({ error: "Escreva um breve resumo do que você precisa." });
+  const nome = String(req.body?.nome || "").trim();
+  const r = await abrirChamado(req.user, { resumo, nome: nome || req.user.name, contato: req.body?.contato });
   res.json({ ...estado(req.user, { marcarLidas: true }), entregue: r.entregue });
 });
 
