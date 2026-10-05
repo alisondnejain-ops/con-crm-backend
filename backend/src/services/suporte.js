@@ -48,6 +48,11 @@ export function destinoDoSuporte() { return lerCfg("suporte_destino") || DESTINO
 export function orgDoSuporte() {
   const escolhida = lerCfg("suporte_org");
   if (escolhida && db.prepare("SELECT 1 FROM orgs WHERE id = ?").get(escolhida)) return escolhida;
+  /* Sem escolha no hub, a linha é a do AMBIENTE INTERNO do ConHub
+     (05/10/2026). Antes caía na conta do master — que é a Conecta, e o
+     chamado de um cliente saía pelo WhatsApp de outro cliente. */
+  const interna = db.prepare("SELECT id FROM orgs WHERE tipo = 'interna' ORDER BY created_at LIMIT 1").get()?.id;
+  if (interna) return interna;
   return db.prepare("SELECT org_id FROM users WHERE master = 1 ORDER BY created_at LIMIT 1").get()?.org_id
     || db.prepare("SELECT id FROM orgs ORDER BY created_at LIMIT 1").get()?.id || null;
 }
@@ -165,14 +170,14 @@ export async function fecharChamado(chamado, quem) {
 }
 
 /* O suporte respondeu (pelo WhatsApp, ou pelo painel do hub). */
-export async function respostaDoSuporte(chamado, texto, { viaPainel = false } = {}) {
+export async function respostaDoSuporte(chamado, texto, { viaPainel = false, por = null } = {}) {
   const t = String(texto || "").trim();
   if (!t) return { erro: "Escreva a resposta." };
   if (/^\/fechar\b/i.test(t)) return fecharChamado(chamado, "suporte");
   if (chamado.status !== "aberto") db.prepare("UPDATE suporte_chamados SET status = 'aberto', fechado_em = NULL WHERE id = ?").run(chamado.id);
   gravarMsg(chamado.id, "suporte", t);
   avisar(chamado.user_id, { titulo: "Suporte ConHub respondeu", corpo: t.slice(0, 120) }).catch(() => {});
-  if (viaPainel) await mandarAoSuporte(`↪ (respondido pelo painel) *#${chamado.numero}*: ${t}`);
+  if (viaPainel) await mandarAoSuporte(`↪ (respondido pelo painel${por ? " por " + por : ""}) *#${chamado.numero}*: ${t}`);
   return { ok: true };
 }
 

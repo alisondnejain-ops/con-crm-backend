@@ -73,7 +73,11 @@ export function situacaoDoRecurso(orgId, recurso, agora = Date.now()) {
   const doPlano = incluiNoPlano(org, recurso);
   const avulso = avulsoValendo(l, agora);
   let ativo, origem;
-  if (l?.master === "retirado") { ativo = false; origem = "retirado"; }
+  /* Ambiente interno do ConHub: o Marketing vem ligado (é o comercial da
+     própria plataforma) e o Autoatendimento não existe — o texto dele atende
+     comprador de imóvel, e diria isso a quem quer conhecer o ConHub. */
+  if (org?.tipo === "interna") { ativo = recurso === "marketing"; origem = "interno"; }
+  else if (l?.master === "retirado") { ativo = false; origem = "retirado"; }
   else if (l?.master === "liberado") { ativo = true; origem = "liberado"; }
   else if (avulso) { ativo = true; origem = "avulso"; }
   else if (doPlano) { ativo = true; origem = "plano"; }

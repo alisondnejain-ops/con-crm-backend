@@ -34,6 +34,7 @@
    tela era exatamente o tipo de redundância que a auditoria de 08/09/2026
    mandou reduzir. */
 
+import { etapasDeContagem } from "./interno.js";
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
@@ -151,9 +152,10 @@ function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
   const leads = porDia(momentosDeLeads(orgId, filtros, de, ate, eventos));
   const ligacoes = porDia(momentosDeLigacao(orgId, filtros, de, ate));
   const contato = porDia(momentosDeLigacao(orgId, filtros, de, ate, true));
-  const agendada = porDia(momentosDeEtapa(orgId, "Agendamento", filtros, de, ate));
-  const realizada = porDia(momentosDeEtapa(orgId, "Visita", filtros, de, ate));
-  const proposta = porDia(momentosDeEtapa(orgId, "Proposta", filtros, de, ate));
+  const nomes = etapasDeContagem(orgId);
+  const agendada = porDia(momentosDeEtapa(orgId, nomes.agendada, filtros, de, ate));
+  const realizada = porDia(momentosDeEtapa(orgId, nomes.realizada, filtros, de, ate));
+  const proposta = porDia(momentosDeEtapa(orgId, nomes.proposta, filtros, de, ate));
   const venda = porDia(vendasDoPeriodo(orgId, filtros, de, ate).map(v => v.sale_date));
   return janelas.map((j, i) => ({
     rotulo: j.rotulo,
@@ -188,8 +190,11 @@ export function visaoGeral(orgId, filtros = {}) {
   const vAtual = somaVendas(orgId, filtros, periodo.de, periodo.ate);
   const vAnterior = somaVendas(orgId, filtros, anterior.de, anterior.ate);
 
-  const visitasAtual = contarEtapa(orgId, "Visita", filtros, periodo.de, periodo.ate);
-  const visitasAnterior = contarEtapa(orgId, "Visita", filtros, anterior.de, anterior.ate);
+  /* Imobiliária conta a visita ao imóvel; o ambiente interno do ConHub, a
+     demonstração do sistema. Mesma conta, outro nome de etapa. */
+  const nomes = etapasDeContagem(orgId);
+  const visitasAtual = contarEtapa(orgId, nomes.realizada, filtros, periodo.de, periodo.ate);
+  const visitasAnterior = contarEtapa(orgId, nomes.realizada, filtros, anterior.de, anterior.ate);
 
   const ticketAtual = vAtual.quantidade ? Math.round(vAtual.vgv / vAtual.quantidade) : null;
   const ticketAnterior = vAnterior.quantidade ? Math.round(vAnterior.vgv / vAnterior.quantidade) : null;
@@ -213,15 +218,15 @@ export function visaoGeral(orgId, filtros = {}) {
 
   const ligacoes = contarLigacoes(orgId, filtros, periodo.de, periodo.ate);
   const contatos = contarLigacoes(orgId, filtros, periodo.de, periodo.ate, true);
-  const agendadas = contarEtapa(orgId, "Agendamento", filtros, periodo.de, periodo.ate);
-  const propostas = contarEtapa(orgId, "Proposta", filtros, periodo.de, periodo.ate);
+  const agendadas = contarEtapa(orgId, nomes.agendada, filtros, periodo.de, periodo.ate);
+  const propostas = contarEtapa(orgId, nomes.proposta, filtros, periodo.de, periodo.ate);
 
   const passos = [
     { id: "leads", nome: "Leads", valor: leadsAtual },
     { id: "ligacoes", nome: "Ligações", valor: ligacoes },
     { id: "contato", nome: "Contato", valor: contatos },
-    { id: "visita_agendada", nome: "Visita Agendada", valor: agendadas },
-    { id: "visita_realizada", nome: "Visitas Realizadas", valor: visitasAtual },
+    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Visita Agendada" : "Demonstrações agendadas", valor: agendadas },
+    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas Realizadas" : "Demonstrações feitas", valor: visitasAtual },
     { id: "proposta", nome: "Proposta", valor: propostas },
     { id: "venda", nome: "Vendas", valor: vAtual.quantidade },
   ];
@@ -309,12 +314,13 @@ export function salvarMeta(orgId, userId, mes, dados = {}) {
 function realizadoDoMes(orgId, userId, mes) {
   const { de, ate } = limitesDoMes(mes);
   const filtros = userId ? { responsavel: userId } : {};
+  const nomes = etapasDeContagem(orgId);
   return {
     ligacoes: contarLigacoes(orgId, filtros, de, ate),
     contatos: contarLigacoes(orgId, filtros, de, ate, true),
-    visitas_agendadas: contarEtapa(orgId, "Agendamento", filtros, de, ate),
-    visitas_realizadas: contarEtapa(orgId, "Visita", filtros, de, ate),
-    propostas: contarEtapa(orgId, "Proposta", filtros, de, ate),
+    visitas_agendadas: contarEtapa(orgId, nomes.agendada, filtros, de, ate),
+    visitas_realizadas: contarEtapa(orgId, nomes.realizada, filtros, de, ate),
+    propostas: contarEtapa(orgId, nomes.proposta, filtros, de, ate),
     vgv: somaVendas(orgId, filtros, de, ate).vgv,
   };
 }
@@ -323,12 +329,16 @@ export function metasComRealizado(orgId, userId, mes) {
   mes = mes || mesAtual();
   const meta = obterMeta(orgId, userId, mes);
   const realizado = realizadoDoMes(orgId, userId, mes);
+  const interna = etapasDeContagem(orgId).realizada !== "Visita";
+  const nomeDe = (campo) => interna
+    ? ({ visitas_agendadas: "Demonstrações agendadas", visitas_realizadas: "Demonstrações feitas", vgv: "Valor vendido" }[campo] || NOMES_META[campo])
+    : NOMES_META[campo];
   return {
     mes,
     itens: CAMPOS_META.map(campo => {
       const alvo = meta ? meta[campo] : null;
       return {
-        campo, nome: NOMES_META[campo],
+        campo, nome: nomeDe(campo),
         meta: alvo, realizado: realizado[campo],
         // Meta não definida é NULL, nunca 0% — a régua de sempre neste
         // painel: zero é um fato medido, não a ausência de meta.

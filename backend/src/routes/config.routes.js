@@ -38,11 +38,20 @@ const PADRAO = [
   { titulo: "Pedir documentação", corpo: "{nome}, pra eu já adiantar a sua pasta e a simulação de crédito, consegue me enviar seus documentos (RG, CPF e comprovante de renda)?" },
 ];
 
+/* O ambiente interno do ConHub vende o ConHub, não imóvel: começa com
+   textos de demonstração e teste, que a equipe edita como quiser. */
+const PADRAO_INTERNO = [
+  { titulo: "Primeiro contato", corpo: "Oi {nome}! Aqui é do ConHub. Vi que você se interessou pelo nosso CRM para imobiliárias e corretores. Posso te mostrar em 15 minutos como ele funciona na prática?" },
+  { titulo: "Agendar demonstração", corpo: "{nome}, que tal uma demonstração rápida do ConHub? Consigo essa semana. Prefere de manhã ou à tarde?" },
+  { titulo: "Acompanhar o teste", corpo: "Oi {nome}, como está sendo o teste do ConHub? Ficou alguma dúvida que eu possa resolver?" },
+];
+
 function semear(orgId) {
   const tem = db.prepare("SELECT COUNT(*) n FROM mensagens_rapidas WHERE org_id = ?").get(orgId).n;
   if (tem) return;
+  const interna = db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(orgId)?.tipo === "interna";
   const gravar = db.transaction(() => {
-    PADRAO.forEach((m, i) => db.prepare(
+    (interna ? PADRAO_INTERNO : PADRAO).forEach((m, i) => db.prepare(
       `INSERT INTO mensagens_rapidas (id,org_id,titulo,corpo,ordem,ativo,created_at)
        VALUES (?,?,?,?,?,1,?)`).run("mr_" + randomUUID(), orgId, m.titulo, m.corpo, i, Date.now()));
   });

@@ -15,6 +15,7 @@
 import { Router } from "express";
 import db from "../db.js";
 import { authRequired, roles, soMaster } from "../auth.js";
+import { daEquipeConHub } from "../services/interno.js";
 import {
   conversar, conversaAtual, novaConversa, itensDa, disponibilidade,
   FERRAMENTAS_CONFIG, executorDeConfig, sistemaDeConfig,
@@ -126,7 +127,20 @@ suporte.post("/nova", (req, res) => {
   res.json(estado(req.user));
 });
 
-/* ===== HUB DO MASTER ===== */
+/* ===== HUB DO MASTER E TELA DE SUPORTE DO AMBIENTE INTERNO =====
+
+   A configuração (número que recebe, linha que envia) continua só do master.
+   A FILA de chamados abre também para a equipe do ConHub — quem está ativo
+   no ambiente interno (05/10/2026): o suporte vai ser um time, e cada pessoa
+   dele responde de dentro do sistema, com o próprio login. */
+const equipeDeSuporte = (req, res, next) => {
+  const master = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id)?.master;
+  if (master || daEquipeConHub(req.user.id)) return next();
+  res.status(403).json({ error: "Área restrita à equipe do ConHub." });
+};
+
+suporte.get("/chamados", equipeDeSuporte, (req, res) => res.json({ chamados: chamadosParaOHub(), config: configDoSuporte() }));
+
 suporte.get("/hub", soMaster, (req, res) => res.json({
   config: configDoSuporte(), chamados: chamadosParaOHub(),
   contas: db.prepare(`SELECT o.id, o.name, (SELECT COUNT(*) FROM canais c WHERE c.org_id = o.id
@@ -151,17 +165,17 @@ const chamadoDoHub = (req, res) => {
   if (!ch) { res.status(404).json({ error: "Chamado não encontrado." }); return null; }
   return ch;
 };
-suporte.get("/hub/chamados/:id", soMaster, (req, res) => {
+suporte.get("/hub/chamados/:id", equipeDeSuporte, (req, res) => {
   const ch = chamadoDoHub(req, res); if (!ch) return;
   res.json({ numero: ch.numero, status: ch.status, resumo: ch.resumo, mensagens: mensagensDo(ch.id) });
 });
-suporte.post("/hub/chamados/:id/responder", soMaster, async (req, res) => {
+suporte.post("/hub/chamados/:id/responder", equipeDeSuporte, async (req, res) => {
   const ch = chamadoDoHub(req, res); if (!ch) return;
-  const r = await respostaDoSuporte(ch, textoDoCorpo(req), { viaPainel: true });
+  const r = await respostaDoSuporte(ch, textoDoCorpo(req), { viaPainel: true, por: req.user.name || null });
   if (r.erro) return res.status(400).json({ error: r.erro });
   res.json({ ok: true, mensagens: mensagensDo(ch.id) });
 });
-suporte.post("/hub/chamados/:id/fechar", soMaster, async (req, res) => {
+suporte.post("/hub/chamados/:id/fechar", equipeDeSuporte, async (req, res) => {
   const ch = chamadoDoHub(req, res); if (!ch) return;
   await fecharChamado(ch, "suporte");
   res.json({ ok: true });

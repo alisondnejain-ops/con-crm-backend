@@ -210,7 +210,7 @@ export function apagarPipeline(orgId, id) {
   return { ok: true };
 }
 
-function inserirEtapa(orgId, pipelineId, e, ordem) {
+export function inserirEtapa(orgId, pipelineId, e, ordem) {
   const id = novoId("st");
   db.prepare(`INSERT INTO pipeline_stages
     (id,pipeline_id,org_id,name,ordem,color,status_type,is_active,counts_as_conversion,entrada_comercial,

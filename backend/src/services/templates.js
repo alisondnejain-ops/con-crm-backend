@@ -101,7 +101,35 @@ export const TEMPLATES = [
   },
 ];
 
-export const templatePorId = (id) => TEMPLATES.find(t => t.id === id) || null;
+/* O funil comercial do PRÓPRIO ConHub (05/10/2026). Fica fora de TEMPLATES
+   de propósito: só o ambiente interno o recebe, e nenhuma imobiliária deveria
+   ver "Demonstração do sistema" na lista de modelos dela. É vendendo o
+   ConHub que este funil existe: do contato ao cliente assinante. */
+export const FUNIL_INTERNO = {
+  id: "conhub_comercial",
+  nome: "Comercial ConHub",
+  tipo: "commercial",
+  descricao: "Do contato até virar cliente do ConHub.",
+  para: "Venda do ConHub.",
+  etapas: [
+    { name: "Lead novo", color: "#6B7280", sla: 60 },
+    { name: "Primeiro contato", color: "#0E8F6E", sla: 1440, conversao: true },
+    { name: "Demonstração agendada", color: "#D97706", sla: 2880, conversao: true },
+    { name: "Demonstração feita", color: "#2563EB", sla: 2880, conversao: true },
+    { name: "Em teste grátis", color: "#7C3AED", sla: 10080, conversao: true },
+    { name: "Proposta", color: "#DB2777", sla: 4320, conversao: true },
+    { name: "Cliente", color: "#0A3D30", conversao: true, tipo: "ganho" },
+    { name: "Perdido", color: "#E1553A", tipo: "perdido" },
+  ],
+};
+
+/* Os modelos que cada conta vê ao criar um funil. O ambiente interno não
+   vende imóvel: fica com o próprio comercial, o SDR e a recaptação. */
+export const templatesDaConta = (tipo) => tipo === "interna"
+  ? [FUNIL_INTERNO, ...TEMPLATES.filter(t => t.id === "sdr" || t.id === "recaptacao")]
+  : TEMPLATES;
+
+export const templatePorId = (id) => (id === FUNIL_INTERNO.id ? FUNIL_INTERNO : TEMPLATES.find(t => t.id === id)) || null;
 
 /* O funil que as imobiliarias JA usavam, virado template.
 
