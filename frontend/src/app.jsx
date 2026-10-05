@@ -8148,9 +8148,8 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
       <span style={{color:C.greenDeep,fontSize:12,fontWeight:700,flex:1}}>
         Áudio de {mm}:{ss} — ouça antes de enviar</span>
     </div>
-    {/* O player do próprio navegador: dá para ouvir, pausar e voltar. */}
-    <audio src={audio.url} controls preload="metadata"
-      style={{width:"100%",display:"block",marginBottom:9}}/>
+    {/* O mesmo tocador da conversa: linha, andamento e duração em qualquer aparelho. */}
+    <div style={{marginBottom:9}}><PlayerDeAudio src={audio.url} isMobile={isMobile}/></div>
     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
       <button onClick={onEnviar} disabled={enviando}
         style={{...botao,border:"none",background:enviando?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",gap:6}}>
@@ -8454,25 +8453,123 @@ function BotaoBaixar({url,nome,corner,leadId,messageId}){
    pela rota do CRM e toca ali mesmo, sem a pessoa precisar baixar nada. */
 function usarFonteDaMidia(url,mime,leadId,messageId){
   const [src,setSrc]=useState(url);
+  const [falhou,setFalhou]=useState(false);
   const tentou=useRef(false);
-  useEffect(()=>{ setSrc(url); tentou.current=false; },[url]);
+  useEffect(()=>{ setSrc(url); setFalhou(false); tentou.current=false; },[url]);
   useEffect(()=>()=>{ if(src&&src.startsWith("blob:")) URL.revokeObjectURL(src); },[src]);
   async function aoFalhar(){
-    if(tentou.current||!leadId||!messageId) return;
+    // Já buscou pelo CRM e mesmo assim não carregou: não adianta tentar de novo.
+    if(tentou.current||!leadId||!messageId){ setFalhou(true); return; }
     tentou.current=true;
     try{
       const resp=await fetch(`${API}/leads/${leadId}/anexo/${messageId}/baixar`,{headers:TOKEN?{authorization:"Bearer "+TOKEN}:{}});
-      if(!resp.ok) return;
+      if(!resp.ok){ setFalhou(true); return; }
       const blob=await resp.blob();
       setSrc(URL.createObjectURL(new Blob([blob],{type:mime||blob.type})));
-    }catch(e){}
+    }catch(e){ setFalhou(true); }
   }
-  return [src,aoFalhar];
+  return [src,aoFalhar,falhou];
+}
+
+/* O TOCADOR DE ÁUDIO É NOSSO, NÃO O DO NAVEGADOR (05/10/2026, print do Ali:
+   o áudio aparecia só com um botão de play, sem a linha, sem o andamento e
+   sem a duração).
+
+   O `<audio controls>` desenha o que o navegador quiser — e o do iPhone, quando
+   não sabe a duração (áudio gravado pelo navegador vem sem ela; arquivo vindo
+   pela rota do CRM também), mostra só o play, como numa rádio ao vivo. Aqui a
+   linha, o andamento e a duração aparecem sempre, do mesmo jeito em qualquer
+   aparelho: o `<audio>` fica escondido e só toca.
+
+   Duração desconhecida (Infinity) se descobre pulando para o fim e voltando —
+   é o que faz o navegador ler o arquivo até o final. Sem duração nenhuma, o
+   tempo mostrado é o que já tocou. */
+const fmtAudio=(t)=>{ if(!isFinite(t)||t<0) t=0; const s=Math.floor(t); return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; };
+function PlayerDeAudio({src,mine,isMobile,aoFalhar,falhou}){
+  const ref=useRef(null);
+  const [tocando,setTocando]=useState(false);
+  const [esperando,setEsperando]=useState(false);
+  const [atual,setAtual]=useState(0);
+  const [dur,setDur]=useState(null);
+  const descobrindo=useRef(false);
+  const querTocar=useRef(false);
+  useEffect(()=>{ setTocando(false); setAtual(0); setDur(null); descobrindo.current=false; },[src]);
+  // Caiu para o arquivo buscado pelo CRM depois de a pessoa apertar play:
+  // continua tocando, sem pedir outro toque.
+  useEffect(()=>{
+    const a=ref.current;
+    if(a&&querTocar.current&&src&&src.startsWith("blob:")) a.play().catch(()=>setEsperando(false));
+  },[src]);
+  useEffect(()=>{ if(falhou) setEsperando(false); },[falhou]);
+
+  const lerDuracao=(a)=>{
+    if(isFinite(a.duration)&&a.duration>0){ setDur(a.duration); return true; }
+    return false;
+  };
+  function aoTerMeta(e){
+    const a=e.currentTarget;
+    if(lerDuracao(a)) return;
+    if(a.duration===Infinity&&!descobrindo.current){ descobrindo.current=true; try{ a.currentTime=1e101; }catch(_){ descobrindo.current=false; } }
+  }
+  function aoAndar(e){
+    const a=e.currentTarget;
+    if(descobrindo.current){
+      if(lerDuracao(a)){ descobrindo.current=false; a.currentTime=0; setAtual(0); }
+      return;
+    }
+    setAtual(a.currentTime);
+    if(!dur) lerDuracao(a);
+  }
+  function alternar(){
+    const a=ref.current; if(!a||falhou) return;
+    if(!a.paused){ a.pause(); return; }
+    querTocar.current=true; setEsperando(true);
+    const p=a.play();
+    if(p&&p.catch) p.catch(e=>{ if(e&&e.name==="NotAllowedError") setEsperando(false); });
+  }
+  function irPara(e){
+    const a=ref.current; if(!a||!dur) return;
+    const r=e.currentTarget.getBoundingClientRect();
+    const fr=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+    a.currentTime=fr*dur; setAtual(fr*dur);
+  }
+
+  const corForte=mine?"#fff":C.green;
+  const corTrilho=mine?"rgba(255,255,255,.35)":C.line;
+  const corTexto=mine?"rgba(255,255,255,.85)":C.sub;
+  const fr=dur?Math.min(1,atual/dur):0;
+  const largura=isMobile?190:230;
+  return <div style={{display:"flex",alignItems:"center",gap:10,width:largura,maxWidth:"100%"}}>
+    <audio ref={ref} src={src} preload="metadata" style={{display:"none"}}
+      onLoadedMetadata={aoTerMeta} onDurationChange={e=>{ if(!descobrindo.current) lerDuracao(e.currentTarget); }}
+      onTimeUpdate={aoAndar} onWaiting={()=>setEsperando(true)} onPlaying={()=>{ setTocando(true); setEsperando(false); }}
+      onPause={()=>setTocando(false)} onEnded={()=>{ setTocando(false); setAtual(0); querTocar.current=false; }}
+      onError={()=>{ setEsperando(false); aoFalhar&&aoFalhar(); }}/>
+    <button onClick={alternar} disabled={falhou} aria-label={tocando?"Pausar":"Tocar"}
+      style={{width:36,height:36,borderRadius:"50%",border:"none",flexShrink:0,cursor:falhou?"default":"pointer",padding:0,
+        background:mine?"rgba(255,255,255,.22)":C.greenSoft,color:corForte,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      {esperando&&!tocando?<Icon n="loader" size={16} spin/>
+        :tocando?<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1.2"/><rect x="14" y="4" width="5" height="16" rx="1.2"/></svg>
+        :<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style={{marginLeft:2}}><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>}
+    </button>
+    <div style={{flex:1,minWidth:0}}>
+      <div onClick={irPara} style={{height:22,display:"flex",alignItems:"center",cursor:dur?"pointer":"default"}}>
+        <div style={{position:"relative",width:"100%",height:4,borderRadius:2,background:corTrilho}}>
+          <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${fr*100}%`,borderRadius:2,background:corForte}}/>
+          <div style={{position:"absolute",top:"50%",left:`${fr*100}%`,width:12,height:12,marginLeft:-6,marginTop:-6,borderRadius:"50%",background:corForte}}/>
+        </div>
+      </div>
+      <div style={{fontSize:11,fontFamily:"'IBM Plex Mono',monospace",color:corTexto,lineHeight:1.2}}>
+        {falhou?"Não deu para tocar aqui — use o baixar"
+          :dur?`${fmtAudio(atual)} / ${fmtAudio(dur)}`:fmtAudio(atual)}
+      </div>
+    </div>
+  </div>;
 }
 
 function Midia({m,mine,isMobile,leadId}){
   const {url,mime,nome}=m.midia;
-  const [src,aoFalhar]=usarFonteDaMidia(url,mime,leadId,m.id);
+  const [src,aoFalhar,falhou]=usarFonteDaMidia(url,mime,leadId,m.id);
   const larguraMax=isMobile?220:260;
   if(/^image\//.test(mime))
     return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
@@ -8491,7 +8588,7 @@ function Midia({m,mine,isMobile,leadId}){
   if(/^audio\//.test(mime))
     // O áudio de voz é o formato que mais chega: o cliente responde falando.
     return <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:m.text?6:0}}>
-      <audio src={src} onError={aoFalhar} controls preload="metadata" style={{maxWidth:isMobile?190:230,display:"block"}}/>
+      <PlayerDeAudio src={src} mine={mine} isMobile={isMobile} aoFalhar={aoFalhar} falhou={falhou}/>
       <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"} leadId={leadId} messageId={m.id}/></span>
     </div>;
   // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.
