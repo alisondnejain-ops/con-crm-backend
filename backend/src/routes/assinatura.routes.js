@@ -5,7 +5,8 @@ import { authRequired, roles, semMaster } from "../auth.js";
 import { segredoConfere } from "../seguranca.js";
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
-  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses, TRIAL_DIAS } from "../services/assinatura.js";
+  ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses, TRIAL_DIAS,
+  dataDoFormulario, baseParaVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
   linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
@@ -149,13 +150,6 @@ const soDono = (req, res, next) => {
   next();
 };
 
-/* Data que veio de um <input type="date"> ("2026-08-10"). O meio-dia evita o
-   clássico: interpretada como UTC, ela vira o dia ANTERIOR em Recife. */
-const dataDoFormulario = (v) => {
-  if (!v) return null;
-  const s = String(v).trim();
-  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + "T12:00:00" : s).getTime();
-};
 
 /* TENTA CONFIRMAR O CARTÃO ANTES DE RESPONDER A SITUAÇÃO (22/09/2026).
 
@@ -285,9 +279,7 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
   /* Mexer no vencimento aqui é dizer "a data em vigor é esta". Como o vencimento
      é calculado a partir da base mais um mês por pagamento, a base tem que
      recuar o mesmo tanto — senão o próximo recálculo desfaria a correção. */
-  const { n } = db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(org.id);
-  let base = org.vence_base;
-  if (data) { const d = new Date(data); d.setMonth(d.getMonth() - n); base = d.getTime(); }
+  const base = data ? baseParaVencimento(org.id, data) : org.vence_base;
 
   db.prepare(`UPDATE orgs SET plano = ?, valor_mensal = ?, vence_em = ?, vence_base = ?, dias_carencia = ?,
       limite_canais = ?, canais_incluidos = ?, valor_canal = ? WHERE id = ?`).run(

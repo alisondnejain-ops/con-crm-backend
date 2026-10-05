@@ -546,6 +546,67 @@ try {
   assert.equal(r.status, 409);
   assert.equal(r.body.ja_tem_conta, true);
 
+  caso("O hub define o vencimento e a tolerância: nada antes da data, trava passada a data sem pagamento");
+  {
+    const ymd = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    const nov = conta("Conecta Novembro", "imobiliaria", "novembro@pm.com", { valor: 2000 });
+    const tNov = await login("novembro@pm.com");
+    const DATA = Date.now() + 36 * DIA;
+    r = await chamar(tNov, `/orgs/${nov.org}/mensalidade`, "POST", { vence_em: ymd(DATA), dias_carencia: 0 });
+    assert.equal(r.status, 403, "só o master define a data");
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { dias_carencia: 61 });
+    assert.equal(r.status, 400);
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { vence_em: "amanhã" });
+    assert.equal(r.status, 400);
+    r = await chamar(tMaster, `/orgs/${nov.org}/mensalidade`, "POST", { vence_em: ymd(DATA), dias_carencia: 0 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(ymd(r.body.org.mensalidade.vence_em), ymd(DATA));
+    assert.equal(r.body.org.mensalidade.dias_carencia, 0);
+    const vence = linhaOrg(nov.org).vence_em;
+
+    r = await chamar(tNov, "/assinatura");
+    assert.notEqual(r.body.status, "bloqueado");
+    assert.equal(r.body.pagarme.combinada.primeira_cobranca, vence, "a mensalidade combinada cobra na data definida");
+    const antes = pm.assinaturas.size;
+    r = await chamar(tNov, "/assinatura/cartao", "POST", { token: "token_nov", cpfCnpj: "11.222.333/0001-81" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(pm.assinaturas.size, antes, "cadastrar o cartão não cobra nada");
+    r = await chamar(tNov, "/assinatura/combinada", "POST", {});
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.pago, false, "nada cobrado este mês");
+    assert.equal([...pm.assinaturas.values()].at(-1).start_at, ymd(vence), "a primeira cobrança é no dia definido");
+    assert.equal(pagamentos(nov.org).length, 0);
+
+    // A data chega sem pagamento: com tolerância 0, trava no dia seguinte, não no próprio dia.
+    const semCartao = conta("Sem Cartão", "imobiliaria", "semcartao@pm.com", { valor: 2000 });
+    const tSem = await login("semcartao@pm.com");
+    await chamar(tMaster, `/orgs/${semCartao.org}/mensalidade`, "POST", { vence_em: ymd(Date.now()), dias_carencia: 0 });
+    r = await chamar(tSem, "/assinatura");
+    assert.notEqual(r.body.status, "bloqueado", "no próprio dia ainda abre");
+    await chamar(tMaster, `/orgs/${semCartao.org}/mensalidade`, "POST", { vence_em: ymd(Date.now() - DIA), dias_carencia: 0 });
+    r = await chamar(tSem, "/assinatura");
+    assert.equal(r.body.status, "bloqueado", "passou a data sem pagamento: trava");
+    assert.equal((await chamar(tSem, "/leads")).status, 402, "o porteiro trava o resto do sistema");
+    assert.equal(r.body.pagarme.combinada.primeira_cobranca, null, "travada, a mensalidade ligada agora cobra hoje");
+    // O caminho de volta é de dentro do bloqueio: cartão + mensalidade, pagos na hora.
+    r = await chamar(tSem, "/assinatura/cartao", "POST", { token: "token_sem", cpfCnpj: "11.222.333/0001-81" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    r = await chamar(tSem, "/assinatura/combinada", "POST", {});
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.pago, true);
+    assert.notEqual((await chamar(tSem, "/assinatura")).body.status, "bloqueado", "pagou, destravou");
+    assert.equal((await chamar(tSem, "/leads")).status, 200);
+
+    // A data fica onde o master pôs mesmo com meses pagos de uma vez (semestral = 6).
+    const semestral = conta("Semestral", "imobiliaria", "semestral@pm.com", { valor: 1000 });
+    db.prepare("INSERT INTO pagamentos (id,org_id,valor,pago_em,origem,meses,created_at) VALUES (?,?,?,?,'manual',6,?)")
+      .run("pg_" + randomUUID(), semestral.org, 6000, Date.now(), Date.now());
+    await chamar(tMaster, `/orgs/${semestral.org}/mensalidade`, "POST", { vence_em: ymd(DATA) });
+    const { recalcularVencimento } = await import("../src/services/assinatura.js");
+    recalcularVencimento(semestral.org);
+    assert.equal(ymd(linhaOrg(semestral.org).vence_em), ymd(DATA), "o recálculo não desfaz a data escolhida");
+  }
+
   console.log("\nTudo certo ✅");
 } catch (e) {
   console.error("\n❌", e.message);

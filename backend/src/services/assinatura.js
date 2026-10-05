@@ -86,6 +86,46 @@ export function recalcularVencimento(orgId) {
   return vence;
 }
 
+/* Data que veio de um <input type="date"> ("2026-08-10"). O meio-dia evita o
+   clássico: interpretada como UTC, ela vira o dia ANTERIOR em Recife. */
+export const dataDoFormulario = (v) => {
+  if (!v) return null;
+  const s = String(v).trim();
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + "T12:00:00" : s).getTime();
+};
+
+/* A BASE QUE FAZ O VENCIMENTO FICAR NA DATA ESCOLHIDA. O vencimento é a base
+   mais os meses pagos (`recalcularVencimento`), então dizer "vence dia X" é
+   recuar a base pelos MESES pagos — somados, não contados: uma cobrança
+   semestral vale seis. Contar linhas deixaria a data seis meses errada no
+   próximo recálculo. */
+export function baseParaVencimento(orgId, vence) {
+  const { n } = db.prepare("SELECT COALESCE(SUM(COALESCE(meses,1)),0) n FROM pagamentos WHERE org_id = ?").get(orgId);
+  const d = new Date(vence); d.setMonth(d.getMonth() - n);
+  return d.getTime();
+}
+
+/* VENCIMENTO E TOLERÂNCIA DEFINIDOS PELO CONHUB (05/10/2026, pedido do Ali:
+   "a Conecta só deve ser cobrada a partir do dia 10 de novembro… se até essa
+   data não tiver cadastro do cartão… pode bloquear o acesso até o
+   pagamento"). Só o master chama (hub). `vence_em` nulo apaga a data — a
+   conta deixa de ter vencimento e não trava por mensalidade. A tolerância
+   (`dias_carencia`) é quantos dias depois do vencimento a conta ainda abre;
+   0 trava no dia seguinte. Não mexe em nada no provedor: a assinatura já
+   ligada no cartão continua cobrando na data dela. */
+export function definirVencimento(orgId, { vence_em, dias_carencia } = {}) {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+  if (!org) return null;
+  const sets = [], vals = [];
+  if (vence_em !== undefined) {
+    sets.push("vence_em = ?", "vence_base = ?");
+    vals.push(vence_em || null, vence_em ? baseParaVencimento(orgId, vence_em) : null);
+  }
+  if (dias_carencia !== undefined) { sets.push("dias_carencia = ?"); vals.push(dias_carencia); }
+  if (sets.length) db.prepare(`UPDATE orgs SET ${sets.join(", ")} WHERE id = ?`).run(...vals, orgId);
+  return db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+}
+
 export const listarPagamentos = (orgId) =>
   db.prepare("SELECT * FROM pagamentos WHERE org_id = ? ORDER BY pago_em DESC").all(orgId);
 
