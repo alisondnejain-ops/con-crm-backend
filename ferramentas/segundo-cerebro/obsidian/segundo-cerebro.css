@@ -1,0 +1,62 @@
+/* Segundo cérebro — cores por tipo de nota.
+   Instalado em .obsidian/snippets/ e ligado em Aparência → Trechos de CSS.
+   Cada tipo tem UMA cor, usada na pasta, nos arquivos, na tag e no grafo. */
+
+body {
+  --sc-projeto: #4c8dff;
+  --sc-decisao: #a970ff;
+  --sc-padrao: #2fbf71;
+  --sc-preferencia: #ff9f43;
+  --sc-stack: #22c1c3;
+  --sc-aprendizado: #e6b800;
+  --sc-sessao: #8a94a6;
+  --sc-sistema: #6b7280;
+  --sc-indice: #ff5c8a;
+}
+
+/* ---------- Explorador de arquivos: pasta colorida + filete nos arquivos ---------- */
+.nav-folder-title[data-path="01 Projetos"]     { color: var(--sc-projeto); font-weight: 600; }
+.nav-folder-title[data-path="02 Decisões"]     { color: var(--sc-decisao); font-weight: 600; }
+.nav-folder-title[data-path="03 Padrões"]      { color: var(--sc-padrao); font-weight: 600; }
+.nav-folder-title[data-path="04 Preferências"] { color: var(--sc-preferencia); font-weight: 600; }
+.nav-folder-title[data-path="05 Stack"]        { color: var(--sc-stack); font-weight: 600; }
+.nav-folder-title[data-path="06 Aprendizados"] { color: var(--sc-aprendizado); font-weight: 600; }
+.nav-folder-title[data-path="07 Sessões"]      { color: var(--sc-sessao); font-weight: 600; }
+.nav-folder-title[data-path="99 Sistema"]      { color: var(--sc-sistema); opacity: .8; }
+.nav-file-title[data-path="00 Índice.md"]      { color: var(--sc-indice); font-weight: 700; }
+
+.nav-file-title[data-path^="01 Projetos/"]     { border-left: 3px solid var(--sc-projeto); }
+.nav-file-title[data-path^="02 Decisões/"]     { border-left: 3px solid var(--sc-decisao); }
+.nav-file-title[data-path^="03 Padrões/"]      { border-left: 3px solid var(--sc-padrao); }
+.nav-file-title[data-path^="04 Preferências/"] { border-left: 3px solid var(--sc-preferencia); }
+.nav-file-title[data-path^="05 Stack/"]        { border-left: 3px solid var(--sc-stack); }
+.nav-file-title[data-path^="06 Aprendizados/"] { border-left: 3px solid var(--sc-aprendizado); }
+.nav-file-title[data-path^="07 Sessões/"]      { border-left: 3px solid var(--sc-sessao); }
+
+/* ---------- Tags (modo leitura e edição) ---------- */
+.tag[href="#projeto"],     .cm-hashtag.cm-tag-projeto     { background: color-mix(in srgb, var(--sc-projeto) 20%, transparent);     color: var(--sc-projeto); }
+.tag[href="#decisao"],     .cm-hashtag.cm-tag-decisao     { background: color-mix(in srgb, var(--sc-decisao) 20%, transparent);     color: var(--sc-decisao); }
+.tag[href="#padrao"],      .cm-hashtag.cm-tag-padrao      { background: color-mix(in srgb, var(--sc-padrao) 20%, transparent);      color: var(--sc-padrao); }
+.tag[href="#preferencia"], .cm-hashtag.cm-tag-preferencia { background: color-mix(in srgb, var(--sc-preferencia) 20%, transparent); color: var(--sc-preferencia); }
+.tag[href="#stack"],       .cm-hashtag.cm-tag-stack       { background: color-mix(in srgb, var(--sc-stack) 20%, transparent);       color: var(--sc-stack); }
+.tag[href="#aprendizado"], .cm-hashtag.cm-tag-aprendizado { background: color-mix(in srgb, var(--sc-aprendizado) 20%, transparent); color: var(--sc-aprendizado); }
+.tag[href="#sessao"],      .cm-hashtag.cm-tag-sessao      { background: color-mix(in srgb, var(--sc-sessao) 20%, transparent);      color: var(--sc-sessao); }
+
+/* Propriedades (frontmatter): a tag do tipo também ganha a cor */
+.multi-select-pill[data-value="projeto"]     { background: color-mix(in srgb, var(--sc-projeto) 22%, transparent); }
+.multi-select-pill[data-value="decisao"]     { background: color-mix(in srgb, var(--sc-decisao) 22%, transparent); }
+.multi-select-pill[data-value="padrao"]      { background: color-mix(in srgb, var(--sc-padrao) 22%, transparent); }
+.multi-select-pill[data-value="preferencia"] { background: color-mix(in srgb, var(--sc-preferencia) 22%, transparent); }
+.multi-select-pill[data-value="stack"]       { background: color-mix(in srgb, var(--sc-stack) 22%, transparent); }
+.multi-select-pill[data-value="aprendizado"] { background: color-mix(in srgb, var(--sc-aprendizado) 22%, transparent); }
+
+/* ---------- Índice ---------- */
+.cerebro-indice h1 { color: var(--sc-indice); }
+.cerebro-indice h2 { border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 4px; margin-top: 1.6em; }
+.cerebro-indice h2:nth-of-type(1) { color: var(--sc-projeto); }
+.cerebro-indice h2:nth-of-type(2) { color: var(--sc-decisao); }
+.cerebro-indice h2:nth-of-type(3) { color: var(--sc-padrao); }
+.cerebro-indice h2:nth-of-type(4) { color: var(--sc-preferencia); }
+.cerebro-indice h2:nth-of-type(5) { color: var(--sc-stack); }
+.cerebro-indice h2:nth-of-type(6) { color: var(--sc-aprendizado); }
+.cerebro-indice h2:nth-of-type(7) { color: var(--sc-sessao); }
