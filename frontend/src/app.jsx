@@ -994,6 +994,7 @@ const ICO={
   trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
   // Baixar: a seta descendo até a bandeja, o desenho que todo mundo reconhece.
+  clipe:<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
   download:<React.Fragment><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></React.Fragment>,
   // O par do `check`: mesmo círculo, para "veio" e "não veio" se lerem juntos.
   xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
@@ -6557,12 +6558,21 @@ function BaloesDaConversa({itens,isMobile}){
       padding:"6px 9px",fontSize:12,lineHeight:1.45,maxWidth:"92%"}}>{i.texto}</div>;
     if(i.de==="sistema") return <div key={i.id} style={{alignSelf:"center",color:C.faint,fontSize:11,textAlign:"center",
       padding:"2px 8px",lineHeight:1.45,maxWidth:"90%"}}>{i.texto}</div>;
+    // Ação em massa esperando a pessoa confirmar (o Claude do gestor).
+    if(i.de==="aviso") return <div key={i.id} style={{alignSelf:"flex-start",display:"flex",gap:6,alignItems:"flex-start",
+      color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"6px 9px",fontSize:12,fontWeight:600,lineHeight:1.45,maxWidth:"92%"}}>
+      <Icon n="clock" size={12}/><span>{i.texto}</span></div>;
     const meu=i.de==="voce"||i.de==="cliente";
     return <div key={i.id} style={{alignSelf:meu?"flex-end":"flex-start",maxWidth:"86%",
       background:meu?C.greenDeep:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,
       borderRadius:meu?"13px 13px 4px 13px":"13px 13px 13px 4px",padding:"8px 11px",fontSize:isMobile?14:13,
       lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
       {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte ConHub</div>}
+      {Array.isArray(i.anexos)&&i.anexos.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:5,whiteSpace:"normal"}}>
+        {i.anexos.map((a,k)=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:4,background:"rgba(255,255,255,.16)",
+          borderRadius:6,padding:"2px 6px",fontSize:11,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <Icon n="clipe" size={11}/>{a.nome}{a.tipo==="video"&&a.quadros?` · ${a.quadros} cenas`:""}</span>)}
+      </div>}
       {i.texto}
       {/* De onde veio o que a pesquisa na internet trouxe — para conferir. */}
       {Array.isArray(i.fontes)&&i.fontes.length>0&&<div style={{marginTop:7,paddingTop:6,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3,whiteSpace:"normal"}}>
@@ -6574,17 +6584,32 @@ function BaloesDaConversa({itens,isMobile}){
   })}</React.Fragment>;
 }
 
-// O campo de escrever, igual nos dois painéis: Enter envia, Shift+Enter quebra a linha.
-function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile}){
-  return <div style={{display:"flex",gap:7,alignItems:"flex-end",padding:10,borderTop:`1px solid ${C.line}`,background:C.card}}>
-    <textarea value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1}
-      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
-      style={{flex:1,resize:"none",maxHeight:110,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
-        border:`1px solid ${C.line}`,background:C.surface,borderRadius:11,padding:"10px 11px",color:C.ink,outline:"none"}}/>
-    <button onClick={enviar} disabled={ocupado||!valor.trim()} aria-label="Enviar"
-      style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,cursor:ocupado||!valor.trim()?"default":"pointer",
-        background:ocupado||!valor.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
+/* O campo de escrever, igual nos dois painéis: Enter envia, Shift+Enter quebra a linha.
+   Cresce com o texto até `alturaMax` — o gestor escreve pedidos longos
+   (07/10/2026) e um campo de uma linha escondia o que ele tinha escrito.
+   `anexar`/`aoColar` só vêm no Claude do gestor; `prontoSemTexto` deixa
+   enviar só o arquivo. */
+function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,teto,alturaMax=110,anexar,aoColar,prontoSemTexto}){
+  const ref=useRef(null);
+  useEffect(()=>{ const el=ref.current; if(!el) return; el.style.height="auto"; el.style.height=Math.min(alturaMax,Math.max(40,el.scrollHeight))+"px"; },[valor,alturaMax]);
+  const vazio=!valor.trim()&&!prontoSemTexto;
+  const perto=teto&&valor.length>teto*0.8;
+  return <div style={{padding:10,borderTop:`1px solid ${C.line}`,background:C.card}}>
+    <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
+      {anexar&&<button onClick={anexar} disabled={ocupado} aria-label="Anexar arquivo" title="Anexar foto, print, PDF, planilha ou vídeo"
+        style={{width:40,height:40,borderRadius:11,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,flexShrink:0,
+          cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="clipe" size={17}/></button>}
+      <textarea ref={ref} value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1} maxLength={teto||undefined}
+        onPaste={aoColar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
+        style={{flex:1,resize:"none",maxHeight:alturaMax,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
+          border:`1px solid ${C.line}`,background:C.surface,borderRadius:11,padding:"10px 11px",color:C.ink,outline:"none",lineHeight:1.45}}/>
+      <button onClick={enviar} disabled={ocupado||vazio} aria-label="Enviar"
+        style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,cursor:ocupado||vazio?"default":"pointer",
+          background:ocupado||vazio?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
+    </div>
+    {perto&&<div style={{color:valor.length>=teto?C.hot:C.faint,fontSize:10.5,textAlign:"right",marginTop:4}}>
+      {valor.length.toLocaleString("pt-BR")} / {teto.toLocaleString("pt-BR")} caracteres</div>}
   </div>;
 }
 
@@ -6615,6 +6640,105 @@ function BotaoClaude({onClick,isMobile}){
   </button>;
 }
 
+/* ARQUIVOS PARA O CLAUDE — SÓ DO GESTOR (07/10/2026, pedido do Ali).
+
+   O navegador prepara o arquivo antes de mandar, e é aqui que mora o que dá
+   para cortar sem perder nada: a foto do celular (4000px, 4 MB) vira 1600px,
+   que é o máximo que a IA aproveita — e chega em segundos no 4G. O VÍDEO não
+   sobe: o navegador tira até 8 cenas dele e manda as cenas. A IA não assiste
+   nem ouve o som, e a tela diz isso ao lado do arquivo. Os mesmos limites são
+   conferidos no servidor (assistente-anexos.js); estes só evitam esperar à
+   toa por um "não" que já se sabe. */
+const ANEXO_MB=1024*1024;
+const ANEXO_LIMITES={arquivos:10,pdf:12*ANEXO_MB,planilha:10*ANEXO_MB,texto:400*1024,total:16*ANEXO_MB};
+function lerComoBase64(blob){
+  return new Promise((ok,falha)=>{ const r=new FileReader();
+    r.onload=()=>ok(String(r.result).split(",")[1]||""); r.onerror=()=>falha(new Error("Não consegui ler o arquivo."));
+    r.readAsDataURL(blob); });
+}
+async function fotoParaOClaude(file,max=1600){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((ok,falha)=>{ const i=new Image(); i.onload=()=>ok(i);
+      i.onerror=()=>falha(new Error(`Não consegui abrir a imagem “${file.name}” aqui. Mande como JPG ou PNG, ou tire um print dela.`)); i.src=url; });
+    const w=img.naturalWidth, h=img.naturalHeight, esc=Math.min(1,max/Math.max(w,h,1));
+    // Pequena e num formato que a IA lê: vai como está (o print continua nítido).
+    if(esc===1&&file.size<=1.5*ANEXO_MB&&/^image\/(jpeg|png|gif|webp)$/.test(file.type))
+      return {tipo:file.type,dados:await lerComoBase64(file)};
+    const c=document.createElement("canvas"); c.width=Math.round(w*esc); c.height=Math.round(h*esc);
+    const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+    return {tipo:"image/jpeg",dados:c.toDataURL("image/jpeg",0.86).split(",")[1]};
+  }finally{ URL.revokeObjectURL(url); }
+}
+async function cenasDoVideo(file){
+  const url=URL.createObjectURL(file);
+  const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.setAttribute("playsinline",""); v.preload="auto"; v.src=url;
+  const esperar=(ev,ms)=>new Promise((ok,falha)=>{
+    const t=setTimeout(()=>falha(new Error("tempo")),ms);
+    v.addEventListener(ev,()=>{clearTimeout(t);ok();},{once:true});
+    v.addEventListener("error",()=>{clearTimeout(t);falha(new Error("erro"));},{once:true}); });
+  try{
+    await esperar("loadeddata",20000);
+    const d=isFinite(v.duration)?v.duration:0;
+    const n=d>0?Math.min(8,Math.max(3,Math.ceil(d/6))):1;
+    const esc=Math.min(1,1024/Math.max(v.videoWidth||1024,v.videoHeight||1024,1));
+    const c=document.createElement("canvas"); c.width=Math.max(1,Math.round((v.videoWidth||1024)*esc)); c.height=Math.max(1,Math.round((v.videoHeight||576)*esc));
+    const ctx=c.getContext("2d"); const quadros=[];
+    for(let i=0;i<n;i++){
+      const em=d>0?Math.min(Math.max(0,d-0.05),(i+0.5)*d/n):0;
+      if(Math.abs(v.currentTime-em)>0.01){ const p=esperar("seeked",10000); v.currentTime=em; await p; }
+      ctx.drawImage(v,0,0,c.width,c.height);
+      quadros.push({em:Math.round(em*10)/10,dados:c.toDataURL("image/jpeg",0.8).split(",")[1]});
+    }
+    return {quadros,duracao:d};
+  }catch(e){
+    throw new Error(`Não consegui tirar as cenas do vídeo “${file.name}” neste aparelho. Tente outro navegador ou mande prints.`);
+  }finally{ v.removeAttribute("src"); try{v.load();}catch(e){} URL.revokeObjectURL(url); }
+}
+const ehPlanilhaOuTexto=(f)=>/\.(xlsx|csv|txt|md|json)$/i.test(f.name)||/^text\//.test(f.type)||f.type==="application/json";
+async function prepararAnexo(file){
+  const base={id:Math.random().toString(36).slice(2),nome:file.name||"arquivo"};
+  if(/^audio\//.test(file.type)) throw new Error(`O Claude ainda não ouve áudio (“${base.nome}”). Escreva o que ele diz, ou cole a transcrição.`);
+  if(/^image\//.test(file.type)){
+    const r=await fotoParaOClaude(file);
+    return {...base,...r,rotulo:"Imagem",miniatura:"data:"+r.tipo+";base64,"+r.dados};
+  }
+  if(/^video\//.test(file.type)){
+    const r=await cenasDoVideo(file);
+    return {...base,tipo:file.type||"video/mp4",...r,rotulo:`Vídeo · ${r.quadros.length} cenas, sem som`,miniatura:"data:image/jpeg;base64,"+r.quadros[0].dados};
+  }
+  if(file.type==="application/pdf"||/\.pdf$/i.test(file.name)){
+    if(file.size>ANEXO_LIMITES.pdf) throw new Error(`O PDF “${base.nome}” passa de 12 MB. Mande só as páginas que interessam.`);
+    return {...base,tipo:"application/pdf",dados:await lerComoBase64(file),rotulo:"PDF"};
+  }
+  if(ehPlanilhaOuTexto(file)){
+    const planilha=/\.xlsx$/i.test(file.name);
+    if(file.size>(planilha?ANEXO_LIMITES.planilha:ANEXO_LIMITES.texto)) throw new Error(`“${base.nome}” é grande demais para ler de uma vez. Mande só a parte que interessa.`);
+    const tipo=planilha?"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":/\.csv$/i.test(file.name)?"text/csv":(file.type||"text/plain");
+    return {...base,tipo,dados:await lerComoBase64(file),rotulo:planilha||/\.csv$/i.test(file.name)?"Planilha":"Texto"};
+  }
+  throw new Error(`Não consigo ler “${base.nome}”. Mande como foto, print, PDF, planilha (.xlsx/.csv) ou texto.`);
+}
+const pesoDoAnexo=(a)=>Math.floor(((a.dados||"").length+(a.quadros||[]).reduce((s,q)=>s+q.dados.length,0))*3/4);
+
+// Os arquivos escolhidos, acima do campo, com × para tirar o que veio errado.
+function AnexosEscolhidos({lista,tirar,preparando}){
+  if(!lista.length&&!preparando) return null;
+  return <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 10px 0",background:C.card,borderTop:`1px solid ${C.line}`}}>
+    {lista.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.surface,
+      borderRadius:9,padding:4,paddingRight:6,maxWidth:"100%"}}>
+      {a.miniatura?<img src={a.miniatura} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
+        :<div style={{width:34,height:34,borderRadius:6,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="clipe" size={15}/></div>}
+      <div style={{minWidth:0,maxWidth:170}}>
+        <div style={{color:C.ink,fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.nome}</div>
+        <div style={{color:C.faint,fontSize:10.5}}>{a.rotulo}</div>
+      </div>
+      <button onClick={()=>tirar(a.id)} aria-label={"Tirar "+a.nome} style={{width:26,height:26,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0}}>×</button>
+    </div>)}
+    {preparando&&<div style={{display:"flex",alignItems:"center",gap:6,color:C.faint,fontSize:11.5,padding:"4px 6px"}}><Icon n="loader" size={13} spin/>Preparando arquivo…</div>}
+  </div>;
+}
+
 /* O PAINEL DO ASSISTENTE: folha à direita no computador, tela cheia no celular. */
 function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [d,setD]=useState(null);
@@ -6623,18 +6747,49 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [erro,setErro]=useState("");
   const [navegar,setNavegar]=useState(null);
   const [pendente,setPendente]=useState(null);
+  const [anexos,setAnexos]=useState([]);
+  const [preparando,setPreparando]=useState(0);
+  const arquivoRef=useRef(null);
   useEffect(()=>{ api("/assistente").then(setD).catch(e=>setErro(e.message)); },[]);
   const itens=(d&&d.itens)||[];
   const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0));
+  // Quem decide se a pessoa manda arquivo é o servidor (`d.anexos`): só o gestor.
+  const podeAnexar=!!(d&&d.anexos);
+  async function juntar(arquivos){
+    const fs=[...(arquivos||[])]; if(!fs.length) return;
+    setErro("");
+    if(anexos.length+fs.length>ANEXO_LIMITES.arquivos) return setErro(`Mande até ${ANEXO_LIMITES.arquivos} arquivos por vez.`);
+    setPreparando(n=>n+fs.length);
+    for(const f of fs){
+      try{
+        const a=await prepararAnexo(f);
+        setAnexos(x=>{
+          const total=x.concat(a).reduce((s,y)=>s+pesoDoAnexo(y),0);
+          if(total>ANEXO_LIMITES.total){ setErro("Os arquivos passam de 16 MB juntos. Mande em mais de uma mensagem."); return x; }
+          return x.concat(a);
+        });
+      }catch(e){ setErro(e.message); }
+      finally{ setPreparando(n=>n-1); }
+    }
+  }
+  // Print colado com Ctrl+V entra como anexo — é o jeito mais rápido de mostrar uma tela.
+  const aoColar=podeAnexar?(e)=>{
+    const fs=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file").map(i=>i.getAsFile()).filter(Boolean);
+    if(fs.length){ e.preventDefault(); juntar(fs); }
+  }:undefined;
   async function enviar(){
-    const t=texto.trim(); if(!t||ocupado) return;
-    setTexto(""); setErro(""); setNavegar(null); setOcupado(true); setPendente(t);
+    const t=texto.trim(); if((!t&&!anexos.length)||ocupado||preparando) return;
+    const indo=anexos;
+    setTexto(""); setErro(""); setNavegar(null); setOcupado(true);
+    setPendente({texto:t,anexos:indo.map(a=>({nome:a.nome,tipo:a.quadros?"video":"",quadros:a.quadros?a.quadros.length:0}))});
+    setAnexos([]);
     try{
       // O menu de quem pergunta vai junto: é a tela que sabe quais itens ela vê.
-      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[]}});
+      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[],
+        ...(indo.length?{anexos:indo.map(a=>({nome:a.nome,tipo:a.tipo,dados:a.dados,quadros:a.quadros,duracao:a.duracao}))}:{})}});
       setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
       if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
-    }catch(e){ setErro(e.message); setTexto(t); }
+    }catch(e){ setErro(e.message); setTexto(t); setAnexos(indo); }
     finally{ setOcupado(false); setPendente(null); }
   }
   async function nova(){ try{ setD(await api("/assistente/nova",{method:"POST"})); setNavegar(null); }catch(e){ setErro(e.message); } }
@@ -6643,16 +6798,19 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const consulta=!!(d&&d.modo==="consulta");
   const sugestoes=consulta
     ?["Quais leads meus estão esperando resposta?","Como estão meus números neste mês?","Quais documentos pedir para financiar pela Caixa?","Como eu repasso um lead para outro corretor?","Coloque Imóveis no topo do meu menu"]
-    :["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
+    :["Mova para Recaptação os leads parados há 30 dias em Atendimento","Passe os leads da fila para o próximo corretor da roleta","Leve os leads da Marina para o funil de Locação","Crie um funil de locação","Quando o lead chegar em Qualificado, entregue ao próximo corretor"];
   return <div style={{position:"fixed",inset:0,zIndex:80,background:isMobile?C.card:"rgba(10,61,48,.18)",display:"flex",justifyContent:"flex-end"}}
     onClick={e=>{ if(e.target===e.currentTarget) aoFechar(); }}>
-    <div className={isMobile?"tela-cheia":undefined} style={{width:isMobile?"100%":420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
+    <div className={isMobile?"tela-cheia":undefined}
+      onDragOver={podeAnexar?(e)=>e.preventDefault():undefined}
+      onDrop={podeAnexar?(e)=>{ e.preventDefault(); juntar(e.dataTransfer?.files); }:undefined}
+      style={{width:isMobile?"100%":podeAnexar?460:420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
       boxShadow:isMobile?"none":"-12px 0 40px rgba(0,0,0,.12)"}}>
       <div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",background:C.card,borderBottom:`1px solid ${C.line}`}}>
         <div style={{width:32,height:32,borderRadius:10,background:"#FBF1EC",display:"flex",alignItems:"center",justifyContent:"center"}}><LogoClaude size={18}/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Assistente Claude</div>
-          <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Configura a sua conta conversando"}</div>
+          <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Faz o trabalho da gestão conversando"}</div>
         </div>
         {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
         <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
@@ -6665,8 +6823,8 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
             <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu só consulto: não mudo nada na conta. A única exceção é a ordem do seu menu — peça e eu reorganizo. Para o resto, te levo até a tela certa.</div>
           </div>
           :<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
-            Diga o que você quer montar e eu faço na sua conta: funis e etapas, prazos, o que acontece quando o lead chega numa etapa, campos, tags, mensagens prontas e as orientações do Autoatendimento.
-            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu não apago nada nem mexo em cobrança, WhatsApp ou equipe — para isso te levo até a tela certa.</div>
+            Diga o que precisa e eu faço na sua conta: mover leads de etapa e de funil, repassar, marcar tags, finalizar, criar tarefas e observações, cadastrar lead e registrar venda — e montar funis, etapas, prazos, campos, mensagens prontas e o Autoatendimento.
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Pode mandar foto, print, PDF, planilha ou vídeo junto (do vídeo eu vejo algumas cenas, sem som). Mexer em mais de 10 leads de uma vez eu só faço depois de você confirmar. Não apago nada, não mando mensagem ao cliente nem mexo em cobrança, WhatsApp ou equipe.</div>
           </div>}
           {d.disponivel&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
             {sugestoes.map(s=><button key={s} onClick={()=>setTexto(s)} style={{textAlign:"left",border:`1px solid ${C.line}`,background:C.card,
@@ -6674,15 +6832,21 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
           </div>}
         </div>}
         <BaloesDaConversa itens={itens} isMobile={isMobile}/>
-        {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente}]} isMobile={isMobile}/>}
+        {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente.texto||"(arquivo)",anexos:pendente.anexos}]} isMobile={isMobile}/>}
         {ocupado&&<div style={{alignSelf:"flex-start",display:"flex",gap:7,alignItems:"center",color:C.faint,fontSize:12}}>
-          <LogoClaude size={13}/>{consulta?"Pesquisando…":"Pensando e configurando…"}</div>}
+          <LogoClaude size={13}/>{consulta?"Pesquisando…":pendente&&pendente.anexos&&pendente.anexos.length?"Lendo os arquivos e trabalhando…":"Pensando e trabalhando…"}</div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
         {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
         {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
       </div>
-      {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado}
-        placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você quer configurar?":"Ex.: crie a etapa Visita com prazo de 1 dia"} isMobile={isMobile}/>}
+      {d&&d.disponivel&&podeAnexar&&<AnexosEscolhidos lista={anexos} preparando={preparando>0} tirar={(id)=>setAnexos(x=>x.filter(a=>a.id!==id))}/>}
+      {podeAnexar&&<input ref={arquivoRef} type="file" multiple style={{display:"none"}}
+        accept="image/*,video/*,application/pdf,.pdf,.xlsx,.csv,.txt,.md,.json"
+        onChange={e=>{ juntar(e.target.files); e.target.value=""; }}/>}
+      {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado||preparando>0}
+        teto={d.teto_texto} alturaMax={podeAnexar?(isMobile?180:260):110}
+        anexar={podeAnexar?()=>arquivoRef.current&&arquivoRef.current.click():undefined} aoColar={aoColar} prontoSemTexto={anexos.length>0}
+        placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você precisa?":"Ex.: mova para Visita os leads da Marina que estão em Atendimento"} isMobile={isMobile}/>}
       {d&&d.disponivel&&<div style={{color:C.faint,fontSize:10,textAlign:"center",padding:"0 0 8px",background:C.card}}>
         {d.usados}/{d.limite} perguntas da equipe neste mês · {consulta?"confira antes de passar ao cliente":"confira o que foi feito antes de usar"}</div>}
     </div>

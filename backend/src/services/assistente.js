@@ -24,6 +24,8 @@ import { chamarClaude, claudeConfigurado, textoDe, MODELO_ASSISTENTE } from "./c
 import { registrar } from "./iauso.js";
 import { MANUAL_CONHUB } from "./ajuda.js";
 import { CORES_TAG } from "./tags.js";
+import { FERRAMENTAS_LEADS, executorDeLeads } from "./assistente-leads.js";
+import { aliviarAnexos } from "./assistente-anexos.js";
 
 /* ===== TETO DO MÊS =====
    Cada pergunta custa centavos, e "centavos" sem teto vira fatura. O teto é
@@ -67,7 +69,11 @@ const novoItem = (de, texto, extra = {}) => ({ id: "it_" + randomUUID().slice(0,
    um laço que não termina, não. */
 const VOLTAS = 10;
 
-export async function conversar({ conversa, user, tipo, texto, system, tools, executar, effort }) {
+/* `anexos` (só do gestor, ver assistente-anexos.js): os blocos de arquivo vão
+   ANTES do texto na mensagem da pessoa, e a tela guarda só o nome de cada um.
+   `voltas`: o gestor ganhou ferramentas de lead e pode pedir "procura, move e
+   avisa" numa frase só — o teto dele é maior. */
+export async function conversar({ conversa, user, tipo, texto, system, tools, executar, effort, anexos = null, voltas = VOLTAS }) {
   let mensagens = json(conversa.mensagens, []);
   const itens = json(conversa.itens, []);
   const novos = [];
@@ -80,15 +86,20 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
     mensagens = [];
     novos.push(novoItem("sistema", "A conversa ficou longa e recomeçou daqui. O que já foi feito na conta continua feito."));
   }
-  novos.push(novoItem("voce", texto));
-  const efeitos = { navegar: null, humano: null, menu: undefined };
+  const blocos = anexos?.blocos || [];
+  novos.push(novoItem("voce", texto, anexos?.resumo?.length ? { anexos: anexos.resumo } : {}));
+  /* `pergunta` identifica ESTA mensagem da pessoa: a prévia de uma ação em
+     massa guarda a pergunta em que nasceu, e só executa numa outra — quem
+     confirma é a pessoa respondendo, não o modelo no embalo. */
+  const efeitos = { navegar: null, humano: null, menu: undefined, pergunta: randomUUID() };
   const inicio = mensagens.length;
-  mensagens.push({ role: "user", content: texto });
+  mensagens.push({ role: "user", content: blocos.length ? [...blocos, { type: "text", text: texto }] : texto });
+  aliviarAnexos(mensagens);
   db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
     .run("at_" + randomUUID(), user.org_id, user.id, tipo, agora());
 
   let falhou = null, pausada = false;
-  for (let volta = 0; volta < VOLTAS; volta++) {
+  for (let volta = 0; volta < voltas; volta++) {
     const r = await chamarClaude({ system, messages: mensagens, tools, effort });
     if (!r.ok) { falhou = r.erro; break; }
     registrar({ orgId: user.org_id, userId: user.id, recurso: { config: "assistente", consulta: "consulta" }[tipo] || "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
@@ -125,11 +136,11 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
       let saida;
       try { saida = await executar(p.name, p.input || {}, efeitos); }
       catch (e) { saida = { erro: "Falhou: " + e.message }; }
-      if (saida && saida.mostrar) novos.push(novoItem(saida.erro ? "erro" : "acao", saida.mostrar));
+      if (saida && saida.mostrar) novos.push(novoItem(saida.erro ? "erro" : (saida.tipo || "acao"), saida.mostrar));
       resultados.push({ type: "tool_result", tool_use_id: p.id, content: JSON.stringify(saida?.dados ?? saida ?? {}).slice(0, 20000), ...(saida?.erro ? { is_error: true } : {}) });
     }
     mensagens.push({ role: "user", content: resultados });
-    if (volta === VOLTAS - 1) novos.push(novoItem("erro", "Parei aqui para não entrar em laço. Confira o que já foi feito e me peça o resto."));
+    if (volta === voltas - 1) novos.push(novoItem("erro", "Parei aqui para não entrar em laço. Confira o que já foi feito e me peça o resto."));
   }
 
   /* Falha no meio: a conversa precisa terminar numa resposta do assistente
@@ -190,7 +201,7 @@ const T = (name, description, properties = {}, required = []) =>
   ({ name, description, input_schema: { type: "object", properties, required, additionalProperties: false } });
 
 const FERRAMENTA_ABRIR_TELA = T("abrir_tela",
-  "Leva a pessoa até uma tela do ConHub. Use para o que você não faz por aqui (apagar, WhatsApp, equipe, cobrança) ou quando ela pedir para ver algo.",
+  "Leva a pessoa até uma tela do ConHub. Use para o que você não faz por aqui (apagar, mandar mensagem ao cliente, WhatsApp, equipe, cobrança) ou quando ela pedir para ver algo.",
   { tela: { type: "string", enum: Object.keys(TELAS) }, motivo: { type: "string", description: "Uma frase curta: o que ela vai fazer lá (ex.: 'na aba Conexão, toque em Conectar')." } },
   ["tela", "motivo"]);
 
@@ -300,9 +311,13 @@ export const FERRAMENTAS_CONFIG = [
   T("ver_orientacoes_da_ia", "Lista as orientações que ensinam o Autoatendimento (a IA que atende o cliente) a falar."),
   T("adicionar_orientacao_da_ia", "Acrescenta uma orientação curta ao Autoatendimento (como tratar o cliente, o que perguntar).",
     { texto: { type: "string" } }, ["texto"]),
+  // O trabalho do dia a dia nos leads (07/10/2026) — só o gestor recebe.
+  ...FERRAMENTAS_LEADS,
   ...FERRAMENTAS_MENU,
   FERRAMENTA_ABRIR_TELA,
 ];
+// Com a pesquisa na internet, como na consulta (o teto de buscas é lido na hora).
+export const ferramentasDeConfig = () => [...FERRAMENTAS_CONFIG, { type: "web_search_20260209", name: "web_search", max_uses: MAX_PESQUISAS() }];
 
 /* Chama uma rota do próprio CRM com o crachá de quem pediu. É aqui que a
    permissão é decidida — pela rota, como na tela. */
@@ -363,9 +378,12 @@ export function executorDeConfig({ autorizacao, user, conversaId, menu }) {
   };
 
   const doMenu = executarMenu({ autorizacao, menu, registrar: registrarAcao });
+  const doLead = executorDeLeads({ chamarRota, autorizacao, user, conversaId, registrarAcao });
   return async (nome, e, efeitos) => {
     const m = await doMenu(nome, e, efeitos);
     if (m) return m;
+    const l = await doLead(nome, e, efeitos);
+    if (l) return l;
     switch (nome) {
       case "ver_funis": return ler("/pipelines?todos=1", resumoFunis);
       case "criar_funil": return mudar(nome, e, "POST", "/pipelines", sem({ name: e.nome, template: e.modelo_id || undefined }), `✓ Criei o funil “${e.nome}”.`);
@@ -527,13 +545,22 @@ export function sistemaDeConsulta(user, org) {
    Fixas (entram no cache); o que muda por conta vai no segundo bloco. */
 const INSTRUCOES_CONFIG = `Você é o assistente de configuração do ConHub, um CRM de imobiliárias, e conversa em português do Brasil com quem administra a conta.
 
-Seu trabalho: entender o que a pessoa quer montar na conta dela e FAZER, usando as ferramentas — funis, etapas, prazos, automação da etapa, funil de entrada de cada pessoa, campos, tags, mensagens prontas e orientações do Autoatendimento.
+Seu trabalho: entender o que a pessoa quer e FAZER, usando as ferramentas, como o gestor faria pela tela:
+- configuração: funis, etapas, prazos, automação da etapa, funil de entrada de cada pessoa, campos, tags, mensagens prontas e orientações do Autoatendimento;
+- leads: procurar e abrir (buscar_leads, ver_lead), mover de etapa e de funil (mover_leads, migrar_funil_da_pessoa), repassar (repassar_leads), tags (etiquetar_leads), finalizar/reabrir, tarefas, observações, corrigir nome, cadastrar lead e registrar venda;
+- números do período (ver_numeros) e pesquisa na internet (web_search) para assuntos de fora do sistema.
+
+A pessoa pode mandar arquivos junto (foto, print, PDF, planilha, texto, cenas de um vídeo). Leia o que veio e use: um print de outro sistema pode virar funil, uma planilha pode virar uma lista de leads para mover. Do vídeo você só vê os quadros que vieram — não assistiu nem ouviu nada; diga isso se a pergunta depender do som.
 
 Como trabalhar:
 - Antes de mexer em funil, etapa, campo, tag ou mensagem, leia o que existe (ver_funis, ver_campos, ver_tags, ver_mensagens_prontas, ver_equipe). Nunca invente um id.
 - Pedido claro: faça, e depois diga em poucas linhas o que ficou feito. Pedido ambíguo ou grande (ex.: refazer um funil inteiro): proponha o plano em tópicos curtos e espere o "pode".
 - Uma ferramenta recusou: diga o motivo com as palavras da recusa e o que a pessoa pode fazer. Não tente contornar uma recusa de permissão ou de plano.
-- Você NÃO apaga nada, não mexe em cobrança, plano, WhatsApp/conexão, equipe, senha nem em leads. Para isso, use abrir_tela e diga onde clicar.
+- AÇÃO EM MASSA: quando a ferramenta devolver precisa_confirmar, mostre à pessoa quantos leads, alguns nomes e o que vai mudar, e PARE. Só chame de novo com o código depois que ela responder confirmando. Nunca invente um código.
+- Antes de mover, repassar ou marcar, confira com buscar_leads quais leads são. Para mover para outro funil, use a etapa do funil de destino (de ver_funis).
+- Registrar venda só quando a pessoa disser o valor. Datas e horas são do horário de Brasília.
+- Você NÃO apaga nada (lead, funil, etapa, tag), não manda mensagem ao cliente, não mexe em cobrança, plano, WhatsApp/conexão, equipe, senha nem em LGPD. Para isso, use abrir_tela e diga onde clicar.
+- Privacidade: nunca coloque nome, telefone, e-mail ou CPF de cliente numa pesquisa na internet.
 - O menu da própria pessoa pode ser reorganizado (ver_meu_menu, organizar_meu_menu): só a ordem, nunca o nome; nada some do menu.
 - Responda curto, sem jargão técnico, sem markdown pesado (no máximo listas simples). Não fale de ids para a pessoa.
 - Se a dúvida for de uso do sistema e não de configuração, responda pelo manual abaixo.

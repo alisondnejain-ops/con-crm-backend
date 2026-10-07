@@ -18,7 +18,7 @@ import { authRequired, soMaster, ehDonoAutonomo } from "../auth.js";
 import { daEquipeConHub } from "../services/interno.js";
 import {
   conversar, conversaAtual, novaConversa, itensDa, disponibilidade,
-  FERRAMENTAS_CONFIG, executorDeConfig, sistemaDeConfig,
+  ferramentasDeConfig, executorDeConfig, sistemaDeConfig,
   FERRAMENTAS_CONSULTA, executorDeConsulta, sistemaDeConsulta, menuDoCorpo,
 } from "../services/assistente.js";
 import {
@@ -26,6 +26,7 @@ import {
   chamadoAberto, mensagensDo, abrirChamado, mensagemDoCliente, fecharChamado,
   respostaDoSuporte, configDoSuporte, salvarConfig, testarEnvio, chamadosParaOHub, chamadosEsperando,
 } from "../services/suporte.js";
+import { montarAnexos } from "../services/assistente-anexos.js";
 
 const orgDe = (orgId) => db.prepare("SELECT id, name, tipo FROM orgs WHERE id = ?").get(orgId);
 const textoDoCorpo = (req) => String(req.body?.texto || "").trim().slice(0, 4000);
@@ -41,18 +42,32 @@ const modoDe = (user) => (configura(user) ? "config" : "consulta");
 
 assistente.get("/", (req, res) => {
   const modo = modoDe(req.user);
-  res.json({ ...disponibilidade(req.user, modo), modo, itens: itensDa(conversaAtual(req.user.id, modo)) });
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: itensDa(conversaAtual(req.user.id, modo)),
+    teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
 assistente.post("/nova", (req, res) => {
   const modo = modoDe(req.user);
   novaConversa(req.user, modo);
-  res.json({ ...disponibilidade(req.user, modo), modo, itens: [] });
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: [], teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
+/* O GESTOR ESCREVE MAIS E MANDA ARQUIVO (07/10/2026, pedido do Ali — "essa
+   liberdade maior é apenas para gestores"). O teto do texto e os anexos são
+   decididos AQUI, pelo modo: a tela só esconde o botão, e esconder botão não
+   é trava. Texto acima do teto é recusado com a frase, não cortado calado —
+   cortar faria a IA responder a um pedido que não é o que a pessoa escreveu. */
+export const TETO_TEXTO = { config: 30000, consulta: 4000 };
 assistente.post("/mensagem", async (req, res) => {
   const modo = modoDe(req.user);
-  const texto = textoDoCorpo(req);
+  const bruto = String(req.body?.texto || "").trim();
+  const teto = TETO_TEXTO[modo];
+  if (bruto.length > teto) return res.status(400).json({ error: `O texto tem ${bruto.length.toLocaleString("pt-BR")} caracteres; o máximo é ${teto.toLocaleString("pt-BR")}.` });
+  const temAnexos = Array.isArray(req.body?.anexos) && req.body.anexos.length > 0;
+  if (temAnexos && modo !== "config") return res.status(403).json({ error: "Mandar arquivos para o Claude é só da gestão." });
+  const anexos = temAnexos ? montarAnexos(req.body.anexos) : null;
+  if (anexos?.erro) return res.status(400).json({ error: anexos.erro });
+  const texto = bruto || (temAnexos ? "(sem texto — veja o que mandei)" : "");
   if (!texto) return res.status(400).json({ error: modo === "config" ? "Escreva o que você quer configurar." : "Escreva a sua pergunta." });
   const disp = disponibilidade(req.user, modo);
   if (!disp.disponivel) return res.status(409).json({ error: disp.motivo });
@@ -60,9 +75,9 @@ assistente.post("/mensagem", async (req, res) => {
   const autorizacao = req.headers.authorization;
   const menu = menuDoCorpo(req.body?.menu);
   const r = await conversar(modo === "config" ? {
-    conversa, user: req.user, tipo: "config", texto, effort: "medium",
+    conversa, user: req.user, tipo: "config", texto, effort: "medium", anexos, voltas: 16,
     system: sistemaDeConfig(req.user, orgDe(req.user.org_id)),
-    tools: FERRAMENTAS_CONFIG,
+    tools: ferramentasDeConfig(),
     executar: executorDeConfig({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
   } : {
     conversa, user: req.user, tipo: "consulta", texto, effort: "medium",
@@ -70,7 +85,7 @@ assistente.post("/mensagem", async (req, res) => {
     tools: FERRAMENTAS_CONSULTA(),
     executar: executorDeConsulta({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
   });
-  res.json({ ...r, ...disponibilidade(req.user, modo), modo });
+  res.json({ ...r, ...disponibilidade(req.user, modo), modo, teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
 /* ===== NUVEM DE SUPORTE ===== */
