@@ -69,7 +69,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 - Minha conta → Notificações no celular → Ativar. No iPhone só funciona com o ConHub adicionado à Tela de Início (Compartilhar → Adicionar à Tela de Início).
 
 ## Assistente Claude (botão no alto da tela)
-- Gestor: configura a conta conversando (funis, etapas, prazos, campos, tags, mensagens prontas).
+- Gestor: faz o trabalho da gestão conversando — configura a conta (funis, etapas, prazos, campos, tags, mensagens prontas) e mexe nos leads (mover de etapa e de funil, repassar, tags, finalizar, tarefas, observações, cadastrar, registrar venda). Mais de 10 leads de uma vez só depois de o gestor confirmar. Aceita texto longo e arquivos (foto, print, PDF, planilha, e cenas de vídeo — sem som). Não apaga nada nem manda mensagem ao cliente.
 - Atendente e corretor: só consulta — tira dúvidas, procura leads e números dele e pesquisa na internet. Não muda nada na conta.
 - Todos: o Claude reorganiza a ORDEM do menu de quem pede (ex.: "coloque Imóveis no topo do meu menu"), só para ela. Os nomes das telas não mudam e nada some; "volte o menu ao padrão" desfaz.
 
