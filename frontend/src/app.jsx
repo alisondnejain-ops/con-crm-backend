@@ -559,6 +559,22 @@ function usarEscolha(chave,inicial){
   useEffect(()=>{ try{ sessionStorage.setItem(nome,JSON.stringify(v)); }catch(e){} },[nome,v]);
   return [v,setV];
 }
+/* ESCONDER O CONTATO DOS LEADS NO FUNIL (07/10/2026, pedido do Ali: "um
+   olhinho ao lado da barra de pesquisa que cobre essas informações sensíveis
+   do lead caso precise gravar a tela ou tirar um print").
+
+   Guardado no APARELHO (localStorage), e não só na aba como as outras
+   escolhas do quadro: quem esconde para gravar um vídeo e abre outra aba no
+   meio da gravação não pode ter os números de volta na tela sem ter pedido.
+   Fica escondido até a pessoa clicar de novo. */
+function usarContatoOculto(){
+  const nome="conhub:funil.ocultarContato";
+  const [v,setV]=useState(()=>{ try{ return localStorage.getItem(nome)==="1"; }catch(e){ return false; } });
+  useEffect(()=>{ try{ localStorage.setItem(nome,v?"1":"0"); }catch(e){} },[v]);
+  return [v,setV];
+}
+// O que aparece no lugar do telefone e do e-mail quando o olho está fechado.
+const CONTATO_OCULTO="••••••••";
 /* ===== UM PERÍODO SÓ PARA PAINEL, RELATÓRIOS E OPERAÇÃO (25/09/2026) =====
 
    Cada tela abria num período diferente: o Painel em "este mês", Relatórios
@@ -995,6 +1011,8 @@ const ICO={
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
   // Baixar: a seta descendo até a bandeja, o desenho que todo mundo reconhece.
   clipe:<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
+  olho:<React.Fragment><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></React.Fragment>,
+  olhoFechado:<React.Fragment><path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-2.4 3.3M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.4 9.4 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/></React.Fragment>,
   download:<React.Fragment><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></React.Fragment>,
   // O par do `check`: mesmo círculo, para "veio" e "não veio" se lerem juntos.
   xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
@@ -9615,6 +9633,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   /* Guardado junto com o texto: voltar com a busca escrita e o alvo trocado
      mostraria um resultado que não é o que a pessoa deixou na tela. */
   const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
+  const [ocultar,setOcultar]=usarContatoOculto();
   const [f,setF]=useState({dono:"",prioridade:"",tag:"",de:"",ate:""});
   const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
@@ -9754,6 +9773,16 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
               color:C.faint,cursor:"pointer",fontSize:15,lineHeight:1,padding:4}}>×</button>}
         </div>
+        {/* O OLHO: esconde telefone e e-mail dos cards (e do popup do lead)
+            para gravar a tela ou tirar print. Fechado fica coral, para quem
+            está gravando ver de relance que está protegido. */}
+        <button onClick={()=>setOcultar(o=>!o)} aria-pressed={ocultar}
+          aria-label={ocultar?"Mostrar telefone e e-mail dos leads":"Esconder telefone e e-mail dos leads"}
+          title={ocultar?"Telefone e e-mail escondidos — clique para mostrar":"Esconder telefone e e-mail (para gravar a tela ou tirar print)"}
+          style={{width:isMobile?42:36,height:isMobile?42:34,flexShrink:0,borderRadius:9,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            border:`1px solid ${ocultar?C.hot+"66":C.line}`,background:ocultar?C.hotSoft:C.surface,color:ocultar?C.hot:C.sub}}>
+          <Icon n={ocultar?"olhoFechado":"olho"} size={16}/></button>
         {/* EM QUAL DOS DOIS PROCURAR.
 
             Só existe para quem enxerga a equipe: o corretor vê apenas os leads
@@ -9937,7 +9966,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
             {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
-              return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
+              return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto} ocultar={ocultar}
                 opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
@@ -9955,7 +9984,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
         {alvo&&alvo!==arrasto.de?"soltar em "+alvo:"arraste até uma etapa"}</div>
     </div>}
-    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile}
+    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
     </div>
   </div>;
@@ -9972,7 +10001,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
    marcadas, e um botão do WhatsApp para ir à conversa quando a decisão for
    falar com o cliente. Sem sair do quadro é possível olhar dez leads parados
    em sequência — que é justamente o que se faz no funil. */
-function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
+function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar}){
   const alturaBarra=usarAlturaDaBarra();
   const l=leads.find(x=>x.id===leadId);
   useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); },[leadId]);
@@ -10000,7 +10029,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
           <div style={{color:C.ink,fontSize:14.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>
             <span style={{color:STAGE_C[l.status],fontWeight:600}}>{l.status}</span>
-            {l.etapaDesde?` há ${fmtCurto(Date.now()-l.etapaDesde)}`:""} · {fmtTel(l.tel)}
+            {l.etapaDesde?` há ${fmtCurto(Date.now()-l.etapaDesde)}`:""} · {ocultar?CONTATO_OCULTO:fmtTel(l.tel)}
           </div>
         </div>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
@@ -10157,7 +10186,7 @@ function fmtCurto(ms){
 
 const fmtCampoCard=(v)=>Array.isArray(v)?v.join(", "):typeof v==="boolean"?(v?"Sim":"Não"):String(v);
 
-function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[]}){
+function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[],ocultar}){
   /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
 
      A faixa já esquentava pela última conversa (regra de 13/08/2026: âmbar em
@@ -10204,6 +10233,12 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
         {l.prio&&<span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
           borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>}
       </div>
+
+      {/* O CONTATO (07/10/2026, pedido do Ali): o número sempre, o e-mail só
+          quando existe. Deixa o card um pouco mais alto em todo quadro — foi
+          aceito. O olho ao lado da busca troca os dois por pontos. */}
+      {l.tel&&linha("phone", ocultar?CONTATO_OCULTO:fmtTel(l.tel), C.sub)}
+      {l.email&&linha("mail", ocultar?CONTATO_OCULTO:l.email, C.sub)}
 
       {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
           usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
