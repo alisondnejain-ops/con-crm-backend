@@ -38,7 +38,8 @@
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { normalizePhone } from "./stages.js";
-import { sendText, sendMedia, sendMenu, numeroAlternativo } from "./uazapi.js";
+import { sendText, sendMedia, sendMenu, sendTemplate, numeroAlternativo } from "./uazapi.js";
+import { campoCasa } from "./campos-lead.js";
 import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm, ritmoDaOrg } from "./marketing.js";
 import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
 import { gatilhoLimpo, refDoGatilho, problemasDoGatilho } from "./automacoes.js";
@@ -64,7 +65,9 @@ export const TIPOS_DE_BLOCO = ["inicio", "mensagem", "espera", "resposta", "boto
    (sim/não). Num disparo para contato de lista (que ainda não é lead) eles
    são pulados: não há lead para mexer. */
 export const BLOCOS_DE_CRM = ["add_tag", "remover_tag", "mover_etapa", "atribuir", "tarefa"];
-const REGRAS_DE_CONDICAO = ["tag", "etapa", "temperatura", "responsavel"];
+/* `campo` (o valor de um campo personalizado) e `respondeu` (o cliente mandou
+   mensagem desde que entrou no fluxo) entraram em 08/10/2026. */
+const REGRAS_DE_CONDICAO = ["tag", "etapa", "temperatura", "responsavel", "campo", "respondeu"];
 const UNIDADES = { minutos: 60000, horas: 3600000, dias: 86400000 };
 const PRAZO_PADRAO = { quantidade: 24, unidade: "horas" };
 const MAX_BOTOES = 3;           // o WhatsApp não mostra mais que três botões
@@ -100,6 +103,17 @@ const prazoLimpo = (p) => {
   const quantidade = Math.round(Number(p?.quantidade));
   return { quantidade: quantidade >= 1 && quantidade <= 999 ? quantidade : PRAZO_PADRAO.quantidade, unidade };
 };
+/* Modelo aprovado da Meta (08/10/2026): nome e idioma vêm da lista da conta;
+   `texto` é o corpo do modelo (é o que sai, já preenchido, numa linha da
+   Uazapi — que não tem modelo); `variaveis` preenchem {{1}}, {{2}}… e
+   aceitam {nome}. */
+const modeloLimpo = (m) => {
+  if (!m || !String(m.nome || "").trim()) return null;
+  return { nome: texto(String(m.nome).replace(/[^\w-]/g, ""), 120), idioma: texto(String(m.idioma || "pt_BR").replace(/[^\w-]/g, ""), 12) || "pt_BR",
+    texto: texto(m.texto, 1024), variaveis: (Array.isArray(m.variaveis) ? m.variaveis : []).slice(0, 10).map(v => texto(v, 200)) };
+};
+export const textoDoModelo = (m, nome) => String(m?.texto || "")
+  .replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => personalizar(m.variaveis?.[Number(n) - 1] ?? "", nome));
 const midiaLimpa = (m) => {
   if (!m || !m.url) return null;
   const tipo = ["image", "video", "audio", "document"].includes(m.tipo) ? m.tipo : "document";
@@ -128,7 +142,11 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
         pipeline_id: idLimpo(d.gatilho.pipeline_id) || null, stage_id: idLimpo(d.gatilho.stage_id) || null,
         catraca_ids: (Array.isArray(d.gatilho.catraca_ids) ? d.gatilho.catraca_ids : d.gatilho.catraca_id ? [d.gatilho.catraca_id] : [])
           .map(idLimpo).filter(Boolean).slice(0, 30) } } : {}) };
-    if (n.tipo === "condicao") dados = { regra: REGRAS_DE_CONDICAO.includes(d.regra) ? d.regra : "tag", valor: texto(d.valor, 80) };
+    if (n.tipo === "condicao") {
+      const regra = REGRAS_DE_CONDICAO.includes(d.regra) ? d.regra : "tag";
+      dados = { regra, valor: texto(d.valor, 80) };
+      if (regra === "campo") dados.campo = String(d.campo || "").replace(/[^\w-]/g, "").slice(0, 60);
+    }
     if (n.tipo === "add_tag" || n.tipo === "remover_tag") dados = { tag_id: idLimpo(d.tag_id) };
     if (n.tipo === "mover_etapa") dados = { etapa_id: idLimpo(d.etapa_id) };
     if (n.tipo === "atribuir") dados = { modo: ["pessoa", "catraca", "fila"].includes(d.modo) ? d.modo : "catraca",
@@ -137,7 +155,10 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
       const h = Math.round(Number(d.em_horas));
       dados = { titulo: texto(String(d.titulo || "").trim(), 160), em_horas: h >= 0 && h <= 720 ? h : 24 };
     }
-    if (n.tipo === "mensagem") dados = { texto: texto(d.texto, 4000), midia: midiaLimpa(d.midia) };
+    if (n.tipo === "mensagem") {
+      const modelo = modeloLimpo(d.modelo);
+      dados = modelo ? { texto: "", midia: null, modelo } : { texto: texto(d.texto, 4000), midia: midiaLimpa(d.midia) };
+    }
     if (n.tipo === "espera") {
       const p = prazoLimpo({ quantidade: d.quantidade, unidade: d.unidade });
       dados = { quantidade: p.quantidade, unidade: p.unidade };
@@ -185,7 +206,7 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
       const n = porId.get(id);
       if (n.tipo === "mensagem") {
         temEnvio = true;
-        if (!n.dados.texto.trim() && !n.dados.midia) erros.push(`Um bloco "${nomeDe(n)}" está vazio: escreva o texto ou anexe um arquivo.`);
+        if (!n.dados.modelo && !n.dados.texto.trim() && !n.dados.midia) erros.push(`Um bloco "${nomeDe(n)}" está vazio: escreva o texto ou anexe um arquivo.`);
       }
       if (n.tipo === "botoes") {
         temEnvio = true;
@@ -202,7 +223,8 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
         if (n.tipo === "atribuir" && n.dados.modo === "pessoa" && !n.dados.user_id) erros.push("Um bloco \"Atribuir responsável\" está sem a pessoa escolhida.");
         if (n.tipo === "tarefa" && !n.dados.titulo) erros.push("Um bloco \"Criar tarefa\" está sem o texto da tarefa.");
       }
-      if (n.tipo === "condicao" && !n.dados.valor) erros.push("Um bloco \"Condição\" está sem a regra completa.");
+      if (n.tipo === "condicao" && n.dados.regra === "campo" && !n.dados.campo) erros.push("Um bloco \"Condição\" está sem o campo escolhido.");
+      if (n.tipo === "condicao" && !["campo", "respondeu"].includes(n.dados.regra) && !n.dados.valor) erros.push("Um bloco \"Condição\" está sem a regra completa.");
     }
     if (!temEnvio) erros.push("O fluxo não faz nada: ligue o início a uma mensagem ou a uma ação.");
   }
@@ -233,6 +255,9 @@ export function conferirReferencias(orgId, grafo) {
     if (n.tipo === "atribuir" && d.modo === "pessoa" && d.user_id
       && !db.prepare("SELECT 1 FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'").get(d.user_id, orgId))
       erros.push("A pessoa escolhida num bloco \"Atribuir responsável\" não está mais ativa na equipe.");
+    if (n.tipo === "condicao" && d.regra === "campo" && d.campo
+      && !db.prepare("SELECT 1 FROM custom_fields WHERE key = ? AND org_id = ? AND is_active = 1").get(d.campo, orgId))
+      erros.push("O campo escolhido num bloco \"Condição\" não existe mais ou foi desativado.");
     if (n.tipo === "atribuir" && d.modo === "catraca" && d.catraca_id && !catracaAtiva(orgId, d.catraca_id))
       erros.push("A catraca escolhida num bloco \"Atribuir responsável\" foi desativada ou apagada.");
   }
@@ -805,7 +830,13 @@ const naoTemWhatsapp = (m) => /não está no WhatsApp|not on whatsapp/i.test(Str
 async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "" }) {
   const enviados = [];
   const e = { telefone, nome };
-  if (no.tipo === "mensagem") {
+  if (no.tipo === "mensagem" && no.dados.modelo) {
+    const m = no.dados.modelo;
+    const variaveis = (m.variaveis || []).map(v => personalizar(v, e.nome));
+    const escrito = textoDoModelo(m, e.nome);
+    const r = await sendTemplate({ orgId: org, canalId, toPhone: e.telefone, nome: m.nome, idioma: m.idioma, variaveis, texto: escrito + rodape });
+    enviados.push({ texto: escrito || `Modelo ${m.nome}`, waId: r?.messageid });
+  } else if (no.tipo === "mensagem") {
     const corpo = personalizar(no.dados.texto, e.nome).trim();
     const midia = no.dados.midia;
     if (midia && midia.tipo !== "audio") {
@@ -897,9 +928,16 @@ function registrarPasso(e, camp, no, texto, agora, falhou = false) {
 }
 
 function avaliarCondicao(e, no) {
-  const lead = e.lead_id && db.prepare("SELECT id, stage_id, priority, assigned_to FROM leads WHERE id = ? AND org_id = ?").get(e.lead_id, e.org_id);
+  const lead = e.lead_id && db.prepare("SELECT id, stage_id, priority, assigned_to, custom_fields FROM leads WHERE id = ? AND org_id = ?").get(e.lead_id, e.org_id);
   if (!lead) return "nao";
   const { regra, valor } = no.dados;
+  if (regra === "campo") {
+    let campos = {}; try { campos = JSON.parse(lead.custom_fields || "{}"); } catch {}
+    return campoCasa(campos[no.dados.campo], valor) ? "sim" : "nao";
+  }
+  // O cliente mandou mensagem desde que esta pessoa entrou no fluxo?
+  if (regra === "respondeu")
+    return db.prepare("SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at > ? LIMIT 1").get(lead.id, e.criado_em) ? "sim" : "nao";
   if (regra === "tag") return db.prepare("SELECT 1 FROM lead_tags WHERE lead_id = ? AND tag_id = ?").get(lead.id, valor) ? "sim" : "nao";
   if (regra === "etapa") return lead.stage_id === valor ? "sim" : "nao";
   if (regra === "temperatura") return (valor === "SEM" ? !lead.priority : lead.priority === valor) ? "sim" : "nao";
@@ -1302,6 +1340,19 @@ export function mensagemRecebida({ orgId, lead, texto: recebido, fromMe }) {
        com zero mensagens enviadas. */
     db.prepare(`UPDATE marketing_execucoes SET respondeu = 1 WHERE org_id = ? AND telefone IN (${em})
       AND estado IN ('ativa','aguardando_resposta') AND primeira_enviada = 1`).run(orgId, ...f);
+    /* "PARAR QUANDO O CLIENTE RESPONDER" (08/10/2026): a execução que está no
+       meio de uma espera (ou ainda antes de um bloco que espera resposta)
+       termina aqui. Só quem já RECEBEU algo do fluxo — responder é responder
+       a uma mensagem; sem isso, o próprio "oi" que fez o lead nascer pelo
+       WhatsApp pararia a automação de boas-vindas no instante em que começou.
+       Quem está num bloco que espera resposta segue o caminho da resposta,
+       que é para isso que o bloco existe. */
+    const emEspera = db.prepare(`SELECT e.*, c.grafo AS camp_grafo FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
+      WHERE e.org_id = ? AND e.telefone IN (${em}) AND e.estado = 'ativa' AND e.primeira_enviada = 1 AND c.status = 'rodando'`).all(orgId, ...f);
+    for (const x of emEspera) {
+      let g = null; try { g = gatilhoDo(JSON.parse(x.camp_grafo)); } catch {}
+      if (g?.parar_ao_responder) { delete x.camp_grafo; finalizar(x, "concluida", "o cliente respondeu"); }
+    }
     const e = db.prepare(`SELECT e.* FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
       WHERE e.org_id = ? AND e.telefone IN (${em}) AND e.estado = 'aguardando_resposta' AND c.status = 'rodando'
       ORDER BY e.atualizado_em DESC LIMIT 1`).get(orgId, ...f);

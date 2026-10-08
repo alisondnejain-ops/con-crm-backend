@@ -225,7 +225,12 @@ assert.equal(terceiro.model, "claude-opus-5-5", "modelo padrão");
 assert.equal(terceiro.fallbacks, "default");
 assert.equal(pedidosIA[pedidosIA.length - 1].headers["anthropic-beta"], "server-side-fallback-2026-07-01");
 assert.deepEqual(terceiro.output_config, { effort: "medium" });
-assert.ok(terceiro.tools.some(t => t.name === "editar_etapa") && !terceiro.tools.some(t => /apagar/.test(t.name)), "não existe ferramenta de apagar");
+/* Apagar, só os textos da própria equipe que o Ali pediu (08/10/2026):
+   orientação da IA e ficha de produto. Lead, funil, etapa, tag, fluxo e
+   catraca continuam sem ferramenta de apagar. */
+assert.ok(terceiro.tools.some(t => t.name === "editar_etapa"));
+assert.deepEqual(terceiro.tools.filter(t => /apagar/.test(t.name)).map(t => t.name).sort(),
+  ["apagar_ficha_de_produto", "apagar_orientacao_da_ia"], "só apaga orientação e ficha");
 assert.equal(db.prepare("SELECT COUNT(*) n FROM assistente_acoes WHERE org_id = ? AND ferramenta = 'criar_funil' AND ok = 1").get(cliente).n, 1, "a ação fica registrada");
 assert.ok(db.prepare("SELECT COUNT(*) n FROM ia_uso WHERE org_id = ? AND recurso = 'assistente'").get(cliente).n >= 3, "o gasto entra no Uso da IA");
 
@@ -278,7 +283,9 @@ r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "oi" });
   for (const t of ["buscar_leads", "mover_leads", "migrar_funil_da_pessoa", "repassar_leads", "etiquetar_leads", "finalizar_leads",
     "criar_tarefa", "adicionar_observacao", "cadastrar_lead", "registrar_venda", "ver_numeros", "web_search"])
     assert.ok(tools.includes(t), "falta " + t);
-  assert.ok(!tools.some(t => /apagar|excluir|enviar_mensagem/.test(t)), "nada de apagar nem de falar com o cliente");
+  // Só orientação e ficha de produto se apagam (08/10/2026); nada fala com o cliente.
+  assert.ok(!tools.some(t => /excluir|enviar_mensagem|disparar/.test(t) || (/apagar/.test(t) && !["apagar_ficha_de_produto", "apagar_orientacao_da_ia"].includes(t))),
+    "nada de apagar lead/funil/fluxo nem de falar com o cliente");
   assert.ok(/AÇÃO EM MASSA/.test(pedidosIA[pedidosIA.length - 1].corpo.system[0].text));
 }
 

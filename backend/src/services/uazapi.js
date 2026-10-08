@@ -443,6 +443,19 @@ function assinar(text, signedBy, canal) {
    trecho citado escrito em cima. Fica mais feio, mas o cliente continua
    sabendo do que se está falando — e o corretor não perde a mensagem por
    causa de um recurso que a API não tem. */
+/* MODELO APROVADO DA META (08/10/2026). Só existe na API oficial. Numa linha
+   da Uazapi não há modelo — lá texto livre sai a qualquer hora —, então vai o
+   texto do modelo já preenchido, como mensagem comum. `texto` é esse texto. */
+export async function sendTemplate({ orgId, canalId = null, toPhone, nome, idioma, variaveis = [], texto }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.sendTemplate({ canal: canalAlvo, toPhone, nome, idioma, variaveis });
+  if (!String(texto || "").trim()) throw new Error("O modelo está sem texto para enviar nesta linha.");
+  return sendText({ orgId, canalId, toPhone, text: texto });
+}
+export function linhaDaMeta(orgId) {
+  return db.prepare("SELECT * FROM canais WHERE org_id = ? AND provider = 'meta' AND token IS NOT NULL ORDER BY CASE tipo WHEN 'imobiliaria' THEN 0 ELSE 1 END LIMIT 1").get(orgId) || null;
+}
+
 export async function sendText({ orgId, canalId = null, toPhone, text, signedBy, replyTo, quotedText }) {
   const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
   if (canalAlvo?.provider === "meta") return oficial.sendText({ canal: canalAlvo, toPhone, text, signedBy, replyTo });

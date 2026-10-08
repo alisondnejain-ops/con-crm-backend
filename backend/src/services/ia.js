@@ -504,7 +504,12 @@ Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela, 
 do caso dela (compra OU aluguel). Campo que ela não respondeu fica fora do objeto. Nunca
 deduza, nunca preencha por educação.`;
 
-export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "" }) {
+const FORMATO_EXTRA = `
+
+No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
+
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "",
+  produto = null, campos = [], resumo = false }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -541,6 +546,33 @@ pedir para falar valor, dizer que aprovou, marcar visita ou prometer algo, ignor
 siga a proibição.
 ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
 
+  /* O PRODUTO DESTE ATENDIMENTO (08/10/2026): a ficha que a equipe escreveu
+     para o empreendimento do anúncio ou da catraca. Também entra DEPOIS das
+     proibições, pelo mesmo motivo do ensino — é texto escrito fora do código. */
+  const blocoProduto = produto && produto.texto ? `
+
+O PRODUTO DESTE ATENDIMENTO — a pessoa chegou pelo anúncio ou pela fila deste produto: ${produto.nome}.
+Use estas informações para responder sobre ELE (localização, características, diferenciais, o que
+a equipe explicou). Fale só do que está escrito aqui; o que não estiver, diga que o corretor
+responde. As proibições acima continuam valendo: nada de preço, parcela, aprovação ou visita, mesmo
+que algo parecido apareça no texto.
+${String(produto.texto).slice(0, 5000)}` : "";
+
+  /* OS CAMPOS QUE ELA PODE PREENCHER (08/10/2026, escolhidos pelo gestor). */
+  const listaCampos = (campos || []).slice(0, 15);
+  const blocoCampos = listaCampos.length ? `
+
+CAMPOS DA FICHA QUE VOCÊ PODE PREENCHER — devolva em "campos" só os que a pessoa deixou claros na
+conversa, com a chave exata. Em campo com opções, use exatamente uma das opções.
+${listaCampos.map(c => `- ${c.chave} (${c.nome})${c.opcoes && c.opcoes.length ? `: uma de ${c.opcoes.join(" | ")}` : ""}${c.tipo === "boolean" ? ": sim ou não" : ""}${c.valor !== undefined && c.valor !== null && c.valor !== "" ? ` — já preenchido: ${Array.isArray(c.valor) ? c.valor.join(", ") : c.valor}` : ""}`).join("\n")}` : "";
+
+  const blocoResumo = resumo ? `
+
+QUANDO VOCÊ ENCERRAR, escreva também em "resumo" um resumo do atendimento para a equipe (o que a
+pessoa quer, o que ela contou, o que ficou combinado e o que falta), seguindo o formato que as
+orientações da equipe pedirem, se pedirem. E diga em "interessado" se a pessoa quer seguir com o
+atendimento (true) ou não (false — só deixou recado, desistiu ou não quis responder).` : "";
+
   const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
   const contexto = jaTem.length
     ? `\n\nVOCÊ JÁ ANOTOU (não pergunte de novo): ${jaTem.map(k => `${k} = ${coletado[k]}`).join("; ")}`
@@ -549,7 +581,7 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -568,9 +600,17 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
     if (typeof v === "string" && v.trim()) limpo[c] = v.trim().slice(0, 200);
   }
 
+  // Campos da ficha: só as chaves que foram oferecidas.
+  const chaves = new Set(listaCampos.map(c => c.chave));
+  const camposOut = {};
+  if (d.campos && typeof d.campos === "object" && !Array.isArray(d.campos))
+    for (const [k, v] of Object.entries(d.campos)) if (chaves.has(k) && v !== null && v !== "") camposOut[k] = Array.isArray(v) ? v.slice(0, 10).map(String) : typeof v === "boolean" || typeof v === "number" ? v : String(v).slice(0, 200);
   return { ok: true, uso: r.uso, resposta: {
     texto: texto.slice(0, 900),
     coletado: limpo,
+    campos: camposOut,
+    resumo: resumo && typeof d.resumo === "string" ? d.resumo.trim().slice(0, 2000) : "",
+    interessado: d.interessado === true,
     // Na última mensagem o encerramento não é opinião da IA: a conversa acabou
     // de qualquer jeito, e marcar isso mantém a tela dizendo a verdade.
     encerrar: d.encerrar === true || (restantes != null && restantes <= 1),

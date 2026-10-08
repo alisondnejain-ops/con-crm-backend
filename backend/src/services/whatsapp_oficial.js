@@ -31,7 +31,9 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 const VERSAO = process.env.META_GRAPH_VERSION || "v21.0";
-const BASE = "https://graph.facebook.com";
+// META_GRAPH_URL troca o endereço só nos testes (uma Meta de mentira).
+const BASE_FIXA = "https://graph.facebook.com";
+const baseGraph = () => (process.env.META_GRAPH_URL || BASE_FIXA).replace(/\/$/, "");
 
 // Teto do próprio WhatsApp para mídia — maior que os 25MB da Uazapi porque
 // vídeo aceito pela Meta chega a 16MB e documento a 100MB; ficamos com uma
@@ -62,7 +64,7 @@ async function chamar(canal, caminho, { method = "GET", json, form } = {}) {
 
   let res;
   try {
-    res = await fetch(`${BASE}/${VERSAO}/${caminho}`, { method, headers, body });
+    res = await fetch(`${baseGraph()}/${VERSAO}/${caminho}`, { method, headers, body });
   } catch (e) {
     throw new Error(`Não consegui falar com a Meta (rede): ${e.message}`);
   }
@@ -83,6 +85,33 @@ async function chamar(canal, caminho, { method = "GET", json, form } = {}) {
     throw new Error(`A Meta respondeu ${res.status} em ${caminho}${bruto ? `: ${bruto.slice(0, 180)}` : ""}`);
   }
   return data;
+}
+
+/* MODELOS APROVADOS (08/10/2026, pedido do Ali: o fluxo manda "texto livre ou
+   modelo aprovado da Meta"). Fora da janela de 24h só modelo sai, e é por
+   isso que o fluxo que chama um lead parado precisa deles. Os modelos são da
+   conta do WhatsApp Business (WABA), criados e aprovados no Gerenciador da
+   Meta — aqui só se lê a lista e se manda. */
+export async function listarModelos(canal) {
+  if (!canal?.waba_id) throw new Error("Esta linha não tem o WABA ID da Meta salvo. Confira em Configurações → Conexão.");
+  const data = await chamar(canal, `${canal.waba_id}/message_templates?fields=name,language,status,category,components&limit=200`);
+  return (data.data || []).filter(m => String(m.status || "").toUpperCase() === "APPROVED").map(m => {
+    const corpo = (m.components || []).find(c => String(c.type).toUpperCase() === "BODY");
+    const texto = corpo?.text || "";
+    const variaveis = (texto.match(/\{\{\s*\d+\s*\}\}/g) || []).length;
+    const temCabecalhoComMidia = (m.components || []).some(c => String(c.type).toUpperCase() === "HEADER" && c.format && String(c.format).toUpperCase() !== "TEXT");
+    return { nome: m.name, idioma: m.language, categoria: m.category, texto, variaveis, cabecalho_com_midia: temCabecalhoComMidia };
+  });
+}
+/* `variaveis` preenchem {{1}}, {{2}}… do corpo, na ordem. */
+export async function sendTemplate({ canal, toPhone, nome, idioma, variaveis = [] }) {
+  const payload = {
+    messaging_product: "whatsapp", to: toPhone, type: "template",
+    template: { name: nome, language: { code: idioma || "pt_BR" },
+      ...(variaveis.length ? { components: [{ type: "body", parameters: variaveis.map(v => ({ type: "text", text: String(v || "-") })) }] } : {}) },
+  };
+  const data = await chamar(canal, `${canal.phone_number_id}/messages`, { method: "POST", json: payload });
+  return { ok: true, data, messageid: data?.messages?.[0]?.id || null };
 }
 
 export async function sendText({ canal, toPhone, text, signedBy, replyTo }) {

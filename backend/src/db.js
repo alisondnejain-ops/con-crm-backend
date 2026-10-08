@@ -2216,4 +2216,40 @@ CREATE INDEX IF NOT EXISTS idx_suporte_msgs_wa ON suporte_mensagens(wa_id) WHERE
 if (!db.prepare("PRAGMA table_info(suporte_chamados)").all().some(c => c.name === "solicitante"))
   db.exec("ALTER TABLE suporte_chamados ADD COLUMN solicitante TEXT");
 
+/* AUTOATENDIMENTO: ONDE A IA ATUA, AS FICHAS DE PRODUTO E O QUE ELA FAZ NO
+   LEAD (08/10/2026, pedido do Ali).
+
+   - orgs.robo_escopo: JSON {pipelines:[ids], etapas:[ids]}. Vazio = em todo
+     lugar (o de sempre). Com algo marcado, a IA só fala com lead daqueles
+     funis/etapas.
+   - orgs.robo_campos: JSON com as chaves dos campos personalizados que a IA
+     pode preencher na conversa.
+   - orgs.robo_observacao: 1 = ao se despedir, a IA escreve o resumo do
+     atendimento como observação do lead.
+   - orgs.robo_etapa_final: etapa para onde a IA move o lead quando termina a
+     qualificação e o cliente quer seguir (o "Lead Interessado").
+   - ia_produtos: uma ficha por empreendimento, escrita pela equipe, ligada a
+     um formulário de anúncio e/ou a uma catraca — é o produto que a IA
+     conhece naquele atendimento. */
+addOrgCol("robo_escopo", "TEXT");
+addOrgCol("robo_campos", "TEXT");
+addOrgCol("robo_observacao", "INTEGER");
+addOrgCol("robo_etapa_final", "TEXT");
+db.exec(`CREATE TABLE IF NOT EXISTS ia_produtos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  texto TEXT NOT NULL DEFAULT '',
+  produto_id TEXT,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_por TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_ia_produtos_org ON ia_produtos(org_id)");
+if (!db.prepare("PRAGMA table_info(meta_formularios)").all().some(c => c.name === "ia_produto_id"))
+  db.exec("ALTER TABLE meta_formularios ADD COLUMN ia_produto_id TEXT");
+if (!db.prepare("PRAGMA table_info(catracas)").all().some(c => c.name === "ia_produto_id"))
+  db.exec("ALTER TABLE catracas ADD COLUMN ia_produto_id TEXT");
+
 export default db;

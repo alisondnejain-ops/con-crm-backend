@@ -12,6 +12,7 @@
                    na mão — planilha importada fica de fora de propósito).
      etapa       → um lead entrou numa etapa do funil.
      etiqueta    → uma etiqueta foi colocada num lead.
+     campo       → um campo personalizado ganhou um valor (08/10/2026).
 
    Este arquivo só faz uma coisa: quando o evento acontece, coloca o lead na
    automação (uma EXECUÇÃO, a mesma tabela do disparo). Quem anda pelo fluxo
@@ -35,8 +36,9 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { temRecurso } from "./recursos.js";
+import { campoCasa } from "./campos-lead.js";
 
-export const TIPOS_DE_GATILHO = ["manual", "formulario", "lead_novo", "etapa", "etiqueta"];
+export const TIPOS_DE_GATILHO = ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo"];
 export const ORIGENS_DE_LEAD = ["whatsapp", "formulario", "portal", "manual"];
 
 /* O gatilho que vem do navegador, limpo. Os campos de funil e catraca do
@@ -51,6 +53,15 @@ export function gatilhoLimpo(g) {
   if (tipo === "lead_novo") out.origens = (Array.isArray(g.origens) ? g.origens : []).filter(o => ORIGENS_DE_LEAD.includes(o));
   if (tipo === "etapa") out.etapa_id = ref(g.etapa_id);
   if (tipo === "etiqueta") out.tag_id = ref(g.tag_id);
+  /* CAMPO PREENCHIDO COM UM VALOR (08/10/2026): um campo personalizado
+     ganhou um valor — qualquer um, ou o escrito em `valor` (sem olhar
+     maiúscula nem acento). Vale quando alguém preenche na ficha e quando a
+     IA do Autoatendimento preenche na conversa. */
+  if (tipo === "campo") { out.campo = String(g.campo || "").replace(/[^\w-]/g, "").slice(0, 60); out.valor = String(g.valor ?? "").slice(0, 120); }
+  /* Parar o fluxo quando o cliente responder (08/10/2026): uma mensagem do
+     cliente encerra a execução que está esperando um tempo ou ainda não
+     chegou a um bloco que espera resposta. Vale para qualquer gatilho. */
+  out.parar_ao_responder = !!g?.parar_ao_responder;
   return out;
 }
 
@@ -60,6 +71,7 @@ export function refDoGatilho(g) {
   if (g.tipo === "formulario") return g.form_id || null;
   if (g.tipo === "etapa") return g.etapa_id || null;
   if (g.tipo === "etiqueta") return g.tag_id || null;
+  if (g.tipo === "campo") return g.campo || null;
   return null;
 }
 
@@ -78,6 +90,11 @@ export function problemasDoGatilho(orgId, g) {
     if (!g.tag_id) return ["Escolha a etiqueta do gatilho."];
     if (!db.prepare("SELECT 1 FROM tags WHERE id = ? AND org_id = ?").get(g.tag_id, orgId)) return ["A etiqueta do gatilho não existe mais."];
   }
+  if (g.tipo === "campo") {
+    if (!g.campo) return ["Escolha o campo do gatilho."];
+    if (!db.prepare("SELECT 1 FROM custom_fields WHERE key = ? AND org_id = ? AND is_active = 1").get(g.campo, orgId))
+      return ["O campo do gatilho não existe mais ou foi desativado."];
+  }
   return [];
 }
 
@@ -92,7 +109,7 @@ const formas = (t) => {
 
 /* O evento aconteceu. Coloca o lead em toda automação ativa que casa com
    ele. Devolve quantas execuções nasceram (para o teste e para o log). */
-export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem = null, agora = Date.now() } = {}) {
+export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem = null, valor, agora = Date.now() } = {}) {
   try {
     if (!orgId || !leadId || !TIPOS_DE_GATILHO.includes(tipo) || tipo === "manual") return 0;
     const fluxos = db.prepare(`SELECT id, nome, grafo, automacao_id, gatilho_ref FROM marketing_fluxos
@@ -114,6 +131,7 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
       if (g.tipo !== tipo) continue;
       if (tipo === "lead_novo") { if (g.origens.length && !g.origens.includes(origem)) continue; }
       else if (String(fl.gatilho_ref || "") !== String(chave || "")) continue;
+      if (tipo === "campo" && !campoCasa(valor, g.valor)) continue;
 
       const anteriores = db.prepare(`SELECT estado, criado_em FROM marketing_execucoes WHERE campanha_id = ? AND lead_id = ?
         ORDER BY criado_em DESC`).all(camp.id, lead.id);

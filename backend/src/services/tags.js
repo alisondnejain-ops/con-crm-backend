@@ -81,6 +81,22 @@ export function criarTag(orgId, { nome, cor }, userId) {
   return { tag: db.prepare("SELECT *, 0 AS leads FROM tags WHERE id = ?").get(id) };
 }
 
+/* A ETIQUETA COM O NOME DO CORRETOR (08/10/2026, pedido do Ali: "etiquetar
+   com o nome do corretor que recebeu o lead, para ter a etiqueta por
+   corretor"). Acha a tag com aquele nome (sem olhar maiúscula nem acento) ou
+   cria uma — a cor é escolhida pelo nome, para o mesmo corretor ter sempre a
+   mesma cor. Devolve o id, ou { erro } (teto de tags da conta). */
+export function tagComNome(orgId, nome) {
+  const n = limpo(nome);
+  if (!n) return { erro: "Sem nome para a etiqueta." };
+  const existe = db.prepare("SELECT id, nome FROM tags WHERE org_id = ?").all(orgId).find(t => chave(t.nome) === chave(n));
+  if (existe) return { id: existe.id };
+  let soma = 0;
+  for (const ch of chave(n)) soma = (soma * 31 + ch.charCodeAt(0)) % 9973;
+  const r = criarTag(orgId, { nome: n, cor: CORES_TAG[soma % CORES_TAG.length] }, null);
+  return r.erro ? { erro: r.erro } : { id: r.tag.id };
+}
+
 export function editarTag(orgId, id, { nome, cor }) {
   const atual = db.prepare("SELECT * FROM tags WHERE id = ? AND org_id = ?").get(id, orgId);
   if (!atual) return { erro: "Tag não encontrada." };

@@ -63,13 +63,21 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 
 ## Anúncios (Facebook/Instagram)
 - Configurações → Anúncios do Meta → "Continuar com o Facebook" e escolha a página. Os leads dos formulários passam a entrar sozinhos.
-- Marketing → Formulários: em qual funil e catraca o lead de cada formulário nasce.
+- Marketing → Formulários: em qual funil e catraca o lead de cada formulário nasce, e a ficha de produto que a IA usa com ele.
+
+## Marketing e automações
+- Marketing → Fluxos: o construtor. Gatilhos: disparo em massa, formulário preenchido, lead novo, entrou na etapa, etiqueta adicionada e campo preenchido (com um valor ou qualquer valor). Blocos: mensagem (texto livre ou modelo aprovado da Meta), espera, esperar resposta, botões, condição (etiqueta, etapa, temperatura, responsável, valor de um campo, se o cliente respondeu), etiqueta, mover de etapa, atribuir responsável (catraca, pessoa ou fila) e tarefa. No bloco de início há "Parar o fluxo quando o cliente responder". "Automação ativa" liga o fluxo.
+- Modelo aprovado da Meta só existe na API oficial; numa linha da Uazapi o texto do modelo sai como mensagem comum.
+- Configurações → Funis e etapas → etapa → "Quando um lead chegar nesta etapa": responsável (roleta, uma catraca específica, fila ou pessoa), funil, e etiquetas para colocar ou tirar — inclusive a etiqueta com o nome do corretor que recebeu.
+
+## Autoatendimento (IA que atende o cliente)
+- Configurações → Autoatendimento: ligar, horário, "Onde a IA atua e o que ela faz no lead" (funis/etapas, campos que ela preenche, resumo como observação, etapa para onde move quando o cliente quer seguir), "Fichas de produto" (uma por empreendimento) e as orientações da equipe (dá para editar, desligar e apagar).
 
 ## Notificações
 - Minha conta → Notificações no celular → Ativar. No iPhone só funciona com o ConHub adicionado à Tela de Início (Compartilhar → Adicionar à Tela de Início).
 
 ## Assistente Claude (botão no alto da tela)
-- Gestor: faz o trabalho da gestão conversando — configura a conta (funis, etapas, prazos, campos, tags, mensagens prontas) e mexe nos leads (mover de etapa e de funil, repassar, tags, finalizar, tarefas, observações, cadastrar, registrar venda). Mais de 10 leads de uma vez só depois de o gestor confirmar. Aceita texto longo e arquivos (foto, print, PDF, planilha, e cenas de vídeo — sem som). Não apaga nada nem manda mensagem ao cliente.
+- Gestor: faz o trabalho da gestão conversando — configura a conta (funis, etapas, prazos, campos, tags, mensagens prontas, a regra "quando um lead chegar nesta etapa" com catraca e etiquetas), o Marketing (fluxos com gatilho, ligar e desligar automação), as catracas por produto, os formulários dos anúncios, o Autoatendimento (horário, onde atua, campos que a IA preenche, resumo, etapa final, orientações e fichas de produto) e mexe nos leads (mover de etapa e de funil, repassar, tags, finalizar, tarefas, observações, cadastrar, registrar venda). Também lê o catálogo de imóveis. Mais de 10 leads de uma vez só depois de o gestor confirmar. Aceita texto longo e arquivos (foto, print, PDF, planilha, e cenas de vídeo — sem som). Não apaga lead, funil, fluxo nem catraca e não manda mensagem ao cliente nem dispara campanha.
 - Atendente e corretor: só consulta — tira dúvidas, procura leads e números dele e pesquisa na internet. Não muda nada na conta.
 - Todos: o Claude reorganiza a ORDEM do menu de quem pede (ex.: "coloque Imóveis no topo do meu menu"), só para ela. Os nomes das telas não mudam e nada some; "volte o menu ao padrão" desfaz.
 

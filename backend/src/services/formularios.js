@@ -97,6 +97,8 @@ export async function listarFormularios(orgId) {
       entrada,
       // As catracas que recebem os leads deste formulário (03/10/2026).
       catraca_ids: catracasDoFormulario(orgId, f.id),
+      // A ficha de produto que a IA usa com os leads deste formulário (08/10/2026).
+      ia_produto_id: c?.ia_produto_id || null,
     };
   });
   // Ativos primeiro; dentro deles, quem trouxe lead por último.
