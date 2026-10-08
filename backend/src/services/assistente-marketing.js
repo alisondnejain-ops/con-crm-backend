@@ -28,7 +28,7 @@ const GATILHO = {
   description: "Quando alguém entra sozinho no fluxo. manual = só por disparo em massa (não liga sozinho).",
   properties: {
     tipo: { type: "string", enum: ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo"] },
-    form_id: { type: "string", description: "formulario: id de ver_formularios" },
+    form_ids: { type: "array", items: { type: "string" }, description: "formulario: ids de ver_formularios — um ou vários (o fluxo vale para todos)" },
     origens: { type: "array", items: { type: "string", enum: ["whatsapp", "formulario", "portal", "manual"] }, description: "lead_novo: de onde (vazio = todas)" },
     etapa_id: { type: "string", description: "etapa: id de ver_funis" },
     tag_id: { type: "string", description: "etiqueta: id de ver_tags" },
@@ -155,7 +155,11 @@ export function executorDeMarketing({ chamarRota, autorizacao, registrarAcao }) 
       case "salvar_fluxo": {
         const blocos = Array.isArray(e.blocos) ? e.blocos.filter(b => b && b.id !== "inicio" && b.tipo !== "inicio") : [];
         const ligacoes = Array.isArray(e.ligacoes) ? e.ligacoes : [];
-        const nos = arrumar([{ id: "inicio", tipo: "inicio", dados: { gatilho: e.gatilho || { tipo: "manual" } } },
+        /* form_ids (o que a IA manda) vira a lista do gatilho. Sem funil nem
+           catraca junto: o que cada formulário já tem não é tocado. */
+        const { form_ids, ...gat } = e.gatilho || { tipo: "manual" };
+        if (Array.isArray(form_ids)) gat.formularios = form_ids.map(id => ({ id: String(id) }));
+        const nos = arrumar([{ id: "inicio", tipo: "inicio", dados: { gatilho: gat } },
           ...blocos.map(b => ({ id: String(b.id), tipo: b.tipo, dados: b.dados || {} }))], ligacoes);
         let id = e.fluxo_id;
         if (!id) {
