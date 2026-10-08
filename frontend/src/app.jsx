@@ -12506,8 +12506,10 @@ function EtapaIA({lead,acoes,isMobile}){
    WhatsApp) e faz o número deixar de entrar; o "voltar a receber" fica na
    configuração da linha.
 
-   Fica no FIM da ficha, discreto: é uma faxina rara, e no meio dos botões do
-   atendimento seria um toque errado esperando para acontecer. Quem vê: a
+   Fica perto do fim da ficha, longe dos botões do atendimento (seria um toque
+   errado esperando para acontecer), mas como BOTÃO de verdade e antes do
+   cartão da LGPD — como link cinza ninguém achava (08/10/2026). E o clique só
+   abre a confirmação; nada some no primeiro toque. Quem vê: a
    supervisão (qualquer número) e o dono do WhatsApp pessoal, no lead que fala
    por ele — no número da casa o corretor não marca, porque ali quem escreve
    é cliente da imobiliária, não dele. */
@@ -12521,9 +12523,14 @@ function ConversaPessoal({lead,acoes,session,minhaLinha,isMobile}){
     try{ await acoes.marcarPessoal(lead.id); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
+  /* Botão de verdade (08/10/2026, pedido do Ali): como link sublinhado e
+     cinza ninguém achava. Continua neutro, não coral — coral é urgência, e a
+     confirmação vermelha vem no passo seguinte. */
   if(!confirmando) return <button onClick={()=>setConfirmando(true)}
-    style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:"4px 0",marginTop:4,textAlign:"left"}}>
-    Isto é conversa pessoal, não um lead</button>;
+    style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+      border:`1px solid ${C.line}`,background:C.surface,color:C.ink,borderRadius:11,
+      padding:isMobile?"12px":"10px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",marginTop:8,marginBottom:14}}>
+    <Icon n="user" size={14} color={C.sub}/> Isto é conversa pessoal, não um lead</button>;
   return <div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:8}}>
     <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Tirar esta conversa do CRM?</div>
     <div style={{color:C.ink,fontSize:12,lineHeight:1.55,marginBottom:10}}>
@@ -12656,8 +12663,8 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ConversaPessoal lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
