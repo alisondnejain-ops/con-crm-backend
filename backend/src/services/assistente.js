@@ -26,7 +26,6 @@ import { MANUAL_CONHUB } from "./ajuda.js";
 import { CORES_TAG } from "./tags.js";
 import { FERRAMENTAS_LEADS, executorDeLeads } from "./assistente-leads.js";
 import { FERRAMENTAS_MARKETING, executorDeMarketing } from "./assistente-marketing.js";
-import { aliviarAnexos } from "./assistente-anexos.js";
 
 /* ===== TETO DO MÊS =====
    Cada pergunta custa centavos, e "centavos" sem teto vira fatura. O teto é
@@ -66,55 +65,148 @@ const novoItem = (de, texto, extra = {}) => ({ id: "it_" + randomUUID().slice(0,
    ferramenta, recebe o resultado, pede outra… até responder. O histórico vai
    e volta EXATAMENTE como a API devolveu (o modelo recusa histórico editado).
 
-   Teto de 10 voltas por pergunta: um pedido de configuração bem grande cabe;
-   um laço que não termina, não. */
-const VOLTAS = 10;
+   ELE NÃO PARA NO MEIO DO TRABALHO (08/10/2026, pedido do Ali: "o assistente
+   está parando de trabalhar depois de um tempo… preciso que ele não pare,
+   exatamente como funciona o Claude hoje"). Eram três paradas:
+   (1) um teto de 16 passos por pergunta, e ao bater nele o trabalho feito
+       SUMIA do histórico — o "continua" seguinte não sabia o que já tinha
+       sido feito, refazia tudo e pagava de novo;
+   (2) a requisição passava de 5 minutos e o próprio Node a derrubava;
+   (3) passando de 60 mensagens a conversa era APAGADA — e uma pergunta com
+       ferramentas soma dezenas de mensagens, então isso acontecia a cada
+       duas ou três tarefas.
+   Agora cada requisição trabalha até um teto de TEMPO (`TEMPO_POR_VEZ`) e de
+   passos, e quando para o histórico fica inteiro (`pendente`): a tela manda
+   "continuar" sozinha e o trabalho segue de onde estava, sem gastar pergunta
+   do mês. E a conversa longa é RESUMIDA, não apagada (`compactar`). */
+const VOLTAS = 25;
+const TEMPO_POR_VEZ = 150000;      // ms de trabalho por requisição (o Node derruba aos 300 s)
+const TEMPO_TOTAL = 280000;
+/* Resumir quando o pedido passa disto: abaixo de 100 mil tokens o Haiku 5.5
+   cobra a tabela barata, acima dela cinco vezes mais. */
+const RESUMIR_ACIMA = Number(process.env.ASSISTENTE_RESUMIR_TOKENS || 70000);
+const PESADO = (b) => b && (b.type === "image" || b.type === "document");
+const RESUMIR_COM_ARQUIVOS = 8 * 1024 * 1024;   // bytes de arquivo guardados no histórico
+
+/* Quanto de arquivo o histórico está carregando. Cada pergunta reenvia tudo,
+   e a API recusa pedido grande demais. */
+function pesoDeArquivos(mensagens) {
+  let n = 0;
+  for (const m of mensagens) for (const b of (Array.isArray(m.content) ? m.content : [])) {
+    if (PESADO(b)) n += String(b.source?.data || "").length;
+  }
+  return n;
+}
+
+/* A CONVERSA LONGA É RESUMIDA (compactação simples, a que a documentação da
+   Anthropic recomenda para quem monta o histórico na mão): a própria IA
+   escreve o resumo do que foi pedido, do que já foi feito e do que falta, e a
+   conversa recomeça a partir dele — sem nenhum bloco antigo, então não há
+   histórico "editado" para a API recusar. Antes ela era simplesmente apagada,
+   e o assistente esquecia no meio da tarefa o que tinha acabado de fazer. */
+const PEDIDO_DE_RESUMO = `Pare aqui e escreva um RESUMO desta conversa para você mesmo continuar o trabalho depois, sem ela. Não chame ferramentas. Inclua, em tópicos curtos:
+- o que a pessoa pediu (com as palavras e números dela);
+- o que você JÁ FEZ na conta, com os nomes e ids que importam (funis, etapas, fluxos, leads, tags);
+- o que ainda FALTA fazer, se faltar, e o próximo passo;
+- decisões e preferências que a pessoa deixou claras;
+- confirmações pendentes (códigos de prévia ainda não confirmados).
+Escreva só o resumo.`;
+async function compactar({ mensagens, system, tools, user, tipo }) {
+  const pedido = mensagens.slice();
+  const ultima = pedido[pedido.length - 1];
+  // Terminou em resultado de ferramenta: o pedido de resumo entra na mesma mensagem.
+  if (ultima && ultima.role === "user") {
+    const conteudo = Array.isArray(ultima.content) ? ultima.content : [{ type: "text", text: String(ultima.content) }];
+    pedido[pedido.length - 1] = { role: "user", content: [...conteudo, { type: "text", text: PEDIDO_DE_RESUMO }] };
+  } else pedido.push({ role: "user", content: PEDIDO_DE_RESUMO });
+  const r = await chamarClaude({ system, messages: pedido, tools, tool_choice: tools?.length ? { type: "none" } : undefined, effort: "low", max_tokens: 6000 });
+  if (!r.ok) return null;
+  registrar({ orgId: user.org_id, userId: user.id, recurso: { config: "assistente", consulta: "consulta" }[tipo] || "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
+  const resumo = textoDe(r.resposta);
+  return resumo ? resumo.slice(0, 20000) : null;
+}
 
 /* `anexos` (só do gestor, ver assistente-anexos.js): os blocos de arquivo vão
    ANTES do texto na mensagem da pessoa, e a tela guarda só o nome de cada um.
-   `voltas`: o gestor ganhou ferramentas de lead e pode pedir "procura, move e
-   avisa" numa frase só — o teto dele é maior. */
-export async function conversar({ conversa, user, tipo, texto, system, tools, executar, effort, anexos = null, voltas = VOLTAS }) {
+   `voltas`: o teto de passos de UMA requisição — passou dele, o trabalho fica
+   pendente e continua na próxima, não se perde.
+   `continuar`: a requisição é a continuação automática de um trabalho que
+   parou pelo tempo ou pelos passos — não é pergunta nova (não conta no mês e
+   não aparece como fala da pessoa). */
+export async function conversar({ conversa, user, tipo, texto, system, tools, executar, effort, anexos = null, voltas = VOLTAS, continuar = false }) {
+  const comecou = Date.now();
   let mensagens = json(conversa.mensagens, []);
   const itens = json(conversa.itens, []);
   const novos = [];
-  /* CONVERSA LONGA RECOMEÇA, em vez de ser cortada pela frente. Cada pergunta
-     reenvia o histórico inteiro (é dinheiro), e cortar as mensagens antigas
-     seria EDITAR o histórico — que o modelo recusa (os blocos de raciocínio
-     ficam presos ao começo da conversa). Recomeçar do zero é válido; a tela
-     marca a divisa. */
-  if (mensagens.length > 60) {
-    mensagens = [];
-    novos.push(novoItem("sistema", "A conversa ficou longa e recomeçou daqui. O que já foi feito na conta continua feito."));
+  if (continuar && !conversa.pendente) return { itens: [], falhou: false, parou: false, nada: true };
+
+  /* Resumir ANTES de juntar a pergunta nova, entre um trabalho e outro: o
+     pedido de resumo é o histórico que já foi aceito mais uma linha. */
+  let contextoInicial = conversa.contexto_tokens || 0;
+  const grande = (conversa.contexto_tokens || 0) > RESUMIR_ACIMA || pesoDeArquivos(mensagens) > RESUMIR_COM_ARQUIVOS || mensagens.length > 300;
+  if (grande && mensagens.length) {
+    const resumo = await compactar({ mensagens, system, tools, user, tipo });
+    /* O resumo vira a primeira mensagem da conversa nova, e a pergunta da
+       vez entra junto dela logo abaixo. Se a IA cair na primeira chamada,
+       é o resumo que fica — não uma conversa vazia. */
+    mensagens = resumo ? [{ role: "user", content: [{ type: "text", text: `[Resumo do que aconteceu antes nesta conversa — você mesmo escreveu]\n${resumo}` }] }] : [];
+    novos.push(novoItem("sistema", resumo
+      ? "A conversa ficou longa: resumi o que já foi feito e continuei daqui, sem perder o fio."
+      : "A conversa ficou longa e recomeçou daqui. O que já foi feito na conta continua feito."));
+    contextoInicial = 0;
   }
+
   const blocos = anexos?.blocos || [];
-  novos.push(novoItem("voce", texto, anexos?.resumo?.length ? { anexos: anexos.resumo } : {}));
+  if (!continuar) novos.push(novoItem("voce", texto, anexos?.resumo?.length ? { anexos: anexos.resumo } : {}));
   /* `pergunta` identifica ESTA mensagem da pessoa: a prévia de uma ação em
      massa guarda a pergunta em que nasceu, e só executa numa outra — quem
-     confirma é a pessoa respondendo, não o modelo no embalo. */
-  const efeitos = { navegar: null, humano: null, menu: undefined, pergunta: randomUUID() };
-  const inicio = mensagens.length;
-  mensagens.push({ role: "user", content: blocos.length ? [...blocos, { type: "text", text: texto }] : texto });
-  aliviarAnexos(mensagens);
-  db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
+     confirma é a pessoa respondendo, não o modelo no embalo. A continuação
+     automática é a MESMA pergunta (guardada na conversa): senão a IA poderia
+     confirmar sozinha, na continuação, a prévia que ela mesma acabou de abrir. */
+  const pergunta = continuar && conversa.pergunta_em_curso ? conversa.pergunta_em_curso : randomUUID();
+  const efeitos = { navegar: null, humano: null, menu: undefined, pergunta };
+  const textoDaVez = continuar
+    ? "[continuação automática: o trabalho anterior parou só pelo limite de tempo de uma requisição. Continue exatamente de onde parou, sem refazer o que já foi feito. Se já terminou, diga em uma frase.]"
+    : texto;
+  const conteudoNovo = [
+    ...blocos,
+    { type: "text", text: textoDaVez },
+  ];
+  /* Parou no meio: a última mensagem é o resultado das ferramentas. A fala
+     nova entra NA MESMA mensagem (duas mensagens seguidas da pessoa não são
+     histórico válido) — e o que foi feito continua ali, à vista da IA. */
+  const base = mensagens.slice();
+  const ultima = mensagens[mensagens.length - 1];
+  if (ultima && ultima.role === "user") {
+    const antes = Array.isArray(ultima.content) ? ultima.content : [{ type: "text", text: String(ultima.content) }];
+    mensagens[mensagens.length - 1] = { role: "user", content: [...antes, ...conteudoNovo] };
+  } else {
+    mensagens.push({ role: "user", content: conteudoNovo.length === 1 ? textoDaVez : conteudoNovo });
+  }
+  if (!continuar) db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
     .run("at_" + randomUUID(), user.org_id, user.id, tipo, agora());
 
-  let falhou = null, pausada = false;
-  for (let volta = 0; volta < voltas; volta++) {
-    const r = await chamarClaude({ system, messages: mensagens, tools, effort });
-    if (!r.ok) { falhou = r.erro; break; }
+  let falhou = null, pausada = false, parou = false, contexto = contextoInicial;
+  for (let volta = 0; ; volta++) {
+    const decorrido = Date.now() - comecou;
+    if (volta >= voltas || (volta > 0 && decorrido > TEMPO_POR_VEZ)) { parou = true; break; }
+    const r = await chamarClaude({ system, messages: mensagens, tools, effort, timeoutMs: Math.max(30000, Math.min(180000, TEMPO_TOTAL - decorrido)) });
+    if (!r.ok) { falhou = r.erro; if (volta === 0) mensagens = base; break; }
     registrar({ orgId: user.org_id, userId: user.id, recurso: { config: "assistente", consulta: "consulta" }[tipo] || "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
+    contexto = r.uso?.entrada || contexto;
     const resp = r.resposta;
 
     /* Recusa do filtro de segurança: o conteúdo pode vir vazio, e resposta
-       vazia no histórico faria a API recusar todas as próximas. Sai a
-       pergunta que provocou a recusa; a conversa continua utilizável. */
+       vazia no histórico faria a API recusar todas as próximas. Na primeira
+       volta sai a pergunta que provocou a recusa; depois dela, fica o que já
+       foi feito. A conversa continua utilizável. */
     if (resp.stop_reason === "refusal") {
-      mensagens.length = inicio;
+      if (volta === 0) mensagens = base;
+      pausada = false;
       novos.push(novoItem("assistente", "Não consigo ajudar com isso por aqui. Se precisar, fale com o suporte."));
       break;
     }
-    if (!Array.isArray(resp.content) || !resp.content.length) { falhou = "A IA não respondeu nada."; break; }
+    if (!Array.isArray(resp.content) || !resp.content.length) { falhou = "A IA não respondeu nada."; if (volta === 0) mensagens = base; break; }
     /* PESQUISA NA WEB PAUSADA (`pause_turn`): a pesquisa roda nos servidores
        da Anthropic e, quando demora, a API devolve a resposta pela metade.
        Para continuar, ela é mandada de volta como está; o que vem depois é a
@@ -128,6 +220,8 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
     if (fala) novos.push(novoItem("assistente", fala, fontes.length ? { fontes } : {}));
     if (pausada) continue;
 
+    // A fala passou do tamanho máximo de uma resposta: segue na continuação.
+    if (resp.stop_reason === "max_tokens") { parou = true; break; }
     const pedidos = resp.content.filter(b => b.type === "tool_use");
     if (resp.stop_reason !== "tool_use" || !pedidos.length) break;
 
@@ -141,37 +235,25 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
       resultados.push({ type: "tool_result", tool_use_id: p.id, content: JSON.stringify(saida?.dados ?? saida ?? {}).slice(0, 20000), ...(saida?.erro ? { is_error: true } : {}) });
     }
     mensagens.push({ role: "user", content: resultados });
-    if (volta === voltas - 1) novos.push(novoItem("erro", "Parei aqui para não entrar em laço. Confira o que já foi feito e me peça o resto."));
   }
 
-  /* Falha no meio: a conversa precisa terminar numa resposta do assistente
-     ou numa pergunta da pessoa. Pedido de ferramenta sem resposta ou resposta
-     de ferramenta sem continuação deixariam o histórico inválido — então o
-     que ficou pela metade sai. */
-  // Terminou ainda pausada (teto de voltas): a fala pela metade não fica.
-  if (pausada && mensagens.length > inicio) mensagens.pop();
-  if (falhou) {
-    novos.push(novoItem("erro", falhou));
-    while (mensagens.length > inicio) {
-      const u = mensagens[mensagens.length - 1];
-      if (u.role === "assistant" && !(u.content || []).some(b => b.type === "tool_use")) break;
-      mensagens.pop();
-    }
-  }
-  /* O laço também pode terminar pelo teto de voltas logo depois das respostas
-     das ferramentas — aí a próxima pergunta viria grudada nelas. Fica só até
-     a última fala completa do assistente. */
-  while (mensagens.length > inicio) {
-    const u = mensagens[mensagens.length - 1];
-    if (u.role === "assistant" && !(u.content || []).some(b => b.type === "tool_use")) break;
-    mensagens.pop();
-  }
+  /* O histórico precisa terminar numa fala completa do assistente ou numa
+     mensagem da pessoa (a pergunta, ou os resultados das ferramentas). Fala
+     pela metade (pesquisa pausada, ou cortada pelo tamanho com um pedido de
+     ferramenta incompleto) sai — o que foi feito antes dela fica. */
+  const u = mensagens[mensagens.length - 1];
+  if (u && u.role === "assistant" && (pausada || (u.content || []).some(b => b.type === "tool_use"))) mensagens.pop();
+  if (falhou) novos.push(novoItem("erro", falhou));
+  /* Parou pelo tempo, pelos passos ou pelo tamanho: o trabalho fica PENDENTE
+     e a tela pede a continuação sozinha. Erro não continua sozinho — a pessoa
+     vê o erro e decide. */
+  const pendente = !falhou && parou && mensagens.length > 0;
 
-  const guardar = mensagens;
   const todosItens = itens.concat(novos).slice(-200);
-  db.prepare("UPDATE assistente_conversas SET mensagens = ?, itens = ?, updated_at = ? WHERE id = ?")
-    .run(JSON.stringify(guardar), JSON.stringify(todosItens), agora(), conversa.id);
-  return { itens: novos, navegar: efeitos.navegar, humano: efeitos.humano, ...(efeitos.menu !== undefined ? { menu: efeitos.menu } : {}), falhou: !!falhou };
+  db.prepare(`UPDATE assistente_conversas SET mensagens = ?, itens = ?, updated_at = ?, contexto_tokens = ?, pendente = ?, pergunta_em_curso = ?
+    WHERE id = ?`).run(JSON.stringify(mensagens), JSON.stringify(todosItens), agora(), contexto, pendente ? 1 : 0, pergunta, conversa.id);
+  return { itens: novos, navegar: efeitos.navegar, humano: efeitos.humano, ...(efeitos.menu !== undefined ? { menu: efeitos.menu } : {}),
+    falhou: !!falhou, parou: pendente };
 }
 
 /* As páginas que a pesquisa na web citou, para a pessoa conferir. Vêm nas

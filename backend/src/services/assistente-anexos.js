@@ -14,8 +14,8 @@
    - áudio: não. A recusa diz o que fazer (escrever ou colar a transcrição).
 
    Nada disto fica guardado no armazenamento de arquivos do CRM: vai na
-   pergunta e fica só no histórico da conversa, que é aliviado logo adiante
-   (`aliviarAnexos`). */
+   pergunta e fica só no histórico da conversa, que é resumido quando os
+   arquivos pesam (`compactar`, em assistente.js). */
 
 import { lerXlsx, lerCSV } from "./xlsx.js";
 
@@ -114,25 +114,8 @@ export function montarAnexos(lista) {
   return { blocos, resumo };
 }
 
-/* O HISTÓRICO NÃO CARREGA ARQUIVO PARA SEMPRE.
-
-   Cada pergunta reenvia a conversa inteira — e com ela cada foto e cada PDF
-   já mandados: é dinheiro a cada mensagem e, somando, passa do tamanho que a
-   API aceita. Ficam os arquivos das DUAS últimas perguntas que tinham
-   arquivo (o "e na segunda foto?" logo depois continua funcionando); dos
-   mais antigos fica a linha com o nome e um aviso de que não estão mais
-   aqui. Só mensagens da PESSOA são mexidas: as falas da IA voltam sempre
-   exatamente como vieram (os blocos de raciocínio não aceitam edição). */
-const PESADO = (b) => b && (b.type === "image" || b.type === "document");
-export function aliviarAnexos(mensagens, manter = 2) {
-  let vistas = 0;
-  for (let i = mensagens.length - 1; i >= 0; i--) {
-    const m = mensagens[i];
-    if (m.role !== "user" || !Array.isArray(m.content) || !m.content.some(PESADO)) continue;
-    if (++vistas <= manter) continue;
-    mensagens[i] = { ...m, content: m.content.map(b => PESADO(b)
-      ? { type: "text", text: "[o arquivo acima foi mandado antes e não está mais guardado nesta conversa — peça para mandar de novo se precisar dele]" }
-      : b) };
-  }
-  return mensagens;
-}
+/* O HISTÓRICO NÃO É MAIS "ALIVIADO" AQUI (08/10/2026): trocar o arquivo de
+   uma pergunta antiga por um aviso EDITAVA o histórico — a API recusa (ou
+   ignora o raciocínio de) histórico editado, e o cache do pedido se perdia,
+   pagando tudo de novo. Quando os arquivos pesam, a conversa é RESUMIDA
+   (`compactar`, em assistente.js), que é a forma que a API aceita. */

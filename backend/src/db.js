@@ -2214,6 +2214,17 @@ CREATE INDEX IF NOT EXISTS idx_suporte_msgs_wa ON suporte_mensagens(wa_id) WHERE
 if (!db.prepare("PRAGMA table_info(suporte_chamados)").all().some(c => c.name === "solicitante"))
   db.exec("ALTER TABLE suporte_chamados ADD COLUMN solicitante TEXT");
 
+/* O ASSISTENTE CONTINUA DE ONDE PAROU (08/10/2026). `contexto_tokens` é o
+   tamanho do último pedido à IA — é por ele que a conversa é resumida antes
+   de ficar cara; `pendente` diz que a última pergunta parou no meio do
+   trabalho (teto de tempo ou de passos) e o próximo "continuar" segue dali. */
+{
+  const colsConv = db.prepare("PRAGMA table_info(assistente_conversas)").all().map(c => c.name);
+  if (!colsConv.includes("contexto_tokens")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN contexto_tokens INTEGER DEFAULT 0");
+  if (!colsConv.includes("pendente")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN pendente INTEGER DEFAULT 0");
+  if (!colsConv.includes("pergunta_em_curso")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN pergunta_em_curso TEXT");
+}
+
 /* AUTOATENDIMENTO: ONDE A IA ATUA, AS FICHAS DE PRODUTO E O QUE ELA FAZ NO
    LEAD (08/10/2026, pedido do Ali).
 
