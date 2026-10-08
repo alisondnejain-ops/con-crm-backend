@@ -42,7 +42,7 @@ import { sendText, sendMedia, sendMenu, sendTemplate, numeroAlternativo } from "
 import { campoCasa } from "./campos-lead.js";
 import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm, ritmoDaOrg } from "./marketing.js";
 import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
-import { gatilhoLimpo, refDoGatilho, problemasDoGatilho } from "./automacoes.js";
+import { gatilhoLimpo, refDoGatilho, problemasDoGatilho, formulariosDaRef } from "./automacoes.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
 import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
@@ -125,6 +125,22 @@ const midiaLimpa = (m) => {
    Duas réguas: para SALVAR basta a estrutura estar de pé (dá para salvar um
    rascunho pela metade); para DISPARAR, todo bloco que o público vai
    atravessar precisa estar preenchido. */
+/* O funil e as catracas que a tela mandou para CADA formulário do gatilho
+   ({form_id: {pipeline_id, stage_id, catraca_ids}}). Só entra formulário que
+   veio com `pipeline_id` — é o sinal de que a tela leu o que ele tem hoje;
+   sem isso, salvar trocaria o funil dele por nada. O formato antigo (um
+   formulário, campos soltos no gatilho) continua aceito. */
+function caronaDoGatilho(g) {
+  if (!g || g.tipo !== "formulario") return null;
+  const um = (x) => ({ pipeline_id: idLimpo(x.pipeline_id) || null, stage_id: idLimpo(x.stage_id) || null,
+    catraca_ids: (Array.isArray(x.catraca_ids) ? x.catraca_ids : x.catraca_id ? [x.catraca_id] : []).map(idLimpo).filter(Boolean).slice(0, 30) });
+  const out = {};
+  if (Array.isArray(g.formularios)) {
+    for (const f of g.formularios.slice(0, 30)) if (f && typeof f === "object" && "pipeline_id" in f && idLimpo(f.id)) out[idLimpo(f.id)] = um(f);
+  } else if ("pipeline_id" in g && idLimpo(g.form_id)) out[idLimpo(g.form_id)] = um(g);
+  return Object.keys(out).length ? out : null;
+}
+
 export function validarGrafo(bruto, { paraDisparar = false } = {}) {
   const erros = [];
   const nosBrutos = Array.isArray(bruto?.nos) ? bruto.nos.slice(0, 100) : [];
@@ -136,12 +152,11 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
     ids.add(id);
     const d = n.dados || {};
     let dados = {};
-    if (n.tipo === "inicio") dados = { gatilho: gatilhoLimpo(d.gatilho),
-      // Carona do formulário: vai para o formulário no salvar, não fica no fluxo.
-      ...(d.gatilho && d.gatilho.tipo === "formulario" && "pipeline_id" in d.gatilho ? { carona: {
-        pipeline_id: idLimpo(d.gatilho.pipeline_id) || null, stage_id: idLimpo(d.gatilho.stage_id) || null,
-        catraca_ids: (Array.isArray(d.gatilho.catraca_ids) ? d.gatilho.catraca_ids : d.gatilho.catraca_id ? [d.gatilho.catraca_id] : [])
-          .map(idLimpo).filter(Boolean).slice(0, 30) } } : {}) };
+    if (n.tipo === "inicio") {
+      // Carona de cada formulário: vai para o formulário no salvar, não fica no fluxo.
+      const carona = caronaDoGatilho(d.gatilho);
+      dados = { gatilho: gatilhoLimpo(d.gatilho), ...(carona ? { carona } : {}) };
+    }
     if (n.tipo === "condicao") {
       const regra = REGRAS_DE_CONDICAO.includes(d.regra) ? d.regra : "tag";
       dados = { regra, valor: texto(d.valor, 80) };
@@ -301,10 +316,13 @@ export function lerFluxo(orgId, id) {
      Atender → Formulários, e duas cópias divergiriam. */
   const ini = grafo.nos.find(n => n.tipo === "inicio");
   const g = gatilhoDo(grafo);
-  if (ini && g.tipo === "formulario" && g.form_id) {
-    const fm = db.prepare("SELECT pipeline_id, stage_id FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, g.form_id) || {};
-    ini.dados = { ...ini.dados, gatilho: { ...g, pipeline_id: fm.pipeline_id || null, stage_id: fm.stage_id || null,
-      catraca_ids: catracasDoFormulario(orgId, g.form_id).filter(id => catracaAtiva(orgId, id)) } };
+  if (ini && g.tipo === "formulario" && g.formularios.length) {
+    const formularios = g.formularios.map(x => {
+      const fm = db.prepare("SELECT pipeline_id, stage_id, nome FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, x.id) || {};
+      return { ...x, nome: x.nome || fm.nome || "", pipeline_id: fm.pipeline_id || null, stage_id: fm.stage_id || null,
+        catraca_ids: catracasDoFormulario(orgId, x.id).filter(id => catracaAtiva(orgId, id)) };
+    });
+    ini.dados = { ...ini.dados, gatilho: { ...g, formularios } };
   }
   const avisos = [...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
   return { id: f.id, nome: f.nome, grafo, atualizado_em: f.atualizado_em, avisos,
@@ -349,10 +367,14 @@ export function salvarFluxo(orgId, id, { nome, grafo }, user = null) {
   const carona = ini?.dados?.carona;
   if (ini) delete ini.dados.carona;
   const g = gatilhoDo(limpo);
-  if (carona && g.tipo === "formulario" && g.form_id) {
+  if (carona && g.tipo === "formulario") {
     try {
-      definirFunil(orgId, user?.id || null, g.form_id, { pipeline_id: carona.pipeline_id, stage_id: carona.stage_id, nome: g.form_nome });
-      definirCatraca(orgId, user?.id || null, g.form_id, { catraca_ids: carona.catraca_ids, nome: g.form_nome });
+      for (const x of g.formularios) {
+        const c = carona[x.id];
+        if (!c) continue;
+        definirFunil(orgId, user?.id || null, x.id, { pipeline_id: c.pipeline_id, stage_id: c.stage_id, nome: x.nome });
+        definirCatraca(orgId, user?.id || null, x.id, { catraca_ids: c.catraca_ids, nome: x.nome });
+      }
     } catch (e) {
       if (e instanceof ErroFormulario) throw new ErroMarketing(e.status, e.message);
       throw e;
@@ -378,10 +400,17 @@ function problemasParaLigar(orgId, grafo) {
   return [...problemasDoGatilho(orgId, g), ...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
 }
 function conflitoDeFormulario(orgId, id, g) {
+  /* Um formulário, uma automação — conferido para CADA formulário da lista.
+     Dois fluxos dando boas-vindas ao mesmo lead seriam duas mensagens no
+     celular dele. A recusa diz qual formulário e qual automação. */
   if (g.tipo !== "formulario") return null;
-  const outros = db.prepare(`SELECT nome FROM marketing_fluxos WHERE org_id = ? AND id <> ? AND ativo = 1 AND apagado_em IS NULL
-    AND gatilho_tipo = 'formulario' AND gatilho_ref = ?`).all(orgId, id, g.form_id);
-  return outros.length ? `O formulário deste gatilho já liga a automação “${outros[0].nome}”. Desative aquela antes — um formulário, uma automação.` : null;
+  const outros = db.prepare(`SELECT nome, gatilho_ref FROM marketing_fluxos WHERE org_id = ? AND id <> ? AND ativo = 1 AND apagado_em IS NULL
+    AND gatilho_tipo = 'formulario'`).all(orgId, id);
+  for (const x of g.formularios) {
+    const o = outros.find(f => formulariosDaRef(f.gatilho_ref).includes(x.id));
+    if (o) return `O formulário “${x.nome || x.id}” já liga a automação “${o.nome}”. Tire-o deste gatilho ou desative aquela — um formulário, uma automação.`;
+  }
+  return null;
 }
 /* Leva a versão salva do fluxo para a automação, se ela estiver completa.
    Devolve true quando publicou. */

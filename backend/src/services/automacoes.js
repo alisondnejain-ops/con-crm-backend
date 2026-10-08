@@ -7,7 +7,8 @@
 
      manual      → "Disparo em massa": ninguém entra sozinho; o fluxo é usado
                    num disparo, como sempre foi. É o que todo fluxo antigo é.
-     formulario  → um formulário de anúncio específico foi preenchido.
+     formulario  → um dos formulários de anúncio escolhidos foi preenchido
+                   (vários desde 08/10/2026).
      lead_novo   → um lead novo entrou (WhatsApp, formulário, portal, cadastro
                    na mão — planilha importada fica de fora de propósito).
      etapa       → um lead entrou numa etapa do funil.
@@ -49,7 +50,25 @@ const ref = (v) => String(v || "").replace(/[^\w:.-]/g, "").slice(0, 80);
 export function gatilhoLimpo(g) {
   const tipo = TIPOS_DE_GATILHO.includes(g?.tipo) ? g.tipo : "manual";
   const out = { tipo, reentrada: !!g?.reentrada };
-  if (tipo === "formulario") { out.form_id = ref(g.form_id); out.form_nome = String(g.form_nome || "").slice(0, 160); }
+  /* VÁRIOS FORMULÁRIOS NUM GATILHO SÓ (08/10/2026, pedido do Ali: "o ideal é
+     que um fluxo criado possa ser usado para vários formulários"). A lista
+     é `formularios: [{id, nome}]`; fluxo salvo antes disto só tem `form_id`,
+     e vira uma lista de um. `form_id`/`form_nome` continuam saindo com o
+     PRIMEIRO da lista, para quem ainda lê o campo antigo. */
+  if (tipo === "formulario") {
+    const brutos = Array.isArray(g.formularios) ? g.formularios : g.form_id ? [{ id: g.form_id, nome: g.form_nome }] : [];
+    const vistos = new Set();
+    out.formularios = [];
+    for (const f of brutos) {
+      const id = ref(typeof f === "string" ? f : f?.id);
+      if (!id || vistos.has(id)) continue;
+      vistos.add(id);
+      out.formularios.push({ id, nome: String((typeof f === "object" && f?.nome) || "").slice(0, 160) });
+      if (out.formularios.length >= 30) break;
+    }
+    out.form_id = out.formularios[0]?.id || "";
+    out.form_nome = out.formularios[0]?.nome || "";
+  }
   if (tipo === "lead_novo") out.origens = (Array.isArray(g.origens) ? g.origens : []).filter(o => ORIGENS_DE_LEAD.includes(o));
   if (tipo === "etapa") out.etapa_id = ref(g.etapa_id);
   if (tipo === "etiqueta") out.tag_id = ref(g.tag_id);
@@ -68,18 +87,22 @@ export function gatilhoLimpo(g) {
 /* A chave de busca do gatilho (`marketing_fluxos.gatilho_ref`): o que o
    evento precisa casar. Nulo = qualquer um (lead novo sem filtro de origem). */
 export function refDoGatilho(g) {
-  if (g.tipo === "formulario") return g.form_id || null;
+  /* Formulário: a lista entre vírgulas, com vírgula nas pontas (",a,b,"),
+     para casar um id inteiro e não um pedaço de outro. Fluxo ligado antes de
+     08/10/2026 guarda só "a" — formulariosDaRef lê os dois jeitos. */
+  if (g.tipo === "formulario") return g.formularios?.length ? "," + g.formularios.map(f => f.id).join(",") + "," : null;
   if (g.tipo === "etapa") return g.etapa_id || null;
   if (g.tipo === "etiqueta") return g.tag_id || null;
   if (g.tipo === "campo") return g.campo || null;
   return null;
 }
+export const formulariosDaRef = (r) => String(r || "").split(",").filter(Boolean);
 
 /* O que falta para um gatilho poder ser ligado — conferido contra o banco,
    porque etapa e etiqueta são desta conta e podem ter sido apagadas. */
 export function problemasDoGatilho(orgId, g) {
   if (!g || g.tipo === "manual") return ["Escolha um gatilho no bloco de início — “Disparo em massa” não liga sozinho."];
-  if (g.tipo === "formulario" && !g.form_id) return ["Escolha o formulário do gatilho."];
+  if (g.tipo === "formulario" && !g.formularios?.length) return ["Escolha pelo menos um formulário no gatilho."];
   if (g.tipo === "etapa") {
     if (!g.etapa_id) return ["Escolha a etapa do gatilho."];
     const e = db.prepare(`SELECT 1 FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id
@@ -130,6 +153,7 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
       try { grafo = JSON.parse(camp.grafo); g = gatilhoLimpo(grafo.nos.find(n => n.tipo === "inicio")?.dados?.gatilho); } catch { continue; }
       if (g.tipo !== tipo) continue;
       if (tipo === "lead_novo") { if (g.origens.length && !g.origens.includes(origem)) continue; }
+      else if (tipo === "formulario") { if (!g.formularios.some(x => x.id === String(chave || ""))) continue; }
       else if (String(fl.gatilho_ref || "") !== String(chave || "")) continue;
       if (tipo === "campo" && !campoCasa(valor, g.valor)) continue;
 

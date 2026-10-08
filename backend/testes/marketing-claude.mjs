@@ -289,6 +289,16 @@ await caso("5. ficha de produto, catraca e formulário configurados pelo Claude"
   assert.ok(!fm.erro, fm.erro);
   assert.equal(db.prepare("SELECT ia_produto_id FROM meta_formularios WHERE org_id = ? AND form_id = 'form_jardins'").get(orgA).ia_produto_id, ficha);
 });
+await caso("5a. Claude monta um fluxo para vários formulários sem mexer no funil deles", async () => {
+  const antes = db.prepare("SELECT * FROM meta_formularios WHERE org_id = ? AND form_id = 'form_jardins'").get(orgA);
+  const r = await usar("salvar_fluxo", { nome: "Boas-vindas formulários", gatilho: { tipo: "formulario", form_ids: ["form_jardins", "form_norte"] },
+    blocos: [{ id: "b1", tipo: "mensagem", dados: { texto: "Oi, {nome}!" } }], ligacoes: [{ de: "inicio", saida: "proximo", para: "b1" }] });
+  assert.ok(!r.erro, r.erro);
+  const v = await usar("ver_fluxo", { fluxo_id: r.dados.fluxo_id || r.dados.id });
+  assert.deepEqual(v.dados.gatilho.formularios.map(f => f.id), ["form_jardins", "form_norte"]);
+  assert.deepEqual(db.prepare("SELECT * FROM meta_formularios WHERE org_id = ? AND form_id = 'form_jardins'").get(orgA), antes);
+  assert.equal(db.prepare("SELECT 1 FROM meta_formularios WHERE org_id = ? AND form_id = 'form_norte'").get(orgA), undefined);
+});
 const etapaFinal = etapas[3];
 await caso("5b. Claude configura o Autoatendimento: escopo, campos, resumo, etapa final; orientação editada e apagada", async () => {
   const r = await usar("configurar_autoatendimento", { ativo: true, a_qualquer_hora: true, escopo: { etapas: [etapas[0].id] },

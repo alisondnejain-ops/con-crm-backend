@@ -3462,9 +3462,15 @@ const pontoDeSaida=(no,saida)=>{const i=Math.max(0,saidasDoBloco(no).findIndex((
 const pontoDeEntrada=(no)=>({x:no.x,y:no.y+CAB_BLOCO/2});
 const curvaDaSeta=(a,b)=>{const dx=Math.max(50,Math.abs(b.x-a.x)/2);return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`;};
 const nomeEm=(lista,id,campo="nome")=>((lista||[]).find(x=>x.id===id)||{})[campo]||"";
+/* Os formulários do gatilho (vários desde 08/10/2026). Fluxo salvo antes
+   só tem form_id — vira uma lista de um, como no servidor (gatilhoLimpo). */
+const formsDoGatilho=(g)=>Array.isArray(g&&g.formularios)?g.formularios:(g&&g.form_id?[{id:g.form_id,nome:g.form_nome}]:[]);
+const nomeDoForm=(f,op)=>f.nome||nomeEm(op&&op.formularios,f.id)||f.id;
 function resumoDoGatilho(g,op){
   g=g||{tipo:"manual"};
-  if(g.tipo==="formulario") return g.form_id?`Formulário: ${g.form_nome||nomeEm(op&&op.formularios,g.form_id)||g.form_id}`:"Escolha o formulário…";
+  if(g.tipo==="formulario"){ const fs=formsDoGatilho(g);
+    if(!fs.length) return "Escolha o formulário…";
+    return fs.length===1?`Formulário: ${nomeDoForm(fs[0],op)}`:`${fs.length} formulários: ${fs.map(f=>nomeDoForm(f,op)).join(", ")}`; }
   if(g.tipo==="lead_novo") return `Lead novo · ${(g.origens||[]).length?g.origens.map(o=>(ORIGENS_GATILHO.find(x=>x[0]===o)||[,o])[1]).join(", "):"qualquer origem"}`;
   if(g.tipo==="etapa") return g.etapa_id?`Entrou em ${nomeEm(op&&op.etapas,g.etapa_id)||"uma etapa"}`:"Escolha a etapa…";
   if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
@@ -3858,6 +3864,48 @@ function ModeloDaMeta({d,aoMudar,acoes,isMobile}){
   </div>;
 }
 
+/* Funil, etapa e catracas de UM formulário do gatilho. Com vários
+   formulários, cada um tem o seu (são do formulário, não do fluxo) e o
+   quadro nasce fechado, com o resumo — sete quadros abertos empurrariam o
+   resto do gatilho para fora da tela. Componente de fora, e não declarado
+   dentro do editor: senão cada tecla recriaria o quadro e perderia o foco. */
+function FunilDoFormularioNoGatilho({m,varios,aoMudar,ativosP,catracas,rot,isMobile}){
+  const [aberto,setAberto]=useState(!varios);
+  const pipe=ativosP.find(p=>p.id===m.pipeline_id);
+  const etapasP=(pipe?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  const ids=m.catraca_ids||[];
+  const nomesCat=catracas.filter(c=>ids.includes(c.id)).map(c=>c.nome);
+  const resumo=`${pipe?pipe.name:"Funil de quem recebe"}${nomesCat.length?` · ${nomesCat.join(", ")}`:""}`;
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,background:C.surface}}>
+    <button onClick={()=>setAberto(!aberto)} style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"block",fontSize:12.5,color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{varios?m.nome:"Onde o lead deste formulário nasce"}</span>
+        {!aberto&&<span style={{display:"block",fontSize:11,color:C.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{resumo}</span>}
+      </span>
+      <span style={{color:C.sub,fontSize:11.5,flexShrink:0}}>{aberto?"Fechar":"Ajustar"}</span>
+    </button>
+    {aberto&&<React.Fragment>
+      <div><div style={{...rot,marginBottom:3}}>Funil</div>
+        <select value={m.pipeline_id||""} onChange={e=>aoMudar({pipeline_id:e.target.value||null,stage_id:null})} style={campoMkt(isMobile)}>
+          <option value="">Funil de quem recebe (padrão)</option>
+          {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select></div>
+      {pipe&&<div><div style={{...rot,marginBottom:3}}>Etapa de entrada</div>
+        <select value={m.stage_id||""} onChange={e=>aoMudar({stage_id:e.target.value||null})} style={campoMkt(isMobile)}>
+          <option value="">Primeira etapa{etapasP[0]?` (${etapasP[0].name})`:""}</option>
+          {etapasP.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+        </select></div>}
+      <div><div style={{...rot,marginBottom:3}}>Catracas</div>
+        {!catracas.length&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>Nenhuma catraca de produto criada — vale a catraca principal. Crie na tela Catraca.</div>}
+        {catracas.map(c=>{const on=ids.includes(c.id);
+          return <label key={c.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
+            <input type="checkbox" checked={on} onChange={()=>aoMudar({catraca_ids:on?ids.filter(x=>x!==c.id):[...ids,c.id]})}/>
+            <span>{c.nome} <span style={{color:C.faint,fontSize:11}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span></label>;})}
+        {catracas.length>0&&!ids.length&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>Nenhuma marcada: vale a catraca principal.</div>}</div>
+    </React.Fragment>}
+  </div>;
+}
+
 /* O GATILHO — o que faz alguém entrar neste fluxo sozinho
    (services/automacoes.js). O funil do formulário e as catracas que o
    recebem vão para o formulário quando o fluxo é salvo — as catracas são a
@@ -3866,8 +3914,6 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
   const rot=ROTULO_MKT;
   const muda=(patch)=>aoMudar({...g,...patch});
   const ativosP=(pipelines||[]).filter(p=>p.is_active!==false&&p.is_active!==0);
-  const pipe=ativosP.find(p=>p.id===g.pipeline_id);
-  const etapasP=(pipe?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
   const forms=(op&&op.formularios)||[];
   const catracas=((op&&op.catracas)||[]).filter(c=>c.ativa);
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -3881,40 +3927,34 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
               <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{desc}</span></span>
           </button>;})}
       </div></div>
-    {g.tipo==="formulario"&&<React.Fragment>
-      <div><div style={rot}>Formulário</div>
-        <select value={g.form_id||""} onChange={e=>{const f=forms.find(x=>x.id===e.target.value);
-          /* Já vem com o que o formulário tem hoje: sem isso, escolher o
-             formulário e salvar trocaria o funil e as catracas dele por nada. */
-          muda({form_id:e.target.value,form_nome:f?f.nome:"",pipeline_id:f?f.pipeline_id||null:null,stage_id:f?f.stage_id||null:null,
-            catraca_ids:f?(f.catraca_ids||[]).filter(id=>catracas.some(c=>c.id===id)):[]});}} style={campoMkt(isMobile)}>
-          <option value="">Escolha o formulário…</option>
-          {g.form_id&&!forms.some(f=>f.id===g.form_id)&&<option value={g.form_id}>{g.form_nome||g.form_id}</option>}
-          {forms.map(f=><option key={f.id} value={f.id}>{f.nome}{f.status&&f.status!=="ACTIVE"?" (arquivado)":""}</option>)}
-        </select>
-        {op&&!forms.length&&<div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.45}}>Nenhum formulário encontrado. Conecte a página em Configurações → Anúncios do Meta.</div>}
-      </div>
-      {g.form_id&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,background:C.surface}}>
-        <div style={{fontSize:11.5,color:C.sub,lineHeight:1.45}}>Onde o lead deste formulário nasce e por quais catracas ele passa.</div>
-        <div><div style={{...rot,marginBottom:3}}>Funil</div>
-          <select value={g.pipeline_id||""} onChange={e=>muda({pipeline_id:e.target.value||null,stage_id:null})} style={campoMkt(isMobile)}>
-            <option value="">Funil de quem recebe (padrão)</option>
-            {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-          </select></div>
-        {pipe&&<div><div style={{...rot,marginBottom:3}}>Etapa de entrada</div>
-          <select value={g.stage_id||""} onChange={e=>muda({stage_id:e.target.value||null})} style={campoMkt(isMobile)}>
-            <option value="">Primeira etapa{etapasP[0]?` (${etapasP[0].name})`:""}</option>
-            {etapasP.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
-          </select></div>}
-        <div><div style={{...rot,marginBottom:3}}>Catracas</div>
-          {!catracas.length&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>Nenhuma catraca de produto criada — vale a catraca principal. Crie na tela Catraca.</div>}
-          {catracas.map(c=>{const ids=g.catraca_ids||[],on=ids.includes(c.id);
-            return <label key={c.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
-              <input type="checkbox" checked={on} onChange={()=>muda({catraca_ids:on?ids.filter(x=>x!==c.id):[...ids,c.id]})}/>
-              <span>{c.nome} <span style={{color:C.faint,fontSize:11}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span></label>;})}
-          {catracas.length>0&&!(g.catraca_ids||[]).length&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>Nenhuma marcada: vale a catraca principal.</div>}</div>
-      </div>}
-    </React.Fragment>}
+    {g.tipo==="formulario"&&(()=>{
+      const marcados=formsDoGatilho(g);
+      /* Grava a lista nova; form_id/form_nome acompanham o primeiro para quem
+         ainda lê o campo antigo. Os campos soltos de funil/catraca do formato
+         antigo saem: agora cada formulário leva os seus. */
+      const gravar=(lista)=>aoMudar({...g,formularios:lista,form_id:lista[0]?.id||"",form_nome:lista[0]?.nome||"",
+        pipeline_id:undefined,stage_id:undefined,catraca_ids:undefined});
+      const alternar=(f)=>{const on=marcados.some(x=>x.id===f.id);
+        /* Já vem com o que o formulário tem hoje: sem isso, marcar o
+           formulário e salvar trocaria o funil e as catracas dele por nada. */
+        gravar(on?marcados.filter(x=>x.id!==f.id):[...marcados,{id:f.id,nome:f.nome,pipeline_id:f.pipeline_id||null,stage_id:f.stage_id||null,
+          catraca_ids:(f.catraca_ids||[]).filter(id=>catracas.some(c=>c.id===id))}]);};
+      const ajustar=(id,patch)=>gravar(marcados.map(x=>x.id===id?{...x,...patch}:x));
+      const fora=marcados.filter(m=>!forms.some(f=>f.id===m.id));
+      return <React.Fragment>
+        <div><div style={rot}>Formulários <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:C.faint}}>— marque um ou vários</span></div>
+          <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"4px 10px",maxHeight:220,overflowY:"auto",background:C.card}}>
+            {[...fora.map(m=>({id:m.id,nome:m.nome||m.id,naoAchado:true})),...forms].map(f=>{const on=marcados.some(x=>x.id===f.id);
+              return <label key={f.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:isMobile?"7px 0":"4px 0",cursor:"pointer"}}>
+                <input type="checkbox" checked={on} onChange={()=>alternar(f)}/>
+                <span>{f.nome}{f.status&&f.status!=="ACTIVE"?<span style={{color:C.faint}}> (arquivado)</span>:null}{f.naoAchado?<span style={{color:C.faint}}> (não encontrado na página)</span>:null}</span></label>;})}
+            {!forms.length&&!fora.length&&<div style={{color:C.faint,fontSize:11.5,padding:"6px 0",lineHeight:1.45}}>{op?"Nenhum formulário encontrado. Conecte a página em Configurações → Anúncios do Meta.":"Carregando…"}</div>}
+          </div>
+          {marcados.length>1&&<div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.45}}>Quem preencher qualquer um dos {marcados.length} entra neste fluxo. Cada formulário só pode ligar uma automação.</div>}
+        </div>
+        {marcados.map(m=><FunilDoFormularioNoGatilho key={m.id} m={{...m,nome:nomeDoForm(m,op)}} varios={marcados.length>1}
+          aoMudar={p=>ajustar(m.id,p)} ativosP={ativosP} catracas={catracas} rot={rot} isMobile={isMobile}/>)}
+      </React.Fragment>;})()}
     {g.tipo==="lead_novo"&&<div><div style={rot}>De onde</div>
       {ORIGENS_GATILHO.map(([id,t])=>{const on=(g.origens||[]).includes(id);
         return <label key={id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
@@ -4431,7 +4471,8 @@ function FluxosDeMarketing({acoes,org,isMobile}){
                   ?(f.ativo?<Pill c={C.greenDeep} bg={C.greenSoft}>● Ativa</Pill>:<Pill c={C.sub} bg={C.surface}>Desligada</Pill>)
                   :<Pill c={C.sub} bg={C.surface}>Disparo em massa</Pill>}</div>
               <div style={{color:C.faint,fontSize:11.5,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{f.gatilho.form_nome?`: ${f.gatilho.form_nome}`:""} ·</span>}
+                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{(()=>{const fs=formsDoGatilho(f.gatilho);
+                  return fs.length>1?`: ${fs.length} formulários`:fs.length?`: ${fs[0].nome||f.gatilho.form_nome||"1 formulário"}`:"";})()} ·</span>}
                 {f.blocos} blocos · {f.gatilho&&f.gatilho.tipo!=="manual"?`${f.entraram} entraram`:`${f.disparos} disparo(s)`} · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
             <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>
