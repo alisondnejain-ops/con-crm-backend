@@ -150,7 +150,7 @@ caso("Consulta do corretor: nenhuma ferramenta que mude a conta, pesquisa na web
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(pedidosIA.length - antes, 3);
   const primeiro = pedidosIA[antes].corpo;
-  assert.ok(primeiro.tools.some(t => t.type === "web_search_20260209" && t.name === "web_search"), "pesquisa na web disponível");
+  assert.ok(primeiro.tools.some(t => t.type === "web_search_20250305" && t.name === "web_search"), "pesquisa na web disponível");
   assert.ok(!primeiro.tools.some(t => /^(criar|editar|ordenar|definir|adicionar)_/.test(t.name || "")), "nenhuma ferramenta que escreve");
   assert.ok(!primeiro.tools.some(t => /^(mover_leads|migrar_|repassar_|etiquetar_|finalizar_|cadastrar_|registrar_venda|corrigir_)/.test(t.name || "")), "nenhuma ferramenta de lead do gestor na consulta");
   const resultado = pedidosIA[antes + 1].corpo.messages.slice(-1)[0].content[0];
@@ -221,9 +221,9 @@ assert.deepEqual(ecoado.content[0], pensa, "o bloco de raciocínio volta exatame
 const resultadoFunis = terceiro.messages[2].content[0];
 assert.equal(resultadoFunis.type, "tool_result");
 assert.ok(/"funis"/.test(resultadoFunis.content), "o resultado de ver_funis chega à IA");
-assert.equal(terceiro.model, "claude-opus-5-5", "modelo padrão");
-assert.equal(terceiro.fallbacks, "default");
-assert.equal(pedidosIA[pedidosIA.length - 1].headers["anthropic-beta"], "server-side-fallback-2026-07-01");
+assert.equal(terceiro.model, "claude-haiku-5-5", "modelo padrão: o mais barato (08/10/2026)");
+assert.equal(terceiro.fallbacks, undefined, "o Haiku 5.5 não tem a nova tentativa do lado da Anthropic");
+assert.equal(pedidosIA[pedidosIA.length - 1].headers["anthropic-beta"], undefined);
 assert.deepEqual(terceiro.output_config, { effort: "medium" });
 /* Apagar, só os textos da própria equipe que o Ali pediu (08/10/2026):
    orientação da IA e ficha de produto. Lead, funil, etapa, tag, fluxo e

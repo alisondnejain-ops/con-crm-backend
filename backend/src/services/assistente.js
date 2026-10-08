@@ -20,7 +20,7 @@
 
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { chamarClaude, claudeConfigurado, textoDe, MODELO_ASSISTENTE } from "./claude.js";
+import { chamarClaude, claudeConfigurado, textoDe, MODELO_ASSISTENTE, ferramentaDePesquisa } from "./claude.js";
 import { registrar } from "./iauso.js";
 import { MANUAL_CONHUB } from "./ajuda.js";
 import { CORES_TAG } from "./tags.js";
@@ -323,7 +323,7 @@ export const FERRAMENTAS_CONFIG = [
   FERRAMENTA_ABRIR_TELA,
 ];
 // Com a pesquisa na internet, como na consulta (o teto de buscas é lido na hora).
-export const ferramentasDeConfig = () => [...FERRAMENTAS_CONFIG, { type: "web_search_20260209", name: "web_search", max_uses: MAX_PESQUISAS() }];
+export const ferramentasDeConfig = () => [...FERRAMENTAS_CONFIG, ferramentaDePesquisa(MAX_PESQUISAS())];
 
 /* Chama uma rota do próprio CRM com o crachá de quem pediu. É aqui que a
    permissão é decidida — pela rota, como na tela. */
@@ -474,7 +474,7 @@ export const FERRAMENTAS_CONSULTA = () => [
   T("ver_funis", "Lista os funis da conta e as etapas, só para consulta."),
   ...FERRAMENTAS_MENU,
   FERRAMENTA_ABRIR_TELA,
-  { type: "web_search_20260209", name: "web_search", max_uses: MAX_PESQUISAS() },
+  ferramentaDePesquisa(MAX_PESQUISAS()),
 ];
 
 const resumoDoLead = (l) => sem({
