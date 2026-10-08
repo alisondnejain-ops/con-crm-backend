@@ -10,9 +10,11 @@
    e o modelo padrão é outro. A leitura do print da Caixa é um pedido só, com
    resposta fixa — o Haiku dá conta. Configurar uma conta é um pedido de vários
    passos ("cria o funil de locação com cinco etapas e liga a roleta na
-   terceira"), e quem erra um passo deixa a conta pela metade. Por isso o
-   padrão é o Claude Opus 5.5; `ASSISTENTE_MODELO` troca (ex.:
-   claude-sonnet-5-5, metade do preço), se o Ali decidir.
+   terceira"), e quem erra um passo deixa a conta pela metade. Até 08/10/2026
+   o padrão era o Opus 5.5; o Ali achou o gasto alto para tarefas simples e
+   pediu o mais barato — o padrão virou o Haiku 5.5 (cerca de 40 vezes mais
+   barato na entrada). `ASSISTENTE_MODELO` volta ao Opus (claude-opus-5-5) ou
+   ao meio-termo (claude-sonnet-5-5) sem publicar nada.
 
    TRÊS REGRAS DA API que não podem ser esquecidas:
    - A resposta do modelo volta para a próxima chamada EXATAMENTE como veio
@@ -25,15 +27,23 @@
 
 const URL_API = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "");
 const chave = () => process.env.ANTHROPIC_API_KEY || "";
-export const MODELO_ASSISTENTE = () => process.env.ASSISTENTE_MODELO || "claude-opus-5-5";
+export const MODELO_ASSISTENTE = () => (process.env.ASSISTENTE_MODELO || "").trim() || "claude-haiku-5-5";
 export const claudeConfigurado = () => !!chave();
 
 /* Modelos com o retry automático do lado da Anthropic quando um filtro de
    segurança recusa o pedido por engano (`fallbacks: "default"`). Nos outros
    o parâmetro não existe e o pedido seria recusado. */
 const COM_FALLBACK = new Set(["claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-fable-5", "claude-sonnet-5-5"]);
-// O Haiku 4.5 não tem `effort`: mandar o campo dá erro.
-const SEM_EFFORT = (m) => /haiku/.test(m);
+// O Haiku 4.5 não tem `effort`: mandar o campo dá erro. O Haiku 5.5 tem.
+const SEM_EFFORT = (m) => /haiku-4/.test(m);
+
+/* A pesquisa na internet com filtragem (`web_search_20260209`) só existe nos
+   Opus e Sonnet 4.6 em diante; nos outros, a versão básica. Mandar a versão
+   errada faz a API recusar o pedido inteiro, não só a pesquisa. */
+export const ferramentaDePesquisa = (max_uses) => ({
+  type: /opus|sonnet|fable/.test(MODELO_ASSISTENTE()) ? "web_search_20260209" : "web_search_20250305",
+  name: "web_search", max_uses,
+});
 
 /* Preço por milhão de tokens, em dólar (tabela pública da Anthropic). A
    leitura do cache custa uma fração da entrada; a escrita, 25% a mais. Modelo
@@ -42,6 +52,9 @@ const SEM_EFFORT = (m) => /haiku/.test(m);
 const PRECOS = {
   "claude-opus-5-5": { entrada: 4, saida: 20, cache: 0.2 },
   "claude-sonnet-5-5": { entrada: 2, saida: 10, cache: 0.2 },
+  // Haiku 5.5: este é o preço até 100 mil tokens de pedido (acima disso é 5x;
+  // as conversas daqui ficam bem abaixo). Cache lido = 10% da entrada.
+  "claude-haiku-5-5": { entrada: 0.1, saida: 0.5, cache: 0.01 },
 };
 export function custoDaChamada(modelo, u) {
   const p = PRECOS[modelo];
