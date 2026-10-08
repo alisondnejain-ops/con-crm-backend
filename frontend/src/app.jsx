@@ -17105,6 +17105,16 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
    que saber o que soltou. */
 // Domingo = 0, como o JavaScript conta. A ordem na tela começa na segunda,
 // que é como quem trabalha lê a semana.
+/* As proibições que eram fixas no texto da IA até 08/10/2026 — agora cada conta
+   escolhe se quer cada uma (cartão de orientações do Autoatendimento). */
+const SUGESTOES_ENSINO=[
+  "Nunca diga valor de parcela, entrada mínima, juros ou preço de imóvel — diga que o corretor passa os valores.",
+  "Nunca diga que a pessoa foi aprovada ou que consegue financiar — quem confirma é o corretor com a simulação.",
+  "Nunca marque visita, dia ou horário, nem prometa que alguém liga em tal hora.",
+  "Nunca diga que temos imóvel num bairro ou faixa de preço — anote o que a pessoa procura e diga que a equipe encontra o imóvel ideal.",
+  "Pergunte primeiro se a pessoa quer comprar ou alugar.",
+  "Para compra, pergunte (uma coisa por vez): renda da família, quanto tem de entrada, se tem restrição no CPF e em quanto tempo pretende comprar.",
+];
 const DIAS_SEMANA=[[1,"seg"],[2,"ter"],[3,"qua"],[4,"qui"],[5,"sex"],[6,"sáb"],[0,"dom"]];
 function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
@@ -17182,30 +17192,17 @@ function RoboConfig({acoes,session,isMobile}){
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6}}>
         {cfg.sempre
-          ?"Quando um lead chama e você não está no celular, a IA conversa com ele, acolhe e anota as informações da simulação. Assim que você responde, ela sai da conversa e não volta."
-          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele, acolhe e anota as informações da simulação. Na manhã seguinte a atendente confere e encaminha."}
+          ?"Quando um lead chama e você não está no celular, a IA conversa com ele seguindo as regras que você escrever abaixo. Assim que você responde, ela sai da conversa e não volta."
+          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele seguindo as regras que a sua equipe escrever abaixo. Na manhã seguinte a atendente confere e encaminha."}
       </div>
 
-      {/* O que ele NUNCA faz vem antes do interruptor, e não escondido num
-          "saiba mais". É a parte que muda a decisão de ligar. */}
-      <div style={{background:C.surface,borderRadius:11,padding:"11px 13px",margin:"11px 0"}}>
-        <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>O que ele nunca faz</div>
-        {/* Duas linhas mudam na conta de um corretor só, e as duas mudariam de
-            VERDADEIRAS para FALSAS se ficassem como estão: ali todo lead é
-            dele desde o primeiro segundo (então "não atende lead de corretor"
-            silenciaria a IA em 100% das conversas, que é o oposto do que
-            acontece), e não existe atendente para olhar a etapa de manhã. */}
-        {[["Falar valor","nada de parcela, entrada mínima, juros ou preço de imóvel"],
-          ["Dizer que aprovou",cfg.autonomo?"quem diz se enquadra é você, com a simulação na mão":"quem diz se enquadra é o corretor com a simulação"],
-          ["Marcar visita","nem dia, nem hora, nem promessa de ligação"],
-          ...(cfg.autonomo?[]:[["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"]]),
-          ["Falar por cima de alguém","na primeira mensagem de uma pessoa, ele sai da conversa e não volta"],
-          // Com a etapa final escolhida (abaixo), ela move o lead ao se despedir.
-          ...(cfg.etapa_final?[]:[["Mexer no funil",cfg.autonomo?"a etapa fica parada até você olhar a conversa":"a etapa fica parada até a atendente olhar de manhã"]])].map(([t,d])=>
-          <div key={t} style={{display:"flex",gap:7,marginTop:5,alignItems:"flex-start"}}>
-            <span style={{color:C.hot,fontSize:12,fontWeight:700,lineHeight:1.5}}>×</span>
-            <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}><b style={{color:C.ink}}>{t}.</b> {d}</div>
-          </div>)}
+      {/* AS REGRAS SÃO DE CADA CONTA (08/10/2026, pedido do Ali). Aqui havia
+          o quadro "O que ele nunca faz" com proibições fixas do ConHub; elas
+          saíram do texto da IA e viraram sugestões no cartão de orientações. */}
+      <div style={{background:C.surface,borderRadius:11,padding:"10px 13px",margin:"11px 0",color:C.sub,fontSize:11.5,lineHeight:1.55}}>
+        <b style={{color:C.ink}}>As regras são suas.</b> O que a IA pergunta, o que ela pode falar e o que ela nunca faz
+        está em <b>{cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</b>, mais abaixo.
+        Sem nenhuma orientação, ela só acolhe, entende o que a pessoa procura e diz que a equipe dá continuidade.
       </div>
 
       {!cfg.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,
@@ -17332,23 +17329,33 @@ function RoboConfig({acoes,session,isMobile}){
         {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
-        Escreva aqui como {cfg.autonomo?"você fala":"a equipe fala"} — o jeito de tratar o cliente, o que explicar quando
-        perguntarem de um programa, o que sempre perguntar. A IA lê estas linhas antes de cada
-        resposta. <b>Elas não desbloqueiam o que é proibido:</b> nada de valor, aprovação ou
-        agendamento, mesmo que escrito aqui.
+        Estas linhas são as regras do atendimento: o jeito de tratar o cliente, o que perguntar, o que
+        explicar e <b>o que a IA nunca pode fazer</b>. Ela lê todas antes de cada resposta.
       </div>
 
-      {/* Exemplos concretos: campo em branco é campo que ninguém preenche. */}
-      {ensino&&!ensino.length&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",
-        marginBottom:9,color:C.faint,fontSize:11,lineHeight:1.6}}>
-        Exemplos: <i>"Chame a pessoa de você, nunca de senhor ou senhora."</i> · <i>"Se perguntarem
-        do Morar Bem PE, diga que é o programa do governo de Pernambuco."</i> · <i>"Sempre pergunte
-        em qual bairro a pessoa quer morar."</i>
-      </div>}
+      {/* Sugestões de um clique: as proibições que eram fixas até 08/10/2026.
+          Só aparece a que ainda não está escrita; o gestor escolhe as que valem. */}
+      {ensino&&(()=>{
+        const tem=new Set(ensino.map(e=>e.texto.trim()));
+        const faltam=SUGESTOES_ENSINO.filter(t=>!tem.has(t));
+        if(!faltam.length) return null;
+        return <div style={{marginBottom:10}}>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>SUGESTÕES — TOQUE PARA ADICIONAR</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {faltam.map(t=><button key={t} disabled={salvando} onClick={async()=>{
+                setErro(""); setSalvando(true);
+                try{ setEnsino((await acoes.roboEnsinar(t)).linhas); }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+              }}
+              style={{textAlign:"left",background:C.card,border:`1px dashed ${C.line}`,borderRadius:9,
+                padding:isMobile?"10px 11px":"7px 10px",fontSize:11.5,color:C.sub,cursor:"pointer",lineHeight:1.45}}>
+              <b style={{color:C.greenDeep}}>+</b> {t}</button>)}
+          </div>
+        </div>;
+      })()}
 
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
         <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2} maxLength={500}
-          placeholder="Ex.: Se perguntarem se atendemos Juazeiro, diga que sim."
+          placeholder="Ex.: Nunca fale o valor do condomínio — diga que o corretor confirma."
           style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
             border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
             color:C.ink,outline:"none",resize:"vertical"}}/>
@@ -17508,7 +17515,7 @@ function FichasDeProduto({acoes,isMobile,cartao}){
       {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
     </div>
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
-      Uma ficha por empreendimento: localização, diferenciais, o que explicar. Ligue a ficha a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, e a IA usa ela nos atendimentos que chegam por ali. <b>Preço continua proibido</b> para a IA, mesmo escrito aqui.
+      Uma ficha por empreendimento: localização, diferenciais, o que explicar. Ligue a ficha a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, e a IA usa ela nos atendimentos que chegam por ali. O que ela pode ou não falar continua sendo o que as orientações dizem.
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
     {edit&&<div style={{background:C.surface,borderRadius:11,padding:11,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>

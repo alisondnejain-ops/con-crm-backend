@@ -274,11 +274,9 @@ CREATE TABLE IF NOT EXISTS mensagens_rapidas (
    poder escrever o jeito de falar — e não depender de alguém mexer no código
    toda vez que a abordagem muda.
 
-   IMPORTANTE: isto orienta o ESTILO e o conteúdo permitido. Nunca destrava o
-   que é proibido (valor, aprovação, agendamento) — a montagem do prompt em
-   services/ia.js coloca as proibições DEPOIS destas linhas, e diz por
-   escrito que elas não podem ser contrariadas. Campo de texto que qualquer
-   pessoa preenche e que a IA obedece cegamente é porta destrancada. */
+   Desde 08/10/2026 estas linhas SÃO as regras do atendimento (o que perguntar,
+   o que falar, o que nunca fazer): não há mais proibição fixa do ConHub no
+   texto da IA — cada conta define as suas (pedido do Ali). */
 CREATE TABLE IF NOT EXISTS robo_ensino (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,

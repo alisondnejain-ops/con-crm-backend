@@ -98,7 +98,7 @@ export const FERRAMENTAS_MARKETING = [
     { id: { type: "string" }, texto: { type: "string" }, ativa: { type: "boolean" } }, ["id"]),
   T("apagar_orientacao_da_ia", "Apaga uma orientação do Autoatendimento.", { id: { type: "string" } }, ["id"]),
   T("ver_fichas_de_produto", "As fichas de produto da IA (uma por empreendimento): texto, imóvel do catálogo ligado e onde estão ligadas."),
-  T("salvar_ficha_de_produto", "Cria (sem ficha_id) ou edita uma ficha de produto: o que a IA precisa saber de um empreendimento. Preço continua proibido para a IA. Ligue a ficha a formulário (configurar_formulario) ou catraca (salvar_catraca).",
+  T("salvar_ficha_de_produto", "Cria (sem ficha_id) ou edita uma ficha de produto: o que a IA precisa saber de um empreendimento. O que a IA pode falar segue as orientações da conta. Ligue a ficha a formulário (configurar_formulario) ou catraca (salvar_catraca).",
     { ficha_id: { type: "string" }, nome: { type: "string" }, texto: { type: "string" },
       imovel_id: { type: ["string", "null"], description: "imóvel do catálogo (ver_imoveis)" }, ativa: { type: "boolean" } }),
   T("apagar_ficha_de_produto", "Apaga uma ficha de produto (ela sai dos formulários e catracas).", { ficha_id: { type: "string" } }, ["ficha_id"]),
