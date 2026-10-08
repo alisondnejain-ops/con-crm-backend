@@ -187,31 +187,6 @@ export function dentroDaJanela(cfg, agora = Date.now()) {
   return a === b ? true : a < b ? (min >= a && min < b) : (min >= a || min < b);
 }
 
-/* Palavras que fazem o funil andar sozinho (`services/stages.js` → GATILHOS).
-
-   A resposta da IA pode estar ótima e ainda assim conter "podemos agendar sua
-   visita" — e aí o lead pula duas etapas às 3h da manhã sem ninguém ter feito
-   nada. Barrar é mais seguro do que reescrever: a conversa fica parada para a
-   atendente ver de manhã, que é exatamente onde ela estaria sem o robô. */
-const PROIBIDAS = [
-  { palavra: "atendimento", padrao: /\batendiment/i },
-  { palavra: "documentação", padrao: /\bdocumenta/i },
-  { palavra: "documentos", padrao: /\bdocumentos?\b/i },
-  { palavra: "aprovação", padrao: /\baprova/i },
-  { palavra: "visita", padrao: /\bvisita/i },
-  { palavra: "agendar", padrao: /\bagend/i },
-  { palavra: "proposta", padrao: /\bproposta\b/i },
-  { palavra: "fechar", padrao: /\bfech(ar|amos|ou)\b/i },
-  { palavra: "contrato", padrao: /\bcontrato/i },
-];
-/* Devolve a palavra POR EXTENSO, não o regex. O nome dela vai para o log e
-   para a tela do gestor: "contém vsta" não explica nada a ninguém. */
-export const palavraProibida = (texto) => {
-  const t = String(texto || "");
-  const achou = PROIBIDAS.find(p => p.padrao.test(t));
-  return achou ? achou.palavra : null;
-};
-
 /* Quem é o dono de uma casa de corretor autônomo — ou nulo, se a conta é uma
    imobiliária. Vai ao BANCO e não ao crachá: é a mesma régua de `ehDonoAutonomo`
    em `auth.js`, e aqui não existe crachá nenhum (o robô responde a um webhook,
@@ -381,11 +356,10 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
     if (!r.ok) { console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`); return { atendeu: false, motivo: "ia_falhou", erro: r.erro }; }
     registrarUsoIA({ orgId, userId: null, leadId, recurso: "atendimento", uso: r.uso });
 
-    const proibida = palavraProibida(r.resposta.texto);
-    if (proibida) {
-      console.warn(`[robo] mensagem barrada para ${lead.name}: contém "${proibida}", que move o funil`);
-      return { atendeu: false, motivo: "palavra_que_move_o_funil", palavra: proibida };
-    }
+    /* O filtro de palavras que barrava a resposta ("visita", "contrato",
+       "proposta"…) saiu em 08/10/2026: ele era uma regra fixa do ConHub, e as
+       regras do atendimento agora são de cada conta. A palavra também já não
+       move o funil (26/08/2026), e `advanceStage` não roda enquanto a IA atende. */
 
     /* Grava o que ele apurou ANTES de enviar. Se o envio falhar, o CRM perdeu
        uma mensagem; se a ordem fosse a outra e a gravação falhasse, o cliente

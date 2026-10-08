@@ -64,7 +64,7 @@ globalThis.fetch = async (url, opts) => {
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, conferir,
-  palavraProibida, configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
+  configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Imobiliária Aurora", "A-1", Date.now());
@@ -209,24 +209,18 @@ console.log(`   motivo: ${t10.motivo}`);
 assert.equal(t10.motivo, "robo_encerrado");
 assert.equal(estadoNoLead(org, naFila, NOITE).motivo, "gente_assumiu", "e a ficha diz QUEM: uma pessoa entrou");
 
-console.log("11. Palavra que move o funil é barrada ANTES de sair");
-for (const frase of ["Podemos agendar sua visita amanhã!", "Me manda os documentos por aqui",
-  "Vou passar pro atendimento", "Fechamos o contrato assim"]) {
-  const achou = palavraProibida(frase);
-  console.log(`   "${frase.slice(0, 34)}…" → barrada (${achou})`);
-  assert.ok(achou, "essa frase moveria o lead de etapa sozinha");
-}
-assert.equal(palavraProibida("Oi! Que bom que chamou. É pra morar ou investir?"), null,
-  "conversa normal passa");
-
-const barrado = lead({ nome: "Frase perigosa", dono: vanessa });
+console.log("11. Sem regra fixa do ConHub: a resposta sai como a IA escreveu, e o funil não anda");
+/* Até 08/10/2026 havia um filtro que barrava "visita", "contrato" etc. As
+   regras agora são de cada conta (orientações); o que a equipe não proibiu,
+   a IA pode dizer. O funil continua parado: palavra só RECOMENDA etapa. */
+const barrado = lead({ nome: "Frase que antes era barrada", dono: vanessa });
 doCliente(barrado, "quero ver as casas");
 respostaDaIA = { texto: "Claro! Posso agendar uma visita pra você.", coletado: {}, encerrar: false };
 const antesDoBarrado = enviadas.length;
 const r11 = await atender(org, barrado, { agora: NOITE, atraso: 0 });
-console.log(`   resultado: ${r11.motivo}`);
-assert.equal(r11.atendeu, false);
-assert.equal(enviadas.length, antesDoBarrado, "nada saiu no WhatsApp do cliente");
+console.log(`   resultado: ${r11.atendeu ? "enviada" : r11.motivo}`);
+assert.equal(r11.atendeu, true);
+assert.equal(enviadas.length, antesDoBarrado + 1, "a mensagem saiu");
 assert.equal(db.prepare("SELECT stage FROM leads WHERE id=?").get(barrado).stage, "Lead", "e o funil não andou");
 
 console.log("12. O teto de mensagens segura a conversa (e a conta)");
@@ -422,14 +416,17 @@ assert.ok(/nunca de 'senhor'/.test(ultimoPedido), "o que a Vanessa escreveu cheg
 assert.ok(/Morar Bem PE/.test(ultimoPedido));
 assert.ok(!/está desligada/.test(ultimoPedido), "orientação desligada NÃO pode ir junto");
 
-console.log("28. E o ensino vem DEPOIS das proibições, sem poder derrubá-las");
-const posProibicoes = ultimoPedido.indexOf("NUNCA diga valor de parcela");
-const posEnsino = ultimoPedido.indexOf("COMO A EQUIPE DESTA IMOBILIÁRIA FALA");
-console.log(`   proibições na posição ${posProibicoes}, ensino em ${posEnsino}`);
-assert.ok(posProibicoes > 0 && posEnsino > posProibicoes,
-  "campo que qualquer pessoa preenche não pode vir antes da trava");
-assert.ok(/nunca valem mais que as proibições/.test(ultimoPedido),
-  "e está escrito que uma não derruba a outra");
+console.log("28. Não há proibição fixa no pedido: as regras são as orientações da conta");
+console.log(`   ${/NUNCA diga valor de parcela/.test(ultimoPedido) ? "ainda tem regra fixa" : "sem regra fixa"}`);
+assert.ok(!/NUNCA diga valor de parcela|NUNCA marque visita|PRIMEIRO DESCUBRA/.test(ultimoPedido),
+  "o roteiro e as proibições do ConHub saíram");
+assert.ok(/ORIENTAÇÕES DA EQUIPE DESTA IMOBILIÁRIA/.test(ultimoPedido), "as orientações entram como as regras");
+// Sem nenhuma orientação, vale o mínimo: acolher e passar adiante.
+const pedidoComEnsino = ultimoPedido;
+const { atenderPrimeiroContato } = await import("../src/services/ia.js");
+await atenderPrimeiroContato({ mensagens: [{ de: "cliente", texto: "oi" }], orientacoes: [] });
+assert.ok(/AINDA NÃO ESCREVEU ORIENTAÇÕES/.test(ultimoPedido), "sem orientação, o pedido diz isso");
+ultimoPedido = pedidoComEnsino;
 
 console.log("29. A IA se apresenta com o nome DESTA imobiliária, e não com um nome fixo");
 /* O texto sai pelo WhatsApp, para o cliente. Enquanto houve uma casa só, o

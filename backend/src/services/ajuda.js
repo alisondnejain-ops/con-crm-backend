@@ -71,7 +71,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 - Configurações → Funis e etapas → etapa → "Quando um lead chegar nesta etapa": responsável (roleta, uma catraca específica, fila ou pessoa), funil, e etiquetas para colocar ou tirar — inclusive a etiqueta com o nome do corretor que recebeu.
 
 ## Autoatendimento (IA que atende o cliente)
-- Configurações → Autoatendimento: ligar, horário, "Onde a IA atua e o que ela faz no lead" (funis/etapas, campos que ela preenche, resumo como observação, etapa para onde move quando o cliente quer seguir), "Fichas de produto" (uma por empreendimento) e as orientações da equipe (dá para editar, desligar e apagar).
+- Configurações → Autoatendimento: ligar, horário, "Onde a IA atua e o que ela faz no lead" (funis/etapas, campos que ela preenche, resumo como observação, etapa para onde move quando o cliente quer seguir), "Fichas de produto" (uma por empreendimento) e as orientações da equipe (dá para editar, desligar e apagar). As orientações são as regras da IA: o que perguntar, o que falar e o que nunca fazer — não há regra fixa do ConHub; as proibições comuns (preço, aprovação, visita) aparecem como sugestões de um clique.
 
 ## Notificações
 - Minha conta → Notificações no celular → Ativar. No iPhone só funciona com o ConHub adicionado à Tela de Início (Compartilhar → Adicionar à Tela de Início).
