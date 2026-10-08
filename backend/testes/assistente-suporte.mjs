@@ -257,14 +257,27 @@ const ultimas = pedidosIA[pedidosIA.length - 1].corpo.messages;
 assert.equal(ultimas[ultimas.length - 1].content, "oi de novo");
 assert.equal(ultimas[ultimas.length - 2].role, "assistant", "alterna certo depois da recusa");
 
-caso("IA fora do ar: erro na tela, e o histórico não fica com pedido de ferramenta sem resposta");
+caso("IA fora do ar no meio do trabalho: erro na tela, e o que já foi feito FICA no histórico (08/10/2026)");
 roteiro.push(usa("tu_4", "ver_tags", {}));  // a segunda chamada não tem roteiro: a IA "cai"
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "lista as tags" });
 assert.ok(r.body.itens.some(i => i.de === "erro"));
-const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config'").get().mensagens);
-const fimHist = hist[hist.length - 1];
-assert.equal(fimHist.role, "assistant");
-assert.ok(!fimHist.content.some(b => b.type === "tool_use"));
+assert.equal(r.body.parou, false, "erro não continua sozinho");
+{
+  const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config'").get().mensagens);
+  const fimHist = hist[hist.length - 1];
+  // Termina no resultado da ferramenta: nenhum pedido sem resposta, e o feito não some.
+  assert.equal(fimHist.role, "user");
+  assert.ok(fimHist.content.some(b => b.type === "tool_result" && b.tool_use_id === "tu_4"));
+  assert.ok(hist[hist.length - 2].content.some(b => b.type === "tool_use" && b.id === "tu_4"));
+  // A próxima pergunta entra NA MESMA mensagem (duas falas seguidas da pessoa não valem).
+  roteiro.push(fala("Pronto, aqui estão."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "tenta de novo" });
+  const ult = pedidosIA[pedidosIA.length - 1].corpo.messages;
+  const m = ult[ult.length - 1];
+  assert.equal(m.role, "user");
+  assert.ok(m.content.some(b => b.type === "tool_result") && m.content.some(b => b.type === "text" && b.text === "tenta de novo"));
+  assert.equal(ult[ult.length - 2].role, "assistant");
+}
 
 /* ===== O CLAUDE DO GESTOR FAZ O TRABALHO DA GESTÃO (07/10/2026) ===== */
 const ultimoResultado = (pedido) => {
@@ -415,17 +428,72 @@ r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "lê", anexo
 assert.equal(r.status, 400); assert.ok(/PDF/.test(r.body.error));
 assert.equal((await api("u_gestora", "POST", "/assistente/mensagem", { texto: "x".repeat(30001) })).status, 400);
 
-caso("O histórico não carrega arquivo para sempre: só as duas últimas perguntas com arquivo");
+caso("Arquivos antigos NÃO são apagados do histórico (seria edição): o histórico vai como estava (08/10/2026)");
 roteiro.push(fala("Ok 2."), fala("Ok 3."));
 await api("u_gestora", "POST", "/assistente/mensagem", { texto: "segunda", anexos: [{ nome: "b.png", tipo: "image/png", dados: PNG }] });
+const antesDaTerceira = pedidosIA[pedidosIA.length - 1].corpo.messages;
 await api("u_gestora", "POST", "/assistente/mensagem", { texto: "terceira", anexos: [{ nome: "c.png", tipo: "image/png", dados: PNG }] });
 {
   const msgs = pedidosIA[pedidosIA.length - 1].corpo.messages;
-  const comArquivo = msgs.filter(m => m.role === "user" && Array.isArray(m.content) && m.content.some(b => b.type === "image" || b.type === "document"));
-  assert.equal(comArquivo.length, 2, "ficam as duas últimas");
-  const primeira = msgs.find(m => m.role === "user" && Array.isArray(m.content) && m.content.some(b => b.type === "text" && /print\.png/.test(b.text)));
-  assert.ok(primeira && primeira.content.some(b => /não está mais guardado/.test(b.text || "")), "a antiga vira aviso com o nome");
+  // O começo do pedido novo é EXATAMENTE o pedido anterior: nada foi editado.
+  assert.equal(JSON.stringify(msgs.slice(0, antesDaTerceira.length)), JSON.stringify(antesDaTerceira));
   assert.ok(msgs.filter(m => m.role === "assistant").every(m => m.content[0].signature === "assinatura-secreta-123"), "as falas da IA não são mexidas");
+}
+
+caso("Parou no meio (resposta cortada): fica pendente e a continuação segue sem gastar pergunta do mês");
+{
+  roteiro.push({ stop_reason: "max_tokens", content: [pensa, { type: "text", text: "Começando o funil grande…" }] });
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "monta tudo" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.parou, true, "a tela vai pedir para continuar");
+  assert.equal((await api("u_gestora", "GET", "/assistente")).body.parou, true, "reabrir o painel mostra que ficou no meio");
+  const turnos = db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora'").get().n;
+  roteiro.push(fala("Terminei o funil."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.parou, false);
+  assert.ok(r.body.itens.some(i => i.de === "assistente" && /Terminei/.test(i.texto)));
+  assert.ok(!r.body.itens.some(i => i.de === "voce"), "a continuação não aparece como fala da pessoa");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora'").get().n, turnos, "não conta no limite do mês");
+  const ult = pedidosIA[pedidosIA.length - 1].corpo.messages;
+  assert.ok(/continuação automática/.test(JSON.stringify(ult[ult.length - 1].content)));
+  // Sem nada pendente, continuar não chama a IA.
+  const n = pedidosIA.length;
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.status, 200);
+  assert.equal(pedidosIA.length, n);
+}
+
+caso("Trabalho longo (teto de passos de uma vez): o feito fica, e a continuação segue dali");
+{
+  for (let i = 0; i < 25; i++) roteiro.push(usa("tu_l" + i, "ver_tags", {}));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "confere as tags 25 vezes" });
+  assert.equal(r.body.parou, true);
+  const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config' ORDER BY updated_at DESC LIMIT 1").get().mensagens);
+  assert.ok(hist[hist.length - 1].content.some(b => b.tool_use_id === "tu_l24"), "o último passo feito continua no histórico: " + JSON.stringify(hist.slice(-2)).slice(0, 600));
+  roteiro.push(fala("Conferi todas."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.body.parou, false);
+  const m = pedidosIA[pedidosIA.length - 1].corpo.messages.slice(-1)[0];
+  assert.ok(m.content.some(b => b.tool_use_id === "tu_l24") && m.content.some(b => /continuação automática/.test(b.text || "")));
+}
+
+caso("Conversa grande é RESUMIDA, não apagada: o resumo abre a conversa nova (08/10/2026)");
+{
+  db.prepare("UPDATE assistente_conversas SET contexto_tokens = 90000 WHERE user_id = 'u_gestora' AND tipo = 'config'").run();
+  roteiro.push(fala("- Pedido: montar funil\n- Feito: funil criado"), fala("Seguindo daqui."));
+  const n = pedidosIA.length;
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "e agora?" });
+  assert.equal(r.status, 200);
+  assert.equal(pedidosIA.length - n, 2, "uma chamada para resumir, outra para responder");
+  const resumo = pedidosIA[n].corpo;
+  assert.deepEqual(resumo.tool_choice, { type: "none" }, "o resumo não chama ferramenta");
+  assert.ok(/RESUMO desta conversa/.test(JSON.stringify(resumo.messages[resumo.messages.length - 1].content)));
+  const depois = pedidosIA[n + 1].corpo;
+  assert.equal(depois.messages.length, 1, "a conversa recomeça do resumo");
+  assert.ok(/Feito: funil criado/.test(JSON.stringify(depois.messages[0].content)) && /e agora\?/.test(JSON.stringify(depois.messages[0].content)));
+  assert.ok(!JSON.stringify(depois.messages).includes("thinking"), "nenhum raciocínio antigo vai junto");
+  assert.ok(r.body.itens.some(i => i.de === "sistema" && /resumi/.test(i.texto)));
 }
 
 caso("Teto do mês: passado o limite, o assistente recusa com a frase certa");

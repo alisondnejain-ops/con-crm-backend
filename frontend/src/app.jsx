@@ -6852,10 +6852,12 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [pendente,setPendente]=useState(null);
   const [anexos,setAnexos]=useState([]);
   const [preparando,setPreparando]=useState(0);
+  const [continuando,setContinuando]=useState(false);
+  const pararRef=useRef(false);
   const arquivoRef=useRef(null);
   useEffect(()=>{ api("/assistente").then(setD).catch(e=>setErro(e.message)); },[]);
   const itens=(d&&d.itens)||[];
-  const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0));
+  const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0)+(continuando?1:0));
   // Quem decide se a pessoa manda arquivo é o servidor (`d.anexos`): só o gestor.
   const podeAnexar=!!(d&&d.anexos);
   async function juntar(arquivos){
@@ -6881,19 +6883,42 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
     if(fs.length){ e.preventDefault(); juntar(fs); }
   }:undefined;
   async function enviar(){
-    const t=texto.trim(); if((!t&&!anexos.length)||ocupado||preparando) return;
+    const t=texto.trim(); if((!t&&!anexos.length)||ocupado||continuando||preparando) return;
     const indo=anexos;
     setTexto(""); setErro(""); setNavegar(null); setOcupado(true);
     setPendente({texto:t,anexos:indo.map(a=>({nome:a.nome,tipo:a.quadros?"video":"",quadros:a.quadros?a.quadros.length:0}))});
     setAnexos([]);
+    let r=null;
     try{
       // O menu de quem pergunta vai junto: é a tela que sabe quais itens ela vê.
-      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[],
+      r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[],
         ...(indo.length?{anexos:indo.map(a=>({nome:a.nome,tipo:a.tipo,dados:a.dados,quadros:a.quadros,duracao:a.duracao}))}:{})}});
-      setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
-      if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
+      receber(r);
     }catch(e){ setErro(e.message); setTexto(t); setAnexos(indo); }
     finally{ setOcupado(false); setPendente(null); }
+    if(r&&r.parou) continuar(true);
+  }
+  function receber(r){
+    setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
+    if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
+  }
+  /* O TRABALHO NÃO PARA NO MEIO (08/10/2026, pedido do Ali). Cada requisição
+     trabalha alguns minutos; quando o servidor responde que parou no meio
+     (`parou`), a tela pede a continuação sozinha — como o Claude faz. Até 8
+     vezes seguidas sem a pessoa mexer; passou disso, aparece o botão
+     "Continuar", para um pedido que não termina não gastar sem ninguém ver.
+     "Parar" interrompe na próxima volta (o que já foi feito fica feito). */
+  async function continuar(auto){
+    pararRef.current=false; setContinuando(true); setErro("");
+    try{
+      for(let i=0;i<8;i++){
+        if(pararRef.current) break;
+        const r=await api("/assistente/mensagem",{method:"POST",body:{continuar:true,menu:menu||[]}});
+        receber(r);
+        if(!r.parou) break;
+      }
+    }catch(e){ setErro(e.message); }
+    finally{ setContinuando(false); }
   }
   async function nova(){ try{ setD(await api("/assistente/nova",{method:"POST"})); setNavegar(null); }catch(e){ setErro(e.message); } }
   /* Dois modos, e quem decide é o servidor (`d.modo`): o gestor configura; a
@@ -6938,6 +6963,12 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
         {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente.texto||"(arquivo)",anexos:pendente.anexos}]} isMobile={isMobile}/>}
         {ocupado&&<div style={{alignSelf:"flex-start",display:"flex",gap:7,alignItems:"center",color:C.faint,fontSize:12}}>
           <LogoClaude size={13}/>{consulta?"Pesquisando…":pendente&&pendente.anexos&&pendente.anexos.length?"Lendo os arquivos e trabalhando…":"Pensando e trabalhando…"}</div>}
+        {continuando&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:12}}>
+          <LogoClaude size={13}/>Continuando o trabalho…
+          <button onClick={()=>{pararRef.current=true;}} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"3px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button></div>}
+        {!ocupado&&!continuando&&d&&d.parou&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.sub,fontSize:12.5}}>
+          O trabalho ficou no meio.
+          <button onClick={()=>continuar(false)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Continuar</button></div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
         {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
         {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}

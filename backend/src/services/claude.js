@@ -73,13 +73,14 @@ export function custoDaChamada(modelo, u) {
    lista de ferramentas são iguais em toda chamada, e é isso que torna uma
    conversa de dez idas e voltas barata — da segunda chamada em diante, quase
    toda a entrada é lida do cache. */
-export async function chamarClaude({ system, messages, tools, max_tokens = 8000, effort = "medium", timeoutMs = 120000 }) {
+export async function chamarClaude({ system, messages, tools, tool_choice, max_tokens = 16000, effort = "medium", timeoutMs = 180000 }) {
   if (!claudeConfigurado()) return { ok: false, erro: "A IA não está configurada neste servidor." };
   const model = MODELO_ASSISTENTE();
   const corpo = {
     model, max_tokens, system, messages,
     cache_control: { type: "ephemeral" },
     ...(tools && tools.length ? { tools } : {}),
+    ...(tool_choice ? { tool_choice } : {}),
     ...(SEM_EFFORT(model) ? {} : { output_config: { effort } }),
     ...(COM_FALLBACK.has(model) ? { fallbacks: "default" } : {}),
   };
