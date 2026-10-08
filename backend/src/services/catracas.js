@@ -257,7 +257,7 @@ export function listar(orgId) {
       membros: membros.all(c.id, orgId).map(m => m.user_id),
       leads_abertos: leads.get(orgId, c.id).n,
       ...canaisDe(c.id),
-      pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null,
+      pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null, ia_produto_id: c.ia_produto_id || null,
       /* A etapa escolhida, com nomes; `etapa_invalida` quando foi apagada ou
          desativada depois — a catraca deixa de ser acionada e a tela avisa. */
       etapa: c.stage_id ? (() => { const e = etapa.get(c.stage_id, orgId); return e ? { funil: e.funil, nome: e.etapa, ok: !!e.ok } : { ok: false }; })() : null,
@@ -333,7 +333,7 @@ function gravarMembros(orgId, catracaId, ids) {
   for (const id of ids) ins.run(catracaId, id, orgId, agora);
 }
 
-export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id } = {}) {
+export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id, ia_produto_id } = {}) {
   if (ehAutonomo(orgId)) throw new ErroCatraca(403, "Conta de corretor autônomo não tem catraca.");
   const n = nomeValido(nome);
   nomeLivre(orgId, n);
@@ -348,10 +348,11 @@ export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipe
     gravarMembros(orgId, id, ids);
     if (ch) gravarCanais(orgId, id, ch);
   })();
+  if (ia_produto_id) editar(orgId, id, { ia_produto_id });
   return id;
 }
 
-export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id } = {}) {
+export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id, ia_produto_id } = {}) {
   const c = db.prepare("SELECT * FROM catracas WHERE id = ? AND org_id = ?").get(String(catracaId), orgId);
   if (!c) throw new ErroCatraca(404, "Catraca não encontrada.");
   const campos = {};
@@ -359,6 +360,12 @@ export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais
   if (entrega !== undefined) campos.entrega = entregaValida(entrega);
   if (ativa !== undefined) campos.ativa = ativa ? 1 : 0;
   if (stage_id !== undefined) Object.assign(campos, etapaValida(orgId, pipeline_id, stage_id));
+  /* A ficha de produto que a IA usa com os leads desta catraca (08/10/2026). */
+  if (ia_produto_id !== undefined) {
+    if (ia_produto_id && !db.prepare("SELECT 1 FROM ia_produtos WHERE id = ? AND org_id = ?").get(String(ia_produto_id), orgId))
+      throw new ErroCatraca(400, "Ficha de produto não encontrada nesta conta.");
+    campos.ia_produto_id = ia_produto_id ? String(ia_produto_id) : null;
+  }
   const ids = membros !== undefined ? membrosValidos(orgId, membros) : null;
   const ch = canais !== undefined ? canaisValidos(canais) : null;
   db.transaction(() => {

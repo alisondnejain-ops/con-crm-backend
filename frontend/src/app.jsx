@@ -1879,6 +1879,12 @@ function ConCRM(){
     conectarWhatsOficial:(dados)=>api("/config/conexao/oficial",{method:"POST",body:dados}),
     robo:()=>api("/config/robo"),
     salvarRobo:(dados)=>api("/config/robo",{method:"POST",body:dados}),
+    salvarAcoesRobo:(dados)=>api("/config/robo/acoes",{method:"POST",body:dados}),
+    fichasIA:()=>api("/config/robo/produtos"),
+    criarFichaIA:(dados)=>api("/config/robo/produtos",{method:"POST",body:dados}),
+    editarFichaIA:(id,dados)=>api("/config/robo/produtos/"+id,{method:"PATCH",body:dados}),
+    apagarFichaIA:(id)=>api("/config/robo/produtos/"+id,{method:"DELETE"}),
+    fichaDoFormulario:(formId,ia_produto_id,nome)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/produto`,{method:"POST",body:{ia_produto_id,nome}}),
     roboConferir:()=>api("/config/robo/conferir"),
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
@@ -1991,6 +1997,7 @@ function ConCRM(){
     apagarEtapa:(etapaId)=>api(`/pipelines/etapas/${etapaId}`,{method:"DELETE"}),
     ordenarEtapas:(id,ids)=>api(`/pipelines/${id}/etapas/ordem`,{method:"POST",body:{ids}}),
     camposPersonalizados:()=>api("/pipelines/campos/lista"),
+    modelosMeta:()=>api("/marketing/modelos-meta"),
     criarCampo:(dados)=>api("/pipelines/campos",{method:"POST",body:dados}),
     editarCampo:(id,dados)=>api(`/pipelines/campos/${id}`,{method:"PATCH",body:dados}),
     apagarCampo:(id)=>api(`/pipelines/campos/${id}`,{method:"DELETE"}),
@@ -3424,9 +3431,11 @@ const GATILHOS=[
   ["lead_novo","Lead novo","Quando entra um lead novo — escolha de onde.","userplus"],
   ["etapa","Entrou na etapa","Quando um lead entra numa etapa do funil.","columns"],
   ["etiqueta","Etiqueta adicionada","Quando alguém coloca uma etiqueta num lead.","tag"],
+  ["campo","Campo preenchido","Quando um campo do lead ganha um valor — na ficha ou pela IA.","lista"],
 ];
 const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
-const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"]];
+const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"],
+  ["campo","Campo com valor"],["respondeu","O cliente respondeu"]];
 const TEMPERATURAS_COND=[["QUENTE","Quente"],["MORNO","Morno"],["FRIO","Frio"],["SEM","Sem temperatura"]];
 // Nomes das etiquetas, etapas, pessoas e formulários — para o bloco se descrever.
 const OpcoesDoFluxo=React.createContext(null);
@@ -3459,16 +3468,22 @@ function resumoDoGatilho(g,op){
   if(g.tipo==="lead_novo") return `Lead novo · ${(g.origens||[]).length?g.origens.map(o=>(ORIGENS_GATILHO.find(x=>x[0]===o)||[,o])[1]).join(", "):"qualquer origem"}`;
   if(g.tipo==="etapa") return g.etapa_id?`Entrou em ${nomeEm(op&&op.etapas,g.etapa_id)||"uma etapa"}`:"Escolha a etapa…";
   if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
+  if(g.tipo==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===g.campo);
+    return g.campo?`${c?c.name:"Campo"} ${g.valor?`= ${g.valor}`:"preenchido"}`:"Escolha o campo…"; }
   return "Disparo em massa — entra quem o disparo escolher.";
 }
 function resumoDoBloco(no,op){
   const d=no.dados||{};
   if(no.tipo==="inicio") return resumoDoGatilho(d.gatilho,op);
+  if(no.tipo==="mensagem"&&d.modelo) return `Modelo da Meta: ${d.modelo.nome}`;
   if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
   if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
   if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
   if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
   if(no.tipo==="condicao"){
+    if(d.regra==="respondeu") return "O cliente respondeu desde que entrou?";
+    if(d.regra==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===d.campo);
+      return d.campo?`${c?c.name:"Campo"} ${d.valor?`é “${d.valor}”`:"está preenchido"}?`:"Escolha o campo…"; }
     if(!d.valor) return "Escolha a regra…";
     if(d.regra==="tag") return `Tem a etiqueta “${nomeEm(op&&op.tags,d.valor)||"…"}”?`;
     if(d.regra==="etapa") return `Está em ${nomeEm(op&&op.etapas,d.valor)||"…"}?`;
@@ -3786,6 +3801,63 @@ const SeletorDeEtiquetaFluxo=({valor,aoMudar,tags,isMobile})=><select value={val
   {(tags||[]).map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
 </select>;
 
+/* CAMPO PERSONALIZADO no gatilho e na condição (08/10/2026). O valor segue o
+   tipo do campo: lista para seleção, sim/não para sim-não, texto para o
+   resto. Vazio = "preenchido com qualquer valor". */
+const SeletorDeCampoFluxo=({valor,aoMudar,campos,isMobile})=><select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+  <option value="">Escolha o campo…</option>
+  {(campos||[]).map(c=><option key={c.key} value={c.key}>{c.name}</option>)}
+  {valor&&!(campos||[]).some(c=>c.key===valor)&&<option value={valor}>Campo desativado</option>}
+</select>;
+function ValorDoCampoFluxo({campo,valor,aoMudar,isMobile}){
+  const ops=campo&&Array.isArray(campo.options)?campo.options:[];
+  if(campo&&(campo.type==="select"||campo.type==="multiselect")&&ops.length)
+    return <select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+      <option value="">Qualquer valor (só estar preenchido)</option>{ops.map(o=><option key={o} value={o}>{o}</option>)}</select>;
+  if(campo&&campo.type==="boolean")
+    return <select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+      <option value="">Qualquer valor</option><option value="sim">Sim</option><option value="não">Não</option></select>;
+  return <input value={valor||""} onChange={e=>aoMudar(e.target.value)} maxLength={120} placeholder="Vazio = qualquer valor" style={campoMkt(isMobile)}/>;
+}
+
+/* MODELO APROVADO DA META (08/10/2026). Fora da janela de 24h a API oficial
+   só deixa sair modelo — é o que o fluxo de lead parado precisa. A lista vem
+   da conta do WhatsApp Business; numa linha da Uazapi (que não tem modelo) o
+   texto do modelo sai como mensagem comum. */
+function ModeloDaMeta({d,aoMudar,acoes,isMobile}){
+  const [lista,setLista]=useState(null);
+  const usando=!!d.modelo;
+  useEffect(()=>{ if(usando&&!lista) acoes.modelosMeta().then(setLista).catch(e=>setLista({modelos:[],aviso:e.message})); },[usando]);
+  const rot=ROTULO_MKT;
+  const m=d.modelo;
+  const escolhido=lista&&(lista.modelos||[]).find(x=>m&&x.nome===m.nome&&x.idioma===m.idioma);
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",gap:6}}>
+      {[["livre","Texto livre"],["modelo","Modelo aprovado da Meta"]].map(([k,t])=>{const on=(k==="modelo")===usando;
+        return <button key={k} onClick={()=>aoMudar(k==="modelo"?{modelo:{nome:"",idioma:"pt_BR",texto:"",variaveis:[]}}:{modelo:null})}
+          style={{flex:1,fontSize:12,fontWeight:600,padding:"8px 10px",borderRadius:9,cursor:"pointer",minHeight:34,fontFamily:FONT,
+            border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
+    </div>
+    {usando&&<React.Fragment>
+      {!lista?<div style={{color:C.faint,fontSize:12}}>Buscando os modelos na Meta…</div>:<React.Fragment>
+        {lista.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"8px 10px",fontSize:12,lineHeight:1.5}}>{lista.aviso}</div>}
+        {(lista.modelos||[]).length>0&&<div><div style={rot}>Modelo</div>
+          <select value={m&&m.nome?`${m.nome}|${m.idioma}`:""} onChange={e=>{const x=lista.modelos.find(y=>`${y.nome}|${y.idioma}`===e.target.value);
+              aoMudar({modelo:x?{nome:x.nome,idioma:x.idioma,texto:x.texto,variaveis:Array.from({length:x.variaveis},(_,i)=>(m&&m.variaveis&&m.variaveis[i])||"")}:{nome:"",idioma:"pt_BR",texto:"",variaveis:[]}});}}
+            style={campoMkt(isMobile)}>
+            <option value="">Escolha…</option>
+            {lista.modelos.map(x=><option key={x.nome+x.idioma} value={`${x.nome}|${x.idioma}`}>{x.nome} · {x.idioma}</option>)}</select></div>}
+        {m&&m.nome&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,background:C.surface,fontSize:12.5,color:C.ink,whiteSpace:"pre-wrap",lineHeight:1.5}}>{m.texto||"(modelo sem texto no corpo)"}</div>}
+        {m&&(m.variaveis||[]).map((v,i)=><div key={i}><div style={rot}>{`{{${i+1}}}`}</div>
+          <input value={v} onChange={e=>aoMudar({modelo:{...m,variaveis:m.variaveis.map((x,j)=>j===i?e.target.value:x)}})} maxLength={200}
+            placeholder="ex.: {nome}" style={campoMkt(isMobile)}/></div>)}
+        {escolhido&&escolhido.cabecalho_com_midia&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.45}}>Este modelo tem foto ou vídeo no cabeçalho — o ConHub ainda não manda esse tipo. Escolha um modelo só com texto.</div>}
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>{"{nome}"} vira o primeiro nome do cliente. Os modelos são criados e aprovados no Gerenciador do WhatsApp da Meta.</div>
+      </React.Fragment>}
+    </React.Fragment>}
+  </div>;
+}
+
 /* O GATILHO — o que faz alguém entrar neste fluxo sozinho
    (services/automacoes.js). O funil do formulário e as catracas que o
    recebem vão para o formulário quando o fluxo é salvo — as catracas são a
@@ -3802,7 +3874,7 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
     <div><div style={rot}>Quando começa</div>
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {GATILHOS.map(([id,tit,desc,ic])=>{const on=(g.tipo||"manual")===id;
-          return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
+          return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada,parar_ao_responder:g.parar_ao_responder})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
             border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:10,padding:isMobile?"10px 11px":"8px 10px",fontFamily:FONT}}>
             <span style={{width:26,height:26,borderRadius:8,flexShrink:0,background:on?C.greenDeep:C.surface,color:on?"#fff":C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={ic} size={14}/></span>
             <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{tit}</span>
@@ -3851,6 +3923,13 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
     {g.tipo==="etapa"&&<div><div style={rot}>Etapa</div><SeletorDeEtapaFluxo valor={g.etapa_id} aoMudar={v=>muda({etapa_id:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
       <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Mover a base inteira de funil (em Base de leads) não dispara.</div></div>}
     {g.tipo==="etiqueta"&&<div><div style={rot}>Etiqueta</div><SeletorDeEtiquetaFluxo valor={g.tag_id} aoMudar={v=>muda({tag_id:v})} tags={op&&op.tags} isMobile={isMobile}/></div>}
+    {g.tipo==="campo"&&<React.Fragment>
+      <div><div style={rot}>Campo</div><SeletorDeCampoFluxo valor={g.campo} aoMudar={v=>muda({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/></div>
+      {g.campo&&<div><div style={rot}>Com o valor</div><ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===g.campo)} valor={g.valor} aoMudar={v=>muda({valor:v})} isMobile={isMobile}/></div>}
+    </React.Fragment>}
+    <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
+      <input type="checkbox" checked={!!g.parar_ao_responder} onChange={e=>muda({parar_ao_responder:e.target.checked})} style={{marginTop:3}}/>
+      <span>Parar o fluxo quando o cliente responder <span style={{color:C.faint}}>— depois de receber a primeira mensagem do fluxo. Quem está num bloco que espera resposta segue o caminho da resposta.</span></span></label>
     {g.tipo&&g.tipo!=="manual"&&<label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.reentrada} onChange={e=>muda({reentrada:e.target.checked})} style={{marginTop:3}}/>
       <span>O mesmo lead pode entrar de novo <span style={{color:C.faint}}>— depois de terminar, e com pelo menos 1 hora entre uma vez e outra. Desligado, cada lead passa por esta automação uma vez só.</span></span></label>}
@@ -3875,10 +3954,14 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
     </React.Fragment>}
     {no.tipo==="condicao"&&<React.Fragment>
       <div><div style={rot}>Se o lead…</div>
-        <select value={d.regra||"tag"} onChange={e=>dados({regra:e.target.value,valor:e.target.value==="responsavel"?"com":""})} style={campoMkt(isMobile)}>
+        <select value={d.regra||"tag"} onChange={e=>dados({regra:e.target.value,valor:e.target.value==="responsavel"?"com":"",campo:""})} style={campoMkt(isMobile)}>
           {REGRAS_CONDICAO.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
       <div>
-        {d.regra==="etapa"?<SeletorDeEtapaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
+        {d.regra==="respondeu"?<div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>Sim quando o cliente mandou qualquer mensagem desde que entrou neste fluxo.</div>
+          :d.regra==="campo"?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <SeletorDeCampoFluxo valor={d.campo} aoMudar={v=>dados({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/>
+            {d.campo&&<ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===d.campo)} valor={d.valor} aoMudar={v=>dados({valor:v})} isMobile={isMobile}/>}</div>
+          :d.regra==="etapa"?<SeletorDeEtapaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
           :d.regra==="temperatura"?<select value={d.valor||""} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
             <option value="">Escolha…</option>{TEMPERATURAS_COND.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select>
           :d.regra==="responsavel"?<select value={d.valor||"com"} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
@@ -3913,7 +3996,8 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Fica no nome de quem está com o lead.</div></div>
     </React.Fragment>}
     {no.tipo==="mensagem"&&<React.Fragment>
-      <ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
+      <ModeloDaMeta d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
+      {!d.modelo&&<ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>}
     </React.Fragment>}
     {no.tipo==="espera"&&<div><div style={rot}>Esperar</div>
       <CampoPrazo valor={{quantidade:d.quantidade,unidade:d.unidade}} aoMudar={v=>dados({quantidade:v.quantidade,unidade:v.unidade})} isMobile={isMobile}/>
@@ -3976,8 +4060,9 @@ function usarOpcoesDoFluxo(acoes){
       acoes.opcoesPublicoMarketing().catch(()=>({})),
       acoes.catracas().catch(()=>({catracas:[]})),
       acoes.formulariosMeta().catch(()=>({formularios:[]})),
-    ]).then(([pub,cat,form])=>vivo&&setOp({tags:pub.tags||[],etapas:pub.etapas||[],responsaveis:pub.responsaveis||[],
-      catracas:cat.catracas||[],formularios:form.formularios||[]}));
+      acoes.camposPersonalizados().catch(()=>({campos:[]})),
+    ]).then(([pub,cat,form,cps])=>vivo&&setOp({tags:pub.tags||[],etapas:pub.etapas||[],responsaveis:pub.responsaveis||[],
+      catracas:cat.catracas||[],formularios:form.formularios||[],campos:(cps.campos||[]).filter(c=>c.is_active!==0&&c.is_active!==false)}));
     return()=>{vivo=false;}; },[]);
   return op;
 }
@@ -4329,7 +4414,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta) e ligue para rodar sozinho.</div>
+        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido) e ligue para rodar sozinho.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
@@ -10921,6 +11006,8 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const [ligados,setLigados]=useState(()=>new Set(can0.formularios||[]));
   const [pipe,setPipe]=useState(inicial.pipeline_id||"");
   const [etapa,setEtapa]=useState(inicial.stage_id||"");
+  const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
+  const fichas=usarFichasIA(acoes);
   const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
@@ -10942,7 +11029,8 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     if(pipe&&!etapa){ setErro("Escolha a etapa do funil que aciona a catraca — ou deixe o funil em branco."); return; }
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
-      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null}); }
+      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null,
+      ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
   async function apagar(){
@@ -11005,6 +11093,12 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
       {etapaEscolhida?<>Quando um lead destes canais entra em <b>{etapaEscolhida.name}</b>, ele vai para o próximo corretor disponível desta catraca. Lead que já está com um corretor não é tirado dele.</>
         :"Sem etapa, a catraca entrega pelo repasse da atendente (botão da ficha)."}</div>
+
+    {fichas&&fichas.length>0&&<React.Fragment>
+      <div style={rotulo}>Ficha de produto da IA</div>
+      <SeletorDeFicha valor={ficha} aoMudar={setFicha} fichas={fichas} caixa={caixa}/>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>O Autoatendimento usa esta ficha com os leads desta catraca (a do formulário, quando houver, vale primeiro).</div>
+    </React.Fragment>}
 
     <div style={rotulo}>Como o lead chega</div>
     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
@@ -11495,6 +11589,9 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
   }
   const [etapa,setEtapa]=useState(f.stage_id||"");
   const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
+  const fichas=usarFichasIA(acoes);
+  const [ficha,setFicha]=useState(f.ia_produto_id||null);
+  useEffect(()=>{setFicha(f.ia_produto_id||null);},[f.ia_produto_id]);
   useEffect(()=>{setPipe(f.pipeline_id||"");setEtapa(f.stage_id||"");},[f.pipeline_id,f.stage_id]);
   const ativos=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
   const escolhido=ativos.find(p=>p.id===pipe);
@@ -11559,6 +11656,14 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
           :!marcadas.some(x=>catracasAtivas.some(c=>c.id===x))?"Nenhuma marcada: os leads deste formulário usam a catraca principal."
           :"Com mais de uma marcada, elas se revezam. O funil e a etapa que acionam cada uma se escolhem na tela Catraca."}</div>}
     </div>}
+    {fichas&&fichas.length>0&&<React.Fragment>
+      <div style={rotuloForm}>Ficha de produto da IA</div>
+      <SeletorDeFicha valor={ficha} fichas={fichas} caixa={caixa} disabled={estado==="salvando"} aoMudar={async(v)=>{
+        setFicha(v); setEstado("salvando");
+        try{ await acoes.fichaDoFormulario(f.id,v,f.nome); esquecerFichas(); setEstado("salvo"); aoSalvar&&aoSalvar(); setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500); }
+        catch(e){ setEstado("erro:"+e.message); setFicha(f.ia_produto_id||null); }}}/>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>É o produto que o Autoatendimento conhece nos atendimentos que chegam por este formulário.</div>
+    </React.Fragment>}
     {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
       O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
     {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
@@ -12153,6 +12258,7 @@ const MOTIVO_ROBO={
   // Na linha pessoal a trava do dono se inverte (todo lead dali é dele), então
   // o que decide é o consentimento: quem liga o robô é o dono do número.
   linha_de_disparo:"Esta conversa está no número de disparo do marketing — quem conduz ali é o fluxo do disparo, não o robô.",
+  fora_do_escopo:"Este lead está num funil ou etapa em que a IA não atua (Configurações → Autoatendimento → Onde a IA atua).",
   fluxo_de_disparo:"Este cliente está no meio de um fluxo de disparo do marketing — enquanto o fluxo estiver conduzindo, o robô fica quieto.",
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   sem_autoatendimento:"O Autoatendimento com IA não está no plano desta conta. Ele liga em Configurações → Autoatendimento.",
@@ -17094,7 +17200,8 @@ function RoboConfig({acoes,session,isMobile}){
           ["Marcar visita","nem dia, nem hora, nem promessa de ligação"],
           ...(cfg.autonomo?[]:[["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"]]),
           ["Falar por cima de alguém","na primeira mensagem de uma pessoa, ele sai da conversa e não volta"],
-          ["Mexer no funil",cfg.autonomo?"a etapa fica parada até você olhar a conversa":"a etapa fica parada até a atendente olhar de manhã"]].map(([t,d])=>
+          // Com a etapa final escolhida (abaixo), ela move o lead ao se despedir.
+          ...(cfg.etapa_final?[]:[["Mexer no funil",cfg.autonomo?"a etapa fica parada até você olhar a conversa":"a etapa fica parada até a atendente olhar de manhã"]])].map(([t,d])=>
           <div key={t} style={{display:"flex",gap:7,marginTop:5,alignItems:"flex-start"}}>
             <span style={{color:C.hot,fontSize:12,fontWeight:700,lineHeight:1.5}}>×</span>
             <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}><b style={{color:C.ink}}>{t}.</b> {d}</div>
@@ -17209,6 +17316,9 @@ function RoboConfig({acoes,session,isMobile}){
         Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
     </React.Fragment>,cfg.ativo?{borderColor:C.greenMid}:null)}
 
+    {ehAdm&&<AcoesDaIA cfg={cfg} aoSalvar={setCfg} acoes={acoes} isMobile={isMobile} cartao={cartao}/>}
+    <FichasDeProduto acoes={acoes} isMobile={isMobile} cartao={cartao}/>
+
     {/* ===== O QUE A EQUIPE ENSINA =====
 
         A ATENDENTE edita, não só o gestor. O robô cobre a ausência dela; se as
@@ -17310,6 +17420,123 @@ function RoboConfig({acoes,session,isMobile}){
       </div>)}
     </React.Fragment>)}
   </React.Fragment>;
+}
+
+/* ONDE A IA ATUA E O QUE ELA FAZ NO LEAD (08/10/2026, pedido do Ali). Só o
+   gestor: é decidir o que a máquina faz sozinha com o funil. Nada marcado em
+   "onde" = em todo lugar, como sempre foi. */
+function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
+  const [pipes,setPipes]=useState(null);
+  const [campos,setCampos]=useState(null);
+  const [f,setF]=useState({escopo:cfg.escopo||{pipelines:[],etapas:[]},campos:cfg.campos||[],observacao:!!cfg.observacao,etapa_final:cfg.etapa_final||""});
+  const [estado,setEstado]=useState("");
+  useEffect(()=>{ acoes.pipelines().then(d=>setPipes((d.pipelines||[]).filter(p=>p.is_active))).catch(()=>setPipes([]));
+    acoes.camposPersonalizados().then(d=>setCampos(d.campos||[])).catch(()=>setCampos([])); },[]);
+  const alterna=(lista,id)=>lista.includes(id)?lista.filter(x=>x!==id):[...lista,id];
+  const mexe=(patch)=>{setF(x=>({...x,...patch}));setEstado("pendente");};
+  async function salvar(){
+    setEstado("salvando");
+    try{ aoSalvar(await acoes.salvarAcoesRobo(f)); setEstado("salvo"); }catch(e){ setEstado("Erro: "+e.message); }
+  }
+  const pill=(on)=>({fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,fontFamily:FONT,
+    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub});
+  const sub={color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5,marginTop:12};
+  const todasEtapas=(pipes||[]).flatMap(p=>(p.stages||[]).filter(e=>e.is_active).map(e=>({...e,funil:p.name,pipeline_id:p.id})));
+  const nada=!f.escopo.pipelines.length&&!f.escopo.etapas.length;
+  return cartao(<React.Fragment>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="columns" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Onde a IA atua e o que ela faz no lead</span>
+    </div>
+    {!pipes||!campos?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:<React.Fragment>
+      <div style={sub}>EM QUAIS FUNIS OU ETAPAS ELA ATENDE</div>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:6}}>{nada?"Nada marcado: ela atende em todos os funis.":"Ela só fala com leads dos funis marcados ou das etapas marcadas."}</div>
+      {pipes.map(p=><div key={p.id} style={{marginBottom:8}}>
+        <button onClick={()=>mexe({escopo:{...f.escopo,pipelines:alterna(f.escopo.pipelines,p.id)}})} style={pill(f.escopo.pipelines.includes(p.id))}>
+          {f.escopo.pipelines.includes(p.id)?"✓ ":""}Funil {p.name} inteiro</button>
+        {!f.escopo.pipelines.includes(p.id)&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:5,paddingLeft:10}}>
+          {(p.stages||[]).filter(e=>e.is_active).map(e=><button key={e.id} onClick={()=>mexe({escopo:{...f.escopo,etapas:alterna(f.escopo.etapas,e.id)}})}
+            style={pill(f.escopo.etapas.includes(e.id))}>{f.escopo.etapas.includes(e.id)?"✓ ":""}{e.name}</button>)}</div>}
+      </div>)}
+      <div style={sub}>CAMPOS QUE ELA PREENCHE NA CONVERSA</div>
+      {!campos.length?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Nenhum campo personalizado ainda. Crie em Configurações → Funis e etapas (ex.: Produto, Forma de atendimento, Melhor período, Finalidade).</div>
+        :<div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{campos.map(c=><button key={c.key} onClick={()=>mexe({campos:alterna(f.campos,c.key)})} style={pill(f.campos.includes(c.key))}>
+          {f.campos.includes(c.key)?"✓ ":""}{c.name}</button>)}</div>}
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:5}}>Ela só preenche o que o cliente deixou claro. Campo preenchido também dispara os fluxos com gatilho “Campo preenchido”.</div>
+      <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12,color:C.ink,lineHeight:1.45,cursor:"pointer",marginTop:12}}>
+        <input type="checkbox" checked={f.observacao} onChange={e=>mexe({observacao:e.target.checked})} style={{marginTop:3}}/>
+        <span>Ao se despedir, escrever o resumo do atendimento como observação do lead <span style={{color:C.faint}}>— no formato que as orientações abaixo pedirem.</span></span></label>
+      <div style={sub}>QUANDO ELA TERMINA E O CLIENTE QUER SEGUIR, MOVER PARA</div>
+      <select value={f.etapa_final} onChange={e=>mexe({etapa_final:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",maxWidth:420}}>
+        <option value="">Não mover (a equipe move)</option>
+        {[...new Set(todasEtapas.map(e=>e.funil))].map(fn=><optgroup key={fn} label={fn}>{todasEtapas.filter(e=>e.funil===fn).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:5}}>Vale a regra “quando um lead chegar nesta etapa” — se ela entrega a um corretor ou a uma catraca, o lead segue sozinho.</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:12,flexWrap:"wrap"}}>
+        <button onClick={salvar} disabled={estado==="salvando"||!estado||estado==="salvo"} style={{background:estado==="pendente"?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {estado==="salvando"?"Salvando…":"Salvar"}</button>
+        {estado==="salvo"&&<span style={{color:C.greenDeep,fontSize:12}}>Salvo.</span>}
+        {estado==="pendente"&&<span style={{color:"#8a6d1f",fontSize:12}}>Alteração não salva.</span>}
+        {estado.startsWith("Erro")&&<span style={{color:C.hot,fontSize:12}}>{estado.slice(6)}</span>}
+      </div>
+    </React.Fragment>}
+  </React.Fragment>);
+}
+
+/* AS FICHAS DE PRODUTO (08/10/2026). Uma por empreendimento: o que a IA
+   precisa saber para responder sobre ele. Ligada a um formulário (Marketing →
+   Formulários) ou a uma catraca (tela Catraca), vale nos atendimentos que
+   chegam por ali. */
+function FichasDeProduto({acoes,isMobile,cartao}){
+  const [lista,setLista]=useState(null);
+  const [imoveis,setImoveis]=useState([]);
+  const [edit,setEdit]=useState(null);
+  const [erro,setErro]=useState("");
+  const carregar=()=>acoes.fichasIA().then(d=>setLista(d.fichas||[])).catch(e=>{setLista([]);setErro(e.message);});
+  useEffect(()=>{ carregar(); acoes.produtos({}).then(d=>setImoveis(Array.isArray(d)?d:(d.produtos||[]))).catch(()=>{}); },[]);
+  async function salvar(){
+    setErro("");
+    try{ if(edit.id) await acoes.editarFichaIA(edit.id,{nome:edit.nome,texto:edit.texto,produto_id:edit.produto_id||null});
+      else await acoes.criarFichaIA({nome:edit.nome,texto:edit.texto,produto_id:edit.produto_id||null});
+      setEdit(null); carregar(); }catch(e){ setErro(e.message); }
+  }
+  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",boxSizing:"border-box",fontFamily:FONT};
+  return cartao(<React.Fragment>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="pin" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Fichas de produto</span>
+      {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Uma ficha por empreendimento: localização, diferenciais, o que explicar. Ligue a ficha a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, e a IA usa ela nos atendimentos que chegam por ali. <b>Preço continua proibido</b> para a IA, mesmo escrito aqui.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
+    {edit&&<div style={{background:C.surface,borderRadius:11,padding:11,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
+      <input value={edit.nome} onChange={e=>setEdit({...edit,nome:e.target.value})} maxLength={80} placeholder="Nome (ex.: Residencial Jardins)" style={campo}/>
+      <textarea value={edit.texto} onChange={e=>setEdit({...edit,texto:e.target.value})} rows={6} maxLength={4000} placeholder="O que a IA precisa saber: bairro, tipologias, lazer, prazo de entrega, programa de financiamento…" style={{...campo,resize:"vertical",lineHeight:1.5}}/>
+      <select value={edit.produto_id||""} onChange={e=>setEdit({...edit,produto_id:e.target.value})} style={campo}>
+        <option value="">Sem imóvel do catálogo</option>
+        {imoveis.map(p=><option key={p.id} value={p.id}>{p.titulo}</option>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5}}>Do catálogo vai só o que é público (local, cômodos, áreas, descrição do anúncio) — nunca observações internas, construtora ou valor.</div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={salvar} disabled={!edit.nome.trim()} style={{background:edit.nome.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar ficha</button>
+        <button onClick={()=>setEdit(null)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
+    {!lista?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:!lista.length&&!edit?<div style={{color:C.faint,fontSize:12}}>Nenhuma ficha ainda.</div>:
+    lista.map(fc=><div key={fc.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",marginBottom:6,opacity:fc.ativo?1:.55}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{fc.nome}{!fc.ativo&&<span style={{color:C.faint,fontSize:10.5}}> · desligada</span>}</span>
+        <button onClick={()=>setEdit({id:fc.id,nome:fc.nome,texto:fc.texto,produto_id:fc.produto_id||""})} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>editar</button>
+        <button onClick={()=>acoes.editarFichaIA(fc.id,{ativo:!fc.ativo}).then(carregar).catch(e=>setErro(e.message))} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>{fc.ativo?"desligar":"ligar"}</button>
+        <button onClick={()=>{ if(window.confirm(`Apagar a ficha “${fc.nome}”? Ela sai dos formulários e catracas em que está.`)) acoes.apagarFichaIA(fc.id).then(carregar).catch(e=>setErro(e.message)); }} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,padding:"5px 9px",fontSize:11,cursor:"pointer"}}>×</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.5}}>
+        {[...fc.formularios.map(x=>"Formulário "+x.nome),...fc.catracas.map(x=>"Catraca "+x.nome)].join(" · ")||"Ainda não está ligada a nenhum formulário nem catraca."}
+        {fc.produto_titulo&&<span> · imóvel: {fc.produto_titulo}</span>}</div>
+    </div>)}
+  </React.Fragment>);
 }
 
 // Como cada campo da simulação aparece escrito na tela.
@@ -18297,18 +18524,58 @@ function TagsConfig({acoes,session,isMobile}){
    dez formulários iguais. */
 /* O que a automação da etapa faz, em uma frase — a mesma no resumo da linha
    e no aviso do editor. */
-function resumoDaAutomacao(cfg,pessoas,funis){
+/* As fichas de produto da IA, lidas uma vez por tela (08/10/2026). Sem o
+   Autoatendimento, a lista vem vazia e a escolha não aparece. */
+let memoriaFichas={em:0,d:null,pedido:null};
+const esquecerFichas=()=>{memoriaFichas={em:0,d:null,pedido:null};};
+function usarFichasIA(acoes){
+  const [d,setD]=useState(memoriaFichas.d);
+  useEffect(()=>{ let vivo=true;
+    if(memoriaFichas.d&&Date.now()-memoriaFichas.em<30000){ setD(memoriaFichas.d); return; }
+    if(!memoriaFichas.pedido) memoriaFichas.pedido=acoes.fichasIA().then(x=>{memoriaFichas={em:Date.now(),d:(x.fichas||[]),pedido:null};return memoriaFichas.d;})
+      .catch(()=>{memoriaFichas.pedido=null;return [];});
+    memoriaFichas.pedido.then(x=>vivo&&setD(x));
+    return()=>{vivo=false;}; },[]);
+  return d;
+}
+const SeletorDeFicha=({valor,aoMudar,fichas,caixa,disabled})=><select aria-label="Ficha de produto da IA" value={valor||""} disabled={disabled} onChange={e=>aoMudar(e.target.value||null)} style={caixa}>
+  <option value="">Nenhuma ficha de produto</option>
+  {(fichas||[]).filter(f=>f.ativo||f.id===valor).map(f=><option key={f.id} value={f.id}>{f.nome}{!f.ativo?" (desligada)":""}</option>)}
+</select>;
+
+/* As etiquetas da conta, lidas UMA vez para todas as etapas da tela (são
+   onze linhas pedindo a mesma lista). Guarda por um minuto. */
+let memoriaTags={em:0,d:null,pedido:null};
+function usarTagsDaCasa(acoes){
+  const [d,setD]=useState(memoriaTags.d);
+  useEffect(()=>{ let vivo=true;
+    if(memoriaTags.d&&Date.now()-memoriaTags.em<60000){ setD(memoriaTags.d); return; }
+    if(!memoriaTags.pedido) memoriaTags.pedido=acoes.tags().then(x=>{memoriaTags={em:Date.now(),d:x.tags||[],pedido:null};return memoriaTags.d;})
+      .catch(()=>{memoriaTags.pedido=null;return [];});
+    memoriaTags.pedido.then(x=>vivo&&setD(x));
+    return()=>{vivo=false;}; },[]);
+  return d;
+}
+function resumoDaAutomacao(cfg,pessoas,funis,catracas,tags){
   const c=cfg||{}, partes=[];
   if(c.mover_para_pipeline){
     const f=(funis||[]).find(x=>x.id===c.mover_para_pipeline);
     partes.push(`vai para o funil ${f?f.name:"(funil não encontrado)"}`);
   }
   if(c.distribuir==="rodizio") partes.push("entrega ao próximo corretor da roleta");
+  else if(c.distribuir==="catraca"){
+    const k=(catracas||[]).find(x=>x.id===c.catraca_id);
+    partes.push(`entrega ao próximo da catraca ${k?k.nome:catracas?"(catraca desativada)":"de produto"}`);
+  }
   else if(c.distribuir){
     const p=(pessoas||[]).find(x=>x.id===c.distribuir);
     partes.push(`entrega a ${p?p.name:"uma pessoa que saiu da equipe"}`);
   }
   if(c.limpar_responsavel) partes.push("devolve à fila, sem dono");
+  const nomeTag=(id)=>((tags||[]).find(t=>t.id===id)||{}).nome||"etiqueta";
+  if((c.adicionar_tags||[]).length) partes.push(`ganha ${c.adicionar_tags.map(nomeTag).join(", ")}`);
+  if((c.remover_tags||[]).length) partes.push(`perde ${c.remover_tags.map(nomeTag).join(", ")}`);
+  if(c.tag_do_corretor) partes.push("ganha a etiqueta com o nome do corretor");
   return partes.join(" e ");
 }
 
@@ -18316,6 +18583,9 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
   useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
+  // Catracas de produto e etiquetas da conta, para a regra "ao chegar" (08/10/2026).
+  const catracasCasa=usarCatracas(acoes,true);
+  const tagsCasa=usarTagsDaCasa(acoes);
 
   // Recusado pelo servidor, a tela volta ao que está gravado — senão o campo
   // ficaria mostrando uma escolha que não valeu.
@@ -18337,7 +18607,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
           {etapa.entrada_comercial?" · início do processo comercial":""}
-          {resumoDaAutomacao(etapa.automation_config,pessoas,funis)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis):""}
+          {resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa):""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
           {etapa.required_fields&&etapa.required_fields.length?` · exige ${etapa.required_fields.length} campo(s)`:""}
           {etapa.status_type&&etapa.status_type!=="aberto"?` · ${etapa.status_type}`:""}
@@ -18416,15 +18686,25 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           gravar (pipelines.js → validarAutomacao). */}
       {(()=>{
         const cfg=f.automation_config||{};
-        const resp=cfg.limpar_responsavel?"__fila":cfg.distribuir||"";
+        const resp=cfg.limpar_responsavel?"__fila":cfg.distribuir==="catraca"?"cat:"+(cfg.catraca_id||""):cfg.distribuir||"";
+        const listaCat=((catracasCasa&&catracasCasa.catracas)||[]).filter(k=>k.ativa!==false&&k.ativa!==0);
         const salvarCfg=(novo)=>{setF({...f,automation_config:novo});salvar({automation_config:novo});};
-        const mudarResp=(v)=>{const n={...cfg};delete n.distribuir;delete n.limpar_responsavel;
-          if(v==="__fila") n.limpar_responsavel=true; else if(v) n.distribuir=v; salvarCfg(n);};
+        const mudarResp=(v)=>{const n={...cfg};delete n.distribuir;delete n.limpar_responsavel;delete n.catraca_id;
+          if(v==="__fila") n.limpar_responsavel=true;
+          else if(v.startsWith("cat:")){n.distribuir="catraca";n.catraca_id=v.slice(4);}
+          else if(v) n.distribuir=v; salvarCfg(n);};
+        const trocarTag=(lista,id)=>{const n={...cfg};const atual=n[lista]||[];
+          n[lista]=atual.includes(id)?atual.filter(x=>x!==id):[...atual,id];
+          const outra=lista==="adicionar_tags"?"remover_tags":"adicionar_tags";
+          if(n[outra]) n[outra]=n[outra].filter(x=>x!==id);
+          for(const k of ["adicionar_tags","remover_tags"]) if(n[k]&&!n[k].length) delete n[k];
+          salvarCfg(n);};
         const mudarFunil=(v)=>{const n={...cfg};delete n.mover_para_pipeline; if(v) n.mover_para_pipeline=v; salvarCfg(n);};
         const outros=(funis||[]).filter(x=>x.id!==pipelineId&&x.is_active);
-        const fora=cfg.distribuir&&cfg.distribuir!=="rodizio"&&!pessoas.some(p=>p.id===cfg.distribuir);
+        const fora=cfg.distribuir&&cfg.distribuir!=="rodizio"&&cfg.distribuir!=="catraca"&&!pessoas.some(p=>p.id===cfg.distribuir);
+        const catFora=cfg.distribuir==="catraca"&&catracasCasa&&!listaCat.some(k=>k.id===cfg.catraca_id);
         const ordem={corretor:0,sdr:1,adm:2};
-        const resumo=resumoDaAutomacao(cfg,pessoas,funis);
+        const resumo=resumoDaAutomacao(cfg,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa);
         return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 11px",display:"flex",flexDirection:"column",gap:8}}>
           <div style={{color:C.ink,fontSize:12,fontWeight:700}}>Quando um lead chegar nesta etapa</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -18434,6 +18714,10 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
                 <option value="rodizio">Próximo corretor da roleta</option>
                 <option value="__fila">Devolver à fila, sem dono</option>
                 {fora&&<option value={cfg.distribuir}>Pessoa que saiu da equipe</option>}
+                {catFora&&<option value={resp}>Catraca desativada</option>}
+                {listaCat.length>0&&<optgroup label="Próximo corretor da catraca">
+                  {listaCat.map(k=><option key={k.id} value={"cat:"+k.id}>Catraca {k.nome}</option>)}
+                </optgroup>}
                 <optgroup label="Entregar sempre a">
                   {[...pessoas].sort((a,b)=>(ordem[a.role]??3)-(ordem[b.role]??3)||a.name.localeCompare(b.name))
                     .map(p=><option key={p.id} value={p.id}>{p.name} · {roleParaTexto(p.role)}</option>)}
@@ -18448,6 +18732,25 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
               </select></div>
           </div>
           {fora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A pessoa configurada não está mais ativa: o lead vai chegar sem dono até você escolher outra.</div>}
+          {catFora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A catraca escolhida foi desativada: o lead vai pela catraca principal até você escolher outra.</div>}
+          <div>{rot("Etiquetas","Toque uma vez para colocar, de novo para tirar, e mais uma para não mexer.")}
+            {tagsCasa===null?<div style={{color:C.faint,fontSize:11}}>Carregando…</div>:
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {tagsCasa.map(t=>{const poe=(cfg.adicionar_tags||[]).includes(t.id), tira=(cfg.remover_tags||[]).includes(t.id);
+                return <button key={t.id} onClick={()=>poe?trocarTag("remover_tags",t.id):tira?trocarTag("remover_tags",t.id):trocarTag("adicionar_tags",t.id)}
+                  title={poe?"Coloca esta etiqueta":tira?"Tira esta etiqueta":"Não mexe nesta etiqueta"}
+                  style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,
+                    border:`1px solid ${poe?t.cor:tira?C.hot+"88":C.line}`,background:poe?t.cor+"22":C.card,
+                    color:tira?C.hot:C.ink,textDecoration:tira?"line-through":"none"}}>
+                  {poe?"+ ":tira?"− ":""}{t.nome}</button>;})}
+              <button onClick={()=>{const n={...cfg}; if(n.tag_do_corretor) delete n.tag_do_corretor; else n.tag_do_corretor=true; salvarCfg(n);}}
+                style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,
+                  border:`1px solid ${cfg.tag_do_corretor?C.green:C.line}`,background:cfg.tag_do_corretor?C.greenSoft:C.card,
+                  color:cfg.tag_do_corretor?C.greenDeep:C.sub}}>
+                {cfg.tag_do_corretor?"+ ":""}Nome do corretor que recebeu</button>
+              {!tagsCasa.length&&<span style={{color:C.faint,fontSize:11,alignSelf:"center"}}>Crie etiquetas na ficha de um lead para usá-las aqui.</span>}
+            </div>}
+          </div>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5}}>
             {resumo?<React.Fragment>Ao chegar aqui, o lead <b style={{color:C.sub}}>{resumo}</b>. </React.Fragment>:null}
             Vale quando alguém move o lead para esta etapa — na mão, no funil ou confirmando a sugestão da IA.

@@ -24,6 +24,7 @@ import {
 } from "../services/meta.js";
 import { avisosDaMeta } from "./meta.webhook.js";
 import { listarFormularios, definirFunil, definirCatraca, ErroFormulario } from "../services/formularios.js";
+import { ligarFichaAoFormulario, ErroFicha } from "../services/ia-produtos.js";
 
 const ESCOPO = "meta-conectar";
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -92,6 +93,16 @@ gestao.post("/formularios/:formId/catraca", (req, res) => {
   try { res.json({ ok: true, ...definirCatraca(req.user.org_id, req.user.id, req.params.formId, req.body || {}) }); }
   catch (e) {
     if (e instanceof ErroFormulario) return res.status(e.status).json({ error: e.message });
+    console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui salvar." });
+  }
+});
+/* A ficha de produto da IA para os leads deste formulário (08/10/2026). */
+gestao.post("/formularios/:formId/produto", (req, res) => {
+  try {
+    ligarFichaAoFormulario(req.user.org_id, req.user.id, req.params.formId, req.body?.ia_produto_id || null, req.body?.nome);
+    res.json({ ok: true, ia_produto_id: req.body?.ia_produto_id || null });
+  } catch (e) {
+    if (e instanceof ErroFicha) return res.status(e.status).json({ error: e.message });
     console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui salvar." });
   }
 });

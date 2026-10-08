@@ -39,6 +39,9 @@ import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
 import { semAtendenteAtiva } from "./rodizio.js";
+import { fichaDoLead } from "./ia-produtos.js";
+import { gravarCampos } from "./campos-lead.js";
+import { moverLead } from "./movimento.js";
 
 export const TETO_PADRAO = 12;
 
@@ -93,8 +96,11 @@ export function orientacoes(orgId, todas = false) {
 
 export function configDoRobo(orgId) {
   const o = db.prepare(
-    `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo
+    `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo,
+            robo_escopo, robo_campos, robo_observacao, robo_etapa_final
        FROM orgs WHERE id = ?`).get(orgId) || {};
+  const json = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
+  const esc = json(o.robo_escopo, {});
   const autonomo = o.tipo === "autonomo";
   /* NULO = ninguém escolheu, e aí quem responde é o TIPO da conta.
 
@@ -128,6 +134,11 @@ export function configDoRobo(orgId) {
     teto: Number(o.robo_teto) > 0 ? Number(o.robo_teto) : TETO_PADRAO,
     dias: lerDias(o.robo_dias),
     configurada: iaConfigurada(),
+    /* ONDE E O QUE A IA FAZ (08/10/2026). `escopo` vazio = em todo lugar. */
+    escopo: { pipelines: Array.isArray(esc.pipelines) ? esc.pipelines : [], etapas: Array.isArray(esc.etapas) ? esc.etapas : [] },
+    campos: json(o.robo_campos, []).filter(k => typeof k === "string"),
+    observacao: !!o.robo_observacao,
+    etapa_final: o.robo_etapa_final || null,
   };
 }
 
@@ -233,6 +244,10 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
      "alguém já respondeu" neste ponto fazia a ficha culpar uma pessoa que
      nunca falou. */
   if (lead.robo_parado) return { pode: false, motivo: "robo_encerrado" };
+  /* EM QUAIS FUNIS E ETAPAS ELA ATUA (08/10/2026, pedido do Ali). Nada
+     marcado = em todo lugar, que é o de sempre. Marcado, vale o funil inteiro
+     OU a etapa escolhida. */
+  if (!noEscopo(cfg.escopo, lead)) return { pode: false, motivo: "fora_do_escopo" };
   /* A trava é o CORRETOR, e só ele. Lead na fila, com a atendente OU com o
      gestor é tudo a mesma situação: ainda não tem dono de verdade, ninguém
      tem esse atendimento no nome para ser cobrado por ele. Lead repassado a
@@ -295,6 +310,12 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
    Chamado de todo lugar em que um humano manda mensagem — pelo CRM ou pelo
    celular. Só marca quem o robô estava atendendo: marcar lead nenhum tocado
    pelo robô encheria a coluna de 1 sem significar nada. */
+export const noEscopo = (esc, lead) => {
+  const ps = esc?.pipelines || [], es = esc?.etapas || [];
+  if (!ps.length && !es.length) return true;
+  return ps.includes(lead.pipeline_id) || es.includes(lead.stage_id);
+};
+
 export function pararPorGente(leadId) {
   const l = db.prepare("SELECT robo_msgs, robo_parado FROM leads WHERE id = ?").get(leadId);
   if (!l || l.robo_parado || !(l.robo_msgs > 0)) return false;
@@ -336,7 +357,16 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
       "SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
     const coletado = lerColetado(lead);
 
+    // A ficha do produto deste atendimento e os campos que ela pode preencher.
+    const ficha = fichaDoLead(orgId, lead);
+    const defs = cfg.campos.length ? db.prepare(`SELECT key, name, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1
+      AND key IN (${cfg.campos.map(() => "?").join(",")})`).all(orgId, ...cfg.campos).map(d => ({ chave: d.key, nome: d.name, tipo: d.type,
+        opcoes: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() })) : [];
+    let jaPreenchidos = {}; try { jaPreenchidos = JSON.parse(lead.custom_fields || "{}"); } catch {}
     const r = await atenderPrimeiroContato({
+      produto: ficha,
+      campos: defs.map(d => ({ ...d, valor: jaPreenchidos[d.chave] })),
+      resumo: cfg.observacao,
       nome: lead.name,
       // A IA se apresenta com o nome DESTA imobiliária, não com um nome fixo.
       imobiliaria: db.prepare("SELECT name FROM orgs WHERE id = ?").get(orgId)?.name || "",
@@ -386,15 +416,54 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
 
     if (r.resposta.encerrar) db.prepare("UPDATE leads SET robo_parado = 1 WHERE id = ?").run(leadId);
 
+    /* O QUE A IA FAZ NO LEAD (08/10/2026, pedido do Ali: "isso fecha o ciclo
+       sem depender de uma pessoa"). Depois do envio, e nunca derruba o
+       atendimento: a mensagem já foi; o que falhar aqui vira log. */
+    const acoes = aplicarAcoesDaIA(orgId, lead, cfg, r.resposta, defs);
+
     console.log(`[robo] respondeu ${lead.name} (${(lead.robo_msgs || 0) + 1}/${cfg.teto})` +
       `${r.resposta.encerrar ? " — encerrou" : ""}`);
-    return { atendeu: true, texto: r.resposta.texto, coletado: juntado, encerrou: r.resposta.encerrar };
+    return { atendeu: true, texto: r.resposta.texto, coletado: juntado, encerrou: r.resposta.encerrar, acoes };
   } catch (e) {
     console.error("[robo] erro ao atender:", e.message);
     return { atendeu: false, motivo: "erro", erro: e.message };
   } finally {
     atendendoAgora.delete(leadId);
   }
+}
+
+/* As três ações, cada uma só quando o gestor ligou:
+   - campos: os que a IA preencheu (só os escolhidos; tipados pela mesma
+     função da ficha, e o que não servir é pulado — `estrito: false`);
+   - observação: o resumo, quando ela se despede;
+   - etapa final: quando ela se despede E o cliente quer seguir. Vai pela
+     porta de sempre (moverLead), então a automação e a catraca da etapa
+     entregam o lead ao corretor. Motivo 'automatica', não 'ia': no score,
+     'ia' conta como etapa confirmada por gente, e isto é a máquina movendo. */
+function aplicarAcoesDaIA(orgId, lead, cfg, resposta, defs) {
+  const feito = {};
+  try {
+    const permitidos = new Set(defs.map(d => d.chave));
+    const valores = Object.fromEntries(Object.entries(resposta.campos || {}).filter(([k, v]) => permitidos.has(k) && v !== "" && v != null));
+    if (Object.keys(valores).length) {
+      const g = gravarCampos(orgId, lead.id, valores, { estrito: false });
+      feito.campos = g.preenchidos;
+    }
+    if (resposta.encerrar && cfg.observacao && resposta.resumo) {
+      // Sem autor de gente (a observação não é de ninguém da equipe): o texto diz de onde veio.
+      db.prepare("INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at) VALUES (?,?,?,?,NULL,?)")
+        .run("ob_" + randomUUID(), orgId, lead.id, `Resumo do ${ASSINATURA_ROBO}:\n${String(resposta.resumo).slice(0, 2000)}`, Date.now());
+      feito.observacao = true;
+    }
+    if (resposta.encerrar && resposta.interessado && cfg.etapa_final) {
+      const m = moverLead({ leadId: lead.id, paraEtapaId: cfg.etapa_final, motivo: "automatica", userId: null });
+      if (m.bloqueado || m.erro) console.warn(`[robo] não movi ${lead.name} para a etapa final: ${m.error || m.erro}`);
+      else feito.etapa = m.stage;
+    }
+  } catch (e) {
+    console.error("[robo] ação da IA não aplicada:", e.message);
+  }
+  return feito;
 }
 
 /* ===== LIGAR E DESLIGAR NUM LEAD ESPECÍFICO =====

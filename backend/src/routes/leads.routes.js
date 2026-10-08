@@ -16,6 +16,7 @@ import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverLead, transferenciasDoLead } from "../services/movimento.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { dispararGatilho } from "../services/automacoes.js";
+import { gravarCampos, ErroCampo } from "../services/campos-lead.js";
 import { slaDoLead } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
@@ -1526,41 +1527,14 @@ r.patch("/:id/qualificacao", (req, res) => {
 r.patch("/:id/campos", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-
-  const definicoes = db.prepare(
-    "SELECT key, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1").all(req.user.org_id);
-  const porChave = new Map(definicoes.map(d => [d.key, d]));
-
-  const campos = JSON.parse(lead.custom_fields || "{}");
-  for (const chave of Object.keys(req.body || {})) {
-    const def = porChave.get(chave);
-    if (!def) continue; // campo que não existe (ou foi desativado) não entra
-    const bruto = req.body[chave];
-    const opcoes = (() => { try { return JSON.parse(def.options || "[]"); } catch (e) { return []; } })();
-
-    if (bruto === "" || bruto === null || bruto === undefined || (Array.isArray(bruto) && !bruto.length)) {
-      delete campos[chave];
-      continue;
-    }
-    if (def.type === "number" || def.type === "currency") {
-      const n = Number(String(bruto).replace(",", "."));
-      if (!Number.isFinite(n)) return res.status(400).json({ error: `"${chave}" precisa ser um número.` });
-      campos[chave] = n;
-    } else if (def.type === "boolean") {
-      campos[chave] = !!bruto;
-    } else if (def.type === "multiselect") {
-      const v = (Array.isArray(bruto) ? bruto : [bruto]).map(String).filter(x => opcoes.includes(x));
-      if (v.length) campos[chave] = v; else delete campos[chave];
-    } else if (def.type === "select") {
-      if (!opcoes.includes(String(bruto)))
-        return res.status(400).json({ error: `"${chave}" precisa ser uma das opções.` });
-      campos[chave] = String(bruto);
-    } else {
-      campos[chave] = String(bruto).trim().slice(0, 200);
-    }
+  // A tipagem e o gatilho "campo preenchido" moram em services/campos-lead.js.
+  try {
+    const { campos } = gravarCampos(req.user.org_id, lead.id, req.body || {});
+    res.json({ ok: true, campos });
+  } catch (e) {
+    if (e instanceof ErroCampo) return res.status(400).json({ error: e.message });
+    throw e;
   }
-  db.prepare("UPDATE leads SET custom_fields = ? WHERE id = ?").run(JSON.stringify(campos), lead.id);
-  res.json({ ok: true, campos });
 });
 
 // Ajuste manual de etapa. NÃO existe mais avanço automático: desde 26/08/2026 a

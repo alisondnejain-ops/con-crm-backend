@@ -11,6 +11,7 @@
 import { Router } from "express";
 import { configDoRobo, dentroDaJanela, paraConferir, conferir, orientacoes } from "../services/robo.js";
 import { situacaoDoRecurso } from "../services/recursos.js";
+import { listarFichas, criarFicha, editarFicha, apagarFicha, ErroFicha } from "../services/ia-produtos.js";
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
@@ -451,13 +452,70 @@ r.post("/robo", roles("adm"), (req, res) => {
      autônomo que ligou a janela não pode voltar a atender 24h porque alguém
      mexeu noutro campo qualquer da tela. */
   db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=?, robo_dias=?, robo_sempre=? WHERE id=?")
-    .run(b.ativo ? 1 : 0, inicio, fim, teto, dias.join(","), sempre ? 1 : 0, req.user.org_id);
+    // `ativo` ausente mantém o que estava: mudar só o horário não desliga a IA.
+    .run((b.ativo === undefined ? atual.ativo : b.ativo) ? 1 : 0, inicio, fim, teto, dias.join(","), sempre ? 1 : 0, req.user.org_id);
 
   const cfg = configDoRobo(req.user.org_id);
   console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — ${cfg.sempre ? "a QUALQUER hora" : `janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}]`}, teto ${cfg.teto}`);
   res.json({ ...cfg, ferramenta: situacaoDoRecurso(req.user.org_id, "autoatendimento"),
     agora_atenderia: cfg.incluido && cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
+
+/* ===== ONDE A IA ATUA E O QUE ELA FAZ NO LEAD (08/10/2026) =====
+   Só o gestor, como ligar: é decidir o que uma máquina faz sozinha com o
+   cliente e com o funil. Cada campo é opcional — ausente, fica como estava. */
+r.post("/robo/acoes", roles("adm"), (req, res) => {
+  const b = req.body || {};
+  const org = req.user.org_id;
+  const atual = configDoRobo(org);
+  let escopo = atual.escopo;
+  if (b.escopo !== undefined) {
+    const e = b.escopo || {};
+    const pipelines = [...new Set((Array.isArray(e.pipelines) ? e.pipelines : []).map(String))].slice(0, 30);
+    const etapas = [...new Set((Array.isArray(e.etapas) ? e.etapas : []).map(String))].slice(0, 60);
+    for (const id of pipelines) if (!db.prepare("SELECT 1 FROM pipelines WHERE id = ? AND org_id = ?").get(id, org))
+      return res.status(400).json({ error: "Um dos funis escolhidos não é desta conta." });
+    for (const id of etapas) if (!db.prepare("SELECT 1 FROM pipeline_stages WHERE id = ? AND org_id = ?").get(id, org))
+      return res.status(400).json({ error: "Uma das etapas escolhidas não é desta conta." });
+    escopo = { pipelines, etapas };
+  }
+  let campos = atual.campos;
+  if (b.campos !== undefined) {
+    campos = [...new Set((Array.isArray(b.campos) ? b.campos : []).map(String))].slice(0, 15);
+    for (const k of campos) if (!db.prepare("SELECT 1 FROM custom_fields WHERE key = ? AND org_id = ? AND is_active = 1").get(k, org))
+      return res.status(400).json({ error: `O campo "${k}" não existe nesta conta. Crie-o em Configurações → Funis e etapas.` });
+  }
+  let etapaFinal = atual.etapa_final;
+  if (b.etapa_final !== undefined) {
+    etapaFinal = b.etapa_final ? String(b.etapa_final) : null;
+    if (etapaFinal && !db.prepare(`SELECT 1 FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id WHERE s.id = ? AND s.org_id = ?
+        AND COALESCE(s.is_active,1) = 1 AND COALESCE(p.is_active,1) = 1`).get(etapaFinal, org))
+      return res.status(400).json({ error: "A etapa escolhida não existe ou está desativada." });
+  }
+  const observacao = b.observacao === undefined ? atual.observacao : !!b.observacao;
+  db.prepare("UPDATE orgs SET robo_escopo = ?, robo_campos = ?, robo_observacao = ?, robo_etapa_final = ? WHERE id = ?")
+    .run(JSON.stringify(escopo), JSON.stringify(campos), observacao ? 1 : 0, etapaFinal, org);
+  const cfg = configDoRobo(org);
+  console.log(`[robo] ações/escopo atualizados por ${req.user.name}`);
+  res.json({ ...cfg, ferramenta: situacaoDoRecurso(org, "autoatendimento"),
+    agora_atenderia: cfg.incluido && cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
+});
+
+/* ===== AS FICHAS DE PRODUTO (08/10/2026) =====
+   Escrevem a atendente e o gestor, como as orientações: é conteúdo sobre o
+   que se vende, e quem sabe é quem atende. Ligar ficha a formulário é do
+   gestor (fica na rota dos formulários); a catraca, na rota da catraca. */
+const trataFicha = (fn) => (req, res) => {
+  try { fn(req, res); }
+  catch (e) {
+    if (e instanceof ErroFicha) return res.status(e.status).json({ error: e.message });
+    console.error("[fichas]", e); res.status(500).json({ error: "Não consegui salvar a ficha." });
+  }
+};
+r.get("/robo/produtos", roles("adm", "sdr"), trataFicha((req, res) => res.json({ fichas: listarFichas(req.user.org_id) })));
+r.post("/robo/produtos", roles("adm", "sdr"), trataFicha((req, res) => res.status(201).json({ ficha: criarFicha(req.user.org_id, req.user.id, req.body || {}) })));
+r.patch("/robo/produtos/:id", roles("adm", "sdr"), trataFicha((req, res) => res.json({ ficha: editarFicha(req.user.org_id, req.params.id, req.body || {}) })));
+r.delete("/robo/produtos/:id", roles("adm", "sdr"), trataFicha((req, res) => { apagarFicha(req.user.org_id, req.params.id); res.json({ ok: true }); }));
 
 /* ===== O QUE A EQUIPE ENSINA AO ROBÔ =====
 

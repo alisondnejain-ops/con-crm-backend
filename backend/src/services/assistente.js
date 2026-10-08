@@ -25,6 +25,7 @@ import { registrar } from "./iauso.js";
 import { MANUAL_CONHUB } from "./ajuda.js";
 import { CORES_TAG } from "./tags.js";
 import { FERRAMENTAS_LEADS, executorDeLeads } from "./assistente-leads.js";
+import { FERRAMENTAS_MARKETING, executorDeMarketing } from "./assistente-marketing.js";
 import { aliviarAnexos } from "./assistente-anexos.js";
 
 /* ===== TETO DO MÊS =====
@@ -279,12 +280,15 @@ export const FERRAMENTAS_CONFIG = [
       inicio_comercial: { type: "boolean" },
       conta_como_conversao: { type: "boolean" },
       campos_obrigatorios: { type: "array", items: { type: "string" }, description: "chaves dos campos (de ver_campos) exigidos para entrar na etapa" },
-      ao_chegar: { type: "object", additionalProperties: false, description: "Substitui a automação inteira da etapa.",
+      ao_chegar: { type: "object", additionalProperties: false, description: "O que acontece quando um lead chega na etapa. Só o que vier aqui muda; o resto da regra fica como está.",
         properties: {
-          responsavel: { type: "string", enum: ["nao_mexer", "roleta", "fila", "pessoa"], description: "roleta = próximo corretor disponível; fila = devolve à fila; pessoa = sempre a pessoa_id" },
+          responsavel: { type: "string", enum: ["nao_mexer", "roleta", "catraca", "fila", "pessoa"], description: "roleta = próximo corretor da catraca do lead (ou da principal); catraca = próximo da catraca_id; fila = devolve à fila; pessoa = sempre a pessoa_id" },
           pessoa_id: { type: "string" },
-          mover_para_funil_id: { type: ["string", "null"] } },
-        required: ["responsavel"] } },
+          catraca_id: { type: "string", description: "de ver_catracas" },
+          mover_para_funil_id: { type: ["string", "null"] },
+          colocar_etiquetas: { type: "array", items: { type: "string" }, description: "ids de ver_tags; [] tira todas" },
+          tirar_etiquetas: { type: "array", items: { type: "string" }, description: "ids de ver_tags; [] tira todas" },
+          etiqueta_do_corretor: { type: "boolean", description: "coloca uma etiqueta com o nome do corretor que ficou com o lead" } } } },
     ["etapa_id"]),
   T("ordenar_etapas", "Define a ordem das etapas de um funil (lista com TODOS os ids, na ordem nova).",
     { funil_id: { type: "string" }, etapas_ids: { type: "array", items: { type: "string" } } }, ["funil_id", "etapas_ids"]),
@@ -313,6 +317,8 @@ export const FERRAMENTAS_CONFIG = [
     { texto: { type: "string" } }, ["texto"]),
   // O trabalho do dia a dia nos leads (07/10/2026) — só o gestor recebe.
   ...FERRAMENTAS_LEADS,
+  // Marketing, catracas, formulários, Autoatendimento e imóveis (08/10/2026).
+  ...FERRAMENTAS_MARKETING,
   ...FERRAMENTAS_MENU,
   FERRAMENTA_ABRIR_TELA,
 ];
@@ -334,13 +340,28 @@ export async function chamarRota(autorizacao, metodo, caminho, corpo) {
   return { dados };
 }
 
-function automacaoDe(a) {
-  const cfg = {};
-  if (a.responsavel === "roleta") cfg.distribuir = "rodizio";
-  else if (a.responsavel === "pessoa" && a.pessoa_id) cfg.distribuir = a.pessoa_id;
-  else if (a.responsavel === "fila") cfg.limpar_responsavel = true;
-  if (a.mover_para_funil_id) cfg.mover_para_pipeline = a.mover_para_funil_id;
+/* A regra "ao chegar" da tela, montada a partir do pedido da IA. MESCLA com a
+   que está gravada: pedir "coloque a etiqueta X" não pode apagar a roleta que
+   já estava lá. Só o que veio no pedido muda. */
+function automacaoDe(a, atual = {}) {
+  const cfg = { ...(atual || {}) };
+  if (a.responsavel !== undefined) {
+    delete cfg.distribuir; delete cfg.catraca_id; delete cfg.limpar_responsavel;
+    if (a.responsavel === "roleta") cfg.distribuir = "rodizio";
+    else if (a.responsavel === "catraca" && a.catraca_id) { cfg.distribuir = "catraca"; cfg.catraca_id = a.catraca_id; }
+    else if (a.responsavel === "pessoa" && a.pessoa_id) cfg.distribuir = a.pessoa_id;
+    else if (a.responsavel === "fila") cfg.limpar_responsavel = true;
+  }
+  if (a.mover_para_funil_id !== undefined) { delete cfg.mover_para_pipeline; if (a.mover_para_funil_id) cfg.mover_para_pipeline = a.mover_para_funil_id; }
+  if (a.colocar_etiquetas !== undefined) cfg.adicionar_tags = a.colocar_etiquetas;
+  if (a.tirar_etiquetas !== undefined) cfg.remover_tags = a.tirar_etiquetas;
+  if (a.etiqueta_do_corretor !== undefined) { if (a.etiqueta_do_corretor) cfg.tag_do_corretor = true; else delete cfg.tag_do_corretor; }
   return cfg;
+}
+async function automacaoAtual(autorizacao, etapaId) {
+  const r = await chamarRota(autorizacao, "GET", "/pipelines?todos=1");
+  for (const p of r.dados?.pipelines || []) for (const s of p.stages || []) if (s.id === etapaId) return s.automation_config || {};
+  return {};
 }
 
 const resumoFunis = (d) => ({
@@ -379,11 +400,14 @@ export function executorDeConfig({ autorizacao, user, conversaId, menu }) {
 
   const doMenu = executarMenu({ autorizacao, menu, registrar: registrarAcao });
   const doLead = executorDeLeads({ chamarRota, autorizacao, user, conversaId, registrarAcao });
+  const doMarketing = executorDeMarketing({ chamarRota, autorizacao, registrarAcao });
   return async (nome, e, efeitos) => {
     const m = await doMenu(nome, e, efeitos);
     if (m) return m;
     const l = await doLead(nome, e, efeitos);
     if (l) return l;
+    const mk = await doMarketing(nome, e, efeitos);
+    if (mk) return mk;
     switch (nome) {
       case "ver_funis": return ler("/pipelines?todos=1", resumoFunis);
       case "criar_funil": return mudar(nome, e, "POST", "/pipelines", sem({ name: e.nome, template: e.modelo_id || undefined }), `✓ Criei o funil “${e.nome}”.`);
@@ -394,7 +418,8 @@ export function executorDeConfig({ autorizacao, user, conversaId, menu }) {
       case "editar_etapa": return mudar(nome, e, "PATCH", `/pipelines/etapas/${encodeURIComponent(e.etapa_id)}`,
         sem({ name: e.nome, status_type: e.tipo, is_active: e.ativa, sla_minutes: e.prazo_minutos,
           entrada_comercial: e.inicio_comercial, counts_as_conversion: e.conta_como_conversao,
-          required_fields: e.campos_obrigatorios, automation_config: e.ao_chegar ? automacaoDe(e.ao_chegar) : undefined }),
+          required_fields: e.campos_obrigatorios,
+          automation_config: e.ao_chegar ? automacaoDe(e.ao_chegar, await automacaoAtual(autorizacao, e.etapa_id)) : undefined }),
         `✓ Etapa atualizada${e.nome ? ` (“${e.nome}”)` : ""}.`);
       case "ordenar_etapas": return mudar(nome, e, "POST", `/pipelines/${encodeURIComponent(e.funil_id)}/etapas/ordem`, { ids: e.etapas_ids }, "✓ Ordem das etapas atualizada.");
       case "ver_equipe": return ler("/pipelines/entrada", (d) => ({
@@ -412,7 +437,7 @@ export function executorDeConfig({ autorizacao, user, conversaId, menu }) {
         sem({ titulo: e.titulo, corpo: e.texto, etapas: e.etapas_ids }), `✓ Criei a mensagem pronta “${e.titulo}”.`);
       case "editar_mensagem_pronta": return mudar(nome, e, "PATCH", `/config/mensagens/${encodeURIComponent(e.id)}`,
         sem({ titulo: e.titulo, corpo: e.texto, ativo: e.ativa, etapas: e.etapas_ids }), "✓ Mensagem pronta atualizada.");
-      case "ver_orientacoes_da_ia": return ler("/config/robo/ensino", (d) => ({ orientacoes: (d.linhas || []).map(l => ({ texto: l.texto, ativa: !!l.ativo })) }));
+      case "ver_orientacoes_da_ia": return ler("/config/robo/ensino", (d) => ({ orientacoes: (d.linhas || []).map(l => ({ id: l.id, texto: l.texto, ativa: !!l.ativo })) }));
       case "adicionar_orientacao_da_ia": return mudar(nome, e, "POST", "/config/robo/ensino", { texto: e.texto }, "✓ Orientação acrescentada ao Autoatendimento.");
       case "abrir_tela": return abrirTela(e, efeitos);
       default: return { erro: "Ferramenta desconhecida." };
@@ -548,7 +573,9 @@ const INSTRUCOES_CONFIG = `Você é o assistente de configuração do ConHub, um
 Seu trabalho: entender o que a pessoa quer e FAZER, usando as ferramentas, como o gestor faria pela tela:
 - configuração: funis, etapas, prazos, automação da etapa, funil de entrada de cada pessoa, campos, tags, mensagens prontas e orientações do Autoatendimento;
 - leads: procurar e abrir (buscar_leads, ver_lead), mover de etapa e de funil (mover_leads, migrar_funil_da_pessoa), repassar (repassar_leads), tags (etiquetar_leads), finalizar/reabrir, tarefas, observações, corrigir nome, cadastrar lead e registrar venda;
-- números do período (ver_numeros) e pesquisa na internet (web_search) para assuntos de fora do sistema.
+- números do período (ver_numeros) e pesquisa na internet (web_search) para assuntos de fora do sistema;
+- marketing e distribuição: fluxos (ver_fluxos, ver_fluxo, salvar_fluxo, ligar_fluxo), catracas por produto (ver_catracas, salvar_catraca), formulários dos anúncios (ver_formularios, configurar_formulario), a regra "quando um lead chegar nesta etapa" (editar_etapa → ao_chegar: catraca específica, etiquetas, etiqueta com o nome do corretor);
+- Autoatendimento: horário, ligar/desligar, em quais funis/etapas atua, campos que preenche, resumo como observação e etapa final (configurar_autoatendimento), orientações (acrescentar, editar, apagar) e fichas de produto (uma por empreendimento, ligadas a formulário ou catraca), além do catálogo de imóveis (ver_imoveis, ver_imovel) como base.
 
 A pessoa pode mandar arquivos junto (foto, print, PDF, planilha, texto, cenas de um vídeo). Leia o que veio e use: um print de outro sistema pode virar funil, uma planilha pode virar uma lista de leads para mover. Do vídeo você só vê os quadros que vieram — não assistiu nem ouviu nada; diga isso se a pergunta depender do som.
 
@@ -559,7 +586,9 @@ Como trabalhar:
 - AÇÃO EM MASSA: quando a ferramenta devolver precisa_confirmar, mostre à pessoa quantos leads, alguns nomes e o que vai mudar, e PARE. Só chame de novo com o código depois que ela responder confirmando. Nunca invente um código.
 - Antes de mover, repassar ou marcar, confira com buscar_leads quais leads são. Para mover para outro funil, use a etapa do funil de destino (de ver_funis).
 - Registrar venda só quando a pessoa disser o valor. Datas e horas são do horário de Brasília.
-- Você NÃO apaga nada (lead, funil, etapa, tag), não manda mensagem ao cliente, não mexe em cobrança, plano, WhatsApp/conexão, equipe, senha nem em LGPD. Para isso, use abrir_tela e diga onde clicar.
+- FLUXOS: leia o fluxo (ver_fluxo) antes de editar e mande-o INTEIRO de volta em salvar_fluxo. Monte com o que existe (ids de ver_tags, ver_funis, ver_campos, ver_catracas, ver_equipe, ver_formularios). Antes de ligar uma automação nova, descreva em tópicos o que ela vai fazer com o cliente (quem entra, que mensagens saem, quando) e espere o "pode" — ela passa a mandar mensagem sozinha. Mensagem fora da janela de 24h na API oficial só sai com modelo aprovado (ver_modelos_meta).
+- AUTOATENDIMENTO: ligar a IA que fala com o cliente é decisão do gestor — confirme antes de ligar. Fichas de produto e orientações nunca liberam preço, aprovação ou visita: se pedirem isso, diga que a trava continua.
+- Você NÃO apaga lead, funil, etapa, tag, fluxo nem catraca (orientações da IA e fichas de produto você pode apagar, a pedido), não manda mensagem ao cliente nem dispara campanha, não mexe em cobrança, plano, WhatsApp/conexão, número de disparo, equipe, senha nem em LGPD. Para isso, use abrir_tela e diga onde clicar.
 - Privacidade: nunca coloque nome, telefone, e-mail ou CPF de cliente numa pesquisa na internet.
 - O menu da própria pessoa pode ser reorganizado (ver_meu_menu, organizar_meu_menu): só a ordem, nunca o nome; nada some do menu.
 - Responda curto, sem jargão técnico, sem markdown pesado (no máximo listas simples). Não fale de ids para a pessoa.
