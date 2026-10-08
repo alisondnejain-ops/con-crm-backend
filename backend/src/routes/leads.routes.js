@@ -20,7 +20,8 @@ import { gravarCampos, ErroCampo } from "../services/campos-lead.js";
 import { slaDoLead } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
-import { estadoNoLead, ligarNoLead } from "../services/robo.js";
+import { estadoNoLead, ligarNoLead, ASSINATURA_ROBO } from "../services/robo.js";
+import { semDisparo } from "../services/marca-disparo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
@@ -36,9 +37,18 @@ r.use(authRequired);
 // foram lidas e qual foi a última mensagem da conversa.
 const SELECT_LEAD = `
   SELECT l.*,
+    /* NÃO LIDAS = mensagens do cliente depois da última leitura E depois da
+       última RESPOSTA DE GENTE (08/10/2026, reclamação da atendente da Conecta:
+       "mesmo eu tendo respondido aparece como mensagem nova"). Responder é a
+       prova mais forte de ter lido — vale a resposta pelo CRM e a digitada no
+       celular (eco sem autor). Disparo, automação e robô não contam: não são
+       gente olhando a conversa. */
     (SELECT COUNT(*) FROM messages m
       WHERE m.lead_id = l.id AND m.direction = 'in'
-        AND m.created_at > COALESCE(l.last_read_at, 0)) AS unread,
+        AND m.created_at > COALESCE(l.last_read_at, 0)
+        AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM messages o
+          WHERE o.lead_id = l.id AND o.direction = 'out' AND ${semDisparo("o.")}
+            AND COALESCE(o.from_name, '') <> '${ASSINATURA_ROBO}'), 0)) AS unread,
     (SELECT m.body FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
     (SELECT m.direction FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_direction,
     (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
@@ -1296,7 +1306,10 @@ function etapaIaGuardada(lead, quantasMensagens) {
 r.post("/:id/read", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Sem acesso a este lead" });
-  if (supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  /* Lead SEM DONO (a fila) é da caixa de quem supervisiona: não há aviso de
+     corretor nenhum a preservar, e sem isto o lead da fila que a atendente
+     abriu e respondeu continuava como "novo" na caixa dela (08/10/2026). */
+  if (supervisiona(req.user) && lead.assigned_to && lead.assigned_to !== req.user.id)
     return res.json({ ok: true, ignorado: "supervisão não marca como lida" });
   db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(Date.now(), lead.id);
   res.json({ ok: true });
