@@ -39,7 +39,8 @@ import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
 import { semAtendenteAtiva } from "./rodizio.js";
-import { fichaDoLead, outrasFichas } from "./ia-produtos.js";
+import { fichaDoLead, outrasFichas, catracaDoProduto } from "./ia-produtos.js";
+import { definirCatracaDoLead } from "./catracas.js";
 import { gravarCampos } from "./campos-lead.js";
 import { moverLead } from "./movimento.js";
 
@@ -303,6 +304,13 @@ export const noEscopo = (esc, lead) => {
    Em memória: some na publicação seguinte, que é quando um conserto chega. */
 const falhas = new Map();
 
+/* Partes separadas por linha em branco, no máximo três. */
+export function partesDaResposta(texto) {
+  const p = String(texto || "").split(/\n\s*\n/).map(t => t.trim()).filter(Boolean);
+  if (p.length <= 3) return p.length ? p : [String(texto || "").trim()];
+  return [p[0], p[1], p.slice(2).join("\n\n")];
+}
+
 export function pararPorGente(leadId) {
   const l = db.prepare("SELECT robo_msgs, robo_parado FROM leads WHERE id = ?").get(leadId);
   if (!l || l.robo_parado || !(l.robo_msgs > 0)) return false;
@@ -402,16 +410,24 @@ export async function atender(orgId, leadId, opcoes = {}) {
        não tem corretor e não vai fingir um. Sai como a Conecta falando. */
     const canalDaVez = canalDoLead(lead);
     const canalId = canalDaVez && canalDaVez.tipo === "corretor" ? canalDaVez.id : null;
-    const envio = await sendText({ orgId, canalId, toPhone: lead.phone, text: r.resposta.texto });
-
-    /* A mensagem entra na conversa SEM autor (`from_user_id` nulo) e com
-       `from_name` dizendo que foi o atendimento automático. Duas consequências
-       de propósito: a tela mostra quem falou, e o score não conta isso como
-       resposta de ninguém — o tempo de primeira resposta continua sendo o da
-       Vanessa, que é o número que o gestor usa. */
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
-      VALUES (?,?,'out',NULL,?,?,?,?,?)`)
-      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, lidoEm, canalId);
+    /* EM PARTES, NÃO UM BLOCO (09/10/2026, print do Ali: a apresentação do
+       empreendimento chegou num parágrafo só, "cansativo pra os olhos"). A IA
+       separa por linha em branco; cada parte sai como uma mensagem, na ordem,
+       no máximo três (o resto vai junto da última). Conta como UMA resposta
+       no teto: é uma vez que ela falou. */
+    const partes = partesDaResposta(r.resposta.texto);
+    for (let i = 0; i < partes.length; i++) {
+      if (i > 0 && atraso == null) await esperar(1200);
+      const envio = await sendText({ orgId, canalId, toPhone: lead.phone, text: partes[i] });
+      /* A mensagem entra na conversa SEM autor (`from_user_id` nulo) e com
+         `from_name` dizendo que foi o atendimento automático. Duas consequências
+         de propósito: a tela mostra quem falou, e o score não conta isso como
+         resposta de ninguém — o tempo de primeira resposta continua sendo o da
+         Vanessa, que é o número que o gestor usa. */
+      db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
+        VALUES (?,?,'out',NULL,?,?,?,?,?)`)
+        .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, partes[i], envio?.messageid || null, lidoEm + i, canalId);
+    }
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o
        robô o marcasse, um lead atendido só por robô apareceria no relatório
@@ -449,6 +465,22 @@ export async function atender(orgId, leadId, opcoes = {}) {
      'ia' conta como etapa confirmada por gente, e isto é a máquina movendo. */
 function aplicarAcoesDaIA(orgId, lead, cfg, resposta, defs) {
   const feito = {};
+  /* O produto que a pessoa escolheu põe o lead na catraca dele (09/10/2026).
+     Só quando o lead ainda está na principal: catraca escolhida na ficha ou
+     vinda do formulário foi decisão de alguém, e a leitura da IA não a desfaz.
+     Não muda o dono — muda quem recebe no próximo repasse. */
+  try {
+    if (resposta.produto && !lead.catraca_id) {
+      const alvo = catracaDoProduto(orgId, resposta.produto);
+      if (alvo) {
+        definirCatracaDoLead(orgId, lead.id, alvo.catraca_id);
+        feito.catraca = alvo.catraca;
+        console.log(`[robo] ${lead.name} escolheu ${alvo.ficha} — entrou na catraca ${alvo.catraca}`);
+      }
+    }
+  } catch (e) {
+    console.error("[robo] catraca do produto não aplicada:", e.message);
+  }
   try {
     const permitidos = new Set(defs.map(d => d.chave));
     const valores = Object.fromEntries(Object.entries(resposta.campos || {}).filter(([k, v]) => permitidos.has(k) && v !== "" && v != null));

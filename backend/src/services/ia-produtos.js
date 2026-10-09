@@ -174,3 +174,24 @@ export function outrasFichas(orgId, excetoId, conversa = "") {
   }
   return { fichas, soNomes };
 }
+
+/* A CATRACA DO PRODUTO QUE O CLIENTE ESCOLHEU (09/10/2026, print do Ali: "eu
+   escolhi o Horizon e a IA não me colocou na catraca do Horizon"). A IA diz
+   qual ficha a pessoa escolheu (o nome, como veio na lista); aqui ele vira a
+   catraca: a ligada àquela ficha, ou — sem ligação — a catraca ativa cujo nome
+   cita o produto ("Horizon" acha "Catraca Horizon"). Mais de uma candidata
+   pelo nome é chute, e chute não move lead: devolve nulo. */
+export function catracaDoProduto(orgId, nomeProduto) {
+  const alvo = semAcento(nomeProduto).trim();
+  if (!alvo) return null;
+  const fichas = db.prepare("SELECT id, nome FROM ia_produtos WHERE org_id = ? AND ativo = 1").all(orgId);
+  const ficha = fichas.find(f => semAcento(f.nome).trim() === alvo)
+    || (() => { const cs = fichas.filter(f => citada(f.nome, alvo)); return cs.length === 1 ? cs[0] : null; })();
+  if (!ficha) return null;
+  const catracas = db.prepare("SELECT id, nome, ia_produto_id FROM catracas WHERE org_id = ? AND ativa = 1").all(orgId);
+  const ligada = catracas.filter(c => c.ia_produto_id === ficha.id);
+  if (ligada.length === 1) return { catraca_id: ligada[0].id, catraca: ligada[0].nome, ficha: ficha.nome };
+  if (ligada.length > 1) return null;
+  const pelo = catracas.filter(c => citada(ficha.nome, semAcento(c.nome)));
+  return pelo.length === 1 ? { catraca_id: pelo[0].id, catraca: pelo[0].nome, ficha: ficha.nome } : null;
+}

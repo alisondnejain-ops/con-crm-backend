@@ -611,4 +611,39 @@ assert.ok(texto35.includes("Areia Branca"), "a IA recebe o que a equipe escreveu
 assert.ok(texto35.indexOf("Residencial Horizon") < texto35.indexOf("Jardins do Vale"), "o produto citado vem primeiro");
 assert.ok(!texto35.includes("não usar"), "ficha desligada não vai");
 
+console.log("36. Produto escolhido põe o lead na catraca dele, e a apresentação sai em partes (09/10/2026)");
+/* Print do Ali: a IA apresentou o Horizon num parágrafo só e o lead continuou
+   na catraca principal. */
+const fichaH = db.prepare("SELECT id FROM ia_produtos WHERE org_id = ? AND nome = 'Residencial Horizon'").get(org).id;
+db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,created_at,ia_produto_id) VALUES ('cat_hor',?,'Horizon','corretor',1,?,?)").run(org, Date.now(), fichaH);
+const escolheu = lead({ nome: "Escolheu o Horizon", dono: vanessa });
+doClienteAgora(escolheu, "quero saber do horizon");
+respostaDaIA = { texto: "Que bom! O *Residencial Horizon*:\n📍 Areia Branca\n🏠 2 quartos com suíte\n\nÉ pra morar ou investir?",
+  coletado: {}, encerrar: false, produto: "Residencial Horizon" };
+const antes36 = enviadas.length;
+assert.equal((await atender(org, escolheu, { agora: NOITE, atraso: 0 })).atendeu, true);
+assert.ok(pedido().messages[0].content[0].text.includes('"produto"'), "a IA é perguntada sobre o produto escolhido");
+console.log(`   ${enviadas.length - antes36} mensagem(ns) no WhatsApp · catraca: ${db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(escolheu).catraca_id}`);
+assert.equal(enviadas.length - antes36, 2, "a apresentação e a pergunta saem separadas");
+assert.equal(enviadas[enviadas.length - 1].text, "É pra morar ou investir?");
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(escolheu).catraca_id, "cat_hor");
+const doRobo36 = db.prepare("SELECT body FROM messages WHERE lead_id = ? AND direction = 'out' ORDER BY created_at").all(escolheu);
+assert.equal(doRobo36.length, 2, "as duas partes ficam na conversa, na ordem");
+assert.equal(db.prepare("SELECT robo_msgs FROM leads WHERE id = ?").get(escolheu).robo_msgs, 1, "conta como uma resposta no teto");
+
+// Catraca escolhida por alguém não é trocada pela leitura da IA.
+db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,created_at) VALUES ('cat_out',?,'Aluguel','corretor',1,?)").run(org, Date.now());
+const jaTinha = lead({ nome: "Já tinha catraca", dono: vanessa });
+db.prepare("UPDATE leads SET catraca_id = 'cat_out' WHERE id = ?").run(jaTinha);
+doClienteAgora(jaTinha, "e o horizon?");
+await atender(org, jaTinha, { agora: NOITE, atraso: 0 });
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(jaTinha).catraca_id, "cat_out");
+
+// Nome que não está na lista é descartado.
+const inventou = lead({ nome: "IA inventou", dono: vanessa });
+doClienteAgora(inventou, "oi");
+respostaDaIA = { texto: "Oi!", coletado: {}, encerrar: false, produto: "Edifício Inventado" };
+await atender(org, inventou, { agora: NOITE, atraso: 0 });
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(inventou).catraca_id, null);
+
 console.log("\nTudo certo ✅");
