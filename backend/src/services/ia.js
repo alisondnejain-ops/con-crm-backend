@@ -470,6 +470,12 @@ Endereço, valor, disponibilidade ou condição que não está escrito aqui, dig
 COMO FALAR
 - Português do Brasil, informal e caloroso, como um atendente no WhatsApp
 - Mensagens CURTAS: uma ou duas frases. Ninguém lê parágrafo no WhatsApp
+- Para apresentar um produto (localização, tamanhos, lazer, entrega, valor), NÃO escreva um bloco
+  corrido: separe em linhas curtas, um assunto por linha, começando com um emoji (📍 local,
+  🏠 plantas e tamanhos, 🌊 lazer, 🔑 entrega, 💰 valor), e só o que a pessoa precisa agora —
+  três a cinco linhas. Deixe uma LINHA EM BRANCO entre a apresentação e a pergunta do fim: cada
+  parte separada por linha em branco chega como uma mensagem própria no WhatsApp (no máximo três)
+- Use *negrito* do WhatsApp só no nome do produto
 - UMA pergunta por mensagem, no máximo
 - Pode usar no máximo um emoji, e só quando couber
 - Trate a pessoa pelo primeiro nome depois que ela disser
@@ -553,6 +559,7 @@ ${String(produto.texto).slice(0, 5000)}` : "";
      os dados" de um produto que a equipe descreveu. Mesma regra da ficha: só
      o que está escrito; o que não estiver, o corretor responde. */
   const outF = (outrosProdutos?.fichas || []), outN = (outrosProdutos?.soNomes || []);
+  const nomesProdutos = [produto && produto.texto ? produto.nome : null, ...outF.map(f => f.nome), ...outN].filter(Boolean);
   const blocoOutros = outF.length || outN.length ? `
 
 ${produto && produto.texto ? "OUTROS PRODUTOS" : "OS PRODUTOS"} DA IMOBILIÁRIA, descritos pela equipe. Quando a pessoa falar de um
@@ -575,6 +582,14 @@ pessoa quer, o que ela contou, o que ficou combinado e o que falta), seguindo o 
 orientações da equipe pedirem, se pedirem. E diga em "interessado" se a pessoa quer seguir com o
 atendimento (true) ou não (false — só deixou recado, desistiu ou não quis responder).` : "";
 
+  /* QUAL PRODUTO A PESSOA ESCOLHEU (09/10/2026): é o que põe o lead na
+     catraca do produto (robo.js). Só nomes da lista; o resto é descartado. */
+  const blocoEscolha = nomesProdutos.length ? `
+
+No JSON, acrescente também "produto": o nome EXATO (como escrito acima) do produto em que a pessoa
+demonstrou interesse nesta conversa — que ela citou, perguntou ou escolheu. Se ela ainda não
+falou de nenhum, ou falou de mais de um sem escolher, deixe "produto" de fora.` : "";
+
   const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
   const contexto = jaTem.length
     ? `\n\nVOCÊ JÁ ANOTOU (não pergunte de novo): ${jaTem.map(k => `${k} = ${coletado[k]}`).join("; ")}`
@@ -583,7 +598,7 @@ atendimento (true) ou não (false — só deixou recado, desistiu ou não quis r
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -608,11 +623,12 @@ atendimento (true) ou não (false — só deixou recado, desistiu ou não quis r
   if (d.campos && typeof d.campos === "object" && !Array.isArray(d.campos))
     for (const [k, v] of Object.entries(d.campos)) if (chaves.has(k) && v !== null && v !== "") camposOut[k] = Array.isArray(v) ? v.slice(0, 10).map(String) : typeof v === "boolean" || typeof v === "number" ? v : String(v).slice(0, 200);
   return { ok: true, uso: r.uso, resposta: {
-    texto: texto.slice(0, 900),
+    texto: texto.slice(0, 1500),
     coletado: limpo,
     campos: camposOut,
     resumo: resumo && typeof d.resumo === "string" ? d.resumo.trim().slice(0, 2000) : "",
     interessado: d.interessado === true,
+    produto: typeof d.produto === "string" && nomesProdutos.some(n => n.toLowerCase() === d.produto.trim().toLowerCase()) ? d.produto.trim() : "",
     // Na última mensagem o encerramento não é opinião da IA: a conversa acabou
     // de qualquer jeito, e marcar isso mantém a tela dizendo a verdade.
     encerrar: d.encerrar === true || (restantes != null && restantes <= 1),
