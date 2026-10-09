@@ -44,11 +44,12 @@ try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 const real = globalThis.fetch;
 let respostaDaIA = { texto: "Oi! Que bom que chamou 😊 Me conta, é pra morar ou pra investir?",
   coletado: {}, encerrar: false };
-let chamadasIA = 0, enviadas = [], ultimoPedido = "";
+let chamadasIA = 0, enviadas = [], ultimoPedido = "", demoraDaIA = 0;
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes("api.anthropic.com")) {
     chamadasIA++;
+    if (demoraDaIA) await new Promise(r => setTimeout(r, demoraDaIA));
     ultimoPedido = String(opts && opts.body || "");
     return { ok: true, status: 200, json: async () => ({
       content: [{ type: "text", text: JSON.stringify(respostaDaIA) }],
@@ -278,8 +279,14 @@ assert.ok(atendimento.usos > 0, "atendimento automático precisa aparecer na con
 console.log("18. Duas mensagens seguidas do cliente NÃO viram duas respostas");
 db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
 const apressado = lead({ nome: "Mandou tudo junto", dono: vanessa });
-doCliente(apressado, "oi");
-doCliente(apressado, "tenho interesse nas casas");
+// Hora real (o `doCliente` empurra o relógio alguns ms para a frente, e aqui
+// importa a ordem de verdade entre a mensagem do cliente e a do robô).
+let tic = 0;
+const doClienteAgora = (leadId, texto) => db.prepare(
+  "INSERT INTO messages (id,lead_id,direction,body,created_at) VALUES (?,?,'in',?,?)")
+  .run("m_" + randomUUID(), leadId, texto, Date.now() + (tic++ % 2));
+doClienteAgora(apressado, "oi");
+doClienteAgora(apressado, "tenho interesse nas casas");
 respostaDaIA = { texto: "Oi! Me conta, é pra morar ou investir?", coletado: {}, encerrar: false };
 const antes18 = enviadas.length;
 // Os dois webhooks chegando ao mesmo tempo, como acontece de verdade.
@@ -291,6 +298,24 @@ const saiu = enviadas.length - antes18;
 console.log(`   ${[a, b2].map(x => x.atendeu ? "respondeu" : x.motivo).join(" + ")} → ${saiu} mensagem(ns) no WhatsApp`);
 assert.equal(saiu, 1, "o cliente não pode receber duas respostas quase iguais");
 assert.ok([a, b2].some(x => x.motivo === "ja_respondendo"), "a segunda foi segurada pela trava");
+await new Promise(r => setTimeout(r, 200));
+assert.equal(enviadas.length - antes18, 1, "a conferência de depois vê que as duas já foram respondidas juntas");
+
+console.log("18b. Mensagem que chega enquanto a IA escreve não fica sem resposta (09/10/2026)");
+const tardio = lead({ nome: "Mandou depois", dono: vanessa });
+doClienteAgora(tardio, "oi");
+const antes18b = enviadas.length;
+demoraDaIA = 150; // a IA "escrevendo" — a mensagem nova chega nesse meio-tempo
+const primeira = atender(org, tardio, { agora: NOITE, atraso: 10 });
+await new Promise(r => setTimeout(r, 60)); // a conversa já foi lida
+doClienteAgora(tardio, "e qual o valor da entrada?");
+const segurada = await atender(org, tardio, { agora: NOITE, atraso: 10 }); // o webhook dela
+assert.equal(segurada.motivo, "ja_respondendo");
+await primeira;
+demoraDaIA = 0;
+await new Promise(r => setTimeout(r, 300));
+console.log(`   ${enviadas.length - antes18b} resposta(s) no WhatsApp`);
+assert.equal(enviadas.length - antes18b, 2, "a segunda mensagem do cliente também é respondida");
 
 console.log("19. Gente respondendo durante a espera cancela a resposta do robô");
 const atropelado = lead({ nome: "A Vanessa chegou junto", dono: vanessa });
