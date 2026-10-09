@@ -44,14 +44,17 @@ try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 const real = globalThis.fetch;
 let respostaDaIA = { texto: "Oi! Que bom que chamou 😊 Me conta, é pra morar ou pra investir?",
   coletado: {}, encerrar: false };
-let chamadasIA = 0, enviadas = [], ultimoPedido = "", demoraDaIA = 0;
+let chamadasIA = 0, enviadas = [], ultimoPedido = "", demoraDaIA = 0, cortarIA = false;
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes("api.anthropic.com")) {
     chamadasIA++;
     if (demoraDaIA) await new Promise(r => setTimeout(r, demoraDaIA));
     ultimoPedido = String(opts && opts.body || "");
-    return { ok: true, status: 200, json: async () => ({
+    // O raciocínio comeu o limite: a API responde 200 com o texto pela metade.
+    if (cortarIA) return { ok: true, status: 200, json: async () => ({ stop_reason: "max_tokens",
+      content: [{ type: "text", text: '{"texto":"Que bom! O Hori' }], usage: { input_tokens: 1200, output_tokens: 500 } }) };
+    return { ok: true, status: 200, json: async () => ({ stop_reason: "end_turn",
       content: [{ type: "text", text: JSON.stringify(respostaDaIA) }],
       usage: { input_tokens: 1200, output_tokens: 90 } }) };
   }
@@ -546,5 +549,48 @@ db.prepare("UPDATE orgs SET robo_sempre=1 WHERE id=?").run(org);
 assert.equal(dentroDaJanela(configDoRobo(org), new Date("2026-08-19T14:00:00-03:00").getTime()), true,
   "a opção vale nos dois sentidos");
 db.prepare("UPDATE orgs SET robo_sempre=NULL WHERE id=?").run(org);
+
+console.log("34. Modelo que pensa antes de responder: a segunda mensagem também sai (09/10/2026)");
+/* O Ali trocou ANTHROPIC_MODEL para o Sonnet 5.5 e o robô passou a responder
+   só a primeira mensagem. Os modelos da família 5 pensam por padrão, e o
+   raciocínio gasta o mesmo limite da resposta: com 500, a segunda resposta
+   saía cortada e o robô ficava calado sem nada na tela. */
+const pedido = () => JSON.parse(ultimoPedido);
+const modeloAntes = process.env.ANTHROPIC_MODEL;
+process.env.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+const horizon = lead({ nome: "Quer o Horizon", dono: vanessa });
+doClienteAgora(horizon, "Oi");
+respostaDaIA = { texto: "Oi! Tudo bem? Me conta o que você procura 😊", coletado: {}, encerrar: false };
+const r34a = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(r34a.atendeu, true);
+console.log(`   pedido: max_tokens ${pedido().max_tokens} · esforço ${pedido().output_config?.effort} · raciocínio ${pedido().thinking?.type}`);
+assert.ok(pedido().max_tokens >= 4000, "o limite tem folga para o raciocínio");
+assert.equal(pedido().output_config?.effort, "low");
+assert.equal(pedido().thinking?.type, "between_tools", "no Sonnet 5.5 o raciocínio fica desligado");
+
+// A resposta cortada não some calada: vira falha com motivo, e a ficha mostra.
+doClienteAgora(horizon, "O horizon");
+cortarIA = true;
+const r34b = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+cortarIA = false;
+console.log(`   resposta cortada: ${r34b.motivo} — ${r34b.erro}`);
+assert.equal(r34b.motivo, "ia_falhou");
+assert.match(r34b.erro, /cortada/);
+const e34 = estadoNoLead(org, horizon, NOITE);
+assert.ok(e34.ultima_falha && /cortada/.test(e34.ultima_falha.erro), "a ficha diz que a IA falhou, e por quê");
+
+// Na tentativa seguinte (resposta inteira) a segunda mensagem é respondida.
+respostaDaIA = { texto: "O Horizon é ótimo! Você busca para morar?", coletado: {}, encerrar: false };
+const r34c = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(r34c.atendeu, true, "o cliente que escreveu de novo recebe resposta");
+assert.equal(estadoNoLead(org, horizon, NOITE).ultima_falha, null, "deu certo: o aviso de falha sai");
+
+// O padrão (Haiku 4.5) não tem esses campos — mandá-los daria erro na API.
+if (modeloAntes === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = modeloAntes;
+doClienteAgora(horizon, "e tem 3 quartos?");
+await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(pedido().output_config, undefined);
+assert.equal(pedido().thinking, undefined);
+assert.equal(pedido().max_tokens, 500);
 
 console.log("\nTudo certo ✅");

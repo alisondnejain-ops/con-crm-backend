@@ -26,11 +26,28 @@
 const CHAVE = process.env.ANTHROPIC_API_KEY || "";
 // Haiku dá conta de ler números de uma tela e custa uma fração de centavo por
 // print. Trocável por variável se um dia precisar de mais precisão.
-const MODELO = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+// Lido a cada chamada: trocar a variável no Railway vale no próximo start, e o
+// teste consegue trocar de modelo sem reimportar o arquivo.
+const modeloAtual = () => (process.env.ANTHROPIC_MODEL || "").trim() || "claude-haiku-4-5-20251001";
 
 export const iaConfigurada = () => !!CHAVE;
 // Qual modelo está atendendo. Só para o diagnóstico — a chave nunca sai daqui.
-export const modeloIA = () => MODELO;
+export const modeloIA = () => modeloAtual();
+
+/* OS MODELOS DA FAMÍLIA 5 PENSAM ANTES DE RESPONDER, POR PADRÃO (09/10/2026,
+   relato do Ali depois de trocar ANTHROPIC_MODEL para o Sonnet 5.5: "só envia
+   a primeira mensagem"). O raciocínio sai do MESMO limite (`max_tokens`) que a
+   resposta: com 500, o "Oi" cabia, e na segunda mensagem — mais conversa para
+   pensar — o raciocínio comia o limite, o JSON saía cortado e o robô ficava
+   calado ("a IA respondeu fora do formato"), sem nada na tela.
+
+   Para estes modelos: limite folgado (só se paga o que é usado) e esforço
+   baixo — são respostas de uma ou duas frases, e cada segundo pensando é um
+   segundo a mais com o cliente esperando. No Sonnet 5.5 o raciocínio é
+   desligado (`between_tools`, o modo sem pensar dele). O Haiku 4.5, padrão
+   daqui, não tem nada disso e mandar os campos daria erro. */
+const PENSA_POR_PADRAO = (m) => /claude-(opus|sonnet|haiku|fable)-5/.test(m);
+const LIMITE_COM_RACIOCINIO = 4000;
 
 /* Uma chamada ao modelo, sem SDK — do mesmo jeito que o e-mail fala com o
    Resend. Fica separada porque agora tem mais de um uso (ler o print da
@@ -42,6 +59,8 @@ export const modeloIA = () => MODELO;
    que derruba o manual é pior do que não existir. */
 async function perguntar({ content, max_tokens = 600, system }) {
   if (!iaConfigurada()) return { ok: false, erro: "IA não configurada." };
+  const MODELO = modeloAtual();
+  const pensa = PENSA_POR_PADRAO(MODELO);
   let res;
   try {
     res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -53,7 +72,9 @@ async function perguntar({ content, max_tokens = 600, system }) {
       },
       body: JSON.stringify({
         model: MODELO,
-        max_tokens,
+        max_tokens: pensa ? Math.max(max_tokens, LIMITE_COM_RACIOCINIO) : max_tokens,
+        ...(pensa ? { output_config: { effort: "low" } } : {}),
+        ...(/claude-sonnet-5-5/.test(MODELO) ? { thinking: { type: "between_tools" } } : {}),
         ...(system ? { system } : {}),
         messages: [{ role: "user", content }],
       }),
@@ -67,6 +88,16 @@ async function perguntar({ content, max_tokens = 600, system }) {
     const msg = corpo?.error?.message || `HTTP ${res.status}`;
     console.warn("[ia] chamada falhou:", msg);
     return { ok: false, erro: res.status === 401 ? "Chave da IA inválida." : "A IA falhou: " + msg };
+  }
+  /* Resposta cortada ou recusada vem com HTTP 200. Sem conferir o motivo, o
+     pedaço de JSON virava "fora do formato" e ninguém sabia que era o limite. */
+  if (corpo.stop_reason === "max_tokens") {
+    console.warn(`[ia] resposta cortada pelo limite de tamanho (${MODELO}, max_tokens ${pensa ? Math.max(max_tokens, LIMITE_COM_RACIOCINIO) : max_tokens})`);
+    return { ok: false, erro: "A resposta da IA saiu cortada (limite de tamanho)." };
+  }
+  if (corpo.stop_reason === "refusal") {
+    console.warn(`[ia] o modelo recusou responder (${MODELO})`);
+    return { ok: false, erro: "A IA recusou responder a esta conversa." };
   }
   const texto = (corpo.content || []).filter(c => c.type === "text").map(c => c.text).join("").trim();
   // Quanto custou. Vai para o log e para o diagnóstico: gasto de IA que

@@ -297,6 +297,12 @@ export const noEscopo = (esc, lead) => {
   return ps.includes(lead.pipeline_id) || es.includes(lead.stage_id);
 };
 
+/* A ÚLTIMA VEZ QUE A IA FALHOU NESTE LEAD (09/10/2026). Falha da IA deixa a
+   conversa parada, e sem isto a ficha dizia "se o cliente escrever agora, a IA
+   responde" — verdade sobre as regras, mentira sobre o que estava acontecendo.
+   Em memória: some na publicação seguinte, que é quando um conserto chega. */
+const falhas = new Map();
+
 export function pararPorGente(leadId) {
   const l = db.prepare("SELECT robo_msgs, robo_parado FROM leads WHERE id = ?").get(leadId);
   if (!l || l.robo_parado || !(l.robo_msgs > 0)) return false;
@@ -367,7 +373,12 @@ export async function atender(orgId, leadId, opcoes = {}) {
       orientacoes: orientacoes(orgId).map(o => o.texto),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
-    if (!r.ok) { console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`); return { atendeu: false, motivo: "ia_falhou", erro: r.erro }; }
+    if (!r.ok) {
+      console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`);
+      falhas.set(leadId, { em: Date.now(), erro: r.erro });
+      return { atendeu: false, motivo: "ia_falhou", erro: r.erro };
+    }
+    falhas.delete(leadId);
     registrarUsoIA({ orgId, userId: null, leadId, recurso: "atendimento", uso: r.uso });
 
     /* O filtro de palavras que barrava a resposta ("visita", "contrato",
@@ -520,6 +531,7 @@ export function estadoNoLead(orgId, leadId, agora = Date.now()) {
     // O que aconteceria se o cliente escrevesse AGORA, e por quê.
     responderia: t.pode,
     motivo: t.pode ? null : (doLead || t.motivo),
+    ultima_falha: falhas.get(leadId) || null,
   };
 }
 
