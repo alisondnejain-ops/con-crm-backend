@@ -12377,6 +12377,10 @@ function RoboNoLead({lead,acoes,isMobile}){
           ?"O atendimento automático está desligado na conta inteira (Configurações → Autoatendimento)."
           :MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
     </div>
+    {/* A IA tentou e falhou: a conversa ficou parada. Sem isto, a linha de
+        cima diria "a IA responde" enquanto o cliente esperava sem resposta. */}
+    {e.ultima_falha&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
+      A última tentativa da IA neste lead falhou ({fmtClock(e.ultima_falha.em)}): {e.ultima_falha.erro} A conversa ficou sem resposta.</div>}
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
       Já respondeu {e.mensagens} vez(es) neste lead, de no máximo {e.teto}.</div>}
 
