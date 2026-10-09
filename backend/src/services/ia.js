@@ -499,7 +499,7 @@ const FORMATO_EXTRA = `
 No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
 
 export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "",
-  produto = null, campos = [], resumo = false }) {
+  produto = null, outrosProdutos = null, campos = [], resumo = false }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -548,6 +548,18 @@ a equipe explicou). Fale só do que está escrito aqui; o que não estiver, diga
 responde. As orientações da equipe continuam valendo.
 ${String(produto.texto).slice(0, 5000)}` : "";
 
+  /* OS OUTROS PRODUTOS DA IMOBILIÁRIA (09/10/2026): o cliente que chega pelo
+     WhatsApp direto cita o produto pelo nome, e sem isto a IA dizia "não tenho
+     os dados" de um produto que a equipe descreveu. Mesma regra da ficha: só
+     o que está escrito; o que não estiver, o corretor responde. */
+  const outF = (outrosProdutos?.fichas || []), outN = (outrosProdutos?.soNomes || []);
+  const blocoOutros = outF.length || outN.length ? `
+
+${produto && produto.texto ? "OUTROS PRODUTOS" : "OS PRODUTOS"} DA IMOBILIÁRIA, descritos pela equipe. Quando a pessoa falar de um
+deles, responda com estas informações — fale só do que está escrito; o que não estiver, diga que o
+corretor confirma. Não ofereça um produto que a pessoa não pediu sem antes entender o que ela procura.
+${outF.map(f => `\n--- ${f.nome} ---\n${f.texto}`).join("\n")}${outN.length ? `\n\nA imobiliária também tem (sem descrição aqui — o corretor detalha): ${outN.join(", ")}.` : ""}` : "";
+
   /* OS CAMPOS QUE ELA PODE PREENCHER (08/10/2026, escolhidos pelo gestor). */
   const listaCampos = (campos || []).slice(0, 15);
   const blocoCampos = listaCampos.length ? `
@@ -571,7 +583,7 @@ atendimento (true) ou não (false — só deixou recado, desistiu ou não quis r
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 

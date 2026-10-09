@@ -315,6 +315,10 @@ await caso("5b. Claude configura o Autoatendimento: escopo, campos, resumo, etap
   assert.ok(o.id);
   assert.ok(!(await usar("editar_orientacao_da_ia", { id: o.id, texto: "Chame a pessoa de você." })).erro);
   assert.equal((await usar("ver_orientacoes_da_ia", {})).dados.orientacoes[0].texto, "Chame a pessoa de você.");
+  // Texto longo é recusado com o motivo, não cortado calado (09/10/2026).
+  const longa = await usar("editar_orientacao_da_ia", { id: o.id, texto: "x".repeat(600) });
+  assert.match(String(longa.erro || ""), /Fichas de produto/);
+  assert.equal((await usar("ver_orientacoes_da_ia", {})).dados.orientacoes[0].texto, "Chame a pessoa de você.");
   assert.ok(!(await usar("apagar_orientacao_da_ia", { id: o.id })).erro);
   assert.equal((await usar("ver_orientacoes_da_ia", {})).dados.orientacoes.length, 0);
 });

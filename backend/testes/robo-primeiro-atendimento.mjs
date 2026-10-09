@@ -593,4 +593,22 @@ assert.equal(pedido().output_config, undefined);
 assert.equal(pedido().thinking, undefined);
 assert.equal(pedido().max_tokens, 500);
 
+console.log("35. Lead do WhatsApp direto cita o produto: a IA recebe a ficha dele (09/10/2026)");
+/* Print do Ali: "Gostaria de saber mais sobre o Horizon" e a IA respondeu "não
+   tenho os dados" — com a ficha do Horizon escrita. A ficha só valia para lead
+   de formulário ou catraca ligados a ela. */
+const { criarFicha } = await import("../src/services/ia-produtos.js");
+criarFicha(org, ali, { nome: "Residencial Horizon", texto: "Fica no bairro Areia Branca, 2 quartos com suíte, entrega em 2027." });
+criarFicha(org, ali, { nome: "Jardins do Vale", texto: "Casas térreas de 3 quartos, condomínio fechado." });
+db.prepare("INSERT INTO ia_produtos (id,org_id,nome,texto,ativo,created_at,updated_at) VALUES ('ip_desl',?,'Antigo Desligado','não usar',0,?,?)").run(org, Date.now(), Date.now());
+const direto = lead({ nome: "Alison", dono: vanessa });
+doClienteAgora(direto, "Gostaria de saber mais informações sobre o horizon");
+respostaDaIA = { texto: "O Horizon fica no Areia Branca, com 2 quartos e suíte. É pra morar?", coletado: {}, encerrar: false };
+assert.equal((await atender(org, direto, { agora: NOITE, atraso: 0 })).atendeu, true);
+const texto35 = pedido().messages[0].content[0].text;
+console.log(`   ficha do Horizon no pedido: ${texto35.includes("Areia Branca")} · a outra também: ${texto35.includes("Casas térreas")}`);
+assert.ok(texto35.includes("Areia Branca"), "a IA recebe o que a equipe escreveu do produto citado");
+assert.ok(texto35.indexOf("Residencial Horizon") < texto35.indexOf("Jardins do Vale"), "o produto citado vem primeiro");
+assert.ok(!texto35.includes("não usar"), "ficha desligada não vai");
+
 console.log("\nTudo certo ✅");
