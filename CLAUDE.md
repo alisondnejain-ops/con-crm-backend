@@ -57,7 +57,7 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **Não carimba `first_resp_at`** — senão um lead atendido só por robô apareceria no relatório como respondido por gente.
 
-  **Atraso de 8–20s antes de responder**, e ele faz duas coisas: resposta em 2 segundos às 23h grita "robô"; e o `Set atendendoAgora` + a **reconferência depois da espera** impedem que duas mensagens seguidas do cliente virem duas respostas, e que o robô atropele a Vanessa que respondeu nesses segundos.
+  **Atraso de 3–8s antes de responder** (era 8–20s até 09/10/2026; o Ali achou lento demais), e ele faz duas coisas: resposta em 2 segundos às 23h grita "robô"; e o `Set atendendoAgora` + a **reconferência depois da espera** impedem que duas mensagens seguidas do cliente virem duas respostas, e que o robô atropele a Vanessa que respondeu nesses segundos. **Mensagem que chega enquanto a IA escreve não é mais perdida** (09/10/2026; com espera curta ficaria comum): antes ela batia na trava (`ja_respondendo`) e ficava sem resposta para sempre. Agora a trava marca `deNovo` e, ao terminar, o atendimento roda outra vez; e a resposta da IA é gravada com a hora em que ela **leu** a conversa (`lidoEm`), não a de envio — assim a mensagem tardia fica depois dela, como pergunta ainda esperando. Teste: casos 18 e 18b de `npm run teste:robo`.
 
   **O disparo no webhook é SEM `await`** (`uazapi.webhook.js`). Webhook lento é webhook que a Uazapi desiste de chamar — e aí para de entrar lead. `atender` nunca lança.
 

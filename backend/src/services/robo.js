@@ -64,8 +64,14 @@ export const ASSINATURA_ROBO = "Atendimento automático";
    duas chamadas ao mesmo tempo — as duas veem uma conversa esperando resposta
    e as duas respondem. O cliente receberia duas mensagens quase iguais. A
    trava embaixo segura a segunda, e o atraso faz a primeira já ler as duas
-   frases juntas, que é como uma pessoa responderia. */
-const ATRASO_MIN = 8000, ATRASO_MAX = 20000;
+   frases juntas, que é como uma pessoa responderia.
+
+   3 a 8 segundos desde 09/10/2026 (pedido do Ali: "reduz a espera, tá muito
+   ruim") — eram 8 a 20. Com a espera curta, a mensagem que o cliente manda
+   enquanto a IA ainda está escrevendo fica mais comum; ela não é mais
+   descartada: `deNovo` faz o atendimento rodar outra vez ao terminar. */
+const ATRASO_MIN = 3000, ATRASO_MAX = 8000;
+const deNovo = new Set();
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
 /* Conversas sendo atendidas AGORA, neste processo. Um Set na memória basta:
@@ -306,10 +312,13 @@ const lerColetado = (lead) => { try { return JSON.parse(lead.robo_json || "{}") 
    Nunca lança. É chamado sem `await` pelo webhook — uma exceção aqui viraria
    um `unhandledRejection` que derruba o processo inteiro, e o processo inteiro
    é o CRM da Conecta. */
-export async function atender(orgId, leadId, { agora = Date.now(), atraso = null } = {}) {
+export async function atender(orgId, leadId, opcoes = {}) {
+  const { agora = Date.now(), atraso = null } = opcoes;
   // Já tem uma resposta a caminho para esta conversa: a segunda mensagem do
   // cliente não vira uma segunda resposta. Ela vai ser lida pela primeira.
-  if (atendendoAgora.has(leadId)) return { atendeu: false, motivo: "ja_respondendo" };
+  // Se ela chegou depois de a conversa ter sido lida, a resposta a caminho
+  // não a viu: ao terminar, o atendimento confere de novo (ver `deNovo`).
+  if (atendendoAgora.has(leadId)) { deNovo.add(leadId); return { atendeu: false, motivo: "ja_respondendo" }; }
   atendendoAgora.add(leadId);
   try {
     // `agora` existe para o teste poder ser 21h de sábado a qualquer hora do
@@ -328,6 +337,11 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
     if (!t.pode) return { atendeu: false, motivo: t.motivo };
     const { lead, cfg } = t;
 
+    /* A resposta entra na conversa com a hora em que a IA LEU a conversa, não
+       com a hora em que saiu. Ela responde ao que leu: a mensagem que o cliente
+       manda enquanto ela escreve fica DEPOIS dela, como pergunta ainda sem
+       resposta — e é isso que faz a conferência de `deNovo` respondê-la. */
+    const lidoEm = Date.now();
     const msgs = db.prepare(
       "SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
     const coletado = lerColetado(lead);
@@ -382,7 +396,7 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
        Vanessa, que é o número que o gestor usa. */
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
       VALUES (?,?,'out',NULL,?,?,?,?,?)`)
-      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, Date.now(), canalId);
+      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, lidoEm, canalId);
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o
        robô o marcasse, um lead atendido só por robô apareceria no relatório
@@ -403,6 +417,10 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
     return { atendeu: false, motivo: "erro", erro: e.message };
   } finally {
     atendendoAgora.delete(leadId);
+    /* Chegou mensagem do cliente durante este atendimento: roda outra vez.
+       Se a última mensagem já é a resposta que acabou de sair (a espera leu as
+       duas juntas), `podeAtender` vê "sem cliente esperando" e não responde. */
+    if (deNovo.delete(leadId)) setTimeout(() => { atender(orgId, leadId, { ...opcoes, agora: opcoes.agora ?? Date.now() }).catch(() => {}); }, 0);
   }
 }
 
