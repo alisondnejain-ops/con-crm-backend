@@ -39,7 +39,7 @@ import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
 import { semAtendenteAtiva } from "./rodizio.js";
-import { fichaDoLead } from "./ia-produtos.js";
+import { fichaDoLead, outrasFichas } from "./ia-produtos.js";
 import { gravarCampos } from "./campos-lead.js";
 import { moverLead } from "./movimento.js";
 
@@ -354,12 +354,16 @@ export async function atender(orgId, leadId, opcoes = {}) {
 
     // A ficha do produto deste atendimento e os campos que ela pode preencher.
     const ficha = fichaDoLead(orgId, lead);
+    // As outras fichas da conta, as citadas na conversa primeiro (ia-produtos.js).
+    const outros = outrasFichas(orgId, ficha?.id || null,
+      msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" "));
     const defs = cfg.campos.length ? db.prepare(`SELECT key, name, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1
       AND key IN (${cfg.campos.map(() => "?").join(",")})`).all(orgId, ...cfg.campos).map(d => ({ chave: d.key, nome: d.name, tipo: d.type,
         opcoes: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() })) : [];
     let jaPreenchidos = {}; try { jaPreenchidos = JSON.parse(lead.custom_fields || "{}"); } catch {}
     const r = await atenderPrimeiroContato({
       produto: ficha,
+      outrosProdutos: outros,
       campos: defs.map(d => ({ ...d, valor: jaPreenchidos[d.chave] })),
       resumo: cfg.observacao,
       nome: lead.name,

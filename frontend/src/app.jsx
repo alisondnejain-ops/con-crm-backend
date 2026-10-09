@@ -17437,7 +17437,10 @@ function RoboConfig({acoes,session,isMobile}){
       })()}
 
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
-        <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2} maxLength={500}
+        {/* Sem maxLength: colar um texto longo era cortado calado pelo campo, e
+            a IA lia só o começo. O servidor recusa acima de 500 e diz onde
+            descrever produto (Fichas de produto). */}
+        <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2}
           placeholder="Ex.: Nunca fale o valor do condomínio — diga que o corretor confirma."
           style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
             border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
@@ -17446,6 +17449,8 @@ function RoboConfig({acoes,session,isMobile}){
           style={{alignSelf:"flex-start",background:novaLinha.trim()?C.greenDeep:C.faint,color:"#fff",
             border:"none",borderRadius:9,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
             fontWeight:700,cursor:novaLinha.trim()?"pointer":"default"}}>Ensinar</button>
+        {novaLinha.length>400&&<div style={{width:"100%",fontSize:11,color:novaLinha.trim().length>500?C.hot:C.faint}}>
+          {novaLinha.trim().length} de 500 letras{novaLinha.trim().length>500?" — para descrever um produto, use as Fichas de produto.":""}</div>}
       </div>
 
       {!ensino&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
@@ -17598,7 +17603,7 @@ function FichasDeProduto({acoes,isMobile,cartao}){
       {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
     </div>
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
-      Uma ficha por empreendimento: localização, diferenciais, o que explicar. Ligue a ficha a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, e a IA usa ela nos atendimentos que chegam por ali. O que ela pode ou não falar continua sendo o que as orientações dizem.
+      Uma ficha por empreendimento: localização, diferenciais, o que explicar. A IA conhece todas as fichas ligadas: quando o cliente fala de um produto, ela usa a ficha dele. Ligada a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, a ficha vira o produto principal de quem chega por ali. O que ela pode ou não falar continua sendo o que as orientações dizem.
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
     {edit&&<div style={{background:C.surface,borderRadius:11,padding:11,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>

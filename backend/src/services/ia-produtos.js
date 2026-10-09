@@ -137,3 +137,40 @@ export function fichaDoLead(orgId, lead) {
   const texto = [String(f.texto || "").trim(), textoDoCatalogo(orgId, f.produto_id)].filter(Boolean).join("\n\n");
   return { id: f.id, nome: f.nome, texto };
 }
+
+/* AS OUTRAS FICHAS DA CONTA (09/10/2026, print do Ali: o cliente escreveu
+   "quero saber do Horizon" e a IA respondeu "não tenho os dados aqui" — com a
+   ficha do Horizon escrita). A ficha só valia para o lead de um formulário ou
+   catraca ligados a ela, e o lead que chega pelo WhatsApp direto não tem
+   nenhum dos dois: a IA atendia sem ficha nenhuma, e é justamente o lead que
+   diz o nome do produto na conversa.
+
+   Agora as fichas ativas da conta vão também, como "os produtos da
+   imobiliária". Ordem de prioridade dentro de um teto de texto (cada ficha é
+   paga em toda resposta): primeiro as que a conversa cita pelo nome, depois as
+   outras enquanto couber; as que não couberem vão só pelo nome, para a IA
+   saber que existem e dizer que o corretor detalha. Sem acento e sem
+   maiúscula, e vale uma palavra do nome ("horizon" acha "Residencial Horizon"). */
+const TETO_OUTRAS = 16000;
+const semAcento = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const GENERICAS = new Set(["residencial", "condominio", "edificio", "loteamento", "empreendimento", "torre", "torres", "casas", "apartamentos"]);
+const citada = (nome, conversa) => {
+  const n = semAcento(nome).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!n) return false;
+  if (conversa.includes(n)) return true;
+  return n.split(" ").some(p => p.length >= 4 && !GENERICAS.has(p) && new RegExp(`\\b${p}\\b`).test(conversa));
+};
+export function outrasFichas(orgId, excetoId, conversa = "") {
+  const c = semAcento(conversa);
+  const todas = db.prepare("SELECT * FROM ia_produtos WHERE org_id = ? AND ativo = 1 ORDER BY nome").all(orgId)
+    .filter(f => f.id !== excetoId);
+  const ordem = [...todas.filter(f => citada(f.nome, c)), ...todas.filter(f => !citada(f.nome, c))];
+  const fichas = [], soNomes = [];
+  let usado = 0;
+  for (const f of ordem) {
+    const texto = [String(f.texto || "").trim(), textoDoCatalogo(orgId, f.produto_id)].filter(Boolean).join("\n\n");
+    if (texto && usado + texto.length <= TETO_OUTRAS) { fichas.push({ nome: f.nome, texto }); usado += texto.length; }
+    else soNomes.push(f.nome);
+  }
+  return { fichas, soNomes };
+}

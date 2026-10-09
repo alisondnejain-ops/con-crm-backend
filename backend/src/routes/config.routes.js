@@ -532,6 +532,10 @@ r.get("/robo/ensino", roles("adm", "sdr"), (req, res) =>
 r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
   const texto = String(req.body?.texto || "").trim();
   if (!texto) return res.status(400).json({ error: "Escreva a orientação." });
+  /* Recusa em vez de cortar (09/10/2026): cortava calado em 500, e a IA lia só
+     o começo do que a equipe escreveu — produto descrito como orientação
+     chegava pela metade, e ninguém sabia. */
+  if (texto.length > 500) return res.status(400).json({ error: "Cada orientação tem até 500 letras (esta tem " + texto.length + "). Para descrever um produto ou empreendimento, use as Fichas de produto, na mesma tela, logo acima — lá cabem 4.000 e a IA usa quando o cliente fala dele." });
   /* Teto de 30 linhas, e não é economia besta: cada uma entra no pedido de
      TODA mensagem que o robô responde, então o texto acumulado vira dinheiro
      em toda conversa. Trinta orientações curtas descrevem um jeito de falar;
@@ -550,8 +554,9 @@ r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
 r.patch("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
   const linha = db.prepare("SELECT * FROM robo_ensino WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!linha) return res.status(404).json({ error: "Orientação não encontrada." });
-  const texto = req.body?.texto === undefined ? linha.texto : String(req.body.texto).trim().slice(0, 500);
+  const texto = req.body?.texto === undefined ? linha.texto : String(req.body.texto).trim();
   if (!texto) return res.status(400).json({ error: "A orientação não pode ficar vazia." });
+  if (req.body?.texto !== undefined && texto.length > 500) return res.status(400).json({ error: "Cada orientação tem até 500 letras (esta tem " + texto.length + "). Para descrever um produto ou empreendimento, use as Fichas de produto, na mesma tela, logo acima — lá cabem 4.000 e a IA usa quando o cliente fala dele." });
   const ativo = req.body?.ativo === undefined ? linha.ativo : (req.body.ativo ? 1 : 0);
   db.prepare("UPDATE robo_ensino SET texto=?, ativo=? WHERE id=?").run(texto, ativo, linha.id);
   res.json({ linhas: orientacoes(req.user.org_id, true) });
