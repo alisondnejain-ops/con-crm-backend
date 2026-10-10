@@ -498,11 +498,24 @@ caso("Conversa grande é RESUMIDA, não apagada: o resumo abre a conversa nova (
 
 caso("Teto do mês: passado o limite, o assistente recusa com a frase certa");
 const ins = db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)");
-for (let i = 0; i < 200; i++) ins.run("x" + i, cliente, "u_gestora", "config", Date.now());
+for (let i = 0; i < 1000; i++) ins.run("x" + i, cliente, "u_gestora", "config", Date.now());
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "mais uma" });
 assert.equal(r.status, 409);
-assert.ok(/limite/.test(r.body.error));
+assert.ok(/limite de 1000/.test(r.body.error), "o padrão do gestor é 1000 por mês (10/10/2026)");
 db.prepare("DELETE FROM assistente_turnos WHERE id LIKE 'x%'").run();
+
+caso("A IA falha antes de responder: a pergunta NÃO conta no teto do mês (10/10/2026)");
+{
+  const contar = () => db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora' AND tipo = 'config'").get().n;
+  const antes = contar();
+  // Roteiro vazio: a primeira chamada à IA "cai".
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "pergunta que falha" });
+  assert.ok(r.body.itens.some(i => i.de === "erro"));
+  assert.equal(contar(), antes, "pergunta sem resposta é devolvida");
+  roteiro.push(fala("Agora sim."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "de novo" });
+  assert.equal(contar(), antes + 1, "pergunta respondida conta");
+}
 
 caso("Nuvem de suporte: a IA responde e, sem solução, oferece a pessoa com o resumo");
 roteiro.push(

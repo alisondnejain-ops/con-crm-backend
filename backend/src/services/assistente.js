@@ -32,7 +32,8 @@ import { FERRAMENTAS_MARKETING, executorDeMarketing } from "./assistente-marketi
    por conta e por tipo; passado, o assistente avisa e a nuvem de suporte vai
    direto para uma pessoa. */
 export const LIMITES = {
-  config: () => Number(process.env.ASSISTENTE_LIMITE_MES || 200),
+  // 1000 desde 10/10/2026 (era 200 — o gestor batia no teto no meio do mês).
+  config: () => Number(process.env.ASSISTENTE_LIMITE_MES || 1000),
   // A consulta é de toda a equipe (atendentes e corretores), então o teto é maior.
   consulta: () => Number(process.env.ASSISTENTE_CONSULTA_LIMITE_MES || 400),
   suporte: () => Number(process.env.SUPORTE_IA_LIMITE_MES || 300),
@@ -183,15 +184,20 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
   } else {
     mensagens.push({ role: "user", content: conteudoNovo.length === 1 ? textoDaVez : conteudoNovo });
   }
-  if (!continuar) db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
-    .run("at_" + randomUUID(), user.org_id, user.id, tipo, agora());
+  /* A pergunta conta no teto do mês já aqui (duas abas não passam juntas do
+     limite), e é DEVOLVIDA se a IA falhar antes de responder qualquer coisa:
+     "a IA não conseguiu responder" não pode gastar a cota de quem perguntou. */
+  const turnoId = continuar ? null : "at_" + randomUUID();
+  if (turnoId) db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)")
+    .run(turnoId, user.org_id, user.id, tipo, agora());
+  let falhouNaPrimeira = false;
 
   let falhou = null, pausada = false, parou = false, contexto = contextoInicial;
   for (let volta = 0; ; volta++) {
     const decorrido = Date.now() - comecou;
     if (volta >= voltas || (volta > 0 && decorrido > TEMPO_POR_VEZ)) { parou = true; break; }
     const r = await chamarClaude({ system, messages: mensagens, tools, effort, timeoutMs: Math.max(30000, Math.min(180000, TEMPO_TOTAL - decorrido)) });
-    if (!r.ok) { falhou = r.erro; if (volta === 0) mensagens = base; break; }
+    if (!r.ok) { falhou = r.erro; if (volta === 0) { mensagens = base; falhouNaPrimeira = true; } break; }
     registrar({ orgId: user.org_id, userId: user.id, recurso: { config: "assistente", consulta: "consulta" }[tipo] || "suporte", uso: r.uso, modelo: r.modelo, custo: r.custo ?? undefined });
     contexto = r.uso?.entrada || contexto;
     const resp = r.resposta;
@@ -206,7 +212,7 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
       novos.push(novoItem("assistente", "Não consigo ajudar com isso por aqui. Se precisar, fale com o suporte."));
       break;
     }
-    if (!Array.isArray(resp.content) || !resp.content.length) { falhou = "A IA não respondeu nada."; if (volta === 0) mensagens = base; break; }
+    if (!Array.isArray(resp.content) || !resp.content.length) { falhou = "A IA não respondeu nada."; if (volta === 0) { mensagens = base; falhouNaPrimeira = true; } break; }
     /* PESQUISA NA WEB PAUSADA (`pause_turn`): a pesquisa roda nos servidores
        da Anthropic e, quando demora, a API devolve a resposta pela metade.
        Para continuar, ela é mandada de volta como está; o que vem depois é a
@@ -244,6 +250,7 @@ export async function conversar({ conversa, user, tipo, texto, system, tools, ex
   const u = mensagens[mensagens.length - 1];
   if (u && u.role === "assistant" && (pausada || (u.content || []).some(b => b.type === "tool_use"))) mensagens.pop();
   if (falhou) novos.push(novoItem("erro", falhou));
+  if (falhouNaPrimeira && turnoId) db.prepare("DELETE FROM assistente_turnos WHERE id = ?").run(turnoId);
   /* Parou pelo tempo, pelos passos ou pelo tamanho: o trabalho fica PENDENTE
      e a tela pede a continuação sozinha. Erro não continua sozinho — a pessoa
      vê o erro e decide. */
