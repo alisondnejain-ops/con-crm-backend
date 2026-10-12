@@ -14,6 +14,7 @@ import {
 import { MODELOS, desenhar, escolherModelo, modeloEfetivo, podeUsarModelo } from "../services/cetrolab/index.js";
 import { planoParaClientes } from "../services/cetrolab/planos.js";
 import { situacaoDoRecurso } from "../services/recursos.js";
+import { conteudoDoSite, salvarConteudo } from "../services/cetrolab/conteudo.js";
 
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 
@@ -148,6 +149,16 @@ gestao.post("/modelo", (req, res) => {
   const r = escolherModelo(req.user.org_id, String(req.body?.modelo || ""));
   if (r.erro) return res.status(r.status || 400).json({ error: r.erro });
   res.json(resposta(req));
+});
+
+/* Conteúdo institucional (Sobre nós, redes, equipe no site, depoimentos) —
+   o que o modelo Institucional mostra além do catálogo. Ver
+   services/cetrolab/conteudo.js. */
+gestao.get("/conteudo", (req, res) => res.json(conteudoDoSite(req.user.org_id)));
+gestao.patch("/conteudo", (req, res) => {
+  const r = salvarConteudo(req.user.org_id, req.body || {});
+  if (r.erro) return res.status(400).json({ error: r.erro });
+  res.json(r.conteudo);
 });
 
 // "Conferir agora": em que passo o domínio próprio está.

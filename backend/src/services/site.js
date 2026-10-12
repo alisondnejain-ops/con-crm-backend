@@ -423,6 +423,9 @@ export function publico(p) {
     titulo: p.titulo,
     finalidade: aluguel ? "aluguel" : "venda",
     tipo: p.tipo === "terreno" ? "terreno" : "casa",
+    // Empreendimento é o que o cadastro chama de casa "empreendimento" (x casa
+    // solta): é o que o modelo Institucional mostra como lançamento.
+    empreendimento: p.tipo === "casa" && p.formato === "empreendimento",
     valor: p.valor > 0 ? p.valor : null,
     condominio: p.condominio > 0 ? p.condominio : null,
     iptu: p.iptu > 0 ? p.iptu : null,
@@ -476,6 +479,10 @@ export function filtrosDe(q = {}) {
     quartos: [1, 2, 3, 4].includes(Number(q.quartos)) ? Number(q.quartos) : 0,
     ate: Number(q.ate) > 0 ? Number(q.ate) : 0,
     p: Math.max(1, Math.min(500, parseInt(q.p, 10) || 1)),
+    // "Buscar por código" (o código que aparece em cada imóvel) e a lista só
+    // de empreendimentos (os "Lançamentos" do modelo Institucional).
+    codigo: /^[0-9a-f]{6}$/i.test(String(q.codigo || "").trim()) ? String(q.codigo).trim().toUpperCase() : "",
+    lancamentos: q.lancamentos === "1",
   };
   // Faixa de preço só vale dentro de uma finalidade: "até R$ 2.000" num
   // catálogo misturado cortaria todas as casas à venda sem ninguém entender.
@@ -491,6 +498,9 @@ export function catalogo(orgId, f) {
   if (f.bairro) { where.push("bairro = ?"); args.push(f.bairro); }
   if (f.quartos) { where.push("COALESCE(quartos,0) >= ?"); args.push(f.quartos); }
   if (f.ate) { where.push("valor > 0 AND valor <= ?"); args.push(f.ate); }
+  // O código é o começo do id (ver `codigoDe`), sem o "p_" e sem os hífens.
+  if (f.codigo) { where.push("UPPER(SUBSTR(REPLACE(SUBSTR(id,3),'-',''),1,6)) = ?"); args.push(f.codigo); }
+  if (f.lancamentos) where.push("tipo = 'casa' AND formato = 'empreendimento'");
   const w = where.join(" AND ");
   const total = db.prepare(`SELECT COUNT(*) n FROM produtos WHERE ${w}`).get(...args).n;
   const linhas = db.prepare(`SELECT * FROM produtos WHERE ${w} ORDER BY created_at DESC LIMIT ? OFFSET ?`)

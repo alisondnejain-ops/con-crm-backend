@@ -11,8 +11,9 @@
    observações internas. */
 import db from "../../db.js";
 import { catalogo, filtrosDe, imovelDoSite } from "../site.js";
+import { conteudoPublico } from "./conteudo.js";
 
-export { catalogo, filtrosDe, imovelDoSite };
+export { catalogo, filtrosDe, imovelDoSite, conteudoPublico };
 
 /* Os bairros do catálogo disponível, com quantos imóveis e o menor preço de
    venda e de aluguel de cada um — é o que o modelo Bairros mostra no painel.
