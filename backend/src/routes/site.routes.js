@@ -9,8 +9,11 @@ import db from "../db.js";
 import { railwayPronto, removerDominio } from "../services/railway.js";
 import {
   configDoSite, salvarSite, registrosDoSite, siteDoSlug, siteDoDominio, orgDoDominio, imovelDoSite, slugify, marcaDoSite, verificarDominio,
-  paginaPortal, paginaImovel, paginaAviso, paginaInexistente, paginaPausada, sitemap, robots, FRASE_PADRAO,
+  paginaAviso, paginaInexistente, paginaPausada, sitemap, robots, FRASE_PADRAO,
 } from "../services/site.js";
+import { MODELOS, desenhar, escolherModelo, modeloEfetivo, podeUsarModelo } from "../services/cetrolab/index.js";
+import { planoParaClientes } from "../services/cetrolab/planos.js";
+import { situacaoDoRecurso } from "../services/recursos.js";
 
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 
@@ -39,7 +42,7 @@ const servir = (res, html, status = 200) =>
 
 paginas.get("/:slug", (req, res) => {
   const ctx = contexto(req, res); if (!ctx) return;
-  servir(res, paginaPortal(ctx, req.query));
+  servir(res, desenhar(ctx, "portal", req.query, req.query.previa));
 });
 // ANTES de "/:slug/:id": senão "sitemap.xml" seria lido como o id de um imóvel.
 paginas.get("/:slug/sitemap.xml", (req, res) => {
@@ -60,8 +63,9 @@ function paginaDoImovel(ctx, req, res) {
   // Título trocado depois de o link circular: leva para o endereço atual, em
   // vez de manter no ar um endereço que diz uma coisa e mostra outra.
   const certo = slugify(r.imovel.titulo) || "imovel";
-  if (req.params.titulo !== certo) return res.redirect(301, `${ctx.raiz}/${r.imovel.id}/${certo}`);
-  servir(res, paginaImovel(ctx, r.imovel));
+  if (req.params.titulo !== certo)
+    return res.redirect(301, `${ctx.raiz}/${r.imovel.id}/${certo}${req.query.previa ? "?previa=" + encodeURIComponent(String(req.query.previa)) : ""}`);
+  servir(res, desenhar(ctx, "imovel", r.imovel, req.query.previa));
 }
 
 /* ===== O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026) =====
@@ -88,7 +92,7 @@ dominioProprio.use((req, res, next) => {
     return res.set("Cache-Control", "no-store").json({ site: marcaDoSite(achado.org_id) });
   const ctx = pronto(siteDoDominio(req.get("host")), res, { base, raiz: "" });
   if (!ctx) return;
-  if (req.path === "/") return servir(res, paginaPortal(ctx, req.query));
+  if (req.path === "/") return servir(res, desenhar(ctx, "portal", req.query, req.query.previa));
   if (req.path === "/sitemap.xml") return res.type("application/xml").set("Cache-Control", "no-cache").send(sitemap(ctx));
   if (req.path === "/robots.txt") return res.type("text/plain").set("Cache-Control", "no-cache").send(robots(ctx));
   const m = req.path.match(/^\/([^/]+)(?:\/([^/]+))?\/?$/);
@@ -115,6 +119,13 @@ function resposta(req) {
     // verificação), lidos do Railway. Vazio sem o cadastro automático.
     dominio_registros: registrosDoSite(c),
     dominio_automatico: railwayPronto().ok,
+    // CETROLAB: o modelo escolhido, o que está no ar (sem a ferramenta, um
+    // premium volta ao Clássico sem tirar o site do ar) e o que a conta pode usar.
+    modelo: c.modelo || "classico",
+    modelo_no_ar: modeloEfetivo(c),
+    modelos: MODELOS.map(m => ({ ...m, disponivel: podeUsarModelo(req.user.org_id, m.id) })),
+    cetrolab: situacaoDoRecurso(req.user.org_id, "cetrolab"),
+    cetrolab_plano: planoParaClientes(),
   };
 }
 
@@ -129,6 +140,13 @@ gestao.patch("/", async (req, res) => {
   if (r.mudouDominio && r.cfg.dominio) {
     try { await verificarDominio(req.user.org_id); } catch (e) { console.warn("[site] conferência:", e.message); }
   }
+  res.json(resposta(req));
+});
+
+// Cetrolab: trocar o modelo do site. Premium exige a ferramenta.
+gestao.post("/modelo", (req, res) => {
+  const r = escolherModelo(req.user.org_id, String(req.body?.modelo || ""));
+  if (r.erro) return res.status(r.status || 400).json({ error: r.erro });
   res.json(resposta(req));
 });
 

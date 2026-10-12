@@ -33,6 +33,7 @@
       de 27/08/2026, e aqui ela pesa mais: do outro lado não tem nem cliente
       logado, tem a internet. */
 
+import { planosCetrolab } from "../services/cetrolab/planos.js";
 import { TRIAL_DIAS } from "../services/assinatura.js";
 import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
@@ -90,6 +91,16 @@ const paraVitrine = (p) => ({
   id: p.id, nome: p.nome, plano: p.plano || null, ciclo_nome: p.ciclo_nome,
   limite: p.limite, mensal: p.mensal, meses: p.meses,
   total: p.total, forma: p.forma, resumo: p.resumo,
+});
+
+/* CETROLAB: os planos de quem vai contratar SÓ o site (12/10/2026). É o
+   gatilho para a página de venda do Cetrolab — os preços vêm do hub, como os
+   do ConHub vêm da tabela do servidor: preço copiado na página divergiria no
+   primeiro reajuste. A contratação em si é a etapa seguinte. */
+r.get("/publico/cetrolab/planos", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({ planos: planosCetrolab({ soAtivos: true, para: "fora" })
+    .map(({ id, nome, resumo, valor_mensal }) => ({ id, nome, resumo, valor_mensal })) });
 });
 
 r.get("/publico/planos", (_req, res) => {
