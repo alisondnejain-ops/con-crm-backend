@@ -73,12 +73,12 @@ export function paginaPortal(ctx, query) {
   <nav class="chips" aria-label="Tipo de negócio">${chip("", "Todos")}${chip("venda", "Comprar")}${chip("aluguel", "Alugar")}${f.bairro ? `<a class="on" href="${esc(link({ bairro: "", p: 1 }))}">${esc(f.bairro)} ✕</a>` : ""}</nav>
 </div></section>
 <main class="wrap">
-  ${capa ? `<a class="capa" href="${esc(comPrevia(ctx, hrefImovel(ctx, capa)))}">${fotoOu(capa.fotos[0], capa.titulo, false)}
+  ${capa ? `<a class="capa" href="${esc(comPrevia(ctx, hrefImovel(ctx, capa)))}">${fotoOu(capa.fotos[0], capa.titulo, false, "100vw")}
     <div class="vidros"><div class="vidro"><div class="ref">EM DESTAQUE · CÓD. ${esc(capa.codigo)}</div><div class="nome">${esc(capa.titulo)}</div></div>
       <div class="etiq">${linhaInfo(capa) ? `<span>${esc(linhaInfo(capa).split(" · ").slice(0, 2).join(" · "))}</span>` : ""}<span>${precoDe(capa)}</span><span class="ir">Ver imóvel →</span></div></div></a>` : ""}
   ${colecoes.length >= 2 ? `<section><div class="secao-topo"><h2>Coleções</h2><span>POR BAIRRO</span></div>
     <div class="colecoes">${colecoes.map(b => `<a class="colecao" href="${esc(link({ bairro: b.bairro, finalidade: "", p: 1 }))}#indice">
-      <div class="foto">${fotoOu(b.foto, b.bairro, true)}</div><div class="rod"><b>${esc(b.bairro)}</b><span>${String(b.total).padStart(2, "0")}</span></div></a>`).join("")}</div></section>` : ""}
+      <div class="foto">${fotoOu(b.foto, b.bairro, true, "(max-width: 700px) 100vw, 33vw")}</div><div class="rod"><b>${esc(b.bairro)}</b><span>${String(b.total).padStart(2, "0")}</span></div></a>`).join("")}</div></section>` : ""}
   <section id="indice"><div class="secao-topo"><h2>${f.bairro ? esc(f.bairro) : "Índice"}</h2><span>${c.total} ${c.total === 1 ? "IMÓVEL" : "IMÓVEIS"}</span></div>
     ${lista.length ? `<div class="indice">${lista.map((i, k) => `<a href="${esc(comPrevia(ctx, hrefImovel(ctx, i)))}">
       <span class="n">${String(n0 + k + (capa ? 2 : 1)).padStart(2, "0")}</span>

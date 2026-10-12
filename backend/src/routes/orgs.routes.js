@@ -55,6 +55,7 @@ const codigoSugerido = (nome) =>
   (arrumarCodigo(nome).split("-").slice(0, 2).join("-") || "IMOBILIARIA") + "-" + new Date().getFullYear();
 
 import { limites as limitesDeCanais } from "../services/canais.js";
+import { chavesDaMidia } from "../services/fotos-imovel.js";
 
 function resumo(req, org) {
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
@@ -744,8 +745,10 @@ r.delete("/:id", async (req, res) => {
      e ANTES, porque depois de apagar as linhas ninguém mais sabe quais arquivos
      eram desta imobiliária. Falha aqui não impede a exclusão: arquivo órfão se
      limpa depois, cliente que pediu para sair não pode ficar preso. */
-  const arquivos = db.prepare(`SELECT m.chave FROM produto_midias m
-    JOIN produtos p ON p.id = m.produto_id WHERE p.org_id = ? AND m.chave IS NOT NULL`).all(org.id);
+  // Cada foto pode ter versões menores (tratamento automático): saem junto.
+  const arquivos = db.prepare(`SELECT m.chave, m.variantes FROM produto_midias m
+    JOIN produtos p ON p.id = m.produto_id WHERE p.org_id = ? AND m.chave IS NOT NULL`).all(org.id)
+    .flatMap(m => chavesDaMidia(m).map(chave => ({ chave })));
   let arquivosApagados = 0;
   for (const { chave } of arquivos) {
     try { await apagarArquivo(chave); arquivosApagados++; }
