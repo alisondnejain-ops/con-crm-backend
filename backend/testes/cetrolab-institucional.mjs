@@ -96,7 +96,7 @@ try {
 
   caso("O Institucional aparece em segundo e pede o Cetrolab");
   const s = (await gestor.get("/site")).body;
-  assert.deepEqual(s.modelos.map(m => m.id), ["bairros", "institucional", "editorial", "lancamento", "classico"]);
+  assert.deepEqual(s.modelos.map(m => m.id), ["classico", "bairros", "institucional", "editorial", "lancamento"]);
   assert.equal((await gestor.send("POST", "/site/modelo", { modelo: "institucional" })).status, 402);
 
   caso("Sem conteúdo cadastrado, as seções institucionais não aparecem");

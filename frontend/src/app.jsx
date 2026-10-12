@@ -15808,52 +15808,103 @@ function MiniaturaModelo({id}){
     {[0,1,2].map(k=><span key={k} style={{flex:1,height:30,borderRadius:5,background:"#E1E3DE"}}/>)}</div>;
 }
 
-function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
+/* A ORDEM DA TELA (12/10/2026, pedido do Ali): o Clássico grátis primeiro, à
+   vista antes de tudo; depois o bloco do Cetrolab, com o preço único e o botão
+   "Assinar o Cetrolab", e os modelos premium, cada um com "Ver prévia" e
+   "Assinar". A assinatura abre ALI MESMO (a mesma contratação de Minha conta →
+   Ferramentas, filtrada no Cetrolab) — mandar a pessoa para outra tela no
+   minuto em que ela decidiu contratar é perder a venda. Sem plano cadastrado
+   pelo ConHub, o botão não aparece e a tela diz que ainda não está à venda:
+   botão que só leva a "em breve" é pior que nenhum. */
+function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao}){
   const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
+  const [assinando,setAssinando]=useState(false);
+  const blocoAssinar=useRef(null);
   const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
   const plano=d.cetrolab_plano;
   async function usar(id){
     setErro(""); setSalvando(id);
     try{ aoMudar(await acoes.modeloDoSite(id)); }catch(e){ setErro(e.message); }finally{ setSalvando(null); }
   }
+  function abrirAssinatura(){
+    setAssinando(true);
+    setTimeout(()=>{ if(blocoAssinar.current) blocoAssinar.current.scrollIntoView({behavior:"smooth",block:"center"}); },50);
+  }
   // A prévia abre no endereço que o site usa de verdade (o domínio próprio, quando ativo).
   const linkSite=d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url;
+  const gratis=d.modelos.filter(m=>!m.premium);
+  const premium=d.modelos.filter(m=>m.premium);
+  const botaoVerde={background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38};
+  const linkVerde={color:C.greenMid,fontSize:12.5,fontWeight:600};
+
+  const acoesDoModelo=(m)=>{
+    const noAr=d.modelo_no_ar===m.id; const escolhido=d.modelo===m.id;
+    return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      {m.disponivel&&!escolhido&&<button onClick={()=>usar(m.id)} disabled={!!salvando} style={botaoVerde}>{salvando===m.id?"Trocando…":"Usar este modelo"}</button>}
+      {!m.disponivel&&plano&&<button onClick={abrirAssinatura} style={{...botaoVerde,background:C.greenDeep}}>Assinar o Cetrolab</button>}
+      {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={linkVerde}>Ver prévia</a>}
+      {d.ligado&&noAr&&<a href={linkSite} target="_blank" rel="noreferrer" style={linkVerde}>Ver o site no ar</a>}
+    </div>;
+  };
+  const cartaoModelo=(m,largo)=>{
+    const noAr=d.modelo_no_ar===m.id;
+    return <div key={m.id} style={{border:`1.5px solid ${noAr?C.green:C.line}`,borderRadius:12,padding:12,background:noAr?C.greenSoft:C.surface,
+      display:"grid",gridTemplateColumns:largo&&!isMobile?"200px minmax(0,1fr)":"1fr",gap:largo&&!isMobile?14:8,alignItems:"start"}}>
+      <MiniaturaModelo id={m.id}/>
+      <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{m.nome}</span>
+          {!m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,background:C.card,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 8px"}}>GRÁTIS · no seu plano</span>}
+          {noAr&&<span style={{fontSize:10.5,fontWeight:700,color:"#fff",background:C.green,borderRadius:99,padding:"2px 8px"}}>NO AR</span>}
+          {m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 7px"}}>Cetrolab</span>}
+        </div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,flex:1}}>{m.resumo}</div>
+        {acoesDoModelo(m)}
+      </div>
+    </div>;
+  };
+
   return <div style={cartao}>
     <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
       <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
     </div>
-    {d.modelos.some(m=>m.id==="institucional")&&<div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
-      O Institucional mostra também o conteúdo cadastrado em <b>Conteúdo do site</b>, logo abaixo: sobre nós, equipe, depoimentos e redes.</div>}
     {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
       O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:10}}>
-      {d.modelos.map(m=>{
-        const noAr=d.modelo_no_ar===m.id; const escolhido=d.modelo===m.id;
-        return <div key={m.id} style={{border:`1.5px solid ${noAr?C.green:C.line}`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:8,background:noAr?C.greenSoft:C.surface}}>
-          <MiniaturaModelo id={m.id}/>
-          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{m.nome}</span>
-            {noAr&&<span style={{fontSize:10.5,fontWeight:700,color:"#fff",background:C.green,borderRadius:99,padding:"2px 8px"}}>NO AR</span>}
-            {m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 7px"}}>Cetrolab</span>}
+
+    {gratis.map(m=>cartaoModelo(m,true))}
+
+    {premium.length>0&&<div style={{marginTop:16}}>
+      <div style={{border:`1px solid ${C.green}44`,background:C.greenSoft,borderRadius:12,padding:12,marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Modelos Cetrolab</div>
+            <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginTop:2}}>
+              {premium.length} modelos premium num plano só{plano?<React.Fragment> · <b>{fmtPreco(plano.valor_mensal)}/mês</b></React.Fragment>:""}.
+              {" "}A prévia mostra o seu site, com os seus imóveis, sem mudar o site no ar.</div>
           </div>
-          <div style={{color:C.sub,fontSize:12,lineHeight:1.5,flex:1}}>{m.resumo}</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {m.disponivel&&!escolhido&&<button onClick={()=>usar(m.id)} disabled={!!salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>{salvando===m.id?"Trocando…":"Usar este modelo"}</button>}
-            {!m.disponivel&&(plano
-              ?<button onClick={()=>irPara&&irPara("conta")} title="Libera todos os modelos premium" style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>Plano Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>
-              :<span style={{color:C.faint,fontSize:11.5}}>Em breve à venda. Fale com o ConHub.</span>)}
-            {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver prévia com os meus imóveis</a>}
-            {d.ligado&&noAr&&<a href={linkSite} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver o site no ar</a>}
+          {temCetrolab
+            ?<span style={{color:C.greenDeep,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><Icon n="check" size={13}/>Assinado</span>
+            :plano
+              ?(!assinando&&<button onClick={abrirAssinatura} style={{...botaoVerde,background:C.greenDeep}}>Assinar o Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>)
+              :<span style={{color:C.faint,fontSize:11.5}}>Ainda não está à venda. Fale com o ConHub.</span>}
+        </div>
+        {!temCetrolab&&plano&&assinando&&<div ref={blocoAssinar} style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.green}33`}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+            <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Assinar o Cetrolab</span>
+            <button onClick={()=>setAssinando(false)} style={{background:"none",border:"none",color:C.faint,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Fechar</button>
           </div>
-        </div>;
-      })}
-    </div>
+          <FerramentasDaConta acoes={acoes} isMobile={isMobile} so="cetrolab" aoMudar={()=>acoes.site().then(r=>(aoAtualizar||aoMudar)(r)).catch(()=>{})}/>
+        </div>}
+      </div>
+      {premium.some(m=>m.id==="institucional")&&<div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
+        O Institucional mostra também o conteúdo cadastrado em <b>Conteúdo do site</b>, logo abaixo: sobre nós, equipe, depoimentos e redes.</div>}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:10}}>
+        {premium.map(m=>cartaoModelo(m,false))}
+      </div>
+    </div>}
     {!d.ligado&&<div style={{color:C.faint,fontSize:11.5,marginTop:9}}>Ligue o site para ver a prévia de cada modelo.</div>}
-    <div style={{color:C.faint,fontSize:11.5,marginTop:9,lineHeight:1.5}}>
-      Os modelos premium vêm todos juntos no plano Cetrolab — um valor só, não um por modelo. A prévia mostra o seu site, com os seus imóveis, no layout novo, sem mudar o site no ar.
-      {!temCetrolab&&plano&&" A contratação fica em Minha conta → Ferramentas."}</div>
   </div>;
 }
 
@@ -15977,7 +16028,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
           </div>}
         </div>
 
-        <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} isMobile={isMobile} irPara={irPara} cartao={cartao}/>
+        <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} aoAtualizar={setD} isMobile={isMobile} irPara={irPara} cartao={cartao}/>
         <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao}/>
 
         <div style={cartao}>
