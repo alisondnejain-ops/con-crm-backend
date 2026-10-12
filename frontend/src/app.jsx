@@ -15779,6 +15779,24 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
    modelo trocado só naquela aba (?previa=), com uma faixa avisando que é
    prévia — dá para experimentar antes de contratar, e o site no ar não muda.
    Quem decide se pode usar é o servidor; aqui só se mostra o que ele disse. */
+/* A miniatura de cada modelo no cartão — um esboço, não uma foto: diz de
+   relance se o modelo é claro ou escuro e como a página se organiza. */
+function MiniaturaModelo({id}){
+  const base={height:78,borderRadius:8,border:`1px solid ${C.line}`,position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:8,gap:5,boxSizing:"border-box"};
+  if(id==="bairros") return <div aria-hidden="true" style={{...base,background:"#F3F4F6"}}>
+    <div style={{height:10,width:"55%",background:"#0D0F12",borderRadius:3}}/>
+    <div style={{height:34,borderRadius:7,background:"#0D0F12",backgroundImage:"radial-gradient(rgba(255,255,255,.2) 1px,transparent 1px)",backgroundSize:"8px 8px",display:"flex",gap:4,alignItems:"center",padding:"0 6px"}}>
+      {[0,1,2].map(k=><span key={k} style={{width:18,height:7,borderRadius:9,background:k===1?C.green:"rgba(255,255,255,.3)"}}/>)}<span style={{marginLeft:"auto",width:26,height:22,borderRadius:5,background:"#fff"}}/></div></div>;
+  if(id==="editorial") return <div aria-hidden="true" style={{...base,background:"#0A0B0D",backgroundImage:"linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)",backgroundSize:"14px 14px"}}>
+    <div style={{height:9,width:"70%",background:"#EDEFF2",borderRadius:3}}/>
+    {[0,1,2].map(k=><div key={k} style={{height:1,background:"rgba(255,255,255,.25)",marginTop:6}}/>)}</div>;
+  if(id==="lancamento") return <div aria-hidden="true" style={{...base,background:"linear-gradient(180deg,#3A4148,#0A0B0D)"}}>
+    <div style={{display:"flex",alignItems:"flex-end",gap:6}}><div style={{height:16,flex:1,background:"#EDEFF2",borderRadius:3}}/>
+      <div style={{width:34,height:26,borderRadius:6,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
+  return <div aria-hidden="true" style={{...base,background:"#F6F6F3",flexDirection:"row",alignItems:"flex-end"}}>
+    {[0,1,2].map(k=><span key={k} style={{flex:1,height:30,borderRadius:5,background:"#E1E3DE"}}/>)}</div>;
+}
+
 function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
   const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
   const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
@@ -15787,7 +15805,8 @@ function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
     setErro(""); setSalvando(id);
     try{ aoMudar(await acoes.modeloDoSite(id)); }catch(e){ setErro(e.message); }finally{ setSalvando(null); }
   }
-  const linkSite=d.url;
+  // A prévia abre no endereço que o site usa de verdade (o domínio próprio, quando ativo).
+  const linkSite=d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url;
   return <div style={cartao}>
     <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
@@ -15800,10 +15819,7 @@ function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
       {d.modelos.map(m=>{
         const noAr=d.modelo_no_ar===m.id; const escolhido=d.modelo===m.id;
         return <div key={m.id} style={{border:`1.5px solid ${noAr?C.green:C.line}`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:8,background:noAr?C.greenSoft:C.surface}}>
-          <div aria-hidden="true" style={{height:74,borderRadius:8,background:m.id==="bairros"?"#0D0F12":"#F6F6F3",border:`1px solid ${C.line}`,
-            backgroundImage:m.id==="bairros"?"radial-gradient(rgba(255,255,255,.18) 1px,transparent 1px)":"none",backgroundSize:"12px 12px",display:"flex",alignItems:"flex-end",padding:8,gap:5}}>
-            {[0,1,2].map(k=><span key={k} style={{flex:1,height:m.id==="bairros"?14:30,borderRadius:m.id==="bairros"?99:5,background:m.id==="bairros"?(k===1?C.green:"rgba(255,255,255,.25)"):"#E1E3DE"}}/>)}
-          </div>
+          <MiniaturaModelo id={m.id}/>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{m.nome}</span>
             {noAr&&<span style={{fontSize:10.5,fontWeight:700,color:"#fff",background:C.green,borderRadius:99,padding:"2px 8px"}}>NO AR</span>}
@@ -15813,15 +15829,18 @@ function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             {m.disponivel&&!escolhido&&<button onClick={()=>usar(m.id)} disabled={!!salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>{salvando===m.id?"Trocando…":"Usar este modelo"}</button>}
             {!m.disponivel&&(plano
-              ?<button onClick={()=>irPara&&irPara("conta")} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>Contratar · {fmtPreco(plano.valor_mensal)}/mês</button>
+              ?<button onClick={()=>irPara&&irPara("conta")} title="Libera todos os modelos premium" style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>Plano Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>
               :<span style={{color:C.faint,fontSize:11.5}}>Em breve à venda. Fale com o ConHub.</span>)}
-            {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver prévia</a>}
+            {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver prévia com os meus imóveis</a>}
+            {d.ligado&&noAr&&<a href={linkSite} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver o site no ar</a>}
           </div>
         </div>;
       })}
     </div>
     {!d.ligado&&<div style={{color:C.faint,fontSize:11.5,marginTop:9}}>Ligue o site para ver a prévia de cada modelo.</div>}
-    {!temCetrolab&&plano&&<div style={{color:C.faint,fontSize:11.5,marginTop:9,lineHeight:1.5}}>A contratação fica em Minha conta → Ferramentas, no cartão já cadastrado.</div>}
+    <div style={{color:C.faint,fontSize:11.5,marginTop:9,lineHeight:1.5}}>
+      Os modelos premium vêm todos juntos no plano Cetrolab — um valor só, não um por modelo. A prévia mostra o seu site, com os seus imóveis, no layout novo, sem mudar o site no ar.
+      {!temCetrolab&&plano&&" A contratação fica em Minha conta → Ferramentas."}</div>
   </div>;
 }
 

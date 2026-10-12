@@ -24,19 +24,31 @@ import db from "../../db.js";
 import { temRecurso } from "../recursos.js";
 import { paginaPortal as portalClassico, paginaImovel as imovelClassico } from "../site.js";
 import * as bairros from "./modelos/bairros.js";
+import * as editorial from "./modelos/editorial.js";
+import * as lancamento from "./modelos/lancamento.js";
 
+/* A ORDEM É A DA VITRINE (pedido do Ali, 12/10/2026): o Bairros primeiro — é o
+   que ele achou mais bonito —, depois Editorial e Lançamento, e o Clássico
+   por último, como o "padrão, grátis". Os três premium vêm JUNTOS no plano
+   Cetrolab: não existe preço por modelo (também pedido dele). */
 export const MODELOS = [
-  { id: "classico", nome: "Clássico", premium: false,
-    resumo: "A vitrine com busca por tipo, cidade, quartos e valor. Vem em todo plano." },
   { id: "bairros", nome: "Bairros", premium: true,
-    resumo: "Visual futurista e minimalista: a pessoa escolhe o bairro antes do imóvel e vê quanto custa morar em cada um." },
+    resumo: "Claro e minimalista: a pessoa escolhe o bairro antes do imóvel e vê quanto custa morar em cada um." },
+  { id: "editorial", nome: "Editorial", premium: true,
+    resumo: "Escuro, como uma revista: um imóvel em destaque na capa, os bairros como coleções e o catálogo como índice numerado." },
+  { id: "lancamento", nome: "Lançamento", premium: true,
+    resumo: "Escuro, com a capa em tela cheia e os números da imobiliária em destaque. Combina com campanha de anúncio." },
+  { id: "classico", nome: "Clássico", premium: false,
+    resumo: "A vitrine com busca por tipo, cidade, quartos e valor. O padrão, grátis em todo plano." },
 ];
 const RENDER = {
   classico: { portal: portalClassico, imovel: imovelClassico },
   bairros: { portal: bairros.paginaPortal, imovel: bairros.paginaImovel },
+  editorial: { portal: editorial.paginaPortal, imovel: editorial.paginaImovel },
+  lancamento: { portal: lancamento.paginaPortal, imovel: lancamento.paginaImovel },
 };
 export const ehModelo = (id) => MODELOS.some(m => m.id === id);
-const modelo = (id) => MODELOS.find(m => m.id === id) || MODELOS[0];
+const modelo = (id) => MODELOS.find(m => m.id === id) || MODELOS.find(m => m.id === "classico");
 
 export const podeUsarModelo = (orgId, id) => !modelo(id).premium || temRecurso(orgId, "cetrolab");
 

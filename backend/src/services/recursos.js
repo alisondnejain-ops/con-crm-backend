@@ -46,7 +46,7 @@ export const RECURSOS = {
      por um valor que ninguém escolheu. */
   cetrolab: {
     nome: "Cetrolab",
-    resumo: "Modelos premium para o site da imobiliária, além do Clássico.",
+    resumo: "Os modelos premium do site — Bairros, Editorial e Lançamento — todos no mesmo plano. O Clássico continua grátis.",
     get avulso() { return precoParaClientes(); },
   },
 };

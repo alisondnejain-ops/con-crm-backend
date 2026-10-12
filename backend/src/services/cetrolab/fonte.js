@@ -24,3 +24,13 @@ export function bairrosDoCatalogo(orgId) {
     FROM produtos WHERE org_id = ? AND status = 'ativo' AND bairro IS NOT NULL AND TRIM(bairro) <> ''
     GROUP BY bairro ORDER BY total DESC, bairro LIMIT 40`).all(orgId);
 }
+
+/* O resumo do catálogo para a capa do modelo Lançamento: quantos imóveis,
+   em quantos bairros, e o menor preço de venda e de aluguel. */
+export function resumoDoCatalogo(orgId) {
+  return db.prepare(`SELECT COUNT(*) AS total,
+      COUNT(DISTINCT CASE WHEN bairro IS NOT NULL AND TRIM(bairro) <> '' THEN bairro END) AS bairros,
+      MIN(CASE WHEN COALESCE(finalidade,'venda') = 'venda' AND valor > 0 THEN valor END) AS venda_desde,
+      MIN(CASE WHEN finalidade = 'aluguel' AND valor > 0 THEN valor END) AS aluguel_desde
+    FROM produtos WHERE org_id = ? AND status = 'ativo'`).get(orgId);
+}

@@ -84,7 +84,9 @@ try {
   caso("Os dois modelos aparecem; o Clássico está no ar e o Bairros pede o Cetrolab");
   let s = (await gestor.get("/site")).body;
   assert.equal(s.modelo_no_ar, "classico");
-  assert.deepEqual(s.modelos.map(m => [m.id, m.disponivel]), [["classico", true], ["bairros", false]]);
+  // Bairros primeiro (pedido do Ali), os premium juntos, o Clássico por último.
+  assert.deepEqual(s.modelos.map(m => [m.id, m.disponivel]),
+    [["bairros", false], ["editorial", false], ["lancamento", false], ["classico", true]]);
   assert.equal(s.cetrolab.ativo, false);
   assert.equal(s.cetrolab_plano, null);
 
@@ -166,6 +168,27 @@ try {
   s = (await gestor.get("/site")).body;
   assert.equal(s.modelo, "bairros");
   assert.equal(s.modelo_no_ar, "classico");
+  await master.send("POST", `/orgs/${org}/recursos/cetrolab`, { estado: null });
+
+  caso("Editorial e Lançamento: a prévia usa os imóveis da própria conta, e nada interno vaza");
+  for (const [id, marca] of [["editorial", "Índice"], ["lancamento", "Escolha o seu."]]) {
+    p = await pagina(`/imoveis/rota-imoveis?previa=${id}`);
+    assert.equal(p.status, 200, id);
+    assert.match(p.html, /PRÉVIA DO MODELO/);
+    assert.ok(p.html.includes(marca), `${id}: a capa do modelo`);
+    assert.match(p.html, /Apartamento na Orla|Cobertura na Orla|Casa no Centro/, `${id}: os imóveis da própria conta`);
+    for (const proibido of ["Construtora Segredo", "dono aceita"]) assert.ok(!p.html.includes(proibido), `${id}: "${proibido}" vazou`);
+    const im = await pagina(`/imoveis/rota-imoveis/${casaCentro}/casa-no-centro?previa=${id}`);
+    assert.equal(im.status, 200);
+    assert.match(im.html, /PRÉVIA DO MODELO/);
+    assert.match(im.html, /--fundo:#0A0B0D/, `${id}: a página do imóvel no tema escuro`);
+  }
+  // Um plano libera os três: com a ferramenta, qualquer premium vai ao ar.
+  await master.send("POST", `/orgs/${org}/recursos/cetrolab`, { estado: "liberado" });
+  for (const id of ["editorial", "lancamento", "bairros"]) {
+    r = await gestor.send("POST", "/site/modelo", { modelo: id });
+    assert.equal(r.status, 200, id); assert.equal(r.body.modelo_no_ar, id);
+  }
   await master.send("POST", `/orgs/${org}/recursos/cetrolab`, { estado: null });
 
   caso("Voltar ao Clássico é sempre permitido");
