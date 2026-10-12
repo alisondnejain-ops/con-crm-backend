@@ -52,6 +52,7 @@ import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js"
 import { processarDisparos } from "./services/disparo.js";
 import { garantirWebhooksEmTodas } from "./services/webhook-uazapi.js";
 import { conferirDominiosPendentes } from "./services/site.js";
+import { tratarFotosPendentes } from "./services/fotos-imovel.js";
 
 const app = express();
 
@@ -525,6 +526,11 @@ app.listen(PORT, () => {
      passa a abrir sem ela voltar à tela. `SITE_DOMINIO_AGENDADOR=0` desliga. */
   if (process.env.SITE_DOMINIO_AGENDADOR !== "0")
     setInterval(() => conferirDominiosPendentes().catch(e => console.error("[site] conferência:", e.message)), 15 * 60000);
+  /* FOTOS ANTIGAS DOS IMÓVEIS (12/10/2026): as que entraram antes do
+     tratamento automático são tratadas aos poucos — três a cada 20 segundos,
+     uma por vez — até acabar. `FOTOS_AGENDADOR=0` desliga. */
+  if (process.env.FOTOS_AGENDADOR !== "0")
+    setInterval(() => tratarFotosPendentes(3).catch(e => console.error("[fotos] tratamento:", e.message)), 20000);
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);

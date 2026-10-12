@@ -8,7 +8,7 @@ import { FRASE_PADRAO } from "../../site.js";
 import { catalogo, filtrosDe, resumoDoCatalogo } from "../fonte.js";
 import { pecas, comPrevia, moldura, cartao, paginaImovel as imovelFuturo } from "./comum.js";
 
-const { esc, abs, inicio, moeda, wa, ICO, dadosDaImobiliaria } = pecas;
+const { esc, abs, inicio, moeda, wa, ICO, dadosDaImobiliaria, imgFoto } = pecas;
 
 const CSS = `
 .capa-l{position:relative;min-height:min(86vh,760px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;background:var(--cartao);margin-bottom:24px}
@@ -47,7 +47,7 @@ export function paginaPortal(ctx, query) {
   const num = (rot, v) => `<div><span>${rot}</span><b>${v}</b></div>`;
 
   const corpo = `
-<section class="capa-l">${fotoCapa ? `<img src="${esc(fotoCapa)}" alt="">` : ""}
+<section class="capa-l">${fotoCapa ? imgFoto(fotoCapa, { sizes: "100vw", lazy: false }) : ""}
   <div class="wrap">
     <div class="tit"><div class="k"><i></i>${esc(org.name.toUpperCase())}</div><h1>${esc(cfg.frase || FRASE_PADRAO)}</h1></div>
     <div class="numeros">${num("IMÓVEIS", r.total)}${num("BAIRROS", r.bairros || "—")}${num("VENDA DESDE", r.venda_desde ? moeda(r.venda_desde) : "—")}${num("ALUGUEL DESDE", r.aluguel_desde ? moeda(r.aluguel_desde) + "<small style=\"font-size:.6em;color:#B9BEC6\">/mês</small>" : "—")}</div>

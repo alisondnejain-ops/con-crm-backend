@@ -352,7 +352,50 @@ export function caminhoDoImovel(orgId, p) {
 
 /* ===== O QUE PODE SAIR PARA A INTERNET ===== */
 
-const fotosDe = (id) => db.prepare("SELECT url FROM produto_midias WHERE produto_id = ? AND tipo = 'foto' ORDER BY ordem, created_at").all(id).map(f => f.url);
+/* As fotos continuam saindo como endereços (a lista branca do imóvel é feita
+   de texto, e os modelos usam `i.fotos[0]` em todo canto). O que o tratamento
+   automático guardou de cada uma — versões menores e o foco do recorte — fica
+   num mapa por endereço, e `imgFoto` monta a etiqueta <img> a partir dele. */
+const INFO_FOTO = new Map();
+function lembrarFoto(f) {
+  if (INFO_FOTO.size > 5000) INFO_FOTO.clear();
+  let variantes = [];
+  try { variantes = JSON.parse(f.variantes || "[]"); } catch { variantes = []; }
+  INFO_FOTO.set(f.url, { variantes, largura: f.largura, altura: f.altura, foco_x: f.foco_x, foco_y: f.foco_y });
+}
+const fotosDe = (id) => db.prepare(`SELECT url, variantes, largura, altura, foco_x, foco_y FROM produto_midias
+  WHERE produto_id = ? AND tipo = 'foto' ORDER BY ordem, created_at`).all(id).map(f => { lembrarFoto(f); return f.url; });
+
+function infoDaFoto(url) {
+  if (!INFO_FOTO.has(url)) {
+    const f = db.prepare("SELECT url, variantes, largura, altura, foco_x, foco_y FROM produto_midias WHERE url = ? LIMIT 1").get(url);
+    if (!f) return null;
+    lembrarFoto(f);
+  }
+  return INFO_FOTO.get(url);
+}
+
+/* A etiqueta <img> de uma foto do catálogo, com as versões leves e o foco.
+   `sizes` diz ao navegador que largura a foto ocupa na tela, e é com isso que
+   ele escolhe a versão — sem `sizes`, ele assume a tela inteira e baixa a
+   maior. Foto ainda não tratada sai como sempre saiu. */
+export function imgFoto(url, { alt = "", sizes = "100vw", lazy = true, cls = "" } = {}) {
+  const info = infoDaFoto(url);
+  const v = info?.variantes || [];
+  const attrs = [`alt="${esc(alt)}"`];
+  if (cls) attrs.push(`class="${esc(cls)}"`);
+  if (v.length) {
+    const media = v.find(x => x.l >= 960) || v[v.length - 1];
+    attrs.unshift(`src="${esc(media.url)}"`);
+    attrs.push(`srcset="${v.map(x => `${esc(x.url)} ${x.l}w`).join(", ")}"`, `sizes="${esc(sizes)}"`);
+  } else attrs.unshift(`src="${esc(url)}"`);
+  if (info?.largura && info?.altura) attrs.push(`width="${info.largura}" height="${info.altura}"`);
+  if (info?.foco_x != null && (info.foco_x !== 50 || info.foco_y !== 50))
+    attrs.push(`style="object-position:${info.foco_x}% ${info.foco_y}%"`);
+  if (lazy) attrs.push('loading="lazy"');
+  attrs.push('decoding="async"');
+  return `<img ${attrs.join(" ")}>`;
+}
 const videoDe = (id) => (db.prepare("SELECT url FROM produto_midias WHERE produto_id = ? AND tipo = 'video' ORDER BY ordem, created_at LIMIT 1").get(id) || {}).url || null;
 
 const codigoDe = (id) => String(id).replace(/^p_/, "").replace(/-/g, "").slice(0, 6).toUpperCase();
@@ -804,7 +847,7 @@ function cartao(i, ctx) {
   const href = hrefImovel(ctx, i);
   const feats = caracteristicas(i, true).map(([ic, v, r]) => `<span>${ICO[ic]}${esc(v)}${r ? " " + esc(r) : ""}</span>`).join("");
   return `<a class="card" href="${href}">
-  <div class="foto">${i.fotos[0] ? `<img src="${esc(i.fotos[0])}" alt="${esc(i.titulo)}" loading="lazy">` : `<div class="sem-foto">${ICO.casa}</div>`}
+  <div class="foto">${i.fotos[0] ? imgFoto(i.fotos[0], { alt: i.titulo, sizes: "(max-width: 600px) 40vw, (max-width: 1000px) 33vw, 300px" }) : `<div class="sem-foto">${ICO.casa}</div>`}
     <span class="selo">${i.finalidade === "aluguel" ? "Para alugar" : "À venda"}</span></div>
   <div class="info">
     <div class="preco">${precoDe(i)}</div>
@@ -920,14 +963,14 @@ export function paginaImovel(ctx, i) {
     i.iptu ? `<div><span>IPTU</span><b>${moeda(i.iptu)}/ano</b></div>` : "",
   ].join("");
   const rotulo = i.finalidade === "aluguel" ? "Aluguel" : "Venda";
-  const slides = (zoom) => fotos.map((u, n) => `<button type="button" data-i="${n}" aria-label="Foto ${n + 1} de ${fotos.length}"><img src="${esc(u)}" alt="${esc(i.titulo)} — foto ${n + 1}"${n > 0 || zoom ? ' loading="lazy"' : ""}></button>`).join("");
+  const slides = (zoom) => fotos.map((u, n) => `<button type="button" data-i="${n}" aria-label="Foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: `${i.titulo} — foto ${n + 1}`, sizes: "100vw", lazy: n > 0 || zoom })}</button>`).join("");
 
   const galeria = fotos.length
     ? `<div class="gal" id="gal"><div class="trilho">${slides(false)}</div>
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button><span class="cont">1 / ${fotos.length}</span>` : ""}</div>
-       <div class="mosaico m${Math.min(fotos.length, 5)}">${fotos.slice(0, 5).map((u, n) => `<button type="button" data-i="${n}" aria-label="Ampliar foto ${n + 1} de ${fotos.length}"><img src="${esc(u)}" alt="${esc(i.titulo)} — foto ${n + 1}"${n ? ' loading="lazy"' : ""}></button>`).join("")}
+       <div class="mosaico m${Math.min(fotos.length, 5)}">${fotos.slice(0, 5).map((u, n) => `<button type="button" data-i="${n}" aria-label="Ampliar foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: `${i.titulo} — foto ${n + 1}`, sizes: n ? "300px" : "(max-width: 1000px) 100vw, 640px", lazy: !!n })}</button>`).join("")}
          ${fotos.length > 1 ? `<button type="button" class="todas" data-i="0">${ICO.grade}Ver as ${fotos.length} fotos</button>` : ""}</div>
-       ${fotos.length > 1 ? `<div class="miniaturas">${fotos.map((u, n) => `<button type="button" data-i="${n}" class="${n ? "" : "on"}" aria-label="Ver foto ${n + 1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
+       ${fotos.length > 1 ? `<div class="miniaturas">${fotos.map((u, n) => `<button type="button" data-i="${n}" class="${n ? "" : "on"}" aria-label="Ver foto ${n + 1}">${imgFoto(u, { sizes: "120px" })}</button>`).join("")}</div>` : ""}
        <div class="caixa" id="caixa" role="dialog" aria-modal="true" aria-label="Fotos do imóvel"><button class="fecha" type="button" aria-label="Fechar">${ICO.fechar}</button><div class="trilho">${slides(true)}</div>
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button>` : ""}<span class="cont">1 / ${fotos.length}</span></div>`
     : `<div class="gal"><div class="trilho"><div class="sem-foto" style="flex:1;background:#EDEDE8">${ICO.casa}</div></div></div>`;
@@ -1022,7 +1065,7 @@ export function paginaPausada(ctx) {
    dados para o Google, os endereços que respeitam o domínio próprio — vem
    daqui, um lugar só. Um modelo que reescrevesse o Pixel ou o caminho do
    imóvel divergiria do Clássico no primeiro conserto. */
-export const pecas = { dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
+export const pecas = { imgFoto, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
   telefoneLegivel, wa, caracteristicas, ICO, FAIXAS };
 
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====

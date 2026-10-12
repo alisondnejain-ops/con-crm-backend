@@ -14,6 +14,7 @@ import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2, falha
 import { emPortugues } from "../services/backup.js";
 import { cofreLigado } from "../services/cofre.js";
 import { ffmpegConfigurado } from "../services/video.js";
+import { fotosPendentes } from "../services/fotos-imovel.js";
 
 const r = Router();
 // Quando este processo subiu — a lista de webhooks abaixo só vale a partir daqui.
@@ -166,6 +167,13 @@ r.get("/integracoes", async (_req, res) => {
        vídeo em HEVC (padrão do iPhone) volta a falhar sem explicação, do
        jeito que o Ali relatou antes deste recurso existir. */
     conversao_video: { configurado: await ffmpegConfigurado() },
+    /* Tratamento automático das fotos dos imóveis (12/10/2026): quantas fotos
+       antigas ainda esperam o batimento e quantas não puderam ser tratadas.
+       Os números são só do master, como o resto do que conta a base. */
+    tratamento_fotos: master ? {
+      pendentes: fotosPendentes(),
+      com_erro: db.prepare("SELECT COUNT(*) n FROM produto_midias WHERE tipo='foto' AND tratamento_erro IS NOT NULL").get().n,
+    } : { ligado: true },
     // Última tentativa de citar uma mensagem: o que foi mandado e o que voltou.
     // A citação falha calada, então é aqui que se descobre o motivo.
     citacao: semRespostaCrua(citacaoDiagnostico(), master) || "nenhuma tentativa desde que o servidor subiu",

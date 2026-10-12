@@ -13,7 +13,7 @@
 import { pecas } from "../../site.js";
 
 const { esc, abs, inicio, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, telefoneLegivel, wa,
-  caracteristicas, ICO, dadosDoImovel, resumoDoImovel, pixelDoImovel } = pecas;
+  caracteristicas, ICO, dadosDoImovel, resumoDoImovel, pixelDoImovel, imgFoto } = pecas;
 export { pecas };
 
 export const comPrevia = (ctx, href) => (ctx.previa ? href + (href.includes("?") ? "&" : "?") + "previa=" + encodeURIComponent(ctx.previa) : href);
@@ -157,7 +157,7 @@ ${corpo}
 </body></html>`;
 }
 
-export const fotoOu = (u, alt, lazy) => u ? `<img src="${esc(u)}" alt="${esc(alt)}"${lazy ? ' loading="lazy"' : ""}>` : `<div class="sem-foto">${ICO.casa}</div>`;
+export const fotoOu = (u, alt, lazy, sizes = "(max-width: 700px) 100vw, 50vw") => u ? imgFoto(u, { alt, lazy, sizes }) : `<div class="sem-foto">${ICO.casa}</div>`;
 export const precoDe = (i) => (i.valor ? moeda(i.valor) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
 export const linhaInfo = (i) => [
   i.quartos ? `${i.quartos} ${i.quartos > 1 ? "qts" : "qt"}` : "",
@@ -180,7 +180,7 @@ export function paginaImovel(ctx, i, tema = "claro") {
   const custos = [i.condominio ? `CONDOMÍNIO · ${moeda(i.condominio)}/MÊS` : "", i.iptu ? `IPTU · ${moeda(i.iptu)}/ANO` : ""].filter(Boolean);
   const fotos = i.fotos;
   const galeria = fotos.length
-    ? `<div class="trilho" id="trilho">${fotos.map((u, n) => `<img class="${fotos.length === 1 ? "so" : ""}" src="${esc(u)}" alt="${esc(i.titulo)} — foto ${n + 1}"${n ? ' loading="lazy"' : ""}>`).join("")}</div>
+    ? `<div class="trilho" id="trilho">${fotos.map((u, n) => `${imgFoto(u, { cls: fotos.length === 1 ? "so" : "", alt: `${i.titulo} — foto ${n + 1}`, sizes: "(max-width: 700px) 90vw, 70vw", lazy: !!n })}`).join("")}</div>
        ${fotos.length > 1 ? `<div class="setas"><button type="button" data-d="-1" aria-label="Foto anterior">${ICO.voltar}</button><button type="button" data-d="1" aria-label="Próxima foto">${ICO.seta}</button></div>` : ""}`
     : "";
   const corpo = `

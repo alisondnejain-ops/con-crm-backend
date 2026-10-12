@@ -1794,6 +1794,8 @@ function ConCRM(){
       xhr.send(file);
     }),
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
+    // A foto vai para o primeiro lugar — é a capa no site e a que leva a legenda no WhatsApp.
+    capaProduto:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}/capa`,{method:"POST"}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
     // Minha conta: qualquer alteração precisa refletir na sessão na hora — é o
     // nome e a foto que aparecem no topo e assinam as mensagens.
@@ -15358,7 +15360,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
           return <button key={p.id} onClick={()=>setSel(p)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",padding:9,marginBottom:6,borderRadius:11,cursor:"pointer",
             border:`1px solid ${sel&&sel.id===p.id?C.green:C.line}`,background:sel&&sel.id===p.id?C.greenSoft:C.card}}>
             <div style={{width:52,height:52,borderRadius:9,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
+              {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
             </div>
             <div style={{minWidth:0,flex:1}}>
               <div style={{color:C.ink,fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.titulo}</div>
@@ -15407,7 +15409,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
                         title={marcada?"Tirar esta foto do envio":"Incluir esta foto"}
                         style={{position:"relative",width:58,height:58,borderRadius:9,overflow:"hidden",padding:0,cursor:"pointer",
                           border:`2px solid ${marcada?C.green:C.line}`,background:C.card,opacity:marcada?1:.45}}>
-                        <img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        <img src={m.miniatura||m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                         {/* A capa leva a legenda no WhatsApp — quem escolhe
                             precisa saber qual é. */}
                         {i===0&&<span style={{position:"absolute",left:0,bottom:0,right:0,background:"rgba(10,20,16,.65)",
@@ -15567,7 +15569,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
         {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto"),s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
           return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
             <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
-              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
               <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
               {/* Aluguel ganha selo — venda é o padrão do catálogo desde
@@ -16086,6 +16088,8 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   // regra que monta o feed. Atualiza a cada salvamento.
   const [portal,setPortal]=useState(produto?produto.portal:null);
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
+  // A foto que o tratamento automático acha claramente melhor que a capa (só sugere).
+  const [capaSugerida,setCapaSugerida]=useState(produto?produto.capa_sugerida||null:null);
   const [id,setId]=useState(produto?produto.id:null);
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
   const [subindo,setSubindo]=useState(false); const [progresso,setProgresso]=useState("");
@@ -16182,11 +16186,11 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
       try{
         if(video){
           const r=await acoes.subirVideoProduto(alvo,arq,(pct)=>setProgresso(`Enviando vídeo ${i+1} de ${arquivos.length}… ${pct}%`));
-          setMidias(m=>[...m,r.midia]);
+          setMidias(m=>[...m,r.midia]); if("capa_sugerida" in r) setCapaSugerida(r.capa_sugerida);
         }else{
           const {mime,base64}=await prepararArquivo(arq);
           const r=await acoes.subirMidia(alvo,mime,base64);
-          setMidias(m=>[...m,r.midia]);
+          setMidias(m=>[...m,r.midia]); if("capa_sugerida" in r) setCapaSugerida(r.capa_sugerida);
         }
       }catch(e){
         problemas.push(`${arq.name}: ${e.message}`);
@@ -16199,7 +16203,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
       :`${problemas.length} arquivo(s) não subiram:\n• ${problemas.join("\n• ")}`);
   }
   async function removerMidia(m){
-    try{ await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); }catch(e){ setErro(e.message); }
+    try{ const r=await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); setCapaSugerida(r&&r.capa_sugerida||null); }catch(e){ setErro(e.message); }
+  }
+  async function usarComoCapa(m){
+    try{ const p=await acoes.capaProduto(id,m.id); setMidias(p.midias||[]); setCapaSugerida(p.capa_sugerida||null); }catch(e){ setErro(e.message); }
   }
   const comissao=numeroBR(f.valor)&&numeroBR(f.comissao_pct)?(numeroBR(f.valor)*numeroBR(f.comissao_pct))/100:null;
 
@@ -16326,12 +16333,31 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         <div>
           {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
-            {midias.map(m=><div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",border:`1px solid ${C.line}`,background:C.surface}}>
-              {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            {midias.map(m=>{const capa=m.tipo==="foto"&&fotos[0]&&fotos[0].id===m.id, avisos=m.avisos||[];
+              return <div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",
+                border:`${m.id===capaSugerida?2:1}px solid ${m.id===capaSugerida?C.green:avisos.length?C.amber:C.line}`,background:C.surface}}
+                title={avisos.length?"Esta foto: "+avisos.map(a=>a.texto).join("; "):undefined}>
+              {m.tipo==="foto"?<img src={m.miniatura||m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub}}><Icon n="phone2" size={20}/></div>}
+              {capa&&<span style={{position:"absolute",left:0,bottom:0,right:0,background:"rgba(10,20,16,.65)",color:"#fff",fontSize:9,fontWeight:700,textAlign:"center",padding:"1px 0"}}>capa</span>}
+              {avisos.length>0&&<span aria-label={`${avisos.length} aviso(s)`} style={{position:"absolute",top:3,left:3,minWidth:18,height:18,borderRadius:999,
+                background:C.amber,color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>!</span>}
               <button onClick={()=>removerMidia(m)} aria-label="Remover" style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:999,border:"none",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:12,cursor:"pointer",lineHeight:1}}>×</button>
-            </div>)}
+            </div>;})}
           </div>
+          {/* O tratamento automático (servidor) gira, limpa e cria as versões
+              leves de cada foto, e avisa o que pode prejudicar o anúncio. Só
+              avisa: quem decide a foto é quem captou. */}
+          {(()=>{const comAviso=fotos.map((m,i)=>({m,i})).filter(x=>(x.m.avisos||[]).length);
+            const sug=capaSugerida&&fotos.find(x=>x.id===capaSugerida);
+            if(!comAviso.length&&!sug) return null;
+            return <div style={{background:C.amberSoft,borderRadius:10,padding:"9px 11px",marginBottom:9,fontSize:12,color:"#6b5416",lineHeight:1.55}}>
+              {comAviso.map(({m,i})=><div key={m.id}><b>Foto {i+1}{i===0?" (capa)":""}:</b> {m.avisos.map(a=>a.texto).join(" · ")}</div>)}
+              {sug&&<div style={{marginTop:comAviso.length?7:0,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span>A foto {fotos.indexOf(sug)+1} parece uma capa melhor.</span>
+                <button onClick={()=>usarComoCapa(sug)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar como capa</button>
+              </div>}
+            </div>;})()}
           <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
             <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?(progresso||"Enviando…"):"Adicionar fotos ou vídeo"}
             <input type="file" multiple accept="image/*,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>

@@ -2280,4 +2280,21 @@ if (!db.prepare("PRAGMA table_info(meta_formularios)").all().some(c => c.name ==
 if (!db.prepare("PRAGMA table_info(catracas)").all().some(c => c.name === "ia_produto_id"))
   db.exec("ALTER TABLE catracas ADD COLUMN ia_produto_id TEXT");
 
+/* TRATAMENTO DAS FOTOS (12/10/2026, `services/fotos.js`). Por foto de imóvel:
+   - variantes: JSON [{l: largura, url, chave}] — as versões WebP menores;
+   - largura/altura: do original limpo;
+   - foco_x/foco_y: onde centrar o recorte do card (0-100, como object-position);
+   - avisos: JSON [{tipo, texto}] — pequena, escura, desfocada, em pé;
+   - nota: para sugerir a melhor capa;
+   - tratada_em: quando foi tratada (nulo = ainda não; o batimento trata as antigas);
+   - tratamento_erro: o motivo, quando não deu — e aí ela não é tentada de novo. */
+{
+  const cols = db.prepare("PRAGMA table_info(produto_midias)").all().map(c => c.name);
+  for (const [c, ddl] of [["variantes", "TEXT"], ["largura", "INTEGER"], ["altura", "INTEGER"],
+    ["foco_x", "INTEGER"], ["foco_y", "INTEGER"], ["avisos", "TEXT"], ["nota", "INTEGER"],
+    ["tratada_em", "INTEGER"], ["tratamento_erro", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE produto_midias ADD COLUMN ${c} ${ddl}`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_midias_url ON produto_midias(url)");
+}
+
 export default db;
