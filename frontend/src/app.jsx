@@ -8035,7 +8035,14 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
   /* O grupo que cabe na barra vira o botão do PRIMEIRO filho (Atender →
      Conversas); os outros filhos dele entram no "Mais", senão Formulários não
      teria caminho no celular. */
-  const extras=[...cabem.filter(filhosDe).flatMap(item=>filhosDe(item).slice(1)),...extrasDoMenu];
+  /* Com mais de uma opção, o resto vai ao "Mais" como GAVETA com o nome do
+     grupo (04/10 → 12/10/2026, pedido do Ali: cada catraca nova entrava solta
+     na lista do "Mais"). Uma opção só entra solta — gaveta de um item é um
+     toque a mais por nada. */
+  const extras=[...cabem.filter(filhosDe).flatMap(item=>{
+    const resto=filhosDe(item).slice(1);
+    return resto.length>1?[[item[0],item[1],item[2],item[3],resto]]:resto;
+  }),...extrasDoMenu];
   // Um grupo conta como um item só; o aviso dele é a soma dos filhos.
   const avisoDe=(item)=>filhosDe(item)?filhosDe(item).reduce((s,[v])=>s+aviso(v),0):aviso(item[0]);
   const ativoEm=(item)=>view===item[0]||grupoContem(item,view);
@@ -15816,7 +15823,7 @@ function MiniaturaModelo({id}){
    minuto em que ela decidiu contratar é perder a venda. Sem plano cadastrado
    pelo ConHub, o botão não aparece e a tela diz que ainda não está à venda:
    botão que só leva a "em breve" é pior que nenhum. */
-function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao}){
+function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embutido}){
   const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
   const [assinando,setAssinando]=useState(false);
   const blocoAssinar=useRef(null);
@@ -15864,11 +15871,11 @@ function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao}){
     </div>;
   };
 
-  return <div style={cartao}>
-    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
+  return <div style={embutido?{}:cartao}>
+    {!embutido&&<div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
       <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
-    </div>
+    </div>}
     {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
       O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
@@ -15908,15 +15915,49 @@ function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao}){
   </div>;
 }
 
+/* A linha de resumo da gaveta "Conteúdo do site": o que já está preenchido,
+   para não precisar abrir a gaveta para saber. */
+function resumoDoConteudo(r){
+  const p=[];
+  if((r.sobre||"").trim()) p.push("sobre nós");
+  const redes=["instagram","facebook","youtube"].filter(k=>(r[k]||"").trim()).length;
+  if(redes) p.push(redes===1?"1 rede":`${redes} redes`);
+  if((r.equipe||[]).length) p.push(`${r.equipe.length} na equipe`);
+  if((r.depoimentos||[]).length) p.push(`${r.depoimentos.length} depoimento${r.depoimentos.length>1?"s":""}`);
+  return p.length?p.join(" · "):"Nada preenchido ainda";
+}
+
+/* GAVETAS DO CETROLAB (12/10/2026, pedido do Ali: "tô tendo que descer muito
+   pra ver todas as funções… criar as gavetas de cada uma e organizar tudo na
+   primeira dobra"). Fechada, cada parte é uma linha: nome e o estado em uma
+   frase. Uma aberta por vez. O conteúdo de uma gaveta fechada continua montado
+   (só escondido): fechar sem salvar não pode apagar o que foi digitado. */
+function GavetaSite({titulo,resumo,aberta,onAlternar,alerta,children,isMobile}){
+  const ref=useRef(null);
+  useEffect(()=>{ if(aberta&&ref.current&&ref.current.scrollIntoView) ref.current.scrollIntoView({block:"start",behavior:"smooth"}); },[aberta]);
+  return <div ref={ref} style={{background:C.card,border:`1px solid ${aberta?C.green+"66":C.line}`,borderRadius:14,marginBottom:10,overflow:"hidden"}}>
+    <button type="button" onClick={onAlternar} aria-expanded={aberta}
+      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:isMobile?"14px 13px":"14px 16px",border:"none",background:"transparent",cursor:"pointer",textAlign:"left",minHeight:56}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:14.5,fontWeight:700}}>{titulo}</div>
+        {resumo&&<div style={{color:alerta?"#8a6d1f":C.faint,fontSize:12,marginTop:2,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:isMobile?"normal":"nowrap"}}>{resumo}</div>}
+      </div>
+      <span style={{display:"flex",flexShrink:0,color:C.faint,transform:aberta?"rotate(90deg)":"none",transition:"transform .15s ease"}}><Icon n="chevron" size={17}/></span>
+    </button>
+    <div style={{display:aberta?"block":"none",padding:isMobile?"0 13px 14px":"0 16px 16px",borderTop:`1px solid ${C.line}`,paddingTop:14}}>{children}</div>
+  </div>;
+}
+
 /* O conteúdo institucional do site (12/10/2026): o que o catálogo não tem —
    sobre nós, redes sociais, quem da equipe aparece (um por um, escolha da
    gestão) e depoimentos. Sem conteúdo, a seção não aparece no site: nada é
    preenchido de exemplo. Um Salvar para tudo, como a marca. */
-function ConteudoDoSite({acoes,isMobile,cartao}){
+function ConteudoDoSite({acoes,isMobile,cartao,embutido,aoResumo}){
   const [c,setC]=useState(null); const [f,setF]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
   const carregar=(r)=>{setC(r);setF({sobre:r.sobre,instagram:r.instagram,facebook:r.facebook,youtube:r.youtube,equipe:r.equipe||[],
-    depoimentos:(r.depoimentos||[]).length?r.depoimentos:[]});};
+    depoimentos:(r.depoimentos||[]).length?r.depoimentos:[]});
+    if(aoResumo) aoResumo(resumoDoConteudo(r));};
   useEffect(()=>{acoes.conteudoDoSite().then(carregar).catch(e=>setErro(e.message));},[]);
   async function salvar(){
     setErro("");setOk("");setSalvando(true);
@@ -15928,9 +15969,9 @@ function ConteudoDoSite({acoes,isMobile,cartao}){
   const marcado=(id)=>f.equipe.includes(id);
   const alternar=(id)=>setF({...f,equipe:marcado(id)?f.equipe.filter(x=>x!==id):[...f.equipe,id]});
   const mudo=JSON.stringify(f)!==JSON.stringify({sobre:c.sobre,instagram:c.instagram,facebook:c.facebook,youtube:c.youtube,equipe:c.equipe||[],depoimentos:c.depoimentos||[]});
-  return <div style={cartao}>
-    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Conteúdo do site</div>
-    <div style={{color:C.faint,fontSize:12,marginTop:3,marginBottom:14,lineHeight:1.5}}>Aparece no modelo Institucional. O que ficar em branco não aparece no site.</div>
+  return <div style={embutido?{}:cartao}>
+    {!embutido&&<div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Conteúdo do site</div>}
+    <div style={{color:C.faint,fontSize:12,marginTop:embutido?0:3,marginBottom:14,lineHeight:1.5}}>Aparece no modelo Institucional. O que ficar em branco não aparece no site.</div>
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div>{rotulo("Sobre nós")}
         <textarea value={f.sobre} onChange={e=>setF({...f,sobre:e.target.value})} rows={5} maxLength={1500}
@@ -15982,6 +16023,8 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
     gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||""});};
   useEffect(()=>{acoes.site().then(carregar).catch(e=>setErro(e.message));},[]);
   const [conferindo,setConferindo]=useState(false);
+  const [aberta,setAberta]=useState(null); const [resumoConteudo,setResumoConteudo]=useState("");
+  const alternar=(k)=>setAberta(a=>a===k?null:k);
   async function conferirDominio(){
     setConferindo(true); setErro("");
     try{ carregar(await acoes.verificarDominio()); }catch(e){ setErro(e.message); }finally{ setConferindo(false); }
@@ -16028,11 +16071,21 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
           </div>}
         </div>
 
-        <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} aoAtualizar={setD} isMobile={isMobile} irPara={irPara} cartao={cartao}/>
-        <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao}/>
+        {(()=>{
+          const noAr=(d.modelos||[]).find(m=>m.id===d.modelo_no_ar);
+          const premium=(d.modelos||[]).filter(m=>m.premium).length;
+          const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
+          return <GavetaSite titulo="Modelo do site" isMobile={isMobile} aberta={aberta==="modelo"} onAlternar={()=>alternar("modelo")}
+            resumo={`No ar: ${noAr?noAr.nome:"Clássico"} · ${temCetrolab?"Cetrolab ativo":`Clássico grátis · ${premium} modelos no Cetrolab`}`}>
+            <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} aoAtualizar={setD} isMobile={isMobile} irPara={irPara} cartao={cartao} embutido/>
+          </GavetaSite>;})()}
+        <GavetaSite titulo="Conteúdo do site" isMobile={isMobile} aberta={aberta==="conteudo"} onAlternar={()=>alternar("conteudo")}
+          resumo={resumoConteudo?`${resumoConteudo} · usado no Institucional`:"Sobre nós, redes, equipe e depoimentos"}>
+          <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao} embutido aoResumo={setResumoConteudo}/>
+        </GavetaSite>
 
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:12}}>Configuração</div>
+        <GavetaSite titulo="Endereço, WhatsApp e Pixel" isMobile={isMobile} aberta={aberta==="config"} onAlternar={()=>alternar("config")}
+          alerta={!d.whatsapp} resumo={`…/imoveis/${d.slug} · ${d.whatsapp?"WhatsApp "+fmtTel(d.whatsapp):"WhatsApp não informado"}${d.pixel_id?" · Pixel ligado":""}`}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div>
               {rotulo("Endereço do site")}
@@ -16066,15 +16119,16 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
               acabou de clicar em Salvar lá embaixo, e a recusa passava como
               se tivesse salvo. */}
           {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12}}>{erro}</div>}
-        </div>
+        </GavetaSite>
 
         {/* DOMÍNIO PRÓPRIO (04/10/2026, pedido do Ali): o site abrindo no
             endereço da imobiliária. São três passos, e a tela diz em qual está:
             registrar aqui → o ConHub ativa na hospedagem → a imobiliária aponta
             o DNS. "No ar" só aparece quando o site responde de verdade pelo
             domínio, com https. */}
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Domínio próprio</div>
+        <GavetaSite titulo="Domínio próprio" isMobile={isMobile} aberta={aberta==="dominio"} onAlternar={()=>alternar("dominio")}
+          alerta={!!d.dominio&&d.dominio_estado!=="ativo"}
+          resumo={!d.dominio?"Não usa — o site abre no endereço do ConHub":`${d.dominio} · ${d.dominio_estado==="ativo"?"no ar":d.dominio_estado==="aguardando_dns"?"falta criar os registros no DNS":"preparando"}`}>
           <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>O site abre no endereço da imobiliária, como www.suaimobiliaria.com.br.</div>
           {rotulo("Domínio")}
           <input value={f.dominio} onChange={e=>setF({...f,dominio:e.target.value.trim().toLowerCase()})} placeholder="www.suaimobiliaria.com.br" style={entrada} autoCapitalize="none"/>
@@ -16102,14 +16156,15 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             </div>;})()}
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
             <button onClick={()=>salvar({},f.dominio?"Domínio salvo.":"Domínio removido.")} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>Salvar domínio</button>
+            {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
           </div>
-        </div>
+        </GavetaSite>
 
         {/* COMO O SITE APARECE NO GOOGLE (04/10/2026). O resto da otimização
             é automática: cada imóvel tem título, descrição, foto, dados
             estruturados e entra no mapa do site (sitemap). */}
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Aparência no Google (SEO)</div>
+        <GavetaSite titulo="Aparência no Google (SEO)" isMobile={isMobile} aberta={aberta==="seo"} onAlternar={()=>alternar("seo")}
+          resumo={[d.seo_titulo?"Título próprio":"Título automático",d.seo_descricao?"descrição própria":"descrição automática",d.gtm_id?"Tag Manager ligado":null].filter(Boolean).join(" · ")}>
           <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como a página inicial aparece na busca. Cada imóvel já entra com o próprio título, descrição e foto.</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div>
@@ -16137,9 +16192,9 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             <button onClick={()=>salvar({})} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
             {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
           </div>
-        </div>
+        </GavetaSite>
 
-        <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"0 4px 20px"}}>
+        <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"4px 4px 20px"}}>
           A logo e a cor vêm de <b>Configurações → Identidade</b>. A página de cada imóvel usa a descrição do anúncio e respeita o que foi escolhido em "O que mostrar do endereço". Construtora, comissão, quem captou e as observações internas <b>nunca</b> aparecem no site.
         </div>
       </React.Fragment>}
