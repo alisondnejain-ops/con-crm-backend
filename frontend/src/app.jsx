@@ -16286,7 +16286,11 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
           <button onClick={()=>{aoMudarSituacao(p,"ativo");aoFechar();}} style={{flex:1,minWidth:130,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
           <button onClick={()=>{aoMudarSituacao(p,"recusado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Recusar</button>
         </React.Fragment>}
-        {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
+        {(supervisor||p.captador_id===session?.id)&&p.status==="ativo"&&<button onClick={()=>{
+            /* O corretor fecha o imóvel que ELE captou (12/10/2026); desfazer é
+               da gestão, então ele confirma antes. A regra mora no servidor. */
+            if(!supervisor&&!window.confirm(`Marcar "${p.titulo}" como ${p.finalidade==="aluguel"?"alugado":"vendido"}?\n\nEle sai do catálogo, do site e dos portais. Para desfazer, só a gestão.`)) return;
+            aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
       </div>
       {/* Excluir é só da gestão, e fica separado do resto para não ser clicado sem querer. */}
       {supervisor&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:14}}>

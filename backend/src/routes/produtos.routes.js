@@ -228,11 +228,31 @@ r.patch("/:id", (req, res) => {
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
 });
 
-// Aprovação do produto enviado por corretor.
-r.post("/:id/status", roles("adm", "sdr"), (req, res) => {
+/* O corretor fecha o negócio do imóvel que ELE captou (12/10/2026, pedido do
+   Ali): "Vendido" no de venda, "Alugado" no de aluguel, e só a partir de
+   publicado. A régua é o CAPTADOR, não quem cadastrou: a atendente pode
+   cadastrar a captação de um corretor, e quem fechou foi ele. Desfazer, ou
+   qualquer outra situação, continua sendo da supervisão — fechado, o imóvel
+   sai do catálogo, do site e dos portais, e reabrir é decisão da gestão. */
+export function corretorPodeFechar(user, p, status) {
+  if (!p || p.captador_id !== user.id || p.status !== "ativo") return false;
+  return status === (p.finalidade === "aluguel" ? "alugado" : "vendido");
+}
+
+// Aprovação do produto enviado por corretor; supervisão muda qualquer situação.
+r.post("/:id/status", (req, res) => {
   const permitidos = ["ativo", "recusado", "vendido", "alugado", "inativo"];
   const { status } = req.body || {};
   if (!permitidos.includes(status)) return res.status(400).json({ error: "Situação inválida." });
+  if (!supervisiona(req.user)) {
+    const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+    if (!p) return res.status(404).json({ error: "Produto não encontrado" });
+    if (!corretorPodeFechar(req.user, p, status))
+      return res.status(403).json({ error: p.captador_id !== req.user.id
+        ? "Só quem captou este imóvel (ou a gestão) pode marcar como " + (p.finalidade === "aluguel" ? "alugado." : "vendido.")
+        : p.status !== "ativo" ? "O imóvel precisa estar publicado no catálogo."
+        : `Este imóvel é de ${p.finalidade === "aluguel" ? "aluguel: marque como alugado." : "venda: marque como vendido."}` });
+  }
   const info = db.prepare("UPDATE produtos SET status=? WHERE id=? AND org_id=?").run(status, req.params.id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Produto não encontrado" });
   res.json({ ok: true, status });
