@@ -1675,6 +1675,8 @@ function ConCRM(){
     // Com o lead, a fila que vale para ELE (a da catraca do produto, ou a principal).
     rodizio:(leadId)=>api("/distribution/rodizio"+(leadId?`?lead_id=${encodeURIComponent(leadId)}`:"")),
     catracas:()=>api("/distribution/catracas"),
+    relatorioCatracas:(periodo)=>api(`/distribution/catracas/relatorio?periodo=${encodeURIComponent(periodo||"tudo")}`),
+    relatorioCatraca:(id,periodo)=>api(`/distribution/catracas/${encodeURIComponent(id)}/relatorio?periodo=${encodeURIComponent(periodo||"tudo")}`),
     criarCatraca:(dados)=>api("/distribution/catracas",{method:"POST",body:dados}),
     editarCatraca:(id,dados)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"PATCH",body:dados}),
     apagarCatraca:(id)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"DELETE"}),
@@ -11064,6 +11066,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   const [d,setD]=useState(null), [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null);   // id, "nova" ou null
   const [verDesativadas,setVerDesativadas]=useState(false);
+  const [relatorio,setRelatorio]=useState(null);   // null, "todas" ou o id
   const carregar=()=>acoes.catracas().then(x=>{setD(x);setErro("");guardarCatracas(x);})
     .catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[versao]);
@@ -11093,8 +11096,12 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
         <span style={{color:C.sub,fontSize:10.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"2px 8px"}}>
           {c.entrega==="corretor"?"direto ao corretor":"passa pela atendente"}</span>
         {!c.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
-        {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{marginLeft:"auto",border:`1px solid ${C.line}`,background:C.card,color:C.sub,
-          borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+        <span style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button onClick={()=>setRelatorio(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
+            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Relatório</button>
+          {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,
+            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+        </span>
       </div>
       {c.ativa&&<div style={{color:f&&f.proximo?C.greenDeep:C.amber,fontSize:11.5,marginTop:5}}>
         {!c.membros.length?"Sem corretores — os leads desta catraca vão pela principal."
@@ -11115,6 +11122,8 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="transfer" size={15} color={C.green}/>
       <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Catracas por produto</span>
+      {d.catracas.length>0&&<button onClick={()=>setRelatorio("todas")} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
+        borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Comparar catracas</button>}
       {podeEditar&&editando!=="nova"&&<button onClick={()=>setEditando("nova")} style={{border:"none",background:C.greenDeep,color:"#fff",
         borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
     </div>
@@ -11128,6 +11137,109 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
       fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
     {verDesativadas&&desativadas.map(cartao)}
+    {relatorio&&<RelatorioDasCatracas acoes={acoes} isMobile={isMobile} inicial={relatorio} onFechar={()=>setRelatorio(null)}/>}
+  </div>;
+}
+
+/* O RELATÓRIO DAS CATRACAS (12/10/2026, pedido do Ali: "um relatório
+   individual de uma catraca que foi desativada… com os números completos
+   dela, até pra comparação em relação ao autoatendimento"). Abre na
+   comparação de todas (a principal, as ativas e as desativadas) ou direto
+   numa. Os números são dos leads que ENTRARAM no período; o padrão é "desde
+   o início", que é como se olha uma campanha encerrada. */
+const PERIODOS_CATRACA=[["tudo","Desde o início"],["mes","Este mês"],["90dias","90 dias"],["ano","Este ano"]];
+const pctCatraca=(v)=>v===null||v===undefined?"—":pctBR(Math.round(v*10)/10);
+function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
+  const [periodo,setPeriodo]=useState("tudo");
+  const [aberta,setAberta]=useState(inicial==="todas"?null:inicial);
+  const [todas,setTodas]=useState(null), [uma,setUma]=useState(null), [erro,setErro]=useState("");
+  useEffect(()=>{ let vivo=true; setErro("");
+    if(aberta){ setUma(null); acoes.relatorioCatraca(aberta,periodo).then(x=>vivo&&setUma(x)).catch(e=>vivo&&setErro(e.message)); }
+    else { setTodas(null); acoes.relatorioCatracas(periodo).then(x=>vivo&&setTodas(x)).catch(e=>vivo&&setErro(e.message)); }
+    return()=>{vivo=false;}; },[aberta,periodo]);
+  const titulo=aberta?(uma?uma.catraca.nome:"Carregando…"):"Comparar catracas";
+  const pilula=(id,t)=><button key={id} onClick={()=>setPeriodo(id)} style={{border:`1px solid ${periodo===id?C.green:C.line}`,
+    background:periodo===id?C.greenSoft:C.card,color:periodo===id?C.greenDeep:C.sub,borderRadius:999,padding:"7px 12px",minHeight:34,
+    fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>;
+  const num=(rotulo,valor,sub)=><div style={{background:C.surface,borderRadius:10,padding:"10px 11px",minWidth:0}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>
+    <div style={{color:C.ink,fontFamily:MONO,fontSize:18,fontWeight:700,marginTop:3}}>{valor}</div>
+    {sub&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>{sub}</div>}</div>;
+  const iaVsSem=(x)=>{
+    const melhor=x.ia.conversao!=null&&x.sem_ia.conversao!=null?(x.ia.conversao>x.sem_ia.conversao?"ia":x.ia.conversao<x.sem_ia.conversao?"sem":null):null;
+    const lado=(rot,b,dest)=><div style={{flex:1,minWidth:0,border:`1px solid ${dest?C.green+"66":C.line}`,background:dest?C.greenSoft:C.card,borderRadius:10,padding:"9px 11px"}}>
+      <div style={{color:C.sub,fontSize:11.5,fontWeight:600}}>{rot}</div>
+      <div style={{color:C.ink,fontFamily:MONO,fontSize:17,fontWeight:700,marginTop:2}}>{pctCatraca(b.conversao)}</div>
+      <div style={{color:C.faint,fontSize:11}}>{b.vendas} venda{b.vendas===1?"":"s"} de {b.leads} lead{b.leads===1?"":"s"}</div></div>;
+    return <div style={{display:"flex",gap:8,flexWrap:isMobile?"wrap":"nowrap"}}>
+      {lado("Atendidos pela IA (Autoatendimento)",x.ia,melhor==="ia")}{lado("Sem a IA",x.sem_ia,melhor==="sem")}</div>;
+  };
+  return <div className="tela-cheia" style={{position:"fixed",inset:0,zIndex:60,background:"rgba(0,0,0,.35)",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center"}} onClick={onFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:isMobile?"100%":"min(880px,94vw)",maxHeight:isMobile?"100%":"90vh",
+      borderRadius:isMobile?0:16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:isMobile?"14px 14px 10px":"16px 18px 10px",borderBottom:`1px solid ${C.line}`}}>
+        {aberta&&inicial==="todas"&&<button onClick={()=>setAberta(null)} aria-label="Voltar" style={{width:32,height:32,borderRadius:9,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={16}/></button>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:16,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{titulo}
+            {uma&&aberta&&!uma.catraca.ativa&&<span style={{color:C.amber,fontSize:11,fontWeight:600,marginLeft:8}}>desativada</span>}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>Leads que entraram {((aberta?uma:todas)||{}).periodo?((aberta?uma:todas).periodo.rotulo):"…"}</div>
+        </div>
+        <button onClick={onFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,borderRadius:9,width:34,height:34,cursor:"pointer",fontSize:18}}>×</button>
+      </div>
+      <div style={{overflowY:"auto",padding:isMobile?14:18}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>{PERIODOS_CATRACA.map(([id,t])=>pilula(id,t))}</div>
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+        {!aberta&&!todas&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+        {!aberta&&todas&&<React.Fragment>
+          {isMobile
+            ?todas.linhas.map(l=><button key={l.id} onClick={()=>setAberta(l.id)} style={{width:"100%",textAlign:"left",border:`1px solid ${C.line}`,background:l.ativa?C.card:C.surface,borderRadius:12,padding:"11px 12px",marginBottom:8,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}><b style={{color:C.ink,fontSize:13.5}}>{l.nome}</b>
+                  {!l.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
+                  <span style={{marginLeft:"auto",color:C.faint}}><Icon n="chevron" size={14}/></span></div>
+                <div style={{color:C.sub,fontSize:12,marginTop:4,lineHeight:1.55}}>{l.leads} leads · {l.vendas} vendas · conversão {pctCatraca(l.conversao)}<br/>
+                  IA: {pctCatraca(l.ia.conversao)} ({l.ia.leads}) · sem IA: {pctCatraca(l.sem_ia.conversao)} ({l.sem_ia.leads})</div></button>)
+            :<div style={{border:`1px solid ${C.line}`,borderRadius:12,overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
+                <thead><tr style={{background:C.surface,color:C.faint,fontSize:10.5,textTransform:"uppercase",letterSpacing:.4}}>
+                  {["Catraca","Leads","Em aberto","Vendas","VGV","Conversão","1ª resposta","Conv. com IA","Conv. sem IA"].map((h,i)=>
+                    <th key={h} style={{textAlign:i?"right":"left",padding:"9px 10px",fontWeight:700}}>{h}</th>)}</tr></thead>
+                <tbody>{todas.linhas.map(l=><tr key={l.id} onClick={()=>setAberta(l.id)} style={{borderTop:`1px solid ${C.line}`,cursor:"pointer",background:l.ativa?C.card:C.surface}}>
+                  <td style={{padding:"9px 10px",color:C.ink,fontWeight:600}}>{l.nome}{!l.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600,marginLeft:6}}>desativada</span>}</td>
+                  {[l.leads,l.em_aberto,l.vendas,fmtMoeda(l.vgv),pctCatraca(l.conversao),l.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(l.primeira_resposta_mediana_min)),
+                    `${pctCatraca(l.ia.conversao)} (${l.ia.leads})`,`${pctCatraca(l.sem_ia.conversao)} (${l.sem_ia.leads})`].map((v,i)=>
+                    <td key={i} style={{padding:"9px 10px",textAlign:"right",fontFamily:MONO,color:C.ink,whiteSpace:"nowrap"}}>{v}</td>)}
+                </tr>)}</tbody>
+              </table></div>}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginTop:10}}>
+            Clique numa catraca para ver por dentro. Conta a catraca em que o lead está hoje: lead mudado de catraca na ficha conta na nova.
+            "Com IA" são os leads em que o Autoatendimento mandou pelo menos uma mensagem; entre parênteses, quantos leads. As vendas são desses leads, fechadas quando for — as vendas do mês ficam no Painel.</div>
+        </React.Fragment>}
+
+        {aberta&&!uma&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+        {aberta&&uma&&<React.Fragment>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(4,minmax(0,1fr))",gap:8,marginBottom:14}}>
+            {num("Leads",uma.leads,`${uma.em_aberto} em aberto`)}
+            {num("Vendas",uma.vendas,fmtMoeda(uma.vgv))}
+            {num("Conversão",pctCatraca(uma.conversao),`${uma.perdidos} perdido${uma.perdidos===1?"":"s"}`)}
+            {num("1ª resposta",uma.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(uma.primeira_resposta_mediana_min)),`mediana · ${uma.sem_resposta} sem resposta`)}
+          </div>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Autoatendimento × atendimento sem IA</div>
+          {iaVsSem(uma)}
+          {[["Por corretor (quem está com o lead hoje)",uma.por_corretor],["De onde vieram",uma.por_origem],["Onde estão agora",uma.por_etapa]].map(([t,lista])=>
+            <div key={t} style={{marginTop:16}}>
+              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6}}>{t}</div>
+              {!lista.length?<div style={{color:C.faint,fontSize:12}}>Nenhum lead no período.</div>
+                :<div style={{border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden"}}>{lista.map((x,i)=>
+                  <div key={x.chave+i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 11px",borderTop:i?`1px solid ${C.line}`:"none",fontSize:12.5}}>
+                    <span style={{flex:1,minWidth:0,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.nome}</span>
+                    <span style={{fontFamily:MONO,color:C.sub,whiteSpace:"nowrap"}}>{x.leads} · {x.vendas} venda{x.vendas===1?"":"s"} · {pctCatraca(x.conversao)}</span>
+                  </div>)}</div>}
+            </div>)}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginTop:12}}>Leads que entraram no período e estão nesta catraca hoje. A conversão é a fração deles que já tem venda registrada.</div>
+        </React.Fragment>}
+      </div>
+    </div>
   </div>;
 }
 
