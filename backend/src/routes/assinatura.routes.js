@@ -633,6 +633,9 @@ r.get("/assinatura/recursos", authRequired, soDono, async (req, res) => {
 r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) => {
   const recurso = req.params.recurso;
   if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
+  // Ferramenta sem preço cadastrado (o Cetrolab antes de o master criar o plano) não se vende.
+  if (!(RECURSOS[recurso].avulso > 0))
+    return res.status(409).json({ error: `${RECURSOS[recurso].nome} ainda não está à venda. Fale com o ConHub.` });
   const pelaPagarme = provedorDe(orgCompleta(req.user.org_id)) === "pagarme";
   if (!pelaPagarme && !asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const antes = situacaoDoRecurso(req.user.org_id, recurso);

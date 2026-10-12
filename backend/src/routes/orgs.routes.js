@@ -28,6 +28,7 @@ import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../se
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
+import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
@@ -122,6 +123,22 @@ r.get("/", (req, res) => {
 });
 
 /* Cria o ambiente interno do ConHub (ou devolve o que já existe — há um só). */
+/* CETROLAB — os planos que o master cadastra (12/10/2026). Antes de "/:id/…"
+   não importa (outros verbos/caminhos), mas fica aqui, perto do topo, junto
+   das outras rotas de plataforma. */
+r.get("/cetrolab/planos", (_req, res) => res.json({ planos: planosCetrolab(), publicos: PUBLICOS_CETROLAB }));
+r.post("/cetrolab/planos", (req, res) => {
+  const r2 = salvarPlanoCetrolab(null, req.body || {});
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  console.log(`[master] ${req.user.name} criou o plano do Cetrolab "${r2.plano.nome}"`);
+  res.json(r2.plano);
+});
+r.patch("/cetrolab/planos/:planoId", (req, res) => {
+  const r2 = salvarPlanoCetrolab(req.params.planoId, req.body || {});
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json(r2.plano);
+});
+
 r.post("/interna", (req, res) => {
   const { org, criado } = criarAmbienteInterno(req.body?.nome);
   res.json({ ok: true, criado, org: resumo(req, org) });

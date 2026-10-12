@@ -429,6 +429,7 @@ export function filtrosDe(q = {}) {
     finalidade: ["venda", "aluguel"].includes(q.finalidade) ? q.finalidade : "",
     tipo: ["casa", "terreno"].includes(q.tipo) ? q.tipo : "",
     cidade: String(q.cidade || "").slice(0, 80),
+    bairro: String(q.bairro || "").slice(0, 80),
     quartos: [1, 2, 3, 4].includes(Number(q.quartos)) ? Number(q.quartos) : 0,
     ate: Number(q.ate) > 0 ? Number(q.ate) : 0,
     p: Math.max(1, Math.min(500, parseInt(q.p, 10) || 1)),
@@ -444,6 +445,7 @@ export function catalogo(orgId, f) {
   if (f.finalidade) { where.push("COALESCE(finalidade,'venda') = ?"); args.push(f.finalidade); }
   if (f.tipo) { where.push("tipo = ?"); args.push(f.tipo); }
   if (f.cidade) { where.push("cidade = ?"); args.push(f.cidade); }
+  if (f.bairro) { where.push("bairro = ?"); args.push(f.bairro); }
   if (f.quartos) { where.push("COALESCE(quartos,0) >= ?"); args.push(f.quartos); }
   if (f.ate) { where.push("valor > 0 AND valor <= ?"); args.push(f.ate); }
   const w = where.join(" AND ");
@@ -812,6 +814,36 @@ function cartao(i, ctx) {
   </div></a>`;
 }
 
+/* Os dados para o Google (schema.org) — da imobiliária e de cada imóvel. Um
+   lugar só para todos os modelos do site. */
+export function dadosDaImobiliaria(ctx) {
+  const { org, cfg, base } = ctx;
+  return {
+    "@context": "https://schema.org", "@type": "RealEstateAgent", name: org.name, url: base + inicio(ctx),
+    ...(ctx.marca.logo ? { logo: abs(base, ctx.marca.logo), image: abs(base, ctx.marca.logo) } : {}),
+    ...(cfg.whatsapp ? { telephone: "+" + cfg.whatsapp } : {}),
+    ...(cfg.seo_descricao ? { description: cfg.seo_descricao } : {}),
+  };
+}
+export function dadosDoImovel(ctx, i, url) {
+  const { org, base } = ctx;
+  return {
+    "@context": "https://schema.org", "@type": "RealEstateListing", name: i.titulo, url,
+    ...(i.descricao ? { description: i.descricao.slice(0, 500) } : {}),
+    ...(i.fotos.length ? { image: i.fotos.slice(0, 10).map(u => abs(base, u)) } : {}),
+    ...(i.local.curta ? { contentLocation: { "@type": "Place", name: i.local.curta } } : {}),
+    offers: { "@type": "Offer", availability: "https://schema.org/InStock", businessFunction: i.finalidade === "aluguel" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell",
+      ...(i.valor ? { price: Number(i.valor), priceCurrency: "BRL" } : {}),
+      seller: { "@type": "RealEstateAgent", name: org.name } },
+  };
+}
+/* A descrição curta do imóvel (meta description e prévia no WhatsApp). */
+export const resumoDoImovel = (i) =>
+  [precoTexto(i), caracteristicas(i, true).map(([, v, r]) => `${v}${r ? " " + r : ""}`).join(", "), i.local.curta].filter(Boolean).join(" · ");
+/* O evento do Pixel ao abrir um imóvel. */
+export const pixelDoImovel = (i) =>
+  `fbq('track','ViewContent',{content_ids:['${esc(i.codigo)}'],content_name:${JSON.stringify(i.titulo).replace(/</g, "\\u003c")},content_type:'product'${i.valor ? `,value:${Number(i.valor)},currency:'BRL'` : ""}});`;
+
 export function paginaPortal(ctx, query) {
   const { org, cfg, base } = ctx;
   const f = filtrosDe(query);
@@ -871,12 +903,7 @@ export function paginaPortal(ctx, query) {
     url: base + link({}),
     // Página de busca filtrada não entra no Google: seria a mesma vitrine com mil endereços.
     indexar: !filtrando && f.p === 1,
-    dados: {
-      "@context": "https://schema.org", "@type": "RealEstateAgent", name: org.name, url: base + portal,
-      ...(ctx.marca.logo ? { logo: abs(base, ctx.marca.logo), image: abs(base, ctx.marca.logo) } : {}),
-      ...(cfg.whatsapp ? { telephone: "+" + cfg.whatsapp } : {}),
-      ...(cfg.seo_descricao ? { description: cfg.seo_descricao } : {}),
-    },
+    dados: dadosDaImobiliaria(ctx),
   });
 }
 
@@ -954,21 +981,13 @@ export function paginaImovel(ctx, i) {
     document.addEventListener('keydown',function(e){if(!cx.classList.contains('on'))return;if(e.key==='Escape')fechar();if(e.key==='ArrowRight')z.ir(z.atual()+1);if(e.key==='ArrowLeft')z.ir(z.atual()-1)});}
 })();
 </script>`;
-  const descricao = [precoTexto(i), caracteristicas(i, true).map(([, v, r]) => `${v}${r ? " " + r : ""}`).join(", "), i.local.curta].filter(Boolean).join(" · ");
-  const pixelExtra = `fbq('track','ViewContent',{content_ids:['${esc(i.codigo)}'],content_name:${JSON.stringify(i.titulo).replace(/</g, "\\u003c")},content_type:'product'${i.valor ? `,value:${Number(i.valor)},currency:'BRL'` : ""}});`;
+  const descricao = resumoDoImovel(i);
+  const pixelExtra = pixelDoImovel(i);
   return moldura({
     ctx, corpo, url, pixelExtra, classeBody: "tem-barra",
     titulo: `${i.titulo} — ${org.name}`,
     descricao,
-    dados: {
-      "@context": "https://schema.org", "@type": "RealEstateListing", name: i.titulo, url,
-      ...(i.descricao ? { description: i.descricao.slice(0, 500) } : {}),
-      ...(fotos.length ? { image: fotos.slice(0, 10).map(u => abs(base, u)) } : {}),
-      ...(i.local.curta ? { contentLocation: { "@type": "Place", name: i.local.curta } } : {}),
-      offers: { "@type": "Offer", availability: "https://schema.org/InStock", businessFunction: i.finalidade === "aluguel" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell",
-        ...(i.valor ? { price: Number(i.valor), priceCurrency: "BRL" } : {}),
-        seller: { "@type": "RealEstateAgent", name: org.name } },
-    },
+    dados: dadosDoImovel(ctx, i, url),
     imagem: fotos[0] ? abs(base, fotos[0]) : (ctx.marca.logo ? abs(base, ctx.marca.logo) : null),
   });
 }
@@ -996,6 +1015,15 @@ export function paginaPausada(ctx) {
 <body><div><h1>${esc(org.name)}</h1><p>Nosso site está passando por uma atualização. Enquanto isso, fale com a gente pelo WhatsApp.</p>
 <a href="${esc(wa(ctx.cfg.whatsapp, `Olá! Tentei acessar o site da ${org.name} e gostaria de ver os imóveis disponíveis.`))}">Falar no WhatsApp</a></div></body></html>`;
 }
+
+/* ===== PEÇAS PARA OS MODELOS DO CETROLAB (12/10/2026) =====
+   Cada modelo monta o próprio HTML, mas o que é REGRA — a lista branca do
+   imóvel, o link do WhatsApp com a mensagem pronta, o Pixel, o Tag Manager, os
+   dados para o Google, os endereços que respeitam o domínio próprio — vem
+   daqui, um lugar só. Um modelo que reescrevesse o Pixel ou o caminho do
+   imóvel divergiria do Clássico no primeiro conserto. */
+export const pecas = { dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
+  telefoneLegivel, wa, caracteristicas, ICO, FAIXAS };
 
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====
    O mapa que o Google lê para achar cada imóvel: a página inicial e todo

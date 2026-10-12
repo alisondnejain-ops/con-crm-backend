@@ -824,6 +824,8 @@ function SeletorDePais({valor,aoMudar,style,altura=40}){
 // O que escrever no campo do número, conforme o país.
 const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+/* Preço de assinatura: com centavos quando tem (R$ 79,90 não pode virar R$ 80 na tela de contratar). */
+const fmtPreco=(v)=>{const n=Number(v)||0;const inteiro=Math.abs(n-Math.round(n))<0.005;return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:inteiro?0:2,maximumFractionDigits:inteiro?0:2});};
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
 /* Data/hora da última mensagem na LISTA de conversas, na régua do WhatsApp:
@@ -943,6 +945,7 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 /* ===== ícones (SVG inline) ===== */
 const ICO={
   // Megafone: a seção Marketing (disparos em massa, e depois os fluxos do bot).
+  globo:<React.Fragment><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></React.Fragment>,
   megafone:<React.Fragment><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></React.Fragment>,
   /* WhatsApp: o balão com o fone dentro, desenhado com traço como os outros
      ícones da casa. Não é a logo oficial (que é sólida e tem cor própria) —
@@ -1757,6 +1760,9 @@ function ConCRM(){
     desconectarPaginaMeta:(id)=>api(`/anuncios-meta/paginas/${encodeURIComponent(id)}`,{method:"DELETE"}),
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
+    modeloDoSite:(modelo)=>api("/site/modelo",{method:"POST",body:{modelo}}),
+    planosCetrolab:()=>api("/orgs/cetrolab/planos"),
+    salvarPlanoCetrolab:(id,b)=>api(id?`/orgs/cetrolab/planos/${id}`:"/orgs/cetrolab/planos",{method:id?"PATCH":"POST",body:b}),
     salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
     verificarDominio:()=>api("/site/dominio/verificar",{method:"POST"}),
     dominiosHub:()=>api("/orgs/dominios"),
@@ -4933,6 +4939,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         </div>
         <SuporteNoHub isMobile={isMobile}/>
       </div>
+      <PlanosCetrolab acoes={acoes} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
       <DominiosDosSites acoes={acoes} isMobile={isMobile}/>
       <Backup acoes={acoes} isMobile={isMobile}/>
@@ -5827,14 +5834,14 @@ function FerramentaNoPagarme({r,pm,acoes,isMobile,aoMudar}){
     {!aberto
       ?<button onClick={()=>{setErro("");setAberto(true);}}
         style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-        Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+        Contratar por {fmtPreco(r.preco_avulso)}/mês</button>
       :(!cartao||trocando)
       ?<CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile} botao={cartao?"Usar este cartão":"Salvar cartão e continuar"}
         aoCancelar={()=>{setTrocando(false);if(!cartao)setAberto(false);}}
         aoSalvar={async()=>{ setTrocando(false); await aoMudar(); }}/>
       :<div style={{background:C.card,border:`1px solid ${C.green}44`,borderRadius:11,padding:11}}>
         <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
-          <b>{fmtMoeda(r.preco_avulso)}/mês</b> no {resumoCartao(cartao)}, cobrado hoje e todo mês.{" "}
+          <b>{fmtPreco(r.preco_avulso)}/mês</b> no {resumoCartao(cartao)}, cobrado hoje e todo mês.{" "}
           <button onClick={()=>setTrocando(true)} style={{background:"none",border:"none",padding:0,color:C.greenDeep,fontWeight:700,cursor:"pointer",fontSize:12}}>Trocar cartão</button>
         </div>
         <div style={{display:"flex",gap:8}}>
@@ -6238,7 +6245,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         </div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:3}}>{r.resumo}</div></React.Fragment>}
         {avulsaAtiva&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
-          <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtMoeda(r.preco_avulso)}/mês · renova sozinha</span>
+          <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtPreco(r.preco_avulso)}/mês · renova sozinha</span>
           <button onClick={()=>cancelar(r)} disabled={!!ocupado}
             style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
             {ocupado===r.id?"…":"Cancelar"}</button>
@@ -6246,10 +6253,12 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
           Cancelada — continua ligada até {fmtData(r.avulso.pago_ate)}.</div>}
         {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo ConHub nesta conta. Fale com a gente.</div>}
-        {!r.ativo&&r.origem==="fora_do_plano"&&pm&&(pm.configurado
+        {/* Ferramenta sem preço cadastrado (o Cetrolab antes de o ConHub criar o plano): não se vende. */}
+        {!r.ativo&&r.origem==="fora_do_plano"&&!(r.preco_avulso>0)&&<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Em breve à venda. Fale com o ConHub.</div>}
+        {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&pm&&(pm.configurado
           ?<FerramentaNoPagarme r={r} pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={async()=>{await carregar(); if(aoMudar) aoMudar();}}/>
           :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
-        {!r.ativo&&r.origem==="fora_do_plano"&&!pm&&(d.asaas
+        {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&!pm&&(d.asaas
           ?<div style={{marginTop:9}}>
             {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
               Contratação aguardando pagamento.{" "}
@@ -6263,7 +6272,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
             {abrindo!==r.id
               ?<button onClick={()=>{setErro("");setAbrindo(r.id);}}
                 style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-                Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+                Contratar por {fmtPreco(r.preco_avulso)}/mês</button>
               :<div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {d.pede_cpf&&<div>
                   <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Seu CPF ou CNPJ</div>
@@ -7172,6 +7181,58 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
 /* No hub (master): configuração + chamados. Com `equipe` (a aba Suporte do
    ambiente interno do ConHub): só os chamados — quem configura o número é o
    master, e a equipe só precisa atender. */
+/* PLANOS DO CETROLAB, no hub (12/10/2026, decisão do Ali: o preço de site é
+   ele quem define, aqui, e não fica escrito no código). Sem plano para
+   clientes do ConHub, a ferramenta aparece como "em breve" para todo mundo.
+   Os planos de quem não é cliente já ficam cadastrados para a página de venda
+   (/publico/cetrolab/planos); a contratação deles vem numa etapa seguinte. */
+function PlanosCetrolab({acoes,isMobile}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [msg,setMsg]=useState("");
+  const vazio={nome:"",resumo:"",valor_mensal:"",para:"conhub"};
+  const [novo,setNovo]=useState(null);
+  const carregar=()=>acoes.planosCetrolab().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  async function salvar(id,b){
+    setErro("");setMsg("");
+    try{ await acoes.salvarPlanoCetrolab(id,b); setMsg(id?"Plano atualizado.":"Plano criado."); setNovo(null); carregar(); }
+    catch(e){ setErro(e.message); }
+  }
+  const entrada={boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",width:"100%"};
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>Cetrolab · planos</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+      O modelo Clássico do site vem em todo plano. Os modelos premium pedem o Cetrolab: o preço para clientes do ConHub é o
+      que a conta paga ao contratar a ferramenta (um só ativo). Os planos para quem não é cliente ficam prontos para a página de venda.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {msg&&<div style={{color:C.greenMid,fontSize:12.5,fontWeight:600,marginBottom:10}}>{msg}</div>}
+    {!d?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>:<React.Fragment>
+      {!d.planos.length&&<div style={{color:C.faint,fontSize:12.5,marginBottom:10}}>Nenhum plano cadastrado — o Cetrolab ainda não está à venda.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {d.planos.map(p=><div key={p.id} style={{border:`1px solid ${p.ativo?C.green+"55":C.line}`,background:p.ativo?C.card:C.surface,borderRadius:12,padding:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 220px",minWidth:0}}>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>{p.nome} · {fmtPreco(p.valor_mensal)}/mês</div>
+            <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>{d.publicos[p.para]}{p.resumo?" · "+p.resumo:""}</div>
+          </div>
+          <button onClick={()=>salvar(p.id,{ativo:!p.ativo})} style={{background:p.ativo?C.surface:C.green,color:p.ativo?C.sub:"#fff",border:p.ativo?`1px solid ${C.line}`:"none",borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>{p.ativo?"Desativar":"Ativar"}</button>
+        </div>)}
+      </div>
+      {!novo
+        ?<button onClick={()=>setNovo(vazio)} style={{marginTop:10,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ Novo plano</button>
+        :<div style={{marginTop:10,border:`1px solid ${C.line}`,borderRadius:12,padding:12,display:"grid",gap:9,gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))"}}>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Nome<input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} placeholder="Ex.: Cetrolab Pro" style={{...entrada,marginTop:4}}/></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Valor por mês (R$)<input value={novo.valor_mensal} onChange={e=>setNovo({...novo,valor_mensal:e.target.value})} inputMode="decimal" placeholder="Ex.: 79,90" style={{...entrada,marginTop:4}}/></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Para quem<select value={novo.para} onChange={e=>setNovo({...novo,para:e.target.value})} style={{...entrada,marginTop:4}}>
+            {Object.entries(d.publicos).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Resumo (opcional)<input value={novo.resumo} onChange={e=>setNovo({...novo,resumo:e.target.value.slice(0,240)})} placeholder="O que o plano inclui, em uma linha" style={{...entrada,marginTop:4}}/></label>
+          <div style={{display:"flex",gap:8,gridColumn:"1 / -1"}}>
+            <button onClick={()=>salvar(null,novo)} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar plano</button>
+            <button onClick={()=>setNovo(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>}
+    </React.Fragment>}
+  </div>;
+}
 function SuporteNoHub({isMobile,equipe}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
@@ -7445,7 +7506,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["cetrolab","globo","Cetrolab","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -7500,7 +7561,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     /* AMBIENTE INTERNO DO CONHUB: não vende imóvel nem tem escala de plantão
        numa loja — Imóveis e Plantão saem. Entra "Suporte", a fila de
        chamados dos clientes, para toda a equipe: o suporte é deles. */
-    .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao")))
+    .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao"||item[0]==="cetrolab")))
     .concat(org&&org.tipo==="interna"?[["suporte","boia","Suporte","Principal"]]:[])
     /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
@@ -7659,6 +7720,10 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&!contaInterna()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&!contaInterna()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
+        {/* CETROLAB (12/10/2026): o site da imobiliária saiu de Imóveis e virou
+            ferramenta própria — tudo do site num lugar só, e é por aqui que os
+            modelos novos entram. Só gestor, como a tela antiga. */}
+        {view==="cetrolab"&&podeGerir(session)&&!contaInterna()&&<TelaSite acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {view==="suporte"&&contaInterna()&&<div style={molduraMkt(isMobile)}><SuporteNoHub isMobile={isMobile} equipe/></div>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
@@ -15395,7 +15460,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [recarga,setRecarga]=useState(0);
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
   const [portais,setPortais]=useState(false);
-  const [site,setSite]=useState(false);
   const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
   const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
@@ -15416,7 +15480,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
     try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
-  if(site) return <TelaSite acoes={acoes} isMobile={isMobile} aoFechar={()=>{setSite(false);atualizar();}}/>;
   if(portais) return <TelaPortais acoes={acoes} isMobile={isMobile} aoFechar={()=>{setPortais(false);atualizar();}}
     aoAbrirProduto={async(pid)=>{try{const p=await acoes.produto(pid);setPortais(false);setEditando(p);}catch(e){setErro(e.message);}}}/>;
   if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} equipeToda={equipeToda} acoes={acoes}
@@ -15449,9 +15512,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               imobiliária não é algo que cada corretor liga por conta própria. */}
           {gestor&&<button onClick={()=>setPortais(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
             <Icon n="link" size={15}/> Portais
-          </button>}
-          {gestor&&<button onClick={()=>setSite(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
-            <Icon n="grid" size={15}/> Site
           </button>}
         </div>
         {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
@@ -15714,7 +15774,77 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
    propósito — o pedido foi "sem função demais": o conteúdo vem do catálogo, a
    logo e a cor vêm da Identidade, e o que sobra para decidir aqui é onde o
    site mora, para qual WhatsApp ele leva e se há Pixel. */
-function TelaSite({acoes,isMobile,aoFechar}){
+/* OS MODELOS DO SITE — Cetrolab (12/10/2026). O Clássico vem em todo plano;
+   os premium pedem a ferramenta Cetrolab. "Ver prévia" abre o site com o
+   modelo trocado só naquela aba (?previa=), com uma faixa avisando que é
+   prévia — dá para experimentar antes de contratar, e o site no ar não muda.
+   Quem decide se pode usar é o servidor; aqui só se mostra o que ele disse. */
+/* A miniatura de cada modelo no cartão — um esboço, não uma foto: diz de
+   relance se o modelo é claro ou escuro e como a página se organiza. */
+function MiniaturaModelo({id}){
+  const base={height:78,borderRadius:8,border:`1px solid ${C.line}`,position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:8,gap:5,boxSizing:"border-box"};
+  if(id==="bairros") return <div aria-hidden="true" style={{...base,background:"#F3F4F6"}}>
+    <div style={{height:10,width:"55%",background:"#0D0F12",borderRadius:3}}/>
+    <div style={{height:34,borderRadius:7,background:"#0D0F12",backgroundImage:"radial-gradient(rgba(255,255,255,.2) 1px,transparent 1px)",backgroundSize:"8px 8px",display:"flex",gap:4,alignItems:"center",padding:"0 6px"}}>
+      {[0,1,2].map(k=><span key={k} style={{width:18,height:7,borderRadius:9,background:k===1?C.green:"rgba(255,255,255,.3)"}}/>)}<span style={{marginLeft:"auto",width:26,height:22,borderRadius:5,background:"#fff"}}/></div></div>;
+  if(id==="editorial") return <div aria-hidden="true" style={{...base,background:"#0A0B0D",backgroundImage:"linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)",backgroundSize:"14px 14px"}}>
+    <div style={{height:9,width:"70%",background:"#EDEFF2",borderRadius:3}}/>
+    {[0,1,2].map(k=><div key={k} style={{height:1,background:"rgba(255,255,255,.25)",marginTop:6}}/>)}</div>;
+  if(id==="lancamento") return <div aria-hidden="true" style={{...base,background:"linear-gradient(180deg,#3A4148,#0A0B0D)"}}>
+    <div style={{display:"flex",alignItems:"flex-end",gap:6}}><div style={{height:16,flex:1,background:"#EDEFF2",borderRadius:3}}/>
+      <div style={{width:34,height:26,borderRadius:6,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
+  return <div aria-hidden="true" style={{...base,background:"#F6F6F3",flexDirection:"row",alignItems:"flex-end"}}>
+    {[0,1,2].map(k=><span key={k} style={{flex:1,height:30,borderRadius:5,background:"#E1E3DE"}}/>)}</div>;
+}
+
+function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
+  const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
+  const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
+  const plano=d.cetrolab_plano;
+  async function usar(id){
+    setErro(""); setSalvando(id);
+    try{ aoMudar(await acoes.modeloDoSite(id)); }catch(e){ setErro(e.message); }finally{ setSalvando(null); }
+  }
+  // A prévia abre no endereço que o site usa de verdade (o domínio próprio, quando ativo).
+  const linkSite=d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url;
+  return <div style={cartao}>
+    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
+      <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
+    </div>
+    {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
+      O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:10}}>
+      {d.modelos.map(m=>{
+        const noAr=d.modelo_no_ar===m.id; const escolhido=d.modelo===m.id;
+        return <div key={m.id} style={{border:`1.5px solid ${noAr?C.green:C.line}`,borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:8,background:noAr?C.greenSoft:C.surface}}>
+          <MiniaturaModelo id={m.id}/>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{m.nome}</span>
+            {noAr&&<span style={{fontSize:10.5,fontWeight:700,color:"#fff",background:C.green,borderRadius:99,padding:"2px 8px"}}>NO AR</span>}
+            {m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 7px"}}>Cetrolab</span>}
+          </div>
+          <div style={{color:C.sub,fontSize:12,lineHeight:1.5,flex:1}}>{m.resumo}</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            {m.disponivel&&!escolhido&&<button onClick={()=>usar(m.id)} disabled={!!salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>{salvando===m.id?"Trocando…":"Usar este modelo"}</button>}
+            {!m.disponivel&&(plano
+              ?<button onClick={()=>irPara&&irPara("conta")} title="Libera todos os modelos premium" style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38}}>Plano Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>
+              :<span style={{color:C.faint,fontSize:11.5}}>Em breve à venda. Fale com o ConHub.</span>)}
+            {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver prévia com os meus imóveis</a>}
+            {d.ligado&&noAr&&<a href={linkSite} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Ver o site no ar</a>}
+          </div>
+        </div>;
+      })}
+    </div>
+    {!d.ligado&&<div style={{color:C.faint,fontSize:11.5,marginTop:9}}>Ligue o site para ver a prévia de cada modelo.</div>}
+    <div style={{color:C.faint,fontSize:11.5,marginTop:9,lineHeight:1.5}}>
+      Os modelos premium vêm todos juntos no plano Cetrolab — um valor só, não um por modelo. A prévia mostra o seu site, com os seus imóveis, no layout novo, sem mudar o site no ar.
+      {!temCetrolab&&plano&&" A contratação fica em Minha conta → Ferramentas."}</div>
+  </div>;
+}
+
+function TelaSite({acoes,isMobile,aoFechar,irPara}){
   const [d,setD]=useState(null); const [f,setF]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
   const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id,
@@ -15738,8 +15868,11 @@ function TelaSite({acoes,isMobile,aoFechar}){
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:680,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-        <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
-        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Site da imobiliária</div>
+        {aoFechar&&<button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>}
+        <div>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Cetrolab</div>
+          <div style={{color:C.faint,fontSize:12}}>O site da imobiliária: modelo, endereço, domínio e Google</div>
+        </div>
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
       {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
@@ -15763,6 +15896,8 @@ function TelaSite({acoes,isMobile,aoFechar}){
             <a href={d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,color:C.greenMid,fontSize:13,fontWeight:600}}>Abrir o site <Icon n="chevron" size={13}/></a>
           </div>}
         </div>
+
+        <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} isMobile={isMobile} irPara={irPara} cartao={cartao}/>
 
         <div style={cartao}>
           <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:12}}>Configuração</div>

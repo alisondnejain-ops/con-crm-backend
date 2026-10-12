@@ -1313,7 +1313,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
     ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"]])
     if (!cols.includes(c)) db.exec(`ALTER TABLE sites ADD COLUMN ${c} ${ddl}`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dominio ON sites(dominio) WHERE dominio IS NOT NULL");
+  /* CETROLAB (12/10/2026): o modelo visual do site. Nulo = o Clássico, que é o
+     que todo site sempre foi — nenhum site existente muda por causa disto. */
+  if (!cols.includes("modelo")) db.exec("ALTER TABLE sites ADD COLUMN modelo TEXT");
 }
+/* Os planos do Cetrolab, cadastrados pelo master no hub (decisão do Ali:
+   preço de site ele define, não fica escrito no código). `para`: 'conhub' é o
+   preço da ferramenta para quem já é cliente (um só ativo, porque é ele que a
+   contratação avulsa cobra); 'fora' são os planos de quem vai contratar só o
+   site, servidos por /publico/cetrolab/planos para a página de venda. */
+db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_planos (
+  id TEXT PRIMARY KEY,
+  nome TEXT NOT NULL,
+  resumo TEXT,
+  valor_mensal REAL NOT NULL,
+  para TEXT NOT NULL,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
 
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".

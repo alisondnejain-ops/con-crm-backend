@@ -280,7 +280,7 @@ function fontesDe(resp) {
 /* As telas para onde o assistente pode levar a pessoa. A chave é o nome da
    tela no app (`view`); o texto é o que ela vê no menu. */
 export const TELAS = {
-  dashboard: "Painel", funil: "Funil", atendimento: "Atender", catraca: "Catraca", imoveis: "Imóveis",
+  dashboard: "Painel", funil: "Funil", atendimento: "Atender", catraca: "Catraca", imoveis: "Imóveis", cetrolab: "Cetrolab (site)",
   plantao: "Plantão", gestao: "Operação → Visão geral", relatorios: "Operação → Relatórios",
   marketing: "Marketing → Disparos", fluxos: "Marketing → Fluxos", formularios: "Marketing → Formulários",
   base: "Base de leads", equipe: "Equipe", config: "Configurações", conta: "Minha conta",
