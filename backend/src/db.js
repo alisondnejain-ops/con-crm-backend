@@ -2297,4 +2297,21 @@ if (!db.prepare("PRAGMA table_info(catracas)").all().some(c => c.name === "ia_pr
   db.exec("CREATE INDEX IF NOT EXISTS idx_midias_url ON produto_midias(url)");
 }
 
+/* CONTEÚDO INSTITUCIONAL DO SITE (12/10/2026, modelo Institucional do
+   Cetrolab): o que o catálogo não tem e o site institucional mostra — o texto
+   "Sobre nós", as redes sociais, quem da equipe aparece no site (escolha da
+   gestão, um por um: ninguém vai para a internet sem ser escolhido) e os
+   depoimentos de clientes, escritos pela própria imobiliária. Tabela à parte
+   de `sites` porque é do Cetrolab, que vai virar produto separado. */
+db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_conteudo (
+  org_id TEXT PRIMARY KEY,
+  sobre TEXT,
+  instagram TEXT,
+  facebook TEXT,
+  youtube TEXT,
+  equipe TEXT,
+  depoimentos TEXT,
+  atualizado_em INTEGER
+)`);
+
 export default db;

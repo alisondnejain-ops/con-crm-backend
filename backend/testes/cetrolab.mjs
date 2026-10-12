@@ -86,7 +86,7 @@ try {
   assert.equal(s.modelo_no_ar, "classico");
   // Bairros primeiro (pedido do Ali), os premium juntos, o Clássico por último.
   assert.deepEqual(s.modelos.map(m => [m.id, m.disponivel]),
-    [["bairros", false], ["editorial", false], ["lancamento", false], ["classico", true]]);
+    [["bairros", false], ["institucional", false], ["editorial", false], ["lancamento", false], ["classico", true]]);
   assert.equal(s.cetrolab.ativo, false);
   assert.equal(s.cetrolab_plano, null);
 

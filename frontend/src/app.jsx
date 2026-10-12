@@ -1761,6 +1761,8 @@ function ConCRM(){
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
     modeloDoSite:(modelo)=>api("/site/modelo",{method:"POST",body:{modelo}}),
+    conteudoDoSite:()=>api("/site/conteudo"),
+    salvarConteudoDoSite:(corpo)=>api("/site/conteudo",{method:"PATCH",body:corpo}),
     planosCetrolab:()=>api("/orgs/cetrolab/planos"),
     salvarPlanoCetrolab:(id,b)=>api(id?`/orgs/cetrolab/planos/${id}`:"/orgs/cetrolab/planos",{method:id?"PATCH":"POST",body:b}),
     salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
@@ -15792,6 +15794,13 @@ function MiniaturaModelo({id}){
   if(id==="editorial") return <div aria-hidden="true" style={{...base,background:"#0A0B0D",backgroundImage:"linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)",backgroundSize:"14px 14px"}}>
     <div style={{height:9,width:"70%",background:"#EDEFF2",borderRadius:3}}/>
     {[0,1,2].map(k=><div key={k} style={{height:1,background:"rgba(255,255,255,.25)",marginTop:6}}/>)}</div>;
+  if(id==="institucional") return <div aria-hidden="true" style={{...base,background:"#F4F5F4",padding:0,justifyContent:"flex-start",gap:0}}>
+    <div style={{height:13,background:"#fff",display:"flex",alignItems:"center",gap:4,padding:"0 6px",borderBottom:"1px solid #E6E9E7"}}>
+      <span style={{width:14,height:5,borderRadius:2,background:C.greenDeep}}/>{[0,1,2].map(k=><span key={k} style={{width:10,height:3,borderRadius:2,background:"#C9CFCC"}}/>)}<span style={{marginLeft:"auto",width:18,height:6,borderRadius:9,background:C.green}}/></div>
+    <div style={{margin:"5px 6px 0",height:36,borderRadius:7,background:"linear-gradient(180deg,#8A9590,#3B4743)",display:"flex",alignItems:"flex-end",padding:5,gap:3}}>
+      <span style={{width:"45%",height:5,borderRadius:2,background:"#fff"}}/><span style={{width:14,height:6,borderRadius:2,background:C.green}}/></div>
+    <div style={{margin:"-6px 12px 0",height:12,borderRadius:5,background:"#fff",boxShadow:"0 2px 6px rgba(0,0,0,.12)"}}/>
+    <div style={{display:"flex",gap:4,margin:"5px 6px 0"}}>{[0,1,2,3].map(k=><span key={k} style={{flex:1,height:9,borderRadius:3,background:"#fff"}}/>)}</div></div>;
   if(id==="lancamento") return <div aria-hidden="true" style={{...base,background:"linear-gradient(180deg,#3A4148,#0A0B0D)"}}>
     <div style={{display:"flex",alignItems:"flex-end",gap:6}}><div style={{height:16,flex:1,background:"#EDEFF2",borderRadius:3}}/>
       <div style={{width:34,height:26,borderRadius:6,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
@@ -15814,6 +15823,8 @@ function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
       <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
     </div>
+    {d.modelos.some(m=>m.id==="institucional")&&<div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
+      O Institucional mostra também o conteúdo cadastrado em <b>Conteúdo do site</b>, logo abaixo: sobre nós, equipe, depoimentos e redes.</div>}
     {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
       O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
@@ -15843,6 +15854,73 @@ function ModelosDoSite({d,acoes,aoMudar,isMobile,irPara,cartao}){
     <div style={{color:C.faint,fontSize:11.5,marginTop:9,lineHeight:1.5}}>
       Os modelos premium vêm todos juntos no plano Cetrolab — um valor só, não um por modelo. A prévia mostra o seu site, com os seus imóveis, no layout novo, sem mudar o site no ar.
       {!temCetrolab&&plano&&" A contratação fica em Minha conta → Ferramentas."}</div>
+  </div>;
+}
+
+/* O conteúdo institucional do site (12/10/2026): o que o catálogo não tem —
+   sobre nós, redes sociais, quem da equipe aparece (um por um, escolha da
+   gestão) e depoimentos. Sem conteúdo, a seção não aparece no site: nada é
+   preenchido de exemplo. Um Salvar para tudo, como a marca. */
+function ConteudoDoSite({acoes,isMobile,cartao}){
+  const [c,setC]=useState(null); const [f,setF]=useState(null);
+  const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
+  const carregar=(r)=>{setC(r);setF({sobre:r.sobre,instagram:r.instagram,facebook:r.facebook,youtube:r.youtube,equipe:r.equipe||[],
+    depoimentos:(r.depoimentos||[]).length?r.depoimentos:[]});};
+  useEffect(()=>{acoes.conteudoDoSite().then(carregar).catch(e=>setErro(e.message));},[]);
+  async function salvar(){
+    setErro("");setOk("");setSalvando(true);
+    try{ carregar(await acoes.salvarConteudoDoSite(f)); setOk("Salvo."); setTimeout(()=>setOk(""),2600); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  if(!f) return erro?<div style={{...cartao,color:C.hot,fontSize:12.5}}>{erro}</div>:null;
+  const entrada={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 12px",fontSize:14,background:C.surface,color:C.ink,fontFamily:"inherit"};
+  const marcado=(id)=>f.equipe.includes(id);
+  const alternar=(id)=>setF({...f,equipe:marcado(id)?f.equipe.filter(x=>x!==id):[...f.equipe,id]});
+  const mudo=JSON.stringify(f)!==JSON.stringify({sobre:c.sobre,instagram:c.instagram,facebook:c.facebook,youtube:c.youtube,equipe:c.equipe||[],depoimentos:c.depoimentos||[]});
+  return <div style={cartao}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Conteúdo do site</div>
+    <div style={{color:C.faint,fontSize:12,marginTop:3,marginBottom:14,lineHeight:1.5}}>Aparece no modelo Institucional. O que ficar em branco não aparece no site.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div>{rotulo("Sobre nós")}
+        <textarea value={f.sobre} onChange={e=>setF({...f,sobre:e.target.value})} rows={5} maxLength={1500}
+          placeholder="Quem é a imobiliária, há quanto tempo atua, onde, o que a diferencia." style={{...entrada,resize:"vertical",lineHeight:1.55}}/>
+        <div style={{color:C.faint,fontSize:11,textAlign:"right"}}>{f.sobre.length}/1500</div></div>
+      <div>{rotulo("Redes sociais")}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))",gap:8}}>
+          {[["instagram","https://instagram.com/…"],["facebook","https://facebook.com/…"],["youtube","https://youtube.com/@…"]].map(([k,ph])=>
+            <input key={k} value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} placeholder={ph} aria-label={k} inputMode="url" style={entrada}/>)}
+        </div></div>
+      <div>{rotulo(`Equipe no site (${f.equipe.length})`)}
+        <div style={{color:C.faint,fontSize:11.5,marginBottom:8,lineHeight:1.5}}>Só aparece quem você marcar, na ordem em que marcar. Vai nome, foto (a de Minha conta) e função — nunca telefone nem e-mail: o contato é sempre o WhatsApp da imobiliária.</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {c.pessoas.map(p=>{const on=marcado(p.id);
+            return <button key={p.id} type="button" onClick={()=>alternar(p.id)} aria-pressed={on}
+              style={{display:"inline-flex",alignItems:"center",gap:7,borderRadius:999,padding:"7px 12px",minHeight:38,fontSize:13,cursor:"pointer",
+                border:`1.5px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,fontWeight:on?700:500}}>
+              {on?<span style={{fontWeight:800}}>{f.equipe.indexOf(p.id)+1}</span>:null}{p.nome}
+              <span style={{color:C.faint,fontWeight:500,fontSize:11.5}}>{p.cargo}{p.tem_foto?"":" · sem foto"}</span></button>;})}
+          {!c.pessoas.length&&<span style={{color:C.faint,fontSize:12}}>Ninguém ativo na equipe.</span>}
+        </div></div>
+      <div>{rotulo(`O que falam de nós (${f.depoimentos.length})`)}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {f.depoimentos.map((d,n)=><div key={n} style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:7}}>
+            <div style={{display:"flex",gap:8}}>
+              <input value={d.nome} maxLength={60} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,nome:e.target.value}:x)})} placeholder="Nome do cliente" style={{...entrada,flex:1}}/>
+              <button type="button" onClick={()=>setF({...f,depoimentos:f.depoimentos.filter((_,k)=>k!==n)})} aria-label="Tirar este depoimento"
+                style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,width:42,cursor:"pointer",flexShrink:0}}>×</button></div>
+            <textarea value={d.texto} maxLength={500} rows={3} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,texto:e.target.value}:x)})}
+              placeholder="O que o cliente disse, com as palavras dele" style={{...entrada,resize:"vertical"}}/></div>)}
+          {f.depoimentos.length<12&&<button type="button" onClick={()=>setF({...f,depoimentos:[...f.depoimentos,{nome:"",texto:""}]})}
+            style={{alignSelf:"flex-start",border:`1px dashed ${C.green}88`,background:C.greenSoft,color:C.greenMid,borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>+ Adicionar depoimento</button>}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Use depoimentos de verdade, com a autorização do cliente.</div>
+        </div></div>
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginTop:12}}>{erro}</div>}
+    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
+      <button onClick={salvar} disabled={salvando||!mudo} style={{background:salvando||!mudo?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:salvando||!mudo?"default":"pointer"}}>{salvando?"Salvando…":"Salvar conteúdo"}</button>
+      {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
+      {mudo&&!salvando&&<span style={{color:"#8a6d1f",fontSize:12}}>Alterações não salvas</span>}
+    </div>
   </div>;
 }
 
@@ -15900,6 +15978,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
         </div>
 
         <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} isMobile={isMobile} irPara={irPara} cartao={cartao}/>
+        <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao}/>
 
         <div style={cartao}>
           <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:12}}>Configuração</div>
