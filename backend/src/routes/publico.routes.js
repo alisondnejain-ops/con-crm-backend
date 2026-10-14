@@ -42,7 +42,8 @@ import { codigoLivre } from "../services/codigo.js";
 import { normalizePhone } from "../services/stages.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
 import { planosDe, planoDaFamilia, PLANOS_COMPLETOS, PLANO_BASICO } from "../services/planos.js";
-import { resumoDeConvite, sign } from "../auth.js";
+import { resumoDeConvite, sign, cadastroPodeReaproveitar, EMAIL_EM_USO } from "../auth.js";
+import { ipDe } from "../seguranca.js";
 import bcrypt from "bcryptjs";
 import * as pagarme from "../services/pagarme.js";
 import { pagarmePadrao } from "../services/cobranca.js";
@@ -144,8 +145,7 @@ r.get("/publico/planos", (_req, res) => {
    `POST /orgs`), que continuam sem essa trava: ali a venda já foi
    conversada, e o link de convite não precisa de um pedágio no meio. */
 r.post("/publico/comecar", async (req, res) => {
-  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
-    || req.socket?.remoteAddress || "sem-ip";
+  const ip = ipDe(req);
   if (!passouNoFreio(ip))
     return res.status(429).json({
       error: "Muitos cadastros seguidos deste computador. Espere uma hora ou fale com a gente pelo WhatsApp." });
@@ -195,12 +195,14 @@ r.post("/publico/comecar", async (req, res) => {
      entrar. Criar a segunda conta seria a pior resposta possível: a pessoa
      ficaria com duas, cada uma com metade dos leads, e descobriria isso
      semanas depois. */
-  const jaExiste = db.prepare("SELECT id,name,status FROM users WHERE email = ?").get(email);
+  const jaExiste = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (jaExiste && jaExiste.status === "ativo")
     return res.status(409).json({
       error: "Esse e-mail já tem conta no ConHub. Entre com a sua senha — ou peça uma nova na tela de entrada.",
       ja_tem_conta: true, entrar: `${siteUrl(req)}/app`,
     });
+  if (!cadastroPodeReaproveitar(jaExiste))
+    return res.status(409).json({ error: EMAIL_EM_USO, ja_tem_conta: true, entrar: `${siteUrl(req)}/app` });
 
   const token = randomBytes(24).toString("hex");
   const expira = Date.now() + 7 * 86400000;
@@ -311,8 +313,7 @@ r.post("/publico/comecar", async (req, res) => {
    Só vale com o Pagar.me como provedor padrão. Sem ele (chaves de teste ou
    Asaas), a página usa o caminho antigo, `/publico/comecar`. */
 r.post("/publico/assinar", async (req, res) => {
-  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
-    || req.socket?.remoteAddress || "sem-ip";
+  const ip = ipDe(req);
   if (!passouNoFreio(ip))
     return res.status(429).json({
       error: "Muitos cadastros seguidos deste computador. Espere uma hora ou fale com a gente pelo WhatsApp." });
@@ -341,12 +342,14 @@ r.post("/publico/assinar", async (req, res) => {
   if (!/^token_[A-Za-z0-9]+$/.test(token))
     return res.status(400).json({ error: "Os dados do cartão não chegaram. Digite de novo." });
 
-  const jaExiste = db.prepare("SELECT id,name,status FROM users WHERE email = ?").get(email);
+  const jaExiste = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (jaExiste && jaExiste.status === "ativo")
     return res.status(409).json({
       error: "Esse e-mail já tem conta no ConHub. Entre com a sua senha — ou peça uma nova na tela de entrada.",
       ja_tem_conta: true, entrar: `${siteUrl(req)}/app`,
     });
+  if (!cadastroPodeReaproveitar(jaExiste))
+    return res.status(409).json({ error: EMAIL_EM_USO, ja_tem_conta: true, entrar: `${siteUrl(req)}/app` });
 
   const orgId = "org_" + randomUUID().slice(0, 8);
   // 1) O cartão, antes de qualquer conta existir.

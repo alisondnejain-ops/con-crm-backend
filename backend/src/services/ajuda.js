@@ -85,6 +85,8 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 ## Equipe e acesso
 - Convidar: Equipe → copie o link de cadastro e mande para a pessoa; depois aprove.
 - Esqueci a senha: na tela de entrada, "Esqueci minha senha" (chega por e-mail). O gestor também gera "Nova senha" em Equipe.
+- Conta bloqueada por senha: 4 senhas erradas seguidas bloqueiam a conta. Para desbloquear, "Esqueci minha senha" na tela de entrada e criar uma nova pelo link do e-mail (o link de "Nova senha" que o gestor gera em Equipe também desbloqueia).
+- Código de acesso do suporte ConHub: em Minha conta (só a gestão vê), 6 dígitos que mudam a cada 60 segundos. O suporte do ConHub só entra na conta com esse código, e a entrada vale por algumas horas. A lista "Entradas do ConHub na sua conta" mostra quando entrou, e o botão "Encerrar o acesso do ConHub agora" tira o suporte na hora.
 
 ## Assinatura (só o gestor vê)
 - Minha conta: Cartão de cobrança (cadastrar ou trocar não cobra nada), Gerenciar assinatura (escolher o plano e o prazo), Ferramentas (contratar à parte), Cancelar assinatura (o acesso continua até o fim do período pago).

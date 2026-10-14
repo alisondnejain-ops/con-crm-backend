@@ -3,6 +3,7 @@ import { TRIAL_DIAS } from "../services/assinatura.js";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
+import { cadastroPodeReaproveitar, EMAIL_EM_USO } from "../auth.js";
 import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo,
          resumoDeConvite, porConvite, encerrarSessoes } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
@@ -14,6 +15,7 @@ import { marcaDaOrg } from "../services/marca.js";
 import { trocarResponsavel } from "../services/movimento.js";
 import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 import { mapaDeRecursos } from "../services/recursos.js";
+import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS } from "../services/acesso-master.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -104,6 +106,7 @@ r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
      casas com o mesmo e-mail, e o login não saberia qual abrir. */
   if (existente && existente.status === "ativo")
     return res.status(409).json({ error: "Esse e-mail já tem conta ativa. Entre no CRM com ele — ou use outro e-mail para a imobiliária nova." });
+  if (!cadastroPodeReaproveitar(existente)) return res.status(409).json({ error: EMAIL_EM_USO });
 
   /* Cadastro repetido (fechou a aba, errou o e-mail, tentou de novo) reaproveita
      a imobiliária que ficou pela metade em vez de criar outra. Sem isto, cada
@@ -215,6 +218,11 @@ r.post("/register", freioDeCadastro, async (req, res) => {
   const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
   if (existing && existing.status === "ativo")
     return res.status(409).json({ error: "Esse e-mail já tem conta ativa. Use 'Entrar' no CRM." });
+  /* Convite repetido só reaproveita conta DESTA imobiliária e que não é do
+     ConHub: um sócio convidado (master) ou alguém de outra casa não pode ter
+     o convite reemitido por quem tem o link de cadastro de uma imobiliária. */
+  if (existing && (existing.master || existing.org_id !== org.id))
+    return res.status(409).json({ error: EMAIL_EM_USO });
 
   const token = newToken();
   const expires = Date.now() + INVITE_DAYS * 86400000;
@@ -281,7 +289,7 @@ r.post("/set-password", (req, res) => {
      redefinição viraria um atalho para pular o aval da gestão. */
   if (redefinicao) {
     db.prepare(`UPDATE users SET pass_hash=?, invite_token=NULL, invite_hash=NULL, invite_expires=NULL,
-         invite_tipo=NULL, sessoes_desde=? WHERE id=?`)
+         invite_tipo=NULL, sessoes_desde=?, senha_erros=0, senha_bloqueada_em=NULL WHERE id=?`)
       .run(bcrypt.hashSync(String(password), 10), Date.now(), u.id);
     const atual = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
     if (atual.status !== "ativo")
@@ -386,6 +394,9 @@ r.post("/set-password", (req, res) => {
 const TETO_LOGIN_IP = 20, JANELA_LOGIN = 15 * 60 * 1000;
 const TETO_LOGIN_EMAIL = 50, JANELA_LOGIN_EMAIL = 60 * 60 * 1000;
 
+const TETO_SENHA = 4;
+const BLOQUEADA = "Esta conta foi bloqueada depois de 4 tentativas de senha erradas. Para desbloquear, clique em “Esqueci minha senha” e crie uma nova pelo link que chega no seu e-mail.";
+
 r.post("/login", (req, res) => {
   const { email, password } = req.body || {};
   const chaveIp = "login-ip:" + ipDe(req);
@@ -401,8 +412,30 @@ r.post("/login", (req, res) => {
   // Convite ainda não confirmado: sem senha definida, a mensagem precisa apontar o caminho certo.
   if (user.status === "pendente" || !user.pass_hash)
     return res.status(403).json({ error: "Sua conta ainda não foi confirmada. Abra o link que enviamos no seu e-mail e crie sua senha." });
-  if (!bcrypt.compareSync(password || "", user.pass_hash))
-    return res.status(401).json({ error: "E-mail ou senha incorretos." });
+  /* 4 SENHAS ERRADAS SEGUIDAS TRAVAM A CONTA (14/10/2026, pedido do Ali).
+     Travada, nem a senha certa entra: só a nova senha pelo e-mail ("Esqueci
+     minha senha") destrava — quem tem a caixa de entrada é o dono da conta.
+     O link de "Nova senha" que a gestão gera também é uma redefinição e
+     destrava junto. Acertar antes da quarta zera a contagem. */
+  /* A conta de demonstração fica de fora: o login dela é público (vai em
+     reunião e em print), e bastaria errar 4 vezes para derrubá-la antes de uma
+     reunião comercial. Ela não tem dado de cliente nenhum. */
+  const demo = !!db.prepare("SELECT demo FROM orgs WHERE id = ?").get(user.org_id)?.demo;
+  if (user.senha_bloqueada_em && !demo)
+    return res.status(423).json({ bloqueada: true, error: BLOQUEADA });
+  if (!bcrypt.compareSync(password || "", user.pass_hash)) {
+    if (demo) return res.status(401).json({ error: "E-mail ou senha incorretos." });
+    const erros = (user.senha_erros || 0) + 1;
+    if (erros >= TETO_SENHA) {
+      db.prepare("UPDATE users SET senha_erros = ?, senha_bloqueada_em = ? WHERE id = ?").run(erros, Date.now(), user.id);
+      console.log(`[login] conta ${mascararEmail(user.email)} bloqueada após ${TETO_SENHA} senhas erradas`);
+      return res.status(423).json({ bloqueada: true, error: BLOQUEADA });
+    }
+    db.prepare("UPDATE users SET senha_erros = ? WHERE id = ?").run(erros, user.id);
+    const sobra = TETO_SENHA - erros;
+    return res.status(401).json({ error: `E-mail ou senha incorretos. ${sobra === 1 ? "Mais 1 tentativa errada" : `Mais ${sobra} tentativas erradas`} e a conta é bloqueada.` });
+  }
+  if (user.senha_erros) db.prepare("UPDATE users SET senha_erros = 0 WHERE id = ?").run(user.id);
   // Só entra quem está ativo. Qualquer outro estado tem sua própria explicação.
   if (user.status !== "ativo") {
     const motivos = {
@@ -427,6 +460,11 @@ r.get("/me", authRequired, (req, res) => {
      casa em que ele está trabalhando agora", escolhida no hub de contas. */
   // Mesma montagem do login (orgDoUsuario) — era uma cópia à parte, e o campo
   // novo que entrasse só lá sumia aqui até o próximo login.
+  // Master com a entrada na conta vencida: volta ao hub (org nula).
+  /* Devolve também um crachá da casa DELE: o antigo ainda aponta para a conta
+     do cliente, e cada tela que o usasse levaria 403 — o app ficaria
+     recarregando em volta disso. */
+  if (req.user.acessoVencido) return res.json({ user: publicUser(user), org: null, acesso_vencido: true, token: sign(user) });
   res.json({ user: publicUser(user), org: orgDoUsuario({ org_id: req.user.org_id }) });
 });
 
@@ -492,6 +530,24 @@ r.post("/me/menu", authRequired, (req, res) => {
   const ordem = ordemDoMenu(req.body?.ordem);
   db.prepare("UPDATE users SET menu_ordem=? WHERE id=?").run(ordem ? JSON.stringify(ordem) : null, req.user.id);
   res.json({ menu_ordem: ordem });
+});
+
+/* O CÓDIGO DE ACESSO DA CONTA (14/10/2026) — ver services/acesso-master.js.
+   Só a gestão da própria conta vê o código; o master nunca, nem de dentro da
+   conta (senão quem entrou uma vez leria o código seguinte e voltaria sem
+   pedir). Junto, a lista das entradas do ConHub e o botão de encerrar. */
+const soGestaoDaConta = (req, res, next) =>
+  req.user.master ? res.status(403).json({ error: "O código de acesso é da gestão da conta." }) : next();
+
+r.get("/conta/acesso", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
+  const org = db.prepare("SELECT id, tipo, demo FROM orgs WHERE id = ?").get(req.user.org_id);
+  res.json({ pede_codigo: contaPedeCodigo(org), ...(codigoAtual(req.user.org_id) || {}),
+    horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now() });
+});
+r.post("/conta/acesso/encerrar", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
+  const n = encerrarAcessos(req.user.org_id);
+  if (n) console.log(`[acesso] ${req.user.name} encerrou ${n} acesso(s) do ConHub à conta ${req.user.org_id}`);
+  res.json({ ok: true, encerrados: n, acessos: acessosDaConta(req.user.org_id) });
 });
 
 r.post("/me/senha", authRequired, (req, res) => {
@@ -653,8 +709,7 @@ function podePedirSenha(chave, teto) {
 
 r.post("/esqueci-senha", async (req, res) => {
   const email = norm(req.body?.email);
-  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
-    || req.socket?.remoteAddress || "sem-ip";
+  const ip = ipDe(req);
 
   /* A MESMA FRASE PARA TUDO — inclusive para o freio. Dizer "muitas
      tentativas para este e-mail" já contaria que o e-mail existe. */

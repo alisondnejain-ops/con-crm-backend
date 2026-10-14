@@ -30,6 +30,8 @@ import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
+import { contaPedeCodigo, codigoConfere, abrirAcesso, ACESSO_HORAS } from "../services/acesso-master.js";
+import { podeTentar, faltamSegundos, zerarTentativas } from "../seguranca.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
 
@@ -148,11 +150,32 @@ r.post("/interna", (req, res) => {
 /* Entrar numa imobiliária. Devolve um token novo — mesma pessoa, outra casa.
    O `master: true` viaja junto, então ele continua invisível para a equipe de
    lá e continua podendo voltar para o hub. */
+/* COM O CÓDIGO DA CONTA (14/10/2026). Fora a conta de origem do próprio
+   master, o ambiente interno e a demonstração, entrar pede o código de 6
+   dígitos que só a gestão da conta vê e que muda a cada 60 segundos
+   (services/acesso-master.js). A entrada vale por ACESSO_HORAS e fica no
+   registro que a gestão vê. Cinco códigos errados seguidos travam a tentativa
+   naquela conta por 10 minutos: são só um milhão de combinações. */
 r.post("/:id/entrar", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
   const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
-  res.json({ token: sign(eu, { orgId: org.id }), org: resumo(req, org) });
+  if (org.id === eu.org_id || !contaPedeCodigo(org))
+    return res.json({ token: sign(eu, { orgId: org.id }), org: resumo(req, org) });
+
+  const codigo = String(req.body?.codigo || "").replace(/\D/g, "");
+  if (!codigo) return res.status(428).json({ precisa_codigo: true,
+    error: "Para entrar nesta conta, peça à gestão dela o código de acesso que aparece em Minha conta. Ele muda a cada 60 segundos." });
+  const chave = "codigo-master:" + org.id;
+  if (!podeTentar(chave, 5, 10 * 60 * 1000))
+    return res.status(429).json({ precisa_codigo: true,
+      error: `Muitos códigos errados para esta conta. Tente de novo em ${Math.ceil(faltamSegundos(chave) / 60)} minuto(s).` });
+  if (!codigoConfere(org.id, codigo))
+    return res.status(403).json({ precisa_codigo: true, error: "Código incorreto ou já vencido. Peça o código do momento — ele muda a cada minuto." });
+  zerarTentativas(chave);
+  const acesso = abrirAcesso(org.id, eu.id);
+  console.log(`[master] ${eu.name} entrou na conta ${org.name} com o código de acesso (vale ${ACESSO_HORAS}h)`);
+  res.json({ token: sign(eu, { orgId: org.id, acesso }), org: resumo(req, org), acesso_horas: ACESSO_HORAS });
 });
 
 /* ===== A CONTA DE DEMONSTRAÇÃO =====

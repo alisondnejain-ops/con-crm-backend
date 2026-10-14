@@ -48,6 +48,7 @@ const { randomUUID } = await import("crypto");
 const { situacao, registrarPagamento, recalcularVencimento } = await import("../src/services/assinatura.js");
 const { PLANOS, planoPorId, mesesPagos, planosParaTela } = await import("../src/services/planos.js");
 await import("../src/server.js");
+const { codigoAtual } = await import("../src/services/acesso-master.js");
 const BASE = "http://localhost:4626";
 await new Promise(r => setTimeout(r, 700));
 
@@ -273,7 +274,7 @@ console.log(`   ${r.status}`);
 assert.equal(r.status, 403);
 
 console.log("18. Mas o MASTER dá baixa normalmente");
-r = await chamar(tAli, `/orgs/${orgAut}/entrar`, { method: "POST" });
+r = await chamar(tAli, `/orgs/${orgAut}/entrar`, { method: "POST", body: JSON.stringify({ codigo: codigoAtual(orgAut).codigo }) });
 const tAliNaConta = (await r.json()).token;
 r = await chamar(tAliNaConta, "/assinatura/pagar", { method: "POST", body: JSON.stringify({ valor: 297 }) });
 d = await r.json();

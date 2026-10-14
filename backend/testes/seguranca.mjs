@@ -133,7 +133,10 @@ assert.equal(r.status, 401, "a chave de desenvolvimento não pode abrir a produ�
 
 console.log("\n===== 3. A PORTA DE ENTRADA TEM FREIO =====");
 
-console.log("6. Vinte senhas erradas e a porta fecha, dizendo quanto tempo falta");
+console.log("6. Vinte senhas erradas do mesmo acesso e a porta fecha, dizendo quanto tempo falta");
+/* Desde 14/10/2026 uma conta trava sozinha na 4ª senha errada (teste
+   `seguranca-acesso`). O freio por IP continua sendo o que barra quem tenta
+   VÁRIAS contas do mesmo acesso — por isso aqui cada chute é num e-mail. */
 /* Sem freio, uma senha de seis dígitos cai em minutos — e como o bcrypt PARA o
    servidor enquanto calcula, o mesmo laço derruba o CRM da imobiliária junto.
    A mesma porta servia de martelo. */
@@ -141,7 +144,7 @@ let bloqueou = null;
 for (let i = 0; i < 25 && !bloqueou; i++) {
   const resp = await fetch(url("/auth/login"), { method: "POST",
     headers: { "content-type": "application/json", "x-forwarded-for": "10.7.7.7" },
-    body: JSON.stringify({ email: "gestora@teste.com", password: "chute" + i }) });
+    body: JSON.stringify({ email: `chute${i}@teste.com`, password: "chute" + i }) });
   if (resp.status === 429) bloqueou = { tentativa: i + 1, corpo: await resp.json() };
 }
 console.log(`   fechou na tentativa ${bloqueou?.tentativa} · "${bloqueou?.corpo.error}"`);
@@ -158,18 +161,22 @@ const t2 = await entrar("gestora@teste.com");
 assert.ok(t2);
 console.log("   de outro acesso, o login funciona normalmente ✔");
 
-console.log("7b. E o e-mail tem freio próprio, para o ataque vindo de MUITAS máquinas");
+console.log("7b. E a conta tem freio próprio, para o ataque vindo de MUITAS máquinas");
+/* Desde 14/10/2026 é a trava das 4 senhas que segura isso: trocar de IP não
+   ajuda, a 4ª errada bloqueia a conta. (Feito numa conta à parte, para os
+   testes seguintes continuarem usando a da gestora.) */
+criar("Alvo", "alvo@teste.com", "corretor");
 /* Sem ele, o freio de IP não protege nada contra quem tem mil endereços: cada
    um faz dezenove tentativas e vai embora sem nunca ser barrado. */
 let barrouPorEmail = false;
 for (let i = 0; i < 60 && !barrouPorEmail; i++) {
   const resp = await fetch(url("/auth/login"), { method: "POST",
     headers: { "content-type": "application/json", "x-forwarded-for": `10.8.${i}.1` },
-    body: JSON.stringify({ email: "gestora@teste.com", password: "chute" }) });
-  if (resp.status === 429) barrouPorEmail = i + 1;
+    body: JSON.stringify({ email: "alvo@teste.com", password: "chute" }) });
+  if (resp.status === 429 || resp.status === 423) barrouPorEmail = i + 1;
 }
 console.log(`   cada tentativa de um IP diferente — barrado na ${barrouPorEmail}ª`);
-assert.ok(barrouPorEmail, "trocar de IP não pode ser a saída para martelar uma conta");
+assert.equal(barrouPorEmail, 4, "trocar de IP não pode ser a saída para martelar uma conta");
 
 console.log("\n===== 4. OS WEBHOOKS SÓ ACEITAM QUEM PROVA QUEM É =====");
 
