@@ -2314,4 +2314,31 @@ db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_conteudo (
   atualizado_em INTEGER
 )`);
 
+/* SEGURANÇA DE 14/10/2026 (pedido do Ali, depois da análise de vulnerabilidades).
+
+   - users.senha_erros / senha_bloqueada_em: 4 senhas erradas seguidas travam a
+     conta, e só a nova senha pelo e-mail ("Esqueci minha senha") destrava.
+   - orgs.acesso_segredo: a semente do CÓDIGO DE ACESSO de cada conta — 6
+     dígitos que mudam a cada 60 segundos, vistos só pela gestão da conta. O
+     master do ConHub só entra na conta digitando o código do momento.
+     Guardada fechada pelo cofre quando há CRYPTO_KEY.
+   - acessos_master: cada entrada do master numa conta, com prazo. É o
+     registro que a gestão vê ("o ConHub entrou na sua conta em…"). */
+{
+  const u = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!u.includes("senha_erros")) db.exec("ALTER TABLE users ADD COLUMN senha_erros INTEGER DEFAULT 0");
+  if (!u.includes("senha_bloqueada_em")) db.exec("ALTER TABLE users ADD COLUMN senha_bloqueada_em INTEGER");
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("acesso_segredo")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_segredo TEXT");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS acessos_master (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  inicio INTEGER NOT NULL,
+  ate INTEGER NOT NULL,
+  encerrado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org_id, inicio)");
+
 export default db;

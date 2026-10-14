@@ -125,6 +125,13 @@ async function api(path,{method="GET",body}={}){
     try{ window.sessionStorage.setItem("conhub_saida",data.error||"Sua sessão foi encerrada."); }catch(e){}
     if(typeof window!=="undefined") window.location.reload();
   }
+  /* O master numa conta alheia (14/10/2026): a entrada com o código venceu ou
+     a gestão a encerrou. Volta ao hub, com o motivo dito uma vez. */
+  if(res.status===403&&data.codigo==="acesso_vencido"&&TOKEN&&!api.voltando){
+    api.voltando=true; marcarOrg(null);
+    try{ window.sessionStorage.setItem("conhub_aviso_cadastro",data.error); }catch(e){}
+    if(typeof window!=="undefined") window.location.reload();
+  }
   if(!res.ok){
     const erro=new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
     /* O corpo inteiro vai junto do erro. Uma recusa às vezes traz mais do que
@@ -1415,6 +1422,7 @@ function ConCRM(){
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
     api("/auth/me").then(d=>{
+      if(d.token) setToken(d.token); // master cuja entrada na conta terminou
       setSession(toSession(d.user));
       // O master só volta direto para uma imobiliária se já tinha escolhido uma;
       // senão cai no hub. Para os demais, é sempre a casa deles.
@@ -1925,7 +1933,9 @@ function ConCRM(){
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
-    entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
+    entrarNaConta:(id,codigo)=>api(`/orgs/${id}/entrar`,{method:"POST",body:codigo?{codigo}:{}}),
+    codigoAcesso:()=>api("/auth/conta/acesso"),
+    encerrarAcessoMaster:()=>api("/auth/conta/acesso/encerrar",{method:"POST"}),
     criarConta:(dados)=>api("/orgs",{method:"POST",body:dados}),
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
@@ -2056,8 +2066,18 @@ function ConCRM(){
   /* Entra numa imobiliária: o servidor devolve um crachá novo, valendo para
      ela. Recarrega tudo do zero — leads, equipe e conversa aberta são de outra
      casa e não podem sobrar na tela. */
-  async function entrarNaConta(id){
-    const d=await acoes.entrarNaConta(id);
+  /* Fora a conta do próprio master, entrar pede o código de acesso da conta
+     (14/10/2026): o servidor responde `precisa_codigo` e a janela abaixo o
+     pede. Devolve false quando parou para pedir — o hub solta o botão. */
+  const [pedeCodigo,setPedeCodigo]=useState(null);
+  async function entrarNaConta(id,codigo,nome){
+    let d;
+    try{ d=await acoes.entrarNaConta(id,codigo); }
+    catch(e){
+      if(e.dados&&e.dados.precisa_codigo){ setPedeCodigo({id,nome:nome||(pedeCodigo&&pedeCodigo.nome)||"",erro:codigo?e.message:""}); return false; }
+      throw e;
+    }
+    setPedeCodigo(null);
     setToken(d.token);
     setLeads([]); setFila([]); setEquipe([]); setSelId(null); setAssinatura(null);
     setOrg(d.org); marcarOrg(d.org.id);
@@ -2074,7 +2094,11 @@ function ConCRM(){
      qual vai trabalhar antes de qualquer tela aparecer. Para todo mundo mais
      esta camada não existe. */
   if(session.master&&!org)
-    return <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>;
+    return <>
+      <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>
+      {pedeCodigo&&<PedirCodigoDeAcesso pedido={pedeCodigo} aoFechar={()=>setPedeCodigo(null)}
+        aoEnviar={(codigo)=>entrarNaConta(pedeCodigo.id,codigo)}/>}
+    </>;
   // Bloqueado: o trabalho para, mas a saída (sair, exportar, pagar) continua.
   /* O master é a exceção, e é o mesmo motivo pelo qual o `porteiro` do servidor
      já o deixa passar: é ele quem trava e quem libera. Barrá-lo na tela de
@@ -4811,7 +4835,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   useEffect(()=>{rever();},[]);
 
   const entrar=async(c)=>{ setErro(""); setOcupado(c.id);
-    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); } };
+    try{ if(await aoEntrar(c.id,null,c.nome)===false) setOcupado(""); }catch(e){ setErro(e.message); setOcupado(""); } };
 
   const criar=async()=>{ setErro(""); setOcupado("nova");
     try{ await acoes.criarConta(nova); setNova({nome:"",codigo:""}); setCriando(false); await rever(); }
@@ -5002,7 +5026,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
      sucesso este componente já saiu do ar. Só o erro devolve o botão. */
   async function entrar(c){
     setErro("");setOcupado("entrar:"+c.id);
-    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); }
+    try{ if(await aoEntrar(c.id,null,c.nome)===false) setOcupado(""); }catch(e){ setErro(e.message); setOcupado(""); }
   }
   const copiar=()=>{ try{ navigator.clipboard.writeText(criado.link); setCopiado(true);
     setTimeout(()=>setCopiado(false),1800); }catch(e){} };
@@ -13527,6 +13551,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
       {/* MEU WHATSAPP fica aqui, e não em Configurações, porque o número é
           dele: quem pareia o aparelho é quem tem o aparelho na mão. E fica
           acima das notificações porque é o que muda o dia dele. */}
+      {podeGerir(session)&&!session.master&&!contaInterna()&&<CodigoDeAcesso acoes={acoes}/>}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {/* O ambiente interno do ConHub não tem mensalidade. */}
@@ -13536,6 +13561,79 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     </div>
   </div>;
 }
+/* ===== CÓDIGO DE ACESSO DA CONTA (14/10/2026) =====
+   Seis dígitos que mudam a cada 60 segundos. Só a gestão da conta vê. O
+   suporte do ConHub só entra na conta digitando o código do momento — então
+   entra quando a gestão passa o código, e a lista embaixo diz quando entrou.
+   O contador corre no aparelho; ao zerar, o código novo é buscado no servidor. */
+function CodigoDeAcesso({acoes}){
+  const [d,setD]=useState(null),[erro,setErro]=useState(""),[agora,setAgora]=useState(Date.now());
+  const [encerrando,setEncerrando]=useState(false),[copiado,setCopiado]=useState(false);
+  const delta=useRef(0);
+  const ler=()=>acoes.codigoAcesso().then(x=>{ delta.current=(x.agora||Date.now())-Date.now(); setD(x); setErro(""); }).catch(e=>setErro(e.message));
+  useEffect(()=>{ ler(); },[]);
+  useEffect(()=>{ const t=setInterval(()=>setAgora(Date.now()),1000); return()=>clearInterval(t); },[]);
+  const resta=d&&d.muda_em?Math.max(0,Math.ceil((d.muda_em-(agora+delta.current))/1000)):0;
+  useEffect(()=>{ if(d&&d.muda_em&&resta===0) ler(); },[resta===0]);
+  if(erro) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,color:C.hot,fontSize:13}}>{erro}</div>;
+  if(!d||!d.pede_codigo) return null;
+  const abertos=(d.acessos||[]).filter(a=>a.aberto);
+  const fmtData=(t)=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+  const encerrar=async()=>{ setEncerrando(true); try{ const x=await acoes.encerrarAcessoMaster(); setD(v=>({...v,acessos:x.acessos})); }catch(e){ setErro(e.message); } setEncerrando(false); };
+  const copiar=()=>{ try{ navigator.clipboard.writeText(d.codigo); setCopiado(true); setTimeout(()=>setCopiado(false),1500); }catch(e){} };
+  const pct=Math.max(0,Math.min(100,(resta/(d.segundos||60))*100));
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+    <div>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Código de acesso do suporte ConHub</div>
+      <div style={{color:C.sub,fontSize:12.5,marginTop:4,lineHeight:1.45}}>O suporte do ConHub só entra na sua conta com este código. Passe-o apenas quando você pedir ajuda. Ele muda a cada 60 segundos.</div>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+      <button onClick={copiar} title="Copiar o código" style={{fontFamily:MONO,fontSize:32,fontWeight:700,letterSpacing:6,color:C.greenDeep,background:C.greenSoft,border:"none",borderRadius:12,padding:"8px 16px",cursor:"pointer"}}>
+        {d.codigo.slice(0,3)} {d.codigo.slice(3)}</button>
+      <div style={{flex:1,minWidth:140}}>
+        <div style={{height:6,borderRadius:3,background:C.line,overflow:"hidden"}}>
+          <div style={{height:"100%",width:pct+"%",background:resta<=10?C.hot:C.green,transition:"width 1s linear"}}/></div>
+        <div style={{color:resta<=10?C.hot:C.sub,fontSize:12,marginTop:5}}>{copiado?"Copiado.":`Muda em ${resta} s`}</div>
+      </div>
+    </div>
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>Entradas do ConHub na sua conta</div>
+      {!(d.acessos||[]).length
+        ?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma até agora.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.acessos.slice(0,6).map(a=>
+          <div key={a.id} style={{fontSize:12.5,color:a.aberto?C.ink:C.sub}}>
+            {fmtData(a.inicio)} · {a.quem||"ConHub"} · {a.aberto?<b style={{color:C.amber}}>aberta até {fmtData(a.ate)}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
+      {abertos.length>0&&<button onClick={encerrar} disabled={encerrando}
+        style={{marginTop:10,border:`1px solid ${C.line}`,background:"#fff",color:C.ink,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        {encerrando?"Encerrando…":"Encerrar o acesso do ConHub agora"}</button>}
+    </div>
+  </div>;
+}
+
+/* A janela em que o master digita o código que a gestão da conta passou. */
+function PedirCodigoDeAcesso({pedido,aoEnviar,aoFechar}){
+  const [codigo,setCodigo]=useState(""),[enviando,setEnviando]=useState(false),[erro,setErro]=useState(pedido.erro||"");
+  useEffect(()=>{ setErro(pedido.erro||""); setEnviando(false); },[pedido]);
+  const enviar=async()=>{ if(codigo.length!==6) return; setEnviando(true); setErro("");
+    try{ await aoEnviar(codigo); }catch(e){ setErro(e.message); setEnviando(false); } };
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:50}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:380,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{fontFamily:DISPLAY,fontSize:17,fontWeight:700,color:C.ink}}>Código de acesso{pedido.nome?` — ${pedido.nome}`:""}</div>
+      <div style={{color:C.sub,fontSize:13,lineHeight:1.45}}>Peça à gestão da conta o código que aparece em <b>Minha conta</b>. Ele muda a cada 60 segundos.</div>
+      <input autoFocus inputMode="numeric" autoComplete="one-time-code" value={codigo}
+        onChange={e=>setCodigo(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>{ if(e.key==="Enter") enviar(); }}
+        placeholder="000000" style={{fontFamily:MONO,fontSize:26,letterSpacing:8,textAlign:"center",padding:"10px",border:`1px solid ${C.line}`,borderRadius:12,outline:"none"}}/>
+      {erro&&<div style={{color:C.hot,fontSize:12.5}}>{erro}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={aoFechar} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:10,padding:"11px",fontSize:13.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={enviar} disabled={enviando||codigo.length!==6}
+          style={{flex:2,border:"none",background:enviando||codigo.length!==6?C.faint:C.greenDeep,color:"#fff",borderRadius:10,padding:"11px",fontSize:13.5,fontWeight:700,cursor:"pointer"}}>
+          {enviando?"Entrando…":"Entrar na conta"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /* ===== NOTIFICAÇÕES NO CELULAR =====
    Avisa o corretor quando um lead cai na mão dele ou quando o cliente responde,
    mesmo com o CRM fechado.

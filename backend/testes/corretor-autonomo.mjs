@@ -37,6 +37,7 @@ const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const { situacao } = await import("../src/services/assinatura.js");
 await import("../src/server.js");
+const { codigoAtual } = await import("../src/services/acesso-master.js");
 const BASE = "http://localhost:4623";
 await new Promise(r => setTimeout(r, 700));
 
@@ -276,7 +277,7 @@ console.log(`   ${r.status} · plano: ${db.prepare("SELECT plano FROM orgs WHERE
 assert.equal(r.status, 200);
 
 console.log("20. E o MASTER define o preço normalmente");
-r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST", body: JSON.stringify({ codigo: codigoAtual(orgId).codigo }) });
 const tAliNaConta = (await r.json()).token;
 r = await chamar(tAliNaConta, "/assinatura", { method: "PATCH", body: JSON.stringify({ valor_mensal: 147 }) });
 console.log(`   ${r.status} · agora R$ ${db.prepare("SELECT valor_mensal FROM orgs WHERE id=?").get(orgId).valor_mensal}`);
@@ -288,7 +289,7 @@ console.log("21. O master ENTRA na conta do autônomo, igual numa imobiliária")
    mensagem não sai ou que o lead não aparece, ninguém ajuda de fora — é
    preciso ver a tela dele. O servidor nunca distinguiu tipo de conta aqui; o
    que faltava era o botão no hub. */
-r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST", body: JSON.stringify({ codigo: codigoAtual(orgId).codigo }) });
 d = await r.json();
 console.log(`   ${r.status} · entrou em ${d.org.nome} (tipo: ${d.org.tipo})`);
 assert.equal(r.status, 200);
@@ -325,7 +326,7 @@ assert.equal(r.status, 200);
 r = await chamar(tBruno, "/leads");
 console.log(`   o cliente vê ${r.status} (402 = tela de bloqueio)`);
 assert.equal(r.status, 402);
-r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST" });
+r = await chamar(tAli, `/orgs/${orgId}/entrar`, { method: "POST", body: JSON.stringify({ codigo: codigoAtual(orgId).codigo }) });
 const tTravada = (await r.json()).token;
 r = await chamar(tTravada, "/leads");
 console.log(`   o master vê ${r.status}`);

@@ -33,6 +33,7 @@ await new Promise(r => mock.listen(4656, r));
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 await import("../src/server.js");
+const { codigoAtual } = await import("../src/services/acesso-master.js");
 const { TERMO_HASH, TERMO_VERSAO } = await import("../src/services/marketing.js");
 const BASE = "http://localhost:4655";
 const MOCK = "http://127.0.0.1:4656";
@@ -99,7 +100,7 @@ assert.equal((await chamar(tGestora, "/marketing/listas", "POST", listaBoa(csv([
 assert.equal((await chamar(tGestora, "/marketing/numero", "PUT", { host: MOCK, token: "tok-disparo" })).status, 409);
 
 console.log("5. O master, de dentro da conta do cliente, NÃO aceita pelo cliente");
-const tAliNaA = (await chamar(tAli, `/orgs/${orgA}/entrar`, "POST")).d.token;
+const tAliNaA = (await chamar(tAli, `/orgs/${orgA}/entrar`, "POST", { codigo: codigoAtual(orgA).codigo })).d.token;
 r = await chamar(tAliNaA, "/marketing/termo", "POST", { aceito: true });
 console.log(`   ${r.status} "${r.d.error}"`);
 assert.equal(r.status, 403);

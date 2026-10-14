@@ -67,14 +67,16 @@ export function faltamSegundos(chave) {
 
 /* O IP de quem chamou.
 
-   Atrás do Railway/Cloudflare o `req.ip` é o do proxy — igual para todo mundo
-   —, e um freio por IP que vê um IP só bloquearia a internet inteira junto na
-   primeira tentativa errada. O primeiro endereço do `x-forwarded-for` é o do
-   visitante. Ele é falsificável por quem chama direto, e é por isso que ele
-   NUNCA é a única trava: a segunda chave, a da conta, não depende de IP. */
-export const ipDe = (req) =>
-  String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
-  req.ip || req.socket?.remoteAddress || "sem-ip";
+   Era o PRIMEIRO endereço do `x-forwarded-for` — e esse é o que o próprio
+   visitante escreve: o Railway ACRESCENTA o endereço real no fim da lista, não
+   apaga o que veio. Trocando o cabeçalho a cada pedido, um laço passava por
+   todo freio "por computador" (a análise de 14/10/2026 fez 8 cadastros
+   seguidos num teto de 5). O certo é o ÚLTIMO, o que o Railway viu — e é ele
+   que o Express já devolve em `req.ip`, porque `server.js` liga
+   `trust proxy` com 1 salto. Se um dia entrar outro proxy na frente (ex.:
+   Cloudflare), o número de saltos muda junto, senão todo mundo aparece com o
+   mesmo IP. */
+export const ipDe = (req) => req.ip || req.socket?.remoteAddress || "sem-ip";
 
 /* ===== 2. COMPARAÇÃO DE SEGREDO SEM VAZAR PELO TEMPO =====
 
