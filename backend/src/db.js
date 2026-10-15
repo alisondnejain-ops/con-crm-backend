@@ -2371,7 +2371,15 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("acesso_livre_por")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre_por TEXT");
   const a = db.prepare("PRAGMA table_info(acessos_master)").all().map(c => c.name);
   if (!a.includes("sem_codigo")) db.exec("ALTER TABLE acessos_master ADD COLUMN sem_codigo INTEGER DEFAULT 0");
+  if (!a.includes("visto_em")) db.exec("ALTER TABLE acessos_master ADD COLUMN visto_em INTEGER");
 }
+// O saldo diário da entrada sem código: quanto já foi usado em cada dia.
+db.exec(`CREATE TABLE IF NOT EXISTS acesso_livre_uso (
+  org_id TEXT NOT NULL,
+  dia TEXT NOT NULL,
+  usado_ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, dia)
+)`);
 db.exec(`CREATE TABLE IF NOT EXISTS boletos (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,

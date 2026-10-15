@@ -197,24 +197,48 @@ try {
   assert.ok(!codigoConfere(orgB, c1, base + JANELA_MS + FOLGA_MS + 1000), "passada a folga, não vale");
   assert.ok(!codigoConfere(orgA, c1, base + 30000) || codigoAtual(orgA, base + 30000).codigo === c1, "cada conta tem o seu");
 
-  caso("Exceção de conta conhecida: o master entra sem código por 4 horas, renova e a gestão vê e desliga");
+  caso("Exceção de conta conhecida: sem código, com saldo de 4 horas por DIA, e a gestão avisada a cada entrada");
   r = await req("POST", `/orgs/${orgB}/acesso-livre`, { liberado: true }, tGestoraB);
   assert.equal(r.s, 403, "o cliente não liga a exceção");
   r = await req("POST", `/orgs/${orgB}/acesso-livre`, { liberado: true }, tAli);
   assert.equal(r.s, 200, JSON.stringify(r.b)); assert.equal(r.b.org.acesso.livre, true);
+  assert.equal(r.b.org.acesso.saldo_hoje_ms, 4 * 3600000);
   r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
   assert.equal(r.s, 200, "entra sem código (e passa por cima da trava de códigos errados)");
-  assert.equal(r.b.acesso_horas, 4); assert.equal(r.b.sem_codigo, true);
+  assert.equal(r.b.sem_codigo, true); assert.equal(r.b.saldo_ms, 4 * 3600000);
   let tLivre = r.b.token;
-  assert.equal((await req("GET", "/leads", null, tLivre)).s, 200);
+  await new Promise(res => setTimeout(res, 300));
+  assert.match(saida, /e-mail para gestorab@teste\.com não enviado\. Assunto: ConHub: entrada do suporte/, "a gestão é avisada");
   const ultima = db.prepare("SELECT * FROM acessos_master WHERE org_id = ? ORDER BY inicio DESC LIMIT 1").get(orgB);
   assert.equal(ultima.sem_codigo, 1);
-  assert.ok(Math.abs(ultima.ate - ultima.inicio - 4 * 3600000) < 5000, "vale 4 horas");
-  db.prepare("UPDATE acessos_master SET ate = ? WHERE id = ?").run(Date.now() - 1000, ultima.id);
+  const uso = () => db.prepare("SELECT COALESCE(SUM(usado_ms),0) n FROM acesso_livre_uso WHERE org_id = ?").get(orgB).n;
+  // Conta aberta: o tempo desde o último pedido sai do saldo.
+  db.prepare("UPDATE acessos_master SET visto_em = ? WHERE id = ?").run(Date.now() - 60000, ultima.id);
+  assert.equal((await req("GET", "/leads", null, tLivre)).s, 200);
+  assert.ok(uso() >= 59000 && uso() < 70000, "1 minuto aberto = 1 minuto gasto: " + uso());
+  // Aba fechada (intervalo grande) não conta.
+  db.prepare("UPDATE acessos_master SET visto_em = ? WHERE id = ?").run(Date.now() - 30 * 60000, ultima.id);
+  const antes = uso();
+  await req("GET", "/leads", null, tLivre);
+  assert.ok(uso() - antes < 2000, "intervalo de 30 min sem pedido não conta");
+  // O hub não gasta.
+  db.prepare("UPDATE acessos_master SET visto_em = ? WHERE id = ?").run(Date.now() - 60000, ultima.id);
+  const antesHub = uso();
+  await req("GET", "/orgs", null, tLivre);
+  assert.equal(uso(), antesHub, "o hub não conta");
+  // Gastou as 4 horas: volta ao hub, e só amanhã entra sem código.
+  const { diaDe } = await import("../src/services/acesso-master.js");
+  db.prepare("UPDATE acesso_livre_uso SET usado_ms = ? WHERE org_id = ? AND dia = ?").run(4 * 3600000, orgB, diaDe(Date.now()));
   r = await req("GET", "/leads", null, tLivre);
-  assert.equal(r.s, 403); assert.equal(r.b.codigo, "acesso_vencido", "passadas as horas, volta ao hub");
+  assert.equal(r.s, 403); assert.equal(r.b.codigo, "acesso_vencido"); assert.match(r.b.error, /tempo de hoje/);
   r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
-  assert.equal(r.s, 200, "clicar em Entrar renova, sem código"); tLivre = r.b.token;
+  assert.equal(r.s, 428); assert.equal(r.b.livre_esgotado, true); assert.match(r.b.error, /Amanhã renovam/);
+  r = await req("POST", `/orgs/${orgB}/entrar`, { codigo: "000000" }, tAli);
+  assert.notEqual(r.s, 200, "com código digitado, vale a conferência do código (aqui, a trava do caso anterior)");
+  // Saldo de ontem não acumula: o dia novo começa com 4 horas.
+  db.prepare("UPDATE acesso_livre_uso SET dia = ? WHERE org_id = ?").run("2000-01-01", orgB);
+  r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
+  assert.equal(r.s, 200, "dia novo, saldo novo"); assert.equal(r.b.saldo_ms, 4 * 3600000); tLivre = r.b.token;
   r = await req("GET", "/auth/conta/acesso", null, tGestoraB);
   assert.ok(r.b.livre, "a gestão vê que a exceção está ligada");
   assert.ok(r.b.acessos.some(a => a.sem_codigo && a.aberto));

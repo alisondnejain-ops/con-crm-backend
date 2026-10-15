@@ -15,7 +15,7 @@ import { marcaDaOrg } from "../services/marca.js";
 import { trocarResponsavel } from "../services/movimento.js";
 import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 import { mapaDeRecursos } from "../services/recursos.js";
-import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre } from "../services/acesso-master.js";
+import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre, usadoHoje } from "../services/acesso-master.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -544,7 +544,7 @@ r.get("/conta/acesso", authRequired, roles("adm"), soGestaoDaConta, (req, res) =
   res.json({ pede_codigo: contaPedeCodigo(org), ...(codigoAtual(req.user.org_id) || {}),
     horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now(),
     /* A exceção ligada pelo ConHub fica à vista de quem é dono dos dados. */
-    livre: acessoLivre(org) ? { desde: org.acesso_livre_em || null, horas: ACESSO_LIVRE_HORAS } : null });
+    livre: acessoLivre(org) ? { desde: org.acesso_livre_em || null, horas: ACESSO_LIVRE_HORAS, usado_hoje_ms: usadoHoje(org.id) } : null });
 });
 /* A gestão desliga a entrada sem código que o ConHub ligou: a partir daí o
    código volta a ser pedido. Junto, encerra a entrada que estiver aberta. */

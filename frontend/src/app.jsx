@@ -836,6 +836,8 @@ function SeletorDePais({valor,aoMudar,style,altura=40}){
 const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 /* Preço de assinatura: com centavos quando tem (R$ 79,90 não pode virar R$ 80 na tela de contratar). */
+// Duração curta: "3h20", "45 min".
+const fmtDuracao=(ms)=>{ const m=Math.max(0,Math.round((ms||0)/60000)); return m>=60?`${Math.floor(m/60)}h${String(m%60).padStart(2,"0")}`:`${m} min`; };
 const fmtPreco=(v)=>{const n=Number(v)||0;const inteiro=Math.abs(n-Math.round(n))<0.005;return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:inteiro?0:2,maximumFractionDigits:inteiro?0:2});};
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
@@ -2089,7 +2091,7 @@ function ConCRM(){
     let d;
     try{ d=await acoes.entrarNaConta(id,codigo); }
     catch(e){
-      if(e.dados&&e.dados.precisa_codigo){ setPedeCodigo({id,nome:nome||(pedeCodigo&&pedeCodigo.nome)||"",erro:codigo?e.message:""}); return false; }
+      if(e.dados&&e.dados.precisa_codigo){ setPedeCodigo({id,nome:nome||(pedeCodigo&&pedeCodigo.nome)||"",erro:(codigo||e.dados.livre_esgotado)?e.message:""}); return false; }
       throw e;
     }
     setPedeCodigo(null);
@@ -4614,8 +4616,9 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
               borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.acesso.livre?"exceção ligada":"pede código"}</span>
           </div>
           <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
-            Para cliente conhecido em implantação. Ligada, você entra sem o código e cada entrada vale {conta.acesso.horas_livre} horas; passado o prazo, é só clicar em Entrar de novo. A gestão da conta vê que está ligada e pode desligar.
+            Para cliente conhecido em implantação. Ligada, você entra sem o código por até {conta.acesso.horas_livre} horas por dia de conta aberta (somando todos os sócios); o tempo não acumula para o dia seguinte. A gestão é avisada a cada entrada e pode desligar.
             {conta.acesso.livre&&conta.acesso.livre_em?` Ligada em ${fmtData(conta.acesso.livre_em)}.`:""}
+            {conta.acesso.livre&&conta.acesso.saldo_hoje_ms!=null&&<b style={{color:conta.acesso.saldo_hoje_ms>0?C.ink:C.hot}}>{" "}{conta.acesso.saldo_hoje_ms>0?`Hoje restam ${fmtDuracao(conta.acesso.saldo_hoje_ms)}.`:"O tempo de hoje acabou; amanhã renova."}</b>}
           </div>
           <div style={{display:"flex",gap:6}}>
             {[[false,"Pedir o código"],[true,"Entrar sem código"]].map(([v,t])=>{
@@ -13876,7 +13879,7 @@ function CodigoDeAcesso({acoes}){
       </div>
     </div>
     {d.livre&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
-      <b>O ConHub está entrando sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta. Cada entrada vale {d.livre.horas} horas e aparece na lista abaixo.
+      <b>O ConHub pode entrar sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta: até {d.livre.horas} horas por dia, e você é avisado a cada entrada. Hoje foram usados {fmtDuracao(d.livre.usado_hoje_ms)}.
       <div><button onClick={desligarLivre} disabled={desligando}
         style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:9,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         {desligando?"Desligando…":"Voltar a exigir o código"}</button></div>
@@ -13887,7 +13890,7 @@ function CodigoDeAcesso({acoes}){
         ?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma até agora.</div>
         :<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.acessos.slice(0,6).map(a=>
           <div key={a.id} style={{fontSize:12.5,color:a.aberto?C.ink:C.sub}}>
-            {fmtData(a.inicio)} · {a.quem||"ConHub"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>aberta até {fmtData(a.ate)}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
+            {fmtData(a.inicio)} · {a.quem||"ConHub"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>{a.sem_codigo?"aberta agora":`aberta até ${fmtData(a.ate)}`}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
       {abertos.length>0&&<button onClick={encerrar} disabled={encerrando}
         style={{marginTop:10,border:`1px solid ${C.line}`,background:"#fff",color:C.ink,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
         {encerrando?"Encerrando…":"Encerrar o acesso do ConHub agora"}</button>}
