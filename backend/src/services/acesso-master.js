@@ -32,6 +32,14 @@ export const JANELA_MS = 60 * 1000;
    falharia. Curta de propósito — o código continua sendo "do minuto". */
 export const FOLGA_MS = 15 * 1000;
 export const ACESSO_HORAS = Number(process.env.MASTER_ACESSO_HORAS) || 2;
+/* A EXCEÇÃO DE CONTA CONHECIDA (15/10/2026, pedido do Ali: "Conecta, Eleandro,
+   VJ… clientes que a gente está fazendo a implementação… pelo menos 4 horas de
+   uso para depois renovar"). O master marca a conta no hub e entra SEM código;
+   cada entrada vale estas horas e, vencida, renova-se clicando em Entrar de
+   novo. Continua registrada na lista que a gestão da conta vê, marcada "sem
+   código", e a gestão pode desligar a exceção. */
+export const ACESSO_LIVRE_HORAS = Number(process.env.MASTER_ACESSO_LIVRE_HORAS) || 4;
+export const acessoLivre = (org) => !!(org && org.acesso_livre);
 
 /* As contas que NÃO pedem código: a do próprio ConHub (ambiente interno) e a
    de demonstração — nenhuma das duas tem dado de cliente de verdade. */
@@ -76,10 +84,11 @@ export function codigoConfere(orgId, digitado, agora = Date.now()) {
   return validos.some(c => crypto.timingSafeEqual(Buffer.from(c), Buffer.from(d)));
 }
 
-export function abrirAcesso(orgId, userId, agora = Date.now()) {
+export function abrirAcesso(orgId, userId, agora = Date.now(), { semCodigo = false } = {}) {
   const id = "am_" + randomUUID();
-  db.prepare("INSERT INTO acessos_master (id, org_id, user_id, inicio, ate) VALUES (?,?,?,?,?)")
-    .run(id, orgId, userId, agora, agora + ACESSO_HORAS * 3600000);
+  const horas = semCodigo ? ACESSO_LIVRE_HORAS : ACESSO_HORAS;
+  db.prepare("INSERT INTO acessos_master (id, org_id, user_id, inicio, ate, sem_codigo) VALUES (?,?,?,?,?,?)")
+    .run(id, orgId, userId, agora, agora + horas * 3600000, semCodigo ? 1 : 0);
   return id;
 }
 
@@ -93,7 +102,7 @@ export function acessoValido(acessoId, orgId, userId, agora = Date.now()) {
 
 export function acessosDaConta(orgId) {
   const agora = Date.now();
-  return db.prepare(`SELECT a.id, a.inicio, a.ate, a.encerrado_em, u.name AS quem
+  return db.prepare(`SELECT a.id, a.inicio, a.ate, a.encerrado_em, a.sem_codigo, u.name AS quem
       FROM acessos_master a LEFT JOIN users u ON u.id = a.user_id
      WHERE a.org_id = ? ORDER BY a.inicio DESC LIMIT 20`).all(orgId)
     .map(a => ({ ...a, aberto: !a.encerrado_em && a.ate > agora }));

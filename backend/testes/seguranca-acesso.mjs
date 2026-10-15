@@ -197,6 +197,37 @@ try {
   assert.ok(!codigoConfere(orgB, c1, base + JANELA_MS + FOLGA_MS + 1000), "passada a folga, não vale");
   assert.ok(!codigoConfere(orgA, c1, base + 30000) || codigoAtual(orgA, base + 30000).codigo === c1, "cada conta tem o seu");
 
+  caso("Exceção de conta conhecida: o master entra sem código por 4 horas, renova e a gestão vê e desliga");
+  r = await req("POST", `/orgs/${orgB}/acesso-livre`, { liberado: true }, tGestoraB);
+  assert.equal(r.s, 403, "o cliente não liga a exceção");
+  r = await req("POST", `/orgs/${orgB}/acesso-livre`, { liberado: true }, tAli);
+  assert.equal(r.s, 200, JSON.stringify(r.b)); assert.equal(r.b.org.acesso.livre, true);
+  r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
+  assert.equal(r.s, 200, "entra sem código (e passa por cima da trava de códigos errados)");
+  assert.equal(r.b.acesso_horas, 4); assert.equal(r.b.sem_codigo, true);
+  let tLivre = r.b.token;
+  assert.equal((await req("GET", "/leads", null, tLivre)).s, 200);
+  const ultima = db.prepare("SELECT * FROM acessos_master WHERE org_id = ? ORDER BY inicio DESC LIMIT 1").get(orgB);
+  assert.equal(ultima.sem_codigo, 1);
+  assert.ok(Math.abs(ultima.ate - ultima.inicio - 4 * 3600000) < 5000, "vale 4 horas");
+  db.prepare("UPDATE acessos_master SET ate = ? WHERE id = ?").run(Date.now() - 1000, ultima.id);
+  r = await req("GET", "/leads", null, tLivre);
+  assert.equal(r.s, 403); assert.equal(r.b.codigo, "acesso_vencido", "passadas as horas, volta ao hub");
+  r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
+  assert.equal(r.s, 200, "clicar em Entrar renova, sem código"); tLivre = r.b.token;
+  r = await req("GET", "/auth/conta/acesso", null, tGestoraB);
+  assert.ok(r.b.livre, "a gestão vê que a exceção está ligada");
+  assert.ok(r.b.acessos.some(a => a.sem_codigo && a.aberto));
+  assert.equal((await req("POST", "/auth/conta/acesso/livre/desligar", {}, tAli)).s, 403, "o master não usa a rota da gestão");
+  r = await req("POST", "/auth/conta/acesso/livre/desligar", {}, tGestoraB);
+  assert.equal(r.s, 200);
+  assert.equal((await req("GET", "/leads", null, tLivre)).s, 403, "desligar encerra a entrada aberta");
+  r = await req("POST", `/orgs/${orgB}/entrar`, {}, tAli);
+  assert.equal(r.s, 428, "voltou a pedir o código");
+  const interna = db.prepare("SELECT id FROM orgs WHERE tipo = 'interna'").get().id;
+  r = await req("POST", `/orgs/${interna}/acesso-livre`, { liberado: true }, tAli);
+  assert.equal(r.s, 409, "conta que não pede código não precisa de exceção");
+
   console.log(`\nOK — ${n} casos.`);
 } catch (e) {
   console.error("\nFALHOU:", e.stack || e.message);

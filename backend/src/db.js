@@ -2362,6 +2362,16 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("boleto_liberado_por")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_por TEXT");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
 }
+/* ENTRADA DO MASTER SEM CÓDIGO, conta por conta (15/10/2026) — ver
+   services/acesso-master.js → ACESSO_LIVRE_HORAS. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("acesso_livre")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre INTEGER DEFAULT 0");
+  if (!o.includes("acesso_livre_em")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre_em INTEGER");
+  if (!o.includes("acesso_livre_por")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre_por TEXT");
+  const a = db.prepare("PRAGMA table_info(acessos_master)").all().map(c => c.name);
+  if (!a.includes("sem_codigo")) db.exec("ALTER TABLE acessos_master ADD COLUMN sem_codigo INTEGER DEFAULT 0");
+}
 db.exec(`CREATE TABLE IF NOT EXISTS boletos (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,

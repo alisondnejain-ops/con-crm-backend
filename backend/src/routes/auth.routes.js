@@ -15,7 +15,7 @@ import { marcaDaOrg } from "../services/marca.js";
 import { trocarResponsavel } from "../services/movimento.js";
 import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 import { mapaDeRecursos } from "../services/recursos.js";
-import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS } from "../services/acesso-master.js";
+import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre } from "../services/acesso-master.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -540,9 +540,19 @@ const soGestaoDaConta = (req, res, next) =>
   req.user.master ? res.status(403).json({ error: "O código de acesso é da gestão da conta." }) : next();
 
 r.get("/conta/acesso", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
-  const org = db.prepare("SELECT id, tipo, demo FROM orgs WHERE id = ?").get(req.user.org_id);
+  const org = db.prepare("SELECT id, tipo, demo, acesso_livre, acesso_livre_em FROM orgs WHERE id = ?").get(req.user.org_id);
   res.json({ pede_codigo: contaPedeCodigo(org), ...(codigoAtual(req.user.org_id) || {}),
-    horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now() });
+    horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now(),
+    /* A exceção ligada pelo ConHub fica à vista de quem é dono dos dados. */
+    livre: acessoLivre(org) ? { desde: org.acesso_livre_em || null, horas: ACESSO_LIVRE_HORAS } : null });
+});
+/* A gestão desliga a entrada sem código que o ConHub ligou: a partir daí o
+   código volta a ser pedido. Junto, encerra a entrada que estiver aberta. */
+r.post("/conta/acesso/livre/desligar", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
+  db.prepare("UPDATE orgs SET acesso_livre = 0, acesso_livre_em = NULL, acesso_livre_por = NULL WHERE id = ?").run(req.user.org_id);
+  const n = encerrarAcessos(req.user.org_id);
+  console.log(`[acesso] ${req.user.name} voltou a exigir o código na conta ${req.user.org_id} (${n} entrada(s) encerrada(s))`);
+  res.json({ ok: true, livre: null, acessos: acessosDaConta(req.user.org_id) });
 });
 r.post("/conta/acesso/encerrar", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
   const n = encerrarAcessos(req.user.org_id);

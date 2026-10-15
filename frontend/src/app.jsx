@@ -1948,6 +1948,7 @@ function ConCRM(){
     entrarNaConta:(id,codigo)=>api(`/orgs/${id}/entrar`,{method:"POST",body:codigo?{codigo}:{}}),
     codigoAcesso:()=>api("/auth/conta/acesso"),
     encerrarAcessoMaster:()=>api("/auth/conta/acesso/encerrar",{method:"POST"}),
+    desligarAcessoLivre:()=>api("/auth/conta/acesso/livre/desligar",{method:"POST"}),
     criarConta:(dados)=>api("/orgs",{method:"POST",body:dados}),
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
@@ -1958,6 +1959,7 @@ function ConCRM(){
     definirCobranca:(id,provedor)=>api(`/orgs/${id}/cobranca`,{method:"POST",body:{provedor}}),
     definirMensalidade:(id,dados)=>api(`/orgs/${id}/mensalidade`,{method:"POST",body:dados}),
     definirBoleto:(id,liberado)=>api(`/orgs/${id}/boleto`,{method:"POST",body:{liberado}}),
+    definirAcessoLivre:(id,liberado)=>api(`/orgs/${id}/acesso-livre`,{method:"POST",body:{liberado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -4603,6 +4605,32 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   {ocupado===r.id+v?"…":t}</button>;})}
             </div>
           </div>;})}
+        {/* ENTRADA SEM CÓDIGO (15/10/2026): exceção para cliente conhecido em
+            implantação. Cada entrada vale algumas horas; vencida, Entrar renova. */}
+        {conta.acesso&&conta.acesso.pede_codigo&&<div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Entrar sem código</span>
+            <span style={{background:conta.acesso.livre?C.amberSoft:C.surface,color:conta.acesso.livre?"#8a6d1f":C.faint,
+              borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.acesso.livre?"exceção ligada":"pede código"}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Para cliente conhecido em implantação. Ligada, você entra sem o código e cada entrada vale {conta.acesso.horas_livre} horas; passado o prazo, é só clicar em Entrar de novo. A gestão da conta vê que está ligada e pode desligar.
+            {conta.acesso.livre&&conta.acesso.livre_em?` Ligada em ${fmtData(conta.acesso.livre_em)}.`:""}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[false,"Pedir o código"],[true,"Entrar sem código"]].map(([v,t])=>{
+              const sel=!!conta.acesso.livre===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  setOcupado("livre"+v);
+                  try{ await acoes.definirAcessoLivre(conta.id,v); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?(v?C.amberSoft:C.greenSoft):C.surface,color:sel?(v?"#8a6d1f":C.greenDeep):C.sub,
+                  border:`1px solid ${sel?(v?C.amber+"88":C.green+"55"):C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="livre"+v?"…":t}</button>;})}
+          </div>
+        </div>}
         {conta.mensalidade&&<MensalidadeNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>}
         {/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026). Trocar não
             cancela nada no provedor antigo: a cobrança de lá só sai quando o
@@ -13817,6 +13845,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
 function CodigoDeAcesso({acoes}){
   const [d,setD]=useState(null),[erro,setErro]=useState(""),[agora,setAgora]=useState(Date.now());
   const [encerrando,setEncerrando]=useState(false),[copiado,setCopiado]=useState(false);
+  const [desligando,setDesligando]=useState(false);
   const delta=useRef(0);
   const ler=()=>acoes.codigoAcesso().then(x=>{ delta.current=(x.agora||Date.now())-Date.now(); setD(x); setErro(""); }).catch(e=>setErro(e.message));
   useEffect(()=>{ ler(); },[]);
@@ -13828,6 +13857,8 @@ function CodigoDeAcesso({acoes}){
   const abertos=(d.acessos||[]).filter(a=>a.aberto);
   const fmtData=(t)=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
   const encerrar=async()=>{ setEncerrando(true); try{ const x=await acoes.encerrarAcessoMaster(); setD(v=>({...v,acessos:x.acessos})); }catch(e){ setErro(e.message); } setEncerrando(false); };
+  const desligarLivre=async()=>{ if(!window.confirm("Voltar a exigir o código de acesso? O ConHub só entra de novo com o código que você passar.")) return;
+    setDesligando(true); try{ const x=await acoes.desligarAcessoLivre(); setD(v=>({...v,livre:null,acessos:x.acessos})); }catch(e){ setErro(e.message); } setDesligando(false); };
   const copiar=()=>{ try{ navigator.clipboard.writeText(d.codigo); setCopiado(true); setTimeout(()=>setCopiado(false),1500); }catch(e){} };
   const pct=Math.max(0,Math.min(100,(resta/(d.segundos||60))*100));
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
@@ -13844,13 +13875,19 @@ function CodigoDeAcesso({acoes}){
         <div style={{color:resta<=10?C.hot:C.sub,fontSize:12,marginTop:5}}>{copiado?"Copiado.":`Muda em ${resta} s`}</div>
       </div>
     </div>
+    {d.livre&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+      <b>O ConHub está entrando sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta. Cada entrada vale {d.livre.horas} horas e aparece na lista abaixo.
+      <div><button onClick={desligarLivre} disabled={desligando}
+        style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:9,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        {desligando?"Desligando…":"Voltar a exigir o código"}</button></div>
+    </div>}
     <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
       <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>Entradas do ConHub na sua conta</div>
       {!(d.acessos||[]).length
         ?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma até agora.</div>
         :<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.acessos.slice(0,6).map(a=>
           <div key={a.id} style={{fontSize:12.5,color:a.aberto?C.ink:C.sub}}>
-            {fmtData(a.inicio)} · {a.quem||"ConHub"} · {a.aberto?<b style={{color:C.amber}}>aberta até {fmtData(a.ate)}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
+            {fmtData(a.inicio)} · {a.quem||"ConHub"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>aberta até {fmtData(a.ate)}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
       {abertos.length>0&&<button onClick={encerrar} disabled={encerrando}
         style={{marginTop:10,border:`1px solid ${C.line}`,background:"#fff",color:C.ink,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
         {encerrando?"Encerrando…":"Encerrar o acesso do ConHub agora"}</button>}

@@ -30,7 +30,7 @@ import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.rout
 import { codigoLivre } from "../services/codigo.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
-import { contaPedeCodigo, codigoConfere, abrirAcesso, ACESSO_HORAS } from "../services/acesso-master.js";
+import { contaPedeCodigo, codigoConfere, abrirAcesso, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre } from "../services/acesso-master.js";
 import { podeTentar, faltamSegundos, zerarTentativas } from "../seguranca.js";
 import { sendMail, mailConfigured, inviteEmail } from "../services/mail.js";
 import { reseedDemo, ORG_ID as DEMO_ORG_ID, CREDENCIAIS as CREDENCIAIS_DEMO } from "../services/demo.js";
@@ -107,6 +107,10 @@ function resumo(req, org) {
       pagarme_ambiente: pagarmeConfigurado() ? ambientePagarme() : null },
     /* Boleto liberado pelo master nesta conta (15/10/2026) e o último boleto
        gerado, para o suporte responder "já gerou? já pagou?" sem entrar. */
+    /* Entrada do master sem código (15/10/2026): o hub mostra a escolha e
+       deixa de pedir o código ao clicar em Entrar. */
+    acesso: { pede_codigo: contaPedeCodigo(org) && org.id !== db.prepare("SELECT org_id FROM users WHERE id = ?").get(req.user.id)?.org_id, livre: acessoLivre(org), horas_livre: ACESSO_LIVRE_HORAS,
+      livre_em: org.acesso_livre_em || null },
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
   };
@@ -167,6 +171,13 @@ r.post("/:id/entrar", (req, res) => {
   if (org.id === eu.org_id || !contaPedeCodigo(org))
     return res.json({ token: sign(eu, { orgId: org.id }), org: resumo(req, org) });
 
+  /* Conta marcada pelo master como exceção: entra sem código, por
+     ACESSO_LIVRE_HORAS; vencida, clicar em Entrar de novo renova. */
+  if (acessoLivre(org)) {
+    const acesso = abrirAcesso(org.id, eu.id, Date.now(), { semCodigo: true });
+    console.log(`[master] ${eu.name} entrou na conta ${org.name} sem código (exceção, vale ${ACESSO_LIVRE_HORAS}h)`);
+    return res.json({ token: sign(eu, { orgId: org.id, acesso }), org: resumo(req, org), acesso_horas: ACESSO_LIVRE_HORAS, sem_codigo: true });
+  }
   const codigo = String(req.body?.codigo || "").replace(/\D/g, "");
   if (!codigo) return res.status(428).json({ precisa_codigo: true,
     error: "Para entrar nesta conta, peça à gestão dela o código de acesso que aparece em Minha conta. Ele muda a cada 60 segundos." });
@@ -480,6 +491,23 @@ r.post("/:id/cobranca", (req, res) => {
     return res.status(409).json({ error: "O Pagar.me não está configurado no servidor (PAGARME_SECRET_KEY e PAGARME_PUBLIC_KEY)." });
   db.prepare("UPDATE orgs SET cobranca = ? WHERE id = ?").run(provedor, org.id);
   console.log(`[master] ${req.user.name} → cobrança de ${org.name}: ${provedor || "regra padrão"}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* ENTRADA SEM CÓDIGO, CONTA POR CONTA (15/10/2026, pedido do Ali: "clientes
+   que já são nossos conhecidos… a gente abra uma exceção de pelo menos algumas
+   horas"). Só o master liga; a gestão da conta vê que está ligada e pode
+   desligar (/auth/conta/acesso/livre). Desligar não derruba a entrada aberta:
+   para isso a gestão tem o "Encerrar o acesso do ConHub agora". */
+r.post("/:id/acesso-livre", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (typeof req.body?.liberado !== "boolean") return res.status(400).json({ error: "Diga se a entrada sem código fica liberada ou não." });
+  if (req.body.liberado && !contaPedeCodigo(org)) return res.status(409).json({ error: "Esta conta já não pede código." });
+  const liga = req.body.liberado;
+  db.prepare("UPDATE orgs SET acesso_livre = ?, acesso_livre_em = ?, acesso_livre_por = ? WHERE id = ?")
+    .run(liga ? 1 : 0, liga ? Date.now() : null, liga ? req.user.id : null, org.id);
+  console.log(`[master] ${req.user.name} ${liga ? "liberou" : "desligou"} a entrada sem código em ${org.name}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
