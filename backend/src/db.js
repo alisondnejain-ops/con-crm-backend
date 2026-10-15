@@ -2346,4 +2346,44 @@ db.exec(`CREATE TABLE IF NOT EXISTS acessos_master (
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org_id, inicio)");
 
+/* BOLETO, SÓ NAS CONTAS QUE O MASTER LIBERA (15/10/2026, pedido do Ali: "o
+   cliente entra em contato com o suporte e a gente libera a opção de boleto").
+
+   - orgs.boleto_liberado (+ quando e quem): a chave do master. Desligada, a
+     conta continua só no cartão, como sempre.
+   - orgs.boleto_endereco_json: o endereço de cobrança, pedido uma vez só e só
+     quando o Pagar.me cobra a conta (o boleto dele exige endereço).
+   - boletos: cada boleto gerado, com o id da cobrança no provedor. É por ele
+     que o aviso de "pago" acha a conta e sabe quantos meses creditar. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("boleto_liberado")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado INTEGER DEFAULT 0");
+  if (!o.includes("boleto_liberado_em")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_em INTEGER");
+  if (!o.includes("boleto_liberado_por")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_por TEXT");
+  if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS boletos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  provedor TEXT NOT NULL,
+  cobranca_id TEXT,
+  pedido_id TEXT,
+  plano_id TEXT,
+  descricao TEXT,
+  valor REAL NOT NULL,
+  meses INTEGER NOT NULL DEFAULT 1,
+  vencimento TEXT NOT NULL,
+  url TEXT,
+  pdf TEXT,
+  linha TEXT,
+  status TEXT NOT NULL DEFAULT 'aberto',
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  pago_em INTEGER,
+  cancelado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_org ON boletos(org_id, criado_em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_cobranca ON boletos(cobranca_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_pedido ON boletos(pedido_id)");
+
 export default db;

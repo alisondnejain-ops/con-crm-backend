@@ -105,6 +105,23 @@ export const criarParcelado = ({ clienteId, parcelas, valorParcela, vencimento, 
     dueDate: vencimento, description: descricao,
   }});
 
+/* BOLETO AVULSO (15/10/2026) — só nas contas em que o master liberou.
+
+   Uma cobrança só, `billingType: BOLETO`, sem assinatura: boleto não fica
+   "guardado" para cobrar sozinho depois, então cada período é um boleto novo
+   que o cliente gera. `externalReference` leva o id do boleto no ConHub, para
+   dar para achar a conta no painel do Asaas. */
+export const criarBoleto = ({ clienteId, valor, vencimento, descricao, referencia }) =>
+  chamar("/payments", { metodo: "POST", corpo: {
+    customer: clienteId, billingType: "BOLETO", value: valor,
+    dueDate: vencimento, description: descricao, externalReference: referencia,
+  }});
+
+/* A linha digitável não vem na criação: é outra chamada. */
+export const linhaDoBoleto = (pagamentoId) => chamar(`/payments/${pagamentoId}/identificationField`);
+export const lerPagamento = (pagamentoId) => chamar(`/payments/${pagamentoId}`);
+export const apagarPagamentoAsaas = (pagamentoId) => chamar(`/payments/${pagamentoId}`, { metodo: "DELETE" });
+
 export const cobrancasDaAssinatura = (assinaturaId) =>
   chamar(`/subscriptions/${assinaturaId}/payments`);
 

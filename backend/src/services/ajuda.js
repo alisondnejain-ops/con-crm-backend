@@ -90,6 +90,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 
 ## Assinatura (só o gestor vê)
 - Minha conta: Cartão de cobrança (cadastrar ou trocar não cobra nada), Gerenciar assinatura (escolher o plano e o prazo), Ferramentas (contratar à parte), Cancelar assinatura (o acesso continua até o fim do período pago).
+- Boleto: a cobrança é no cartão. Pagar por boleto só existe quando o suporte do ConHub libera na conta — quem quiser pede pelo "Falar com o suporte". Liberado, aparece "Pagar por boleto" em Minha conta (e na tela de conta travada): escolher o plano, gerar, pagar pela linha digitável. O boleto não renova sozinho; a cada período, gera-se outro. O acesso volta quando o banco confirma (até 3 dias úteis). Com cobrança no cartão ligada, é preciso cancelar a assinatura do cartão antes.
 - Teste grátis de 7 dias para contas novas.
 - Planos de imobiliária: Essencial e Plus; do autônomo: Básico e Completo. Autoatendimento com IA e Marketing dependem do plano ou da contratação à parte.
 
