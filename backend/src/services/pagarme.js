@@ -177,6 +177,55 @@ export function criarPedido({ clienteId, cartaoId, valor, parcelas = 1, descrica
   } });
 }
 
+/* ===== BOLETO (15/10/2026) — só nas contas em que o master liberou =====
+
+   Um pedido com `payment_method: "boleto"`. O boleto do Pagar.me exige o
+   ENDEREÇO do pagador, que o cadastro do cliente não tinha (o cartão não
+   pede): por isso ele é gravado no cliente antes do pedido. A resposta traz,
+   em `charges[0].last_transaction`, o endereço do boleto (`url`/`pdf`) e a
+   linha digitável (`line`).
+
+   NÃO CONFERIDO CONTRA O PAGAR.ME DE VERDADE (mesma ressalva do resto deste
+   arquivo): os campos seguem a API core v5 documentada. */
+export function enderecoDoCliente(clienteId, { nome, email, documento, endereco }) {
+  const doc = String(documento || "").replace(/\D/g, "");
+  const empresa = doc.length === 14;
+  const e = endereco || {};
+  return chamar(`/customers/${clienteId}`, { metodo: "PUT", corpo: {
+    name: nome, email,
+    ...(doc ? { document: doc, document_type: empresa ? "CNPJ" : "CPF", type: empresa ? "company" : "individual" } : {}),
+    address: {
+      line_1: [e.numero, e.rua, e.bairro].filter(Boolean).join(", "),
+      line_2: e.complemento || undefined,
+      zip_code: String(e.cep || "").replace(/\D/g, ""),
+      city: e.cidade, state: e.uf, country: "BR",
+    },
+  } });
+}
+
+export function criarBoleto({ clienteId, valor, vencimento, descricao, codigo, metadata = {} }) {
+  return chamar("/orders", { metodo: "POST", corpo: {
+    customer_id: clienteId,
+    items: [{ amount: centavos(valor), description: descricao, quantity: 1, code: codigo || "conhub" }],
+    payments: [{
+      payment_method: "boleto",
+      boleto: { instructions: "Pagamento da mensalidade do ConHub. Não receber após 30 dias do vencimento.",
+        due_at: `${vencimento}T23:59:59Z` },
+    }],
+    metadata,
+  } });
+}
+
+/* O que a tela precisa de um boleto do Pagar.me: endereço, PDF e linha. */
+export function dadosDoBoleto(pedido) {
+  const c = ((pedido && pedido.charges) || [])[0] || {};
+  const t = c.last_transaction || {};
+  return { cobrancaId: c.id || null, url: t.url || t.pdf || null, pdf: t.pdf || null,
+    linha: t.line || t.digitable_line || null, status: c.status || pedido?.status || null };
+}
+
+export const cancelarCobranca = (cobrancaId) => chamar(`/charges/${cobrancaId}`, { metodo: "DELETE" });
+
 /* ===== LEITURA (é ela que o webhook usa para conferir) ===== */
 export const lerCobranca = (id) => chamar(`/charges/${id}`);
 export const lerFatura = (id) => chamar(`/invoices/${id}`);

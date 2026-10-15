@@ -26,7 +26,7 @@ import { dominiosDaPlataforma, definirDestino, verificarDominio } from "../servi
 import { removerDominio, railwayPronto } from "../services/railway.js";
 import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../services/cobranca.js";
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
-import { cancelarTudoNoPagarme } from "./assinatura.routes.js";
+import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
@@ -105,6 +105,10 @@ function resumo(req, org) {
       tem_asaas: temCobrancaNoAsaas(org), tem_pagarme: !!org.pagarme_customer_id,
       padrao: pagarmePadrao() ? "pagarme" : "asaas",
       pagarme_ambiente: pagarmeConfigurado() ? ambientePagarme() : null },
+    /* Boleto liberado pelo master nesta conta (15/10/2026) e o último boleto
+       gerado, para o suporte responder "já gerou? já pagou?" sem entrar. */
+    boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
+      ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
   };
 }
 
@@ -479,6 +483,23 @@ r.post("/:id/cobranca", (req, res) => {
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
+/* BOLETO, CONTA POR CONTA (15/10/2026, pedido do Ali: "o cliente entra em
+   contato com o suporte e a gente libera a opção de boleto para ele"). Só o
+   master liga. Desligar não cancela boleto já gerado: ele continua pagável, e
+   pago, dá baixa — cancelar no provedor um boleto que o cliente talvez já
+   tenha pago no banco seria pior. */
+r.post("/:id/boleto", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  if (typeof req.body?.liberado !== "boolean") return res.status(400).json({ error: "Diga se o boleto fica liberado ou não." });
+  const liga = req.body.liberado;
+  db.prepare("UPDATE orgs SET boleto_liberado = ?, boleto_liberado_em = ?, boleto_liberado_por = ? WHERE id = ?")
+    .run(liga ? 1 : 0, liga ? Date.now() : null, liga ? req.user.id : null, org.id);
+  console.log(`[master] ${req.user.name} ${liga ? "liberou" : "desligou"} o boleto de ${org.name}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
 /* VENCIMENTO E TOLERÂNCIA DA MENSALIDADE (05/10/2026, pedido do Ali: "a
    Conecta só deve ser cobrada a partir do dia 10 de novembro… se até essa
    data não tiver cadastro do cartão… pode bloquear o acesso até o
@@ -821,6 +842,10 @@ r.delete("/:id", async (req, res) => {
   const falhasPagarme = await cancelarTudoNoPagarme(org);
   if (falhasPagarme.length)
     asaasAviso = [asaasAviso, `Não consegui cancelar ${falhasPagarme.length} cobrança(s) no Pagar.me — cancele pelo painel da Stone.`].filter(Boolean).join(" ");
+
+  const falhasBoleto = await cancelarBoletosAbertos(org);
+  if (falhasBoleto)
+    asaasAviso = [asaasAviso, `Não consegui cancelar ${falhasBoleto} boleto(s) em aberto — cancele pelo painel do provedor.`].filter(Boolean).join(" ");
 
   // O domínio próprio do site sai também do Railway — senão ficaria
   // cadastrado lá, servindo uma conta que não existe mais.

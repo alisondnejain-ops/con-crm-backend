@@ -1653,6 +1653,8 @@ function ConCRM(){
     salvarCartao:(dados)=>api("/assinatura/cartao",{method:"POST",body:dados}),
     ligarCombinada:()=>api("/assinatura/combinada",{method:"POST",body:{}}),
     cancelarAssinatura:()=>api("/assinatura/cancelar",{method:"POST",body:{}}),
+    boleto:()=>api("/assinatura/boleto"),
+    gerarBoleto:(dados)=>api("/assinatura/boleto",{method:"POST",body:dados}),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -1955,6 +1957,7 @@ function ConCRM(){
     // Por qual provedor a conta é cobrada (04/10/2026): "asaas", "pagarme" ou null (regra padrão).
     definirCobranca:(id,provedor)=>api(`/orgs/${id}/cobranca`,{method:"POST",body:{provedor}}),
     definirMensalidade:(id,dados)=>api(`/orgs/${id}/mensalidade`,{method:"POST",body:dados}),
+    definirBoleto:(id,liberado)=>api(`/orgs/${id}/boleto`,{method:"POST",body:{liberado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -4632,6 +4635,32 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 {ocupado==="cobranca"+v?"…":t}</button>;})}
           </div>
         </div>}
+        {/* BOLETO, CONTA POR CONTA (15/10/2026): o cliente pede ao suporte e
+            você libera aqui. Desligar não cancela boleto já gerado. */}
+        {conta.boleto&&<div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Pagar por boleto</span>
+            <span style={{background:conta.boleto.liberado?C.greenSoft:C.surface,color:conta.boleto.liberado?C.greenDeep:C.faint,
+              borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.boleto.liberado?"liberado":"só cartão"}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Liberado, o cliente gera o boleto do plano em Minha conta (ou na tela de bloqueio) e o acesso volta sozinho quando o banco confirma.
+            {conta.boleto.ultimo?` Último boleto: ${fmtPreco(conta.boleto.ultimo.valor)}, vence ${fmtData(new Date(conta.boleto.ultimo.vencimento+"T12:00:00").getTime())} · ${{aberto:"em aberto",pago:"pago",cancelado:"cancelado",estornado:"estornado"}[conta.boleto.ultimo.status]||conta.boleto.ultimo.status}.`:" Nenhum boleto gerado ainda."}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[false,"Só cartão"],[true,"Liberar boleto"]].map(([v,t])=>{
+              const sel=!!conta.boleto.liberado===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  setOcupado("boleto"+v);
+                  try{ await acoes.definirBoleto(conta.id,v); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="boleto"+v?"…":t}</button>;})}
+          </div>
+        </div>}
       </div>
     </div>}
   </React.Fragment>;
@@ -6331,6 +6360,132 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
   </div>;
 }
 
+/* PAGAR POR BOLETO (15/10/2026, pedido do Ali: "o cliente entra em contato
+   com o suporte e a gente libera a opção de boleto para ele"). Só aparece na
+   conta em que o master liberou — nas outras o servidor responde
+   `liberado:false` e isto não desenha nada. O cliente escolhe o plano; o valor
+   e os meses vêm do servidor. Cada período é um boleto novo: boleto não cobra
+   sozinho como o cartão, e a tela diz isso. */
+const UFS_BR=["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
+  const [d,setD]=useState(null);
+  const [plano,setPlano]=useState("");
+  const [cpf,setCpf]=useState("");
+  const [end,setEnd]=useState({cep:"",rua:"",numero:"",complemento:"",bairro:"",cidade:"",uf:""});
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [copiado,setCopiado]=useState(false);
+  const [aberto,setAberto]=useState(false);
+  const ler=()=>acoes.boleto().then(x=>{ setD(x); setPlano(p=>p||x.atual||""); return x; }).catch(()=>setD({liberado:false}));
+  useEffect(()=>{ ler(); },[]);
+  if(!d||!d.liberado) return null;
+  const emAberto=(d.boletos||[]).find(b=>b.status==="aberto");
+  const pagoRecente=(d.boletos||[]).find(b=>b.status==="pago"&&b.pago_em&&Date.now()-b.pago_em<3*86400000);
+  const op=(d.opcoes||[]).find(o=>o.id===plano)||(d.opcoes||[])[0];
+  const digitos=cpf.replace(/\D/g,"").length;
+  const faltaCpf=d.pede_cpf&&digitos!==11&&digitos!==14;
+  const faltaEnd=d.pede_endereco&&(end.cep.replace(/\D/g,"").length!==8||!end.rua.trim()||!end.numero.trim()||!end.bairro.trim()||!end.cidade.trim()||!end.uf);
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"10px 11px",color:C.ink,outline:"none"};
+  const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
+  const venceTexto=(v)=>fmtData(new Date(v+"T12:00:00").getTime());
+  async function gerar(){
+    setErro("");setOcupado("gerar");
+    try{
+      await acoes.gerarBoleto({plano_id:op&&op.id,...(d.pede_cpf?{cpfCnpj:cpf}:{}),...(d.pede_endereco?{endereco:end}:{})});
+      await ler(); setAberto(false); if(aoMudar) await aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function conferir(){
+    setOcupado("conferir");
+    try{ await ler(); if(aoMudar) await aoMudar(); } finally{ setOcupado(""); }
+  }
+  function copiar(t){ try{ navigator.clipboard.writeText(t); setCopiado(true); setTimeout(()=>setCopiado(false),2000); }catch(e){} }
+  const formAberto=aberto||(!emAberto&&!pagoRecente);
+  return <div style={separado?{borderTop:`1px solid ${C.line}`,paddingTop:14}:{}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="form" size={15} color={C.greenDeep}/>
+      <span style={{flex:1,color:C.ink,fontSize:13.5,fontWeight:700}}>Pagar por boleto</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+      Liberado pelo suporte do ConHub. O boleto não renova sozinho: a cada período, gere um novo aqui. O acesso é liberado quando o banco confirma o pagamento (até 3 dias úteis).
+    </div>
+    {d.cartao_cobrando
+      ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+        A sua conta tem cobrança automática no cartão. Para pagar por boleto, cancele a assinatura do cartão primeiro (o acesso continua até o que já foi pago) — senão o mesmo período seria cobrado duas vezes.</div>
+      :<React.Fragment>
+        {pagoRecente&&!emAberto&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",gap:7,alignItems:"center"}}>
+          <Icon n="check" size={14}/> Boleto de {fmtPreco(pagoRecente.valor)} pago em {fmtData(pagoRecente.pago_em)}.</div>}
+        {emAberto&&<div style={{border:`1px solid ${emAberto.vencido?C.amber+"88":C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:6}}>
+            <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtPreco(emAberto.valor)}</span>
+            <span style={{color:emAberto.vencido?"#8a6d1f":C.sub,fontSize:12,fontWeight:emAberto.vencido?700:500}}>
+              {emAberto.vencido?"venceu em ":"vence em "}{venceTexto(emAberto.vencimento)}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,marginBottom:8}}>{emAberto.descricao}</div>
+          {emAberto.linha&&<div style={{marginBottom:8}}>
+            {rot("Linha digitável")}
+            <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
+              <div style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
+                borderRadius:9,padding:"8px 9px",wordBreak:"break-all",lineHeight:1.45}}>{emAberto.linha}</div>
+              <button onClick={()=>copiar(emAberto.linha.replace(/\D/g,""))}
+                style={{flexShrink:0,background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"0 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                {copiado?"Copiado":"Copiar"}</button>
+            </div>
+          </div>}
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            {emAberto.url&&<a href={emAberto.url} target="_blank" rel="noreferrer"
+              style={{flex:"1 1 150px",textAlign:"center",textDecoration:"none",background:C.green,color:"#fff",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600}}>
+              Abrir o boleto</a>}
+            <button onClick={conferir} disabled={!!ocupado}
+              style={{flex:"1 1 150px",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              {ocupado==="conferir"?"Conferindo…":"Já paguei — conferir"}</button>
+          </div>
+          {emAberto.vencido&&<div style={{color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,marginTop:8}}>
+            Passou da data: alguns bancos ainda aceitam com multa. Se o seu não aceitar, gere outro abaixo.</div>}
+        </div>}
+        {!formAberto
+          ?<button onClick={()=>setAberto(true)}
+            style={{background:"transparent",border:"none",color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:0}}>
+            {emAberto?"Gerar outro boleto":"Gerar boleto do próximo período"}</button>
+          :<div style={{display:"flex",flexDirection:"column",gap:9}}>
+            {(d.opcoes||[]).length>1&&<div>{rot("Plano")}
+              <select value={op?op.id:""} onChange={e=>setPlano(e.target.value)} style={entrada}>
+                {d.opcoes.map(o=><option key={o.id} value={o.id}>{o.nome} — {fmtPreco(o.valor)}{o.meses>1?` (${o.meses} meses)`:""}</option>)}
+              </select></div>}
+            {!(d.opcoes||[]).length&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+              O valor da sua mensalidade ainda não foi definido. Fale com o ConHub.</div>}
+            {d.pede_cpf&&<div>{rot("CPF ou CNPJ de quem paga")}
+              <input value={cpf} onChange={e=>setCpf(e.target.value)} inputMode="numeric" placeholder="só números" style={entrada}/></div>}
+            {d.pede_endereco&&<div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {rot("Endereço de cobrança (o boleto exige)")}
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.cep} onChange={e=>setEnd({...end,cep:e.target.value.replace(/[^\d-]/g,"").slice(0,9)})} inputMode="numeric" placeholder="CEP" style={{...entrada,flex:"0 0 40%"}}/>
+                <select value={end.uf} onChange={e=>setEnd({...end,uf:e.target.value})} style={{...entrada,flex:1}}>
+                  <option value="">UF</option>{UFS_BR.map(u=><option key={u} value={u}>{u}</option>)}</select>
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.rua} onChange={e=>setEnd({...end,rua:e.target.value})} placeholder="Rua" style={{...entrada,flex:1}}/>
+                <input value={end.numero} onChange={e=>setEnd({...end,numero:e.target.value})} placeholder="Nº" style={{...entrada,flex:"0 0 26%"}}/>
+              </div>
+              <input value={end.complemento} onChange={e=>setEnd({...end,complemento:e.target.value})} placeholder="Complemento (opcional)" style={entrada}/>
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.bairro} onChange={e=>setEnd({...end,bairro:e.target.value})} placeholder="Bairro" style={{...entrada,flex:1}}/>
+                <input value={end.cidade} onChange={e=>setEnd({...end,cidade:e.target.value})} placeholder="Cidade" style={{...entrada,flex:1}}/>
+              </div>
+            </div>}
+            {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+            {op&&<button onClick={gerar} disabled={!!ocupado||faltaCpf||faltaEnd}
+              style={{width:"100%",background:(faltaCpf||faltaEnd)?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,
+                padding:"12px",fontSize:13.5,fontWeight:600,cursor:(faltaCpf||faltaEnd)?"default":"pointer"}}>
+              {ocupado==="gerar"?"Gerando…":`Gerar boleto de ${fmtPreco(op.valor)}`}</button>}
+            {op&&op.meses>1&&<div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Este boleto paga {op.meses} meses de uma vez.</div>}
+            {emAberto&&<div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Gerar outro cancela o boleto em aberto acima.</div>}
+          </div>}
+      </React.Fragment>}
+  </div>;
+}
+
 /* CANCELAR A ASSINATURA (04/10/2026, pedido do Ali: "uma opção discreta, mas
    disponível"). Um link pequeno no fim do painel; o clique pede confirmação
    escrita com a data até quando o acesso continua — cancelar não corta o que
@@ -6433,6 +6588,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
     const chave=pm.cartao?`${pm.cartao.bandeira}-${pm.cartao.final}-${pm.cartao.validade}`:"";
     const sep={borderTop:`1px solid ${C.line}`,paddingTop:14};
     return <div style={caixa}>
+      <PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
       <CartaoDeCobranca pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
       {pm.combinada&&<div style={sep}><MensalidadeCombinada pm={pm} acoes={acoes} aoMudar={rever}/></div>}
       {pm.configurado&&<GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever} cartaoAtual={pm.cartao}/>}
@@ -6444,7 +6600,8 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   /* CORRETOR AUTÔNOMO: compra de prateleira, três planos, sem digitação do
      ConHub no meio. */
   if(autonomo)
-    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
+    return <div style={caixa}><PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
+      <GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
       {(a.asaas||a.provedor==="pagarme")&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}
       <CancelarAssinatura a={a} acoes={acoes} aoMudar={rever}/></div>;
 
@@ -6461,6 +6618,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   }
 
   return <div style={caixa}>
+    <PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
     <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Cobrança automática (Asaas)</div>
     {asaasLigado
       ?<div style={{color:C.greenMid,fontSize:11.5,lineHeight:1.5,display:"flex",alignItems:"center",gap:6}}>
@@ -6612,6 +6770,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
 
           `isMobile` vai fixo: o cartão tem 440px, e três planos lado a lado
           aqui ficariam com 130px cada. Empilhado é o certo em qualquer tela. */}
+      {gestor&&<div style={{marginBottom:12}}><PagarPorBoleto acoes={acoes} isMobile={true} aoMudar={aoRever}/></div>}
       {combinada
         ?<div style={{marginBottom:12,marginTop:2,display:"flex",flexDirection:"column",gap:12}}>
           <CartaoDeCobranca pm={cobr.pagarme} acoes={acoes} isMobile={true} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/>
