@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import db from "./db.js";
 import { resumoDeToken } from "./services/cofre.js";
-import { contaPedeCodigo, acessoValido } from "./services/acesso-master.js";
+import { contaPedeCodigo, acessoValido, registrarUso, acessoSemCodigo } from "./services/acesso-master.js";
 
 /* ===== O TOKEN DO LINK DE CRIAR SENHA =====
 
@@ -284,11 +284,17 @@ export function authRequired(req, res, next) {
 
   const r = conferirCrachaDeSessao(token);
   if (r.erro) return res.status(r.status).json({ error: r.erro });
+  const caminho = req.baseUrl + req.path;
+  const doHub = caminho.startsWith("/orgs") || caminho === "/auth/me";
   if (r.user.acessoVencido) {
-    const caminho = req.baseUrl + req.path;
-    if (!caminho.startsWith("/orgs") && caminho !== "/auth/me")
+    if (!doHub)
       return res.status(403).json({ codigo: "acesso_vencido",
-        error: "O acesso do ConHub a esta conta terminou. Para entrar de novo, peça à gestão o código de acesso do momento." });
+        error: acessoSemCodigo(r.user.ac)
+          ? "O tempo de hoje sem código nesta conta acabou. Amanhã ele renova; para entrar agora, peça à gestão o código de acesso do momento."
+          : "O acesso do ConHub a esta conta terminou. Para entrar de novo, peça à gestão o código de acesso do momento." });
+  } else if (r.user.master && r.user.ac && !doHub) {
+    // Entrada sem código: o tempo com a conta aberta sai do saldo do dia.
+    registrarUso(r.user.ac);
   }
 
   req.user = r.user;

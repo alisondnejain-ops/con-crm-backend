@@ -32,6 +32,51 @@ export const JANELA_MS = 60 * 1000;
    falharia. Curta de propósito — o código continua sendo "do minuto". */
 export const FOLGA_MS = 15 * 1000;
 export const ACESSO_HORAS = Number(process.env.MASTER_ACESSO_HORAS) || 2;
+/* A EXCEÇÃO DE CONTA CONHECIDA (15/10/2026, pedido do Ali: "Conecta, Eleandro,
+   VJ… clientes que a gente está fazendo a implementação… pelo menos 4 horas de
+   uso para depois renovar"). O master marca a conta no hub e entra SEM código;
+   cada entrada vale estas horas e, vencida, renova-se clicando em Entrar de
+   novo. Continua registrada na lista que a gestão da conta vê, marcada "sem
+   código", e a gestão pode desligar a exceção. */
+export const ACESSO_LIVRE_HORAS = Number(process.env.MASTER_ACESSO_LIVRE_HORAS) || 4;
+export const acessoLivre = (org) => !!(org && org.acesso_livre);
+
+/* AS 4 HORAS SÃO UM SALDO POR DIA, NÃO POR ENTRADA (15/10/2026, pedido do
+   Ali: "se eu entrei, passei 10 minutos na Conecta, diminui esses 10 minutos
+   do saldo de 4 horas diárias… se usei as 4 horas, só amanhã… não cumulativas").
+
+   O saldo é DA CONTA, somando todos os sócios: a exceção é uma concessão a
+   ela, e dois sócios não podem fazer de 4 horas oito.
+
+   O QUE CONTA COMO USO: o tempo em que a conta está aberta e o sistema está
+   falando com o servidor (a tela pede novidades de 10 em 10 segundos). Cada
+   pedido soma o tempo desde o anterior; intervalo maior que 2 minutos não
+   conta — é a aba fechada ou o computador dormindo. O hub (`/orgs`) não conta:
+   voltar ao hub para de gastar. O dia é o de Brasília. */
+const LIVRE_MS = () => ACESSO_LIVRE_HORAS * 3600000;
+const LACUNA_MAX = 2 * 60 * 1000;
+const FUSO_MS = 3 * 3600000; // Brasília, UTC-3 (sem horário de verão)
+export const diaDe = (ms) => new Date(ms - FUSO_MS).toISOString().slice(0, 10);
+export const fimDoDia = (ms) => Date.parse(diaDe(ms) + "T00:00:00Z") + FUSO_MS + 86400000;
+
+export function usadoHoje(orgId, agora = Date.now()) {
+  return db.prepare("SELECT usado_ms FROM acesso_livre_uso WHERE org_id = ? AND dia = ?").get(orgId, diaDe(agora))?.usado_ms || 0;
+}
+export const saldoLivreHoje = (orgId, agora = Date.now()) => Math.max(0, LIVRE_MS() - usadoHoje(orgId, agora));
+
+/* Soma ao saldo do dia o tempo desde o último pedido desta entrada. */
+export function registrarUso(acessoId, agora = Date.now()) {
+  if (!acessoId) return;
+  const a = db.prepare("SELECT id, org_id, sem_codigo, visto_em FROM acessos_master WHERE id = ?").get(String(acessoId));
+  if (!a || !a.sem_codigo) return;
+  const delta = agora - (a.visto_em || agora);
+  if (delta > 0 && delta <= LACUNA_MAX) {
+    const soma = Math.min(delta, saldoLivreHoje(a.org_id, agora));
+    if (soma > 0) db.prepare(`INSERT INTO acesso_livre_uso (org_id, dia, usado_ms) VALUES (?,?,?)
+        ON CONFLICT(org_id, dia) DO UPDATE SET usado_ms = usado_ms + excluded.usado_ms`).run(a.org_id, diaDe(agora), soma);
+  }
+  db.prepare("UPDATE acessos_master SET visto_em = ? WHERE id = ?").run(agora, a.id);
+}
 
 /* As contas que NÃO pedem código: a do próprio ConHub (ambiente interno) e a
    de demonstração — nenhuma das duas tem dado de cliente de verdade. */
@@ -76,10 +121,13 @@ export function codigoConfere(orgId, digitado, agora = Date.now()) {
   return validos.some(c => crypto.timingSafeEqual(Buffer.from(c), Buffer.from(d)));
 }
 
-export function abrirAcesso(orgId, userId, agora = Date.now()) {
+export function abrirAcesso(orgId, userId, agora = Date.now(), { semCodigo = false } = {}) {
   const id = "am_" + randomUUID();
-  db.prepare("INSERT INTO acessos_master (id, org_id, user_id, inicio, ate) VALUES (?,?,?,?,?)")
-    .run(id, orgId, userId, agora, agora + ACESSO_HORAS * 3600000);
+  /* Sem código, a entrada vale até a meia-noite; quem a corta antes é o
+     saldo do dia (conferido a cada pedido em `acessoValido`). */
+  const ate = semCodigo ? fimDoDia(agora) : agora + ACESSO_HORAS * 3600000;
+  db.prepare("INSERT INTO acessos_master (id, org_id, user_id, inicio, ate, sem_codigo, visto_em) VALUES (?,?,?,?,?,?,?)")
+    .run(id, orgId, userId, agora, ate, semCodigo ? 1 : 0, agora);
   return id;
 }
 
@@ -88,12 +136,15 @@ export function abrirAcesso(orgId, userId, agora = Date.now()) {
 export function acessoValido(acessoId, orgId, userId, agora = Date.now()) {
   if (!acessoId) return false;
   const a = db.prepare("SELECT * FROM acessos_master WHERE id = ?").get(String(acessoId));
-  return !!a && a.org_id === orgId && a.user_id === userId && !a.encerrado_em && a.ate > agora;
+  if (!a || a.org_id !== orgId || a.user_id !== userId || a.encerrado_em || a.ate <= agora) return false;
+  return !a.sem_codigo || saldoLivreHoje(orgId, agora) > 0;
 }
+export const acessoSemCodigo = (acessoId) =>
+  !!(acessoId && db.prepare("SELECT sem_codigo FROM acessos_master WHERE id = ?").get(String(acessoId))?.sem_codigo);
 
 export function acessosDaConta(orgId) {
   const agora = Date.now();
-  return db.prepare(`SELECT a.id, a.inicio, a.ate, a.encerrado_em, u.name AS quem
+  return db.prepare(`SELECT a.id, a.inicio, a.ate, a.encerrado_em, a.sem_codigo, u.name AS quem
       FROM acessos_master a LEFT JOIN users u ON u.id = a.user_id
      WHERE a.org_id = ? ORDER BY a.inicio DESC LIMIT 20`).all(orgId)
     .map(a => ({ ...a, aberto: !a.encerrado_em && a.ate > agora }));
