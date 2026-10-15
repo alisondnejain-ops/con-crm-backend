@@ -414,6 +414,27 @@ export async function editMessage({ orgId, canalId = null, messageid, text }) {
   throw new Error("Esta conta da Uazapi não tem como editar mensagem enviada (nenhum dos endereços conhecidos existe).");
 }
 
+/* APAGAR PARA TODOS (15/10/2026). Mesma régua da edição: endereço que não
+   existe devolve 404 e passamos para o próximo; qualquer outra recusa para. A
+   uazapiGO chama de `/message/delete`; os outros nomes são de versões antigas. */
+const CAMINHOS_APAGAR = ["/message/delete", "/message/revoke", "/send/delete"];
+export async function deleteMessage({ orgId, canalId = null, messageid, toPhone }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.deleteMessage();
+  if (!uazapiConfigured(orgId, canalId)) return { ok: false, simulated: true };
+  const tentativas = [];
+  for (const caminho of CAMINHOS_APAGAR) {
+    try {
+      const r = await call(orgId, caminho, { id: messageid, messageid, number: toPhone, forEveryone: true }, canalId);
+      return { ok: true, caminho, data: r.data };
+    } catch (e) {
+      tentativas.push(`${caminho}: ${e.message.slice(0, 120)}`);
+      if (!/\b404\b/.test(e.message)) throw e;
+    }
+  }
+  throw new Error("Esta conta da Uazapi não tem como apagar mensagem enviada (nenhum dos endereços conhecidos existe).");
+}
+
 /* A ASSINATURA EXISTE POR CAUSA DO NÚMERO ÚNICO — e some quando ele não é único.
 
    `*Marina:*` na frente da mensagem nasceu de uma necessidade só: todo mundo

@@ -183,6 +183,9 @@ export async function sendLocation({ canal, toPhone, latitude, longitude, name, 
 // o comportamento CORRETO: quem chama (routes/messages.routes.js) só toca o
 // banco depois de uma confirmação de sucesso, e sem ela o texto do CRM
 // continua sendo o que o cliente recebeu de verdade.
+export async function deleteMessage() {
+  throw new Error("A API oficial da Meta não permite apagar mensagem já enviada — é uma limitação da própria plataforma, não do ConHub.");
+}
 export async function editMessage() {
   throw new Error("A API oficial da Meta não permite editar mensagem já enviada — é uma limitação da própria plataforma, não do ConHub.");
 }

@@ -1527,6 +1527,11 @@ addMsgCol("reply_to", "TEXT");
 addMsgCol("edited_at", "INTEGER");
 addMsgCol("edited_by", "TEXT");
 addMsgCol("body_original", "TEXT");
+/* APAGAR PARA TODOS (15/10/2026). A mensagem continua no banco (é o registro do
+   atendimento, e a supervisão pode conferir o que foi apagado); a tela mostra
+   "Esta mensagem foi apagada", como o WhatsApp. */
+addMsgCol("apagada_em", "INTEGER");
+addMsgCol("apagada_por", "TEXT");
 
 /* ===== AS LINHAS DE WHATSAPP (canais) =====
 
