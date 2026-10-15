@@ -357,7 +357,7 @@ export async function atender(orgId, leadId, opcoes = {}) {
        resposta — e é isso que faz a conferência de `deNovo` respondê-la. */
     const lidoEm = Date.now();
     const msgs = db.prepare(
-      "SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
+      "SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(leadId);
     const coletado = lerColetado(lead);
 
     // A ficha do produto deste atendimento e os campos que ela pode preencher.

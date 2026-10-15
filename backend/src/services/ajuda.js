@@ -43,7 +43,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 - Repassar: na ficha do lead, o botão "Passar para <nome>" entrega ao corretor da vez; também dá para escolher um corretor a dedo. Repasse nunca volta para a atendente.
 - Finalizar atendimento: tira a conversa da caixa sem mudar a etapa. Se o cliente responder, ela volta sozinha.
 - Mensagens prontas: botões acima do campo de texto. A gestão e a atendente editam em Configurações → Mensagens automáticas (dá para separar por etapa).
-- Áudio e imagem colada mostram prévia antes de enviar. Mensagem enviada pode ser editada por até 15 minutos.
+- Áudio e imagem colada mostram prévia antes de enviar. Mensagem enviada pode ser editada por até 15 minutos e apagada para todos (lixeira ao lado do balão) por até 2 dias e meio, como no WhatsApp — só a que saiu da imobiliária; a do cliente fica no registro. A ficha do lead mostra em "De onde veio" a campanha, o conjunto, o anúncio e o formulário do anúncio.
 - Ligar: o botão abre o discador e, ao voltar, pergunta o resultado da ligação.
 - Observações, tarefas, tags e campos personalizados ficam na ficha do lead.
 - Cadastrar lead na mão: botão "+" ao lado da busca em Atender. Número repetido não cria outro lead (a tela oferece abrir o existente).

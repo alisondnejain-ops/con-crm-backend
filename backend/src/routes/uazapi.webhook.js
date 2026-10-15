@@ -2,6 +2,7 @@ import { Router } from "express";
 import { normalizePhone } from "../services/stages.js";
 import { canalDoWhatsapp } from "../services/canais.js";
 import { processarMensagemRecebida, lembrar } from "../services/mensageria.js";
+import db from "../db.js";
 
 const r = Router();
 
@@ -107,7 +108,16 @@ function extrair(p) {
   // Em mensagem de mídia, `content` é um objeto com URL, mimetype e o nome do
   // arquivo. Em mensagem de texto ele é uma string — daí a checagem de tipo.
   const content = m.content && typeof m.content === "object" ? m.content : null;
+  /* APAGADA NO WHATSAPP (15/10/2026). Quando alguém apaga "para todos", o
+     WhatsApp manda uma mensagem de protocolo que aponta a apagada. O nome do
+     campo varia; não achando, `apagou` fica nulo e o evento é só descartado. */
+  const protocolo = /protocol|revoke/i.test(String(tipo));
+  const pm = m.protocolMessage || content?.protocolMessage || m.message?.protocolMessage || null;
+  const apagou = protocolo
+    ? (pm?.key?.id || content?.key?.id || m.key?.revokedId || null)
+    : null;
   return {
+    protocolo, apagou,
     // O número do remetente sempre traz o país — não é lido como brasileiro.
     phone: normalizePhone(chat.split("@")[0], { comCodigo: true }),
     texto: String(texto).trim(),
@@ -150,7 +160,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
@@ -201,6 +211,23 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
           ? "Confira o token em Configurações → Conexão (linha da imobiliária) ou em Minha conta → Meu WhatsApp (linha do corretor). Ele precisa ser o mesmo da instância na Uazapi."
           : "O reconhecimento pelo NÚMERO foi desligado por segurança: o número da imobiliária é público, e qualquer pessoa poderia mandar mensagem falsa para o CRM sabendo ele. Se a sua Uazapi realmente não manda o token, crie a variável UAZAPI_ACEITAR_POR_NUMERO=1 no painel da hospedagem para religar o caminho antigo — e avise o ConHub.",
         campos: Object.keys(p) });
+    }
+
+    /* Mensagem de protocolo (apagar, e outras internas do WhatsApp) não é
+       conversa: nunca vira balão. Se ela aponta uma mensagem desta conta que o
+       CRM conhece, a mensagem passa a "apagada" — vale para o cliente apagando
+       e para o eco do "Apagar para todos" feito pelo próprio CRM. */
+    if (protocolo) {
+      let marcada = 0;
+      if (apagou) {
+        const curto = String(apagou).includes(":") ? String(apagou).split(":").pop() : String(apagou);
+        marcada = db.prepare(`UPDATE messages SET apagada_em = ? WHERE apagada_em IS NULL
+            AND (wa_id = ? OR wa_id = ? OR wa_id LIKE ?)
+            AND lead_id IN (SELECT id FROM leads WHERE org_id = ?)`)
+          .run(Date.now(), String(apagou), curto, "%:" + curto, canal.org_id).changes;
+      }
+      return lembrar({ em: Date.now(), evento, provider: "uazapi",
+        resultado: apagou ? (marcada ? "mensagem apagada no WhatsApp" : "aviso de mensagem apagada (não estava no CRM)") : "ignorado: mensagem de protocolo" });
     }
 
     // Em mensagem de mídia, `content` é um objeto com URL — em mensagem de

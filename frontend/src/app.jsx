@@ -186,6 +186,7 @@ function adaptLead(l,anterior){
        atualização de dez segundos. */
     tags:l.tags!==undefined?l.tags:(anterior?anterior.tags:[]),
     campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
+    conjunto:l.adset_name!==undefined?(l.adset_name||null):(anterior?anterior.conjunto:null),
     // Por onde o lead ENTROU (ver entradaDoLead). `origem` acima ganha
     // "WhatsApp" quando vem vazia; aqui fica o valor como veio.
     fonte:l.source!==undefined?(l.source||null):(anterior?anterior.fonte:null),
@@ -261,6 +262,9 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   // avisa em vez de deixar o corretor achar que o cliente vai ver.
   citavel:!!m.wa_id,
   editadaEm:m.edited_at||null, textoOriginal:m.body_original||null,
+  // Apagada para todos: o balão vira "Esta mensagem foi apagada", como no
+  // WhatsApp. A supervisão continua recebendo o texto do servidor.
+  apagadaEm:m.apagada_em||null, apagadaPor:m.apagada_por_nome||null, apagadaPorId:m.apagada_por||null,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
@@ -1017,6 +1021,7 @@ const ICO={
   pin:<React.Fragment><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></React.Fragment>,
   link:<React.Fragment><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></React.Fragment>,
   edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
+  block:<React.Fragment><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></React.Fragment>,
   trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
   // Baixar: a seta descendo até a bandeja, o desenho que todo mundo reconhece.
@@ -1562,6 +1567,11 @@ function ConCRM(){
        é ele que diz que a mensagem do cliente continua a antiga. */
     editarMensagem:async(leadId,msgId,text)=>{
       await api(`/leads/${leadId}/messages/${msgId}`,{method:"PATCH",body:{text}});
+      await recarregar(); await abrir(leadId,true);
+    },
+    // Também fora do `acao()`: o erro diz que a mensagem continua no celular do cliente.
+    apagarMensagemDaConversa:async(leadId,msgId)=>{
+      await api(`/leads/${leadId}/messages/${msgId}`,{method:"DELETE"});
       await recarregar(); await abrir(leadId,true);
     },
     /* Aceita o NOME (todo o código de hoje) ou o `stage_id` (o kanban, que
@@ -8358,6 +8368,79 @@ function BotaoEditar({m,podeEditar,aoEditar}){
   </button>;
 }
 
+/* DE ONDE O LEAD VEIO, NA FICHA (15/10/2026, pedido do Ali: "visível na ficha
+   do lead de qual campanha ele veio"). Campanha, conjunto, anúncio e
+   formulário vêm da Meta (ou do disparo, que grava o nome em campaign_name).
+   Lead de anúncio sem campanha diz isso em vez de sumir com a linha: quase
+   sempre é lead de teste ou a Meta recusou ler a campanha (ver Configurações
+   → Anúncios do Meta). */
+const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagram:"Instagram",an:"Audience Network",msgr:"Messenger",disparo:"Disparo em massa"};
+function OrigemDoLead({lead}){
+  if(!lead) return null;
+  const doAnuncio=lead.fonte==="meta";
+  const plat=lead.plataforma?(NOME_PLATAFORMA[String(lead.plataforma).toLowerCase()]||lead.plataforma):null;
+  const veio=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(lead.fonte==="portal"?"Portal":lead.origem||"WhatsApp");
+  const linhas=[["Campanha",lead.campanha],["Conjunto",lead.conjunto],["Anúncio",lead.anuncio],["Formulário",lead.formulario]].filter(([,v])=>v);
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,color:C.sub,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>
+      <Icon n="target" size={12} color={C.faint}/> De onde veio</div>
+    <div style={{color:C.ink,fontSize:13,fontWeight:600,marginTop:5}}>{veio}</div>
+    {linhas.map(([r,v])=><div key={r} style={{display:"flex",gap:6,fontSize:12,marginTop:4,lineHeight:1.35}}>
+      <span style={{color:C.faint,flexShrink:0,minWidth:70}}>{r}</span>
+      <span style={{color:C.ink,fontWeight:r==="Campanha"?600:400,overflowWrap:"anywhere"}}>{v}</span></div>)}
+    {doAnuncio&&!lead.campanha&&<div style={{color:C.faint,fontSize:11.5,marginTop:4,lineHeight:1.4}}>A Meta não informou a campanha deste lead.</div>}
+  </div>;
+}
+
+/* APAGAR PARA TODOS (15/10/2026), nas regras do WhatsApp: só o que saiu
+   daqui, até cerca de 2 dias e meio depois. Pede confirmação antes — apagar
+   não tem desfazer — e, se o WhatsApp recusar, diz que a mensagem continua lá. */
+const JANELA_APAGAR_MS=60*3600000;
+function BotaoApagar({m,pode,leadId,acoes}){
+  const [aberto,setAberto]=useState(false),[indo,setIndo]=useState(false),[erro,setErro]=useState("");
+  if(!pode||m.from!=="corretor"||m.apagadaEm||!m.citavel) return null;
+  if(Date.now()-m.at>JANELA_APAGAR_MS) return null;
+  const apagar=async()=>{ setIndo(true); setErro("");
+    try{ await acoes.apagarMensagemDaConversa(leadId,m.id); setAberto(false); }catch(e){ setErro(e.message); }
+    setIndo(false); };
+  return <span style={{position:"relative",display:"flex",flexShrink:0}}>
+    <button onClick={()=>{setAberto(v=>!v);setErro("");}} title="Apagar para todos"
+      style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,padding:"4px",display:"flex",alignItems:"center",opacity:.6}}>
+      <Icon n="trash" size={13}/>
+    </button>
+    {aberto&&<div onClick={()=>!indo&&setAberto(false)} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(10,30,24,.35)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:14,boxShadow:"0 10px 30px rgba(0,0,0,.2)",padding:16,
+        width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontSize:15,fontWeight:700,fontFamily:DISPLAY}}>Apagar para todos?</div>
+      <div style={{color:C.sub,fontSize:12,lineHeight:1.4}}>O cliente vai ver “Esta mensagem foi apagada”. Não tem desfazer.</div>
+      {erro&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.4}}>{erro}</div>}
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setAberto(false)} disabled={indo} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:9,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={apagar} disabled={indo} style={{flex:1,border:"none",background:C.hot,color:"#fff",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:indo?"default":"pointer"}}>{indo?"Apagando…":"Apagar para todos"}</button>
+      </div>
+    </div></div>}
+  </span>;
+}
+
+/* O balão da mensagem apagada. Para quem supervisiona, o servidor ainda manda
+   o que era — e um toque mostra, porque é o registro do atendimento. */
+function MensagemApagada({m,mine,session}){
+  const [ver,setVer]=useState(false);
+  const minha=!!(m.apagadaPorId&&session&&m.apagadaPorId===session.id);
+  const tem=!!(m.text||m.midia);
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:6,fontStyle:"italic",opacity:.85}}>
+      <Icon n="block" size={13}/>{minha?"Você apagou esta mensagem":"Esta mensagem foi apagada"}
+    </div>
+    {tem&&<button onClick={()=>setVer(v=>!v)} style={{background:"transparent",border:"none",padding:0,marginTop:4,cursor:"pointer",
+      color:mine?"rgba(255,255,255,.85)":C.sub,fontSize:11,textDecoration:"underline"}}>{ver?"esconder":"ver o que era"}</button>}
+    {ver&&<div style={{marginTop:4,fontSize:12.5,opacity:.9,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>
+      {m.text||(m.midia?`[${m.midia.nome||"arquivo"}]`:"")}
+      {m.apagadaPor?<div style={{fontSize:10.5,opacity:.8,marginTop:2}}>apagada por {m.apagadaPor}</div>:null}</div>}
+  </div>;
+}
+
 /* A barra de "editando", logo acima do campo de mensagem.
 
    Antes a caixa de edição abria NO LUGAR do balão. Parecia natural, mas a
@@ -9634,16 +9717,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             {abreDia&&<SeparadorDia ts={m.at}/>}
             <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6,
               opacity:editando&&editando.id===m.id?.45:1}}>
-            {mine&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
-            {mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {mine&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
+            {mine&&<BotaoApagar m={m} pode={!m.byName||m.by===session.id||podeSupervisionar} leadId={sel.id} acoes={acoes}/>}
+            {mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={mine} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={mine}/>
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
-            {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {!mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
@@ -9708,6 +9793,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
+        <OrigemDoLead lead={sel}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
@@ -12146,16 +12232,18 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
               /* apagada enquanto está sendo editada lá embaixo, para a pessoa
                  saber qual balão vai mudar */
               opacity:editando&&editando.id===m.id?.45:1}}>
-            {meu&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
-            {meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {meu&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
+            {meu&&<BotaoApagar m={m} pode leadId={sel.id} acoes={acoes}/>}
+            {meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={meu} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={meu}/>
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
-            {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {!meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
@@ -12944,6 +13032,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
+      <OrigemDoLead lead={lead}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>

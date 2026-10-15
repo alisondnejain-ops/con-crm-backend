@@ -49,7 +49,7 @@ const SELECT_LEAD = `
         AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM messages o
           WHERE o.lead_id = l.id AND o.direction = 'out' AND ${semDisparo("o.")}
             AND COALESCE(o.from_name, '') <> '${ASSINATURA_ROBO}'), 0)) AS unread,
-    (SELECT m.body FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+    (SELECT CASE WHEN m.apagada_em IS NOT NULL THEN 'Mensagem apagada' ELSE m.body END FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
     (SELECT m.direction FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_direction,
     (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
     (SELECT u.name FROM users u WHERE u.id = l.assigned_to) AS assigned_name,
@@ -81,7 +81,7 @@ const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread
    Campo novo que a lista precise mostrar entra AQUI e lá. */
 const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "created_at", "first_resp_at",
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
-  "last_interaction_at", "custom_fields", "campaign_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
+  "last_interaction_at", "custom_fields", "campaign_name", "adset_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
   "sugestao_etapa", "aguarda_contato", "catraca_id"];
 const enxuto = (l) => {
@@ -753,7 +753,7 @@ function reanalisar(orgId, aplicar) {
     try { return JSON.parse(l.etapa_ia_json).etapa === l.stage; } catch { return false; }
   };
 
-  const daConversa = db.prepare("SELECT direction,body,media_url FROM messages WHERE lead_id=? ORDER BY created_at ASC");
+  const daConversa = db.prepare("SELECT direction,body,media_url FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC");
   const mudancas = [];
   let comConversa = 0;
 
@@ -1075,10 +1075,18 @@ r.get("/:id", (req, res) => {
     SELECT m.*,
       q.body AS reply_body, q.direction AS reply_direction,
       q.from_name AS reply_from_name, q.media_mime AS reply_media_mime,
-      q.wa_id AS reply_wa_id
+      q.wa_id AS reply_wa_id, q.apagada_em AS reply_apagada,
+      (SELECT name FROM users WHERE id = m.apagada_por) AS apagada_por_nome
     FROM messages m
     LEFT JOIN messages q ON q.id = m.reply_to
-    WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id);
+    WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id)
+    /* Mensagem apagada: só a supervisão continua vendo o que era (o registro
+       do atendimento); para o resto, como no WhatsApp, só "foi apagada". */
+    .map(m => {
+      if (m.reply_apagada) m.reply_body = "";
+      if (!m.apagada_em || supervisiona(req.user)) return m;
+      return { ...m, body: "", body_original: null, media_url: null, media_name: null, media_mime: null };
+    });
 
   /* As ligações entram na MESMA linha do tempo da conversa.
 
@@ -1237,7 +1245,7 @@ r.post("/:id/resumo", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "O resumo automático não está ligado nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
   const r2 = await resumirConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
@@ -1271,7 +1279,7 @@ r.post("/:id/etapa-ia", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "A leitura de etapa por IA não está ligada nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
   const r2 = await etapaDaConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
