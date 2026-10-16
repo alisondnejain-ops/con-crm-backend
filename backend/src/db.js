@@ -1928,6 +1928,10 @@ if (!db.prepare("PRAGMA table_info(marketing_envios)").all().some(c => c.name ==
     db.exec("ALTER TABLE marketing_campanhas ADD COLUMN tipo TEXT DEFAULT 'disparo'");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_fluxos_gatilho ON marketing_fluxos(org_id, ativo, gatilho_tipo)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_exec_lead ON marketing_execucoes(campanha_id, lead_id)");
+  /* VÁRIOS GATILHOS NUM FLUXO (16/10/2026): por qual gatilho a pessoa entrou.
+     Nulo = o primeiro início (toda execução de antes desta data). */
+  if (!db.prepare("PRAGMA table_info(marketing_execucoes)").all().some(c => c.name === "gatilho_no"))
+    db.exec("ALTER TABLE marketing_execucoes ADD COLUMN gatilho_no TEXT");
 }
 
 /* Os leads que o disparo tocou antes do gatilho novo ficaram com a "última

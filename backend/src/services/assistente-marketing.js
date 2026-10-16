@@ -39,6 +39,8 @@ const GATILHO = {
   },
   required: ["tipo"],
 };
+/* VÁRIOS GATILHOS (16/10/2026): cada um com id próprio e o próprio caminho. */
+const GATILHO_COM_ID = { ...GATILHO, properties: { id: { type: "string", description: "id do gatilho (o primeiro é \"inicio\"; os outros, curtos, ex.: g2)" }, ...GATILHO.properties } };
 const DESCRICAO_BLOCOS = `Blocos (campo "tipo") e o que cada um leva em "dados":
 - mensagem: {texto, midia?} — {nome} vira o primeiro nome do cliente. Ou {modelo:{nome, idioma, texto, variaveis:[...]}} para modelo aprovado da Meta (de ver_modelos_meta). Saída: proximo.
 - espera: {quantidade, unidade: minutos|horas|dias}. Saída: proximo.
@@ -46,7 +48,8 @@ const DESCRICAO_BLOCOS = `Blocos (campo "tipo") e o que cada um leva em "dados":
 - botoes: {texto, botoes:[{id, rotulo (até 20 letras)}] (até 3), prazo}. Saídas: o id de cada botão, "outra", "sem_resposta".
 - condicao: {regra: tag|etapa|temperatura|responsavel|campo|respondeu, valor, campo}. tag/etapa: valor = id; temperatura: QUENTE|MORNO|FRIO|SEM; responsavel: com|sem; campo: campo = chave e valor esperado (vazio = preenchido); respondeu: o cliente mandou mensagem desde que entrou. Saídas: sim, nao.
 - add_tag / remover_tag: {tag_id}. mover_etapa: {etapa_id}. atribuir: {modo: catraca|pessoa|fila, catraca_id?, user_id?}. tarefa: {titulo, em_horas}. Saída: proximo.
-Ligações: [{de, saida, para}] — de/para são ids de bloco; o início tem id "inicio" e saída "proximo". Uma ligação por saída. Sem ligação, o fluxo termina ali.`;
+Ligações: [{de, saida, para}] — de/para são ids de bloco; o início tem id "inicio" e saída "proximo". Uma ligação por saída. Sem ligação, o fluxo termina ali.
+Vários gatilhos: mande "gatilhos" (lista) no lugar de "gatilho". Cada gatilho tem id ("inicio" o primeiro, depois g2, g3…) e saída "proximo" para o PRÓPRIO caminho — é assim que cada ação do lead segue um caminho diferente. Dois gatilhos não podem pegar a mesma ação (o mesmo formulário, a mesma etapa, a mesma etiqueta, o mesmo campo, lead novo da mesma origem, ou lead novo de formulário junto com "formulário preenchido"). Um lead anda por um caminho do fluxo por vez.`;
 
 export const FERRAMENTAS_MARKETING = [
   // Fluxos
@@ -55,11 +58,12 @@ export const FERRAMENTAS_MARKETING = [
     { fluxo_id: { type: "string" } }, ["fluxo_id"]),
   T("salvar_fluxo", `Cria (sem fluxo_id) ou substitui (com fluxo_id) um fluxo. Mande SEMPRE o fluxo inteiro: gatilho, todos os blocos e todas as ligações. As posições na tela são arrumadas sozinhas. Não liga a automação — para isso, ligar_fluxo.\n${DESCRICAO_BLOCOS}`,
     { fluxo_id: { type: "string" }, nome: { type: "string" }, gatilho: GATILHO,
+      gatilhos: { type: "array", items: GATILHO_COM_ID, description: "vários gatilhos, cada um com o seu caminho (no lugar de gatilho)" },
       blocos: { type: "array", items: { type: "object", additionalProperties: false, properties: {
         id: { type: "string", description: "curto, sem espaço (ex.: b1)" }, tipo: { type: "string" }, dados: { type: "object" } }, required: ["id", "tipo"] } },
       ligacoes: { type: "array", items: { type: "object", additionalProperties: false, properties: {
         de: { type: "string" }, saida: { type: "string" }, para: { type: "string" } }, required: ["de", "saida", "para"] } } },
-    ["nome", "gatilho", "blocos", "ligacoes"]),
+    ["nome", "blocos", "ligacoes"]),
   T("ligar_fluxo", "Liga (ativo true) ou desliga a automação de um fluxo com gatilho. Desligar só fecha a porta: quem está no meio termina. Se faltar algo, a recusa diz o quê.",
     { fluxo_id: { type: "string" }, ativo: { type: "boolean" } }, ["fluxo_id", "ativo"]),
   T("ver_execucoes_do_fluxo", "Os últimos leads que passaram pela automação e por onde cada um andou.", { fluxo_id: { type: "string" } }, ["fluxo_id"]),
@@ -112,7 +116,8 @@ export const NOMES_DAS_FERRAMENTAS_DE_MARKETING = new Set(FERRAMENTAS_MARKETING.
 
 /* Posição na tela: colunas pela distância do início, empilhadas na ordem. */
 function arrumar(nos, ligacoes) {
-  const col = new Map([["inicio", 0]]), fila = ["inicio"];
+  const raizes = nos.filter(n => n.tipo === "inicio").map(n => n.id);
+  const col = new Map(raizes.map(id => [id, 0])), fila = [...raizes];
   while (fila.length) {
     const id = fila.shift();
     for (const l of ligacoes) if (l.de === id && !col.has(l.para)) { col.set(l.para, col.get(id) + 1); fila.push(l.para); }
@@ -128,6 +133,7 @@ function arrumar(nos, ligacoes) {
 
 const resumoGrafo = (g) => ({
   gatilho: (g.nos || []).find(n => n.tipo === "inicio")?.dados?.gatilho || { tipo: "manual" },
+  gatilhos: (g.nos || []).filter(n => n.tipo === "inicio").map(n => ({ id: n.id, ...(n.dados?.gatilho || { tipo: "manual" }) })),
   blocos: (g.nos || []).filter(n => n.tipo !== "inicio").map(n => ({ id: n.id, tipo: n.tipo, dados: n.dados })),
   ligacoes: g.ligacoes || [],
 });
@@ -157,9 +163,17 @@ export function executorDeMarketing({ chamarRota, autorizacao, registrarAcao }) 
         const ligacoes = Array.isArray(e.ligacoes) ? e.ligacoes : [];
         /* form_ids (o que a IA manda) vira a lista do gatilho. Sem funil nem
            catraca junto: o que cada formulário já tem não é tocado. */
-        const { form_ids, ...gat } = e.gatilho || { tipo: "manual" };
-        if (Array.isArray(form_ids)) gat.formularios = form_ids.map(id => ({ id: String(id) }));
-        const nos = arrumar([{ id: "inicio", tipo: "inicio", dados: { gatilho: gat } },
+        const lista = Array.isArray(e.gatilhos) && e.gatilhos.length ? e.gatilhos : [e.gatilho || { tipo: "manual" }];
+        const inicios = lista.slice(0, 10).map((x, i) => {
+          const { form_ids, id: gid, ...gat } = x || { tipo: "manual" };
+          if (Array.isArray(form_ids)) gat.formularios = form_ids.map(id => ({ id: String(id) }));
+          return { id: i === 0 ? "inicio" : String(gid || `g${i + 1}`), tipo: "inicio", dados: { gatilho: gat } };
+        });
+        // O primeiro gatilho é sempre "inicio": a ligação que a IA mandou com
+        // o id dela é trocada para ele.
+        const id0 = String(lista[0]?.id || "inicio");
+        for (const l of ligacoes) if (id0 !== "inicio" && l.de === id0) l.de = "inicio";
+        const nos = arrumar([...inicios,
           ...blocos.map(b => ({ id: String(b.id), tipo: b.tipo, dados: b.dados || {} }))], ligacoes);
         let id = e.fluxo_id;
         if (!id) {
