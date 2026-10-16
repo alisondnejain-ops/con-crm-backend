@@ -13,7 +13,7 @@
 import { pecas } from "../../site.js";
 
 const { esc, abs, inicio, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, telefoneLegivel, wa,
-  caracteristicas, ICO, dadosDoImovel, resumoDoImovel, pixelDoImovel, imgFoto } = pecas;
+  caracteristicas, ICO, dadosDoImovel, resumoDoImovel, pixelDoImovel, imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle } = pecas;
 export { pecas };
 
 export const comPrevia = (ctx, href) => (ctx.previa ? href + (href.includes("?") ? "&" : "?") + "previa=" + encodeURIComponent(ctx.previa) : href);
@@ -125,7 +125,7 @@ export function moldura(ctx, { titulo, descricao, url, imagem, corpo, pixelExtra
   const logo = marca.logo ? abs(base, marca.logo) : null;
   const msgGeral = `Olá! Vim pelo site da ${org.name} e gostaria de ajuda para encontrar um imóvel.`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-${gtmHead(cfg)}
+${gtmHead(cfg)}${verificacaoGoogle(cfg)}
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(titulo)}</title>
 <meta name="description" content="${esc(descricao)}">
@@ -168,7 +168,7 @@ export const linhaInfo = (i) => [
 
 export function cartao(ctx, i) {
   return `<a class="card" href="${esc(comPrevia(ctx, hrefImovel(ctx, i)))}">
-  <div class="foto">${fotoOu(i.fotos[0], i.titulo, true)}<span class="selo">${i.finalidade === "aluguel" ? "ALUGUEL" : "VENDA"}</span></div>
+  <div class="foto">${fotoOu(i.fotos[0], altDaFoto(i), true)}<span class="selo">${i.finalidade === "aluguel" ? "ALUGUEL" : "VENDA"}</span></div>
   <div class="txt"><h3>${esc(i.titulo)}</h3><span class="info">${esc(linhaInfo(i))}</span><span class="preco">${precoDe(i)}</span></div></a>`;
 }
 
@@ -180,7 +180,7 @@ export function paginaImovel(ctx, i, tema = "claro") {
   const custos = [i.condominio ? `CONDOMÍNIO · ${moeda(i.condominio)}/MÊS` : "", i.iptu ? `IPTU · ${moeda(i.iptu)}/ANO` : ""].filter(Boolean);
   const fotos = i.fotos;
   const galeria = fotos.length
-    ? `<div class="trilho" id="trilho">${fotos.map((u, n) => `${imgFoto(u, { cls: fotos.length === 1 ? "so" : "", alt: `${i.titulo} — foto ${n + 1}`, sizes: "(max-width: 700px) 90vw, 70vw", lazy: !!n })}`).join("")}</div>
+    ? `<div class="trilho" id="trilho">${fotos.map((u, n) => `${imgFoto(u, { cls: fotos.length === 1 ? "so" : "", alt: altDaFoto(i, n, fotos.length), sizes: "(max-width: 700px) 90vw, 70vw", lazy: !!n })}`).join("")}</div>
        ${fotos.length > 1 ? `<div class="setas"><button type="button" data-d="-1" aria-label="Foto anterior">${ICO.voltar}</button><button type="button" data-d="1" aria-label="Próxima foto">${ICO.seta}</button></div>` : ""}`
     : "";
   const corpo = `
@@ -208,7 +208,7 @@ export function paginaImovel(ctx, i, tema = "claro") {
   <a class="btn btn-marca" data-contato data-nome="${esc(i.titulo)}" href="${esc(linkWa)}" target="_blank" rel="noopener">${ICO.wpp}WhatsApp</a></div>
 <script>(function(){var t=document.getElementById('trilho');if(!t)return;document.querySelectorAll('.setas button').forEach(function(b){b.onclick=function(){var img=t.querySelector('img');t.scrollBy({left:(+b.dataset.d)*((img?img.clientWidth:t.clientWidth)+12),behavior:'smooth'})}})})();</script>`;
   return moldura(ctx, {
-    titulo: `${i.titulo} — ${org.name}`, descricao: resumoDoImovel(i), url, corpo,
+    titulo: tituloDoImovel(ctx, i), descricao: resumoDoImovel(i), url, corpo,
     classeBody: "tem-barra", pixelExtra: pixelDoImovel(i), dados: dadosDoImovel(ctx, i, url), tema,
     imagem: fotos[0] ? abs(base, fotos[0]) : (ctx.marca.logo ? abs(base, ctx.marca.logo) : null),
   });

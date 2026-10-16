@@ -25,7 +25,7 @@ import { catalogo, filtrosDe, resumoDoCatalogo, bairrosDoCatalogo, conteudoPubli
 import { pecas, comPrevia } from "./comum.js";
 
 const { esc, abs, inicio, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, telefoneLegivel, wa,
-  caracteristicas, ICO, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, imgFoto } = pecas;
+  caracteristicas, ICO, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle } = pecas;
 
 const SOCIAL = {
   instagram: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".6" fill="currentColor"/></svg>',
@@ -286,7 +286,7 @@ const icoCod = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 
 function cartao(ctx, i) {
   const feat = caracteristicas(i, true).map(([ic, v, r]) => `<span>${ICO[ic]}${esc(v)}${r ? " " + esc(r) : ""}</span>`).join("");
   return `<a class="card" href="${esc(comPrevia(ctx, hrefImovel(ctx, i)))}">
-  <div class="foto">${i.fotos[0] ? imgFoto(i.fotos[0], { alt: i.titulo, sizes: "(max-width: 760px) 78vw, (max-width: 1100px) 33vw, 300px" }) : `<div class="sem-foto">${ICO.casa}</div>`}
+  <div class="foto">${i.fotos[0] ? imgFoto(i.fotos[0], { alt: altDaFoto(i), sizes: "(max-width: 760px) 78vw, (max-width: 1100px) 33vw, 300px" }) : `<div class="sem-foto">${ICO.casa}</div>`}
     <span class="selo">${i.finalidade === "aluguel" ? "ALUGUEL" : i.empreendimento ? "LANÇAMENTO" : "VENDA"}</span></div>
   ${feat ? `<div class="feat">${feat}</div>` : '<div style="height:12px"></div>'}
   <div class="cod"><span>Cód. <b>${esc(i.codigo)}</b></span><span>${esc(tipoTexto(i))}</span></div>
@@ -323,7 +323,7 @@ function moldura(ctx, { titulo, descricao, url, imagem, corpo, pixelExtra = "", 
   const redes = Object.entries(c.redes).filter(([, u]) => u)
     .map(([k, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener" aria-label="${k === "youtube" ? "YouTube" : k[0].toUpperCase() + k.slice(1)}">${SOCIAL[k]}</a>`).join("");
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-${gtmHead(cfg)}
+${gtmHead(cfg)}${verificacaoGoogle(cfg)}
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(titulo)}</title>
 <meta name="description" content="${esc(descricao)}">
@@ -408,7 +408,7 @@ export function paginaPortal(ctx, query) {
   const capa = slides.length ? `
 <section class="capa" aria-label="Imóveis em destaque">
   <div class="slides" id="slides">${slides.map((i, n) => `
-    <div class="slide">${imgFoto(i.fotos[0], { alt: i.titulo, sizes: "100vw", lazy: n > 0 })}
+    <div class="slide">${imgFoto(i.fotos[0], { alt: altDaFoto(i), sizes: "100vw", lazy: n > 0 })}
       <div class="txt"><div class="etiq"><span>${icoCod}Cód. ${esc(i.codigo)}</span><span>${ICO.casa}${esc(tipoTexto(i))}</span></div>
         <h2>${esc(i.titulo)}</h2>${i.local.curta ? `<div class="onde">${esc(i.local.curta)}</div>` : ""}
         <a class="btn btn-marca" href="${esc(comPrevia(ctx, hrefImovel(ctx, i)))}">Mais detalhes</a></div></div>`).join("")}</div>
@@ -489,7 +489,7 @@ export function paginaImovel(ctx, i) {
   const outros = catalogo(org.id, filtrosDe({ finalidade: i.finalidade })).itens.filter(x => x.id !== i.id).slice(0, 8);
   const corpo = `<main class="wrap">
   <a class="volta" href="${esc(comPrevia(ctx, inicio(ctx)))}">${ICO.voltar}Todos os imóveis</a>
-  ${fotos.length ? `<div class="galeria">${carrossel(fotos, (u, n) => imgFoto(u, { cls: fotos.length === 1 ? "so" : "", alt: `${i.titulo} — foto ${n + 1}`, sizes: "(max-width: 760px) 88vw, 880px", lazy: n > 0 }))}</div>` : ""}
+  ${fotos.length ? `<div class="galeria">${carrossel(fotos, (u, n) => imgFoto(u, { cls: fotos.length === 1 ? "so" : "", alt: altDaFoto(i, n, fotos.length), sizes: "(max-width: 760px) 88vw, 880px", lazy: n > 0 }))}</div>` : ""}
   <div class="corpo">
     <article>
       <div class="etiq etiq-esc"><span>${icoCod}Cód. ${esc(i.codigo)}</span><span>${ICO.casa}${esc(tipoTexto(i))}</span><span>${i.finalidade === "aluguel" ? "Aluguel" : "Venda"}</span></div>
@@ -512,7 +512,7 @@ export function paginaImovel(ctx, i) {
 <div class="barra-cel"><div class="preco">${precoDe(i)}</div>
   <a class="btn btn-marca" data-contato data-nome="${esc(i.titulo)}" href="${esc(linkWa)}" target="_blank" rel="noopener">${ICO.wpp}WhatsApp</a></div>`;
   return moldura(ctx, {
-    titulo: `${i.titulo} — ${org.name}`, descricao: resumoDoImovel(i), url, corpo, conteudo,
+    titulo: tituloDoImovel(ctx, i), descricao: resumoDoImovel(i), url, corpo, conteudo,
     classeBody: "tem-barra", pixelExtra: pixelDoImovel(i), dados: dadosDoImovel(ctx, i, url),
     imagem: fotos[0] ? abs(base, fotos[0]) : (ctx.marca.logo ? abs(base, ctx.marca.logo) : null),
   });

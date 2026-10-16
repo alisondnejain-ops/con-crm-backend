@@ -70,6 +70,25 @@ export function configDoSite(orgId) {
   return db.prepare("SELECT * FROM sites WHERE org_id = ?").get(orgId);
 }
 
+/* O código de verificação do Google Search Console (16/10/2026). A tela do
+   Google mostra a etiqueta inteira — <meta name="google-site-verification"
+   content="abc…" /> — e quem copia cola a etiqueta, não só o código. Aceita os
+   dois e guarda só o código, conferido por formato: é ele que entra na página,
+   e um campo que aceitasse HTML colado seria uma porta para pôr código no site. */
+export function codigoDoGoogle(bruto) {
+  let t = String(bruto || "").trim();
+  if (!t) return null;
+  const m = t.match(/content\s*=\s*["']([^"']*)["']/i);
+  if (m) t = m[1].trim();
+  else if (/[<>]/.test(t)) return { erro: "Não achei o código na etiqueta colada. Copie a etiqueta inteira que o Google mostra em \"Tag HTML\", ou só o código entre as aspas de content=\"…\"." };
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(t))
+    return { erro: "O código de verificação do Google tem só letras, números, - e _ (em geral 43 caracteres). Copie a etiqueta que aparece em \"Tag HTML\" no Search Console." };
+  return t;
+}
+export const verificacaoGoogle = (cfg) =>
+  cfg && cfg.google_verificacao && /^[A-Za-z0-9_-]{20,100}$/.test(cfg.google_verificacao)
+    ? `<meta name="google-site-verification" content="${cfg.google_verificacao}">` : "";
+
 /* Devolve `{cfg}` ou `{erro}`. O erro é uma frase para o gestor ler. */
 export function salvarSite(orgId, b = {}) {
   const atual = configDoSite(orgId);
@@ -144,6 +163,16 @@ export function salvarSite(orgId, b = {}) {
     if (t.length > 160) return { erro: "A descrição para o Google passa de 160 caracteres — o Google corta o resto." };
     novo.seo_descricao = t || null;
   }
+  if (b.nome_site !== undefined) {
+    const t = String(b.nome_site || "").replace(/\s+/g, " ").trim();
+    if (t.length > 60) return { erro: "O nome da marca no site passa de 60 caracteres." };
+    novo.nome_site = t || null;
+  }
+  if (b.google_verificacao !== undefined) {
+    const v = codigoDoGoogle(b.google_verificacao);
+    if (v && v.erro) return { erro: v.erro };
+    novo.google_verificacao = v || null;
+  }
   if (b.ligado !== undefined) novo.ligado = b.ligado ? 1 : 0;
   // Site no ar sem WhatsApp seria uma vitrine sem porta: o visitante gosta do
   // imóvel e não tem como falar com ninguém.
@@ -151,11 +180,12 @@ export function salvarSite(orgId, b = {}) {
 
   db.prepare(`UPDATE sites SET slug=?, ligado=?, whatsapp=?, pixel_id=?, frase=?, dominio=?, dominio_destino=?, dominio_estado=?,
       dominio_detalhe=?, dominio_conferido_em=?, dominio_railway_id=?, dominio_registros=?, gtm_id=?, seo_titulo=?, seo_descricao=?,
-      atualizado_em=? WHERE org_id=?`)
+      nome_site=?, google_verificacao=?, atualizado_em=? WHERE org_id=?`)
     .run(novo.slug, novo.ligado, novo.whatsapp, novo.pixel_id, novo.frase, novo.dominio || null, novo.dominio_destino || null,
       novo.dominio_estado || null, novo.dominio_detalhe || null, novo.dominio_conferido_em || null,
       novo.dominio_railway_id || null, novo.dominio_registros || null,
-      novo.gtm_id || null, novo.seo_titulo || null, novo.seo_descricao || null, Date.now(), orgId);
+      novo.gtm_id || null, novo.seo_titulo || null, novo.seo_descricao || null,
+      novo.nome_site || null, novo.google_verificacao || null, Date.now(), orgId);
   esquecerDominios();
   return { cfg: configDoSite(orgId), remover: novo._remover || null, mudouDominio: !!novo._mudouDominio };
 }
@@ -438,6 +468,9 @@ export function publico(p) {
     descricao: (p.descricao || "").trim() || null,   // a PÚBLICA — nunca `observacoes`
     modalidade: !aluguel && p.modalidade ? p.modalidade : null,
     local: localDe(p),
+    // Só para os dados do Google (schema.org): bairro, cidade e UF já aparecem
+    // na página — nada aqui é mais do que o visitante já vê.
+    lugar: { bairro: p.bairro || null, cidade: p.cidade || null, uf: p.uf || null },
     fotos: fotosDe(p.id),
     video: videoDe(p.id),
   };
@@ -460,6 +493,12 @@ function montarSite(cfg) {
   if (!cfg) return null;
   const org = db.prepare("SELECT id, name, logo_url, cor_barra FROM orgs WHERE id = ?").get(cfg.org_id);
   if (!org) return null;
+  /* O NOME DA MARCA NO SITE (16/10/2026): a conta pode ter o nome da pessoa
+     (o corretor autônomo se cadastra como "Verônica Gomez") e o site precisa
+     dizer a marca ("VJ Imóveis") — no título, no cabeçalho, no rodapé, nos
+     dados do Google e na mensagem pronta do WhatsApp. Trocar aqui, onde todo
+     modelo recebe a imobiliária, vale para os cinco modelos de uma vez. */
+  if (cfg.nome_site) org.name = cfg.nome_site;
   let pausado = false;
   try { pausado = ["bloqueado", "aguardando_cartao"].includes(situacao(org.id).status); } catch { pausado = false; }
   return { cfg, org, marca: marcaDaOrg(org), pausado };
@@ -822,7 +861,7 @@ function moldura({ ctx, titulo, descricao, url, imagem, corpo, extraHead = "", p
   const numeroWa = cfg.whatsapp;
   const msgGeral = `Olá! Vim pelo site da ${org.name} e gostaria de ajuda para encontrar um imóvel.`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-${gtmHead(cfg)}
+${gtmHead(cfg)}${verificacaoGoogle(cfg)}
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(titulo)}</title>
 <meta name="description" content="${esc(descricao)}">
@@ -857,7 +896,7 @@ function cartao(i, ctx) {
   const href = hrefImovel(ctx, i);
   const feats = caracteristicas(i, true).map(([ic, v, r]) => `<span>${ICO[ic]}${esc(v)}${r ? " " + esc(r) : ""}</span>`).join("");
   return `<a class="card" href="${href}">
-  <div class="foto">${i.fotos[0] ? imgFoto(i.fotos[0], { alt: i.titulo, sizes: "(max-width: 600px) 40vw, (max-width: 1000px) 33vw, 300px" }) : `<div class="sem-foto">${ICO.casa}</div>`}
+  <div class="foto">${i.fotos[0] ? imgFoto(i.fotos[0], { alt: altDaFoto(i), sizes: "(max-width: 600px) 40vw, (max-width: 1000px) 33vw, 300px" }) : `<div class="sem-foto">${ICO.casa}</div>`}
     <span class="selo">${i.finalidade === "aluguel" ? "Para alugar" : "À venda"}</span></div>
   <div class="info">
     <div class="preco">${precoDe(i)}</div>
@@ -884,12 +923,38 @@ export function dadosDoImovel(ctx, i, url) {
     "@context": "https://schema.org", "@type": "RealEstateListing", name: i.titulo, url,
     ...(i.descricao ? { description: i.descricao.slice(0, 500) } : {}),
     ...(i.fotos.length ? { image: i.fotos.slice(0, 10).map(u => abs(base, u)) } : {}),
-    ...(i.local.curta ? { contentLocation: { "@type": "Place", name: i.local.curta } } : {}),
+    ...(i.local.curta ? { contentLocation: { "@type": "Place", name: i.local.curta,
+      ...(i.lugar && (i.lugar.cidade || i.lugar.uf) ? { address: { "@type": "PostalAddress",
+        ...(i.lugar.bairro ? { streetAddress: i.lugar.bairro } : {}),
+        ...(i.lugar.cidade ? { addressLocality: i.lugar.cidade } : {}),
+        ...(i.lugar.uf ? { addressRegion: i.lugar.uf } : {}), addressCountry: "BR" } } : {}) } } : {}),
     offers: { "@type": "Offer", availability: "https://schema.org/InStock", businessFunction: i.finalidade === "aluguel" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell",
       ...(i.valor ? { price: Number(i.valor), priceCurrency: "BRL" } : {}),
       seller: { "@type": "RealEstateAgent", name: org.name } },
   };
 }
+/* O TÍTULO DA PÁGINA DO IMÓVEL e o TEXTO DAS FOTOS (16/10/2026). É o que o
+   Google mostra no resultado e o que ele lê numa imagem. O título leva o lugar
+   quando o nome do imóvel não o diz ("Studio Pé na Areia | Japaratinga | VJ
+   Imóveis"): quem procura no Google procura pelo lugar. Um lugar só para os
+   cinco modelos. */
+const semAcento = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function lugarQueFalta(i) {
+  const l = i.lugar || {};
+  const nome = semAcento(i.titulo);
+  return [l.bairro, l.cidade].filter(x => x && !nome.includes(semAcento(x))).join(", ");
+}
+export function tituloDoImovel(ctx, i) {
+  const lugar = lugarQueFalta(i);
+  return [i.titulo, lugar, ctx.org.name].filter(Boolean).join(" | ");
+}
+export function altDaFoto(i, n = null, total = 0) {
+  const tipo = i.tipo === "terreno" ? "terreno" : i.empreendimento ? "empreendimento" : "imóvel";
+  const lugar = lugarQueFalta(i);
+  const base = `${i.titulo}${lugar ? ` em ${lugar}` : ""} — ${tipo} ${i.finalidade === "aluguel" ? "para alugar" : "à venda"}`;
+  return n == null ? base : `${base}, foto ${n + 1}${total ? ` de ${total}` : ""}`;
+}
+
 /* A descrição curta do imóvel (meta description e prévia no WhatsApp). */
 export const resumoDoImovel = (i) =>
   [precoTexto(i), caracteristicas(i, true).map(([, v, r]) => `${v}${r ? " " + r : ""}`).join(", "), i.local.curta].filter(Boolean).join(" · ");
@@ -973,12 +1038,12 @@ export function paginaImovel(ctx, i) {
     i.iptu ? `<div><span>IPTU</span><b>${moeda(i.iptu)}/ano</b></div>` : "",
   ].join("");
   const rotulo = i.finalidade === "aluguel" ? "Aluguel" : "Venda";
-  const slides = (zoom) => fotos.map((u, n) => `<button type="button" data-i="${n}" aria-label="Foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: `${i.titulo} — foto ${n + 1}`, sizes: "100vw", lazy: n > 0 || zoom })}</button>`).join("");
+  const slides = (zoom) => fotos.map((u, n) => `<button type="button" data-i="${n}" aria-label="Foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: altDaFoto(i, n, fotos.length), sizes: "100vw", lazy: n > 0 || zoom })}</button>`).join("");
 
   const galeria = fotos.length
     ? `<div class="gal" id="gal"><div class="trilho">${slides(false)}</div>
         ${fotos.length > 1 ? `<button class="nav ant" type="button" aria-label="Foto anterior">${ICO.voltar}</button><button class="nav prox" type="button" aria-label="Próxima foto">${ICO.seta}</button><span class="cont">1 / ${fotos.length}</span>` : ""}</div>
-       <div class="mosaico m${Math.min(fotos.length, 5)}">${fotos.slice(0, 5).map((u, n) => `<button type="button" data-i="${n}" aria-label="Ampliar foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: `${i.titulo} — foto ${n + 1}`, sizes: n ? "300px" : "(max-width: 1000px) 100vw, 640px", lazy: !!n })}</button>`).join("")}
+       <div class="mosaico m${Math.min(fotos.length, 5)}">${fotos.slice(0, 5).map((u, n) => `<button type="button" data-i="${n}" aria-label="Ampliar foto ${n + 1} de ${fotos.length}">${imgFoto(u, { alt: altDaFoto(i, n, fotos.length), sizes: n ? "300px" : "(max-width: 1000px) 100vw, 640px", lazy: !!n })}</button>`).join("")}
          ${fotos.length > 1 ? `<button type="button" class="todas" data-i="0">${ICO.grade}Ver as ${fotos.length} fotos</button>` : ""}</div>
        ${fotos.length > 1 ? `<div class="miniaturas">${fotos.map((u, n) => `<button type="button" data-i="${n}" class="${n ? "" : "on"}" aria-label="Ver foto ${n + 1}">${imgFoto(u, { sizes: "120px" })}</button>`).join("")}</div>` : ""}
        <div class="caixa" id="caixa" role="dialog" aria-modal="true" aria-label="Fotos do imóvel"><button class="fecha" type="button" aria-label="Fechar">${ICO.fechar}</button><div class="trilho">${slides(true)}</div>
@@ -1038,7 +1103,7 @@ export function paginaImovel(ctx, i) {
   const pixelExtra = pixelDoImovel(i);
   return moldura({
     ctx, corpo, url, pixelExtra, classeBody: "tem-barra",
-    titulo: `${i.titulo} — ${org.name}`,
+    titulo: tituloDoImovel(ctx, i),
     descricao,
     dados: dadosDoImovel(ctx, i, url),
     imagem: fotos[0] ? abs(base, fotos[0]) : (ctx.marca.logo ? abs(base, ctx.marca.logo) : null),
@@ -1075,7 +1140,7 @@ export function paginaPausada(ctx) {
    dados para o Google, os endereços que respeitam o domínio próprio — vem
    daqui, um lugar só. Um modelo que reescrevesse o Pixel ou o caminho do
    imóvel divergiria do Clássico no primeiro conserto. */
-export const pecas = { imgFoto, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
+export const pecas = { imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
   telefoneLegivel, wa, caracteristicas, ICO, FAIXAS };
 
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====

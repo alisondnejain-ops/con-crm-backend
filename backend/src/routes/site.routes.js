@@ -113,6 +113,12 @@ function resposta(req) {
     url: `${baseDe(req)}/imoveis/${c.slug}`,
     org_nome: (db.prepare("SELECT name FROM orgs WHERE id = ?").get(req.user.org_id) || {}).name || "",
     gtm_id: c.gtm_id || "", seo_titulo: c.seo_titulo || "", seo_descricao: c.seo_descricao || "",
+    nome_site: c.nome_site || "", google_verificacao: c.google_verificacao || "",
+    // O endereço que se cadastra no Search Console (propriedade "Prefixo do
+    // URL") e o mapa do site que se envia lá: o domínio próprio, quando ativo;
+    // senão, o endereço do site no ConHub.
+    google_endereco: c.dominio && c.dominio_estado === "ativo" ? `https://${c.dominio}/` : `${baseDe(req)}/imoveis/${c.slug}/`,
+    google_sitemap: c.dominio && c.dominio_estado === "ativo" ? `https://${c.dominio}/sitemap.xml` : `${baseDe(req)}/imoveis/${c.slug}/sitemap.xml`,
     dominio: c.dominio || "", dominio_destino: c.dominio_destino || "", dominio_estado: c.dominio_estado || null,
     dominio_detalhe: c.dominio_detalhe || "", dominio_conferido_em: c.dominio_conferido_em || null,
     url_dominio: c.dominio ? `https://${c.dominio}` : null,

@@ -73,7 +73,7 @@ export function paginaPortal(ctx, query) {
   <nav class="chips" aria-label="Tipo de negócio">${chip("", "Todos")}${chip("venda", "Comprar")}${chip("aluguel", "Alugar")}${f.bairro ? `<a class="on" href="${esc(link({ bairro: "", p: 1 }))}">${esc(f.bairro)} ✕</a>` : ""}</nav>
 </div></section>
 <main class="wrap">
-  ${capa ? `<a class="capa" href="${esc(comPrevia(ctx, hrefImovel(ctx, capa)))}">${fotoOu(capa.fotos[0], capa.titulo, false, "100vw")}
+  ${capa ? `<a class="capa" href="${esc(comPrevia(ctx, hrefImovel(ctx, capa)))}">${fotoOu(capa.fotos[0], pecas.altDaFoto(capa), false, "100vw")}
     <div class="vidros"><div class="vidro"><div class="ref">EM DESTAQUE · CÓD. ${esc(capa.codigo)}</div><div class="nome">${esc(capa.titulo)}</div></div>
       <div class="etiq">${linhaInfo(capa) ? `<span>${esc(linhaInfo(capa).split(" · ").slice(0, 2).join(" · "))}</span>` : ""}<span>${precoDe(capa)}</span><span class="ir">Ver imóvel →</span></div></div></a>` : ""}
   ${colecoes.length >= 2 ? `<section><div class="secao-topo"><h2>Coleções</h2><span>POR BAIRRO</span></div>

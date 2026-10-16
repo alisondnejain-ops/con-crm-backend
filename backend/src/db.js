@@ -1310,7 +1310,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
     ["seo_titulo", "TEXT"], ["seo_descricao", "TEXT"],
     // Domínio cadastrado no Railway pela API: o id lá e os registros de DNS
     // (JSON [{tipo,nome,valor,ok}]) que a imobiliária tem que criar.
-    ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"]])
+    ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"],
+    // 16/10/2026: o nome da marca no site (vazio = o nome da conta) e o código
+    // de verificação do Google Search Console.
+    ["nome_site", "TEXT"], ["google_verificacao", "TEXT"]])
     if (!cols.includes(c)) db.exec(`ALTER TABLE sites ADD COLUMN ${c} ${ddl}`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dominio ON sites(dominio) WHERE dominio IS NOT NULL");
   /* CETROLAB (12/10/2026): o modelo visual do site. Nulo = o Clássico, que é o

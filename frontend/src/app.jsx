@@ -16518,7 +16518,8 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
   const [d,setD]=useState(null); const [f,setF]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
   const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id,
-    gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||""});};
+    gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||"",
+    nome_site:r.nome_site||"",google_verificacao:r.google_verificacao||""});};
   useEffect(()=>{acoes.site().then(carregar).catch(e=>setErro(e.message));},[]);
   const [conferindo,setConferindo]=useState(false);
   const [aberta,setAberta]=useState(null); const [resumoConteudo,setResumoConteudo]=useState("");
@@ -16662,12 +16663,17 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             é automática: cada imóvel tem título, descrição, foto, dados
             estruturados e entra no mapa do site (sitemap). */}
         <GavetaSite titulo="Aparência no Google (SEO)" isMobile={isMobile} aberta={aberta==="seo"} onAlternar={()=>alternar("seo")}
-          resumo={[d.seo_titulo?"Título próprio":"Título automático",d.seo_descricao?"descrição própria":"descrição automática",d.gtm_id?"Tag Manager ligado":null].filter(Boolean).join(" · ")}>
-          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como a página inicial aparece na busca. Cada imóvel já entra com o próprio título, descrição e foto.</div>
+          resumo={[d.google_verificacao?"Search Console com código":"Search Console não ligado",d.seo_titulo?"título próprio":"título automático",d.gtm_id?"Tag Manager ligado":null].filter(Boolean).join(" · ")}>
+          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como o site aparece na busca. Cada imóvel já entra com o próprio título (nome, lugar e marca), descrição, fotos com texto para o Google e os dados do imóvel.</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div>
+              {rotulo("Nome da marca no site")}
+              <input value={f.nome_site} onChange={e=>setF({...f,nome_site:e.target.value.slice(0,60)})} placeholder={d.org_nome||"Nome da imobiliária"} style={entrada}/>
+              {ajuda(`Aparece no topo, no rodapé, nos títulos e na mensagem do WhatsApp do site. Vazio, vale o nome da conta${d.org_nome?` (“${d.org_nome}”)`:""}. Use quando a conta está no nome de uma pessoa e o site é da marca — ex.: VJ Imóveis.`)}
+            </div>
+            <div>
               {rotulo(`Título (${f.seo_titulo.length}/70)`)}
-              <input value={f.seo_titulo} onChange={e=>setF({...f,seo_titulo:e.target.value.slice(0,70)})} placeholder={`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`} style={entrada}/>
+              <input value={f.seo_titulo} onChange={e=>setF({...f,seo_titulo:e.target.value.slice(0,70)})} placeholder={`${f.nome_site||d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`} style={entrada}/>
             </div>
             <div>
               {rotulo(`Descrição (${f.seo_descricao.length}/160)`)}
@@ -16677,13 +16683,32 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             {/* A prévia é o que a pessoa vê no Google — escrever sem ela é escrever no escuro. */}
             <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",background:"#fff"}}>
               <div style={{color:"#4d5156",fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url}</div>
-              <div style={{color:"#1a0dab",fontSize:16,lineHeight:1.3,marginTop:2}}>{f.seo_titulo||`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`}</div>
+              <div style={{color:"#1a0dab",fontSize:16,lineHeight:1.3,marginTop:2}}>{f.seo_titulo||`${f.nome_site||d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`}</div>
               <div style={{color:"#4d5156",fontSize:12.5,lineHeight:1.45,marginTop:3}}>{f.seo_descricao||"Imóveis à venda e para alugar. Fale com a imobiliária pelo WhatsApp."}</div>
             </div>
             <div>
               {rotulo("Google Tag Manager (opcional)")}
               <input value={f.gtm_id} onChange={e=>setF({...f,gtm_id:e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,"")})} placeholder="GTM-ABC1234" style={entrada}/>
-              {ajuda("Para o Google Analytics e o Google Ads: o ID fica no topo do painel do Tag Manager. O site já envia o mapa de imóveis ao Google em "+((d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url)+"/sitemap.xml")+" — informe esse endereço no Search Console.")}
+              {ajuda("Para o Google Analytics e o Google Ads: o ID fica no topo do painel do Tag Manager.")}
+            </div>
+            {/* GOOGLE SEARCH CONSOLE (16/10/2026, pedido do Ali): o Google só
+                garante que o site aparece nas buscas depois de a imobiliária
+                provar que é dona dele e enviar o mapa de imóveis. O jeito que
+                funciona em qualquer site daqui é a "Tag HTML" — a etiqueta
+                entra em todas as páginas do site. */}
+            <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,background:C.surface}}>
+              <div style={{fontWeight:700,fontSize:13.5,color:C.ink}}>Google Search Console {d.google_verificacao&&<span style={{color:C.greenMid,fontSize:11.5,fontWeight:600,marginLeft:6}}>código no site ✓</span>}</div>
+              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,margin:"3px 0 10px"}}>É o que faz o Google achar e mostrar os imóveis nas pesquisas. Feito uma vez.</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,fontSize:12.5,color:C.ink,lineHeight:1.5}}>
+                <div><b>1.</b> No Search Console, em <b>Adicionar propriedade</b>, escolha <b>Prefixo do URL</b> (a caixa da direita) e cole este endereço:
+                  <div style={{marginTop:6}}><CopiarEndereco url={d.google_endereco}/></div></div>
+                <div><b>2.</b> Em <b>Tag HTML</b>, copie a etiqueta que o Google mostra e cole aqui. Depois clique em <b>Salvar</b>, e só então em <b>Verificar</b> no Google.
+                  <input value={f.google_verificacao} onChange={e=>setF({...f,google_verificacao:e.target.value.slice(0,400)})}
+                    placeholder={'<meta name="google-site-verification" content="…" />'} style={{...entrada,marginTop:6,fontFamily:MONO,fontSize:12}}/></div>
+                <div><b>3.</b> Verificado, abra <b>Sitemaps</b> no menu do Search Console e envie:
+                  <div style={{marginTop:6}}><CopiarEndereco url={d.google_sitemap}/></div></div>
+              </div>
+              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:10}}>{d.dominio?(d.dominio_estado==="ativo"?"Com o domínio próprio ativo, cadastre o domínio. Se antes cadastrou o endereço do ConHub, cadastre de novo com o domínio.":"Quando o domínio próprio ficar ativo, os endereços acima mudam para ele — cadastre de novo."):"Se o site ganhar um domínio próprio depois, os endereços mudam e é preciso cadastrar de novo."} O Google leva de alguns dias a algumas semanas para mostrar as páginas.</div>
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
