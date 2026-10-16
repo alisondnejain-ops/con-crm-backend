@@ -98,6 +98,70 @@ export function refDoGatilho(g) {
 }
 export const formulariosDaRef = (r) => String(r || "").split(",").filter(Boolean);
 
+/* VÁRIOS GATILHOS NUM FLUXO (16/10/2026, pedido do Ali: "seja possível
+   colocar mais de um gatilho no fluxo… um não pode se sobrepor ao outro… o
+   gatilho seja específico para cada ação que o lead tomar").
+
+   Cada gatilho é um bloco de início no fluxo, com a PRÓPRIA saída: o lead
+   que preencheu o formulário segue um caminho, o que ganhou a etiqueta
+   segue outro. As regras:
+   - nenhuma ação do lead pode casar com dois gatilhos do mesmo fluxo
+     (`sobreposicoes`) — senão não daria para dizer por qual caminho ele vai;
+   - um lead está em UM caminho do fluxo por vez: enquanto ele anda por um,
+     outro gatilho do mesmo fluxo não o coloca de novo (dispararGatilho);
+   - "uma vez só" e "pode entrar de novo" valem por gatilho.
+   Fluxo antigo tem um início só e continua igual. */
+export const MAX_GATILHOS = 10;
+export function gatilhosDoGrafo(grafo) {
+  return (grafo?.nos || []).filter(n => n.tipo === "inicio").map(n => ({ no_id: n.id, ...gatilhoLimpo(n.dados?.gatilho) }));
+}
+/* O nome curto de um gatilho, para as frases de erro e o histórico. */
+const NOME_TIPO = { manual: "Disparo em massa", formulario: "Formulário preenchido", lead_novo: "Lead novo",
+  etapa: "Entrou na etapa", etiqueta: "Etiqueta adicionada", campo: "Campo preenchido" };
+export const nomeDoTipoDeGatilho = (t) => NOME_TIPO[t] || t;
+const semAcento = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+/* Duas ações iguais em dois gatilhos do mesmo fluxo. Devolve as frases. */
+export function sobreposicoes(lista) {
+  const erros = [];
+  const n = (i) => `o gatilho ${i + 1}`;
+  for (let i = 0; i < lista.length; i++) for (let j = i + 1; j < lista.length; j++) {
+    const a = lista[i], b = lista[j];
+    let motivo = null;
+    if (a.tipo === "manual" && b.tipo === "manual") motivo = "os dois são “Disparo em massa”";
+    if (a.tipo === b.tipo && a.tipo === "formulario") {
+      const comum = a.formularios.find(x => b.formularios.some(y => y.id === x.id));
+      if (comum) motivo = `o formulário “${comum.nome || comum.id}” está nos dois`;
+    }
+    if (a.tipo === b.tipo && a.tipo === "etapa" && a.etapa_id && a.etapa_id === b.etapa_id) motivo = "os dois são a mesma etapa";
+    if (a.tipo === b.tipo && a.tipo === "etiqueta" && a.tag_id && a.tag_id === b.tag_id) motivo = "os dois são a mesma etiqueta";
+    if (a.tipo === b.tipo && a.tipo === "campo" && a.campo && a.campo === b.campo
+      && (!a.valor || !b.valor || semAcento(a.valor) === semAcento(b.valor)))
+      motivo = a.valor && b.valor ? "os dois são o mesmo campo com o mesmo valor" : "os dois são o mesmo campo, e um deles vale para qualquer valor";
+    if (a.tipo === b.tipo && a.tipo === "lead_novo") {
+      const oa = a.origens.length ? a.origens : ORIGENS_DE_LEAD, ob = b.origens.length ? b.origens : ORIGENS_DE_LEAD;
+      if (oa.some(o => ob.includes(o))) motivo = "os dois pegam lead novo da mesma origem";
+    }
+    /* Lead novo vindo de formulário e "formulário preenchido" são a MESMA
+       ação do lead: ele nasce preenchendo o formulário. */
+    const [ln, fm] = a.tipo === "lead_novo" && b.tipo === "formulario" ? [a, b] : b.tipo === "lead_novo" && a.tipo === "formulario" ? [b, a] : [];
+    if (ln && fm && (!ln.origens.length || ln.origens.includes("formulario")))
+      motivo = "um lead novo de formulário entraria pelos dois (tire “Formulário” das origens do “Lead novo”)";
+    if (motivo) erros.push(`${n(i)[0].toUpperCase() + n(i).slice(1)} e ${n(j)} se sobrepõem: ${motivo}. Cada ação do lead pode ligar um gatilho só.`);
+  }
+  return erros;
+}
+/* O que fica gravado no fluxo para a busca rápida do evento
+   (`marketing_fluxos.gatilho_tipo/gatilho_ref`): com um gatilho, o tipo puro
+   (como sempre foi); com vários, a lista ",formulario,etapa,". A ref só
+   guarda os formulários (é o que a trava "um formulário, uma automação" lê). */
+export function chavesDoFluxo(grafo) {
+  const auto = gatilhosDoGrafo(grafo).filter(g => g.tipo !== "manual");
+  const tipos = [...new Set(auto.map(g => g.tipo))];
+  const forms = [...new Set(auto.filter(g => g.tipo === "formulario").flatMap(g => g.formularios.map(f => f.id)))];
+  if (auto.length <= 1) return { tipo: auto[0]?.tipo || "manual", ref: auto[0] ? refDoGatilho(auto[0]) : null };
+  return { tipo: "," + tipos.join(",") + ",", ref: forms.length ? "," + forms.join(",") + "," : null };
+}
+
 /* O que falta para um gatilho poder ser ligado — conferido contra o banco,
    porque etapa e etiqueta são desta conta e podem ter sido apagadas. */
 export function problemasDoGatilho(orgId, g) {
@@ -135,8 +199,9 @@ const formas = (t) => {
 export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem = null, valor, agora = Date.now() } = {}) {
   try {
     if (!orgId || !leadId || !TIPOS_DE_GATILHO.includes(tipo) || tipo === "manual") return 0;
-    const fluxos = db.prepare(`SELECT id, nome, grafo, automacao_id, gatilho_ref FROM marketing_fluxos
-      WHERE org_id = ? AND ativo = 1 AND apagado_em IS NULL AND gatilho_tipo = ? AND automacao_id IS NOT NULL`).all(orgId, tipo);
+    const fluxos = db.prepare(`SELECT id, nome, grafo, automacao_id FROM marketing_fluxos
+      WHERE org_id = ? AND ativo = 1 AND apagado_em IS NULL AND (gatilho_tipo = ? OR gatilho_tipo LIKE ?) AND automacao_id IS NOT NULL`)
+      .all(orgId, tipo, `%,${tipo},%`);
     if (!fluxos.length) return 0;
     if (!temRecurso(orgId, "marketing")) return 0;
     const lead = db.prepare("SELECT id, name, phone FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
@@ -149,28 +214,35 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
     for (const fl of fluxos) {
       const camp = db.prepare("SELECT id, grafo, status FROM marketing_campanhas WHERE id = ? AND org_id = ?").get(fl.automacao_id, orgId);
       if (!camp || camp.status !== "rodando") continue;
-      let grafo, g;
-      try { grafo = JSON.parse(camp.grafo); g = gatilhoLimpo(grafo.nos.find(n => n.tipo === "inicio")?.dados?.gatilho); } catch { continue; }
-      if (g.tipo !== tipo) continue;
-      if (tipo === "lead_novo") { if (g.origens.length && !g.origens.includes(origem)) continue; }
-      else if (tipo === "formulario") { if (!g.formularios.some(x => x.id === String(chave || ""))) continue; }
-      else if (String(fl.gatilho_ref || "") !== String(chave || "")) continue;
-      if (tipo === "campo" && !campoCasa(valor, g.valor)) continue;
-
-      const anteriores = db.prepare(`SELECT estado, criado_em FROM marketing_execucoes WHERE campanha_id = ? AND lead_id = ?
-        ORDER BY criado_em DESC`).all(camp.id, lead.id);
-      if (anteriores.length) {
+      let gatilhos;
+      try { gatilhos = gatilhosDoGrafo(JSON.parse(camp.grafo)); } catch { continue; }
+      const casa = (g) => {
+        if (g.tipo !== tipo) return false;
+        if (tipo === "lead_novo") return !g.origens.length || g.origens.includes(origem);
+        if (tipo === "formulario") return g.formularios.some(x => x.id === String(chave || ""));
+        if (tipo === "campo") return g.campo === String(chave || "") && campoCasa(valor, g.valor);
+        return String(refDoGatilho(g) || "") === String(chave || "");
+      };
+      // Os gatilhos não se sobrepõem (`sobreposicoes` trava o ligar), então
+      // no máximo um casa; o primeiro é o que vale, por garantia.
+      const g = gatilhos.find(casa);
+      if (!g) continue;
+      const primeiro = gatilhos[0]?.no_id;
+      const anteriores = db.prepare(`SELECT estado, criado_em, COALESCE(gatilho_no, ?) AS gatilho_no FROM marketing_execucoes
+        WHERE campanha_id = ? AND lead_id = ? ORDER BY criado_em DESC`).all(primeiro, camp.id, lead.id);
+      // Um caminho por vez: quem está andando por este fluxo não entra de novo.
+      if (anteriores.some(x => ["ativa", "aguardando_resposta"].includes(x.estado))) continue;
+      const deste = anteriores.filter(x => x.gatilho_no === g.no_id);
+      if (deste.length) {
         if (!g.reentrada) continue;
-        if (anteriores.some(a => ["ativa", "aguardando_resposta"].includes(a.estado))) continue;
-        if (anteriores[0].criado_em > agora - 3600000) continue;
+        if (deste[0].criado_em > agora - 3600000) continue;
       }
       const recentes = db.prepare(`SELECT COUNT(*) n FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
         WHERE e.org_id = ? AND c.tipo = 'automacao' AND e.criado_em > ?`).get(orgId, agora - 60000).n;
       const quando = agora + Math.max(0, recentes - 20) * 3000;
-      const inicio = grafo.nos.find(n => n.tipo === "inicio").id;
-      db.prepare(`INSERT INTO marketing_execucoes (id,org_id,campanha_id,telefone,nome,lead_id,no_atual,estado,proxima_em,criado_em,atualizado_em)
-        VALUES (?,?,?,?,?,?,?,'ativa',?,?,?)`)
-        .run("me_" + randomUUID(), orgId, camp.id, lead.phone || "", lead.name || null, lead.id, inicio, quando, agora, agora);
+      db.prepare(`INSERT INTO marketing_execucoes (id,org_id,campanha_id,telefone,nome,lead_id,no_atual,gatilho_no,estado,proxima_em,criado_em,atualizado_em)
+        VALUES (?,?,?,?,?,?,?,?,'ativa',?,?,?)`)
+        .run("me_" + randomUUID(), orgId, camp.id, lead.phone || "", lead.name || null, lead.id, g.no_id, g.no_id, quando, agora, agora);
       db.prepare("UPDATE marketing_campanhas SET total = total + 1 WHERE id = ?").run(camp.id);
       nasceram++;
       console.log(`[automacao] lead entrou em "${fl.nome}" (${tipo}) em ${orgId}`);

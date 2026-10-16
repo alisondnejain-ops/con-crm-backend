@@ -3572,8 +3572,9 @@ function blocoNovo(tipo,x,y){
     :tipo==="mover_etapa"?{etapa_id:""}
     :tipo==="atribuir"?{modo:"catraca",catraca_id:"",user_id:""}
     :tipo==="tarefa"?{titulo:"",em_horas:24}
+    :tipo==="inicio"?{gatilho:{tipo:"etapa",etapa_id:""}}
     :{};
-  return {id:idNovoFluxo("n"),tipo,x:Math.round(x),y:Math.round(y),dados};
+  return {id:idNovoFluxo(tipo==="inicio"?"g":"n"),tipo,x:Math.round(x),y:Math.round(y),dados};
 }
 // Seta que sai de uma saída que não existe mais (botão apagado) cai fora.
 const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
@@ -3585,10 +3586,11 @@ const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
    chegando, vai para a última coluna, à vista. */
 function organizarFluxo(g){
   const porId=new Map(g.nos.map(n=>[n.id,n]));
-  const inicio=g.nos.find(n=>n.tipo==="inicio");
+  // Cada gatilho é uma raiz; com vários, eles ficam empilhados na primeira coluna.
+  const inicios=g.nos.filter(n=>n.tipo==="inicio");
   const nivel=new Map(), ordem=[];
-  if(inicio){
-    nivel.set(inicio.id,0); const fila=[inicio.id];
+  if(inicios.length){
+    inicios.forEach(n=>nivel.set(n.id,0)); const fila=inicios.map(n=>n.id);
     while(fila.length){
       const id=fila.shift(); ordem.push(id);
       for(const [saida] of saidasDoBloco(porId.get(id))){
@@ -3619,7 +3621,7 @@ function copiaDoBloco(no){
   return {...no,id:idNovoFluxo("n"),x:no.x+40,y:no.y+alturaDoBloco(no)+30,dados:d};
 }
 
-function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta}){
+function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta,rotulo}){
   const t=TIPO_BLOCO[no.tipo]||TIPO_BLOCO.mensagem;
   const op=React.useContext(OpcoesDoFluxo);
   // O bloco inteiro agarra (seleciona e arrasta), como no ManyChat; só as
@@ -3629,7 +3631,7 @@ function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,
     {no.tipo!=="inicio"&&<span style={{position:"absolute",left:-8,top:CAB_BLOCO/2-7,width:14,height:14,borderRadius:"50%",background:C.card,border:`2px solid ${t.cor}`}}/>}
     <div style={{height:CAB_BLOCO,display:"flex",alignItems:"center",gap:7,padding:"0 10px",
       background:t.cor,color:"#fff",borderRadius:"10px 10px 0 0",fontSize:12.5,fontWeight:700}}>
-      <Icon n={t.icone} size={14}/><span style={{flex:1}}>{t.nome}</span>
+      <Icon n={t.icone} size={14}/><span style={{flex:1}}>{rotulo||t.nome}</span>
       {contagem&&<span style={{background:"rgba(255,255,255,.22)",borderRadius:999,padding:"2px 8px",fontSize:11,fontFamily:MONO}}
         title={no.tipo==="inicio"?`${contagem.enviados||0} entraram`:`${contagem.enviados||0} passaram por aqui${contagem.parados_aqui?` · ${contagem.parados_aqui} aqui agora`:""}`}>
         {contagem.enviados||0}{contagem.parados_aqui?` · ${contagem.parados_aqui} aqui`:""}</span>}
@@ -3654,6 +3656,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
   const [menu,setMenu]=useState(null);
   const vistaRef=useRef(vista); vistaRef.current=vista;
   const porId=useMemo(()=>new Map(grafo.nos.map(n=>[n.id,n])),[grafo]);
+  const gatilhosDoFluxo=grafo.nos.filter(n=>n.tipo==="inicio");
   const noCanvas=(e)=>{const r=ref.current.getBoundingClientRect();const v=vistaRef.current;return {x:(e.clientX-r.left-v.x)/v.z,y:(e.clientY-r.top-v.y)/v.z};};
   function enquadrar(){
     if(!ref.current||!grafo.nos.length) return;
@@ -3767,6 +3770,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
           stroke={C.green} strokeWidth={2} strokeDasharray="6 5" fill="none"/>}
       </svg>
       {grafo.nos.map(n=><BlocoDoFluxo key={n.id} no={n} selecionado={selecionado===n.id} somenteLeitura={somenteLeitura}
+        rotulo={n.tipo==="inicio"&&gatilhosDoFluxo.length>1?`Gatilho ${gatilhosDoFluxo.indexOf(n)+1}`:null}
         contagem={contagens&&contagens[n.id]} ligadas={ligadasDe(n.id)} aoAgarrar={somenteLeitura?null:aoAgarrar} aoIniciarSeta={aoIniciarSeta}/>)}
       {sel&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>{aoMudar({...grafo,ligacoes:grafo.ligacoes.filter(l=>`${l.de}:${l.saida}`!==setaSel)});setSetaSel(null);}}
         title="Apagar esta seta"
@@ -4029,7 +4033,7 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
   </div>;
 }
 
-function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar,op,pipelines,topoDoGatilho}){
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar,op,pipelines,topoDoGatilho,numGatilho,totalGatilhos=1}){
   const d=no.dados||{};
   const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
   const rot=ROTULO_MKT;
@@ -4037,12 +4041,16 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
-      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
+      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{no.tipo==="inicio"&&totalGatilhos>1?`Gatilho ${numGatilho}`:t.nome}</div>
       {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
-      {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
+      {(no.tipo!=="inicio"||totalGatilhos>1)&&<button onClick={aoApagar} title={no.tipo==="inicio"?"Apagar este gatilho":"Apagar bloco"} style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
     </div>
     {no.tipo==="inicio"&&<React.Fragment>
       {topoDoGatilho}
+      {/* VÁRIOS GATILHOS (16/10/2026): cada um com o próprio caminho. */}
+      {totalGatilhos>1&&<div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.5}}>
+        Este fluxo tem <b>{totalGatilhos} gatilhos</b>. Cada um segue pela própria seta, então cada ação do lead tem o seu caminho.
+        Um lead anda por um caminho de cada vez: enquanto está num, outro gatilho deste fluxo não o coloca de novo.</div>}
       <EditorDoGatilho g={d.gatilho||{tipo:"manual"}} aoMudar={g=>dados({gatilho:g})} op={op} pipelines={pipelines} isMobile={isMobile}/>
     </React.Fragment>}
     {no.tipo==="condicao"&&<React.Fragment>
@@ -4198,6 +4206,7 @@ function LogsDoFluxo({acoes,fluxoId,grafo,isMobile,aoFechar}){
   const op=React.useContext(OpcoesDoFluxo);
   useEffect(()=>{acoes.logsFluxoMarketing(fluxoId).then(setD).catch(e=>setErro(e.message));},[fluxoId]);
   const nomeDoNo=(id)=>{const n=grafo.nos.find(x=>x.id===id); return n?TIPO_BLOCO[n.tipo].nome:"Bloco apagado";};
+  const inicios=grafo.nos.filter(n=>n.tipo==="inicio");
   return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:40,display:"flex",justifyContent:"center",alignItems:isMobile?"flex-end":"center"}}>
     <div onClick={e=>e.stopPropagation()} className={isMobile?"tela-cheia":undefined} style={{background:C.card,width:isMobile?"100%":620,maxWidth:"100%",height:"auto",maxHeight:isMobile?"88dvh":"80vh",overflowY:"auto",
       ...(isMobile?{position:"fixed",left:0,right:0,top:"auto",bottom:0}:{}),
@@ -4214,6 +4223,9 @@ function LogsDoFluxo({acoes,fluxoId,grafo,isMobile,aoFechar}){
             <span style={{fontWeight:600,fontSize:13,color:C.ink,flex:1,minWidth:0}}>{e.nome}</span>
             <span style={{fontSize:11,fontWeight:700,color:cor}}>{rot}</span>
             <span style={{fontSize:11,color:C.faint}}>{fmtDataHoraMkt(e.criado_em)}</span></div>
+          {/* Com vários gatilhos, diz por qual o lead entrou. */}
+          {inicios.length>1&&(()=>{const n=inicios.find(x=>x.id===e.gatilho_no)||inicios[0];
+            return <div style={{fontSize:11.5,color:C.sub,marginTop:2}}>Entrou pelo <b>gatilho {inicios.indexOf(n)+1}</b>: {resumoDoGatilho((n.dados||{}).gatilho,op)}</div>;})()}
           {e.fim_motivo&&e.estado!=="concluida"&&<div style={{fontSize:11.5,color:C.sub,marginTop:2}}>{e.fim_motivo}</div>}
           {e.passos.length>0&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
             {e.passos.map((p,i)=><div key={i} style={{fontSize:11.5,color:p.status==="falha"||p.erro?C.hot:C.sub,lineHeight:1.4}}>
@@ -4243,11 +4255,18 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   const op=usarOpcoesDoFluxo(acoes);
   const {pipelines}=usarPipelines(acoes,true);
   const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
-  const gatilho=((grafo.nos.find(n=>n.tipo==="inicio")||{}).dados||{}).gatilho||{tipo:"manual"};
-  const manual=(gatilho.tipo||"manual")==="manual";
+  /* VÁRIOS GATILHOS (16/10/2026): o fluxo só é "Disparo em massa" quando
+     nenhum dos gatilhos liga sozinho. */
+  const inicios=grafo.nos.filter(n=>n.tipo==="inicio");
+  const manual=inicios.every(n=>(((n.dados||{}).gatilho||{}).tipo||"manual")==="manual");
   const absorver=(r)=>{ setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome);
     setEstado({ativo:!!r.ativo,automacao:r.automacao||null,desatualizada:!!r.automacao_desatualizada,gatilhoAvisos:r.gatilho_avisos||[]}); };
-  const apagarBloco=(id)=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
+  const apagarBloco=(id)=>{
+    const n=grafo.nos.find(x=>x.id===id);
+    // O último gatilho não sai: fluxo sem gatilho não começa nunca.
+    if(n&&n.tipo==="inicio"&&inicios.length<=1) return;
+    if(n&&n.tipo==="inicio"&&!window.confirm("Apagar este gatilho? O caminho dele continua na tela, solto, até você ligar ou apagar.")) return;
+    setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
   function duplicar(){
     const n=grafo.nos.find(x=>x.id===sel); if(!n||n.tipo==="inicio") return;
     const c=copiaDoBloco(n); setGrafo({...grafo,nos:[...grafo.nos,c]}); setSel(c.id);
@@ -4261,7 +4280,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
       const alvo=e.target, digitando=alvo&&(/^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)||alvo.isContentEditable);
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); salvarRef.current&&salvarRef.current(); return; }
       if(digitando) return;
-      if((e.key==="Delete"||e.key==="Backspace")&&sel&&sel!=="inicio"&&grafo.nos.some(n=>n.id===sel&&n.tipo!=="inicio")){ e.preventDefault(); apagarBloco(sel); }
+      if((e.key==="Delete"||e.key==="Backspace")&&sel&&grafo.nos.some(n=>n.id===sel&&(n.tipo!=="inicio"||inicios.length>1))){ e.preventDefault(); apagarBloco(sel); }
     };
     window.addEventListener("keydown",tecla); return ()=>window.removeEventListener("keydown",tecla);
   });
@@ -4298,6 +4317,15 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     let yy=y; for(let i=0;i<40&&cobre(yy);i++) yy+=40;
     return yy;
   }
+  /* NOVO GATILHO: entra embaixo do último gatilho, na coluna deles, e já
+     abre — a primeira coisa a fazer é escolher a ação que ele pega. */
+  function adicionarGatilho(){
+    const ultimo=inicios.reduce((a,n)=>!a||n.y>a.y?n:a,null);
+    const x=ultimo?ultimo.x:60;
+    const b=blocoNovo("inicio",x,lugarLivre(x,ultimo?ultimo.y+alturaDoBloco(ultimo)+40:120,"inicio"));
+    setGrafo({...grafo,nos:[...grafo.nos,b]}); setSel(b.id);
+    if(isMobile) setFolha(b.id);
+  }
   function adicionar(tipo){
     const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
     const x=base?base.x+LARG_BLOCO+70:300;
@@ -4325,11 +4353,13 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   }
   const noSel=grafo.nos.find(n=>n.id===sel);
   const noFolha=grafo.nos.find(n=>n.id===folha);
-  const contagens=estado.automacao?{...estado.automacao.por_bloco,inicio:{enviados:estado.automacao.entraram,parados_aqui:0}}:null;
+  // Quantos entraram por cada gatilho (servidor: por_gatilho).
+  const contagens=estado.automacao?{...estado.automacao.por_bloco,
+    ...Object.fromEntries(inicios.map((n,i)=>[n.id,{enviados:(estado.automacao.por_gatilho||{})[n.id]??(i===0&&!estado.automacao.por_gatilho?estado.automacao.entraram:0),parados_aqui:0}]))}:null;
   const painelAutomacao=<PainelDaAutomacao manual={manual} ativo={estado.ativo} automacao={estado.automacao} desatualizada={estado.desatualizada}
     avisos={[...estado.gatilhoAvisos,...avisos]} ocupado={ocupado} aoLigar={ligar} isMobile={isMobile}/>;
   const editor=(no)=><EditorDeBloco no={no} acoes={acoes} isMobile={isMobile} op={op} pipelines={pipelines}
-    topoDoGatilho={painelAutomacao}
+    topoDoGatilho={painelAutomacao} numGatilho={inicios.indexOf(no)+1} totalGatilhos={inicios.length}
     aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
     aoDuplicar={duplicar}
     aoApagar={()=>{apagarBloco(no.id);setFolha(null);}}
@@ -4349,6 +4379,11 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
       cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:500,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
     <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO[t].cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={TIPO_BLOCO[t].icone} size={12}/></span>
     {TIPO_BLOCO[t].nome}</button>;
+  const botaoNovoGatilho=inicios.length<10&&<button onClick={adicionarGatilho} title="Mais um gatilho, com o próprio caminho"
+    style={{display:"flex",alignItems:"center",gap:8,border:`1px dashed ${TIPO_BLOCO.inicio.cor}`,background:C.card,borderRadius:9,padding:isMobile?"7px 11px":"7px 9px",
+      cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
+    <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO.inicio.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="zap" size={12}/></span>
+    Novo gatilho</button>;
   const logs=vendoLogs&&<LogsDoFluxo acoes={acoes} fluxoId={inicial.id} grafo={grafo} isMobile={isMobile} aoFechar={()=>setVendoLogs(false)}/>;
 
   /* NO CELULAR (27/09/2026, pedido do Ali): a tela livre ocupa a largura toda,
@@ -4365,7 +4400,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
       {pilulaStatus}
       <span style={{flex:1,fontSize:12,color:sujo?"#8a6d1f":C.faint,minWidth:60}}>{sujo?"Não salvo":salvoEm?"Salvo":""}</span>
-      <button onClick={()=>setFolha("inicio")} style={{...botaoLeveMkt,padding:"7px 10px"}}>Gatilho</button>
+      <button onClick={()=>setFolha((inicios[0]||{}).id)} style={{...botaoLeveMkt,padding:"7px 10px"}}>{inicios.length>1?"Gatilhos":"Gatilho"}</button>
       {botaoLogs}{botaoLigar}
     </div>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -4374,7 +4409,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     </div>
     {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
-    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{TIPOS_NOVOS.map(itemPaleta)}</div>
+    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{botaoNovoGatilho}{TIPOS_NOVOS.map(itemPaleta)}</div>
     <div style={{flex:1,minHeight:0}}>
       <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" focar={sel}
         enquadrarSinal={enquadrar} aoTocar={(id)=>setFolha(id)} contagens={contagens}/>
@@ -4414,6 +4449,8 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     <div style={{display:"flex",gap:12,flex:1,minHeight:0}}>
       <div style={{...CARTAO_MKT,marginBottom:0,width:196,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box",padding:12}}>
         <div style={{fontSize:11.5,color:C.faint,marginBottom:8}}>Clique para adicionar</div>
+        <div style={{marginBottom:12}}><div style={{...ROTULO_MKT,fontSize:10.5}}>Gatilhos</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>{botaoNovoGatilho||<div style={{fontSize:11,color:C.faint}}>Até 10 gatilhos por fluxo.</div>}</div></div>
         {GRUPOS_DE_BLOCO.map(([g,tipos])=><div key={g} style={{marginBottom:12}}>
           <div style={{...ROTULO_MKT,fontSize:10.5}}>{g}</div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>{tipos.map(itemPaleta)}</div>
@@ -4524,8 +4561,10 @@ function FluxosDeMarketing({acoes,org,isMobile}){
                   ?(f.ativo?<Pill c={C.greenDeep} bg={C.greenSoft}>● Ativa</Pill>:<Pill c={C.sub} bg={C.surface}>Desligada</Pill>)
                   :<Pill c={C.sub} bg={C.surface}>Disparo em massa</Pill>}</div>
               <div style={{color:C.faint,fontSize:11.5,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{(()=>{const fs=formsDoGatilho(f.gatilho);
-                  return fs.length>1?`: ${fs.length} formulários`:fs.length?`: ${fs[0].nome||f.gatilho.form_nome||"1 formulário"}`:"";})()} ·</span>}
+                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(f.gatilhos||[]).length>1
+                  ?`${f.gatilhos.length} gatilhos`
+                  :<React.Fragment>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{(()=>{const fs=formsDoGatilho(f.gatilho);
+                  return fs.length>1?`: ${fs.length} formulários`:fs.length?`: ${fs[0].nome||f.gatilho.form_nome||"1 formulário"}`:"";})()}</React.Fragment>} ·</span>}
                 {f.blocos} blocos · {f.gatilho&&f.gatilho.tipo!=="manual"?`${f.entraram} entraram`:`${f.disparos} disparo(s)`} · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
             <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>

@@ -42,7 +42,7 @@ import { sendText, sendMedia, sendMenu, sendTemplate, numeroAlternativo } from "
 import { campoCasa } from "./campos-lead.js";
 import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm, ritmoDaOrg } from "./marketing.js";
 import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
-import { gatilhoLimpo, refDoGatilho, problemasDoGatilho, formulariosDaRef } from "./automacoes.js";
+import { gatilhoLimpo, problemasDoGatilho, formulariosDaRef, gatilhosDoGrafo, sobreposicoes, chavesDoFluxo, MAX_GATILHOS, nomeDoTipoDeGatilho } from "./automacoes.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
 import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
@@ -193,7 +193,8 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
     nos.push({ id, tipo: n.tipo, x: Math.round(Number(n.x) || 0), y: Math.round(Number(n.y) || 0), dados });
   }
   const inicios = nos.filter(n => n.tipo === "inicio");
-  if (inicios.length !== 1) erros.push("O fluxo precisa ter exatamente um bloco de início.");
+  if (!inicios.length) erros.push("O fluxo precisa de pelo menos um gatilho.");
+  if (inicios.length > MAX_GATILHOS) erros.push(`O fluxo pode ter até ${MAX_GATILHOS} gatilhos.`);
 
   const porId = new Map(nos.map(n => [n.id, n]));
   const usadas = new Map();
@@ -206,9 +207,14 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
   const ligacoes = [...usadas.values()];
   const grafo = { nos, ligacoes };
 
-  if (paraDisparar && inicios.length === 1) {
+  if (paraDisparar && inicios.length >= 1 && inicios.length <= MAX_GATILHOS) {
+    /* Com vários gatilhos, cada um começa o PRÓPRIO caminho — e gatilho solto,
+       sem seta, colocaria o lead num fluxo que não faz nada. */
+    if (inicios.length > 1) inicios.forEach((n, i) => {
+      if (!ligacoes.some(l => l.de === n.id)) erros.push(`O gatilho ${i + 1} (${nomeDoTipoDeGatilho(n.dados.gatilho?.tipo)}) não está ligado a nenhum bloco.`);
+    });
     const alcancaveis = new Set();
-    const pilha = [inicios[0].id];
+    const pilha = inicios.map(n => n.id);
     while (pilha.length) {
       const id = pilha.pop();
       if (alcancaveis.has(id)) continue;
@@ -251,7 +257,17 @@ const proximoDe = (grafo, noId, saida) => grafo.ligacoes.find(l => l.de === noId
 const NOME_DO_BLOCO = { mensagem: "Mensagem", espera: "Espera", resposta: "Esperar resposta", botoes: "Botões",
   condicao: "Condição", add_tag: "Adicionar etiqueta", remover_tag: "Remover etiqueta", mover_etapa: "Mover de etapa",
   atribuir: "Atribuir responsável", tarefa: "Criar tarefa" };
-const gatilhoDo = (grafo) => gatilhoLimpo((grafo.nos || []).find(n => n.tipo === "inicio")?.dados?.gatilho);
+/* Os gatilhos que ligam sozinhos (todos menos "Disparo em massa"). */
+const automaticos = (grafo) => gatilhosDoGrafo(grafo).filter(g => g.tipo !== "manual");
+/* Por onde o DISPARO EM MASSA começa: o gatilho "Disparo em massa", se o
+   fluxo tem um; senão o primeiro, como sempre foi. */
+export const inicioDoDisparo = (grafo) => {
+  const gs = gatilhosDoGrafo(grafo);
+  return (gs.find(g => g.tipo === "manual") || gs[0])?.no_id || null;
+};
+/* O resumo do fluxo para a lista: o primeiro gatilho automático (ou o
+   primeiro), e quantos são. */
+const gatilhoDoResumo = (grafo) => { const gs = gatilhosDoGrafo(grafo); return gs.find(g => g.tipo !== "manual") || gs[0] || gatilhoLimpo(null); };
 
 /* O que o fluxo aponta e que é DESTA conta (etiqueta, etapa, pessoa,
    catraca) — e que pode ter sido apagado depois de escolhido. validarGrafo
@@ -290,10 +306,10 @@ export function listarFluxos(orgId) {
       (SELECT COUNT(*) FROM marketing_execucoes e WHERE e.campanha_id = f.automacao_id) AS entraram
     FROM marketing_fluxos f WHERE f.org_id = ? AND f.apagado_em IS NULL ORDER BY f.atualizado_em DESC`).all(orgId)
     .map(f => {
-      let blocos = 0, gatilho = { tipo: "manual" };
-      try { const g = JSON.parse(f.grafo); blocos = g.nos.length; gatilho = gatilhoDo(g); } catch {}
+      let blocos = 0, gatilho = { tipo: "manual" }, gatilhos = [];
+      try { const g = JSON.parse(f.grafo); gatilhos = gatilhosDoGrafo(g); blocos = g.nos.length - gatilhos.length + 1; gatilho = gatilhoDoResumo(g); } catch {}
       return { id: f.id, nome: f.nome, atualizado_em: f.atualizado_em, blocos, disparos: f.disparos,
-        ativo: !!f.ativo, gatilho, entraram: f.automacao_id ? f.entraram : 0 };
+        ativo: !!f.ativo, gatilho, gatilhos, entraram: f.automacao_id ? f.entraram : 0 };
     });
 }
 
@@ -314,9 +330,9 @@ export function lerFluxo(orgId, id) {
   /* O funil e a catraca do formulário do gatilho são LIDOS do formulário
      (meta_formularios), não guardados no fluxo: é a mesma escolha de
      Atender → Formulários, e duas cópias divergiriam. */
-  const ini = grafo.nos.find(n => n.tipo === "inicio");
-  const g = gatilhoDo(grafo);
-  if (ini && g.tipo === "formulario" && g.formularios.length) {
+  for (const ini of grafo.nos.filter(n => n.tipo === "inicio")) {
+    const g = gatilhoLimpo(ini.dados?.gatilho);
+    if (g.tipo !== "formulario" || !g.formularios.length) continue;
     const formularios = g.formularios.map(x => {
       const fm = db.prepare("SELECT pipeline_id, stage_id, nome FROM meta_formularios WHERE org_id = ? AND form_id = ?").get(orgId, x.id) || {};
       return { ...x, nome: x.nome || fm.nome || "", pipeline_id: fm.pipeline_id || null, stage_id: fm.stage_id || null,
@@ -326,7 +342,7 @@ export function lerFluxo(orgId, id) {
   }
   const avisos = [...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
   return { id: f.id, nome: f.nome, grafo, atualizado_em: f.atualizado_em, avisos,
-    ativo: !!f.ativo, gatilho_avisos: g.tipo === "manual" ? [] : problemasDoGatilho(orgId, g),
+    ativo: !!f.ativo, gatilho_avisos: automaticos(grafo).length ? problemasDosGatilhos(orgId, grafo) : [],
     automacao: f.automacao_id ? estatisticasDaAutomacao(f.automacao_id) : null,
     automacao_desatualizada: !!(f.ativo && f.automacao_id && versaoDaAutomacao(f.automacao_id) !== f.grafo) };
 }
@@ -342,7 +358,15 @@ function estatisticasDaAutomacao(campanhaId) {
   return { entraram, ultimos_7_dias: sete, em_andamento: n.em_andamento, concluidas: n.concluidas,
     assumidas: n.assumidas, sairam: n.sairam, falharam: n.falharam, responderam: n.responderam,
     taxa_conclusao: terminaram ? Math.round(n.concluidas / terminaram * 1000) / 10 : null,
-    por_bloco: porBloco(campanhaId) };
+    por_bloco: porBloco(campanhaId), por_gatilho: porGatilho(campanhaId) };
+}
+/* Quantos entraram por cada gatilho (execução de antes de 16/10/2026, sem
+   gatilho gravado, conta no primeiro). */
+function porGatilho(campanhaId) {
+  let primeiro = null;
+  try { primeiro = gatilhosDoGrafo(JSON.parse(versaoDaAutomacao(campanhaId)))[0]?.no_id || null; } catch {}
+  return Object.fromEntries(db.prepare(`SELECT COALESCE(gatilho_no, ?) AS g, COUNT(*) n FROM marketing_execucoes
+    WHERE campanha_id = ? GROUP BY 1`).all(primeiro, campanhaId).filter(r => r.g).map(r => [r.g, r.n]));
 }
 function porBloco(campanhaId) {
   const passaram = Object.fromEntries(db.prepare(`SELECT no_id, COUNT(DISTINCT execucao_id) n FROM marketing_envios
@@ -363,13 +387,16 @@ export function salvarFluxo(orgId, id, { nome, grafo }, user = null) {
   /* O funil e a catraca escolhidos no gatilho de formulário vão para o
      FORMULÁRIO, pela mesma função de Atender → Formulários; o fluxo guarda
      só qual é o formulário. */
-  const ini = limpo.nos.find(n => n.tipo === "inicio");
-  const carona = ini?.dados?.carona;
-  if (ini) delete ini.dados.carona;
-  const g = gatilhoDo(limpo);
-  if (carona && g.tipo === "formulario") {
+  const caronas = [];
+  for (const ini of limpo.nos.filter(n => n.tipo === "inicio")) {
+    const carona = ini.dados?.carona;
+    delete ini.dados.carona;
+    const g = gatilhoLimpo(ini.dados?.gatilho);
+    if (carona && g.tipo === "formulario") caronas.push([g, carona]);
+  }
+  if (caronas.length) {
     try {
-      for (const x of g.formularios) {
+      for (const [g, carona] of caronas) for (const x of g.formularios) {
         const c = carona[x.id];
         if (!c) continue;
         definirFunil(orgId, user?.id || null, x.id, { pipeline_id: c.pipeline_id, stage_id: c.stage_id, nome: x.nome });
@@ -395,18 +422,30 @@ export function salvarFluxo(orgId, id, { nome, grafo }, user = null) {
    salvar o fluxo com algo faltando (um bloco vazio, uma etiqueta apagada)
    não derruba a automação que está no ar — ela segue com a última versão
    completa, e a tela avisa que está desatualizada. */
-function problemasParaLigar(orgId, grafo) {
-  const g = gatilhoDo(grafo);
-  return [...problemasDoGatilho(orgId, g), ...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
+/* O que falta nos gatilhos que ligam sozinhos, e as sobreposições entre eles.
+   Com vários, a frase diz de qual gatilho é. */
+function problemasDosGatilhos(orgId, grafo) {
+  const todos = gatilhosDoGrafo(grafo);
+  const auto = todos.filter(g => g.tipo !== "manual");
+  if (!auto.length) return problemasDoGatilho(orgId, todos[0] || gatilhoLimpo(null));
+  const varios = todos.length > 1;
+  const erros = [];
+  for (const g of auto) for (const p of problemasDoGatilho(orgId, g))
+    erros.push(varios ? `Gatilho ${todos.indexOf(g) + 1}: ${p}` : p);
+  return [...erros, ...sobreposicoes(todos)];
 }
-function conflitoDeFormulario(orgId, id, g) {
-  /* Um formulário, uma automação — conferido para CADA formulário da lista.
-     Dois fluxos dando boas-vindas ao mesmo lead seriam duas mensagens no
-     celular dele. A recusa diz qual formulário e qual automação. */
-  if (g.tipo !== "formulario") return null;
+function problemasParaLigar(orgId, grafo) {
+  return [...problemasDosGatilhos(orgId, grafo), ...validarGrafo(grafo, { paraDisparar: true }).erros, ...conferirReferencias(orgId, grafo)];
+}
+function conflitoDeFormulario(orgId, id, grafo) {
+  /* Um formulário, uma automação — conferido para CADA formulário de CADA
+     gatilho. Dois fluxos dando boas-vindas ao mesmo lead seriam duas
+     mensagens no celular dele. A recusa diz qual formulário e qual automação. */
+  const forms = automaticos(grafo).filter(g => g.tipo === "formulario").flatMap(g => g.formularios);
+  if (!forms.length) return null;
   const outros = db.prepare(`SELECT nome, gatilho_ref FROM marketing_fluxos WHERE org_id = ? AND id <> ? AND ativo = 1 AND apagado_em IS NULL
-    AND gatilho_tipo = 'formulario'`).all(orgId, id);
-  for (const x of g.formularios) {
+    AND (gatilho_tipo = 'formulario' OR gatilho_tipo LIKE '%,formulario,%')`).all(orgId, id);
+  for (const x of forms) {
     const o = outros.find(f => formulariosDaRef(f.gatilho_ref).includes(x.id));
     if (o) return `O formulário “${x.nome || x.id}” já liga a automação “${o.nome}”. Tire-o deste gatilho ou desative aquela — um formulário, uma automação.`;
   }
@@ -418,11 +457,11 @@ function publicarAutomacao(orgId, id) {
   const f = fluxoDaOrg(orgId, id);
   if (!f || !f.ativo || !f.automacao_id) return false;
   const grafo = JSON.parse(f.grafo);
-  if (problemasParaLigar(orgId, grafo).length || conflitoDeFormulario(orgId, id, gatilhoDo(grafo))) return false;
-  const g = gatilhoDo(grafo);
+  if (problemasParaLigar(orgId, grafo).length || conflitoDeFormulario(orgId, id, grafo)) return false;
+  const k = chavesDoFluxo(grafo);
   db.transaction(() => {
     db.prepare("UPDATE marketing_campanhas SET grafo = ?, nome = ?, fluxo_nome = ? WHERE id = ?").run(f.grafo, f.nome, f.nome, f.automacao_id);
-    db.prepare("UPDATE marketing_fluxos SET gatilho_tipo = ?, gatilho_ref = ? WHERE id = ?").run(g.tipo, refDoGatilho(g), id);
+    db.prepare("UPDATE marketing_fluxos SET gatilho_tipo = ?, gatilho_ref = ? WHERE id = ?").run(k.tipo, k.ref, id);
   })();
   return true;
 }
@@ -442,8 +481,8 @@ export function ativarFluxo(orgId, id, user, ativo) {
   const grafo = JSON.parse(f.grafo);
   const problemas = problemasParaLigar(orgId, grafo);
   if (problemas.length) throw new ErroMarketing(422, "Para ligar a automação: " + problemas[0]);
-  const g = gatilhoDo(grafo);
-  const conflito = conflitoDeFormulario(orgId, id, g);
+  const k = chavesDoFluxo(grafo);
+  const conflito = conflitoDeFormulario(orgId, id, grafo);
   if (conflito) throw new ErroMarketing(409, conflito);
   const eu = db.prepare("SELECT id, name FROM users WHERE id = ?").get(user.id);
   db.transaction(() => {
@@ -458,9 +497,9 @@ export function ativarFluxo(orgId, id, user, ativo) {
         .run(campId, orgId, f.nome, f.id, f.nome, f.grafo, eu?.id || user.id, eu?.name || null, agora, agora);
     }
     db.prepare(`UPDATE marketing_fluxos SET ativo = 1, automacao_id = ?, gatilho_tipo = ?, gatilho_ref = ?, ativado_em = ?, ativado_por = ? WHERE id = ?`)
-      .run(campId, g.tipo, refDoGatilho(g), agora, eu?.name || null, id);
+      .run(campId, k.tipo, k.ref, agora, eu?.name || null, id);
   })();
-  console.log(`[automacao] "${f.nome}" ligada em ${orgId} (gatilho ${g.tipo}) por ${eu?.name}`);
+  console.log(`[automacao] "${f.nome}" ligada em ${orgId} (gatilho ${k.tipo}) por ${eu?.name}`);
   return lerFluxo(orgId, id);
 }
 
@@ -470,7 +509,7 @@ export function logsDoFluxo(orgId, id) {
   if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
   if (!f.automacao_id) return { execucoes: [] };
   const execucoes = db.prepare(`SELECT e.id, e.lead_id, e.nome, e.estado, e.fim_motivo, e.criado_em, e.atualizado_em, e.no_atual,
-      l.name AS lead_nome
+      e.gatilho_no, l.name AS lead_nome
     FROM marketing_execucoes e LEFT JOIN leads l ON l.id = e.lead_id
     WHERE e.campanha_id = ? ORDER BY e.criado_em DESC LIMIT 60`).all(f.automacao_id);
   const passos = db.prepare(`SELECT execucao_id, no_id, status, texto, erro, enviado_em FROM marketing_envios
@@ -660,7 +699,7 @@ export function criarCampanha(orgId, user, { nome, fluxo_id, mensagem, publico, 
     if (t > agora + 90 * 86400000) throw new ErroMarketing(400, "Dá para agendar até 90 dias à frente.");
     if (t > agora + 60000) { quando = t; agendada = t; }
   }
-  const inicio = grafo.nos.find(x => x.tipo === "inicio").id;
+  const inicio = inicioDoDisparo(grafo);
   db.transaction(() => {
     db.prepare(`INSERT INTO marketing_campanhas (id,org_id,nome,fluxo_id,fluxo_nome,grafo,publico,declaracao,status,total,
         criado_por,criado_por_nome,ip,criado_em,iniciada_em,agendada_para) VALUES (?,?,?,?,?,?,?,?,'rodando',?,?,?,?,?,?,?)`)
@@ -1260,7 +1299,7 @@ export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
   testes.set(orgId, [...recentes, agora]);
 
   const porId = new Map(grafo.nos.map(n => [n.id, n]));
-  let no = porId.get(proximoDe(grafo, grafo.nos.find(n => n.tipo === "inicio").id, "proximo"));
+  let no = porId.get(proximoDe(grafo, inicioDoDisparo(grafo), "proximo"));
   let mensagens = 0, primeira = true, parou = "fim do fluxo";
   for (let passos = 0; no && passos < 12; passos++) {
     // O teste não mexe no CRM: as ações são puladas, e a condição para o teste.
@@ -1379,7 +1418,8 @@ export function mensagemRecebida({ orgId, lead, texto: recebido, fromMe }) {
     const emEspera = db.prepare(`SELECT e.*, c.grafo AS camp_grafo FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
       WHERE e.org_id = ? AND e.telefone IN (${em}) AND e.estado = 'ativa' AND e.primeira_enviada = 1 AND c.status = 'rodando'`).all(orgId, ...f);
     for (const x of emEspera) {
-      let g = null; try { g = gatilhoDo(JSON.parse(x.camp_grafo)); } catch {}
+      let g = null;
+      try { const gs = gatilhosDoGrafo(JSON.parse(x.camp_grafo)); g = gs.find(y => y.no_id === x.gatilho_no) || gs[0]; } catch {}
       if (g?.parar_ao_responder) { delete x.camp_grafo; finalizar(x, "concluida", "o cliente respondeu"); }
     }
     const e = db.prepare(`SELECT e.* FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
