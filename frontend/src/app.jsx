@@ -4549,6 +4549,28 @@ const ORIGEM_FERRAMENTA={
   retirado:"Retirada por você",
   fora_do_plano:"Fora do plano",
 };
+function NomeDaContaNoHub({conta,acoes,aoMudar}){
+  const [nome,setNome]=useState(conta.nome||""); const [msg,setMsg]=useState(""); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const mudou=nome.trim()!==(conta.nome||"")&&nome.trim().length>=2;
+  async function salvar(){
+    setSalvando(true);setErro("");setMsg("");
+    try{ await acoes.renomearConta(conta.id,{nome:nome.trim()}); await aoMudar(); setMsg("Nome salvo."); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Nome da conta</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>Aparece no topo da barra lateral da equipe, no hub, nos e-mails e no que a IA diz ao cliente. Quem estiver com o CRM aberto vê o nome novo ao recarregar.</div>
+    <div style={{display:"flex",gap:6}}>
+      <input value={nome} onChange={e=>setNome(e.target.value.slice(0,80))}
+        style={{flex:1,minWidth:0,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",fontSize:13.5,color:C.ink,background:C.surface,outline:"none",fontFamily:FONT}}/>
+      <button onClick={salvar} disabled={!mudou||salvando}
+        style={{flexShrink:0,background:mudou&&!salvando?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"0 14px",fontSize:12.5,fontWeight:600,cursor:mudou&&!salvando?"pointer":"default"}}>{salvando?"…":"Salvar"}</button>
+    </div>
+    {msg&&<div style={{color:C.greenMid,fontSize:12,fontWeight:600,marginTop:6}}>{msg}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
@@ -4579,6 +4601,10 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
           <button onClick={()=>setAberto(false)} aria-label="Fechar"
             style={{background:"transparent",border:"none",color:C.faint,cursor:"pointer",padding:4}}><Icon n="x" size={16}/></button>
         </div>
+        {/* NOME DA CONTA (16/10/2026, pedido do Ali): a conta da VJ nasceu no
+            nome da pessoa ("Verônica Gomez") e precisa se chamar pela marca. A
+            rota já existia (PATCH /orgs/:id, só master); faltava onde usar. */}
+        <NomeDaContaNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>
         <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
           Liberar vale mesmo fora do plano; retirar desliga mesmo estando no plano. "Seguir o plano" desfaz a sua escolha.
         </div>
