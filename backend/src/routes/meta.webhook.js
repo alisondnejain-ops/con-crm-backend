@@ -5,6 +5,7 @@ import db from "../db.js";
 import { buscarLead, paginaDoTokenAntigo } from "../services/meta.js";
 import { lerLead, receberLead } from "../services/portais.js";
 import { abrir } from "../services/cofre.js";
+import { comentariosDoAviso, comentarioRecebido } from "../services/redes-comentarios.js";
 
 const r = Router();
 
@@ -126,9 +127,18 @@ r.post("/meta", async (req, res) => {
     return res.sendStatus(401);
   }
   res.sendStatus(200); // responde rápido; processa depois
+  /* Comentários (automação estilo ManyChat, services/redes-comentarios.js):
+     do Facebook (`feed`) e do Instagram (objeto `instagram`, campo `comments`). */
+  for (const c of comentariosDoAviso(req.body)) {
+    const r = await comentarioRecebido(c);
+    if (c.pageId || r.resultado === "respondido" || r.resultado === "erro")
+      registrar([String(c.pageId || "")].filter(Boolean), "comentario", `${c.rede}: ${r.resultado}`);
+  }
+  if (req.body?.object === "instagram") return;
   try {
     for (const entry of req.body.entry || []) {
       for (const change of entry.changes || []) {
+        if (change.field === "feed") continue;   // comentário, já tratado acima
         if (change.field !== "leadgen") { registrar([String(entry.id || "")], "outro_campo", String(change.field || "?")); continue; }
         const leadgenId = change.value?.leadgen_id;
         const pageId = String(change.value?.page_id || entry.id || "");

@@ -21,6 +21,7 @@ import { roles, emitirTokenCurto, verificarTokenCurto } from "../auth.js";
 import { fechar, abrir } from "../services/cofre.js";
 import {
   botaoConfigurado, urlDeLogin, trocarCodigo, paginasDoUsuario, assinarPagina, desassinarPagina, PERMISSOES,
+  permissoesConcedidas, instagramDaPagina,
 } from "../services/meta.js";
 import { avisosDaMeta } from "./meta.webhook.js";
 import { listarFormularios, definirFunil, definirCatraca, ErroFormulario } from "../services/formularios.js";
@@ -53,7 +54,8 @@ retorno.get("/retorno", async (req, res) => {
   try {
     const userToken = await trocarCodigo(String(req.query.code), retornoDe(req));
     const paginas = await paginasDoUsuario(userToken);
-    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas });
+    const permissoes = await permissoesConcedidas(userToken);
+    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas, permissoes });
     voltar({ meta: "escolher", k: chave });
   } catch (e) {
     console.error("[meta] conectar com Facebook falhou:", e.message);
@@ -66,7 +68,8 @@ export const gestao = Router();
 gestao.use(roles("adm"));
 
 const listaDaConta = (orgId) => db.prepare(`
-  SELECT p.page_id, p.nome, p.conectado_em, p.ultimo_lead_em, p.ultimo_erro, p.ultimo_erro_em, u.name AS conectado_por
+  SELECT p.page_id, p.nome, p.conectado_em, p.ultimo_lead_em, p.ultimo_erro, p.ultimo_erro_em, u.name AS conectado_por,
+    p.ig_id, p.ig_usuario
   FROM meta_paginas p LEFT JOIN users u ON u.id = p.conectado_por
   WHERE p.org_id = ? ORDER BY p.conectado_em`).all(orgId);
 
@@ -153,12 +156,21 @@ gestao.post("/escolha/:chave", async (req, res) => {
       continue;
     }
     try {
-      await assinarPagina(id, p.token);
-      db.prepare(`INSERT INTO meta_paginas (page_id,org_id,nome,page_token,conectado_por,conectado_em)
-                  VALUES (?,?,?,?,?,?)
+      const campos = await assinarPagina(id, p.token);
+      // O Instagram ligado à página (redes sociais). Falhar aqui não impede a
+      // conexão: o lead de formulário não depende disso.
+      const ig = await instagramDaPagina(id, p.token).catch(() => null);
+      db.prepare(`INSERT INTO meta_paginas (page_id,org_id,nome,page_token,conectado_por,conectado_em,
+                    permissoes,avisos_campos,ig_id,ig_usuario,ig_foto,ig_seguidores,redes_atualizado_em)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                   ON CONFLICT(page_id) DO UPDATE SET nome = excluded.nome, page_token = excluded.page_token,
-                    conectado_por = excluded.conectado_por, ultimo_erro = NULL`)
-        .run(id, req.user.org_id, p.nome, fechar(p.token), req.user.id, Date.now());
+                    conectado_por = excluded.conectado_por, ultimo_erro = NULL,
+                    permissoes = excluded.permissoes, avisos_campos = excluded.avisos_campos,
+                    ig_id = excluded.ig_id, ig_usuario = excluded.ig_usuario, ig_foto = excluded.ig_foto,
+                    ig_seguidores = excluded.ig_seguidores, redes_atualizado_em = excluded.redes_atualizado_em`)
+        .run(id, req.user.org_id, p.nome, fechar(p.token), req.user.id, Date.now(),
+          e.permissoes ? e.permissoes.join(",") : null, campos.join(","),
+          ig?.id || null, ig?.usuario || null, ig?.foto || null, ig?.seguidores ?? null, Date.now());
       resultado.push({ id, nome: p.nome, ok: true });
     } catch (err) {
       resultado.push({ id, nome: p.nome, ok: false, erro: "O Facebook recusou ligar os avisos de lead desta página: " + String(err.message).slice(0, 160) });

@@ -959,6 +959,7 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 const ICO={
   // Megafone: a seção Marketing (disparos em massa, e depois os fluxos do bot).
   globo:<React.Fragment><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></React.Fragment>,
+  redes:<React.Fragment><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></React.Fragment>,
   megafone:<React.Fragment><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></React.Fragment>,
   /* WhatsApp: o balão com o fone dentro, desenhado com traço como os outros
      ícones da casa. Não é a logo oficial (que é sólida e tem cor própria) —
@@ -1776,6 +1777,35 @@ function ConCRM(){
     // "Conectar com Facebook" (01/10/2026): páginas da conta e a ida e volta ao Facebook.
     anunciosMeta:()=>api("/anuncios-meta"),
     formulariosMeta:()=>api("/anuncios-meta/formularios"),
+    // Redes sociais (Marketing → Redes sociais): posts programados, engajamento e comentários automáticos.
+    redes:()=>api("/redes"),
+    redesAtualizarPagina:(pg)=>api(`/redes/paginas/${pg}/atualizar`,{method:"POST"}),
+    redesPosts:()=>api("/redes/posts"),
+    redesCriarPost:(c)=>api("/redes/posts",{method:"POST",body:c}),
+    redesEditarPost:(id,c)=>api(`/redes/posts/${id}`,{method:"PUT",body:c}),
+    redesCancelarPost:(id)=>api(`/redes/posts/${id}/cancelar`,{method:"POST"}),
+    redesApagarPost:(id)=>api(`/redes/posts/${id}`,{method:"DELETE"}),
+    redesFoto:(base64,mime)=>api("/redes/midias",{method:"POST",body:{base64,mime}}),
+    // Vídeo cru no corpo, com XHR para mostrar o progresso (o mesmo do vídeo de imóvel).
+    redesVideo:(file,aoProgredir)=>new Promise((ok,falhou)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open("POST",`${API}/redes/midias/video?${new URLSearchParams({mime:file.type||"video/mp4"})}`);
+      if(TOKEN) xhr.setRequestHeader("Authorization","Bearer "+TOKEN);
+      xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+      xhr.upload.onprogress=(e)=>{ if(aoProgredir&&e.lengthComputable) aoProgredir(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=()=>{ let dados={}; try{ dados=JSON.parse(xhr.responseText||"{}"); }catch(e){}
+        if(xhr.status>=200&&xhr.status<300) ok(dados); else falhou(new Error(dados.error||`Erro ${xhr.status} ao enviar o vídeo.`)); };
+      xhr.onerror=()=>falhou(new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."));
+      xhr.send(file);
+    }),
+    redesImoveis:()=>api("/redes/imoveis"),
+    redesImovel:(id)=>api(`/redes/imoveis/${id}`),
+    redesEngajamento:(pg,atualizar)=>api(`/redes/engajamento/${pg}${atualizar?"?atualizar=1":""}`),
+    redesAutomacoes:()=>api("/redes/automacoes"),
+    redesCriarAutomacao:(c)=>api("/redes/automacoes",{method:"POST",body:c}),
+    redesEditarAutomacao:(id,c)=>api(`/redes/automacoes/${id}`,{method:"PUT",body:c}),
+    redesApagarAutomacao:(id)=>api(`/redes/automacoes/${id}`,{method:"DELETE"}),
+    redesComentarios:(id)=>api(`/redes/automacoes/${id}/comentarios`),
     funilDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}`,{method:"POST",body:dados}),
     catracaDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/catraca`,{method:"POST",body:dados}),
     iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
@@ -7877,7 +7907,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -8012,6 +8042,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
+        {podeGerir(session)&&view==="redes"&&org&&org.marketing_liberado&&<RedesSociais acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&!contaInterna()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&!contaInterna()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
@@ -8080,7 +8111,7 @@ const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart",
    e dos fluxos (de 03/10 até aqui ficavam em Atender). Disparos e Fluxos só
    existem com o Marketing liberado pelo ConHub; Formulários não depende
    disso, e a conta sem a ferramenta vê o grupo só com ele. */
-const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["formularios","form","Formulários"]];
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["redes","redes","Redes sociais"],["formularios","form","Formulários"]];
 const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 /* Aplica a ordem escolhida pela pessoa. O que não está na lista dela (uma
@@ -12189,6 +12220,529 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
       <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       Arquivados ({arquivados.length})</button>}
     {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+  </div>;
+}
+
+/* ===== REDES SOCIAIS (20/10/2026, pedido do Ali: "conectar facebook e
+   instagram na ferramenta, pra que possa inclusive programar posts e
+   acompanhar o engajamento", e a automação de comentários "igual o
+   manychat"). Só o gestor; mora no Marketing. A página é a mesma conectada
+   em Configurações → Anúncios do Meta — não há outro login. ===== */
+let abaConfigPedida=null;   // abrir Configurações já numa aba (lido uma vez)
+const ROTULO_REDE={facebook:"Facebook",instagram:"Instagram"};
+const LogoRede=({rede,size=16})=>rede==="instagram"?<LogoInstagram size={size}/>:<LogoFacebook size={size}/>;
+const ESTADO_POST={agendado:["Programado",C.sub,C.surface],publicando:["Publicando…",C.amber,C.amberSoft],publicado:["Publicado",C.greenDeep,C.greenSoft],
+  parcial:["Publicado em parte",C.amber,C.amberSoft],falhou:["Não publicou",C.hot,C.hotSoft],cancelado:["Cancelado",C.faint,C.surface]};
+const fmtNum=(v)=>v==null?"—":Number(v).toLocaleString("pt-BR");
+const NOME_PERMISSAO={pages_manage_posts:"publicar na página",instagram_content_publish:"publicar no Instagram",instagram_basic:"ler o Instagram",
+  read_insights:"ler os números da página",instagram_manage_insights:"ler os números do Instagram",pages_read_engagement:"ler os posts da página",
+  pages_manage_engagement:"responder comentários na página",pages_read_user_content:"ler comentários da página",pages_messaging:"mandar mensagem pela página",
+  instagram_manage_comments:"responder comentários no Instagram",instagram_manage_messages:"mandar direct no Instagram"};
+const descreverPermissoes=(lista)=>lista.map(p=>NOME_PERMISSAO[p]||p).join(", ");
+
+function RedesSociais({acoes,isMobile,irPara}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [pageId,setPageId]=useState("");
+  const [aba,setAba]=useState("programacao");
+  const [editando,setEditando]=useState(null);       // post sendo editado (ou {} para novo)
+  const carregar=()=>acoes.redes().then(r=>{setD(r);setErro("");setPageId(p=>p&&r.paginas.some(x=>x.page_id===p)?p:(r.paginas[0]?.page_id||""));}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const pagina=d?.paginas.find(p=>p.page_id===pageId)||null;
+  const irParaAnuncios=()=>{abaConfigPedida="anuncios";irPara("config");};
+  const [atualizando,setAtualizando]=useState(false);
+  async function atualizarInstagram(){
+    setAtualizando(true);
+    try{ setD(await acoes.redesAtualizarPagina(pageId)); }catch(e){ setErro(e.message); } finally{ setAtualizando(false); }
+  }
+  const faltamPublicar=pagina?[...new Set([...pagina.faltam.publicar_facebook,...(pagina.instagram?pagina.faltam.publicar_instagram:[])])]:[];
+  const abas=[["programacao","Programação"],["novo",editando&&editando.id?"Editar post":"Novo post"],["engajamento","Engajamento"],["comentarios","Comentários automáticos"]];
+  return <div style={molduraMkt(isMobile)}>
+    <div style={{marginBottom:14}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
+        <LogoFacebook size={20}/><LogoInstagram size={20}/> Redes sociais</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>Programe posts no Facebook e no Instagram da imobiliária, acompanhe o engajamento e responda comentários sozinho.</div>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+    {d&&!d.paginas.length&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 240px",color:C.sub,fontSize:13,lineHeight:1.5}}>
+        Nenhuma página do Facebook conectada. Conecte em <b>Configurações → Anúncios do Meta</b>: o Instagram ligado à página vem junto.</div>
+      <button onClick={irParaAnuncios} style={botaoMkt()}>Conectar a página</button>
+    </div>}
+    {pagina&&<React.Fragment>
+      <div style={{...CARTAO_MKT,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:12}}>
+        {d.paginas.length>1?<select value={pageId} onChange={e=>setPageId(e.target.value)} style={{...campoMkt(isMobile),width:"auto",flex:"0 1 220px"}}>
+          {d.paginas.map(p=><option key={p.page_id} value={p.page_id}>{p.nome||p.page_id}</option>)}</select>
+          :<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoFacebook size={16}/>{pagina.nome}</span>}
+        {pagina.instagram
+          ?<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoInstagram size={16}/>@{pagina.instagram.usuario||pagina.instagram.id}</span>
+          :<span style={{fontSize:12.5,color:C.sub,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={16}/>Nenhum Instagram ligado a esta página</span>}
+        <button onClick={atualizarInstagram} disabled={atualizando} style={{...botaoLeveMkt,marginLeft:"auto",minHeight:36}}>{atualizando?"Atualizando…":"Atualizar"}</button>
+      </div>
+      {!pagina.instagram&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+        Para publicar no Instagram, ele precisa ser uma conta <b>profissional</b> (comercial ou criador) ligada a esta página do Facebook.
+        Ligue no app do Instagram (Configurações → Central de Contas) e clique em Atualizar.</div>}
+      {faltamPublicar.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+        A Meta ainda não deu ao ConHub permissão para: <b>{descreverPermissoes(faltamPublicar)}</b>.
+        Se a permissão já foi aprovada na análise do app, <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>conecte a página de novo</button> para ela valer.</div>}
+      {!pagina.permissoes_conhecidas&&<div style={{background:C.surface,color:C.sub,fontSize:12,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
+        Esta página foi conectada antes das redes sociais existirem no ConHub. Se algo for recusado,{" "}
+        <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>conecte a página de novo</button>.</div>}
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {abas.map(([k,t])=><button key={k} onClick={()=>{ if(k==="novo"&&aba!=="novo") setEditando({}); setAba(k); }}
+          style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:36,
+            background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+      </div>
+      {aba==="programacao"&&<ProgramacaoDePosts acoes={acoes} isMobile={isMobile} pageId={pageId}
+        aoEditar={(p)=>{setEditando(p);setAba("novo");}} aoNovo={()=>{setEditando({});setAba("novo");}}/>}
+      {aba==="novo"&&<EditorDePost key={editando?.id||"novo"} acoes={acoes} isMobile={isMobile} pagina={pagina} post={editando&&editando.id?editando:null}
+        aoSalvar={()=>{setEditando(null);setAba("programacao");carregar();}} aoCancelar={()=>{setEditando(null);setAba("programacao");}}/>}
+      {aba==="engajamento"&&<EngajamentoDasRedes acoes={acoes} isMobile={isMobile} pagina={pagina}/>}
+      {aba==="comentarios"&&<ComentariosAutomaticos acoes={acoes} isMobile={isMobile} pagina={pagina} irParaAnuncios={irParaAnuncios}/>}
+    </React.Fragment>}
+  </div>;
+}
+
+function ProgramacaoDePosts({acoes,isMobile,pageId,aoEditar,aoNovo}){
+  const [posts,setPosts]=useState(null); const [erro,setErro]=useState("");
+  const carregar=()=>acoes.redesPosts().then(r=>{setPosts(r.posts);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar(); const t=setInterval(carregar,20000); return ()=>clearInterval(t);},[]);
+  const daPagina=(posts||[]).filter(p=>p.page_id===pageId);
+  const proximos=daPagina.filter(p=>p.status==="agendado"||p.status==="publicando").sort((a,b)=>a.agendar_para-b.agendar_para);
+  const passados=daPagina.filter(p=>!(p.status==="agendado"||p.status==="publicando"));
+  async function cancelar(p){
+    if(!window.confirm("Cancelar este post? Ele não vai ser publicado.")) return;
+    try{ await acoes.redesCancelarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  async function apagar(p){
+    if(!window.confirm("Tirar este post da lista do ConHub? O que já foi publicado continua no Facebook e no Instagram.")) return;
+    try{ await acoes.redesApagarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  const lista=(itens)=>itens.map(p=><CartaoDePost key={p.id} p={p} isMobile={isMobile} aoEditar={aoEditar} aoCancelar={cancelar} aoApagar={apagar}/>);
+  return <div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!posts&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+    {posts&&<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <div style={{...TITULO_MKT,marginBottom:0,flex:1}}>Próximos</div>
+        <button onClick={aoNovo} style={botaoMkt()}>+ Novo post</button>
+      </div>
+      {!proximos.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum post programado.</div>}
+      {lista(proximos)}
+      {passados.length>0&&<div style={{...TITULO_MKT,marginTop:18}}>Já saíram</div>}
+      {lista(passados)}
+    </React.Fragment>}
+  </div>;
+}
+
+function CartaoDePost({p,isMobile,aoEditar,aoCancelar,aoApagar}){
+  const [rotulo,cor,fundo]=ESTADO_POST[p.status]||[p.status,C.sub,C.surface];
+  const capa=p.midias.find(m=>m.tipo==="foto");
+  const temVideo=p.midias.some(m=>m.tipo==="video");
+  const formato=p.formato==="story"?"Story":p.formato==="reels"?"Reels":p.midias.length>1?`Carrossel · ${p.midias.length}`:temVideo?"Vídeo":p.midias.length?"Foto":"Texto";
+  const podeEditar=p.status==="agendado"&&p.destinos.every(d=>d.status==="pendente");
+  return <div style={{...CARTAO_MKT,padding:12,display:"flex",gap:12,alignItems:"flex-start"}}>
+    <div style={{width:isMobile?56:68,height:isMobile?56:68,borderRadius:10,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint}}>
+      {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n={temVideo?"zap":"edit"} size={20}/>}
+    </div>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:11,fontWeight:700,color:cor,background:fundo,borderRadius:999,padding:"3px 8px"}}>{rotulo}</span>
+        <span style={{fontSize:11.5,color:C.faint}}>{formato}</span>
+        <span style={{fontSize:11.5,color:C.sub,fontFamily:MONO}}>{p.status==="agendado"?"sai em ":""}{fmtDataHoraMkt(p.agendar_para)}</span>
+      </div>
+      <div style={{color:C.ink,fontSize:13,lineHeight:1.45,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",whiteSpace:"pre-wrap"}}>{p.texto||<span style={{color:C.faint}}>(sem texto)</span>}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:6}}>
+        {p.destinos.map(d=><div key={d.rede} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.sub,flexWrap:"wrap"}}>
+          <LogoRede rede={d.rede} size={14}/>
+          {d.status==="publicado"?<span style={{color:C.greenDeep,fontWeight:600}}>publicado{d.link&&<React.Fragment> · <a href={d.link} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep}}>ver</a></React.Fragment>}</span>
+            :d.status==="falhou"?<span style={{color:C.hot}}>não publicou: {d.erro}</span>
+            :d.status==="processando"?<span style={{color:C.amber}}>a Meta está processando{d.erro?` (${d.erro})`:""}</span>
+            :d.status==="cancelado"?<span style={{color:C.faint}}>cancelado</span>
+            :<span>esperando a hora{d.erro?<span style={{color:C.amber}}> · {d.erro}</span>:""}</span>}
+        </div>)}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        {podeEditar&&<button onClick={()=>aoEditar(p)} style={{...botaoLeveMkt,minHeight:34}}>Editar</button>}
+        {(p.status==="agendado"||p.status==="publicando")&&<button onClick={()=>aoCancelar(p)} style={{...botaoLeveMkt,minHeight:34}}>Cancelar</button>}
+        {!(p.status==="agendado"||p.status==="publicando")&&<button onClick={()=>aoApagar(p)} style={{...botaoLeveMkt,minHeight:34}}>Tirar da lista</button>}
+      </div>
+    </div>
+  </div>;
+}
+
+const LIMITE_FOTO_REDES_MB=8;
+
+function EditorDePost({acoes,isMobile,pagina,post,aoSalvar,aoCancelar}){
+  const temIg=!!pagina.instagram;
+  const [redes,setRedes]=useState(post?post.redes:(temIg?["facebook","instagram"]:["facebook"]));
+  const [formato,setFormato]=useState(post?.formato||"post");
+  const [texto,setTexto]=useState(post?.texto||"");
+  const [midias,setMidias]=useState(post?.midias||[]);
+  const [quando,setQuando]=useState(post?"programar":"agora");
+  const [dataHora,setDataHora]=useState(paraCampoDataHora(post?.agendar_para||Date.now()+3600000));
+  const [subindo,setSubindo]=useState(""); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [imoveis,setImoveis]=useState(null);
+  const fotoRef=useRef(null), videoRef=useRef(null);
+  const ig=redes.includes("instagram");
+  useEffect(()=>{ if(formato==="story") setRedes(["instagram"]); },[formato]);
+  const alternar=(r)=>setRedes(x=>x.includes(r)?x.filter(y=>y!==r):[...x,r]);
+  async function adicionarFotos(files){
+    setErro("");
+    for(const f of [...files]){
+      if(midias.length>=10){ setErro("No máximo 10 fotos ou vídeos por post."); break; }
+      if(f.size>LIMITE_FOTO_REDES_MB*1024*1024){ setErro(`A foto ${f.name} passa de ${LIMITE_FOTO_REDES_MB} MB.`); continue; }
+      setSubindo(`Enviando ${f.name}…`);
+      try{
+        const base64=await lerComoBase64(f);
+        const m=await acoes.redesFoto(base64,f.type||"image/jpeg");
+        setMidias(x=>[...x,m]);
+      }catch(e){ setErro(e.message); }
+    }
+    setSubindo("");
+  }
+  async function adicionarVideo(f){
+    if(!f) return;
+    setErro("");
+    if(f.size>150*1024*1024) return setErro("O vídeo passa de 150 MB.");
+    setSubindo("Enviando vídeo… 0%");
+    try{
+      const m=await acoes.redesVideo(f,(pct)=>setSubindo(pct>=100?"Processando vídeo…":`Enviando vídeo… ${pct}%`));
+      setMidias(x=>[...x,m]);
+      if(formato==="post"&&midias.length===0&&ig) setFormato("reels");
+    }catch(e){ setErro(e.message); } finally{ setSubindo(""); }
+  }
+  async function usarImovel(id){
+    if(!id) return;
+    try{
+      const r=await acoes.redesImovel(id);
+      setMidias(r.midias.slice(0,10)); if(!texto.trim()) setTexto(r.texto); else setTexto(t=>t+"\n\n"+r.texto);
+      setImoveis(null);
+    }catch(e){ setErro(e.message); }
+  }
+  const mover=(i,d)=>setMidias(x=>{const y=[...x];const j=i+d;if(j<0||j>=y.length) return y;[y[i],y[j]]=[y[j],y[i]];return y;});
+  const limite=ig?2200:5000;
+  const hashtags=(texto.match(/#[\p{L}\p{N}_]+/gu)||[]).length;
+  // O que a tela já sabe que vai ser recusado — o servidor confere de novo.
+  const avisos=[];
+  if(ig&&formato==="post") midias.forEach((m,i)=>{ if(m.tipo==="foto"&&m.largura&&m.altura){ const r=m.largura/m.altura;
+    if(r<0.79||r>1.92) avisos.push(`A foto ${i+1} é ${r<1?"em pé":"deitada"} demais para o feed do Instagram.`); }});
+  if(ig&&formato==="post"&&!midias.length) avisos.push("O Instagram precisa de foto ou vídeo.");
+  if(formato==="reels"&&!(midias.length===1&&midias[0].tipo==="video")) avisos.push("O Reels leva um vídeo.");
+  if(formato==="story"&&midias.length!==1) avisos.push("O story leva uma foto ou um vídeo.");
+  if(redes.includes("facebook")&&midias.length>1&&midias.some(m=>m.tipo==="video")) avisos.push("No Facebook, várias mídias só com fotos.");
+  if(texto.length>limite) avisos.push(`O texto passa de ${limite} letras.`);
+  if(ig&&hashtags>30) avisos.push("O Instagram aceita até 30 hashtags.");
+  const instante=quando==="agora"?null:new Date(dataHora).getTime();
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const corpo={page_id:pagina.page_id,redes,formato,texto,midias,agendar_para:instante};
+    try{ post?await acoes.redesEditarPost(post.id,corpo):await acoes.redesCriarPost(corpo); aoSalvar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const pilula=(on)=>({fontSize:12.5,fontWeight:600,padding:"8px 13px",borderRadius:999,cursor:"pointer",minHeight:36,
+    border:`1px solid ${on?C.greenDeep:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub});
+  const rotulo={fontSize:12,fontWeight:700,color:C.ink,marginBottom:6};
+  return <div style={{...CARTAO_MKT,padding:isMobile?13:16}}>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Onde publicar</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button disabled={formato==="story"} onClick={()=>alternar("facebook")} style={{...pilula(redes.includes("facebook")),opacity:formato==="story"?.5:1,display:"inline-flex",alignItems:"center",gap:6}}><LogoFacebook size={15}/>{pagina.nome}</button>
+        <button disabled={!temIg} onClick={()=>alternar("instagram")} style={{...pilula(redes.includes("instagram")),opacity:temIg?1:.5,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={15}/>{temIg?"@"+(pagina.instagram.usuario||"instagram"):"Instagram não ligado"}</button>
+      </div>
+    </div>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Formato</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {[["post","Post"],["reels","Reels"],["story","Story"]].map(([k,t])=><button key={k} disabled={k!=="post"&&!temIg} onClick={()=>setFormato(k)}
+          style={{...pilula(formato===k),opacity:k!=="post"&&!temIg?.5:1}}>{t}</button>)}
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.45}}>
+        {formato==="post"?"Texto, uma foto, várias fotos (carrossel) ou um vídeo. No Instagram, um vídeo sozinho sai como Reels."
+          :formato==="reels"?"Um vídeo, de preferência em pé. No Facebook ele sai como vídeo da página."
+          :"Uma foto ou um vídeo, só no Instagram. Some em 24 horas; o texto não aparece no story."}</div>
+    </div>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Fotos e vídeo</div>
+      {midias.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        {midias.map((m,i)=><div key={m.url+i} style={{position:"relative",width:84,height:84,borderRadius:10,overflow:"hidden",background:C.surface,border:`1px solid ${C.line}`}}>
+          {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub,fontSize:11,fontWeight:700,flexDirection:"column",gap:4}}><Icon n="zap" size={18}/>Vídeo</div>}
+          <span style={{position:"absolute",left:4,top:4,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:6,padding:"1px 5px"}}>{i+1}</span>
+          <button onClick={()=>setMidias(x=>x.filter((_,j)=>j!==i))} title="Tirar" style={{position:"absolute",right:3,top:3,width:24,height:24,borderRadius:"50%",border:"none",background:"rgba(0,0,0,.6)",color:"#fff",cursor:"pointer",fontSize:14,lineHeight:"22px",padding:0}}>×</button>
+          {midias.length>1&&<div style={{position:"absolute",left:0,right:0,bottom:0,display:"flex",justifyContent:"space-between"}}>
+            <button onClick={()=>mover(i,-1)} disabled={i===0} style={{border:"none",background:"rgba(0,0,0,.45)",color:"#fff",cursor:"pointer",width:28,height:22,padding:0}}>‹</button>
+            <button onClick={()=>mover(i,1)} disabled={i===midias.length-1} style={{border:"none",background:"rgba(0,0,0,.45)",color:"#fff",cursor:"pointer",width:28,height:22,padding:0}}>›</button>
+          </div>}
+        </div>)}
+      </div>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>fotoRef.current&&fotoRef.current.click()} disabled={!!subindo} style={{...botaoLeveMkt,minHeight:38}}>Adicionar fotos</button>
+        <button onClick={()=>videoRef.current&&videoRef.current.click()} disabled={!!subindo} style={{...botaoLeveMkt,minHeight:38}}>Adicionar vídeo</button>
+        <button onClick={()=>acoes.redesImoveis().then(r=>setImoveis(r.imoveis)).catch(e=>setErro(e.message))} style={{...botaoLeveMkt,minHeight:38}}>Usar um imóvel do catálogo</button>
+      </div>
+      <input ref={fotoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{adicionarFotos(e.target.files);e.target.value="";}}/>
+      <input ref={videoRef} type="file" accept="video/*" style={{display:"none"}} onChange={e=>{adicionarVideo(e.target.files[0]);e.target.value="";}}/>
+      {subindo&&<div style={{color:C.amber,fontSize:12,marginTop:6}}>{subindo}</div>}
+      {imoveis&&<div style={{marginTop:8}}>
+        {imoveis.length?<select defaultValue="" onChange={e=>usarImovel(e.target.value)} style={campoMkt(isMobile)}>
+          <option value="">Escolha o imóvel…</option>
+          {imoveis.map(i=><option key={i.id} value={i.id}>{i.titulo}{i.bairro?` · ${i.bairro}`:""}{i.finalidade==="aluguel"?" (aluguel)":""}</option>)}
+        </select>:<div style={{color:C.sub,fontSize:12.5}}>Nenhum imóvel publicado no catálogo.</div>}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Entram as fotos e um texto com o que é público do imóvel — nunca comissão, captador ou observações internas.</div>
+      </div>}
+    </div>
+    {formato!=="story"&&<div style={{marginBottom:14}}>
+      <div style={{...rotulo,display:"flex"}}><span style={{flex:1}}>Texto</span>
+        <span style={{fontWeight:500,color:texto.length>limite?C.hot:C.faint,fontFamily:MONO}}>{texto.length}/{limite}{ig?` · ${hashtags} #`:""}</span></div>
+      <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={isMobile?6:7} placeholder="Escreva a legenda. Hashtags no fim (#imoveis #petrolina)."
+        style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
+    </div>}
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Quando</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>setQuando("agora")} style={pilula(quando==="agora")}>Publicar agora</button>
+        <button onClick={()=>setQuando("programar")} style={pilula(quando==="programar")}>Programar</button>
+        {quando==="programar"&&<input type="datetime-local" value={dataHora} onChange={e=>setDataHora(e.target.value)}
+          min={paraCampoDataHora(Date.now())} style={{...campoMkt(isMobile),width:"auto",flex:"0 1 230px"}}/>}
+      </div>
+      {quando==="programar"&&<div style={{color:C.faint,fontSize:11.5,marginTop:5}}>O ConHub publica sozinho na hora marcada (até 90 dias à frente).</div>}
+    </div>
+    {avisos.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+      {avisos.map((a,i)=><div key={i}>{a}</div>)}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={salvar} disabled={salvando||!!subindo||!redes.length} style={botaoMkt(!salvando&&!subindo&&redes.length>0)}>
+        {salvando?"Salvando…":post?"Salvar alterações":quando==="agora"?"Publicar agora":`Programar para ${new Date(instante||Date.now()).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`}</button>
+      <button onClick={aoCancelar} style={botaoLeveMkt}>Voltar</button>
+    </div>
+  </div>;
+}
+
+function EngajamentoDasRedes({acoes,isMobile,pagina}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [carregando,setCarregando]=useState(false);
+  const carregar=(atualizar)=>{ setCarregando(true);
+    acoes.redesEngajamento(pagina.page_id,atualizar).then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message)).finally(()=>setCarregando(false)); };
+  useEffect(()=>{carregar(false);},[pagina.page_id]);
+  const numero=(rotulo,valor,dica)=><div title={dica||""} style={{minWidth:0}}>
+    <div style={{fontFamily:MONO,fontSize:isMobile?17:19,fontWeight:700,color:C.ink}}>{fmtNum(valor)}</div>
+    <div style={{fontSize:11.5,color:C.faint}}>{rotulo}</div></div>;
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <div style={{fontSize:12,color:C.faint,flex:1}}>{d?`Números de ${new Date(d.em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})} · últimos 30 dias`:""}</div>
+      <button onClick={()=>carregar(true)} disabled={carregando} style={{...botaoLeveMkt,minHeight:36}}>{carregando?"Buscando…":"Atualizar"}</button>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os números na Meta…</div>}
+    {d&&<React.Fragment>
+      {d.erros.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
+        {d.erros.map((e,i)=><div key={i}>{e}</div>)}</div>}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
+        {d.contas.map(c=>{const r=d.resumo[c.rede]||{};
+          return <div key={c.rede} style={{...CARTAO_MKT,marginBottom:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <LogoRede rede={c.rede} size={18}/><span style={{fontWeight:700,color:C.ink,fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span></div>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:12}}>
+              <span style={{fontFamily:MONO,fontSize:24,fontWeight:700,color:C.ink}}>{fmtNum(c.seguidores)}</span>
+              <span style={{fontSize:12,color:C.sub}}>seguidores</span>
+              {c.crescimento?<span style={{fontSize:12,fontWeight:600,color:c.crescimento.valor>=0?C.greenDeep:C.hot}}>
+                {c.crescimento.valor>=0?"+":""}{fmtNum(c.crescimento.valor)} desde {c.crescimento.desde.split("-").reverse().slice(0,2).join("/")}</span>
+                :<span style={{fontSize:11.5,color:C.faint}} title="A Meta não devolve a série antiga: o crescimento aparece a partir do dia seguinte ao primeiro registro.">crescimento a partir de amanhã</span>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+              {numero("posts no período",r.posts)}
+              {numero(c.rede==="instagram"?"curtidas":"reações",r.curtidas)}
+              {numero("comentários",r.comentarios)}
+              {numero("compartilhamentos",r.compartilhamentos)}
+              {c.rede==="instagram"&&numero("salvos",r.salvos)}
+              {c.rede==="instagram"&&numero("alcance somado",r.alcance,"Soma do alcance dos posts dos últimos 30 dias (a mesma pessoa pode contar em mais de um post).")}
+              {numero("interações por post",r.media_por_post)}
+            </div>
+          </div>;})}
+      </div>
+      <div style={TITULO_MKT}>Posts recentes</div>
+      {!d.posts.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum post encontrado.</div>}
+      {d.posts.slice(0,30).map(x=><div key={x.rede+x.id} style={{...CARTAO_MKT,padding:10,display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
+        <div style={{width:54,height:54,borderRadius:8,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {x.imagem?<img src={x.imagem} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<LogoRede rede={x.rede} size={20}/>}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:11.5,color:C.faint,marginBottom:3}}>
+            <LogoRede rede={x.rede} size={13}/>{x.data?new Date(x.data).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}
+            {x.tipo&&<span>· {x.tipo}</span>}
+            {x.do_conhub&&<span style={{color:C.greenDeep,fontWeight:700}}>· programado no ConHub</span>}
+            {x.link&&<a href={x.link} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,marginLeft:"auto"}}>abrir</a>}
+          </div>
+          <div style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{x.texto||<span style={{color:C.faint}}>(sem texto)</span>}</div>
+          <div style={{display:"flex",gap:isMobile?10:14,flexWrap:"wrap",fontSize:12,color:C.sub,marginTop:4}}>
+            <span>♥ {fmtNum(x.curtidas)}</span><span>💬 {fmtNum(x.comentarios)}</span><span>↗ {fmtNum(x.compartilhamentos)}</span>
+            {x.rede==="instagram"&&<span title="salvos">🔖 {fmtNum(x.salvos)}</span>}
+            {x.rede==="instagram"&&x.alcance!=null&&<span>alcance {fmtNum(x.alcance)}</span>}
+            {x.visualizacoes!=null&&<span>{fmtNum(x.visualizacoes)} visualizações</span>}
+          </div>
+        </div>
+      </div>)}
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>“—” é número que a Meta não devolveu (permissão que falta ou métrica que ela não mede para esse tipo de post). Os números ficam guardados 15 minutos; “Atualizar” busca de novo.</div>
+    </React.Fragment>}
+  </div>;
+}
+
+function ComentariosAutomaticos({acoes,isMobile,pagina,irParaAnuncios}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null);
+  const [vendo,setVendo]=useState(null);
+  const carregar=()=>acoes.redesAutomacoes().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const regras=(d?.regras||[]).filter(r=>r.page_id===pagina.page_id);
+  async function alternar(r){ try{ await acoes.redesEditarAutomacao(r.id,{ativo:!r.ativo}); carregar(); }catch(e){ setErro(e.message); } }
+  async function apagar(r){
+    if(!window.confirm(`Apagar a automação “${r.nome}”? Os números dela somem junto da tela.`)) return;
+    try{ await acoes.redesApagarAutomacao(r.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  if(editando) return <EditorDeAutomacao acoes={acoes} isMobile={isMobile} pagina={pagina} regra={editando.id?editando:null} whatsapp={d?.whatsapp}
+    aoSalvar={()=>{setEditando(null);carregar();}} aoCancelar={()=>setEditando(null)}/>;
+  return <div>
+    <div style={{...CARTAO_MKT,background:C.surface,fontSize:12.5,color:C.sub,lineHeight:1.55}}>
+      Quem comentar a palavra num post recebe uma <b>resposta no comentário</b> e uma <b>mensagem no privado</b> — por exemplo, com o link do WhatsApp da imobiliária.
+      A conversa no direct não entra no CRM: o link leva ao WhatsApp, e é lá que a pessoa vira lead, pela catraca de sempre.
+    </div>
+    {!pagina.comentarios_ligados&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+      A Meta ainda não avisa o ConHub dos comentários do Facebook desta página.{" "}
+      <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>Conecte a página de novo</button> depois que a permissão for aprovada.</div>}
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <div style={{...TITULO_MKT,marginBottom:0,flex:1}}>Automações</div>
+      <button onClick={()=>setEditando({})} style={botaoMkt()}>+ Nova automação</button>
+    </div>
+    {d&&!regras.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhuma automação ainda. Exemplo: quem comentar “EU QUERO” no post do lançamento recebe o link do WhatsApp no direct.</div>}
+    {regras.map(r=><div key={r.id} style={{...CARTAO_MKT,padding:12,opacity:r.ativo?1:.7}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontWeight:700,color:C.ink,fontSize:13.5,flex:1,minWidth:120}}>{r.nome}</span>
+        {r.redes.map(x=><LogoRede key={x} rede={x} size={15}/>)}
+        <button onClick={()=>alternar(r)} title={r.ativo?"Desligar":"Ligar"} style={{border:"none",background:"transparent",cursor:"pointer",color:r.ativo?C.green:C.faint,padding:4,minHeight:32}}>
+          <Icon n={r.ativo?"toggleOn":"toggleOff"} size={26}/></button>
+      </div>
+      <div style={{fontSize:12,color:C.sub,marginTop:4,lineHeight:1.5}}>
+        {r.palavras.length?<React.Fragment>Palavras: {r.palavras.map(p=><span key={p} style={{background:C.surface,borderRadius:6,padding:"1px 6px",marginRight:4,fontWeight:600}}>{p}</span>)}</React.Fragment>:"Qualquer comentário"}
+        {" · "}{r.posts.length?`${r.posts.length} post${r.posts.length>1?"s":""} escolhido${r.posts.length>1?"s":""}`:"todos os posts"}
+      </div>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:C.sub,marginTop:6}}>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.total}</b> comentários atendidos</span>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.semana}</b> nos últimos 7 dias</span>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.privadas}</b> mensagens no privado</span>
+        {r.numeros.falhas>0&&<span style={{color:C.hot}}><b style={{fontFamily:MONO}}>{r.numeros.falhas}</b> com falha</span>}
+      </div>
+      {r.faltam_permissoes.length>0&&<div style={{color:"#6b561a",background:C.amberSoft,fontSize:12,borderRadius:8,padding:"7px 10px",marginTop:8,lineHeight:1.45}}>
+        Falta a Meta liberar: {descreverPermissoes(r.faltam_permissoes)}. Até lá esta parte não sai.</div>}
+      {r.ultimo_erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6,lineHeight:1.45}}>Último problema ({fmtDataHoraMkt(r.ultimo_erro.em)}): {r.ultimo_erro.erro}</div>}
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        <button onClick={()=>setEditando(r)} style={{...botaoLeveMkt,minHeight:34}}>Editar</button>
+        <button onClick={()=>setVendo(vendo===r.id?null:r.id)} style={{...botaoLeveMkt,minHeight:34}}>{vendo===r.id?"Esconder":"Últimos comentários"}</button>
+        <button onClick={()=>apagar(r)} style={{...botaoLeveMkt,minHeight:34}}>Apagar</button>
+      </div>
+      {vendo===r.id&&<UltimosComentarios acoes={acoes} id={r.id}/>}
+    </div>)}
+  </div>;
+}
+
+function UltimosComentarios({acoes,id}){
+  const [l,setL]=useState(null);
+  useEffect(()=>{acoes.redesComentarios(id).then(r=>setL(r.comentarios)).catch(()=>setL([]));},[id]);
+  if(!l) return <div style={{color:C.faint,fontSize:12,marginTop:8}}>Carregando…</div>;
+  if(!l.length) return <div style={{color:C.faint,fontSize:12,marginTop:8}}>Nenhum comentário atendido ainda.</div>;
+  const marca=(v)=>v==="ok"?<span style={{color:C.greenDeep}}>✓</span>:v==="erro"?<span style={{color:C.hot}}>✗</span>:<span style={{color:C.faint}}>—</span>;
+  return <div style={{marginTop:8,borderTop:`1px solid ${C.line}`,paddingTop:6}}>
+    {l.map((c,i)=><div key={i} style={{fontSize:12,color:C.sub,padding:"4px 0",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontFamily:MONO,color:C.faint}}>{fmtDataHoraMkt(c.em)}</span><LogoRede rede={c.rede} size={13}/>
+      <b style={{color:C.ink}}>{c.autor||"alguém"}</b>{c.palavra&&<span>· “{c.palavra}”</span>}
+      <span>· resposta {marca(c.publica)} · privado {marca(c.privada)}</span>
+      {c.erro&&<span style={{color:C.hot,flexBasis:"100%"}}>{c.erro}</span>}
+    </div>)}
+  </div>;
+}
+
+function EditorDeAutomacao({acoes,isMobile,pagina,regra,whatsapp,aoSalvar,aoCancelar}){
+  const temIg=!!pagina.instagram;
+  const [nome,setNome]=useState(regra?.nome||"");
+  const [redes,setRedes]=useState(regra?.redes||(temIg?["instagram","facebook"]:["facebook"]));
+  const [qualquer,setQualquer]=useState(regra?!regra.palavras.length:false);
+  const [palavras,setPalavras]=useState((regra?.palavras||[]).join(", "));
+  const [todosPosts,setTodosPosts]=useState(regra?!regra.posts.length:true);
+  const [posts,setPosts]=useState(regra?.posts||[]);
+  const [respostas,setRespostas]=useState(regra?.respostas?.length?regra.respostas:["Te mandei no direct, {nome}! 📩"]);
+  const [mensagem,setMensagem]=useState(regra?.mensagem_privada??"Oi {nome}! Que bom que gostou 😊 Fala com a gente no WhatsApp que te mando todos os detalhes: {whatsapp}");
+  const [disponiveis,setDisponiveis]=useState(null);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const msgRef=useRef(null);
+  useEffect(()=>{ if(!todosPosts&&!disponiveis) acoes.redesEngajamento(pagina.page_id,false).then(r=>setDisponiveis(r.posts)).catch(e=>setErro(e.message)); },[todosPosts]);
+  const alternarRede=(r)=>setRedes(x=>x.includes(r)?x.filter(y=>y!==r):[...x,r]);
+  const alternarPost=(p)=>setPosts(x=>x.some(y=>y.id===p.id)?x.filter(y=>y.id!==p.id):[...x,{id:p.id,rede:p.rede,texto:p.texto.slice(0,80)}]);
+  const inserir=(t)=>{ const el=msgRef.current; if(!el){ setMensagem(m=>m+t); return; }
+    const a=el.selectionStart??mensagem.length, b=el.selectionEnd??mensagem.length; setMensagem(mensagem.slice(0,a)+t+mensagem.slice(b)); };
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const corpo={page_id:pagina.page_id,nome,redes,palavras:qualquer?[]:palavras.split(",").map(x=>x.trim()).filter(Boolean),
+      posts:todosPosts?[]:posts,respostas:respostas.map(x=>x.trim()).filter(Boolean),mensagem_privada:mensagem,ativo:regra?regra.ativo:true};
+    if(!qualquer&&!corpo.palavras.length){ setErro("Escreva pelo menos uma palavra, ou marque “Qualquer comentário”."); setSalvando(false); return; }
+    try{ regra?await acoes.redesEditarAutomacao(regra.id,corpo):await acoes.redesCriarAutomacao(corpo); aoSalvar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const pilula=(on)=>({fontSize:12.5,fontWeight:600,padding:"8px 13px",borderRadius:999,cursor:"pointer",minHeight:36,
+    border:`1px solid ${on?C.greenDeep:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,display:"inline-flex",alignItems:"center",gap:6});
+  const rotulo={fontSize:12,fontWeight:700,color:C.ink,marginBottom:6};
+  const doPost=(disponiveis||[]).filter(p=>redes.includes(p.rede));
+  return <div style={{...CARTAO_MKT,padding:isMobile?13:16}}>
+    <div style={{...TITULO_MKT,marginBottom:12}}>{regra?"Editar automação":"Nova automação de comentários"}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Nome</div>
+      <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={60} placeholder="Ex.: Lançamento Horizon" style={campoMkt(isMobile)}/></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Em que rede</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button disabled={!temIg} onClick={()=>alternarRede("instagram")} style={{...pilula(redes.includes("instagram")),opacity:temIg?1:.5}}><LogoInstagram size={15}/>Instagram</button>
+        <button onClick={()=>alternarRede("facebook")} style={pilula(redes.includes("facebook"))}><LogoFacebook size={15}/>Facebook</button>
+      </div></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Quando o comentário tiver</div>
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:C.sub,marginBottom:6,minHeight:32}}>
+        <input type="checkbox" checked={qualquer} onChange={e=>setQualquer(e.target.checked)} style={{width:18,height:18}}/>Qualquer comentário</label>
+      {!qualquer&&<React.Fragment>
+        <input value={palavras} onChange={e=>setPalavras(e.target.value)} placeholder="eu quero, valor, info" style={campoMkt(isMobile)}/>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Separe por vírgula. Vale a palavra inteira, sem olhar maiúscula nem acento: “valor” acha “Qual o VALOR?”, não “valorizou”.</div>
+      </React.Fragment>}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Em que posts</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>setTodosPosts(true)} style={pilula(todosPosts)}>Todos os posts</button>
+        <button onClick={()=>setTodosPosts(false)} style={pilula(!todosPosts)}>Só posts escolhidos</button>
+      </div>
+      {!todosPosts&&<div style={{marginTop:8,maxHeight:260,overflowY:"auto",border:`1px solid ${C.line}`,borderRadius:10}}>
+        {!disponiveis&&<div style={{color:C.faint,fontSize:12,padding:10}}>Buscando os posts…</div>}
+        {disponiveis&&!doPost.length&&<div style={{color:C.faint,fontSize:12,padding:10}}>Nenhum post recente nessas redes.</div>}
+        {doPost.map(p=>{const on=posts.some(y=>y.id===p.id);
+          return <label key={p.rede+p.id} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${C.line}`,cursor:"pointer",minHeight:44}}>
+            <input type="checkbox" checked={on} onChange={()=>alternarPost(p)} style={{width:18,height:18,flexShrink:0}}/>
+            <LogoRede rede={p.rede} size={14}/>
+            {p.imagem&&<img src={p.imagem} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>}
+            <span style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{p.texto||"(sem texto)"}</span>
+          </label>;})}
+      </div>}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Resposta no comentário (pública)</div>
+      {respostas.map((t,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+        <input value={t} onChange={e=>setRespostas(x=>x.map((y,j)=>j===i?e.target.value:y))} maxLength={300} style={campoMkt(isMobile)}/>
+        <button onClick={()=>setRespostas(x=>x.filter((_,j)=>j!==i))} title="Tirar" style={{...botaoLeveMkt,padding:"0 12px"}}>×</button>
+      </div>)}
+      {respostas.length<5&&<button onClick={()=>setRespostas(x=>[...x,""])} style={{...botaoLeveMkt,minHeight:34}}>+ Outra variação</button>}
+      <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Cada comentário recebe uma das variações, ao acaso — a mesma frase repetida em todo comentário é o que faz a Meta tratar a página como robô. Deixe vazio para não responder em público.</div></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Mensagem no privado (direct / Messenger)</div>
+      <textarea ref={msgRef} value={mensagem} onChange={e=>setMensagem(e.target.value)} rows={4} maxLength={1000} style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+        <button onClick={()=>inserir("{nome}")} style={{...botaoLeveMkt,minHeight:32}}>Inserir nome</button>
+        <button onClick={()=>inserir("{whatsapp}")} style={{...botaoLeveMkt,minHeight:32}}>Inserir link do WhatsApp</button>
+      </div>
+      <div style={{color:whatsapp?C.faint:C.amber,fontSize:11.5,marginTop:4,lineHeight:1.45}}>
+        {whatsapp?<React.Fragment>O link vira {whatsapp}. </React.Fragment>:"Esta conta ainda não tem número de WhatsApp (o do site ou da conexão): o link sairia vazio. "}
+        A Meta deixa uma mensagem no privado por comentário, em até 7 dias.</div></div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={salvar} disabled={salvando} style={botaoMkt(!salvando)}>{salvando?"Salvando…":"Salvar"}</button>
+      <button onClick={aoCancelar} style={botaoLeveMkt}>Voltar</button>
+    </div>
   </div>;
 }
 
@@ -17558,7 +18112,12 @@ function Equipe({acoes,session,org,isMobile,versao}){
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
-  const [aba,setAba]=useState(()=>RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis");
+  const [aba,setAba]=useState(()=>{
+    // Outra tela pediu para abrir numa aba (Redes sociais → "conectar a página de novo").
+    const pedida=abaConfigPedida; abaConfigPedida=null;
+    if(pedida&&session&&podeGerir(session)) return pedida;
+    return RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis";
+  });
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
      nem aparece para os outros — botão que só devolve "não pode" é pior do que
