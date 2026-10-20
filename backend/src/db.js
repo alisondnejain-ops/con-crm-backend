@@ -1173,6 +1173,98 @@ db.exec(`CREATE TABLE IF NOT EXISTS meta_paginas (
   ultimo_erro_em INTEGER
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_org ON meta_paginas(org_id)");
+/* REDES SOCIAIS (20/10/2026): o Instagram profissional ligado à página e as
+   permissões que a pessoa concedeu ao conectar (lista separada por vírgula;
+   nulo = página conectada antes disso, ninguém sabe). */
+const metaPagCols = db.prepare("PRAGMA table_info(meta_paginas)").all().map(c => c.name);
+for (const [nome, ddl] of [["ig_id", "TEXT"], ["ig_usuario", "TEXT"], ["ig_foto", "TEXT"], ["ig_seguidores", "INTEGER"],
+  ["permissoes", "TEXT"], ["avisos_campos", "TEXT"], ["redes_atualizado_em", "INTEGER"]])
+  if (!metaPagCols.includes(nome)) db.exec(`ALTER TABLE meta_paginas ADD COLUMN ${nome} ${ddl}`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_ig ON meta_paginas(ig_id)");
+/* Posts programados. Um post vale para uma página e uma ou duas redes; cada
+   rede tem a própria linha em `redes_destinos`, com o próprio andamento —
+   o Instagram processa vídeo por minutos, o Facebook publica na hora, e um
+   pode falhar sem o outro. */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_posts (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  formato TEXT NOT NULL,
+  texto TEXT,
+  midias_json TEXT,
+  redes_json TEXT NOT NULL,
+  agendar_para INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_posts_org ON redes_posts(org_id, agendar_para)");
+db.exec(`CREATE TABLE IF NOT EXISTS redes_destinos (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  rede TEXT NOT NULL,
+  status TEXT NOT NULL,
+  etapa TEXT,
+  container_id TEXT,
+  filhos_json TEXT,
+  publicado_id TEXT,
+  link TEXT,
+  erro TEXT,
+  tentativas INTEGER DEFAULT 0,
+  proxima_em INTEGER,
+  iniciado_em INTEGER,
+  publicado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_fila ON redes_destinos(status, proxima_em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_post ON redes_destinos(post_id)");
+/* Seguidores anotados um por dia: a Meta não devolve a série antiga, então o
+   crescimento só existe a partir do dia em que o ConHub começou a anotar. */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_seguidores (
+  org_id TEXT NOT NULL, page_id TEXT NOT NULL, rede TEXT NOT NULL, dia TEXT NOT NULL, seguidores INTEGER,
+  PRIMARY KEY (org_id, page_id, rede, dia)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS redes_cache (
+  org_id TEXT NOT NULL, chave TEXT NOT NULL, json TEXT, em INTEGER,
+  PRIMARY KEY (org_id, chave)
+)`);
+/* AUTOMAÇÃO DE COMENTÁRIOS, estilo ManyChat (20/10/2026): quem comenta a
+   palavra num post recebe uma resposta pública e uma mensagem no privado.
+   `redes_comentarios` guarda cada comentário atendido (o id do comentário é a
+   chave: a Meta pode avisar duas vezes, e responder duas vezes seria o robô
+   aparecendo em público). */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_regras (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  redes_json TEXT NOT NULL,
+  posts_json TEXT,
+  palavras_json TEXT,
+  respostas_json TEXT,
+  mensagem_privada TEXT,
+  ativo INTEGER DEFAULT 1,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_regras_org ON redes_regras(org_id)");
+db.exec(`CREATE TABLE IF NOT EXISTS redes_comentarios (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  regra_id TEXT,
+  rede TEXT NOT NULL,
+  post_id TEXT,
+  autor TEXT,
+  palavra TEXT,
+  publica TEXT,
+  privada TEXT,
+  erro TEXT,
+  em INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_comentarios_regra ON redes_comentarios(regra_id, em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_comentarios_org ON redes_comentarios(org_id, em)");
 /* FORMULÁRIOS DA META E O FUNIL DE CADA UM (03/10/2026, pedido do Ali: "a
    opção de aplicar um determinado formulário a um funil específico"). Uma
    linha por formulário que a imobiliária configurou. `pipeline_id` nulo é

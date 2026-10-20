@@ -17,22 +17,45 @@ const TOKEN_ANTIGO = () => process.env.META_PAGE_ACCESS_TOKEN || "";
    aprovar: listar as páginas da pessoa, assinar a página nos avisos de lead e
    ler o lead. `business_management` é o que faz aparecer a página que está
    dentro de um Gerenciador de Negócios (o caso comum de imobiliária), e
-   `ads_read` é o que traz o NOME da campanha junto do lead. */
+   `ads_read` é o que traz o NOME da campanha junto do lead.
+
+   REDES SOCIAIS (20/10/2026): publicar e programar posts na página e no
+   Instagram ligado a ela, ler o engajamento e responder comentários
+   (automação estilo ManyChat). Cada uma precisa da própria aprovação na
+   análise do app. Pedir uma permissão que a Meta ainda não aprovou NÃO
+   atrapalha o login de quem não tem função no app: a janela simplesmente não
+   a oferece. O que a pessoa concedeu de fato fica gravado por página
+   (`meta_paginas.permissoes`), e a tela diz o que falta. */
+export const PERMISSOES_REDES = [
+  "pages_manage_posts", "read_insights", "pages_manage_engagement", "pages_messaging", "pages_read_user_content",
+  "instagram_basic", "instagram_content_publish", "instagram_manage_insights",
+  "instagram_manage_comments", "instagram_manage_messages",
+];
 export const PERMISSOES = (process.env.META_PERMISSOES ||
-  "pages_show_list,pages_read_engagement,pages_manage_metadata,leads_retrieval,business_management,ads_read")
+  ["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "leads_retrieval", "business_management", "ads_read",
+   ...PERMISSOES_REDES].join(","))
   .split(",").map(x => x.trim()).filter(Boolean);
 
 export const botaoConfigurado = () => !!(process.env.META_APP_ID && process.env.META_APP_SECRET);
 
-async function graph(caminho, { metodo = "GET", token, params = {} } = {}) {
+/* POST leva os parâmetros no CORPO (formulário): a legenda de um post tem
+   até 2.200 letras, e na URL ela passaria do tamanho que um servidor aceita. */
+export async function graph(caminho, { metodo = "GET", token, params = {} } = {}) {
   const u = new URL(`${GRAPH()}/${VERSION}/${caminho.replace(/^\//, "")}`);
-  for (const [k, v] of Object.entries(params)) if (v != null) u.searchParams.set(k, String(v));
+  const form = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v != null) {
+    const valor = typeof v === "object" ? JSON.stringify(v) : String(v);
+    if (metodo === "POST") form.set(k, valor); else u.searchParams.set(k, valor);
+  }
   if (token) u.searchParams.set("access_token", token);
-  const res = await fetch(u, { method: metodo, signal: AbortSignal.timeout(20000) });
+  const res = await fetch(u, { method: metodo, signal: AbortSignal.timeout(30000),
+    ...(metodo === "POST" ? { body: form, headers: { "Content-Type": "application/x-www-form-urlencoded" } } : {}) });
   const corpo = await res.json().catch(() => ({}));
   if (!res.ok || corpo.error) {
     const e = new Error(corpo.error?.message || `Meta respondeu ${res.status}`);
     e.codigo = corpo.error?.code;
+    e.subcodigo = corpo.error?.error_subcode;
+    e.titulo = corpo.error?.error_user_msg || corpo.error?.error_user_title || null;
     throw e;
   }
   return corpo;
@@ -79,9 +102,39 @@ export async function paginasDoUsuario(userToken) {
   return lista.filter(p => p.id && p.access_token).map(p => ({ id: String(p.id), nome: p.name || "", token: p.access_token }));
 }
 
-// Liga a página aos avisos de lead deste aplicativo. Sem isto a Meta não avisa nada.
-export const assinarPagina = (pageId, pageToken) =>
-  graph(`${pageId}/subscribed_apps`, { metodo: "POST", token: pageToken, params: { subscribed_fields: "leadgen" } });
+/* As permissões que a pessoa concedeu de fato na janela do Facebook. É o que
+   separa "a Meta ainda não aprovou" de "aprovou, mas a página foi conectada
+   antes" na tela das redes sociais. Falha aqui não impede a conexão. */
+export async function permissoesConcedidas(userToken) {
+  try {
+    const r = await graph("me/permissions", { token: userToken });
+    return (r.data || []).filter(p => p.status === "granted").map(p => String(p.permission));
+  } catch { return null; }
+}
+
+/* O Instagram profissional ligado à página. `null` quando a página não tem
+   Instagram ligado (ou a permissão não deixa ver). */
+export async function instagramDaPagina(pageId, pageToken) {
+  const r = await graph(String(pageId), { token: pageToken,
+    params: { fields: "instagram_business_account{id,username,profile_picture_url,followers_count}" } });
+  const ig = r.instagram_business_account;
+  return ig && ig.id ? { id: String(ig.id), usuario: ig.username || null, foto: ig.profile_picture_url || null,
+    seguidores: Number.isFinite(ig.followers_count) ? ig.followers_count : null } : null;
+}
+
+/* Liga a página aos avisos deste aplicativo: `leadgen` (lead de formulário)
+   e `feed` (comentários, para a automação de comentários). Se a Meta recusar
+   o `feed`, liga só o `leadgen` — a automação de comentários nunca pode custar
+   a entrada dos leads. Devolve os campos que ficaram ligados. */
+export async function assinarPagina(pageId, pageToken) {
+  try {
+    await graph(`${pageId}/subscribed_apps`, { metodo: "POST", token: pageToken, params: { subscribed_fields: "leadgen,feed" } });
+    return ["leadgen", "feed"];
+  } catch {
+    await graph(`${pageId}/subscribed_apps`, { metodo: "POST", token: pageToken, params: { subscribed_fields: "leadgen" } });
+    return ["leadgen"];
+  }
+}
 export const desassinarPagina = (pageId, pageToken) =>
   graph(`${pageId}/subscribed_apps`, { metodo: "DELETE", token: pageToken });
 
