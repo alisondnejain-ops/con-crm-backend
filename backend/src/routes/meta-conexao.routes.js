@@ -50,7 +50,16 @@ retorno.get("/retorno", async (req, res) => {
   const voltar = (q) => res.redirect(`${baseDe(req)}/app?${new URLSearchParams(q)}`);
   const st = verificarTokenCurto(req.query.state, ESCOPO);
   if (!st) return voltar({ meta: "erro", motivo: "A conexão demorou demais ou o link não é válido. Clique em Conectar de novo." });
-  if (req.query.error || !req.query.code) return voltar({ meta: "cancelado" });
+  /* Recusa de verdade (a pessoa clicou em cancelar) é "cancelado". Qualquer
+     outro erro que o Facebook devolve vai escrito: antes tudo virava
+     "cancelado", e um erro de permissão parecia desistência de quem clicou. */
+  if (req.query.error || !req.query.code) {
+    const motivo = String(req.query.error_description || req.query.error_reason || req.query.error || "").replace(/\+/g, " ").slice(0, 200);
+    if (!req.query.error || req.query.error_reason === "user_denied" || /denied|cancel/i.test(String(req.query.error)))
+      return voltar({ meta: "cancelado" });
+    console.warn("[meta] o Facebook devolveu erro na conexão:", motivo);
+    return voltar({ meta: "erro", motivo: "O Facebook recusou a conexão: " + motivo });
+  }
   try {
     const userToken = await trocarCodigo(String(req.query.code), retornoDe(req));
     const paginas = await paginasDoUsuario(userToken);

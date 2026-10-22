@@ -21,19 +21,26 @@ const TOKEN_ANTIGO = () => process.env.META_PAGE_ACCESS_TOKEN || "";
 
    REDES SOCIAIS (20/10/2026): publicar e programar posts na página e no
    Instagram ligado a ela, ler o engajamento e responder comentários
-   (automação estilo ManyChat). Cada uma precisa da própria aprovação na
-   análise do app. Pedir uma permissão que a Meta ainda não aprovou NÃO
-   atrapalha o login de quem não tem função no app: a janela simplesmente não
-   a oferece. O que a pessoa concedeu de fato fica gravado por página
-   (`meta_paginas.permissoes`), e a tela diz o que falta. */
+   (automação estilo ManyChat). O que a pessoa concedeu de fato fica gravado
+   por página (`meta_paginas.permissoes`), e a tela diz o que falta.
+
+   AS PERMISSÕES DAS REDES SÓ ENTRAM NO PEDIDO COM `META_PERMISSOES_REDES=1`
+   (22/10/2026, o Fernando desconectou a página da VJ e não conseguiu mais
+   conectar). A Meta não ignora em silêncio uma permissão que o app ainda não
+   tem: quem tem função no app (os sócios, que são justamente quem conecta)
+   recebe a janela "Escopos inválidos" e não passa dela — a conexão dos
+   anúncios, que funcionava, quebrou por causa de permissões que nem estavam
+   aprovadas. Liga-se no Railway depois que a Meta aprovar e o app tiver os
+   casos de uso do Instagram e do Messenger adicionados. */
 export const PERMISSOES_REDES = [
   "pages_manage_posts", "read_insights", "pages_manage_engagement", "pages_messaging", "pages_read_user_content",
   "instagram_basic", "instagram_content_publish", "instagram_manage_insights",
   "instagram_manage_comments", "instagram_manage_messages",
 ];
+const PERMISSOES_ANUNCIOS = ["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "leads_retrieval", "business_management", "ads_read"];
+export const redesNoPedido = () => process.env.META_PERMISSOES_REDES === "1";
 export const PERMISSOES = (process.env.META_PERMISSOES ||
-  ["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "leads_retrieval", "business_management", "ads_read",
-   ...PERMISSOES_REDES].join(","))
+  [...PERMISSOES_ANUNCIOS, ...(redesNoPedido() ? PERMISSOES_REDES : [])].join(","))
   .split(",").map(x => x.trim()).filter(Boolean);
 
 export const botaoConfigurado = () => !!(process.env.META_APP_ID && process.env.META_APP_SECRET);

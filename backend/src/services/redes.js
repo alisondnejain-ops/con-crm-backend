@@ -23,7 +23,7 @@
    falta, métrica que ela aposentou) vai como `null` e a tela escreve "—". */
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { graph, PERMISSOES_REDES } from "./meta.js";
+import { graph, PERMISSOES_REDES, redesNoPedido } from "./meta.js";
 import { abrir } from "./cofre.js";
 import { liberado } from "./marketing.js";
 
@@ -89,6 +89,8 @@ export function visaoGeral(orgId) {
   return {
     paginas,
     permissoes_redes: PERMISSOES_REDES,
+    // Falso enquanto o servidor não pede essas permissões ao conectar (META_PERMISSOES_REDES).
+    pedindo_redes: redesNoPedido(),
     contagens: { agendados: contar("agendado"), publicando: contar("publicando"), falharam: contar("falhou") + contar("parcial") },
   };
 }
