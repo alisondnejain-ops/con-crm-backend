@@ -64,6 +64,7 @@ O ConHub é um CRM de atendimento para imobiliárias e corretores autônomos: re
 
 ## Anúncios (Facebook/Instagram)
 - Configurações → Anúncios do Meta → "Continuar com o Facebook" e escolha a página. Os leads dos formulários passam a entrar sozinhos.
+- Desempenho dos anúncios (só gestor): em Configurações → Anúncios do Meta, escolha a "Conta de anúncios". Em Operação → Visão geral → Campanhas aparecem, lidos da Meta, investimento, impressões, alcance, cliques e leads de cada campanha, ao lado dos leads e vendas do CRM, com custo por lead e por venda. Os números ficam guardados 15 minutos ("Atualizar da Meta" lê de novo). A conexão do Facebook para estes números vence em cerca de 60 dias; vencida, conecte de novo (os leads continuam entrando).
 - Marketing → Formulários: em qual funil e catraca o lead de cada formulário nasce, e a ficha de produto que a IA usa com ele.
 
 ## Marketing e automações

@@ -94,7 +94,9 @@ export async function trocarCodigo(code, redirectUri) {
   const longo = await graph("oauth/access_token", { params: {
     grant_type: "fb_exchange_token", client_id: process.env.META_APP_ID,
     client_secret: process.env.META_APP_SECRET, fb_exchange_token: curto.access_token } });
-  return longo.access_token || curto.access_token;
+  // `expira` (ms) é do token de USUÁRIO, guardado para o desempenho dos anúncios.
+  const segs = Number(longo.expires_in || curto.expires_in) || 0;
+  return { token: longo.access_token || curto.access_token, expira: segs ? Date.now() + segs * 1000 : null };
 }
 
 export async function paginasDoUsuario(userToken) {

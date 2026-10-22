@@ -24,6 +24,10 @@ import {
   permissoesConcedidas, instagramDaPagina,
 } from "../services/meta.js";
 import { avisosDaMeta } from "./meta.webhook.js";
+import { resolverPeriodo } from "../services/painel.js";
+import {
+  guardarTokenDoUsuario, estado as estadoAnuncios, contasDeAnuncio, escolherConta, desligar as desligarAnuncios, desempenho, ErroAnuncios,
+} from "../services/anuncios-desempenho.js";
 import { listarFormularios, definirFunil, definirCatraca, ErroFormulario } from "../services/formularios.js";
 import { ligarFichaAoFormulario, ErroFicha } from "../services/ia-produtos.js";
 
@@ -61,10 +65,10 @@ retorno.get("/retorno", async (req, res) => {
     return voltar({ meta: "erro", motivo: "O Facebook recusou a conexão: " + motivo });
   }
   try {
-    const userToken = await trocarCodigo(String(req.query.code), retornoDe(req));
+    const { token: userToken, expira } = await trocarCodigo(String(req.query.code), retornoDe(req));
     const paginas = await paginasDoUsuario(userToken);
     const permissoes = await permissoesConcedidas(userToken);
-    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas, permissoes });
+    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas, permissoes, userToken, expira });
     voltar({ meta: "escolher", k: chave });
   } catch (e) {
     console.error("[meta] conectar com Facebook falhou:", e.message);
@@ -89,8 +93,23 @@ gestao.get("/", (req, res) => {
     paginas,
     permissoes: PERMISSOES,
     avisos: avisosDaMeta(paginas.map(p => p.page_id), !!req.user.master),
+    anuncios: estadoAnuncios(req.user.org_id),
   });
 });
+
+/* ===== Desempenho dos anúncios (22/10/2026) ===== */
+const trataAnuncios = (fn) => async (req, res) => {
+  try { res.json(await fn(req)); }
+  catch (e) {
+    if (e instanceof ErroAnuncios) return res.status(e.status).json({ error: e.message });
+    console.error("[anuncios]", e.message); res.status(500).json({ error: "Não consegui ler os anúncios agora." });
+  }
+};
+gestao.get("/contas-anuncio", trataAnuncios(async (req) => ({ contas: await contasDeAnuncio(req.user.org_id), estado: estadoAnuncios(req.user.org_id) })));
+gestao.post("/conta-anuncio", trataAnuncios((req) => escolherConta(req.user.org_id, req.body?.conta_id)));
+gestao.delete("/conta-anuncio", trataAnuncios((req) => { desligarAnuncios(req.user.org_id); return estadoAnuncios(req.user.org_id); }));
+gestao.get("/desempenho", trataAnuncios((req) => desempenho(req.user.org_id,
+  resolverPeriodo({ periodo: req.query.periodo, de: req.query.de, ate: req.query.ate }), { atualizar: req.query.atualizar === "1" })));
 
 /* Os formulários da página, com o funil próprio e as catracas de cada um —
    a lista que o editor da catraca e o gatilho de formulário dos fluxos
@@ -185,7 +204,12 @@ gestao.post("/escolha/:chave", async (req, res) => {
       resultado.push({ id, nome: p.nome, ok: false, erro: "O Facebook recusou ligar os avisos de lead desta página: " + String(err.message).slice(0, 160) });
     }
   }
-  if (resultado.some(r => r.ok)) escolhas.delete(String(req.params.chave));
+  if (resultado.some(r => r.ok)) {
+    // O token de usuário vai para o banco só agora, com a conexão feita de
+    // fato: é com ele que se leem os números da conta de anúncios.
+    guardarTokenDoUsuario(req.user.org_id, req.user.id, e.userToken, e.expira, e.permissoes);
+    escolhas.delete(String(req.params.chave));
+  }
   res.json({ resultado, paginas: listaDaConta(req.user.org_id) });
 });
 
