@@ -12276,10 +12276,13 @@ function RedesSociais({acoes,isMobile,irPara}){
           :<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoFacebook size={16}/>{pagina.nome}</span>}
         {pagina.instagram
           ?<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoInstagram size={16}/>@{pagina.instagram.usuario||pagina.instagram.id}</span>
-          :<span style={{fontSize:12.5,color:C.sub,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={16}/>Nenhum Instagram ligado a esta página</span>}
+          :<span style={{fontSize:12.5,color:C.sub,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={16}/>{pagina.instagram_sem_permissao?"Instagram aguardando liberação da Meta":"Nenhum Instagram ligado a esta página"}</span>}
         <button onClick={atualizarInstagram} disabled={atualizando} style={{...botaoLeveMkt,marginLeft:"auto",minHeight:36}}>{atualizando?"Atualizando…":"Atualizar"}</button>
       </div>
-      {!pagina.instagram&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+      {!pagina.instagram&&pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+        Para enxergar o Instagram ligado a esta página, o ConHub precisa de uma permissão da Meta (<b>instagram_basic</b>) que ainda está em análise.
+        Sem ela, a Meta não informa o Instagram — mesmo ele estando ligado. Quando a permissão for aprovada, conecte a página de novo e o Instagram aparece aqui.</div>}
+      {!pagina.instagram&&!pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
         Para publicar no Instagram, ele precisa ser uma conta <b>profissional</b> (comercial ou criador) ligada a esta página do Facebook.
         Ligue no app do Instagram (Configurações → Central de Contas) e clique em Atualizar.</div>}
       {faltamPublicar.length>0&&!d.pedindo_redes&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>

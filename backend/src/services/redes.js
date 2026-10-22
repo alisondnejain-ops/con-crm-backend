@@ -82,6 +82,11 @@ export function visaoGeral(orgId) {
       page_id: p.page_id, nome: p.nome, conectado_em: p.conectado_em,
       instagram: p.ig_id ? { id: p.ig_id, usuario: p.ig_usuario, foto: p.ig_foto, seguidores: p.ig_seguidores } : null,
       permissoes_conhecidas: !!p.permissoes,
+      /* Sem `instagram_basic` a Meta simplesmente não devolve o Instagram da
+         página — sem erro. "Nenhum Instagram ligado" seria afirmar o que não
+         se sabe; a tela diz que falta a permissão. Sem o servidor pedir as
+         permissões das redes, ela nunca vem. */
+      instagram_sem_permissao: !redesNoPedido() || (!!p.permissoes && !lista(p.permissoes).includes("instagram_basic")),
       faltam: Object.fromEntries(Object.keys(PRECISA).map(k => [k, faltando(p, k)])),
       comentarios_ligados: lista(p.avisos_campos).includes("feed"),
     }));
