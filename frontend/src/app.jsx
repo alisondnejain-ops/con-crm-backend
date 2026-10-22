@@ -1812,6 +1812,9 @@ function ConCRM(){
     escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
     conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
     desconectarPaginaMeta:(id)=>api(`/anuncios-meta/paginas/${encodeURIComponent(id)}`,{method:"DELETE"}),
+    contasDeAnuncio:()=>api("/anuncios-meta/contas-anuncio"),
+    escolherContaDeAnuncio:(conta_id)=>api("/anuncios-meta/conta-anuncio",{method:"POST",body:{conta_id}}),
+    desempenhoAnuncios:(f,atualizar)=>api("/anuncios-meta/desempenho?"+new URLSearchParams({...Object.fromEntries(["periodo","de","ate"].filter(k=>f&&f[k]).map(k=>[k,f[k]])),...(atualizar?{atualizar:"1"}:{})})),
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
     modeloDoSite:(modelo)=>api("/site/modelo",{method:"POST",body:{modelo}}),
@@ -8038,7 +8041,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             operacional, equipe e campanha. Fica ao lado de Relatórios e não
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
-        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} irPara={setView}/>}
         {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
@@ -18366,6 +18369,8 @@ function AnunciosDoMeta({acoes,isMobile}){
         </div>}
       </div>
 
+      {d.paginas.length>0&&<ContaDeAnuncios acoes={acoes} isMobile={isMobile} estado={d.anuncios} cartao={cartao} botaoFace={botaoFace}/>}
+
       <div style={{...cartao,background:C.surface}}>
         <button onClick={()=>setOutroJeito(v=>!v)} style={{border:"none",background:"transparent",padding:0,cursor:"pointer",
           display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600,width:"100%",textAlign:"left",minHeight:32}}>
@@ -18375,6 +18380,117 @@ function AnunciosDoMeta({acoes,isMobile}){
         {outroJeito&&<div style={{marginTop:12}}><PonteZapierMake acoes={acoes} isMobile={isMobile}/></div>}
       </div>
     </React.Fragment>}
+  </div>;
+}
+
+/* A conta de anúncios de onde vêm os números de desempenho (22/10/2026).
+   O Facebook conectado mostra as contas a que a pessoa tem acesso; escolhe-se
+   uma, e Operação → Visão geral → Campanhas passa a mostrar investimento,
+   alcance, cliques e o custo por lead e por venda. */
+function ContaDeAnuncios({acoes,isMobile,estado,cartao,botaoFace}){
+  const [est,setEst]=useState(estado||{conectado:false});
+  const [contas,setContas]=useState(null);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  useEffect(()=>{
+    if(!est.conectado) return;
+    acoes.contasDeAnuncio().then(r=>{setContas(r.contas);setEst(r.estado);}).catch(e=>setErro(e.message));
+  },[est.conectado]);
+  async function escolher(id){
+    setErro(""); setSalvando(true);
+    try{ setEst(await acoes.escolherContaDeAnuncio(id)); }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  return <div style={cartao}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Desempenho dos anúncios</div>
+    <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:12}}>
+      Escolha a conta de anúncios da imobiliária. O investimento, as impressões, o alcance, os cliques e os resultados de cada
+      campanha aparecem em <b>Operação → Visão geral → Campanhas</b>, ao lado dos leads e das vendas que ela trouxe. Só leitura:
+      o ConHub não cria nem altera anúncios.</div>
+    {!est.conectado&&<React.Fragment>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>
+        Para ler os números, conecte o Facebook de quem tem acesso à conta de anúncios e aceite a permissão de ler os anúncios.</div>
+      {botaoFace("Conectar o Facebook")}
+    </React.Fragment>}
+    {est.conectado&&<React.Fragment>
+      {est.vencido&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>
+        A conexão com o Facebook venceu (ela dura cerca de 60 dias). Conecte de novo para os números voltarem. Os leads continuam entrando.</div>}
+      {est.ultimo_erro&&!est.vencido&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>
+        Último problema ({dataHoraCurta(est.ultimo_erro_em)}): {est.ultimo_erro}</div>}
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+      {!contas&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Buscando as contas de anúncios…</div>}
+      {contas&&contas.length===0&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+        O Facebook conectado não tem acesso a nenhuma conta de anúncios. Conecte com o Facebook de quem administra os anúncios.</div>}
+      {contas&&contas.length>0&&<label style={{display:"block"}}>
+        <span style={{display:"block",color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Conta de anúncios</span>
+        <select value={est.conta?.id||""} disabled={salvando} onChange={e=>escolher(e.target.value)}
+          style={{width:"100%",maxWidth:isMobile?"100%":420,minHeight:40,borderRadius:10,border:`1px solid ${C.line}`,padding:"0 10px",fontSize:13,background:C.card,color:C.ink}}>
+          <option value="">— nenhuma —</option>
+          {contas.map(c=><option key={c.id} value={c.id}>{c.nome}{c.empresa?` · ${c.empresa}`:""}{c.status&&c.status!=="ativa"?` (${c.status})`:""}</option>)}
+        </select>
+      </label>}
+      {est.conta&&<div style={{color:C.greenDeep,fontSize:12,marginTop:8}}>✓ Lendo os números de <b>{est.conta.nome}</b>.</div>}
+    </React.Fragment>}
+  </div>;
+}
+
+/* Os números dos anúncios, ao vivo da Meta, no topo da aba Campanhas
+   (22/10/2026). Investimento, impressões, alcance, cliques e resultados vêm da
+   conta de anúncios; leads e vendas são do CRM, pela mesma campanha — é o que
+   dá o custo por lead e o custo por venda. */
+function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [lendo,setLendo]=useState(false);
+  const ler=(atualizar)=>{
+    setLendo(true); setErro("");
+    acoes.desempenhoAnuncios(f,atualizar).then(setD).catch(e=>{setD(null);setErro(e.message);}).finally(()=>setLendo(false));
+  };
+  useEffect(()=>{ler(false);},[JSON.stringify([f.periodo,f.de,f.ate])]);
+  const moeda=d?.conta?.moeda||"BRL";
+  const dinheiro=(v)=>v==null?"—":v.toLocaleString("pt-BR",{style:"currency",currency:moeda,maximumFractionDigits:2});
+  const inteiro=(v)=>v==null?"—":Math.round(v).toLocaleString("pt-BR");
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const irConfig=()=>{abaConfigPedida="anuncios";irPara&&irPara("config");};
+  if(erro) return <div style={cartao}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>{erro}</div>
+    {irPara&&<button onClick={irConfig} style={{marginTop:9,border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir Anúncios do Meta</button>}
+  </div>;
+  if(!d) return <div style={{...cartao,color:C.faint,fontSize:12.5}}>Lendo os anúncios na Meta…</div>;
+  const t=d.total;
+  const metricas=[["Investimento",dinheiro(t.investimento)],["Impressões",inteiro(t.impressoes)],["Alcance",inteiro(t.alcance)],
+    ["Cliques",inteiro(t.cliques)],["Leads (Meta)",inteiro(t.leads_meta)],["Leads no CRM",inteiro(t.leads_crm)],
+    ["Custo por lead",dinheiro(t.custo_por_lead)],["Vendas",inteiro(t.vendas)],["Custo por venda",dinheiro(t.custo_por_venda)]];
+  return <div style={cartao}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:7,flex:"1 1 auto"}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
+      <button onClick={()=>ler(true)} disabled={lendo} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:34,padding:"0 12px",background:C.card,color:C.sub,fontSize:12,cursor:lendo?"default":"pointer"}}>
+        {lendo?"Lendo…":"Atualizar da Meta"}</button>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:12,lineHeight:1.5}}>
+      Conta <b>{d.conta.nome}</b> · {d.periodo.since.split("-").reverse().join("/")} a {d.periodo.until.split("-").reverse().join("/")} ·
+      lido da Meta às {new Date(d.lido_em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:14}}>
+      {metricas.map(([r,v])=><div key={r} style={{background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+        <div style={{color:C.faint,fontSize:11}}>{r}</div>
+        <div style={{color:C.ink,fontFamily:MONO,fontSize:15,fontWeight:700,marginTop:2,overflowWrap:"anywhere"}}>{v}</div>
+      </div>)}
+    </div>
+    {d.campanhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma campanha com veiculação neste período.</div>:
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+        <thead><tr style={{color:C.faint,textAlign:"left"}}>
+          {["Campanha","Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Vendas","Custo/venda"].map(h=>
+            <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
+        </tr></thead>
+        <tbody>{d.campanhas.map(c=><tr key={c.campaign_id||c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
+          <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}</td>
+          {[dinheiro(c.investimento),inteiro(c.impressoes),inteiro(c.alcance),inteiro(c.cliques),inteiro(c.leads_meta),inteiro(c.leads_crm),
+            dinheiro(c.custo_por_lead),inteiro(c.vendas),dinheiro(c.custo_por_venda)].map((v,i)=>
+            <td key={i} style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.sub}}>{v}</td>)}
+        </tr>)}</tbody>
+      </table>
+    </div>}
+    <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
+      Investimento, impressões, alcance, cliques e leads (Meta) vêm da conta de anúncios. Leads no CRM e vendas são os que
+      entraram no período por aquela campanha; o custo por lead e por venda divide o investimento por eles.</div>
   </div>;
 }
 
@@ -19559,7 +19675,7 @@ function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConvers
   </div>;
 }
 
-function PainelGestao({acoes,session,isMobile,abrirConversa}){
+function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
   const [f,setF]=usarFiltrosComPeriodo("painel.filtros");
   const tick=usarAtualizacao();
   const [d,setD]=useState(null);
@@ -19732,6 +19848,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
         </div>}
 
         {/* ===== CAMPANHAS ===== */}
+        {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
         {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
           {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
