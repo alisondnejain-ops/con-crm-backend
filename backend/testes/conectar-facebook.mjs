@@ -158,13 +158,21 @@ try {
   assert.match(u1.searchParams.get("redirect_uri"), /\/conectar-facebook\/retorno$/);
   assert.match(u1.searchParams.get("scope"), /leads_retrieval/);
   assert.match(u1.searchParams.get("scope"), /pages_manage_metadata/);
+  assert.match(u1.searchParams.get("scope"), /ads_read/);
+  // Sem META_PERMISSOES_REDES=1, as permissões das redes sociais não vão no pedido:
+  // a Meta mostra "escopos inválidos" a quem tem função no app e a conexão não passa.
+  assert.doesNotMatch(u1.searchParams.get("scope"), /instagram_|pages_manage_posts|pages_messaging/);
 
   caso("Retorno com state inventado ou cancelado não conecta nada e explica");
   r = await retorno({ code: "bom", state: "inventado" });
   assert.equal(r.q.meta, "erro");
   assert.match(r.q.motivo, /Conectar de novo/);
-  r = await retorno({ error: "access_denied", state: c1.state });
+  r = await retorno({ error: "access_denied", error_reason: "user_denied", state: c1.state });
   assert.equal(r.q.meta, "cancelado");
+  // Erro do Facebook que não é desistência vai escrito, não como "cancelado".
+  r = await retorno({ error: "invalid_scope", error_description: "Invalid Scopes: instagram_basic", state: c1.state });
+  assert.equal(r.q.meta, "erro");
+  assert.match(r.q.motivo, /Invalid Scopes: instagram_basic/);
   r = await retorno({ code: "ruim", state: c1.state });
   assert.equal(r.q.meta, "erro");
 

@@ -12282,7 +12282,9 @@ function RedesSociais({acoes,isMobile,irPara}){
       {!pagina.instagram&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
         Para publicar no Instagram, ele precisa ser uma conta <b>profissional</b> (comercial ou criador) ligada a esta página do Facebook.
         Ligue no app do Instagram (Configurações → Central de Contas) e clique em Atualizar.</div>}
-      {faltamPublicar.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+      {faltamPublicar.length>0&&!d.pedindo_redes&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+        A publicação e as respostas automáticas ainda estão sendo liberadas pela Meta para o ConHub. Enquanto isso, a conexão da página continua servindo aos anúncios normalmente.</div>}
+      {faltamPublicar.length>0&&d.pedindo_redes&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
         A Meta ainda não deu ao ConHub permissão para: <b>{descreverPermissoes(faltamPublicar)}</b>.
         Se a permissão já foi aprovada na análise do app, <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>conecte a página de novo</button> para ela valer.</div>}
       {!pagina.permissoes_conhecidas&&<div style={{background:C.surface,color:C.sub,fontSize:12,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>

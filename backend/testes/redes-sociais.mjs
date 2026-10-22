@@ -99,7 +99,7 @@ await new Promise((r) => meta.listen(PORTA_META, "127.0.0.1", r));
 
 const servidor = spawn(process.execPath, [path.join(aqui, "..", "src", "server.js")], {
   env: { ...process.env, PORT: String(PORTA), JWT_SECRET: "teste", ADM_CODE: "CONECTA-JAZ-2026", APP_URL: `http://127.0.0.1:${PORTA}`,
-    META_APP_ID: "app1", META_APP_SECRET: SEGREDO, REDES_AGENDADOR: "0", MARKETING_AGENDADOR: "0", UAZAPI_AUTOCONFIGURAR: "0" },
+    META_APP_ID: "app1", META_APP_SECRET: SEGREDO, META_PERMISSOES_REDES: "1", REDES_AGENDADOR: "0", MARKETING_AGENDADOR: "0", UAZAPI_AUTOCONFIGURAR: "0" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let saida = "";
