@@ -9,6 +9,7 @@
 //   sessao          SessionStart     → contexto do projeto + preferências
 //   prompt          UserPromptSubmit → notas relacionadas ao pedido, de todos os projetos
 //   registrar       Stop             → diário da execução + pede ao Claude o registro do aprendizado
+//                                      (execução = alterou arquivos OU pesquisou na internet)
 //   salvar          (o Claude/Codex chama) JSON no stdin, ou --arquivo x.json
 //   buscar <texto>  busca manual (o Codex usa no começo da tarefa)
 //   contexto [dir]  o mesmo contexto do "sessao", em texto (Codex)
@@ -35,7 +36,15 @@ export const TIPOS = {
   stack:       { pasta: "05 Stack",        rotulo: "Stack",       emoji: "💠" },
   aprendizado: { pasta: "06 Aprendizados", rotulo: "Aprendizado", emoji: "🟡" },
   sessao:      { pasta: "07 Sessões",      rotulo: "Sessão",      emoji: "⚪" },
+  pesquisa:    { pasta: "08 Pesquisas",    rotulo: "Pesquisa",    emoji: "🔍" },
 };
+// Ferramentas de pesquisa na internet do Claude Code. Pesquisa conta como execução:
+// é o que o usuário mais repete, e uma resposta de pesquisa some com a conversa.
+const PESQUISA_BUSCA = /^(WebSearch|web_search)$|web_?search/i;
+const PESQUISA_PAGINA = /^(WebFetch|web_fetch)$|web_?fetch/i;
+// Pasta temporária que o app do Claude cria para conversa sem projeto ("scratch-2026-10-16-efcf71").
+// Sem isto, cada conversa assim virava um "projeto" com nome aleatório.
+const PASTA_AVULSA = /^scratch-\d{4}-\d{2}-\d{2}/i;
 const PASTA_SISTEMA = "99 Sistema";
 const INDICE = "00 Índice.md";
 
@@ -187,6 +196,7 @@ function raizDoProjeto(cwd) {
 export function projetoDe(cwd) {
   const r = raizDoProjeto(cwd);
   if (dentroDoCofre(r) || r === os.homedir() || r === path.parse(r).root) return null;
+  if (PASTA_AVULSA.test(path.basename(r))) return { nome: "Geral", raiz: null };
   const caminho = r.replace(/\\/g, "/");
   const pasta = path.join(COFRE, TIPOS.projeto.pasta);
   try {
@@ -297,9 +307,13 @@ export function contextoDaSessao(cwd) {
   const padroes = notas.filter((n) => n.tipo === "padrao").sort((a, b) => b.mtime - a.mtime).slice(0, 10);
   if (padroes.length) partes.push("## Padrões registrados (todos os projetos)\n" + padroes.map((n) => `- ${n.titulo}: ${trecho(n, 140)}`).join("\n"));
 
+  const pesquisas = notas.filter((n) => n.tipo === "pesquisa").sort((a, b) => b.mtime - a.mtime).slice(0, 10);
+  if (pesquisas.length) partes.push("## Pesquisas já feitas (consulte antes de pesquisar de novo)\n" + pesquisas.map((n) => `- ${n.titulo}: ${trecho(n, 140)}`).join("\n"));
+
   partes.push(`## Como o cérebro funciona aqui
 - A cada pedido, notas relacionadas de qualquer projeto chegam sozinhas no contexto. Para procurar mais: node "${SCRIPT}" buscar <termos>
-- Ao final de cada execução com alterações, um aviso automático pede o registro do que foi aprendido. Nunca peça ao usuário para buscar ou registrar.
+- Antes de pesquisar na internet, confira se o tema já está em 08 Pesquisas: se estiver, parta dela e só complete o que falta ou mudou.
+- Ao final de cada execução com alterações ou pesquisa na internet, um aviso automático pede o registro do que foi aprendido. Nunca peça ao usuário para buscar ou registrar.
 - Se uma nota contradiz o pedido atual, o pedido atual vence — e a mudança deve ser registrada.`);
   return partes.join("\n\n");
 }
@@ -317,7 +331,7 @@ function limparPedido(s) {
     .trim();
 }
 export function analisarTranscricao(arquivo) {
-  const r = { pedido: "", arquivos: [], executou: false, jaSalvou: false };
+  const r = { pedido: "", arquivos: [], executou: false, jaSalvou: false, pesquisou: false, buscas: [], paginas: [] };
   let linhas = [];
   try { linhas = fs.readFileSync(arquivo, "utf8").split("\n"); } catch { return r; }
   const eventos = [];
@@ -341,6 +355,16 @@ export function analisarTranscricao(arquivo) {
     for (const b of e.message.content) {
       if (b?.type !== "tool_use") continue;
       const inp = b.input || {};
+      if (PESQUISA_BUSCA.test(b.name || "")) {
+        r.pesquisou = true;
+        if (inp.query) r.buscas.push(corta(inp.query, 120));
+        continue;
+      }
+      if (PESQUISA_PAGINA.test(b.name || "")) {
+        r.pesquisou = true;
+        if (inp.url) r.paginas.push(String(inp.url).slice(0, 300));
+        continue;
+      }
       if (["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(b.name)) {
         const f = inp.file_path || inp.notebook_path;
         if (f && !dentroDoCofre(f)) { arquivos.add(f); r.executou = true; }
@@ -352,11 +376,13 @@ export function analisarTranscricao(arquivo) {
     }
   }
   r.arquivos = [...arquivos];
+  r.buscas = [...new Set(r.buscas)];
+  r.paginas = [...new Set(r.paginas)];
   return r;
 }
 
 // ------------------------------------------------------------------ diário
-export function registrarNoDiario({ ferramenta, projeto, pedido, arquivos = [], resumo }) {
+export function registrarNoDiario({ ferramenta, projeto, pedido, arquivos = [], resumo, buscas = [] }) {
   const abs = path.join(COFRE, TIPOS.sessao.pasta, `${hoje()}.md`);
   if (!fs.existsSync(abs)) {
     escreverNota(abs, { tipo: "sessao", tags: ["sessao"], data: hoje() }, `# Sessões de ${hoje()}\n\nDiário automático de tudo que foi executado neste dia, em qualquer projeto.\n`);
@@ -369,6 +395,7 @@ export function registrarNoDiario({ ferramenta, projeto, pedido, arquivos = [], 
   let bloco = `\n### ${hora()} · ${ferramenta}${projeto ? ` · [[${projeto.nome}]]` : ""}\n`;
   bloco += `- **Pedido:** ${corta(pedido, 300) || "—"}\n`;
   if (rels.length) bloco += `- **Arquivos:** ${rels.map((x) => "`" + x + "`").join(", ")}${arquivos.length > 15 ? ` e mais ${arquivos.length - 15}` : ""}\n`;
+  if (buscas.length) bloco += `- **Pesquisou:** ${buscas.slice(0, 8).map((x) => `“${x}”`).join(", ")}${buscas.length > 8 ? ` e mais ${buscas.length - 8}` : ""}\n`;
   if (resumo) bloco += `- **Resultado:** ${corta(resumo, 400)}\n`;
   fs.appendFileSync(abs, bloco, "utf8");
 }
@@ -444,20 +471,34 @@ export function reindexar() {
 }
 
 // ------------------------------------------------------------- instrução
-function instrucaoDeRegistro(projNome) {
+function instrucaoDeRegistro(projNome, t = {}) {
+  const exemplos = [];
+  if (t.pesquisou) exemplos.push(`  {"tipo":"pesquisa","titulo":"Tema da pesquisa, curto e sem data","resumo":"a conclusão em uma linha","tags":["tema"],"conteudo":"## Pergunta\\n...\\n## O que encontrei\\n- ...\\n## Conclusão\\n...\\n## Fontes\\n- https://..."}`);
+  if (t.executou || !t.pesquisou) exemplos.push(`  {"tipo":"decisao","titulo":"Título curto e reutilizável","resumo":"uma linha","tags":["tema"],"conteudo":"markdown curto: contexto, o que foi decidido, por quê"}`);
+
+  const pesquisa = t.pesquisou ? `
+ESTA EXECUÇÃO PESQUISOU NA INTERNET${t.buscas?.length ? ` (buscas: ${t.buscas.slice(0, 6).map((x) => `“${x}”`).join(", ")})` : ""}. Registre a pesquisa como um item "pesquisa", para o usuário nunca precisar pedir a mesma pesquisa de novo:
+- titulo: o TEMA, curto e reutilizável, sem data (mesmo tema já pesquisado = mesmo título, e a nota é atualizada);
+- resumo: a conclusão em uma linha;
+- conteudo: a pergunta, o que foi encontrado (fatos, números, datas, nomes, preços), a conclusão/recomendação e "## Fontes" com os links realmente usados${t.paginas?.length ? ` (páginas abertas: ${t.paginas.slice(0, 8).join(" ")})` : ""}.
+Escreva o suficiente para a nota responder sozinha, sem reabrir as fontes. Só deixe de registrar se a pesquisa não achou nada útil.
+` : "";
+
   return `🧠 REGISTRO AUTOMÁTICO NO SEGUNDO CÉREBRO (obrigatório; não pergunte nada ao usuário).
-Antes de encerrar, salve o que esta execução ensinou e que vai servir em tarefas FUTURAS, em qualquer projeto:
+${pesquisa}${t.executou ? `
+Salve também o que esta execução ensinou e que vai servir em tarefas FUTURAS, em qualquer projeto:
 decisões (com o porquê), padrões de código/arquitetura, preferências do usuário, stack/ferramentas/configuração, aprendizados (bugs, armadilhas e a solução).
-Nada de óbvio nem de detalhe passageiro. Prefira atualizar uma nota existente (mesmo título = atualiza). Se nada novo foi aprendido, rode o comando com "itens": [].
+Nada de óbvio nem de detalhe passageiro. Prefira atualizar uma nota existente (mesmo título = atualiza).
+` : ""}Se nada novo foi aprendido, rode o comando com "itens": [].
 Rode exatamente (um único comando):
 
 node "${SCRIPT}" salvar <<'EOF'
 {"projeto":"${projNome}","itens":[
-  {"tipo":"decisao","titulo":"Título curto e reutilizável","resumo":"uma linha","tags":["tema"],"conteudo":"markdown curto: contexto, o que foi decidido, por quê"}
+${exemplos.join(",\n")}
 ]}
 EOF
 
-Tipos: projeto (resumo/stack/estado do projeto atual), decisao, padrao, preferencia, stack, aprendizado.
+Tipos: pesquisa, projeto (resumo/stack/estado do projeto atual), decisao, padrao, preferencia, stack, aprendizado.
 Depois, encerre a resposta normalmente, sem comentar o registro.`;
 }
 
@@ -490,13 +531,13 @@ function main() {
     try {
       if (e.stop_hook_active) return;               // já pedimos nesta volta: não entra em laço
       const t = analisarTranscricao(e.transcript_path);
-      if (!t.executou) return;                       // conversa sem execução não vira registro
+      if (!t.executou && !t.pesquisou) return;       // conversa sem execução nem pesquisa não vira registro
       const proj = projetoDe(e.cwd);
       if (proj) garantirProjeto(proj);
-      registrarNoDiario({ ferramenta: "Claude Code", projeto: proj, pedido: t.pedido, arquivos: t.arquivos });
+      registrarNoDiario({ ferramenta: "Claude Code", projeto: proj, pedido: t.pedido, arquivos: t.arquivos, buscas: t.buscas });
       reindexar();
       if (t.jaSalvou) return;
-      process.stdout.write(JSON.stringify({ decision: "block", reason: instrucaoDeRegistro(proj?.nome || "Geral") }));
+      process.stdout.write(JSON.stringify({ decision: "block", reason: instrucaoDeRegistro(proj?.nome || "Geral", t) }));
     } catch { /* nunca falha */ }
     return;
   }

@@ -25,7 +25,7 @@ const HOME = os.homedir();
 const fwd = (p) => p.replace(/\\/g, "/");
 const INICIO = "<!-- segundo-cerebro:inicio -->";
 const FIM = "<!-- segundo-cerebro:fim -->";
-const PASTAS = ["01 Projetos", "02 Decisões", "03 Padrões", "04 Preferências", "05 Stack", "06 Aprendizados", "07 Sessões", "99 Sistema/scripts", "99 Sistema/Modelos"];
+const PASTAS = ["01 Projetos", "02 Decisões", "03 Padrões", "04 Preferências", "05 Stack", "06 Aprendizados", "07 Sessões", "08 Pesquisas", "99 Sistema/scripts", "99 Sistema/Modelos"];
 
 const ok = (m) => console.log(`  ✔ ${m}`);
 const aviso = (m) => console.log(`  ⚠ ${m}`);
@@ -101,6 +101,8 @@ function copiarSemSobrescrever(origem, destino) {
 function prepararCofre(cofre) {
   for (const p of PASTAS) fs.mkdirSync(path.join(cofre, p), { recursive: true });
   copiarSemSobrescrever(path.join(AQUI, "semente"), cofre);
+  // "Como funciona" é o manual do sistema: acompanha a versão instalada
+  fs.copyFileSync(path.join(AQUI, "semente", "99 Sistema", "Como funciona.md"), path.join(cofre, "99 Sistema", "Como funciona.md"));
   const script = path.join(cofre, "99 Sistema", "scripts", "cerebro.mjs");
   fs.copyFileSync(path.join(AQUI, "cerebro.mjs"), script);
   ok("pastas, notas iniciais, modelos e script no cofre");
@@ -117,6 +119,7 @@ const GRUPOS = [
   ['path:"05 Stack"', "#22c1c3"],
   ['path:"06 Aprendizados"', "#e6b800"],
   ['path:"07 Sessões"', "#8a94a6"],
+  ['path:"08 Pesquisas"', "#e05bd0"],
   ['file:"00 Índice"', "#ff5c8a"],
 ];
 function configurarObsidian(cofre) {
@@ -194,6 +197,7 @@ function configurarClaude(cofre, script) {
 ## 🧠 Segundo cérebro (Obsidian) — automático em TODO projeto
 - Cofre: \`${fwd(cofre)}\`. É a memória de longo prazo de todos os projetos deste computador: decisões, padrões, preferências, stack e aprendizados.
 - Hooks deste computador já fazem o trabalho: no começo da sessão chegam o projeto, as preferências e os padrões; a cada pedido chegam as notas relacionadas de qualquer projeto; ao final de cada execução chega o pedido de registro. Siga esses avisos sem perguntar ao usuário.
+- Pesquisa na internet também é registrada sozinha, em \`08 Pesquisas\`. Antes de pesquisar, confira se o tema já está lá e parta da nota.
 - Antes de propor uma solução, aproveite o que o cérebro já sabe (preferências e padrões valem em qualquer projeto). Se uma nota contradiz o pedido atual, o pedido vence — e registre a mudança.
 - Para procurar mais: \`node "${fwd(script)}" buscar <termos>\`.
 - Nunca peça ao usuário para buscar ou registrar no cérebro: é automático.`);
@@ -211,9 +215,9 @@ Cofre: \`${fwd(cofre)}\` — memória de longo prazo de todos os projetos deste 
    - \`node "${fwd(script)}" contexto\` (projeto atual, preferências e padrões);
    - \`node "${fwd(script)}" buscar <3 a 8 palavras-chave do pedido>\` (notas relacionadas de qualquer projeto).
    Siga as preferências e padrões encontrados e reaproveite decisões. Se algo contradiz o pedido atual, o pedido vence.
-2. **Ao terminar qualquer execução que alterou arquivos**, antes da resposta final, registre o que foi aprendido e vale para o futuro (decisões com o porquê, padrões, preferências do usuário, stack, aprendizados/bugs). Grave um JSON num arquivo temporário e rode:
+2. **Ao terminar qualquer execução que alterou arquivos ou pesquisou na internet**, antes da resposta final, registre o que foi aprendido e vale para o futuro (decisões com o porquê, padrões, preferências do usuário, stack, aprendizados/bugs; e cada pesquisa como tipo "pesquisa", com conclusão e links). Grave um JSON num arquivo temporário e rode:
    \`node "${fwd(script)}" salvar --codex --arquivo <arquivo.json>\`
-   Formato: \`{"projeto":"<nome da pasta do projeto>","itens":[{"tipo":"decisao|padrao|preferencia|stack|aprendizado|projeto","titulo":"curto e reutilizável","resumo":"uma linha","tags":["tema"],"conteudo":"markdown curto"}]}\`
+   Formato: \`{"projeto":"<nome da pasta do projeto>","itens":[{"tipo":"pesquisa|decisao|padrao|preferencia|stack|aprendizado|projeto","titulo":"curto e reutilizável","resumo":"uma linha","tags":["tema"],"conteudo":"markdown curto"}]}\`
    Mesmo título atualiza a nota existente. Sem nada novo, use "itens": [].
 3. Nunca peça ao usuário para buscar ou registrar no cérebro, e não comente o registro na resposta.`);
   ok("Codex: instruções globais em ~/.codex/AGENTS.md");

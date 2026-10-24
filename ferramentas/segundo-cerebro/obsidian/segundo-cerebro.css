@@ -10,6 +10,7 @@ body {
   --sc-stack: #22c1c3;
   --sc-aprendizado: #e6b800;
   --sc-sessao: #8a94a6;
+  --sc-pesquisa: #e05bd0;
   --sc-sistema: #6b7280;
   --sc-indice: #ff5c8a;
 }
@@ -22,6 +23,7 @@ body {
 .nav-folder-title[data-path="05 Stack"]        { color: var(--sc-stack); font-weight: 600; }
 .nav-folder-title[data-path="06 Aprendizados"] { color: var(--sc-aprendizado); font-weight: 600; }
 .nav-folder-title[data-path="07 Sessões"]      { color: var(--sc-sessao); font-weight: 600; }
+.nav-folder-title[data-path="08 Pesquisas"]    { color: var(--sc-pesquisa); font-weight: 600; }
 .nav-folder-title[data-path="99 Sistema"]      { color: var(--sc-sistema); opacity: .8; }
 .nav-file-title[data-path="00 Índice.md"]      { color: var(--sc-indice); font-weight: 700; }
 
@@ -32,6 +34,7 @@ body {
 .nav-file-title[data-path^="05 Stack/"]        { border-left: 3px solid var(--sc-stack); }
 .nav-file-title[data-path^="06 Aprendizados/"] { border-left: 3px solid var(--sc-aprendizado); }
 .nav-file-title[data-path^="07 Sessões/"]      { border-left: 3px solid var(--sc-sessao); }
+.nav-file-title[data-path^="08 Pesquisas/"]    { border-left: 3px solid var(--sc-pesquisa); }
 
 /* ---------- Tags (modo leitura e edição) ---------- */
 .tag[href="#projeto"],     .cm-hashtag.cm-tag-projeto     { background: color-mix(in srgb, var(--sc-projeto) 20%, transparent);     color: var(--sc-projeto); }
@@ -41,6 +44,7 @@ body {
 .tag[href="#stack"],       .cm-hashtag.cm-tag-stack       { background: color-mix(in srgb, var(--sc-stack) 20%, transparent);       color: var(--sc-stack); }
 .tag[href="#aprendizado"], .cm-hashtag.cm-tag-aprendizado { background: color-mix(in srgb, var(--sc-aprendizado) 20%, transparent); color: var(--sc-aprendizado); }
 .tag[href="#sessao"],      .cm-hashtag.cm-tag-sessao      { background: color-mix(in srgb, var(--sc-sessao) 20%, transparent);      color: var(--sc-sessao); }
+.tag[href="#pesquisa"],    .cm-hashtag.cm-tag-pesquisa    { background: color-mix(in srgb, var(--sc-pesquisa) 20%, transparent);    color: var(--sc-pesquisa); }
 
 /* Propriedades (frontmatter): a tag do tipo também ganha a cor */
 .multi-select-pill[data-value="projeto"]     { background: color-mix(in srgb, var(--sc-projeto) 22%, transparent); }
@@ -49,6 +53,7 @@ body {
 .multi-select-pill[data-value="preferencia"] { background: color-mix(in srgb, var(--sc-preferencia) 22%, transparent); }
 .multi-select-pill[data-value="stack"]       { background: color-mix(in srgb, var(--sc-stack) 22%, transparent); }
 .multi-select-pill[data-value="aprendizado"] { background: color-mix(in srgb, var(--sc-aprendizado) 22%, transparent); }
+.multi-select-pill[data-value="pesquisa"]    { background: color-mix(in srgb, var(--sc-pesquisa) 22%, transparent); }
 
 /* ---------- Índice ---------- */
 .cerebro-indice h1 { color: var(--sc-indice); }
@@ -60,3 +65,4 @@ body {
 .cerebro-indice h2:nth-of-type(5) { color: var(--sc-stack); }
 .cerebro-indice h2:nth-of-type(6) { color: var(--sc-aprendizado); }
 .cerebro-indice h2:nth-of-type(7) { color: var(--sc-sessao); }
+.cerebro-indice h2:nth-of-type(8) { color: var(--sc-pesquisa); }
