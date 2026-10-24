@@ -69,7 +69,7 @@ function alvo(orgId, canalId) {
   return { canal, host: limpar(o.uazapi_host), token: String(o.uazapi_token || "") };
 }
 
-async function pedir(host, token, metodo, corpo) {
+export async function pedir(host, token, metodo, corpo) {
   let res;
   try {
     res = await fetch(`${host}/webhook`, {
@@ -94,7 +94,7 @@ async function pedir(host, token, metodo, corpo) {
 }
 
 // A Uazapi devolve uma lista; aceita também objeto único e { webhooks: [...] }.
-function lista(data) {
+export function lista(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data.filter(Boolean);
   if (Array.isArray(data.webhooks)) return data.webhooks.filter(Boolean);
