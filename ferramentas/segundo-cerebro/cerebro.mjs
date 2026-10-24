@@ -37,6 +37,7 @@ export const TIPOS = {
   aprendizado: { pasta: "06 Aprendizados", rotulo: "Aprendizado", emoji: "🟡" },
   sessao:      { pasta: "07 Sessões",      rotulo: "Sessão",      emoji: "⚪" },
   pesquisa:    { pasta: "08 Pesquisas",    rotulo: "Pesquisa",    emoji: "🔍" },
+  conversa:    { pasta: "09 Conversas",    rotulo: "Conversa",    emoji: "💬" },
 };
 // Ferramentas de pesquisa na internet do Claude Code. Pesquisa conta como execução:
 // é o que o usuário mais repete, e uma resposta de pesquisa some com a conversa.
@@ -267,6 +268,7 @@ export function buscar(texto, { projeto, limite = 5, minimo = 3 } = {}) {
     if (!pontos) continue;
     pontos *= 1 + Math.min(casou - 1, 4) * 0.25; // vários termos diferentes valem mais que um repetido
     if (n.tipo === "sessao") pontos *= 0.5;      // o diário é bruto; nota consolidada vale mais
+    if (n.tipo === "conversa") pontos *= 0.6;    // conversa importada é longa e bruta: casa com tudo um pouco
     if (projeto && semAcento(projs + " " + titulo).includes(semAcento(projeto))) pontos *= 1.2;
     if (pontos >= minimo) res.push({ ...n, pontos });
   }

@@ -39,11 +39,19 @@ O Codex não tem os mesmos hooks. Ele segue as instruções globais (`~/.codex/A
 | 🟡 06 Aprendizados | amarelo | bugs, armadilhas e a solução |
 | ⚪ 07 Sessões | cinza | diário bruto de cada execução |
 | 🔍 08 Pesquisas | magenta | cada pesquisa: conclusão, detalhes e links |
+| 💬 09 Conversas | marrom | conversas antigas importadas do claude.ai e do Claude Code |
 
 Abra o **Grafo** (Ctrl/Cmd+G): cada tipo aparece com a sua cor.
 
 ## Pode editar à mão?
 Pode — as notas são suas. Só o [[00 Índice]] é refeito sozinho. Se uma preferência mudou, edite a nota: ela passa a valer na próxima sessão.
+
+## Trazer conversas antigas
+Na pasta do repositório (`con-crm-backend`):
+- do claude.ai: peça a exportação em Configurações → Privacidade → Exportar dados, baixe o .zip do e-mail e rode `node ferramentas/segundo-cerebro/importar.mjs "<caminho do .zip>"`;
+- do Claude Code deste computador: `node ferramentas/segundo-cerebro/importar.mjs --claude-code`.
+
+Rodar de novo é seguro: o que já foi importado é pulado.
 
 ## Comandos (se um dia precisar)
 - `node "<cofre>/99 Sistema/scripts/cerebro.mjs" buscar <termos>`

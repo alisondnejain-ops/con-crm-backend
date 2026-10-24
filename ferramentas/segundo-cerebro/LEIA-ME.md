@@ -25,11 +25,26 @@ Precisa do **Node 18+** (o mesmo que o Claude Code e o Codex já usam).
 
 Pode rodar de novo quando quiser, por exemplo para atualizar o script: ele não duplica nada e não apaga notas. Para desligar, rode `node instalar.mjs --remover` (o cofre continua intacto).
 
+## Trazer as conversas antigas
+
+As conversas que já existem viram notas em `09 Conversas`, uma por conversa:
+
+- **claude.ai** (navegador e app de conversa): Configurações → Privacidade → **Exportar dados**. O link chega por e-mail; baixe o `.zip` e rode
+  ```
+  node importar.mjs "C:/Users/Ali/Downloads/data-....zip"
+  ```
+- **Claude Code deste computador**:
+  ```
+  node importar.mjs --claude-code
+  ```
+
+Rodar de novo é seguro: conversa já importada é pulada (e refeita se ganhou mensagens). Sessões do Claude Code na nuvem não ficam no seu computador nem na exportação, e não entram.
+
 ## O que ele muda
 
 | Onde | O quê |
 |---|---|
-| Cofre | pastas `01 Projetos` … `08 Pesquisas`, `00 Índice.md`, notas iniciais, modelos, `99 Sistema/scripts/cerebro.mjs` |
+| Cofre | pastas `01 Projetos` … `09 Conversas`, `00 Índice.md`, notas iniciais, modelos, `99 Sistema/scripts/cerebro.mjs` |
 | `.obsidian` do cofre | trecho de CSS com as cores (`segundo-cerebro`), grupos de cor do grafo, pasta de modelos |
 | `~/.claude/settings.json` | hooks `SessionStart`, `UserPromptSubmit` e `Stop`, e permissão para o script (cópia antes da primeira mudança: `settings.json.antes-do-segundo-cerebro`) |
 | `~/.claude/CLAUDE.md` | um bloco de instruções entre marcadores |

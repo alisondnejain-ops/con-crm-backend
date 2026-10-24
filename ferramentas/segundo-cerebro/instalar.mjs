@@ -25,7 +25,7 @@ const HOME = os.homedir();
 const fwd = (p) => p.replace(/\\/g, "/");
 const INICIO = "<!-- segundo-cerebro:inicio -->";
 const FIM = "<!-- segundo-cerebro:fim -->";
-const PASTAS = ["01 Projetos", "02 Decisões", "03 Padrões", "04 Preferências", "05 Stack", "06 Aprendizados", "07 Sessões", "08 Pesquisas", "99 Sistema/scripts", "99 Sistema/Modelos"];
+const PASTAS = ["01 Projetos", "02 Decisões", "03 Padrões", "04 Preferências", "05 Stack", "06 Aprendizados", "07 Sessões", "08 Pesquisas", "09 Conversas", "99 Sistema/scripts", "99 Sistema/Modelos"];
 
 const ok = (m) => console.log(`  ✔ ${m}`);
 const aviso = (m) => console.log(`  ⚠ ${m}`);
@@ -120,6 +120,7 @@ const GRUPOS = [
   ['path:"06 Aprendizados"', "#e6b800"],
   ['path:"07 Sessões"', "#8a94a6"],
   ['path:"08 Pesquisas"', "#e05bd0"],
+  ['path:"09 Conversas"', "#c08457"],
   ['file:"00 Índice"', "#ff5c8a"],
 ];
 function configurarObsidian(cofre) {
