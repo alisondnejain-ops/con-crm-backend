@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Importa conversas antigas do Claude para o cofre, em "09 Conversas".
 //
-//   node importar.mjs <exportação do claude.ai>   → o .zip que chega por e-mail, a pasta extraída ou o conversations.json
+//   node importar.mjs <exportação do claude.ai>   → o manifest-….json (com os .zip baixados ao lado), um .zip, uma pasta ou o conversations.json
 //   node importar.mjs --claude-code               → o histórico do Claude Code deste computador (~/.claude/projects)
 //   ... --cofre "C:/caminho/do/cofre"             → outro cofre (sem isto, usa o do instalador)
 //
@@ -45,7 +45,7 @@ if (!COFRE_ALVO || !fs.existsSync(COFRE_ALVO)) {
 }
 if (!fonte && !doClaudeCode) {
   console.log(`Uso:
-  node importar.mjs <arquivo .zip da exportação do claude.ai, a pasta extraída ou o conversations.json>
+  node importar.mjs <manifest-….json, .zip, pasta ou conversations.json da exportação do claude.ai>
   node importar.mjs --claude-code`);
   process.exit(1);
 }
@@ -120,32 +120,82 @@ function gravar({ id, titulo, origem, inicio, projeto, msgs }) {
 }
 
 // --------------------------------------------------- exportação do claude.ai
-function acharConversationsJson(p) {
-  const abs = path.resolve(p.replace(/^~(?=$|[\\/])/, HOME).replace(/^["']|["']$/g, ""));
-  if (!fs.existsSync(abs)) throw new Error(`Não achei "${abs}".`);
-  if (fs.statSync(abs).isDirectory()) {
-    const achado = buscarArquivo(abs, "conversations.json");
-    if (!achado) throw new Error(`A pasta "${abs}" não tem o conversations.json. Confira se é a exportação do claude.ai.`);
-    return achado;
-  }
-  if (abs.toLowerCase().endsWith(".zip")) {
-    const destino = fs.mkdtempSync(path.join(os.tmpdir(), "claude-export-"));
-    // tar abre .zip no Windows 10+ e no Mac; no Linux, unzip
-    let r = spawnSync("tar", ["-xf", abs, "-C", destino], { encoding: "utf8" });
-    if (r.status !== 0) r = spawnSync("unzip", ["-q", "-o", abs, "-d", destino], { encoding: "utf8" });
-    if (r.status !== 0) throw new Error("Não consegui abrir o .zip. Clique nele com o botão direito → Extrair tudo, e passe a pasta extraída.");
-    return acharConversationsJson(destino);
-  }
-  return abs;
+// A exportação já veio em dois formatos: um .zip com conversations.json, e (out/2026) um
+// "manifest-….json" que só lista vários .zip para baixar. Os dois são aceitos: o que se procura
+// dentro deles é qualquer .json com conversas (lista de objetos com "chat_messages").
+const semAspas = (p) => path.resolve(String(p).replace(/^["']|["']$/g, "").replace(/^~(?=$|[\\/])/, HOME));
+
+function extrair(zip) {
+  const destino = fs.mkdtempSync(path.join(os.tmpdir(), "claude-export-"));
+  // tar abre .zip no Windows 10+ e no Mac; no Linux, unzip
+  let r = spawnSync("tar", ["-xf", zip, "-C", destino], { encoding: "utf8" });
+  if (r.status !== 0) r = spawnSync("unzip", ["-q", "-o", zip, "-d", destino], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`Não consegui abrir "${path.basename(zip)}". Clique nele com o botão direito → Extrair tudo, e passe a pasta extraída.`);
+  return destino;
 }
-function buscarArquivo(dir, nome, nivel = 0) {
-  if (nivel > 3) return null;
+function arquivosDe(dir, nivel = 0, saida = []) {
+  if (nivel > 5) return saida;
   for (const it of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, it.name);
-    if (it.isFile() && it.name === nome) return p;
-    if (it.isDirectory()) { const r = buscarArquivo(p, nome, nivel + 1); if (r) return r; }
+    if (it.isDirectory()) arquivosDe(p, nivel + 1, saida);
+    else saida.push(p);
   }
-  return null;
+  return saida;
+}
+// manifest → os .zip listados nele, procurados ao lado do manifest (e na pasta Downloads)
+function zipsDoManifest(manifest, dados) {
+  const pastas = [...new Set([path.dirname(manifest), path.join(HOME, "Downloads")])];
+  const achados = [], faltam = [];
+  for (const f of dados.data_files || []) {
+    const nome = f.filename || "";
+    const base = nome.replace(/\.zip$/i, "");
+    let achou = null;
+    for (const d of pastas) {
+      if (!fs.existsSync(d)) continue;
+      const exato = path.join(d, nome);
+      if (nome && fs.existsSync(exato)) { achou = exato; break; }
+      // o navegador às vezes renomeia: "conversations-000 (1).zip"
+      const parecido = fs.readdirSync(d).find((x) => x.toLowerCase().endsWith(".zip") && x.startsWith(base));
+      if (base && parecido) { achou = path.join(d, parecido); break; }
+    }
+    if (achou) achados.push({ ...f, arquivo: achou }); else faltam.push(f);
+  }
+  return { achados, faltam };
+}
+function ehConversa(c) { return c && typeof c === "object" && Array.isArray(c.chat_messages); }
+function conversasDoJson(arq) {
+  let dados;
+  try { dados = JSON.parse(fs.readFileSync(arq, "utf8")); } catch { return []; }
+  if (Array.isArray(dados)) return dados.filter(ehConversa);
+  if (ehConversa(dados)) return [dados];
+  for (const v of Object.values(dados || {})) if (Array.isArray(v) && v.some(ehConversa)) return v.filter(ehConversa);
+  return [];
+}
+function juntarFontes(entrada) {
+  const abs = semAspas(entrada);
+  if (!fs.existsSync(abs)) throw new Error(`Não achei "${abs}".`);
+  if (fs.statSync(abs).isDirectory()) {
+    // pasta: os .json soltos e os .zip dentro dela
+    const tudo = arquivosDe(abs);
+    return [...tudo.filter((f) => !/\.zip$/i.test(f)), ...tudo.filter((f) => /\.zip$/i.test(f)).flatMap((z) => arquivosDe(extrair(z)))];
+  }
+  if (/\.zip$/i.test(abs)) return arquivosDe(extrair(abs));
+  if (/\.json$/i.test(abs)) {
+    let dados = null;
+    try { dados = JSON.parse(fs.readFileSync(abs, "utf8")); } catch { /* não é JSON */ }
+    if (dados && Array.isArray(dados.data_files)) {
+      const { achados, faltam } = zipsDoManifest(abs, dados);
+      console.log(`Manifest com ${dados.data_files.length} arquivos: ${achados.length} baixados, ${faltam.length} faltando.`);
+      if (faltam.length) {
+        console.log("\n  Ainda faltam baixar (abra cada link no navegador, com o claude.ai logado; vencem em 24h):");
+        for (const f of faltam) console.log(`   • ${f.filename} (${f.category})\n     ${f.export_url}`);
+        console.log("");
+      }
+      return achados.flatMap((f) => arquivosDe(extrair(f.arquivo)));
+    }
+    return [abs];
+  }
+  throw new Error(`"${path.basename(abs)}" não é .zip, .json nem pasta.`);
 }
 function textoClaudeAi(m) {
   const partes = [];
@@ -159,18 +209,33 @@ function textoClaudeAi(m) {
   }
   return partes.join("\n\n");
 }
-function importarClaudeAi(p) {
-  const arq = acharConversationsJson(p);
-  const lista = JSON.parse(fs.readFileSync(arq, "utf8"));
-  if (!Array.isArray(lista)) throw new Error("O conversations.json não está no formato esperado (uma lista de conversas).");
-  console.log(`Lendo ${lista.length} conversas do claude.ai…`);
-  for (const c of lista) {
-    const msgs = (c.chat_messages || []).map((m) => ({
-      quem: m.sender === "human" ? "voce" : "claude",
-      texto: textoClaudeAi(m),
-      data: dataDe(m.created_at),
-    }));
-    gravar({ id: `claude.ai:${c.uuid}`, titulo: c.name, origem: "claude.ai", inicio: dataDe(c.created_at), msgs });
+function importarClaudeAi(entrada) {
+  const arquivos = juntarFontes(entrada);
+  const vistas = new Set();
+  let total = 0;
+  for (const arq of arquivos.filter((f) => /\.json$/i.test(f))) {
+    for (const c of conversasDoJson(arq)) {
+      const id = `claude.ai:${c.uuid || c.id || `${c.name}-${c.created_at}`}`;
+      if (vistas.has(id)) continue;
+      vistas.add(id);
+      total++;
+      const msgs = c.chat_messages.map((m) => ({
+        quem: m.sender === "human" || m.role === "user" ? "voce" : "claude",
+        texto: textoClaudeAi(m),
+        data: dataDe(m.created_at),
+      }));
+      gravar({ id, titulo: c.name, origem: "claude.ai", inicio: dataDe(c.created_at), msgs });
+    }
+  }
+  console.log(`Encontrei ${total} conversas do claude.ai.`);
+  if (!total) {
+    // formato que ainda não se conhece: mostra o que veio, sem conteúdo, para ajustar o importador
+    console.log("\n  Nenhuma conversa reconhecida. Arquivos que vieram (mande um print disto):");
+    for (const f of arquivos.slice(0, 40)) {
+      let tam = 0; try { tam = fs.statSync(f).size; } catch { /* */ }
+      console.log(`   • ${f.split(/[\\/]claude-export-[^\\/]+[\\/]/).pop()}  (${Math.round(tam / 1024)} KB)`);
+    }
+    if (arquivos.length > 40) console.log(`   … e mais ${arquivos.length - 40}`);
   }
 }
 
