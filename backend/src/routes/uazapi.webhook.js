@@ -83,7 +83,7 @@ function trechoCitado(m) {
 
 // Extrai número e texto de um payload da Uazapi. O formato varia entre versões
 // e tipos de mensagem, então tentamos os caminhos conhecidos em ordem.
-function extrair(p) {
+export function extrair(p) {
   const m = p.message || p.data?.message || p.data || p;
   const bruto = m.chatid || m.sender || m.from || p.phone || p.sender || "";
   const chat = String(bruto);

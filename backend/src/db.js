@@ -2216,4 +2216,22 @@ CREATE INDEX IF NOT EXISTS idx_suporte_msgs_wa ON suporte_mensagens(wa_id) WHERE
 if (!db.prepare("PRAGMA table_info(suporte_chamados)").all().some(c => c.name === "solicitante"))
   db.exec("ALTER TABLE suporte_chamados ADD COLUMN solicitante TEXT");
 
+/* O CANAL DO AGENTE DE DESENVOLVIMENTO (24/10/2026, services/agente-dev.js):
+   a conversa do Ali e do Fernando com o agente pelo WhatsApp. Tabela à parte
+   de `messages` de propósito: não é atendimento de lead e não pode aparecer
+   em caixa, relatório nem funil de conta nenhuma. */
+db.exec(`CREATE TABLE IF NOT EXISTS agente_mensagens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  numero TEXT NOT NULL,
+  nome TEXT,
+  direcao TEXT NOT NULL,          -- 'in' (de vocês) | 'out' (do agente ou do sistema)
+  texto TEXT NOT NULL,
+  wa_id TEXT,
+  estado TEXT,                    -- in: 'pendente' (esperando o agente) | 'enviada' (agente acordado)
+  sessao_url TEXT,
+  criado_em INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agente_estado ON agente_mensagens(estado, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agente_wa ON agente_mensagens(wa_id) WHERE wa_id IS NOT NULL;`);
+
 export default db;

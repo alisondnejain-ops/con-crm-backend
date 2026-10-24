@@ -26,6 +26,8 @@ import triagemRoutes from "./routes/triagem.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import { assistente as assistenteRoutes, suporte as suporteRoutes } from "./routes/assistente.routes.js";
+import { webhook as agenteWebhook, api as agenteApi } from "./routes/agente-dev.routes.js";
+import { processarAgente, garantirWebhookDoAgente } from "./services/agente-dev.js";
 import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./routes/meta-conexao.routes.js";
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
@@ -418,6 +420,8 @@ app.use("/leads", cobrando, tarefasRoutes);      // /leads/:id/tarefas
 app.use("/tarefas", cobrando, tarefasPorId);     // /tarefas/:id
 app.use("/webhooks", metaWebhook);              // GET/POST /webhooks/meta (Lead Ads)
 app.use("/webhooks", uazapiWebhook);            // POST /webhooks/uazapi
+app.use("/webhooks", agenteWebhook);            // POST /webhooks/agente/:segredo (WhatsApp do agente de desenvolvimento)
+app.use("/agente", agenteApi);                  // o agente responde e confere publicação (Bearer AGENTE_SEGREDO)
 app.use("/webhooks", whatsappOficialWebhook);   // GET/POST /webhooks/whatsapp-oficial (Cloud API)
 /* Portais de imóveis: o portal LÊ o feed e ENTREGA o lead, sem login nenhum —
    quem identifica a imobiliária é o token do endereço (um para cada porta). */
@@ -524,6 +528,14 @@ app.listen(PORT, () => {
      passa a abrir sem ela voltar à tela. `SITE_DOMINIO_AGENDADOR=0` desliga. */
   if (process.env.SITE_DOMINIO_AGENDADOR !== "0")
     setInterval(() => conferirDominiosPendentes().catch(e => console.error("[site] conferência:", e.message)), 15 * 60000);
+  /* AGENTE DE DESENVOLVIMENTO NO WHATSAPP (services/agente-dev.js): junta
+     as mensagens do Ali e do Fernando e acorda o agente dentro do horário.
+     Sem as variáveis AGENTE_*, não faz nada. `AGENTE_AGENDADOR=0` desliga. */
+  if (process.env.AGENTE_AGENDADOR !== "0") {
+    setInterval(() => processarAgente().catch(e => console.error("[agente] erro no ciclo:", e.message)), 10000);
+    setTimeout(() => garantirWebhookDoAgente(), 25000);
+    setInterval(() => garantirWebhookDoAgente(), 30 * 60000);
+  }
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
