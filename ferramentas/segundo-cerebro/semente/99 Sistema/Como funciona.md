@@ -51,6 +51,8 @@ Na pasta do repositório (`con-crm-backend`):
 - do claude.ai: peça a exportação em Configurações → Privacidade → Exportar dados, baixe o .zip do e-mail e rode `node ferramentas/segundo-cerebro/importar.mjs "<caminho do .zip>"`;
 - do Claude Code deste computador: `node ferramentas/segundo-cerebro/importar.mjs --claude-code`.
 
+A exportação nova chega como um `manifest-….json`: baixe os `.zip` que ele lista e passe o manifest no lugar do .zip. As **memórias** do claude.ai viram notas "Memória do claude.ai" em **04 Preferências**, refeitas a cada importação.
+
 Rodar de novo é seguro: o que já foi importado é pulado.
 
 ## Comandos (se um dia precisar)

@@ -38,6 +38,8 @@ As conversas que já existem viram notas em `09 Conversas`, uma por conversa:
   node importar.mjs --claude-code
   ```
 
+A exportação nova chega como um `manifest-….json` que lista vários `.zip`: baixe todos para Downloads e passe o manifest. As **memórias** do claude.ai (o que ele sabe sobre você) viram notas em `04 Preferências` — uma geral e uma por projeto —, e são refeitas a cada importação.
+
 Rodar de novo é seguro: conversa já importada é pulada (e refeita se ganhou mensagens). Sessões do Claude Code na nuvem não ficam no seu computador nem na exportação, e não entram.
 
 ## O que ele muda

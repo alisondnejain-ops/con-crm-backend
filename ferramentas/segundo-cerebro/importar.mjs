@@ -5,7 +5,8 @@
 //   node importar.mjs --claude-code               → o histórico do Claude Code deste computador (~/.claude/projects)
 //   ... --cofre "C:/caminho/do/cofre"             → outro cofre (sem isto, usa o do instalador)
 //
-// Uma nota por conversa, com o texto de você e do Claude. Rodar de novo é seguro:
+// Uma nota por conversa, com o texto de você e do Claude. As memórias do claude.ai
+// viram notas em 04 Preferências (refeitas a cada importação). Rodar de novo é seguro:
 // conversa já importada é pulada, e só é refeita se ganhou mensagens desde então.
 // Notas que você criou no cofre nunca são tocadas.
 
@@ -126,7 +127,9 @@ function gravar({ id, titulo, origem, inicio, projeto, msgs }) {
 const semAspas = (p) => path.resolve(String(p).replace(/^["']|["']$/g, "").replace(/^~(?=$|[\\/])/, HOME));
 
 function extrair(zip) {
-  const destino = fs.mkdtempSync(path.join(os.tmpdir(), "claude-export-"));
+  // o nome do .zip vai no nome da pasta: é por ele que se sabe que "memories-000.zip" traz memórias
+  const base = path.basename(zip, path.extname(zip)).replace(/[^\w.-]+/g, "_").slice(0, 40);
+  const destino = fs.mkdtempSync(path.join(os.tmpdir(), `claude-export-${base}-`));
   // tar abre .zip no Windows 10+ e no Mac; no Linux, unzip
   let r = spawnSync("tar", ["-xf", zip, "-C", destino], { encoding: "utf8" });
   if (r.status !== 0) r = spawnSync("unzip", ["-q", "-o", zip, "-d", destino], { encoding: "utf8" });
@@ -228,6 +231,7 @@ function importarClaudeAi(entrada) {
     }
   }
   console.log(`Encontrei ${total} conversas do claude.ai.`);
+  importarMemorias(arquivos);
   if (!total) {
     // formato que ainda não se conhece: mostra o que veio, sem conteúdo, para ajustar o importador
     console.log("\n  Nenhuma conversa reconhecida. Arquivos que vieram (mande um print disto):");
@@ -236,6 +240,92 @@ function importarClaudeAi(entrada) {
       console.log(`   • ${f.split(/[\\/]claude-export-[^\\/]+[\\/]/).pop()}  (${Math.round(tam / 1024)} KB)`);
     }
     if (arquivos.length > 40) console.log(`   … e mais ${arquivos.length - 40}`);
+  }
+}
+
+// ---------------------------------------------------------------- memórias
+// A memória do claude.ai é o que ele sabe sobre a pessoa: trabalho, preferências, contexto.
+// Vira nota em 04 Preferências, porque é dali que o começo de cada sessão do Claude Code
+// lê "como o usuário gosta das coisas". Uma nota para a memória geral e uma por projeto.
+// A nota é REFEITA a cada importação (a memória é uma foto; a de hoje substitui a anterior).
+const ehTextoDeMemoria = (v) => typeof v === "string" && v.trim().length >= 20;
+const naoEhTexto = (v) => /^[0-9a-f-]{30,}$/i.test(v.trim()) || /^\d{4}-\d{2}-\d{2}T/.test(v.trim());
+// todoTexto: o arquivo é das memórias (nome com "memor"), então qualquer texto dele conta
+function memoriasDoJson(dados, nomes, todoTexto = false) {
+  const achadas = [];
+  const visitar = (no, chave, caminho) => {
+    if (ehTextoDeMemoria(no)) {
+      if ((todoTexto || /memor/i.test(caminho)) && !naoEhTexto(no)) achadas.push({ chave, caminho, texto: no });
+      return;
+    }
+    if (Array.isArray(no)) { no.forEach((x, i) => visitar(x, chave, `${caminho}[${i}]`)); return; }
+    if (no && typeof no === "object") {
+      if (ehConversa(no)) return; // conversa não é memória
+      for (const [k, v] of Object.entries(no)) visitar(v, k, caminho ? `${caminho}.${k}` : k);
+    }
+  };
+  visitar(dados, "", "");
+  return achadas.map((m) => {
+    // project_memories: { "<uuid do projeto>": "texto" } → a chave é o projeto
+    const projeto = nomes.get(m.chave) || (/project/i.test(m.caminho) && /^[0-9a-f-]{20,}$/i.test(m.chave) ? `projeto ${m.chave.slice(0, 8)}` : null);
+    return { ...m, projeto };
+  });
+}
+function nomesDeProjetos(arquivos) {
+  const nomes = new Map();
+  for (const arq of arquivos.filter((f) => /\.json$/i.test(f))) {
+    let d; try { d = JSON.parse(fs.readFileSync(arq, "utf8")); } catch { continue; }
+    for (const x of Array.isArray(d) ? d : []) if (x && x.uuid && x.name && !ehConversa(x)) nomes.set(String(x.uuid), String(x.name));
+  }
+  return nomes;
+}
+function chavesDe(no, prof = 0) {
+  if (prof > 3) return "…";
+  if (Array.isArray(no)) return no.length ? `[${chavesDe(no[0], prof + 1)}] (${no.length})` : "[]";
+  if (no && typeof no === "object") return `{ ${Object.keys(no).slice(0, 12).map((k) => `${k}: ${chavesDe(no[k], prof + 1)}`).join(", ")} }`;
+  return typeof no === "string" ? `texto(${no.length})` : typeof no;
+}
+function importarMemorias(arquivos) {
+  const nomes = nomesDeProjetos(arquivos);
+  const memorias = [];
+  const suspeitos = [];
+  for (const arq of arquivos) {
+    const nome = path.basename(arq);
+    if (/\.json$/i.test(arq)) {
+      let d; try { d = JSON.parse(fs.readFileSync(arq, "utf8")); } catch { continue; }
+      const m = memoriasDoJson(d, nomes, /memor/i.test(arq));
+      memorias.push(...m);
+      if (!m.length && /memor/i.test(nome)) suspeitos.push({ nome, estrutura: chavesDe(d) });
+    } else if (/memor/i.test(arq) && /\.(md|txt)$/i.test(arq)) {
+      const t = fs.readFileSync(arq, "utf8");
+      if (ehTextoDeMemoria(t)) memorias.push({ chave: nome, caminho: nome, texto: t, projeto: null });
+    }
+  }
+  // junta por destino: geral ou o projeto
+  const porNota = new Map();
+  for (const m of memorias) {
+    const titulo = m.projeto ? `Memória do claude.ai — ${nomeArquivo(m.projeto)}` : "Memória do claude.ai";
+    const lista = porNota.get(titulo) || [];
+    if (!lista.includes(m.texto.trim())) lista.push(m.texto.trim());
+    porNota.set(titulo, lista);
+  }
+  const pasta = path.join(COFRE, TIPOS.preferencia.pasta);
+  fs.mkdirSync(pasta, { recursive: true });
+  for (const [titulo, textos] of porNota) {
+    const geral = titulo === "Memória do claude.ai";
+    const primeira = textos[0].replace(/^#+.*$/gm, "").replace(/[*_>#-]/g, " ");
+    escreverNota(path.join(pasta, `${titulo}.md`), {
+      tipo: "preferencia",
+      tags: ["preferencia", "memoria", "claude-ai"],
+      resumo: corta(primeira, 200),
+      origem: "claude.ai",
+      importado: dia(new Date()),
+    }, `# ${titulo}\n\n> 🧠 O que o claude.ai sabe sobre você${geral ? "" : " neste projeto"}, trazido da exportação em ${quando(new Date())}. Esta nota é refeita a cada importação: para guardar algo seu, escreva em outra nota.\n\n${textos.join("\n\n---\n\n")}\n`);
+  }
+  console.log(`Encontrei ${memorias.length} memória(s) → ${porNota.size} nota(s) em ${TIPOS.preferencia.pasta}.`);
+  if (!memorias.length && suspeitos.length) {
+    console.log("\n  Achei o arquivo de memórias, mas não reconheci o formato. Estrutura (só nomes de campos, sem o conteúdo) — mande um print disto:");
+    for (const s of suspeitos) console.log(`   • ${s.nome}: ${corta(s.estrutura, 600)}`);
   }
 }
 
