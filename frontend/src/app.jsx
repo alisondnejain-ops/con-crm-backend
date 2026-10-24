@@ -125,6 +125,13 @@ async function api(path,{method="GET",body}={}){
     try{ window.sessionStorage.setItem("conhub_saida",data.error||"Sua sessão foi encerrada."); }catch(e){}
     if(typeof window!=="undefined") window.location.reload();
   }
+  /* O master numa conta alheia (14/10/2026): a entrada com o código venceu ou
+     a gestão a encerrou. Volta ao hub, com o motivo dito uma vez. */
+  if(res.status===403&&data.codigo==="acesso_vencido"&&TOKEN&&!api.voltando){
+    api.voltando=true; marcarOrg(null);
+    try{ window.sessionStorage.setItem("conhub_aviso_cadastro",data.error); }catch(e){}
+    if(typeof window!=="undefined") window.location.reload();
+  }
   if(!res.ok){
     const erro=new Error([data.error||`Erro ${res.status} ao falar com o servidor.`,data.detail].filter(Boolean).join(" — "));
     /* O corpo inteiro vai junto do erro. Uma recusa às vezes traz mais do que
@@ -179,6 +186,7 @@ function adaptLead(l,anterior){
        atualização de dez segundos. */
     tags:l.tags!==undefined?l.tags:(anterior?anterior.tags:[]),
     campanha:l.campaign_name||null, anuncio:l.ad_name||null, plataforma:l.platform||null,
+    conjunto:l.adset_name!==undefined?(l.adset_name||null):(anterior?anterior.conjunto:null),
     // Por onde o lead ENTROU (ver entradaDoLead). `origem` acima ganha
     // "WhatsApp" quando vem vazia; aqui fica o valor como veio.
     fonte:l.source!==undefined?(l.source||null):(anterior?anterior.fonte:null),
@@ -254,6 +262,9 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   // avisa em vez de deixar o corretor achar que o cliente vai ver.
   citavel:!!m.wa_id,
   editadaEm:m.edited_at||null, textoOriginal:m.body_original||null,
+  // Apagada para todos: o balão vira "Esta mensagem foi apagada", como no
+  // WhatsApp. A supervisão continua recebendo o texto do servidor.
+  apagadaEm:m.apagada_em||null, apagadaPor:m.apagada_por_nome||null, apagadaPorId:m.apagada_por||null,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
   rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
@@ -559,6 +570,22 @@ function usarEscolha(chave,inicial){
   useEffect(()=>{ try{ sessionStorage.setItem(nome,JSON.stringify(v)); }catch(e){} },[nome,v]);
   return [v,setV];
 }
+/* ESCONDER O CONTATO DOS LEADS NO FUNIL (07/10/2026, pedido do Ali: "um
+   olhinho ao lado da barra de pesquisa que cobre essas informações sensíveis
+   do lead caso precise gravar a tela ou tirar um print").
+
+   Guardado no APARELHO (localStorage), e não só na aba como as outras
+   escolhas do quadro: quem esconde para gravar um vídeo e abre outra aba no
+   meio da gravação não pode ter os números de volta na tela sem ter pedido.
+   Fica escondido até a pessoa clicar de novo. */
+function usarContatoOculto(){
+  const nome="conhub:funil.ocultarContato";
+  const [v,setV]=useState(()=>{ try{ return localStorage.getItem(nome)==="1"; }catch(e){ return false; } });
+  useEffect(()=>{ try{ localStorage.setItem(nome,v?"1":"0"); }catch(e){} },[v]);
+  return [v,setV];
+}
+// O que aparece no lugar do telefone e do e-mail quando o olho está fechado.
+const CONTATO_OCULTO="••••••••";
 /* ===== UM PERÍODO SÓ PARA PAINEL, RELATÓRIOS E OPERAÇÃO (25/09/2026) =====
 
    Cada tela abria num período diferente: o Painel em "este mês", Relatórios
@@ -808,6 +835,10 @@ function SeletorDePais({valor,aoMudar,style,altura=40}){
 // O que escrever no campo do número, conforme o país.
 const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+/* Preço de assinatura: com centavos quando tem (R$ 79,90 não pode virar R$ 80 na tela de contratar). */
+// Duração curta: "3h20", "45 min".
+const fmtDuracao=(ms)=>{ const m=Math.max(0,Math.round((ms||0)/60000)); return m>=60?`${Math.floor(m/60)}h${String(m%60).padStart(2,"0")}`:`${m} min`; };
+const fmtPreco=(v)=>{const n=Number(v)||0;const inteiro=Math.abs(n-Math.round(n))<0.005;return n.toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:inteiro?0:2,maximumFractionDigits:inteiro?0:2});};
 const fmtData=(ms)=>ms?new Date(ms).toLocaleDateString("pt-BR"):"—";
 const SEMANA=["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
 /* Data/hora da última mensagem na LISTA de conversas, na régua do WhatsApp:
@@ -927,6 +958,8 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 /* ===== ícones (SVG inline) ===== */
 const ICO={
   // Megafone: a seção Marketing (disparos em massa, e depois os fluxos do bot).
+  globo:<React.Fragment><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></React.Fragment>,
+  redes:<React.Fragment><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></React.Fragment>,
   megafone:<React.Fragment><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></React.Fragment>,
   /* WhatsApp: o balão com o fone dentro, desenhado com traço como os outros
      ícones da casa. Não é a logo oficial (que é sólida e tem cor própria) —
@@ -991,9 +1024,13 @@ const ICO={
   pin:<React.Fragment><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></React.Fragment>,
   link:<React.Fragment><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></React.Fragment>,
   edit:<React.Fragment><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></React.Fragment>,
+  block:<React.Fragment><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></React.Fragment>,
   trash:<React.Fragment><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></React.Fragment>,
   undo:<React.Fragment><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></React.Fragment>,
   // Baixar: a seta descendo até a bandeja, o desenho que todo mundo reconhece.
+  clipe:<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
+  olho:<React.Fragment><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></React.Fragment>,
+  olhoFechado:<React.Fragment><path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-2.4 3.3M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.4 9.4 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/></React.Fragment>,
   download:<React.Fragment><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></React.Fragment>,
   // O par do `check`: mesmo círculo, para "veio" e "não veio" se lerem juntos.
   xcirc:<React.Fragment><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></React.Fragment>,
@@ -1393,6 +1430,7 @@ function ConCRM(){
   useEffect(()=>{
     if(!TOKEN){setCarregando(false);return;}
     api("/auth/me").then(d=>{
+      if(d.token) setToken(d.token); // master cuja entrada na conta terminou
       setSession(toSession(d.user));
       // O master só volta direto para uma imobiliária se já tinha escolhido uma;
       // senão cai no hub. Para os demais, é sempre a casa deles.
@@ -1534,6 +1572,11 @@ function ConCRM(){
       await api(`/leads/${leadId}/messages/${msgId}`,{method:"PATCH",body:{text}});
       await recarregar(); await abrir(leadId,true);
     },
+    // Também fora do `acao()`: o erro diz que a mensagem continua no celular do cliente.
+    apagarMensagemDaConversa:async(leadId,msgId)=>{
+      await api(`/leads/${leadId}/messages/${msgId}`,{method:"DELETE"});
+      await recarregar(); await abrir(leadId,true);
+    },
     /* Aceita o NOME (todo o código de hoje) ou o `stage_id` (o kanban, que
        monta as colunas a partir do funil da empresa). O id é mais preciso:
        dois funis podem ter uma etapa com o mesmo nome. */
@@ -1613,6 +1656,8 @@ function ConCRM(){
     salvarCartao:(dados)=>api("/assinatura/cartao",{method:"POST",body:dados}),
     ligarCombinada:()=>api("/assinatura/combinada",{method:"POST",body:{}}),
     cancelarAssinatura:()=>api("/assinatura/cancelar",{method:"POST",body:{}}),
+    boleto:()=>api("/assinatura/boleto"),
+    gerarBoleto:(dados)=>api("/assinatura/boleto",{method:"POST",body:dados}),
     pagamentos:()=>api("/assinatura/pagamentos"),
     apagarPagamento:(id)=>api("/assinatura/pagamentos/"+id,{method:"DELETE"}),
     editarPagamento:(id,dados)=>api("/assinatura/pagamentos/"+id,{method:"PATCH",body:dados}),
@@ -1653,6 +1698,8 @@ function ConCRM(){
     // Com o lead, a fila que vale para ELE (a da catraca do produto, ou a principal).
     rodizio:(leadId)=>api("/distribution/rodizio"+(leadId?`?lead_id=${encodeURIComponent(leadId)}`:"")),
     catracas:()=>api("/distribution/catracas"),
+    relatorioCatracas:(periodo)=>api(`/distribution/catracas/relatorio?periodo=${encodeURIComponent(periodo||"tudo")}`),
+    relatorioCatraca:(id,periodo)=>api(`/distribution/catracas/${encodeURIComponent(id)}/relatorio?periodo=${encodeURIComponent(periodo||"tudo")}`),
     criarCatraca:(dados)=>api("/distribution/catracas",{method:"POST",body:dados}),
     editarCatraca:(id,dados)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"PATCH",body:dados}),
     apagarCatraca:(id)=>api(`/distribution/catracas/${encodeURIComponent(id)}`,{method:"DELETE"}),
@@ -1730,14 +1777,51 @@ function ConCRM(){
     // "Conectar com Facebook" (01/10/2026): páginas da conta e a ida e volta ao Facebook.
     anunciosMeta:()=>api("/anuncios-meta"),
     formulariosMeta:()=>api("/anuncios-meta/formularios"),
+    // Redes sociais (Marketing → Redes sociais): posts programados, engajamento e comentários automáticos.
+    redes:()=>api("/redes"),
+    redesAtualizarPagina:(pg)=>api(`/redes/paginas/${pg}/atualizar`,{method:"POST"}),
+    redesPosts:()=>api("/redes/posts"),
+    redesCriarPost:(c)=>api("/redes/posts",{method:"POST",body:c}),
+    redesEditarPost:(id,c)=>api(`/redes/posts/${id}`,{method:"PUT",body:c}),
+    redesCancelarPost:(id)=>api(`/redes/posts/${id}/cancelar`,{method:"POST"}),
+    redesApagarPost:(id)=>api(`/redes/posts/${id}`,{method:"DELETE"}),
+    redesFoto:(base64,mime)=>api("/redes/midias",{method:"POST",body:{base64,mime}}),
+    // Vídeo cru no corpo, com XHR para mostrar o progresso (o mesmo do vídeo de imóvel).
+    redesVideo:(file,aoProgredir)=>new Promise((ok,falhou)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open("POST",`${API}/redes/midias/video?${new URLSearchParams({mime:file.type||"video/mp4"})}`);
+      if(TOKEN) xhr.setRequestHeader("Authorization","Bearer "+TOKEN);
+      xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+      xhr.upload.onprogress=(e)=>{ if(aoProgredir&&e.lengthComputable) aoProgredir(Math.round(e.loaded/e.total*100)); };
+      xhr.onload=()=>{ let dados={}; try{ dados=JSON.parse(xhr.responseText||"{}"); }catch(e){}
+        if(xhr.status>=200&&xhr.status<300) ok(dados); else falhou(new Error(dados.error||`Erro ${xhr.status} ao enviar o vídeo.`)); };
+      xhr.onerror=()=>falhou(new Error("Sem conexão com o servidor. Confira sua internet e tente de novo."));
+      xhr.send(file);
+    }),
+    redesImoveis:()=>api("/redes/imoveis"),
+    redesImovel:(id)=>api(`/redes/imoveis/${id}`),
+    redesEngajamento:(pg,atualizar)=>api(`/redes/engajamento/${pg}${atualizar?"?atualizar=1":""}`),
+    redesAutomacoes:()=>api("/redes/automacoes"),
+    redesCriarAutomacao:(c)=>api("/redes/automacoes",{method:"POST",body:c}),
+    redesEditarAutomacao:(id,c)=>api(`/redes/automacoes/${id}`,{method:"PUT",body:c}),
+    redesApagarAutomacao:(id)=>api(`/redes/automacoes/${id}`,{method:"DELETE"}),
+    redesComentarios:(id)=>api(`/redes/automacoes/${id}/comentarios`),
     funilDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}`,{method:"POST",body:dados}),
     catracaDoFormulario:(formId,dados)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/catraca`,{method:"POST",body:dados}),
     iniciarMeta:()=>api("/anuncios-meta/iniciar",{method:"POST"}),
     escolhaMeta:(k)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`),
     conectarPaginasMeta:(k,ids)=>api(`/anuncios-meta/escolha/${encodeURIComponent(k)}`,{method:"POST",body:{page_ids:ids}}),
     desconectarPaginaMeta:(id)=>api(`/anuncios-meta/paginas/${encodeURIComponent(id)}`,{method:"DELETE"}),
+    contasDeAnuncio:()=>api("/anuncios-meta/contas-anuncio"),
+    escolherContaDeAnuncio:(conta_id)=>api("/anuncios-meta/conta-anuncio",{method:"POST",body:{conta_id}}),
+    desempenhoAnuncios:(f,atualizar)=>api("/anuncios-meta/desempenho?"+new URLSearchParams({...Object.fromEntries(["periodo","de","ate"].filter(k=>f&&f[k]).map(k=>[k,f[k]])),...(atualizar?{atualizar:"1"}:{})})),
     // Site da imobiliária (24/09/2026): portal público e página por imóvel.
     site:()=>api("/site"),
+    modeloDoSite:(modelo)=>api("/site/modelo",{method:"POST",body:{modelo}}),
+    conteudoDoSite:()=>api("/site/conteudo"),
+    salvarConteudoDoSite:(corpo)=>api("/site/conteudo",{method:"PATCH",body:corpo}),
+    planosCetrolab:()=>api("/orgs/cetrolab/planos"),
+    salvarPlanoCetrolab:(id,b)=>api(id?`/orgs/cetrolab/planos/${id}`:"/orgs/cetrolab/planos",{method:id?"PATCH":"POST",body:b}),
     salvarSite:(b)=>api("/site",{method:"PATCH",body:b}),
     verificarDominio:()=>api("/site/dominio/verificar",{method:"POST"}),
     dominiosHub:()=>api("/orgs/dominios"),
@@ -1769,6 +1853,8 @@ function ConCRM(){
       xhr.send(file);
     }),
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
+    // A foto vai para o primeiro lugar — é a capa no site e a que leva a legenda no WhatsApp.
+    capaProduto:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}/capa`,{method:"POST"}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
     // Minha conta: qualquer alteração precisa refletir na sessão na hora — é o
     // nome e a foto que aparecem no topo e assinam as mensagens.
@@ -1860,6 +1946,12 @@ function ConCRM(){
     conectarWhatsOficial:(dados)=>api("/config/conexao/oficial",{method:"POST",body:dados}),
     robo:()=>api("/config/robo"),
     salvarRobo:(dados)=>api("/config/robo",{method:"POST",body:dados}),
+    salvarAcoesRobo:(dados)=>api("/config/robo/acoes",{method:"POST",body:dados}),
+    fichasIA:()=>api("/config/robo/produtos"),
+    criarFichaIA:(dados)=>api("/config/robo/produtos",{method:"POST",body:dados}),
+    editarFichaIA:(id,dados)=>api("/config/robo/produtos/"+id,{method:"PATCH",body:dados}),
+    apagarFichaIA:(id)=>api("/config/robo/produtos/"+id,{method:"DELETE"}),
+    fichaDoFormulario:(formId,ia_produto_id,nome)=>api(`/anuncios-meta/formularios/${encodeURIComponent(formId)}/produto`,{method:"POST",body:{ia_produto_id,nome}}),
     roboConferir:()=>api("/config/robo/conferir"),
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
@@ -1888,7 +1980,10 @@ function ConCRM(){
     aplicarReanalise:()=>api("/leads/reanalise",{method:"POST"}),
     // Hub de contas (só o master)
     listarContas:()=>api("/orgs"),
-    entrarNaConta:(id)=>api(`/orgs/${id}/entrar`,{method:"POST"}),
+    entrarNaConta:(id,codigo)=>api(`/orgs/${id}/entrar`,{method:"POST",body:codigo?{codigo}:{}}),
+    codigoAcesso:()=>api("/auth/conta/acesso"),
+    encerrarAcessoMaster:()=>api("/auth/conta/acesso/encerrar",{method:"POST"}),
+    desligarAcessoLivre:()=>api("/auth/conta/acesso/livre/desligar",{method:"POST"}),
     criarConta:(dados)=>api("/orgs",{method:"POST",body:dados}),
     renomearConta:(id,dados)=>api(`/orgs/${id}`,{method:"PATCH",body:dados}),
     apagarConta:(id,confirmar)=>api(`/orgs/${id}`,{method:"DELETE",body:{confirmar}}),
@@ -1898,6 +1993,8 @@ function ConCRM(){
     // Por qual provedor a conta é cobrada (04/10/2026): "asaas", "pagarme" ou null (regra padrão).
     definirCobranca:(id,provedor)=>api(`/orgs/${id}/cobranca`,{method:"POST",body:{provedor}}),
     definirMensalidade:(id,dados)=>api(`/orgs/${id}/mensalidade`,{method:"POST",body:dados}),
+    definirBoleto:(id,liberado)=>api(`/orgs/${id}/boleto`,{method:"POST",body:{liberado}}),
+    definirAcessoLivre:(id,liberado)=>api(`/orgs/${id}/acesso-livre`,{method:"POST",body:{liberado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
     aceitarTermoMarketing:()=>api("/marketing/termo",{method:"POST",body:{aceito:true}}),
@@ -1972,6 +2069,7 @@ function ConCRM(){
     apagarEtapa:(etapaId)=>api(`/pipelines/etapas/${etapaId}`,{method:"DELETE"}),
     ordenarEtapas:(id,ids)=>api(`/pipelines/${id}/etapas/ordem`,{method:"POST",body:{ids}}),
     camposPersonalizados:()=>api("/pipelines/campos/lista"),
+    modelosMeta:()=>api("/marketing/modelos-meta"),
     criarCampo:(dados)=>api("/pipelines/campos",{method:"POST",body:dados}),
     editarCampo:(id,dados)=>api(`/pipelines/campos/${id}`,{method:"PATCH",body:dados}),
     apagarCampo:(id)=>api(`/pipelines/campos/${id}`,{method:"DELETE"}),
@@ -2018,8 +2116,18 @@ function ConCRM(){
   /* Entra numa imobiliária: o servidor devolve um crachá novo, valendo para
      ela. Recarrega tudo do zero — leads, equipe e conversa aberta são de outra
      casa e não podem sobrar na tela. */
-  async function entrarNaConta(id){
-    const d=await acoes.entrarNaConta(id);
+  /* Fora a conta do próprio master, entrar pede o código de acesso da conta
+     (14/10/2026): o servidor responde `precisa_codigo` e a janela abaixo o
+     pede. Devolve false quando parou para pedir — o hub solta o botão. */
+  const [pedeCodigo,setPedeCodigo]=useState(null);
+  async function entrarNaConta(id,codigo,nome){
+    let d;
+    try{ d=await acoes.entrarNaConta(id,codigo); }
+    catch(e){
+      if(e.dados&&e.dados.precisa_codigo){ setPedeCodigo({id,nome:nome||(pedeCodigo&&pedeCodigo.nome)||"",erro:(codigo||e.dados.livre_esgotado)?e.message:""}); return false; }
+      throw e;
+    }
+    setPedeCodigo(null);
     setToken(d.token);
     setLeads([]); setFila([]); setEquipe([]); setSelId(null); setAssinatura(null);
     setOrg(d.org); marcarOrg(d.org.id);
@@ -2036,7 +2144,11 @@ function ConCRM(){
      qual vai trabalhar antes de qualquer tela aparecer. Para todo mundo mais
      esta camada não existe. */
   if(session.master&&!org)
-    return <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>;
+    return <>
+      <HubContas acoes={acoes} session={session} aoEntrar={entrarNaConta} aoSair={sair} isMobile={isMobileRaiz}/>
+      {pedeCodigo&&<PedirCodigoDeAcesso pedido={pedeCodigo} aoFechar={()=>setPedeCodigo(null)}
+        aoEnviar={(codigo)=>entrarNaConta(pedeCodigo.id,codigo)}/>}
+    </>;
   // Bloqueado: o trabalho para, mas a saída (sair, exportar, pagar) continua.
   /* O master é a exceção, e é o mesmo motivo pelo qual o `porteiro` do servidor
      já o deixa passar: é ele quem trava e quem libera. Barrá-lo na tela de
@@ -3405,9 +3517,11 @@ const GATILHOS=[
   ["lead_novo","Lead novo","Quando entra um lead novo — escolha de onde.","userplus"],
   ["etapa","Entrou na etapa","Quando um lead entra numa etapa do funil.","columns"],
   ["etiqueta","Etiqueta adicionada","Quando alguém coloca uma etiqueta num lead.","tag"],
+  ["campo","Campo preenchido","Quando um campo do lead ganha um valor — na ficha ou pela IA.","lista"],
 ];
 const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
-const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"]];
+const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"],
+  ["campo","Campo com valor"],["respondeu","O cliente respondeu"]];
 const TEMPERATURAS_COND=[["QUENTE","Quente"],["MORNO","Morno"],["FRIO","Frio"],["SEM","Sem temperatura"]];
 // Nomes das etiquetas, etapas, pessoas e formulários — para o bloco se descrever.
 const OpcoesDoFluxo=React.createContext(null);
@@ -3434,22 +3548,34 @@ const pontoDeSaida=(no,saida)=>{const i=Math.max(0,saidasDoBloco(no).findIndex((
 const pontoDeEntrada=(no)=>({x:no.x,y:no.y+CAB_BLOCO/2});
 const curvaDaSeta=(a,b)=>{const dx=Math.max(50,Math.abs(b.x-a.x)/2);return `M${a.x},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x},${b.y}`;};
 const nomeEm=(lista,id,campo="nome")=>((lista||[]).find(x=>x.id===id)||{})[campo]||"";
+/* Os formulários do gatilho (vários desde 08/10/2026). Fluxo salvo antes
+   só tem form_id — vira uma lista de um, como no servidor (gatilhoLimpo). */
+const formsDoGatilho=(g)=>Array.isArray(g&&g.formularios)?g.formularios:(g&&g.form_id?[{id:g.form_id,nome:g.form_nome}]:[]);
+const nomeDoForm=(f,op)=>f.nome||nomeEm(op&&op.formularios,f.id)||f.id;
 function resumoDoGatilho(g,op){
   g=g||{tipo:"manual"};
-  if(g.tipo==="formulario") return g.form_id?`Formulário: ${g.form_nome||nomeEm(op&&op.formularios,g.form_id)||g.form_id}`:"Escolha o formulário…";
+  if(g.tipo==="formulario"){ const fs=formsDoGatilho(g);
+    if(!fs.length) return "Escolha o formulário…";
+    return fs.length===1?`Formulário: ${nomeDoForm(fs[0],op)}`:`${fs.length} formulários: ${fs.map(f=>nomeDoForm(f,op)).join(", ")}`; }
   if(g.tipo==="lead_novo") return `Lead novo · ${(g.origens||[]).length?g.origens.map(o=>(ORIGENS_GATILHO.find(x=>x[0]===o)||[,o])[1]).join(", "):"qualquer origem"}`;
   if(g.tipo==="etapa") return g.etapa_id?`Entrou em ${nomeEm(op&&op.etapas,g.etapa_id)||"uma etapa"}`:"Escolha a etapa…";
   if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
+  if(g.tipo==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===g.campo);
+    return g.campo?`${c?c.name:"Campo"} ${g.valor?`= ${g.valor}`:"preenchido"}`:"Escolha o campo…"; }
   return "Disparo em massa — entra quem o disparo escolher.";
 }
 function resumoDoBloco(no,op){
   const d=no.dados||{};
   if(no.tipo==="inicio") return resumoDoGatilho(d.gatilho,op);
+  if(no.tipo==="mensagem"&&d.modelo) return `Modelo da Meta: ${d.modelo.nome}`;
   if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
   if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
   if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
   if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
   if(no.tipo==="condicao"){
+    if(d.regra==="respondeu") return "O cliente respondeu desde que entrou?";
+    if(d.regra==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===d.campo);
+      return d.campo?`${c?c.name:"Campo"} ${d.valor?`é “${d.valor}”`:"está preenchido"}?`:"Escolha o campo…"; }
     if(!d.valor) return "Escolha a regra…";
     if(d.regra==="tag") return `Tem a etiqueta “${nomeEm(op&&op.tags,d.valor)||"…"}”?`;
     if(d.regra==="etapa") return `Está em ${nomeEm(op&&op.etapas,d.valor)||"…"}?`;
@@ -3479,8 +3605,9 @@ function blocoNovo(tipo,x,y){
     :tipo==="mover_etapa"?{etapa_id:""}
     :tipo==="atribuir"?{modo:"catraca",catraca_id:"",user_id:""}
     :tipo==="tarefa"?{titulo:"",em_horas:24}
+    :tipo==="inicio"?{gatilho:{tipo:"etapa",etapa_id:""}}
     :{};
-  return {id:idNovoFluxo("n"),tipo,x:Math.round(x),y:Math.round(y),dados};
+  return {id:idNovoFluxo(tipo==="inicio"?"g":"n"),tipo,x:Math.round(x),y:Math.round(y),dados};
 }
 // Seta que sai de uma saída que não existe mais (botão apagado) cai fora.
 const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
@@ -3492,10 +3619,11 @@ const limparLigacoes=(g)=>{const por=new Map(g.nos.map(n=>[n.id,n]));
    chegando, vai para a última coluna, à vista. */
 function organizarFluxo(g){
   const porId=new Map(g.nos.map(n=>[n.id,n]));
-  const inicio=g.nos.find(n=>n.tipo==="inicio");
+  // Cada gatilho é uma raiz; com vários, eles ficam empilhados na primeira coluna.
+  const inicios=g.nos.filter(n=>n.tipo==="inicio");
   const nivel=new Map(), ordem=[];
-  if(inicio){
-    nivel.set(inicio.id,0); const fila=[inicio.id];
+  if(inicios.length){
+    inicios.forEach(n=>nivel.set(n.id,0)); const fila=inicios.map(n=>n.id);
     while(fila.length){
       const id=fila.shift(); ordem.push(id);
       for(const [saida] of saidasDoBloco(porId.get(id))){
@@ -3526,7 +3654,7 @@ function copiaDoBloco(no){
   return {...no,id:idNovoFluxo("n"),x:no.x+40,y:no.y+alturaDoBloco(no)+30,dados:d};
 }
 
-function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta}){
+function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,aoIniciarSeta,rotulo}){
   const t=TIPO_BLOCO[no.tipo]||TIPO_BLOCO.mensagem;
   const op=React.useContext(OpcoesDoFluxo);
   // O bloco inteiro agarra (seleciona e arrasta), como no ManyChat; só as
@@ -3536,7 +3664,7 @@ function BlocoDoFluxo({no,selecionado,contagem,somenteLeitura,ligadas,aoAgarrar,
     {no.tipo!=="inicio"&&<span style={{position:"absolute",left:-8,top:CAB_BLOCO/2-7,width:14,height:14,borderRadius:"50%",background:C.card,border:`2px solid ${t.cor}`}}/>}
     <div style={{height:CAB_BLOCO,display:"flex",alignItems:"center",gap:7,padding:"0 10px",
       background:t.cor,color:"#fff",borderRadius:"10px 10px 0 0",fontSize:12.5,fontWeight:700}}>
-      <Icon n={t.icone} size={14}/><span style={{flex:1}}>{t.nome}</span>
+      <Icon n={t.icone} size={14}/><span style={{flex:1}}>{rotulo||t.nome}</span>
       {contagem&&<span style={{background:"rgba(255,255,255,.22)",borderRadius:999,padding:"2px 8px",fontSize:11,fontFamily:MONO}}
         title={no.tipo==="inicio"?`${contagem.enviados||0} entraram`:`${contagem.enviados||0} passaram por aqui${contagem.parados_aqui?` · ${contagem.parados_aqui} aqui agora`:""}`}>
         {contagem.enviados||0}{contagem.parados_aqui?` · ${contagem.parados_aqui} aqui`:""}</span>}
@@ -3561,6 +3689,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
   const [menu,setMenu]=useState(null);
   const vistaRef=useRef(vista); vistaRef.current=vista;
   const porId=useMemo(()=>new Map(grafo.nos.map(n=>[n.id,n])),[grafo]);
+  const gatilhosDoFluxo=grafo.nos.filter(n=>n.tipo==="inicio");
   const noCanvas=(e)=>{const r=ref.current.getBoundingClientRect();const v=vistaRef.current;return {x:(e.clientX-r.left-v.x)/v.z,y:(e.clientY-r.top-v.y)/v.z};};
   function enquadrar(){
     if(!ref.current||!grafo.nos.length) return;
@@ -3674,6 +3803,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
           stroke={C.green} strokeWidth={2} strokeDasharray="6 5" fill="none"/>}
       </svg>
       {grafo.nos.map(n=><BlocoDoFluxo key={n.id} no={n} selecionado={selecionado===n.id} somenteLeitura={somenteLeitura}
+        rotulo={n.tipo==="inicio"&&gatilhosDoFluxo.length>1?`Gatilho ${gatilhosDoFluxo.indexOf(n)+1}`:null}
         contagem={contagens&&contagens[n.id]} ligadas={ligadasDe(n.id)} aoAgarrar={somenteLeitura?null:aoAgarrar} aoIniciarSeta={aoIniciarSeta}/>)}
       {sel&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>{aoMudar({...grafo,ligacoes:grafo.ligacoes.filter(l=>`${l.de}:${l.saida}`!==setaSel)});setSetaSel(null);}}
         title="Apagar esta seta"
@@ -3767,6 +3897,105 @@ const SeletorDeEtiquetaFluxo=({valor,aoMudar,tags,isMobile})=><select value={val
   {(tags||[]).map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}
 </select>;
 
+/* CAMPO PERSONALIZADO no gatilho e na condição (08/10/2026). O valor segue o
+   tipo do campo: lista para seleção, sim/não para sim-não, texto para o
+   resto. Vazio = "preenchido com qualquer valor". */
+const SeletorDeCampoFluxo=({valor,aoMudar,campos,isMobile})=><select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+  <option value="">Escolha o campo…</option>
+  {(campos||[]).map(c=><option key={c.key} value={c.key}>{c.name}</option>)}
+  {valor&&!(campos||[]).some(c=>c.key===valor)&&<option value={valor}>Campo desativado</option>}
+</select>;
+function ValorDoCampoFluxo({campo,valor,aoMudar,isMobile}){
+  const ops=campo&&Array.isArray(campo.options)?campo.options:[];
+  if(campo&&(campo.type==="select"||campo.type==="multiselect")&&ops.length)
+    return <select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+      <option value="">Qualquer valor (só estar preenchido)</option>{ops.map(o=><option key={o} value={o}>{o}</option>)}</select>;
+  if(campo&&campo.type==="boolean")
+    return <select value={valor||""} onChange={e=>aoMudar(e.target.value)} style={campoMkt(isMobile)}>
+      <option value="">Qualquer valor</option><option value="sim">Sim</option><option value="não">Não</option></select>;
+  return <input value={valor||""} onChange={e=>aoMudar(e.target.value)} maxLength={120} placeholder="Vazio = qualquer valor" style={campoMkt(isMobile)}/>;
+}
+
+/* MODELO APROVADO DA META (08/10/2026). Fora da janela de 24h a API oficial
+   só deixa sair modelo — é o que o fluxo de lead parado precisa. A lista vem
+   da conta do WhatsApp Business; numa linha da Uazapi (que não tem modelo) o
+   texto do modelo sai como mensagem comum. */
+function ModeloDaMeta({d,aoMudar,acoes,isMobile}){
+  const [lista,setLista]=useState(null);
+  const usando=!!d.modelo;
+  useEffect(()=>{ if(usando&&!lista) acoes.modelosMeta().then(setLista).catch(e=>setLista({modelos:[],aviso:e.message})); },[usando]);
+  const rot=ROTULO_MKT;
+  const m=d.modelo;
+  const escolhido=lista&&(lista.modelos||[]).find(x=>m&&x.nome===m.nome&&x.idioma===m.idioma);
+  return <div style={{display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",gap:6}}>
+      {[["livre","Texto livre"],["modelo","Modelo aprovado da Meta"]].map(([k,t])=>{const on=(k==="modelo")===usando;
+        return <button key={k} onClick={()=>aoMudar(k==="modelo"?{modelo:{nome:"",idioma:"pt_BR",texto:"",variaveis:[]}}:{modelo:null})}
+          style={{flex:1,fontSize:12,fontWeight:600,padding:"8px 10px",borderRadius:9,cursor:"pointer",minHeight:34,fontFamily:FONT,
+            border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
+    </div>
+    {usando&&<React.Fragment>
+      {!lista?<div style={{color:C.faint,fontSize:12}}>Buscando os modelos na Meta…</div>:<React.Fragment>
+        {lista.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"8px 10px",fontSize:12,lineHeight:1.5}}>{lista.aviso}</div>}
+        {(lista.modelos||[]).length>0&&<div><div style={rot}>Modelo</div>
+          <select value={m&&m.nome?`${m.nome}|${m.idioma}`:""} onChange={e=>{const x=lista.modelos.find(y=>`${y.nome}|${y.idioma}`===e.target.value);
+              aoMudar({modelo:x?{nome:x.nome,idioma:x.idioma,texto:x.texto,variaveis:Array.from({length:x.variaveis},(_,i)=>(m&&m.variaveis&&m.variaveis[i])||"")}:{nome:"",idioma:"pt_BR",texto:"",variaveis:[]}});}}
+            style={campoMkt(isMobile)}>
+            <option value="">Escolha…</option>
+            {lista.modelos.map(x=><option key={x.nome+x.idioma} value={`${x.nome}|${x.idioma}`}>{x.nome} · {x.idioma}</option>)}</select></div>}
+        {m&&m.nome&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,background:C.surface,fontSize:12.5,color:C.ink,whiteSpace:"pre-wrap",lineHeight:1.5}}>{m.texto||"(modelo sem texto no corpo)"}</div>}
+        {m&&(m.variaveis||[]).map((v,i)=><div key={i}><div style={rot}>{`{{${i+1}}}`}</div>
+          <input value={v} onChange={e=>aoMudar({modelo:{...m,variaveis:m.variaveis.map((x,j)=>j===i?e.target.value:x)}})} maxLength={200}
+            placeholder="ex.: {nome}" style={campoMkt(isMobile)}/></div>)}
+        {escolhido&&escolhido.cabecalho_com_midia&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.45}}>Este modelo tem foto ou vídeo no cabeçalho — o ConHub ainda não manda esse tipo. Escolha um modelo só com texto.</div>}
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>{"{nome}"} vira o primeiro nome do cliente. Os modelos são criados e aprovados no Gerenciador do WhatsApp da Meta.</div>
+      </React.Fragment>}
+    </React.Fragment>}
+  </div>;
+}
+
+/* Funil, etapa e catracas de UM formulário do gatilho. Com vários
+   formulários, cada um tem o seu (são do formulário, não do fluxo) e o
+   quadro nasce fechado, com o resumo — sete quadros abertos empurrariam o
+   resto do gatilho para fora da tela. Componente de fora, e não declarado
+   dentro do editor: senão cada tecla recriaria o quadro e perderia o foco. */
+function FunilDoFormularioNoGatilho({m,varios,aoMudar,ativosP,catracas,rot,isMobile}){
+  const [aberto,setAberto]=useState(!varios);
+  const pipe=ativosP.find(p=>p.id===m.pipeline_id);
+  const etapasP=(pipe?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
+  const ids=m.catraca_ids||[];
+  const nomesCat=catracas.filter(c=>ids.includes(c.id)).map(c=>c.nome);
+  const resumo=`${pipe?pipe.name:"Funil de quem recebe"}${nomesCat.length?` · ${nomesCat.join(", ")}`:""}`;
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,background:C.surface}}>
+    <button onClick={()=>setAberto(!aberto)} style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"block",fontSize:12.5,color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{varios?m.nome:"Onde o lead deste formulário nasce"}</span>
+        {!aberto&&<span style={{display:"block",fontSize:11,color:C.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{resumo}</span>}
+      </span>
+      <span style={{color:C.sub,fontSize:11.5,flexShrink:0}}>{aberto?"Fechar":"Ajustar"}</span>
+    </button>
+    {aberto&&<React.Fragment>
+      <div><div style={{...rot,marginBottom:3}}>Funil</div>
+        <select value={m.pipeline_id||""} onChange={e=>aoMudar({pipeline_id:e.target.value||null,stage_id:null})} style={campoMkt(isMobile)}>
+          <option value="">Funil de quem recebe (padrão)</option>
+          {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select></div>
+      {pipe&&<div><div style={{...rot,marginBottom:3}}>Etapa de entrada</div>
+        <select value={m.stage_id||""} onChange={e=>aoMudar({stage_id:e.target.value||null})} style={campoMkt(isMobile)}>
+          <option value="">Primeira etapa{etapasP[0]?` (${etapasP[0].name})`:""}</option>
+          {etapasP.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+        </select></div>}
+      <div><div style={{...rot,marginBottom:3}}>Catracas</div>
+        {!catracas.length&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>Nenhuma catraca de produto criada — vale a catraca principal. Crie na tela Catraca.</div>}
+        {catracas.map(c=>{const on=ids.includes(c.id);
+          return <label key={c.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
+            <input type="checkbox" checked={on} onChange={()=>aoMudar({catraca_ids:on?ids.filter(x=>x!==c.id):[...ids,c.id]})}/>
+            <span>{c.nome} <span style={{color:C.faint,fontSize:11}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span></label>;})}
+        {catracas.length>0&&!ids.length&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>Nenhuma marcada: vale a catraca principal.</div>}</div>
+    </React.Fragment>}
+  </div>;
+}
+
 /* O GATILHO — o que faz alguém entrar neste fluxo sozinho
    (services/automacoes.js). O funil do formulário e as catracas que o
    recebem vão para o formulário quando o fluxo é salvo — as catracas são a
@@ -3775,55 +4004,47 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
   const rot=ROTULO_MKT;
   const muda=(patch)=>aoMudar({...g,...patch});
   const ativosP=(pipelines||[]).filter(p=>p.is_active!==false&&p.is_active!==0);
-  const pipe=ativosP.find(p=>p.id===g.pipeline_id);
-  const etapasP=(pipe?.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0);
   const forms=(op&&op.formularios)||[];
   const catracas=((op&&op.catracas)||[]).filter(c=>c.ativa);
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     <div><div style={rot}>Quando começa</div>
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {GATILHOS.map(([id,tit,desc,ic])=>{const on=(g.tipo||"manual")===id;
-          return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
+          return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada,parar_ao_responder:g.parar_ao_responder})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
             border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:10,padding:isMobile?"10px 11px":"8px 10px",fontFamily:FONT}}>
             <span style={{width:26,height:26,borderRadius:8,flexShrink:0,background:on?C.greenDeep:C.surface,color:on?"#fff":C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={ic} size={14}/></span>
             <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{tit}</span>
               <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{desc}</span></span>
           </button>;})}
       </div></div>
-    {g.tipo==="formulario"&&<React.Fragment>
-      <div><div style={rot}>Formulário</div>
-        <select value={g.form_id||""} onChange={e=>{const f=forms.find(x=>x.id===e.target.value);
-          /* Já vem com o que o formulário tem hoje: sem isso, escolher o
-             formulário e salvar trocaria o funil e as catracas dele por nada. */
-          muda({form_id:e.target.value,form_nome:f?f.nome:"",pipeline_id:f?f.pipeline_id||null:null,stage_id:f?f.stage_id||null:null,
-            catraca_ids:f?(f.catraca_ids||[]).filter(id=>catracas.some(c=>c.id===id)):[]});}} style={campoMkt(isMobile)}>
-          <option value="">Escolha o formulário…</option>
-          {g.form_id&&!forms.some(f=>f.id===g.form_id)&&<option value={g.form_id}>{g.form_nome||g.form_id}</option>}
-          {forms.map(f=><option key={f.id} value={f.id}>{f.nome}{f.status&&f.status!=="ACTIVE"?" (arquivado)":""}</option>)}
-        </select>
-        {op&&!forms.length&&<div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.45}}>Nenhum formulário encontrado. Conecte a página em Configurações → Anúncios do Meta.</div>}
-      </div>
-      {g.form_id&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,background:C.surface}}>
-        <div style={{fontSize:11.5,color:C.sub,lineHeight:1.45}}>Onde o lead deste formulário nasce e por quais catracas ele passa.</div>
-        <div><div style={{...rot,marginBottom:3}}>Funil</div>
-          <select value={g.pipeline_id||""} onChange={e=>muda({pipeline_id:e.target.value||null,stage_id:null})} style={campoMkt(isMobile)}>
-            <option value="">Funil de quem recebe (padrão)</option>
-            {ativosP.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-          </select></div>
-        {pipe&&<div><div style={{...rot,marginBottom:3}}>Etapa de entrada</div>
-          <select value={g.stage_id||""} onChange={e=>muda({stage_id:e.target.value||null})} style={campoMkt(isMobile)}>
-            <option value="">Primeira etapa{etapasP[0]?` (${etapasP[0].name})`:""}</option>
-            {etapasP.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
-          </select></div>}
-        <div><div style={{...rot,marginBottom:3}}>Catracas</div>
-          {!catracas.length&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>Nenhuma catraca de produto criada — vale a catraca principal. Crie na tela Catraca.</div>}
-          {catracas.map(c=>{const ids=g.catraca_ids||[],on=ids.includes(c.id);
-            return <label key={c.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
-              <input type="checkbox" checked={on} onChange={()=>muda({catraca_ids:on?ids.filter(x=>x!==c.id):[...ids,c.id]})}/>
-              <span>{c.nome} <span style={{color:C.faint,fontSize:11}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span></label>;})}
-          {catracas.length>0&&!(g.catraca_ids||[]).length&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>Nenhuma marcada: vale a catraca principal.</div>}</div>
-      </div>}
-    </React.Fragment>}
+    {g.tipo==="formulario"&&(()=>{
+      const marcados=formsDoGatilho(g);
+      /* Grava a lista nova; form_id/form_nome acompanham o primeiro para quem
+         ainda lê o campo antigo. Os campos soltos de funil/catraca do formato
+         antigo saem: agora cada formulário leva os seus. */
+      const gravar=(lista)=>aoMudar({...g,formularios:lista,form_id:lista[0]?.id||"",form_nome:lista[0]?.nome||"",
+        pipeline_id:undefined,stage_id:undefined,catraca_ids:undefined});
+      const alternar=(f)=>{const on=marcados.some(x=>x.id===f.id);
+        /* Já vem com o que o formulário tem hoje: sem isso, marcar o
+           formulário e salvar trocaria o funil e as catracas dele por nada. */
+        gravar(on?marcados.filter(x=>x.id!==f.id):[...marcados,{id:f.id,nome:f.nome,pipeline_id:f.pipeline_id||null,stage_id:f.stage_id||null,
+          catraca_ids:(f.catraca_ids||[]).filter(id=>catracas.some(c=>c.id===id))}]);};
+      const ajustar=(id,patch)=>gravar(marcados.map(x=>x.id===id?{...x,...patch}:x));
+      const fora=marcados.filter(m=>!forms.some(f=>f.id===m.id));
+      return <React.Fragment>
+        <div><div style={rot}>Formulários <span style={{textTransform:"none",letterSpacing:0,fontWeight:500,color:C.faint}}>— marque um ou vários</span></div>
+          <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"4px 10px",maxHeight:220,overflowY:"auto",background:C.card}}>
+            {[...fora.map(m=>({id:m.id,nome:m.nome||m.id,naoAchado:true})),...forms].map(f=>{const on=marcados.some(x=>x.id===f.id);
+              return <label key={f.id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:isMobile?"7px 0":"4px 0",cursor:"pointer"}}>
+                <input type="checkbox" checked={on} onChange={()=>alternar(f)}/>
+                <span>{f.nome}{f.status&&f.status!=="ACTIVE"?<span style={{color:C.faint}}> (arquivado)</span>:null}{f.naoAchado?<span style={{color:C.faint}}> (não encontrado na página)</span>:null}</span></label>;})}
+            {!forms.length&&!fora.length&&<div style={{color:C.faint,fontSize:11.5,padding:"6px 0",lineHeight:1.45}}>{op?"Nenhum formulário encontrado. Conecte a página em Configurações → Anúncios do Meta.":"Carregando…"}</div>}
+          </div>
+          {marcados.length>1&&<div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.45}}>Quem preencher qualquer um dos {marcados.length} entra neste fluxo. Cada formulário só pode ligar uma automação.</div>}
+        </div>
+        {marcados.map(m=><FunilDoFormularioNoGatilho key={m.id} m={{...m,nome:nomeDoForm(m,op)}} varios={marcados.length>1}
+          aoMudar={p=>ajustar(m.id,p)} ativosP={ativosP} catracas={catracas} rot={rot} isMobile={isMobile}/>)}
+      </React.Fragment>;})()}
     {g.tipo==="lead_novo"&&<div><div style={rot}>De onde</div>
       {ORIGENS_GATILHO.map(([id,t])=>{const on=(g.origens||[]).includes(id);
         return <label key={id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
@@ -3832,13 +4053,20 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
     {g.tipo==="etapa"&&<div><div style={rot}>Etapa</div><SeletorDeEtapaFluxo valor={g.etapa_id} aoMudar={v=>muda({etapa_id:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
       <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Mover a base inteira de funil (em Base de leads) não dispara.</div></div>}
     {g.tipo==="etiqueta"&&<div><div style={rot}>Etiqueta</div><SeletorDeEtiquetaFluxo valor={g.tag_id} aoMudar={v=>muda({tag_id:v})} tags={op&&op.tags} isMobile={isMobile}/></div>}
+    {g.tipo==="campo"&&<React.Fragment>
+      <div><div style={rot}>Campo</div><SeletorDeCampoFluxo valor={g.campo} aoMudar={v=>muda({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/></div>
+      {g.campo&&<div><div style={rot}>Com o valor</div><ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===g.campo)} valor={g.valor} aoMudar={v=>muda({valor:v})} isMobile={isMobile}/></div>}
+    </React.Fragment>}
+    <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
+      <input type="checkbox" checked={!!g.parar_ao_responder} onChange={e=>muda({parar_ao_responder:e.target.checked})} style={{marginTop:3}}/>
+      <span>Parar o fluxo quando o cliente responder <span style={{color:C.faint}}>— depois de receber a primeira mensagem do fluxo. Quem está num bloco que espera resposta segue o caminho da resposta.</span></span></label>
     {g.tipo&&g.tipo!=="manual"&&<label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.reentrada} onChange={e=>muda({reentrada:e.target.checked})} style={{marginTop:3}}/>
       <span>O mesmo lead pode entrar de novo <span style={{color:C.faint}}>— depois de terminar, e com pelo menos 1 hora entre uma vez e outra. Desligado, cada lead passa por esta automação uma vez só.</span></span></label>}
   </div>;
 }
 
-function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar,op,pipelines,topoDoGatilho}){
+function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,destinos,aoLigar,op,pipelines,topoDoGatilho,numGatilho,totalGatilhos=1}){
   const d=no.dados||{};
   const dados=(patch)=>aoMudar({...no,dados:{...d,...patch}});
   const rot=ROTULO_MKT;
@@ -3846,20 +4074,28 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
-      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{t.nome}</div>
+      <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{no.tipo==="inicio"&&totalGatilhos>1?`Gatilho ${numGatilho}`:t.nome}</div>
       {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
-      {no.tipo!=="inicio"&&<button onClick={aoApagar} title="Apagar bloco" style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
+      {(no.tipo!=="inicio"||totalGatilhos>1)&&<button onClick={aoApagar} title={no.tipo==="inicio"?"Apagar este gatilho":"Apagar bloco"} style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
     </div>
     {no.tipo==="inicio"&&<React.Fragment>
       {topoDoGatilho}
+      {/* VÁRIOS GATILHOS (16/10/2026): cada um com o próprio caminho. */}
+      {totalGatilhos>1&&<div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.5}}>
+        Este fluxo tem <b>{totalGatilhos} gatilhos</b>. Cada um segue pela própria seta, então cada ação do lead tem o seu caminho.
+        Um lead anda por um caminho de cada vez: enquanto está num, outro gatilho deste fluxo não o coloca de novo.</div>}
       <EditorDoGatilho g={d.gatilho||{tipo:"manual"}} aoMudar={g=>dados({gatilho:g})} op={op} pipelines={pipelines} isMobile={isMobile}/>
     </React.Fragment>}
     {no.tipo==="condicao"&&<React.Fragment>
       <div><div style={rot}>Se o lead…</div>
-        <select value={d.regra||"tag"} onChange={e=>dados({regra:e.target.value,valor:e.target.value==="responsavel"?"com":""})} style={campoMkt(isMobile)}>
+        <select value={d.regra||"tag"} onChange={e=>dados({regra:e.target.value,valor:e.target.value==="responsavel"?"com":"",campo:""})} style={campoMkt(isMobile)}>
           {REGRAS_CONDICAO.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
       <div>
-        {d.regra==="etapa"?<SeletorDeEtapaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
+        {d.regra==="respondeu"?<div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>Sim quando o cliente mandou qualquer mensagem desde que entrou neste fluxo.</div>
+          :d.regra==="campo"?<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <SeletorDeCampoFluxo valor={d.campo} aoMudar={v=>dados({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/>
+            {d.campo&&<ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===d.campo)} valor={d.valor} aoMudar={v=>dados({valor:v})} isMobile={isMobile}/>}</div>
+          :d.regra==="etapa"?<SeletorDeEtapaFluxo valor={d.valor} aoMudar={v=>dados({valor:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
           :d.regra==="temperatura"?<select value={d.valor||""} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
             <option value="">Escolha…</option>{TEMPERATURAS_COND.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select>
           :d.regra==="responsavel"?<select value={d.valor||"com"} onChange={e=>dados({valor:e.target.value})} style={campoMkt(isMobile)}>
@@ -3894,7 +4130,8 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Fica no nome de quem está com o lead.</div></div>
     </React.Fragment>}
     {no.tipo==="mensagem"&&<React.Fragment>
-      <ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
+      <ModeloDaMeta d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
+      {!d.modelo&&<ConteudoDaMensagem key={no.id} d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>}
     </React.Fragment>}
     {no.tipo==="espera"&&<div><div style={rot}>Esperar</div>
       <CampoPrazo valor={{quantidade:d.quantidade,unidade:d.unidade}} aoMudar={v=>dados({quantidade:v.quantidade,unidade:v.unidade})} isMobile={isMobile}/>
@@ -3957,8 +4194,9 @@ function usarOpcoesDoFluxo(acoes){
       acoes.opcoesPublicoMarketing().catch(()=>({})),
       acoes.catracas().catch(()=>({catracas:[]})),
       acoes.formulariosMeta().catch(()=>({formularios:[]})),
-    ]).then(([pub,cat,form])=>vivo&&setOp({tags:pub.tags||[],etapas:pub.etapas||[],responsaveis:pub.responsaveis||[],
-      catracas:cat.catracas||[],formularios:form.formularios||[]}));
+      acoes.camposPersonalizados().catch(()=>({campos:[]})),
+    ]).then(([pub,cat,form,cps])=>vivo&&setOp({tags:pub.tags||[],etapas:pub.etapas||[],responsaveis:pub.responsaveis||[],
+      catracas:cat.catracas||[],formularios:form.formularios||[],campos:(cps.campos||[]).filter(c=>c.is_active!==0&&c.is_active!==false)}));
     return()=>{vivo=false;}; },[]);
   return op;
 }
@@ -4001,6 +4239,7 @@ function LogsDoFluxo({acoes,fluxoId,grafo,isMobile,aoFechar}){
   const op=React.useContext(OpcoesDoFluxo);
   useEffect(()=>{acoes.logsFluxoMarketing(fluxoId).then(setD).catch(e=>setErro(e.message));},[fluxoId]);
   const nomeDoNo=(id)=>{const n=grafo.nos.find(x=>x.id===id); return n?TIPO_BLOCO[n.tipo].nome:"Bloco apagado";};
+  const inicios=grafo.nos.filter(n=>n.tipo==="inicio");
   return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:40,display:"flex",justifyContent:"center",alignItems:isMobile?"flex-end":"center"}}>
     <div onClick={e=>e.stopPropagation()} className={isMobile?"tela-cheia":undefined} style={{background:C.card,width:isMobile?"100%":620,maxWidth:"100%",height:"auto",maxHeight:isMobile?"88dvh":"80vh",overflowY:"auto",
       ...(isMobile?{position:"fixed",left:0,right:0,top:"auto",bottom:0}:{}),
@@ -4017,6 +4256,9 @@ function LogsDoFluxo({acoes,fluxoId,grafo,isMobile,aoFechar}){
             <span style={{fontWeight:600,fontSize:13,color:C.ink,flex:1,minWidth:0}}>{e.nome}</span>
             <span style={{fontSize:11,fontWeight:700,color:cor}}>{rot}</span>
             <span style={{fontSize:11,color:C.faint}}>{fmtDataHoraMkt(e.criado_em)}</span></div>
+          {/* Com vários gatilhos, diz por qual o lead entrou. */}
+          {inicios.length>1&&(()=>{const n=inicios.find(x=>x.id===e.gatilho_no)||inicios[0];
+            return <div style={{fontSize:11.5,color:C.sub,marginTop:2}}>Entrou pelo <b>gatilho {inicios.indexOf(n)+1}</b>: {resumoDoGatilho((n.dados||{}).gatilho,op)}</div>;})()}
           {e.fim_motivo&&e.estado!=="concluida"&&<div style={{fontSize:11.5,color:C.sub,marginTop:2}}>{e.fim_motivo}</div>}
           {e.passos.length>0&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
             {e.passos.map((p,i)=><div key={i} style={{fontSize:11.5,color:p.status==="falha"||p.erro?C.hot:C.sub,lineHeight:1.4}}>
@@ -4046,11 +4288,18 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   const op=usarOpcoesDoFluxo(acoes);
   const {pipelines}=usarPipelines(acoes,true);
   const setGrafo=(g)=>{setGrafoCru(limparLigacoes(g));setSujo(true);};
-  const gatilho=((grafo.nos.find(n=>n.tipo==="inicio")||{}).dados||{}).gatilho||{tipo:"manual"};
-  const manual=(gatilho.tipo||"manual")==="manual";
+  /* VÁRIOS GATILHOS (16/10/2026): o fluxo só é "Disparo em massa" quando
+     nenhum dos gatilhos liga sozinho. */
+  const inicios=grafo.nos.filter(n=>n.tipo==="inicio");
+  const manual=inicios.every(n=>(((n.dados||{}).gatilho||{}).tipo||"manual")==="manual");
   const absorver=(r)=>{ setGrafoCru(r.grafo); setAvisos(r.avisos||[]); setNome(r.nome);
     setEstado({ativo:!!r.ativo,automacao:r.automacao||null,desatualizada:!!r.automacao_desatualizada,gatilhoAvisos:r.gatilho_avisos||[]}); };
-  const apagarBloco=(id)=>{setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
+  const apagarBloco=(id)=>{
+    const n=grafo.nos.find(x=>x.id===id);
+    // O último gatilho não sai: fluxo sem gatilho não começa nunca.
+    if(n&&n.tipo==="inicio"&&inicios.length<=1) return;
+    if(n&&n.tipo==="inicio"&&!window.confirm("Apagar este gatilho? O caminho dele continua na tela, solto, até você ligar ou apagar.")) return;
+    setGrafo({...grafo,nos:grafo.nos.filter(x=>x.id!==id),ligacoes:grafo.ligacoes.filter(l=>l.de!==id&&l.para!==id)});setSel(null);};
   function duplicar(){
     const n=grafo.nos.find(x=>x.id===sel); if(!n||n.tipo==="inicio") return;
     const c=copiaDoBloco(n); setGrafo({...grafo,nos:[...grafo.nos,c]}); setSel(c.id);
@@ -4064,7 +4313,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
       const alvo=e.target, digitando=alvo&&(/^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)||alvo.isContentEditable);
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); salvarRef.current&&salvarRef.current(); return; }
       if(digitando) return;
-      if((e.key==="Delete"||e.key==="Backspace")&&sel&&sel!=="inicio"&&grafo.nos.some(n=>n.id===sel&&n.tipo!=="inicio")){ e.preventDefault(); apagarBloco(sel); }
+      if((e.key==="Delete"||e.key==="Backspace")&&sel&&grafo.nos.some(n=>n.id===sel&&(n.tipo!=="inicio"||inicios.length>1))){ e.preventDefault(); apagarBloco(sel); }
     };
     window.addEventListener("keydown",tecla); return ()=>window.removeEventListener("keydown",tecla);
   });
@@ -4101,6 +4350,15 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     let yy=y; for(let i=0;i<40&&cobre(yy);i++) yy+=40;
     return yy;
   }
+  /* NOVO GATILHO: entra embaixo do último gatilho, na coluna deles, e já
+     abre — a primeira coisa a fazer é escolher a ação que ele pega. */
+  function adicionarGatilho(){
+    const ultimo=inicios.reduce((a,n)=>!a||n.y>a.y?n:a,null);
+    const x=ultimo?ultimo.x:60;
+    const b=blocoNovo("inicio",x,lugarLivre(x,ultimo?ultimo.y+alturaDoBloco(ultimo)+40:120,"inicio"));
+    setGrafo({...grafo,nos:[...grafo.nos,b]}); setSel(b.id);
+    if(isMobile) setFolha(b.id);
+  }
   function adicionar(tipo){
     const base=grafo.nos.find(n=>n.id===sel)||grafo.nos.reduce((a,n)=>!a||n.x>a.x?n:a,null);
     const x=base?base.x+LARG_BLOCO+70:300;
@@ -4128,11 +4386,13 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
   }
   const noSel=grafo.nos.find(n=>n.id===sel);
   const noFolha=grafo.nos.find(n=>n.id===folha);
-  const contagens=estado.automacao?{...estado.automacao.por_bloco,inicio:{enviados:estado.automacao.entraram,parados_aqui:0}}:null;
+  // Quantos entraram por cada gatilho (servidor: por_gatilho).
+  const contagens=estado.automacao?{...estado.automacao.por_bloco,
+    ...Object.fromEntries(inicios.map((n,i)=>[n.id,{enviados:(estado.automacao.por_gatilho||{})[n.id]??(i===0&&!estado.automacao.por_gatilho?estado.automacao.entraram:0),parados_aqui:0}]))}:null;
   const painelAutomacao=<PainelDaAutomacao manual={manual} ativo={estado.ativo} automacao={estado.automacao} desatualizada={estado.desatualizada}
     avisos={[...estado.gatilhoAvisos,...avisos]} ocupado={ocupado} aoLigar={ligar} isMobile={isMobile}/>;
   const editor=(no)=><EditorDeBloco no={no} acoes={acoes} isMobile={isMobile} op={op} pipelines={pipelines}
-    topoDoGatilho={painelAutomacao}
+    topoDoGatilho={painelAutomacao} numGatilho={inicios.indexOf(no)+1} totalGatilhos={inicios.length}
     aoMudar={(n)=>setGrafo({...grafo,nos:grafo.nos.map(x=>x.id===n.id?n:x)})}
     aoDuplicar={duplicar}
     aoApagar={()=>{apagarBloco(no.id);setFolha(null);}}
@@ -4152,6 +4412,11 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
       cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:500,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
     <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO[t].cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={TIPO_BLOCO[t].icone} size={12}/></span>
     {TIPO_BLOCO[t].nome}</button>;
+  const botaoNovoGatilho=inicios.length<10&&<button onClick={adicionarGatilho} title="Mais um gatilho, com o próprio caminho"
+    style={{display:"flex",alignItems:"center",gap:8,border:`1px dashed ${TIPO_BLOCO.inicio.cor}`,background:C.card,borderRadius:9,padding:isMobile?"7px 11px":"7px 9px",
+      cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
+    <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO.inicio.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="zap" size={12}/></span>
+    Novo gatilho</button>;
   const logs=vendoLogs&&<LogsDoFluxo acoes={acoes} fluxoId={inicial.id} grafo={grafo} isMobile={isMobile} aoFechar={()=>setVendoLogs(false)}/>;
 
   /* NO CELULAR (27/09/2026, pedido do Ali): a tela livre ocupa a largura toda,
@@ -4168,7 +4433,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
       {pilulaStatus}
       <span style={{flex:1,fontSize:12,color:sujo?"#8a6d1f":C.faint,minWidth:60}}>{sujo?"Não salvo":salvoEm?"Salvo":""}</span>
-      <button onClick={()=>setFolha("inicio")} style={{...botaoLeveMkt,padding:"7px 10px"}}>Gatilho</button>
+      <button onClick={()=>setFolha((inicios[0]||{}).id)} style={{...botaoLeveMkt,padding:"7px 10px"}}>{inicios.length>1?"Gatilhos":"Gatilho"}</button>
       {botaoLogs}{botaoLigar}
     </div>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
@@ -4177,7 +4442,7 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     </div>
     {testando&&<TesteDoFluxo acoes={acoes} fluxoId={inicial.id} isMobile={isMobile} antes={sujo?salvar:null} aoFechar={()=>setTestando(false)}/>}
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
-    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{TIPOS_NOVOS.map(itemPaleta)}</div>
+    <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>{botaoNovoGatilho}{TIPOS_NOVOS.map(itemPaleta)}</div>
     <div style={{flex:1,minHeight:0}}>
       <TelaDoFluxo grafo={grafo} aoMudar={setGrafo} selecionado={sel} aoSelecionar={setSel} altura="100%" focar={sel}
         enquadrarSinal={enquadrar} aoTocar={(id)=>setFolha(id)} contagens={contagens}/>
@@ -4217,6 +4482,8 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     <div style={{display:"flex",gap:12,flex:1,minHeight:0}}>
       <div style={{...CARTAO_MKT,marginBottom:0,width:196,flexShrink:0,height:"100%",overflowY:"auto",boxSizing:"border-box",padding:12}}>
         <div style={{fontSize:11.5,color:C.faint,marginBottom:8}}>Clique para adicionar</div>
+        <div style={{marginBottom:12}}><div style={{...ROTULO_MKT,fontSize:10.5}}>Gatilhos</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>{botaoNovoGatilho||<div style={{fontSize:11,color:C.faint}}>Até 10 gatilhos por fluxo.</div>}</div></div>
         {GRUPOS_DE_BLOCO.map(([g,tipos])=><div key={g} style={{marginBottom:12}}>
           <div style={{...ROTULO_MKT,fontSize:10.5}}>{g}</div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>{tipos.map(itemPaleta)}</div>
@@ -4310,7 +4577,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta) e ligue para rodar sozinho.</div>
+        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido) e ligue para rodar sozinho.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
@@ -4327,7 +4594,10 @@ function FluxosDeMarketing({acoes,org,isMobile}){
                   ?(f.ativo?<Pill c={C.greenDeep} bg={C.greenSoft}>● Ativa</Pill>:<Pill c={C.sub} bg={C.surface}>Desligada</Pill>)
                   :<Pill c={C.sub} bg={C.surface}>Disparo em massa</Pill>}</div>
               <div style={{color:C.faint,fontSize:11.5,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{f.gatilho.form_nome?`: ${f.gatilho.form_nome}`:""} ·</span>}
+                {f.gatilho&&f.gatilho.tipo!=="manual"&&<span style={{color:C.sub,display:"inline-flex",gap:4,alignItems:"center"}}><Icon n="zap" size={11}/>{(f.gatilhos||[]).length>1
+                  ?`${f.gatilhos.length} gatilhos`
+                  :<React.Fragment>{(GATILHOS.find(g=>g[0]===f.gatilho.tipo)||[,""])[1]}{(()=>{const fs=formsDoGatilho(f.gatilho);
+                  return fs.length>1?`: ${fs.length} formulários`:fs.length?`: ${fs[0].nome||f.gatilho.form_nome||"1 formulário"}`:"";})()}</React.Fragment>} ·</span>}
                 {f.blocos} blocos · {f.gatilho&&f.gatilho.tipo!=="manual"?`${f.entraram} entraram`:`${f.disparos} disparo(s)`} · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
             <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>
@@ -4351,6 +4621,28 @@ const ORIGEM_FERRAMENTA={
   retirado:"Retirada por você",
   fora_do_plano:"Fora do plano",
 };
+function NomeDaContaNoHub({conta,acoes,aoMudar}){
+  const [nome,setNome]=useState(conta.nome||""); const [msg,setMsg]=useState(""); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const mudou=nome.trim()!==(conta.nome||"")&&nome.trim().length>=2;
+  async function salvar(){
+    setSalvando(true);setErro("");setMsg("");
+    try{ await acoes.renomearConta(conta.id,{nome:nome.trim()}); await aoMudar(); setMsg("Nome salvo."); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Nome da conta</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>Aparece no topo da barra lateral da equipe, no hub, nos e-mails e no que a IA diz ao cliente. Quem estiver com o CRM aberto vê o nome novo ao recarregar.</div>
+    <div style={{display:"flex",gap:6}}>
+      <input value={nome} onChange={e=>setNome(e.target.value.slice(0,80))}
+        style={{flex:1,minWidth:0,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",fontSize:13.5,color:C.ink,background:C.surface,outline:"none",fontFamily:FONT}}/>
+      <button onClick={salvar} disabled={!mudou||salvando}
+        style={{flexShrink:0,background:mudou&&!salvando?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"0 14px",fontSize:12.5,fontWeight:600,cursor:mudou&&!salvando?"pointer":"default"}}>{salvando?"…":"Salvar"}</button>
+    </div>
+    {msg&&<div style={{color:C.greenMid,fontSize:12,fontWeight:600,marginTop:6}}>{msg}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
@@ -4381,6 +4673,10 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
           <button onClick={()=>setAberto(false)} aria-label="Fechar"
             style={{background:"transparent",border:"none",color:C.faint,cursor:"pointer",padding:4}}><Icon n="x" size={16}/></button>
         </div>
+        {/* NOME DA CONTA (16/10/2026, pedido do Ali): a conta da VJ nasceu no
+            nome da pessoa ("Verônica Gomez") e precisa se chamar pela marca. A
+            rota já existia (PATCH /orgs/:id, só master); faltava onde usar. */}
+        <NomeDaContaNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>
         <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
           Liberar vale mesmo fora do plano; retirar desliga mesmo estando no plano. "Seguir o plano" desfaz a sua escolha.
         </div>
@@ -4409,6 +4705,33 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   {ocupado===r.id+v?"…":t}</button>;})}
             </div>
           </div>;})}
+        {/* ENTRADA SEM CÓDIGO (15/10/2026): exceção para cliente conhecido em
+            implantação. Cada entrada vale algumas horas; vencida, Entrar renova. */}
+        {conta.acesso&&conta.acesso.pede_codigo&&<div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Entrar sem código</span>
+            <span style={{background:conta.acesso.livre?C.amberSoft:C.surface,color:conta.acesso.livre?"#8a6d1f":C.faint,
+              borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.acesso.livre?"exceção ligada":"pede código"}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Para cliente conhecido em implantação. Ligada, você entra sem o código por até {conta.acesso.horas_livre} horas por dia de conta aberta (somando todos os sócios); o tempo não acumula para o dia seguinte. A gestão é avisada a cada entrada e pode desligar.
+            {conta.acesso.livre&&conta.acesso.livre_em?` Ligada em ${fmtData(conta.acesso.livre_em)}.`:""}
+            {conta.acesso.livre&&conta.acesso.saldo_hoje_ms!=null&&<b style={{color:conta.acesso.saldo_hoje_ms>0?C.ink:C.hot}}>{" "}{conta.acesso.saldo_hoje_ms>0?`Hoje restam ${fmtDuracao(conta.acesso.saldo_hoje_ms)}.`:"O tempo de hoje acabou; amanhã renova."}</b>}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[false,"Pedir o código"],[true,"Entrar sem código"]].map(([v,t])=>{
+              const sel=!!conta.acesso.livre===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  setOcupado("livre"+v);
+                  try{ await acoes.definirAcessoLivre(conta.id,v); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?(v?C.amberSoft:C.greenSoft):C.surface,color:sel?(v?"#8a6d1f":C.greenDeep):C.sub,
+                  border:`1px solid ${sel?(v?C.amber+"88":C.green+"55"):C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="livre"+v?"…":t}</button>;})}
+          </div>
+        </div>}
         {conta.mensalidade&&<MensalidadeNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>}
         {/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026). Trocar não
             cancela nada no provedor antigo: a cobrança de lá só sai quando o
@@ -4439,6 +4762,32 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
                   border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="cobranca"+v?"…":t}</button>;})}
+          </div>
+        </div>}
+        {/* BOLETO, CONTA POR CONTA (15/10/2026): o cliente pede ao suporte e
+            você libera aqui. Desligar não cancela boleto já gerado. */}
+        {conta.boleto&&<div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Pagar por boleto</span>
+            <span style={{background:conta.boleto.liberado?C.greenSoft:C.surface,color:conta.boleto.liberado?C.greenDeep:C.faint,
+              borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.boleto.liberado?"liberado":"só cartão"}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Liberado, o cliente gera o boleto do plano em Minha conta (ou na tela de bloqueio) e o acesso volta sozinho quando o banco confirma.
+            {conta.boleto.ultimo?` Último boleto: ${fmtPreco(conta.boleto.ultimo.valor)}, vence ${fmtData(new Date(conta.boleto.ultimo.vencimento+"T12:00:00").getTime())} · ${{aberto:"em aberto",pago:"pago",cancelado:"cancelado",estornado:"estornado"}[conta.boleto.ultimo.status]||conta.boleto.ultimo.status}.`:" Nenhum boleto gerado ainda."}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[false,"Só cartão"],[true,"Liberar boleto"]].map(([v,t])=>{
+              const sel=!!conta.boleto.liberado===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  setOcupado("boleto"+v);
+                  try{ await acoes.definirBoleto(conta.id,v); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="boleto"+v?"…":t}</button>;})}
           </div>
         </div>}
       </div>
@@ -4654,7 +5003,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
   useEffect(()=>{rever();},[]);
 
   const entrar=async(c)=>{ setErro(""); setOcupado(c.id);
-    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); } };
+    try{ if(await aoEntrar(c.id,null,c.nome)===false) setOcupado(""); }catch(e){ setErro(e.message); setOcupado(""); } };
 
   const criar=async()=>{ setErro(""); setOcupado("nova");
     try{ await acoes.criarConta(nova); setNova({nome:"",codigo:""}); setCriando(false); await rever(); }
@@ -4788,6 +5137,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         </div>
         <SuporteNoHub isMobile={isMobile}/>
       </div>
+      <PlanosCetrolab acoes={acoes} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
       <DominiosDosSites acoes={acoes} isMobile={isMobile}/>
       <Backup acoes={acoes} isMobile={isMobile}/>
@@ -4844,7 +5194,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
      sucesso este componente já saiu do ar. Só o erro devolve o botão. */
   async function entrar(c){
     setErro("");setOcupado("entrar:"+c.id);
-    try{ await aoEntrar(c.id); }catch(e){ setErro(e.message); setOcupado(""); }
+    try{ if(await aoEntrar(c.id,null,c.nome)===false) setOcupado(""); }catch(e){ setErro(e.message); setOcupado(""); }
   }
   const copiar=()=>{ try{ navigator.clipboard.writeText(criado.link); setCopiado(true);
     setTimeout(()=>setCopiado(false),1800); }catch(e){} };
@@ -5682,14 +6032,14 @@ function FerramentaNoPagarme({r,pm,acoes,isMobile,aoMudar}){
     {!aberto
       ?<button onClick={()=>{setErro("");setAberto(true);}}
         style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-        Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+        Contratar por {fmtPreco(r.preco_avulso)}/mês</button>
       :(!cartao||trocando)
       ?<CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile} botao={cartao?"Usar este cartão":"Salvar cartão e continuar"}
         aoCancelar={()=>{setTrocando(false);if(!cartao)setAberto(false);}}
         aoSalvar={async()=>{ setTrocando(false); await aoMudar(); }}/>
       :<div style={{background:C.card,border:`1px solid ${C.green}44`,borderRadius:11,padding:11}}>
         <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginBottom:9}}>
-          <b>{fmtMoeda(r.preco_avulso)}/mês</b> no {resumoCartao(cartao)}, cobrado hoje e todo mês.{" "}
+          <b>{fmtPreco(r.preco_avulso)}/mês</b> no {resumoCartao(cartao)}, cobrado hoje e todo mês.{" "}
           <button onClick={()=>setTrocando(true)} style={{background:"none",border:"none",padding:0,color:C.greenDeep,fontWeight:700,cursor:"pointer",fontSize:12}}>Trocar cartão</button>
         </div>
         <div style={{display:"flex",gap:8}}>
@@ -6093,7 +6443,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         </div>
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:3}}>{r.resumo}</div></React.Fragment>}
         {avulsaAtiva&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
-          <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtMoeda(r.preco_avulso)}/mês · renova sozinha</span>
+          <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtPreco(r.preco_avulso)}/mês · renova sozinha</span>
           <button onClick={()=>cancelar(r)} disabled={!!ocupado}
             style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
             {ocupado===r.id?"…":"Cancelar"}</button>
@@ -6101,10 +6451,12 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
           Cancelada — continua ligada até {fmtData(r.avulso.pago_ate)}.</div>}
         {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo ConHub nesta conta. Fale com a gente.</div>}
-        {!r.ativo&&r.origem==="fora_do_plano"&&pm&&(pm.configurado
+        {/* Ferramenta sem preço cadastrado (o Cetrolab antes de o ConHub criar o plano): não se vende. */}
+        {!r.ativo&&r.origem==="fora_do_plano"&&!(r.preco_avulso>0)&&<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Em breve à venda. Fale com o ConHub.</div>}
+        {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&pm&&(pm.configurado
           ?<FerramentaNoPagarme r={r} pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={async()=>{await carregar(); if(aoMudar) aoMudar();}}/>
           :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
-        {!r.ativo&&r.origem==="fora_do_plano"&&!pm&&(d.asaas
+        {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&!pm&&(d.asaas
           ?<div style={{marginTop:9}}>
             {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
               Contratação aguardando pagamento.{" "}
@@ -6118,7 +6470,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
             {abrindo!==r.id
               ?<button onClick={()=>{setErro("");setAbrindo(r.id);}}
                 style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-                Contratar por {fmtMoeda(r.preco_avulso)}/mês</button>
+                Contratar por {fmtPreco(r.preco_avulso)}/mês</button>
               :<div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {d.pede_cpf&&<div>
                   <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>Seu CPF ou CNPJ</div>
@@ -6134,6 +6486,132 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
           </div>
           :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
       </div>;})}
+  </div>;
+}
+
+/* PAGAR POR BOLETO (15/10/2026, pedido do Ali: "o cliente entra em contato
+   com o suporte e a gente libera a opção de boleto para ele"). Só aparece na
+   conta em que o master liberou — nas outras o servidor responde
+   `liberado:false` e isto não desenha nada. O cliente escolhe o plano; o valor
+   e os meses vêm do servidor. Cada período é um boleto novo: boleto não cobra
+   sozinho como o cartão, e a tela diz isso. */
+const UFS_BR=["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
+  const [d,setD]=useState(null);
+  const [plano,setPlano]=useState("");
+  const [cpf,setCpf]=useState("");
+  const [end,setEnd]=useState({cep:"",rua:"",numero:"",complemento:"",bairro:"",cidade:"",uf:""});
+  const [ocupado,setOcupado]=useState("");
+  const [erro,setErro]=useState("");
+  const [copiado,setCopiado]=useState(false);
+  const [aberto,setAberto]=useState(false);
+  const ler=()=>acoes.boleto().then(x=>{ setD(x); setPlano(p=>p||x.atual||""); return x; }).catch(()=>setD({liberado:false}));
+  useEffect(()=>{ ler(); },[]);
+  if(!d||!d.liberado) return null;
+  const emAberto=(d.boletos||[]).find(b=>b.status==="aberto");
+  const pagoRecente=(d.boletos||[]).find(b=>b.status==="pago"&&b.pago_em&&Date.now()-b.pago_em<3*86400000);
+  const op=(d.opcoes||[]).find(o=>o.id===plano)||(d.opcoes||[])[0];
+  const digitos=cpf.replace(/\D/g,"").length;
+  const faltaCpf=d.pede_cpf&&digitos!==11&&digitos!==14;
+  const faltaEnd=d.pede_endereco&&(end.cep.replace(/\D/g,"").length!==8||!end.rua.trim()||!end.numero.trim()||!end.bairro.trim()||!end.cidade.trim()||!end.uf);
+  const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
+    background:C.surface,borderRadius:10,padding:"10px 11px",color:C.ink,outline:"none"};
+  const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
+  const venceTexto=(v)=>fmtData(new Date(v+"T12:00:00").getTime());
+  async function gerar(){
+    setErro("");setOcupado("gerar");
+    try{
+      await acoes.gerarBoleto({plano_id:op&&op.id,...(d.pede_cpf?{cpfCnpj:cpf}:{}),...(d.pede_endereco?{endereco:end}:{})});
+      await ler(); setAberto(false); if(aoMudar) await aoMudar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
+  }
+  async function conferir(){
+    setOcupado("conferir");
+    try{ await ler(); if(aoMudar) await aoMudar(); } finally{ setOcupado(""); }
+  }
+  function copiar(t){ try{ navigator.clipboard.writeText(t); setCopiado(true); setTimeout(()=>setCopiado(false),2000); }catch(e){} }
+  const formAberto=aberto||(!emAberto&&!pagoRecente);
+  return <div style={separado?{borderTop:`1px solid ${C.line}`,paddingTop:14}:{}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="form" size={15} color={C.greenDeep}/>
+      <span style={{flex:1,color:C.ink,fontSize:13.5,fontWeight:700}}>Pagar por boleto</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+      Liberado pelo suporte do ConHub. O boleto não renova sozinho: a cada período, gere um novo aqui. O acesso é liberado quando o banco confirma o pagamento (até 3 dias úteis).
+    </div>
+    {d.cartao_cobrando
+      ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+        A sua conta tem cobrança automática no cartão. Para pagar por boleto, cancele a assinatura do cartão primeiro (o acesso continua até o que já foi pago) — senão o mesmo período seria cobrado duas vezes.</div>
+      :<React.Fragment>
+        {pagoRecente&&!emAberto&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginBottom:10,display:"flex",gap:7,alignItems:"center"}}>
+          <Icon n="check" size={14}/> Boleto de {fmtPreco(pagoRecente.valor)} pago em {fmtData(pagoRecente.pago_em)}.</div>}
+        {emAberto&&<div style={{border:`1px solid ${emAberto.vencido?C.amber+"88":C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:6}}>
+            <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtPreco(emAberto.valor)}</span>
+            <span style={{color:emAberto.vencido?"#8a6d1f":C.sub,fontSize:12,fontWeight:emAberto.vencido?700:500}}>
+              {emAberto.vencido?"venceu em ":"vence em "}{venceTexto(emAberto.vencimento)}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,marginBottom:8}}>{emAberto.descricao}</div>
+          {emAberto.linha&&<div style={{marginBottom:8}}>
+            {rot("Linha digitável")}
+            <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
+              <div style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
+                borderRadius:9,padding:"8px 9px",wordBreak:"break-all",lineHeight:1.45}}>{emAberto.linha}</div>
+              <button onClick={()=>copiar(emAberto.linha.replace(/\D/g,""))}
+                style={{flexShrink:0,background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"0 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                {copiado?"Copiado":"Copiar"}</button>
+            </div>
+          </div>}
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            {emAberto.url&&<a href={emAberto.url} target="_blank" rel="noreferrer"
+              style={{flex:"1 1 150px",textAlign:"center",textDecoration:"none",background:C.green,color:"#fff",borderRadius:10,padding:"11px",fontSize:13,fontWeight:600}}>
+              Abrir o boleto</a>}
+            <button onClick={conferir} disabled={!!ocupado}
+              style={{flex:"1 1 150px",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              {ocupado==="conferir"?"Conferindo…":"Já paguei — conferir"}</button>
+          </div>
+          {emAberto.vencido&&<div style={{color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,marginTop:8}}>
+            Passou da data: alguns bancos ainda aceitam com multa. Se o seu não aceitar, gere outro abaixo.</div>}
+        </div>}
+        {!formAberto
+          ?<button onClick={()=>setAberto(true)}
+            style={{background:"transparent",border:"none",color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:0}}>
+            {emAberto?"Gerar outro boleto":"Gerar boleto do próximo período"}</button>
+          :<div style={{display:"flex",flexDirection:"column",gap:9}}>
+            {(d.opcoes||[]).length>1&&<div>{rot("Plano")}
+              <select value={op?op.id:""} onChange={e=>setPlano(e.target.value)} style={entrada}>
+                {d.opcoes.map(o=><option key={o.id} value={o.id}>{o.nome} — {fmtPreco(o.valor)}{o.meses>1?` (${o.meses} meses)`:""}</option>)}
+              </select></div>}
+            {!(d.opcoes||[]).length&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+              O valor da sua mensalidade ainda não foi definido. Fale com o ConHub.</div>}
+            {d.pede_cpf&&<div>{rot("CPF ou CNPJ de quem paga")}
+              <input value={cpf} onChange={e=>setCpf(e.target.value)} inputMode="numeric" placeholder="só números" style={entrada}/></div>}
+            {d.pede_endereco&&<div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {rot("Endereço de cobrança (o boleto exige)")}
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.cep} onChange={e=>setEnd({...end,cep:e.target.value.replace(/[^\d-]/g,"").slice(0,9)})} inputMode="numeric" placeholder="CEP" style={{...entrada,flex:"0 0 40%"}}/>
+                <select value={end.uf} onChange={e=>setEnd({...end,uf:e.target.value})} style={{...entrada,flex:1}}>
+                  <option value="">UF</option>{UFS_BR.map(u=><option key={u} value={u}>{u}</option>)}</select>
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.rua} onChange={e=>setEnd({...end,rua:e.target.value})} placeholder="Rua" style={{...entrada,flex:1}}/>
+                <input value={end.numero} onChange={e=>setEnd({...end,numero:e.target.value})} placeholder="Nº" style={{...entrada,flex:"0 0 26%"}}/>
+              </div>
+              <input value={end.complemento} onChange={e=>setEnd({...end,complemento:e.target.value})} placeholder="Complemento (opcional)" style={entrada}/>
+              <div style={{display:"flex",gap:7}}>
+                <input value={end.bairro} onChange={e=>setEnd({...end,bairro:e.target.value})} placeholder="Bairro" style={{...entrada,flex:1}}/>
+                <input value={end.cidade} onChange={e=>setEnd({...end,cidade:e.target.value})} placeholder="Cidade" style={{...entrada,flex:1}}/>
+              </div>
+            </div>}
+            {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+            {op&&<button onClick={gerar} disabled={!!ocupado||faltaCpf||faltaEnd}
+              style={{width:"100%",background:(faltaCpf||faltaEnd)?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,
+                padding:"12px",fontSize:13.5,fontWeight:600,cursor:(faltaCpf||faltaEnd)?"default":"pointer"}}>
+              {ocupado==="gerar"?"Gerando…":`Gerar boleto de ${fmtPreco(op.valor)}`}</button>}
+            {op&&op.meses>1&&<div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Este boleto paga {op.meses} meses de uma vez.</div>}
+            {emAberto&&<div style={{color:C.faint,fontSize:11,lineHeight:1.5}}>Gerar outro cancela o boleto em aberto acima.</div>}
+          </div>}
+      </React.Fragment>}
   </div>;
 }
 
@@ -6239,6 +6717,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
     const chave=pm.cartao?`${pm.cartao.bandeira}-${pm.cartao.final}-${pm.cartao.validade}`:"";
     const sep={borderTop:`1px solid ${C.line}`,paddingTop:14};
     return <div style={caixa}>
+      <PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
       <CartaoDeCobranca pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
       {pm.combinada&&<div style={sep}><MensalidadeCombinada pm={pm} acoes={acoes} aoMudar={rever}/></div>}
       {pm.configurado&&<GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever} cartaoAtual={pm.cartao}/>}
@@ -6250,7 +6729,8 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   /* CORRETOR AUTÔNOMO: compra de prateleira, três planos, sem digitação do
      ConHub no meio. */
   if(autonomo)
-    return <div style={caixa}><GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
+    return <div style={caixa}><PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
+      <GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
       {(a.asaas||a.provedor==="pagarme")&&<div style={{borderTop:`1px solid ${C.line}`,paddingTop:14}}><FerramentasDaConta acoes={acoes} isMobile={isMobile}/></div>}
       <CancelarAssinatura a={a} acoes={acoes} aoMudar={rever}/></div>;
 
@@ -6267,6 +6747,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   }
 
   return <div style={caixa}>
+    <PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
     <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Cobrança automática (Asaas)</div>
     {asaasLigado
       ?<div style={{color:C.greenMid,fontSize:11.5,lineHeight:1.5,display:"flex",alignItems:"center",gap:6}}>
@@ -6418,6 +6899,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
 
           `isMobile` vai fixo: o cartão tem 440px, e três planos lado a lado
           aqui ficariam com 130px cada. Empilhado é o certo em qualquer tela. */}
+      {gestor&&<div style={{marginBottom:12}}><PagarPorBoleto acoes={acoes} isMobile={true} aoMudar={aoRever}/></div>}
       {combinada
         ?<div style={{marginBottom:12,marginTop:2,display:"flex",flexDirection:"column",gap:12}}>
           <CartaoDeCobranca pm={cobr.pagarme} acoes={acoes} isMobile={true} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/>
@@ -6557,12 +7039,21 @@ function BaloesDaConversa({itens,isMobile}){
       padding:"6px 9px",fontSize:12,lineHeight:1.45,maxWidth:"92%"}}>{i.texto}</div>;
     if(i.de==="sistema") return <div key={i.id} style={{alignSelf:"center",color:C.faint,fontSize:11,textAlign:"center",
       padding:"2px 8px",lineHeight:1.45,maxWidth:"90%"}}>{i.texto}</div>;
+    // Ação em massa esperando a pessoa confirmar (o Claude do gestor).
+    if(i.de==="aviso") return <div key={i.id} style={{alignSelf:"flex-start",display:"flex",gap:6,alignItems:"flex-start",
+      color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"6px 9px",fontSize:12,fontWeight:600,lineHeight:1.45,maxWidth:"92%"}}>
+      <Icon n="clock" size={12}/><span>{i.texto}</span></div>;
     const meu=i.de==="voce"||i.de==="cliente";
     return <div key={i.id} style={{alignSelf:meu?"flex-end":"flex-start",maxWidth:"86%",
       background:meu?C.greenDeep:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,
       borderRadius:meu?"13px 13px 4px 13px":"13px 13px 13px 4px",padding:"8px 11px",fontSize:isMobile?14:13,
       lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
       {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte ConHub</div>}
+      {Array.isArray(i.anexos)&&i.anexos.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:5,whiteSpace:"normal"}}>
+        {i.anexos.map((a,k)=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:4,background:"rgba(255,255,255,.16)",
+          borderRadius:6,padding:"2px 6px",fontSize:11,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          <Icon n="clipe" size={11}/>{a.nome}{a.tipo==="video"&&a.quadros?` · ${a.quadros} cenas`:""}</span>)}
+      </div>}
       {i.texto}
       {/* De onde veio o que a pesquisa na internet trouxe — para conferir. */}
       {Array.isArray(i.fontes)&&i.fontes.length>0&&<div style={{marginTop:7,paddingTop:6,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3,whiteSpace:"normal"}}>
@@ -6574,17 +7065,32 @@ function BaloesDaConversa({itens,isMobile}){
   })}</React.Fragment>;
 }
 
-// O campo de escrever, igual nos dois painéis: Enter envia, Shift+Enter quebra a linha.
-function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile}){
-  return <div style={{display:"flex",gap:7,alignItems:"flex-end",padding:10,borderTop:`1px solid ${C.line}`,background:C.card}}>
-    <textarea value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1}
-      onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
-      style={{flex:1,resize:"none",maxHeight:110,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
-        border:`1px solid ${C.line}`,background:C.surface,borderRadius:11,padding:"10px 11px",color:C.ink,outline:"none"}}/>
-    <button onClick={enviar} disabled={ocupado||!valor.trim()} aria-label="Enviar"
-      style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,cursor:ocupado||!valor.trim()?"default":"pointer",
-        background:ocupado||!valor.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
+/* O campo de escrever, igual nos dois painéis: Enter envia, Shift+Enter quebra a linha.
+   Cresce com o texto até `alturaMax` — o gestor escreve pedidos longos
+   (07/10/2026) e um campo de uma linha escondia o que ele tinha escrito.
+   `anexar`/`aoColar` só vêm no Claude do gestor; `prontoSemTexto` deixa
+   enviar só o arquivo. */
+function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,teto,alturaMax=110,anexar,aoColar,prontoSemTexto}){
+  const ref=useRef(null);
+  useEffect(()=>{ const el=ref.current; if(!el) return; el.style.height="auto"; el.style.height=Math.min(alturaMax,Math.max(40,el.scrollHeight))+"px"; },[valor,alturaMax]);
+  const vazio=!valor.trim()&&!prontoSemTexto;
+  const perto=teto&&valor.length>teto*0.8;
+  return <div style={{padding:10,borderTop:`1px solid ${C.line}`,background:C.card}}>
+    <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
+      {anexar&&<button onClick={anexar} disabled={ocupado} aria-label="Anexar arquivo" title="Anexar foto, print, PDF, planilha ou vídeo"
+        style={{width:40,height:40,borderRadius:11,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,flexShrink:0,
+          cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="clipe" size={17}/></button>}
+      <textarea ref={ref} value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1} maxLength={teto||undefined}
+        onPaste={aoColar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
+        style={{flex:1,resize:"none",maxHeight:alturaMax,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
+          border:`1px solid ${C.line}`,background:C.surface,borderRadius:11,padding:"10px 11px",color:C.ink,outline:"none",lineHeight:1.45}}/>
+      <button onClick={enviar} disabled={ocupado||vazio} aria-label="Enviar"
+        style={{width:40,height:40,borderRadius:11,border:"none",flexShrink:0,cursor:ocupado||vazio?"default":"pointer",
+          background:ocupado||vazio?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
+    </div>
+    {perto&&<div style={{color:valor.length>=teto?C.hot:C.faint,fontSize:10.5,textAlign:"right",marginTop:4}}>
+      {valor.length.toLocaleString("pt-BR")} / {teto.toLocaleString("pt-BR")} caracteres</div>}
   </div>;
 }
 
@@ -6615,6 +7121,105 @@ function BotaoClaude({onClick,isMobile}){
   </button>;
 }
 
+/* ARQUIVOS PARA O CLAUDE — SÓ DO GESTOR (07/10/2026, pedido do Ali).
+
+   O navegador prepara o arquivo antes de mandar, e é aqui que mora o que dá
+   para cortar sem perder nada: a foto do celular (4000px, 4 MB) vira 1600px,
+   que é o máximo que a IA aproveita — e chega em segundos no 4G. O VÍDEO não
+   sobe: o navegador tira até 8 cenas dele e manda as cenas. A IA não assiste
+   nem ouve o som, e a tela diz isso ao lado do arquivo. Os mesmos limites são
+   conferidos no servidor (assistente-anexos.js); estes só evitam esperar à
+   toa por um "não" que já se sabe. */
+const ANEXO_MB=1024*1024;
+const ANEXO_LIMITES={arquivos:10,pdf:12*ANEXO_MB,planilha:10*ANEXO_MB,texto:400*1024,total:16*ANEXO_MB};
+function lerComoBase64(blob){
+  return new Promise((ok,falha)=>{ const r=new FileReader();
+    r.onload=()=>ok(String(r.result).split(",")[1]||""); r.onerror=()=>falha(new Error("Não consegui ler o arquivo."));
+    r.readAsDataURL(blob); });
+}
+async function fotoParaOClaude(file,max=1600){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((ok,falha)=>{ const i=new Image(); i.onload=()=>ok(i);
+      i.onerror=()=>falha(new Error(`Não consegui abrir a imagem “${file.name}” aqui. Mande como JPG ou PNG, ou tire um print dela.`)); i.src=url; });
+    const w=img.naturalWidth, h=img.naturalHeight, esc=Math.min(1,max/Math.max(w,h,1));
+    // Pequena e num formato que a IA lê: vai como está (o print continua nítido).
+    if(esc===1&&file.size<=1.5*ANEXO_MB&&/^image\/(jpeg|png|gif|webp)$/.test(file.type))
+      return {tipo:file.type,dados:await lerComoBase64(file)};
+    const c=document.createElement("canvas"); c.width=Math.round(w*esc); c.height=Math.round(h*esc);
+    const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+    return {tipo:"image/jpeg",dados:c.toDataURL("image/jpeg",0.86).split(",")[1]};
+  }finally{ URL.revokeObjectURL(url); }
+}
+async function cenasDoVideo(file){
+  const url=URL.createObjectURL(file);
+  const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.setAttribute("playsinline",""); v.preload="auto"; v.src=url;
+  const esperar=(ev,ms)=>new Promise((ok,falha)=>{
+    const t=setTimeout(()=>falha(new Error("tempo")),ms);
+    v.addEventListener(ev,()=>{clearTimeout(t);ok();},{once:true});
+    v.addEventListener("error",()=>{clearTimeout(t);falha(new Error("erro"));},{once:true}); });
+  try{
+    await esperar("loadeddata",20000);
+    const d=isFinite(v.duration)?v.duration:0;
+    const n=d>0?Math.min(8,Math.max(3,Math.ceil(d/6))):1;
+    const esc=Math.min(1,1024/Math.max(v.videoWidth||1024,v.videoHeight||1024,1));
+    const c=document.createElement("canvas"); c.width=Math.max(1,Math.round((v.videoWidth||1024)*esc)); c.height=Math.max(1,Math.round((v.videoHeight||576)*esc));
+    const ctx=c.getContext("2d"); const quadros=[];
+    for(let i=0;i<n;i++){
+      const em=d>0?Math.min(Math.max(0,d-0.05),(i+0.5)*d/n):0;
+      if(Math.abs(v.currentTime-em)>0.01){ const p=esperar("seeked",10000); v.currentTime=em; await p; }
+      ctx.drawImage(v,0,0,c.width,c.height);
+      quadros.push({em:Math.round(em*10)/10,dados:c.toDataURL("image/jpeg",0.8).split(",")[1]});
+    }
+    return {quadros,duracao:d};
+  }catch(e){
+    throw new Error(`Não consegui tirar as cenas do vídeo “${file.name}” neste aparelho. Tente outro navegador ou mande prints.`);
+  }finally{ v.removeAttribute("src"); try{v.load();}catch(e){} URL.revokeObjectURL(url); }
+}
+const ehPlanilhaOuTexto=(f)=>/\.(xlsx|csv|txt|md|json)$/i.test(f.name)||/^text\//.test(f.type)||f.type==="application/json";
+async function prepararAnexo(file){
+  const base={id:Math.random().toString(36).slice(2),nome:file.name||"arquivo"};
+  if(/^audio\//.test(file.type)) throw new Error(`O Claude ainda não ouve áudio (“${base.nome}”). Escreva o que ele diz, ou cole a transcrição.`);
+  if(/^image\//.test(file.type)){
+    const r=await fotoParaOClaude(file);
+    return {...base,...r,rotulo:"Imagem",miniatura:"data:"+r.tipo+";base64,"+r.dados};
+  }
+  if(/^video\//.test(file.type)){
+    const r=await cenasDoVideo(file);
+    return {...base,tipo:file.type||"video/mp4",...r,rotulo:`Vídeo · ${r.quadros.length} cenas, sem som`,miniatura:"data:image/jpeg;base64,"+r.quadros[0].dados};
+  }
+  if(file.type==="application/pdf"||/\.pdf$/i.test(file.name)){
+    if(file.size>ANEXO_LIMITES.pdf) throw new Error(`O PDF “${base.nome}” passa de 12 MB. Mande só as páginas que interessam.`);
+    return {...base,tipo:"application/pdf",dados:await lerComoBase64(file),rotulo:"PDF"};
+  }
+  if(ehPlanilhaOuTexto(file)){
+    const planilha=/\.xlsx$/i.test(file.name);
+    if(file.size>(planilha?ANEXO_LIMITES.planilha:ANEXO_LIMITES.texto)) throw new Error(`“${base.nome}” é grande demais para ler de uma vez. Mande só a parte que interessa.`);
+    const tipo=planilha?"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":/\.csv$/i.test(file.name)?"text/csv":(file.type||"text/plain");
+    return {...base,tipo,dados:await lerComoBase64(file),rotulo:planilha||/\.csv$/i.test(file.name)?"Planilha":"Texto"};
+  }
+  throw new Error(`Não consigo ler “${base.nome}”. Mande como foto, print, PDF, planilha (.xlsx/.csv) ou texto.`);
+}
+const pesoDoAnexo=(a)=>Math.floor(((a.dados||"").length+(a.quadros||[]).reduce((s,q)=>s+q.dados.length,0))*3/4);
+
+// Os arquivos escolhidos, acima do campo, com × para tirar o que veio errado.
+function AnexosEscolhidos({lista,tirar,preparando}){
+  if(!lista.length&&!preparando) return null;
+  return <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 10px 0",background:C.card,borderTop:`1px solid ${C.line}`}}>
+    {lista.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.surface,
+      borderRadius:9,padding:4,paddingRight:6,maxWidth:"100%"}}>
+      {a.miniatura?<img src={a.miniatura} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
+        :<div style={{width:34,height:34,borderRadius:6,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="clipe" size={15}/></div>}
+      <div style={{minWidth:0,maxWidth:170}}>
+        <div style={{color:C.ink,fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.nome}</div>
+        <div style={{color:C.faint,fontSize:10.5}}>{a.rotulo}</div>
+      </div>
+      <button onClick={()=>tirar(a.id)} aria-label={"Tirar "+a.nome} style={{width:26,height:26,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:17,lineHeight:1,flexShrink:0}}>×</button>
+    </div>)}
+    {preparando&&<div style={{display:"flex",alignItems:"center",gap:6,color:C.faint,fontSize:11.5,padding:"4px 6px"}}><Icon n="loader" size={13} spin/>Preparando arquivo…</div>}
+  </div>;
+}
+
 /* O PAINEL DO ASSISTENTE: folha à direita no computador, tela cheia no celular. */
 function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [d,setD]=useState(null);
@@ -6623,19 +7228,75 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const [erro,setErro]=useState("");
   const [navegar,setNavegar]=useState(null);
   const [pendente,setPendente]=useState(null);
+  const [anexos,setAnexos]=useState([]);
+  const [preparando,setPreparando]=useState(0);
+  const [continuando,setContinuando]=useState(false);
+  const pararRef=useRef(false);
+  const arquivoRef=useRef(null);
   useEffect(()=>{ api("/assistente").then(setD).catch(e=>setErro(e.message)); },[]);
   const itens=(d&&d.itens)||[];
-  const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0));
+  const lista=usarRolagemNoFim(itens.length+(pendente?1:0)+(ocupado?1:0)+(continuando?1:0));
+  // Quem decide se a pessoa manda arquivo é o servidor (`d.anexos`): só o gestor.
+  const podeAnexar=!!(d&&d.anexos);
+  async function juntar(arquivos){
+    const fs=[...(arquivos||[])]; if(!fs.length) return;
+    setErro("");
+    if(anexos.length+fs.length>ANEXO_LIMITES.arquivos) return setErro(`Mande até ${ANEXO_LIMITES.arquivos} arquivos por vez.`);
+    setPreparando(n=>n+fs.length);
+    for(const f of fs){
+      try{
+        const a=await prepararAnexo(f);
+        setAnexos(x=>{
+          const total=x.concat(a).reduce((s,y)=>s+pesoDoAnexo(y),0);
+          if(total>ANEXO_LIMITES.total){ setErro("Os arquivos passam de 16 MB juntos. Mande em mais de uma mensagem."); return x; }
+          return x.concat(a);
+        });
+      }catch(e){ setErro(e.message); }
+      finally{ setPreparando(n=>n-1); }
+    }
+  }
+  // Print colado com Ctrl+V entra como anexo — é o jeito mais rápido de mostrar uma tela.
+  const aoColar=podeAnexar?(e)=>{
+    const fs=[...(e.clipboardData?.items||[])].filter(i=>i.kind==="file").map(i=>i.getAsFile()).filter(Boolean);
+    if(fs.length){ e.preventDefault(); juntar(fs); }
+  }:undefined;
   async function enviar(){
-    const t=texto.trim(); if(!t||ocupado) return;
-    setTexto(""); setErro(""); setNavegar(null); setOcupado(true); setPendente(t);
+    const t=texto.trim(); if((!t&&!anexos.length)||ocupado||continuando||preparando) return;
+    const indo=anexos;
+    setTexto(""); setErro(""); setNavegar(null); setOcupado(true);
+    setPendente({texto:t,anexos:indo.map(a=>({nome:a.nome,tipo:a.quadros?"video":"",quadros:a.quadros?a.quadros.length:0}))});
+    setAnexos([]);
+    let r=null;
     try{
       // O menu de quem pergunta vai junto: é a tela que sabe quais itens ela vê.
-      const r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[]}});
-      setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
-      if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
-    }catch(e){ setErro(e.message); setTexto(t); }
+      r=await api("/assistente/mensagem",{method:"POST",body:{texto:t,menu:menu||[],
+        ...(indo.length?{anexos:indo.map(a=>({nome:a.nome,tipo:a.tipo,dados:a.dados,quadros:a.quadros,duracao:a.duracao}))}:{})}});
+      receber(r);
+    }catch(e){ setErro(e.message); setTexto(t); setAnexos(indo); }
     finally{ setOcupado(false); setPendente(null); }
+    if(r&&r.parou) continuar(true);
+  }
+  function receber(r){
+    setD(x=>({...r,itens:((x&&x.itens)||[]).concat(r.itens||[])})); setNavegar(r.navegar||null);
+    if(r.menu!==undefined&&aoMudarMenu) aoMudarMenu(r.menu);
+  }
+  /* O TRABALHO NÃO PARA NO MEIO (08/10/2026, pedido do Ali). Cada requisição
+     trabalha alguns minutos; quando o servidor responde que parou no meio
+     (`parou`), a tela pede a continuação sozinha — como o Claude faz. Até 8
+     vezes seguidas sem a pessoa mexer; passou disso, aparece o botão
+     "Continuar", para um pedido que não termina não gastar sem ninguém ver.
+     "Parar" interrompe na próxima volta (o que já foi feito fica feito). */
+  async function continuar(auto){
+    pararRef.current=false; setContinuando(true); setErro("");
+    try{
+      for(let i=0;i<8;i++){
+        if(pararRef.current) break;
+        const r=await api("/assistente/mensagem",{method:"POST",body:{continuar:true,menu:menu||[]}});
+        receber(r);
+        if(!r.parou) break;
+      }
+    }catch(e){ setErro(e.message); }
+    finally{ setContinuando(false); }
   }
   async function nova(){ try{ setD(await api("/assistente/nova",{method:"POST"})); setNavegar(null); }catch(e){ setErro(e.message); } }
   /* Dois modos, e quem decide é o servidor (`d.modo`): o gestor configura; a
@@ -6643,16 +7304,19 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
   const consulta=!!(d&&d.modo==="consulta");
   const sugestoes=consulta
     ?["Quais leads meus estão esperando resposta?","Como estão meus números neste mês?","Quais documentos pedir para financiar pela Caixa?","Como eu repasso um lead para outro corretor?","Coloque Imóveis no topo do meu menu"]
-    :["Crie um funil de locação","Coloque prazo de 2 horas na etapa de atendimento","Quando o lead chegar em Qualificado, entregue ao próximo corretor","Crie uma mensagem pronta de boas-vindas"];
+    :["Mova para Recaptação os leads parados há 30 dias em Atendimento","Passe os leads da fila para o próximo corretor da roleta","Leve os leads da Marina para o funil de Locação","Crie um funil de locação","Quando o lead chegar em Qualificado, entregue ao próximo corretor"];
   return <div style={{position:"fixed",inset:0,zIndex:80,background:isMobile?C.card:"rgba(10,61,48,.18)",display:"flex",justifyContent:"flex-end"}}
     onClick={e=>{ if(e.target===e.currentTarget) aoFechar(); }}>
-    <div className={isMobile?"tela-cheia":undefined} style={{width:isMobile?"100%":420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
+    <div className={isMobile?"tela-cheia":undefined}
+      onDragOver={podeAnexar?(e)=>e.preventDefault():undefined}
+      onDrop={podeAnexar?(e)=>{ e.preventDefault(); juntar(e.dataTransfer?.files); }:undefined}
+      style={{width:isMobile?"100%":podeAnexar?460:420,maxWidth:"100%",height:"100dvh",background:C.surface,display:"flex",flexDirection:"column",
       boxShadow:isMobile?"none":"-12px 0 40px rgba(0,0,0,.12)"}}>
       <div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",background:C.card,borderBottom:`1px solid ${C.line}`}}>
         <div style={{width:32,height:32,borderRadius:10,background:"#FBF1EC",display:"flex",alignItems:"center",justifyContent:"center"}}><LogoClaude size={18}/></div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Assistente Claude</div>
-          <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Configura a sua conta conversando"}</div>
+          <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Faz o trabalho da gestão conversando"}</div>
         </div>
         {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
         <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
@@ -6665,8 +7329,8 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
             <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu só consulto: não mudo nada na conta. A única exceção é a ordem do seu menu — peça e eu reorganizo. Para o resto, te levo até a tela certa.</div>
           </div>
           :<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
-            Diga o que você quer montar e eu faço na sua conta: funis e etapas, prazos, o que acontece quando o lead chega numa etapa, campos, tags, mensagens prontas e as orientações do Autoatendimento.
-            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Eu não apago nada nem mexo em cobrança, WhatsApp ou equipe — para isso te levo até a tela certa.</div>
+            Diga o que precisa e eu faço na sua conta: mover leads de etapa e de funil, repassar, marcar tags, finalizar, criar tarefas e observações, cadastrar lead e registrar venda — e montar funis, etapas, prazos, campos, mensagens prontas e o Autoatendimento.
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Pode mandar foto, print, PDF, planilha ou vídeo junto (do vídeo eu vejo algumas cenas, sem som). Mexer em mais de 10 leads de uma vez eu só faço depois de você confirmar. Não apago nada, não mando mensagem ao cliente nem mexo em cobrança, WhatsApp ou equipe.</div>
           </div>}
           {d.disponivel&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
             {sugestoes.map(s=><button key={s} onClick={()=>setTexto(s)} style={{textAlign:"left",border:`1px solid ${C.line}`,background:C.card,
@@ -6674,15 +7338,27 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
           </div>}
         </div>}
         <BaloesDaConversa itens={itens} isMobile={isMobile}/>
-        {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente}]} isMobile={isMobile}/>}
+        {pendente&&<BaloesDaConversa itens={[{id:"pend",de:"voce",texto:pendente.texto||"(arquivo)",anexos:pendente.anexos}]} isMobile={isMobile}/>}
         {ocupado&&<div style={{alignSelf:"flex-start",display:"flex",gap:7,alignItems:"center",color:C.faint,fontSize:12}}>
-          <LogoClaude size={13}/>{consulta?"Pesquisando…":"Pensando e configurando…"}</div>}
+          <LogoClaude size={13}/>{consulta?"Pesquisando…":pendente&&pendente.anexos&&pendente.anexos.length?"Lendo os arquivos e trabalhando…":"Pensando e trabalhando…"}</div>}
+        {continuando&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:12}}>
+          <LogoClaude size={13}/>Continuando o trabalho…
+          <button onClick={()=>{pararRef.current=true;}} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"3px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button></div>}
+        {!ocupado&&!continuando&&d&&d.parou&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.sub,fontSize:12.5}}>
+          O trabalho ficou no meio.
+          <button onClick={()=>continuar(false)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Continuar</button></div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
         {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
         {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
       </div>
-      {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado}
-        placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você quer configurar?":"Ex.: crie a etapa Visita com prazo de 1 dia"} isMobile={isMobile}/>}
+      {d&&d.disponivel&&podeAnexar&&<AnexosEscolhidos lista={anexos} preparando={preparando>0} tirar={(id)=>setAnexos(x=>x.filter(a=>a.id!==id))}/>}
+      {podeAnexar&&<input ref={arquivoRef} type="file" multiple style={{display:"none"}}
+        accept="image/*,video/*,application/pdf,.pdf,.xlsx,.csv,.txt,.md,.json"
+        onChange={e=>{ juntar(e.target.files); e.target.value=""; }}/>}
+      {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado||preparando>0}
+        teto={d.teto_texto} alturaMax={podeAnexar?(isMobile?180:260):110}
+        anexar={podeAnexar?()=>arquivoRef.current&&arquivoRef.current.click():undefined} aoColar={aoColar} prontoSemTexto={anexos.length>0}
+        placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você precisa?":"Ex.: mova para Visita os leads da Marina que estão em Atendimento"} isMobile={isMobile}/>}
       {d&&d.disponivel&&<div style={{color:C.faint,fontSize:10,textAlign:"center",padding:"0 0 8px",background:C.card}}>
         {d.usados}/{d.limite} perguntas da equipe neste mês · {consulta?"confira antes de passar ao cliente":"confira o que foi feito antes de usar"}</div>}
     </div>
@@ -6833,6 +7509,58 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
 /* No hub (master): configuração + chamados. Com `equipe` (a aba Suporte do
    ambiente interno do ConHub): só os chamados — quem configura o número é o
    master, e a equipe só precisa atender. */
+/* PLANOS DO CETROLAB, no hub (12/10/2026, decisão do Ali: o preço de site é
+   ele quem define, aqui, e não fica escrito no código). Sem plano para
+   clientes do ConHub, a ferramenta aparece como "em breve" para todo mundo.
+   Os planos de quem não é cliente já ficam cadastrados para a página de venda
+   (/publico/cetrolab/planos); a contratação deles vem numa etapa seguinte. */
+function PlanosCetrolab({acoes,isMobile}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [msg,setMsg]=useState("");
+  const vazio={nome:"",resumo:"",valor_mensal:"",para:"conhub"};
+  const [novo,setNovo]=useState(null);
+  const carregar=()=>acoes.planosCetrolab().then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  async function salvar(id,b){
+    setErro("");setMsg("");
+    try{ await acoes.salvarPlanoCetrolab(id,b); setMsg(id?"Plano atualizado.":"Plano criado."); setNovo(null); carregar(); }
+    catch(e){ setErro(e.message); }
+  }
+  const entrada={boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",width:"100%"};
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>Cetrolab · planos</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+      O modelo Clássico do site vem em todo plano. Os modelos premium pedem o Cetrolab: o preço para clientes do ConHub é o
+      que a conta paga ao contratar a ferramenta (um só ativo). Os planos para quem não é cliente ficam prontos para a página de venda.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {msg&&<div style={{color:C.greenMid,fontSize:12.5,fontWeight:600,marginBottom:10}}>{msg}</div>}
+    {!d?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>:<React.Fragment>
+      {!d.planos.length&&<div style={{color:C.faint,fontSize:12.5,marginBottom:10}}>Nenhum plano cadastrado — o Cetrolab ainda não está à venda.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {d.planos.map(p=><div key={p.id} style={{border:`1px solid ${p.ativo?C.green+"55":C.line}`,background:p.ativo?C.card:C.surface,borderRadius:12,padding:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 220px",minWidth:0}}>
+            <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>{p.nome} · {fmtPreco(p.valor_mensal)}/mês</div>
+            <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>{d.publicos[p.para]}{p.resumo?" · "+p.resumo:""}</div>
+          </div>
+          <button onClick={()=>salvar(p.id,{ativo:!p.ativo})} style={{background:p.ativo?C.surface:C.green,color:p.ativo?C.sub:"#fff",border:p.ativo?`1px solid ${C.line}`:"none",borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>{p.ativo?"Desativar":"Ativar"}</button>
+        </div>)}
+      </div>
+      {!novo
+        ?<button onClick={()=>setNovo(vazio)} style={{marginTop:10,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:"pointer"}}>+ Novo plano</button>
+        :<div style={{marginTop:10,border:`1px solid ${C.line}`,borderRadius:12,padding:12,display:"grid",gap:9,gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))"}}>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Nome<input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} placeholder="Ex.: Cetrolab Pro" style={{...entrada,marginTop:4}}/></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Valor por mês (R$)<input value={novo.valor_mensal} onChange={e=>setNovo({...novo,valor_mensal:e.target.value})} inputMode="decimal" placeholder="Ex.: 79,90" style={{...entrada,marginTop:4}}/></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Para quem<select value={novo.para} onChange={e=>setNovo({...novo,para:e.target.value})} style={{...entrada,marginTop:4}}>
+            {Object.entries(d.publicos).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
+          <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Resumo (opcional)<input value={novo.resumo} onChange={e=>setNovo({...novo,resumo:e.target.value.slice(0,240)})} placeholder="O que o plano inclui, em uma linha" style={{...entrada,marginTop:4}}/></label>
+          <div style={{display:"flex",gap:8,gridColumn:"1 / -1"}}>
+            <button onClick={()=>salvar(null,novo)} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar plano</button>
+            <button onClick={()=>setNovo(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>}
+    </React.Fragment>}
+  </div>;
+}
 function SuporteNoHub({isMobile,equipe}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
@@ -7106,7 +7834,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     /* O gestor vê TUDO. A catraca faltava aqui: ela existia só no menu da
        atendente, então o dono da operação não conseguia ver a fila nem ligar e
        desligar a prontidão de ninguém — justo ele, que é quem cobra. */
-    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
+    adm:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["cetrolab","globo","Cetrolab","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["marketing","megafone","Marketing","Gestão",MARKETING_FILHOS],["base","lista","Base de leads","Gestão"],["equipe","users","Equipe","Gestão"],["config","key","Configurações","Configurações"]],
     // "Atender" da atendente já é a tela completa de conversas — ter as duas
     // separadas só criava dúvida sobre qual usar.
     sdr:[["dashboard","grid","Painel","Principal"],["funil","columns","Funil","Principal"],["atendimento","msg","Atender","Principal"],["catraca","transfer","Catraca","Principal"],["imoveis","pin","Imóveis","Ferramentas"],["plantao","calendar","Plantão","Ferramentas"],["gestao","trend","Operação","Gestão",OPERACAO_FILHOS],["equipe","userplus","Equipe","Gestão"],["disp","toggleOn","Disponib.","Minha conta"],["config","key","Configurações","Configurações"]],
@@ -7161,7 +7889,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     /* AMBIENTE INTERNO DO CONHUB: não vende imóvel nem tem escala de plantão
        numa loja — Imóveis e Plantão saem. Entra "Suporte", a fila de
        chamados dos clientes, para toda a equipe: o suporte é deles. */
-    .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao")))
+    .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao"||item[0]==="cetrolab")))
     .concat(org&&org.tipo==="interna"?[["suporte","boia","Suporte","Principal"]]:[])
     /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
@@ -7182,7 +7910,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -7313,13 +8041,18 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             operacional, equipe e campanha. Fica ao lado de Relatórios e não
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
-        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead}/>}
+        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} irPara={setView}/>}
         {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
+        {podeGerir(session)&&view==="redes"&&org&&org.marketing_liberado&&<RedesSociais acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
         {view==="plantao"&&!contaInterna()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
         {view==="imoveis"&&!contaInterna()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
+        {/* CETROLAB (12/10/2026): o site da imobiliária saiu de Imóveis e virou
+            ferramenta própria — tudo do site num lugar só, e é por aqui que os
+            modelos novos entram. Só gestor, como a tela antiga. */}
+        {view==="cetrolab"&&podeGerir(session)&&!contaInterna()&&<TelaSite acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {view==="suporte"&&contaInterna()&&<div style={molduraMkt(isMobile)}><SuporteNoHub isMobile={isMobile} equipe/></div>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
@@ -7381,7 +8114,7 @@ const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart",
    e dos fluxos (de 03/10 até aqui ficavam em Atender). Disparos e Fluxos só
    existem com o Marketing liberado pelo ConHub; Formulários não depende
    disso, e a conta sem a ferramenta vê o grupo só com ele. */
-const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["formularios","form","Formulários"]];
+const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["redes","redes","Redes sociais"],["formularios","form","Formulários"]];
 const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
 const filhosDe=(item)=>Array.isArray(item[4])?item[4]:null;
 /* Aplica a ordem escolhida pela pessoa. O que não está na lista dela (uma
@@ -7627,7 +8360,14 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
   /* O grupo que cabe na barra vira o botão do PRIMEIRO filho (Atender →
      Conversas); os outros filhos dele entram no "Mais", senão Formulários não
      teria caminho no celular. */
-  const extras=[...cabem.filter(filhosDe).flatMap(item=>filhosDe(item).slice(1)),...extrasDoMenu];
+  /* Com mais de uma opção, o resto vai ao "Mais" como GAVETA com o nome do
+     grupo (04/10 → 12/10/2026, pedido do Ali: cada catraca nova entrava solta
+     na lista do "Mais"). Uma opção só entra solta — gaveta de um item é um
+     toque a mais por nada. */
+  const extras=[...cabem.filter(filhosDe).flatMap(item=>{
+    const resto=filhosDe(item).slice(1);
+    return resto.length>1?[[item[0],item[1],item[2],item[3],resto]]:resto;
+  }),...extrasDoMenu];
   // Um grupo conta como um item só; o aviso dele é a soma dos filhos.
   const avisoDe=(item)=>filhosDe(item)?filhosDe(item).reduce((s,[v])=>s+aviso(v),0):aviso(item[0]);
   const ativoEm=(item)=>view===item[0]||grupoContem(item,view);
@@ -7915,6 +8655,79 @@ function BotaoEditar({m,podeEditar,aoEditar}){
       display:"flex",alignItems:"center",flexShrink:0,opacity:.6}}>
     <Icon n="edit" size={13}/>
   </button>;
+}
+
+/* DE ONDE O LEAD VEIO, NA FICHA (15/10/2026, pedido do Ali: "visível na ficha
+   do lead de qual campanha ele veio"). Campanha, conjunto, anúncio e
+   formulário vêm da Meta (ou do disparo, que grava o nome em campaign_name).
+   Lead de anúncio sem campanha diz isso em vez de sumir com a linha: quase
+   sempre é lead de teste ou a Meta recusou ler a campanha (ver Configurações
+   → Anúncios do Meta). */
+const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagram:"Instagram",an:"Audience Network",msgr:"Messenger",disparo:"Disparo em massa"};
+function OrigemDoLead({lead}){
+  if(!lead) return null;
+  const doAnuncio=lead.fonte==="meta";
+  const plat=lead.plataforma?(NOME_PLATAFORMA[String(lead.plataforma).toLowerCase()]||lead.plataforma):null;
+  const veio=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(lead.fonte==="portal"?"Portal":lead.origem||"WhatsApp");
+  const linhas=[["Campanha",lead.campanha],["Conjunto",lead.conjunto],["Anúncio",lead.anuncio],["Formulário",lead.formulario]].filter(([,v])=>v);
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,color:C.sub,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>
+      <Icon n="target" size={12} color={C.faint}/> De onde veio</div>
+    <div style={{color:C.ink,fontSize:13,fontWeight:600,marginTop:5}}>{veio}</div>
+    {linhas.map(([r,v])=><div key={r} style={{display:"flex",gap:6,fontSize:12,marginTop:4,lineHeight:1.35}}>
+      <span style={{color:C.faint,flexShrink:0,minWidth:70}}>{r}</span>
+      <span style={{color:C.ink,fontWeight:r==="Campanha"?600:400,overflowWrap:"anywhere"}}>{v}</span></div>)}
+    {doAnuncio&&!lead.campanha&&<div style={{color:C.faint,fontSize:11.5,marginTop:4,lineHeight:1.4}}>A Meta não informou a campanha deste lead.</div>}
+  </div>;
+}
+
+/* APAGAR PARA TODOS (15/10/2026), nas regras do WhatsApp: só o que saiu
+   daqui, até cerca de 2 dias e meio depois. Pede confirmação antes — apagar
+   não tem desfazer — e, se o WhatsApp recusar, diz que a mensagem continua lá. */
+const JANELA_APAGAR_MS=60*3600000;
+function BotaoApagar({m,pode,leadId,acoes}){
+  const [aberto,setAberto]=useState(false),[indo,setIndo]=useState(false),[erro,setErro]=useState("");
+  if(!pode||m.from!=="corretor"||m.apagadaEm||!m.citavel) return null;
+  if(Date.now()-m.at>JANELA_APAGAR_MS) return null;
+  const apagar=async()=>{ setIndo(true); setErro("");
+    try{ await acoes.apagarMensagemDaConversa(leadId,m.id); setAberto(false); }catch(e){ setErro(e.message); }
+    setIndo(false); };
+  return <span style={{position:"relative",display:"flex",flexShrink:0}}>
+    <button onClick={()=>{setAberto(v=>!v);setErro("");}} title="Apagar para todos"
+      style={{background:"transparent",border:"none",cursor:"pointer",color:C.faint,padding:"4px",display:"flex",alignItems:"center",opacity:.6}}>
+      <Icon n="trash" size={13}/>
+    </button>
+    {aberto&&<div onClick={()=>!indo&&setAberto(false)} style={{position:"fixed",inset:0,zIndex:60,background:"rgba(10,30,24,.35)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:14,boxShadow:"0 10px 30px rgba(0,0,0,.2)",padding:16,
+        width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontSize:15,fontWeight:700,fontFamily:DISPLAY}}>Apagar para todos?</div>
+      <div style={{color:C.sub,fontSize:12,lineHeight:1.4}}>O cliente vai ver “Esta mensagem foi apagada”. Não tem desfazer.</div>
+      {erro&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.4}}>{erro}</div>}
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setAberto(false)} disabled={indo} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:9,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={apagar} disabled={indo} style={{flex:1,border:"none",background:C.hot,color:"#fff",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:indo?"default":"pointer"}}>{indo?"Apagando…":"Apagar para todos"}</button>
+      </div>
+    </div></div>}
+  </span>;
+}
+
+/* O balão da mensagem apagada. Para quem supervisiona, o servidor ainda manda
+   o que era — e um toque mostra, porque é o registro do atendimento. */
+function MensagemApagada({m,mine,session}){
+  const [ver,setVer]=useState(false);
+  const minha=!!(m.apagadaPorId&&session&&m.apagadaPorId===session.id);
+  const tem=!!(m.text||m.midia);
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:6,fontStyle:"italic",opacity:.85}}>
+      <Icon n="block" size={13}/>{minha?"Você apagou esta mensagem":"Esta mensagem foi apagada"}
+    </div>
+    {tem&&<button onClick={()=>setVer(v=>!v)} style={{background:"transparent",border:"none",padding:0,marginTop:4,cursor:"pointer",
+      color:mine?"rgba(255,255,255,.85)":C.sub,fontSize:11,textDecoration:"underline"}}>{ver?"esconder":"ver o que era"}</button>}
+    {ver&&<div style={{marginTop:4,fontSize:12.5,opacity:.9,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>
+      {m.text||(m.midia?`[${m.midia.nome||"arquivo"}]`:"")}
+      {m.apagadaPor?<div style={{fontSize:10.5,opacity:.8,marginTop:2}}>apagada por {m.apagadaPor}</div>:null}</div>}
+  </div>;
 }
 
 /* A barra de "editando", logo acima do campo de mensagem.
@@ -9193,16 +10006,18 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             {abreDia&&<SeparadorDia ts={m.at}/>}
             <div style={{display:"flex",justifyContent:mine?"flex-end":"flex-start",alignItems:"center",gap:6,
               opacity:editando&&editando.id===m.id?.45:1}}>
-            {mine&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
-            {mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {mine&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
+            {mine&&<BotaoApagar m={m} pode={!m.byName||m.by===session.id||podeSupervisionar} leadId={sel.id} acoes={acoes}/>}
+            {mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={mine} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={mine}/>
               {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
-            {!mine&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {!mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
@@ -9267,6 +10082,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
+        <OrigemDoLead lead={sel}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
@@ -9451,6 +10267,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   /* Guardado junto com o texto: voltar com a busca escrita e o alvo trocado
      mostraria um resultado que não é o que a pessoa deixou na tela. */
   const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
+  const [ocultar,setOcultar]=usarContatoOculto();
   const [f,setF]=useState({dono:"",prioridade:"",tag:"",de:"",ate:""});
   const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
@@ -9590,6 +10407,16 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
               color:C.faint,cursor:"pointer",fontSize:15,lineHeight:1,padding:4}}>×</button>}
         </div>
+        {/* O OLHO: esconde telefone e e-mail dos cards (e do popup do lead)
+            para gravar a tela ou tirar print. Fechado fica coral, para quem
+            está gravando ver de relance que está protegido. */}
+        <button onClick={()=>setOcultar(o=>!o)} aria-pressed={ocultar}
+          aria-label={ocultar?"Mostrar telefone e e-mail dos leads":"Esconder telefone e e-mail dos leads"}
+          title={ocultar?"Telefone e e-mail escondidos — clique para mostrar":"Esconder telefone e e-mail (para gravar a tela ou tirar print)"}
+          style={{width:isMobile?42:36,height:isMobile?42:34,flexShrink:0,borderRadius:9,cursor:"pointer",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            border:`1px solid ${ocultar?C.hot+"66":C.line}`,background:ocultar?C.hotSoft:C.surface,color:ocultar?C.hot:C.sub}}>
+          <Icon n={ocultar?"olhoFechado":"olho"} size={16}/></button>
         {/* EM QUAL DOS DOIS PROCURAR.
 
             Só existe para quem enxerga a equipe: o corretor vê apenas os leads
@@ -9773,7 +10600,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
             {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
-              return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto}
+              return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto} ocultar={ocultar}
                 opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
@@ -9791,7 +10618,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
         {alvo&&alvo!==arrasto.de?"soltar em "+alvo:"arraste até uma etapa"}</div>
     </div>}
-    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile}
+    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
     </div>
   </div>;
@@ -9808,7 +10635,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
    marcadas, e um botão do WhatsApp para ir à conversa quando a decisão for
    falar com o cliente. Sem sair do quadro é possível olhar dez leads parados
    em sequência — que é justamente o que se faz no funil. */
-function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
+function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar}){
   const alturaBarra=usarAlturaDaBarra();
   const l=leads.find(x=>x.id===leadId);
   useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); },[leadId]);
@@ -9836,7 +10663,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile}){
           <div style={{color:C.ink,fontSize:14.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>
           <div style={{color:C.faint,fontSize:11.5}}>
             <span style={{color:STAGE_C[l.status],fontWeight:600}}>{l.status}</span>
-            {l.etapaDesde?` há ${fmtCurto(Date.now()-l.etapaDesde)}`:""} · {fmtTel(l.tel)}
+            {l.etapaDesde?` há ${fmtCurto(Date.now()-l.etapaDesde)}`:""} · {ocultar?CONTATO_OCULTO:fmtTel(l.tel)}
           </div>
         </div>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
@@ -9993,7 +10820,7 @@ function fmtCurto(ms){
 
 const fmtCampoCard=(v)=>Array.isArray(v)?v.join(", "):typeof v==="boolean"?(v?"Sim":"Não"):String(v);
 
-function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[]}){
+function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[],ocultar}){
   /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
 
      A faixa já esquentava pela última conversa (regra de 13/08/2026: âmbar em
@@ -10040,6 +10867,12 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
         {l.prio&&<span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
           borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>}
       </div>
+
+      {/* O CONTATO (07/10/2026, pedido do Ali): o número sempre, o e-mail só
+          quando existe. Deixa o card um pouco mais alto em todo quadro — foi
+          aceito. O olho ao lado da busca troca os dois por pontos. */}
+      {l.tel&&linha("phone", ocultar?CONTATO_OCULTO:fmtTel(l.tel), C.sub)}
+      {l.email&&linha("mail", ocultar?CONTATO_OCULTO:l.email, C.sub)}
 
       {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
           usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
@@ -10632,6 +11465,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
   const [d,setD]=useState(null), [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null);   // id, "nova" ou null
   const [verDesativadas,setVerDesativadas]=useState(false);
+  const [relatorio,setRelatorio]=useState(null);   // null, "todas" ou o id
   const carregar=()=>acoes.catracas().then(x=>{setD(x);setErro("");guardarCatracas(x);})
     .catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[versao]);
@@ -10661,8 +11495,12 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
         <span style={{color:C.sub,fontSize:10.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"2px 8px"}}>
           {c.entrega==="corretor"?"direto ao corretor":"passa pela atendente"}</span>
         {!c.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
-        {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{marginLeft:"auto",border:`1px solid ${C.line}`,background:C.card,color:C.sub,
-          borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+        <span style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button onClick={()=>setRelatorio(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
+            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Relatório</button>
+          {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,
+            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+        </span>
       </div>
       {c.ativa&&<div style={{color:f&&f.proximo?C.greenDeep:C.amber,fontSize:11.5,marginTop:5}}>
         {!c.membros.length?"Sem corretores — os leads desta catraca vão pela principal."
@@ -10683,6 +11521,8 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="transfer" size={15} color={C.green}/>
       <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Catracas por produto</span>
+      {d.catracas.length>0&&<button onClick={()=>setRelatorio("todas")} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
+        borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Comparar catracas</button>}
       {podeEditar&&editando!=="nova"&&<button onClick={()=>setEditando("nova")} style={{border:"none",background:C.greenDeep,color:"#fff",
         borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
     </div>
@@ -10696,6 +11536,109 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
     {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
       fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"4px 0"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
     {verDesativadas&&desativadas.map(cartao)}
+    {relatorio&&<RelatorioDasCatracas acoes={acoes} isMobile={isMobile} inicial={relatorio} onFechar={()=>setRelatorio(null)}/>}
+  </div>;
+}
+
+/* O RELATÓRIO DAS CATRACAS (12/10/2026, pedido do Ali: "um relatório
+   individual de uma catraca que foi desativada… com os números completos
+   dela, até pra comparação em relação ao autoatendimento"). Abre na
+   comparação de todas (a principal, as ativas e as desativadas) ou direto
+   numa. Os números são dos leads que ENTRARAM no período; o padrão é "desde
+   o início", que é como se olha uma campanha encerrada. */
+const PERIODOS_CATRACA=[["tudo","Desde o início"],["mes","Este mês"],["90dias","90 dias"],["ano","Este ano"]];
+const pctCatraca=(v)=>v===null||v===undefined?"—":pctBR(Math.round(v*10)/10);
+function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
+  const [periodo,setPeriodo]=useState("tudo");
+  const [aberta,setAberta]=useState(inicial==="todas"?null:inicial);
+  const [todas,setTodas]=useState(null), [uma,setUma]=useState(null), [erro,setErro]=useState("");
+  useEffect(()=>{ let vivo=true; setErro("");
+    if(aberta){ setUma(null); acoes.relatorioCatraca(aberta,periodo).then(x=>vivo&&setUma(x)).catch(e=>vivo&&setErro(e.message)); }
+    else { setTodas(null); acoes.relatorioCatracas(periodo).then(x=>vivo&&setTodas(x)).catch(e=>vivo&&setErro(e.message)); }
+    return()=>{vivo=false;}; },[aberta,periodo]);
+  const titulo=aberta?(uma?uma.catraca.nome:"Carregando…"):"Comparar catracas";
+  const pilula=(id,t)=><button key={id} onClick={()=>setPeriodo(id)} style={{border:`1px solid ${periodo===id?C.green:C.line}`,
+    background:periodo===id?C.greenSoft:C.card,color:periodo===id?C.greenDeep:C.sub,borderRadius:999,padding:"7px 12px",minHeight:34,
+    fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>;
+  const num=(rotulo,valor,sub)=><div style={{background:C.surface,borderRadius:10,padding:"10px 11px",minWidth:0}}>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>
+    <div style={{color:C.ink,fontFamily:MONO,fontSize:18,fontWeight:700,marginTop:3}}>{valor}</div>
+    {sub&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>{sub}</div>}</div>;
+  const iaVsSem=(x)=>{
+    const melhor=x.ia.conversao!=null&&x.sem_ia.conversao!=null?(x.ia.conversao>x.sem_ia.conversao?"ia":x.ia.conversao<x.sem_ia.conversao?"sem":null):null;
+    const lado=(rot,b,dest)=><div style={{flex:1,minWidth:0,border:`1px solid ${dest?C.green+"66":C.line}`,background:dest?C.greenSoft:C.card,borderRadius:10,padding:"9px 11px"}}>
+      <div style={{color:C.sub,fontSize:11.5,fontWeight:600}}>{rot}</div>
+      <div style={{color:C.ink,fontFamily:MONO,fontSize:17,fontWeight:700,marginTop:2}}>{pctCatraca(b.conversao)}</div>
+      <div style={{color:C.faint,fontSize:11}}>{b.vendas} venda{b.vendas===1?"":"s"} de {b.leads} lead{b.leads===1?"":"s"}</div></div>;
+    return <div style={{display:"flex",gap:8,flexWrap:isMobile?"wrap":"nowrap"}}>
+      {lado("Atendidos pela IA (Autoatendimento)",x.ia,melhor==="ia")}{lado("Sem a IA",x.sem_ia,melhor==="sem")}</div>;
+  };
+  return <div className="tela-cheia" style={{position:"fixed",inset:0,zIndex:60,background:"rgba(0,0,0,.35)",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center"}} onClick={onFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:isMobile?"100%":"min(880px,94vw)",maxHeight:isMobile?"100%":"90vh",
+      borderRadius:isMobile?0:16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:isMobile?"14px 14px 10px":"16px 18px 10px",borderBottom:`1px solid ${C.line}`}}>
+        {aberta&&inicial==="todas"&&<button onClick={()=>setAberta(null)} aria-label="Voltar" style={{width:32,height:32,borderRadius:9,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={16}/></button>}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:16,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{titulo}
+            {uma&&aberta&&!uma.catraca.ativa&&<span style={{color:C.amber,fontSize:11,fontWeight:600,marginLeft:8}}>desativada</span>}</div>
+          <div style={{color:C.faint,fontSize:11.5}}>Leads que entraram {((aberta?uma:todas)||{}).periodo?((aberta?uma:todas).periodo.rotulo):"…"}</div>
+        </div>
+        <button onClick={onFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,borderRadius:9,width:34,height:34,cursor:"pointer",fontSize:18}}>×</button>
+      </div>
+      <div style={{overflowY:"auto",padding:isMobile?14:18}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>{PERIODOS_CATRACA.map(([id,t])=>pilula(id,t))}</div>
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+
+        {!aberta&&!todas&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+        {!aberta&&todas&&<React.Fragment>
+          {isMobile
+            ?todas.linhas.map(l=><button key={l.id} onClick={()=>setAberta(l.id)} style={{width:"100%",textAlign:"left",border:`1px solid ${C.line}`,background:l.ativa?C.card:C.surface,borderRadius:12,padding:"11px 12px",marginBottom:8,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}><b style={{color:C.ink,fontSize:13.5}}>{l.nome}</b>
+                  {!l.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
+                  <span style={{marginLeft:"auto",color:C.faint}}><Icon n="chevron" size={14}/></span></div>
+                <div style={{color:C.sub,fontSize:12,marginTop:4,lineHeight:1.55}}>{l.leads} leads · {l.vendas} vendas · conversão {pctCatraca(l.conversao)}<br/>
+                  IA: {pctCatraca(l.ia.conversao)} ({l.ia.leads}) · sem IA: {pctCatraca(l.sem_ia.conversao)} ({l.sem_ia.leads})</div></button>)
+            :<div style={{border:`1px solid ${C.line}`,borderRadius:12,overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
+                <thead><tr style={{background:C.surface,color:C.faint,fontSize:10.5,textTransform:"uppercase",letterSpacing:.4}}>
+                  {["Catraca","Leads","Em aberto","Vendas","VGV","Conversão","1ª resposta","Conv. com IA","Conv. sem IA"].map((h,i)=>
+                    <th key={h} style={{textAlign:i?"right":"left",padding:"9px 10px",fontWeight:700}}>{h}</th>)}</tr></thead>
+                <tbody>{todas.linhas.map(l=><tr key={l.id} onClick={()=>setAberta(l.id)} style={{borderTop:`1px solid ${C.line}`,cursor:"pointer",background:l.ativa?C.card:C.surface}}>
+                  <td style={{padding:"9px 10px",color:C.ink,fontWeight:600}}>{l.nome}{!l.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600,marginLeft:6}}>desativada</span>}</td>
+                  {[l.leads,l.em_aberto,l.vendas,fmtMoeda(l.vgv),pctCatraca(l.conversao),l.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(l.primeira_resposta_mediana_min)),
+                    `${pctCatraca(l.ia.conversao)} (${l.ia.leads})`,`${pctCatraca(l.sem_ia.conversao)} (${l.sem_ia.leads})`].map((v,i)=>
+                    <td key={i} style={{padding:"9px 10px",textAlign:"right",fontFamily:MONO,color:C.ink,whiteSpace:"nowrap"}}>{v}</td>)}
+                </tr>)}</tbody>
+              </table></div>}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginTop:10}}>
+            Clique numa catraca para ver por dentro. Conta a catraca em que o lead está hoje: lead mudado de catraca na ficha conta na nova.
+            "Com IA" são os leads em que o Autoatendimento mandou pelo menos uma mensagem; entre parênteses, quantos leads. As vendas são desses leads, fechadas quando for — as vendas do mês ficam no Painel.</div>
+        </React.Fragment>}
+
+        {aberta&&!uma&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
+        {aberta&&uma&&<React.Fragment>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(4,minmax(0,1fr))",gap:8,marginBottom:14}}>
+            {num("Leads",uma.leads,`${uma.em_aberto} em aberto`)}
+            {num("Vendas",uma.vendas,fmtMoeda(uma.vgv))}
+            {num("Conversão",pctCatraca(uma.conversao),`${uma.perdidos} perdido${uma.perdidos===1?"":"s"}`)}
+            {num("1ª resposta",uma.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(uma.primeira_resposta_mediana_min)),`mediana · ${uma.sem_resposta} sem resposta`)}
+          </div>
+          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Autoatendimento × atendimento sem IA</div>
+          {iaVsSem(uma)}
+          {[["Por corretor (quem está com o lead hoje)",uma.por_corretor],["De onde vieram",uma.por_origem],["Onde estão agora",uma.por_etapa]].map(([t,lista])=>
+            <div key={t} style={{marginTop:16}}>
+              <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6}}>{t}</div>
+              {!lista.length?<div style={{color:C.faint,fontSize:12}}>Nenhum lead no período.</div>
+                :<div style={{border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden"}}>{lista.map((x,i)=>
+                  <div key={x.chave+i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 11px",borderTop:i?`1px solid ${C.line}`:"none",fontSize:12.5}}>
+                    <span style={{flex:1,minWidth:0,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.nome}</span>
+                    <span style={{fontFamily:MONO,color:C.sub,whiteSpace:"nowrap"}}>{x.leads} · {x.vendas} venda{x.vendas===1?"":"s"} · {pctCatraca(x.conversao)}</span>
+                  </div>)}</div>}
+            </div>)}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginTop:12}}>Leads que entraram no período e estão nesta catraca hoje. A conversão é a fração deles que já tem venda registrada.</div>
+        </React.Fragment>}
+      </div>
+    </div>
   </div>;
 }
 
@@ -10722,6 +11665,8 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const [ligados,setLigados]=useState(()=>new Set(can0.formularios||[]));
   const [pipe,setPipe]=useState(inicial.pipeline_id||"");
   const [etapa,setEtapa]=useState(inicial.stage_id||"");
+  const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
+  const fichas=usarFichasIA(acoes);
   const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
@@ -10743,7 +11688,8 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     if(pipe&&!etapa){ setErro("Escolha a etapa do funil que aciona a catraca — ou deixe o funil em branco."); return; }
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
-      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null}); }
+      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null,
+      ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
   async function apagar(){
@@ -10806,6 +11752,12 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
       {etapaEscolhida?<>Quando um lead destes canais entra em <b>{etapaEscolhida.name}</b>, ele vai para o próximo corretor disponível desta catraca. Lead que já está com um corretor não é tirado dele.</>
         :"Sem etapa, a catraca entrega pelo repasse da atendente (botão da ficha)."}</div>
+
+    {fichas&&fichas.length>0&&<React.Fragment>
+      <div style={rotulo}>Ficha de produto da IA</div>
+      <SeletorDeFicha valor={ficha} aoMudar={setFicha} fichas={fichas} caixa={caixa}/>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>O Autoatendimento usa esta ficha com os leads desta catraca (a do formulário, quando houver, vale primeiro).</div>
+    </React.Fragment>}
 
     <div style={rotulo}>Como o lead chega</div>
     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
@@ -11274,6 +12226,534 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
   </div>;
 }
 
+/* ===== REDES SOCIAIS (20/10/2026, pedido do Ali: "conectar facebook e
+   instagram na ferramenta, pra que possa inclusive programar posts e
+   acompanhar o engajamento", e a automação de comentários "igual o
+   manychat"). Só o gestor; mora no Marketing. A página é a mesma conectada
+   em Configurações → Anúncios do Meta — não há outro login. ===== */
+let abaConfigPedida=null;   // abrir Configurações já numa aba (lido uma vez)
+const ROTULO_REDE={facebook:"Facebook",instagram:"Instagram"};
+const LogoRede=({rede,size=16})=>rede==="instagram"?<LogoInstagram size={size}/>:<LogoFacebook size={size}/>;
+const ESTADO_POST={agendado:["Programado",C.sub,C.surface],publicando:["Publicando…",C.amber,C.amberSoft],publicado:["Publicado",C.greenDeep,C.greenSoft],
+  parcial:["Publicado em parte",C.amber,C.amberSoft],falhou:["Não publicou",C.hot,C.hotSoft],cancelado:["Cancelado",C.faint,C.surface]};
+const fmtNum=(v)=>v==null?"—":Number(v).toLocaleString("pt-BR");
+const NOME_PERMISSAO={pages_manage_posts:"publicar na página",instagram_content_publish:"publicar no Instagram",instagram_basic:"ler o Instagram",
+  read_insights:"ler os números da página",instagram_manage_insights:"ler os números do Instagram",pages_read_engagement:"ler os posts da página",
+  pages_manage_engagement:"responder comentários na página",pages_read_user_content:"ler comentários da página",pages_messaging:"mandar mensagem pela página",
+  instagram_manage_comments:"responder comentários no Instagram",instagram_manage_messages:"mandar direct no Instagram"};
+const descreverPermissoes=(lista)=>lista.map(p=>NOME_PERMISSAO[p]||p).join(", ");
+
+function RedesSociais({acoes,isMobile,irPara}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [pageId,setPageId]=useState("");
+  const [aba,setAba]=useState("programacao");
+  const [editando,setEditando]=useState(null);       // post sendo editado (ou {} para novo)
+  const carregar=()=>acoes.redes().then(r=>{setD(r);setErro("");setPageId(p=>p&&r.paginas.some(x=>x.page_id===p)?p:(r.paginas[0]?.page_id||""));}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const pagina=d?.paginas.find(p=>p.page_id===pageId)||null;
+  const irParaAnuncios=()=>{abaConfigPedida="anuncios";irPara("config");};
+  const [atualizando,setAtualizando]=useState(false);
+  async function atualizarInstagram(){
+    setAtualizando(true);
+    try{ setD(await acoes.redesAtualizarPagina(pageId)); }catch(e){ setErro(e.message); } finally{ setAtualizando(false); }
+  }
+  const faltamPublicar=pagina?[...new Set([...pagina.faltam.publicar_facebook,...(pagina.instagram?pagina.faltam.publicar_instagram:[])])]:[];
+  const abas=[["programacao","Programação"],["novo",editando&&editando.id?"Editar post":"Novo post"],["engajamento","Engajamento"],["comentarios","Comentários automáticos"]];
+  return <div style={molduraMkt(isMobile)}>
+    <div style={{marginBottom:14}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
+        <LogoFacebook size={20}/><LogoInstagram size={20}/> Redes sociais</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>Programe posts no Facebook e no Instagram da imobiliária, acompanhe o engajamento e responda comentários sozinho.</div>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+    {d&&!d.paginas.length&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 240px",color:C.sub,fontSize:13,lineHeight:1.5}}>
+        Nenhuma página do Facebook conectada. Conecte em <b>Configurações → Anúncios do Meta</b>: o Instagram ligado à página vem junto.</div>
+      <button onClick={irParaAnuncios} style={botaoMkt()}>Conectar a página</button>
+    </div>}
+    {pagina&&<React.Fragment>
+      <div style={{...CARTAO_MKT,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:12}}>
+        {d.paginas.length>1?<select value={pageId} onChange={e=>setPageId(e.target.value)} style={{...campoMkt(isMobile),width:"auto",flex:"0 1 220px"}}>
+          {d.paginas.map(p=><option key={p.page_id} value={p.page_id}>{p.nome||p.page_id}</option>)}</select>
+          :<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoFacebook size={16}/>{pagina.nome}</span>}
+        {pagina.instagram
+          ?<span style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:C.ink,fontWeight:600}}><LogoInstagram size={16}/>@{pagina.instagram.usuario||pagina.instagram.id}</span>
+          :<span style={{fontSize:12.5,color:C.sub,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={16}/>{pagina.instagram_sem_permissao?"Instagram aguardando liberação da Meta":"Nenhum Instagram ligado a esta página"}</span>}
+        <button onClick={atualizarInstagram} disabled={atualizando} style={{...botaoLeveMkt,marginLeft:"auto",minHeight:36}}>{atualizando?"Atualizando…":"Atualizar"}</button>
+      </div>
+      {!pagina.instagram&&pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+        Para enxergar o Instagram ligado a esta página, o ConHub precisa de uma permissão da Meta (<b>instagram_basic</b>) que ainda está em análise.
+        Sem ela, a Meta não informa o Instagram — mesmo ele estando ligado. Quando a permissão for aprovada, conecte a página de novo e o Instagram aparece aqui.</div>}
+      {!pagina.instagram&&!pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
+        Para publicar no Instagram, ele precisa ser uma conta <b>profissional</b> (comercial ou criador) ligada a esta página do Facebook.
+        Ligue no app do Instagram (Configurações → Central de Contas) e clique em Atualizar.</div>}
+      {faltamPublicar.length>0&&!d.pedindo_redes&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+        A publicação e as respostas automáticas ainda estão sendo liberadas pela Meta para o ConHub. Enquanto isso, a conexão da página continua servindo aos anúncios normalmente.</div>}
+      {faltamPublicar.length>0&&d.pedindo_redes&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+        A Meta ainda não deu ao ConHub permissão para: <b>{descreverPermissoes(faltamPublicar)}</b>.
+        Se a permissão já foi aprovada na análise do app, <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>conecte a página de novo</button> para ela valer.</div>}
+      {!pagina.permissoes_conhecidas&&<div style={{background:C.surface,color:C.sub,fontSize:12,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
+        Esta página foi conectada antes das redes sociais existirem no ConHub. Se algo for recusado,{" "}
+        <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>conecte a página de novo</button>.</div>}
+      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        {abas.map(([k,t])=><button key={k} onClick={()=>{ if(k==="novo"&&aba!=="novo") setEditando({}); setAba(k); }}
+          style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:36,
+            background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+      </div>
+      {aba==="programacao"&&<ProgramacaoDePosts acoes={acoes} isMobile={isMobile} pageId={pageId}
+        aoEditar={(p)=>{setEditando(p);setAba("novo");}} aoNovo={()=>{setEditando({});setAba("novo");}}/>}
+      {aba==="novo"&&<EditorDePost key={editando?.id||"novo"} acoes={acoes} isMobile={isMobile} pagina={pagina} post={editando&&editando.id?editando:null}
+        aoSalvar={()=>{setEditando(null);setAba("programacao");carregar();}} aoCancelar={()=>{setEditando(null);setAba("programacao");}}/>}
+      {aba==="engajamento"&&<EngajamentoDasRedes acoes={acoes} isMobile={isMobile} pagina={pagina}/>}
+      {aba==="comentarios"&&<ComentariosAutomaticos acoes={acoes} isMobile={isMobile} pagina={pagina} irParaAnuncios={irParaAnuncios}/>}
+    </React.Fragment>}
+  </div>;
+}
+
+function ProgramacaoDePosts({acoes,isMobile,pageId,aoEditar,aoNovo}){
+  const [posts,setPosts]=useState(null); const [erro,setErro]=useState("");
+  const carregar=()=>acoes.redesPosts().then(r=>{setPosts(r.posts);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar(); const t=setInterval(carregar,20000); return ()=>clearInterval(t);},[]);
+  const daPagina=(posts||[]).filter(p=>p.page_id===pageId);
+  const proximos=daPagina.filter(p=>p.status==="agendado"||p.status==="publicando").sort((a,b)=>a.agendar_para-b.agendar_para);
+  const passados=daPagina.filter(p=>!(p.status==="agendado"||p.status==="publicando"));
+  async function cancelar(p){
+    if(!window.confirm("Cancelar este post? Ele não vai ser publicado.")) return;
+    try{ await acoes.redesCancelarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  async function apagar(p){
+    if(!window.confirm("Tirar este post da lista do ConHub? O que já foi publicado continua no Facebook e no Instagram.")) return;
+    try{ await acoes.redesApagarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  const lista=(itens)=>itens.map(p=><CartaoDePost key={p.id} p={p} isMobile={isMobile} aoEditar={aoEditar} aoCancelar={cancelar} aoApagar={apagar}/>);
+  return <div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!posts&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
+    {posts&&<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <div style={{...TITULO_MKT,marginBottom:0,flex:1}}>Próximos</div>
+        <button onClick={aoNovo} style={botaoMkt()}>+ Novo post</button>
+      </div>
+      {!proximos.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum post programado.</div>}
+      {lista(proximos)}
+      {passados.length>0&&<div style={{...TITULO_MKT,marginTop:18}}>Já saíram</div>}
+      {lista(passados)}
+    </React.Fragment>}
+  </div>;
+}
+
+function CartaoDePost({p,isMobile,aoEditar,aoCancelar,aoApagar}){
+  const [rotulo,cor,fundo]=ESTADO_POST[p.status]||[p.status,C.sub,C.surface];
+  const capa=p.midias.find(m=>m.tipo==="foto");
+  const temVideo=p.midias.some(m=>m.tipo==="video");
+  const formato=p.formato==="story"?"Story":p.formato==="reels"?"Reels":p.midias.length>1?`Carrossel · ${p.midias.length}`:temVideo?"Vídeo":p.midias.length?"Foto":"Texto";
+  const podeEditar=p.status==="agendado"&&p.destinos.every(d=>d.status==="pendente");
+  return <div style={{...CARTAO_MKT,padding:12,display:"flex",gap:12,alignItems:"flex-start"}}>
+    <div style={{width:isMobile?56:68,height:isMobile?56:68,borderRadius:10,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint}}>
+      {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n={temVideo?"zap":"edit"} size={20}/>}
+    </div>
+    <div style={{flex:1,minWidth:0}}>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+        <span style={{fontSize:11,fontWeight:700,color:cor,background:fundo,borderRadius:999,padding:"3px 8px"}}>{rotulo}</span>
+        <span style={{fontSize:11.5,color:C.faint}}>{formato}</span>
+        <span style={{fontSize:11.5,color:C.sub,fontFamily:MONO}}>{p.status==="agendado"?"sai em ":""}{fmtDataHoraMkt(p.agendar_para)}</span>
+      </div>
+      <div style={{color:C.ink,fontSize:13,lineHeight:1.45,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",whiteSpace:"pre-wrap"}}>{p.texto||<span style={{color:C.faint}}>(sem texto)</span>}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:6}}>
+        {p.destinos.map(d=><div key={d.rede} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.sub,flexWrap:"wrap"}}>
+          <LogoRede rede={d.rede} size={14}/>
+          {d.status==="publicado"?<span style={{color:C.greenDeep,fontWeight:600}}>publicado{d.link&&<React.Fragment> · <a href={d.link} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep}}>ver</a></React.Fragment>}</span>
+            :d.status==="falhou"?<span style={{color:C.hot}}>não publicou: {d.erro}</span>
+            :d.status==="processando"?<span style={{color:C.amber}}>a Meta está processando{d.erro?` (${d.erro})`:""}</span>
+            :d.status==="cancelado"?<span style={{color:C.faint}}>cancelado</span>
+            :<span>esperando a hora{d.erro?<span style={{color:C.amber}}> · {d.erro}</span>:""}</span>}
+        </div>)}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        {podeEditar&&<button onClick={()=>aoEditar(p)} style={{...botaoLeveMkt,minHeight:34}}>Editar</button>}
+        {(p.status==="agendado"||p.status==="publicando")&&<button onClick={()=>aoCancelar(p)} style={{...botaoLeveMkt,minHeight:34}}>Cancelar</button>}
+        {!(p.status==="agendado"||p.status==="publicando")&&<button onClick={()=>aoApagar(p)} style={{...botaoLeveMkt,minHeight:34}}>Tirar da lista</button>}
+      </div>
+    </div>
+  </div>;
+}
+
+const LIMITE_FOTO_REDES_MB=8;
+
+function EditorDePost({acoes,isMobile,pagina,post,aoSalvar,aoCancelar}){
+  const temIg=!!pagina.instagram;
+  const [redes,setRedes]=useState(post?post.redes:(temIg?["facebook","instagram"]:["facebook"]));
+  const [formato,setFormato]=useState(post?.formato||"post");
+  const [texto,setTexto]=useState(post?.texto||"");
+  const [midias,setMidias]=useState(post?.midias||[]);
+  const [quando,setQuando]=useState(post?"programar":"agora");
+  const [dataHora,setDataHora]=useState(paraCampoDataHora(post?.agendar_para||Date.now()+3600000));
+  const [subindo,setSubindo]=useState(""); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [imoveis,setImoveis]=useState(null);
+  const fotoRef=useRef(null), videoRef=useRef(null);
+  const ig=redes.includes("instagram");
+  useEffect(()=>{ if(formato==="story") setRedes(["instagram"]); },[formato]);
+  const alternar=(r)=>setRedes(x=>x.includes(r)?x.filter(y=>y!==r):[...x,r]);
+  async function adicionarFotos(files){
+    setErro("");
+    for(const f of [...files]){
+      if(midias.length>=10){ setErro("No máximo 10 fotos ou vídeos por post."); break; }
+      if(f.size>LIMITE_FOTO_REDES_MB*1024*1024){ setErro(`A foto ${f.name} passa de ${LIMITE_FOTO_REDES_MB} MB.`); continue; }
+      setSubindo(`Enviando ${f.name}…`);
+      try{
+        const base64=await lerComoBase64(f);
+        const m=await acoes.redesFoto(base64,f.type||"image/jpeg");
+        setMidias(x=>[...x,m]);
+      }catch(e){ setErro(e.message); }
+    }
+    setSubindo("");
+  }
+  async function adicionarVideo(f){
+    if(!f) return;
+    setErro("");
+    if(f.size>150*1024*1024) return setErro("O vídeo passa de 150 MB.");
+    setSubindo("Enviando vídeo… 0%");
+    try{
+      const m=await acoes.redesVideo(f,(pct)=>setSubindo(pct>=100?"Processando vídeo…":`Enviando vídeo… ${pct}%`));
+      setMidias(x=>[...x,m]);
+      if(formato==="post"&&midias.length===0&&ig) setFormato("reels");
+    }catch(e){ setErro(e.message); } finally{ setSubindo(""); }
+  }
+  async function usarImovel(id){
+    if(!id) return;
+    try{
+      const r=await acoes.redesImovel(id);
+      setMidias(r.midias.slice(0,10)); if(!texto.trim()) setTexto(r.texto); else setTexto(t=>t+"\n\n"+r.texto);
+      setImoveis(null);
+    }catch(e){ setErro(e.message); }
+  }
+  const mover=(i,d)=>setMidias(x=>{const y=[...x];const j=i+d;if(j<0||j>=y.length) return y;[y[i],y[j]]=[y[j],y[i]];return y;});
+  const limite=ig?2200:5000;
+  const hashtags=(texto.match(/#[\p{L}\p{N}_]+/gu)||[]).length;
+  // O que a tela já sabe que vai ser recusado — o servidor confere de novo.
+  const avisos=[];
+  if(ig&&formato==="post") midias.forEach((m,i)=>{ if(m.tipo==="foto"&&m.largura&&m.altura){ const r=m.largura/m.altura;
+    if(r<0.79||r>1.92) avisos.push(`A foto ${i+1} é ${r<1?"em pé":"deitada"} demais para o feed do Instagram.`); }});
+  if(ig&&formato==="post"&&!midias.length) avisos.push("O Instagram precisa de foto ou vídeo.");
+  if(formato==="reels"&&!(midias.length===1&&midias[0].tipo==="video")) avisos.push("O Reels leva um vídeo.");
+  if(formato==="story"&&midias.length!==1) avisos.push("O story leva uma foto ou um vídeo.");
+  if(redes.includes("facebook")&&midias.length>1&&midias.some(m=>m.tipo==="video")) avisos.push("No Facebook, várias mídias só com fotos.");
+  if(texto.length>limite) avisos.push(`O texto passa de ${limite} letras.`);
+  if(ig&&hashtags>30) avisos.push("O Instagram aceita até 30 hashtags.");
+  const instante=quando==="agora"?null:new Date(dataHora).getTime();
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const corpo={page_id:pagina.page_id,redes,formato,texto,midias,agendar_para:instante};
+    try{ post?await acoes.redesEditarPost(post.id,corpo):await acoes.redesCriarPost(corpo); aoSalvar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const pilula=(on)=>({fontSize:12.5,fontWeight:600,padding:"8px 13px",borderRadius:999,cursor:"pointer",minHeight:36,
+    border:`1px solid ${on?C.greenDeep:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub});
+  const rotulo={fontSize:12,fontWeight:700,color:C.ink,marginBottom:6};
+  return <div style={{...CARTAO_MKT,padding:isMobile?13:16}}>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Onde publicar</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button disabled={formato==="story"} onClick={()=>alternar("facebook")} style={{...pilula(redes.includes("facebook")),opacity:formato==="story"?.5:1,display:"inline-flex",alignItems:"center",gap:6}}><LogoFacebook size={15}/>{pagina.nome}</button>
+        <button disabled={!temIg} onClick={()=>alternar("instagram")} style={{...pilula(redes.includes("instagram")),opacity:temIg?1:.5,display:"inline-flex",alignItems:"center",gap:6}}><LogoInstagram size={15}/>{temIg?"@"+(pagina.instagram.usuario||"instagram"):"Instagram não ligado"}</button>
+      </div>
+    </div>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Formato</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {[["post","Post"],["reels","Reels"],["story","Story"]].map(([k,t])=><button key={k} disabled={k!=="post"&&!temIg} onClick={()=>setFormato(k)}
+          style={{...pilula(formato===k),opacity:k!=="post"&&!temIg?.5:1}}>{t}</button>)}
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.45}}>
+        {formato==="post"?"Texto, uma foto, várias fotos (carrossel) ou um vídeo. No Instagram, um vídeo sozinho sai como Reels."
+          :formato==="reels"?"Um vídeo, de preferência em pé. No Facebook ele sai como vídeo da página."
+          :"Uma foto ou um vídeo, só no Instagram. Some em 24 horas; o texto não aparece no story."}</div>
+    </div>
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Fotos e vídeo</div>
+      {midias.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        {midias.map((m,i)=><div key={m.url+i} style={{position:"relative",width:84,height:84,borderRadius:10,overflow:"hidden",background:C.surface,border:`1px solid ${C.line}`}}>
+          {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub,fontSize:11,fontWeight:700,flexDirection:"column",gap:4}}><Icon n="zap" size={18}/>Vídeo</div>}
+          <span style={{position:"absolute",left:4,top:4,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:6,padding:"1px 5px"}}>{i+1}</span>
+          <button onClick={()=>setMidias(x=>x.filter((_,j)=>j!==i))} title="Tirar" style={{position:"absolute",right:3,top:3,width:24,height:24,borderRadius:"50%",border:"none",background:"rgba(0,0,0,.6)",color:"#fff",cursor:"pointer",fontSize:14,lineHeight:"22px",padding:0}}>×</button>
+          {midias.length>1&&<div style={{position:"absolute",left:0,right:0,bottom:0,display:"flex",justifyContent:"space-between"}}>
+            <button onClick={()=>mover(i,-1)} disabled={i===0} style={{border:"none",background:"rgba(0,0,0,.45)",color:"#fff",cursor:"pointer",width:28,height:22,padding:0}}>‹</button>
+            <button onClick={()=>mover(i,1)} disabled={i===midias.length-1} style={{border:"none",background:"rgba(0,0,0,.45)",color:"#fff",cursor:"pointer",width:28,height:22,padding:0}}>›</button>
+          </div>}
+        </div>)}
+      </div>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>fotoRef.current&&fotoRef.current.click()} disabled={!!subindo} style={{...botaoLeveMkt,minHeight:38}}>Adicionar fotos</button>
+        <button onClick={()=>videoRef.current&&videoRef.current.click()} disabled={!!subindo} style={{...botaoLeveMkt,minHeight:38}}>Adicionar vídeo</button>
+        <button onClick={()=>acoes.redesImoveis().then(r=>setImoveis(r.imoveis)).catch(e=>setErro(e.message))} style={{...botaoLeveMkt,minHeight:38}}>Usar um imóvel do catálogo</button>
+      </div>
+      <input ref={fotoRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{adicionarFotos(e.target.files);e.target.value="";}}/>
+      <input ref={videoRef} type="file" accept="video/*" style={{display:"none"}} onChange={e=>{adicionarVideo(e.target.files[0]);e.target.value="";}}/>
+      {subindo&&<div style={{color:C.amber,fontSize:12,marginTop:6}}>{subindo}</div>}
+      {imoveis&&<div style={{marginTop:8}}>
+        {imoveis.length?<select defaultValue="" onChange={e=>usarImovel(e.target.value)} style={campoMkt(isMobile)}>
+          <option value="">Escolha o imóvel…</option>
+          {imoveis.map(i=><option key={i.id} value={i.id}>{i.titulo}{i.bairro?` · ${i.bairro}`:""}{i.finalidade==="aluguel"?" (aluguel)":""}</option>)}
+        </select>:<div style={{color:C.sub,fontSize:12.5}}>Nenhum imóvel publicado no catálogo.</div>}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Entram as fotos e um texto com o que é público do imóvel — nunca comissão, captador ou observações internas.</div>
+      </div>}
+    </div>
+    {formato!=="story"&&<div style={{marginBottom:14}}>
+      <div style={{...rotulo,display:"flex"}}><span style={{flex:1}}>Texto</span>
+        <span style={{fontWeight:500,color:texto.length>limite?C.hot:C.faint,fontFamily:MONO}}>{texto.length}/{limite}{ig?` · ${hashtags} #`:""}</span></div>
+      <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={isMobile?6:7} placeholder="Escreva a legenda. Hashtags no fim (#imoveis #petrolina)."
+        style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
+    </div>}
+    <div style={{marginBottom:14}}>
+      <div style={rotulo}>Quando</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>setQuando("agora")} style={pilula(quando==="agora")}>Publicar agora</button>
+        <button onClick={()=>setQuando("programar")} style={pilula(quando==="programar")}>Programar</button>
+        {quando==="programar"&&<input type="datetime-local" value={dataHora} onChange={e=>setDataHora(e.target.value)}
+          min={paraCampoDataHora(Date.now())} style={{...campoMkt(isMobile),width:"auto",flex:"0 1 230px"}}/>}
+      </div>
+      {quando==="programar"&&<div style={{color:C.faint,fontSize:11.5,marginTop:5}}>O ConHub publica sozinho na hora marcada (até 90 dias à frente).</div>}
+    </div>
+    {avisos.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
+      {avisos.map((a,i)=><div key={i}>{a}</div>)}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={salvar} disabled={salvando||!!subindo||!redes.length} style={botaoMkt(!salvando&&!subindo&&redes.length>0)}>
+        {salvando?"Salvando…":post?"Salvar alterações":quando==="agora"?"Publicar agora":`Programar para ${new Date(instante||Date.now()).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`}</button>
+      <button onClick={aoCancelar} style={botaoLeveMkt}>Voltar</button>
+    </div>
+  </div>;
+}
+
+function EngajamentoDasRedes({acoes,isMobile,pagina}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [carregando,setCarregando]=useState(false);
+  const carregar=(atualizar)=>{ setCarregando(true);
+    acoes.redesEngajamento(pagina.page_id,atualizar).then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message)).finally(()=>setCarregando(false)); };
+  useEffect(()=>{carregar(false);},[pagina.page_id]);
+  const numero=(rotulo,valor,dica)=><div title={dica||""} style={{minWidth:0}}>
+    <div style={{fontFamily:MONO,fontSize:isMobile?17:19,fontWeight:700,color:C.ink}}>{fmtNum(valor)}</div>
+    <div style={{fontSize:11.5,color:C.faint}}>{rotulo}</div></div>;
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <div style={{fontSize:12,color:C.faint,flex:1}}>{d?`Números de ${new Date(d.em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})} · últimos 30 dias`:""}</div>
+      <button onClick={()=>carregar(true)} disabled={carregando} style={{...botaoLeveMkt,minHeight:36}}>{carregando?"Buscando…":"Atualizar"}</button>
+    </div>
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os números na Meta…</div>}
+    {d&&<React.Fragment>
+      {d.erros.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
+        {d.erros.map((e,i)=><div key={i}>{e}</div>)}</div>}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12,marginBottom:14}}>
+        {d.contas.map(c=>{const r=d.resumo[c.rede]||{};
+          return <div key={c.rede} style={{...CARTAO_MKT,marginBottom:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <LogoRede rede={c.rede} size={18}/><span style={{fontWeight:700,color:C.ink,fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span></div>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:12}}>
+              <span style={{fontFamily:MONO,fontSize:24,fontWeight:700,color:C.ink}}>{fmtNum(c.seguidores)}</span>
+              <span style={{fontSize:12,color:C.sub}}>seguidores</span>
+              {c.crescimento?<span style={{fontSize:12,fontWeight:600,color:c.crescimento.valor>=0?C.greenDeep:C.hot}}>
+                {c.crescimento.valor>=0?"+":""}{fmtNum(c.crescimento.valor)} desde {c.crescimento.desde.split("-").reverse().slice(0,2).join("/")}</span>
+                :<span style={{fontSize:11.5,color:C.faint}} title="A Meta não devolve a série antiga: o crescimento aparece a partir do dia seguinte ao primeiro registro.">crescimento a partir de amanhã</span>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+              {numero("posts no período",r.posts)}
+              {numero(c.rede==="instagram"?"curtidas":"reações",r.curtidas)}
+              {numero("comentários",r.comentarios)}
+              {numero("compartilhamentos",r.compartilhamentos)}
+              {c.rede==="instagram"&&numero("salvos",r.salvos)}
+              {c.rede==="instagram"&&numero("alcance somado",r.alcance,"Soma do alcance dos posts dos últimos 30 dias (a mesma pessoa pode contar em mais de um post).")}
+              {numero("interações por post",r.media_por_post)}
+            </div>
+          </div>;})}
+      </div>
+      <div style={TITULO_MKT}>Posts recentes</div>
+      {!d.posts.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum post encontrado.</div>}
+      {d.posts.slice(0,30).map(x=><div key={x.rede+x.id} style={{...CARTAO_MKT,padding:10,display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
+        <div style={{width:54,height:54,borderRadius:8,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {x.imagem?<img src={x.imagem} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<LogoRede rede={x.rede} size={20}/>}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:11.5,color:C.faint,marginBottom:3}}>
+            <LogoRede rede={x.rede} size={13}/>{x.data?new Date(x.data).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}
+            {x.tipo&&<span>· {x.tipo}</span>}
+            {x.do_conhub&&<span style={{color:C.greenDeep,fontWeight:700}}>· programado no ConHub</span>}
+            {x.link&&<a href={x.link} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,marginLeft:"auto"}}>abrir</a>}
+          </div>
+          <div style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{x.texto||<span style={{color:C.faint}}>(sem texto)</span>}</div>
+          <div style={{display:"flex",gap:isMobile?10:14,flexWrap:"wrap",fontSize:12,color:C.sub,marginTop:4}}>
+            <span>♥ {fmtNum(x.curtidas)}</span><span>💬 {fmtNum(x.comentarios)}</span><span>↗ {fmtNum(x.compartilhamentos)}</span>
+            {x.rede==="instagram"&&<span title="salvos">🔖 {fmtNum(x.salvos)}</span>}
+            {x.rede==="instagram"&&x.alcance!=null&&<span>alcance {fmtNum(x.alcance)}</span>}
+            {x.visualizacoes!=null&&<span>{fmtNum(x.visualizacoes)} visualizações</span>}
+          </div>
+        </div>
+      </div>)}
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>“—” é número que a Meta não devolveu (permissão que falta ou métrica que ela não mede para esse tipo de post). Os números ficam guardados 15 minutos; “Atualizar” busca de novo.</div>
+    </React.Fragment>}
+  </div>;
+}
+
+function ComentariosAutomaticos({acoes,isMobile,pagina,irParaAnuncios}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  const [editando,setEditando]=useState(null);
+  const [vendo,setVendo]=useState(null);
+  const carregar=()=>acoes.redesAutomacoes().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const regras=(d?.regras||[]).filter(r=>r.page_id===pagina.page_id);
+  async function alternar(r){ try{ await acoes.redesEditarAutomacao(r.id,{ativo:!r.ativo}); carregar(); }catch(e){ setErro(e.message); } }
+  async function apagar(r){
+    if(!window.confirm(`Apagar a automação “${r.nome}”? Os números dela somem junto da tela.`)) return;
+    try{ await acoes.redesApagarAutomacao(r.id); carregar(); }catch(e){ setErro(e.message); }
+  }
+  if(editando) return <EditorDeAutomacao acoes={acoes} isMobile={isMobile} pagina={pagina} regra={editando.id?editando:null} whatsapp={d?.whatsapp}
+    aoSalvar={()=>{setEditando(null);carregar();}} aoCancelar={()=>setEditando(null)}/>;
+  return <div>
+    <div style={{...CARTAO_MKT,background:C.surface,fontSize:12.5,color:C.sub,lineHeight:1.55}}>
+      Quem comentar a palavra num post recebe uma <b>resposta no comentário</b> e uma <b>mensagem no privado</b> — por exemplo, com o link do WhatsApp da imobiliária.
+      A conversa no direct não entra no CRM: o link leva ao WhatsApp, e é lá que a pessoa vira lead, pela catraca de sempre.
+    </div>
+    {!pagina.comentarios_ligados&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
+      A Meta ainda não avisa o ConHub dos comentários do Facebook desta página.{" "}
+      <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>Conecte a página de novo</button> depois que a permissão for aprovada.</div>}
+    {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <div style={{...TITULO_MKT,marginBottom:0,flex:1}}>Automações</div>
+      <button onClick={()=>setEditando({})} style={botaoMkt()}>+ Nova automação</button>
+    </div>
+    {d&&!regras.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhuma automação ainda. Exemplo: quem comentar “EU QUERO” no post do lançamento recebe o link do WhatsApp no direct.</div>}
+    {regras.map(r=><div key={r.id} style={{...CARTAO_MKT,padding:12,opacity:r.ativo?1:.7}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontWeight:700,color:C.ink,fontSize:13.5,flex:1,minWidth:120}}>{r.nome}</span>
+        {r.redes.map(x=><LogoRede key={x} rede={x} size={15}/>)}
+        <button onClick={()=>alternar(r)} title={r.ativo?"Desligar":"Ligar"} style={{border:"none",background:"transparent",cursor:"pointer",color:r.ativo?C.green:C.faint,padding:4,minHeight:32}}>
+          <Icon n={r.ativo?"toggleOn":"toggleOff"} size={26}/></button>
+      </div>
+      <div style={{fontSize:12,color:C.sub,marginTop:4,lineHeight:1.5}}>
+        {r.palavras.length?<React.Fragment>Palavras: {r.palavras.map(p=><span key={p} style={{background:C.surface,borderRadius:6,padding:"1px 6px",marginRight:4,fontWeight:600}}>{p}</span>)}</React.Fragment>:"Qualquer comentário"}
+        {" · "}{r.posts.length?`${r.posts.length} post${r.posts.length>1?"s":""} escolhido${r.posts.length>1?"s":""}`:"todos os posts"}
+      </div>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:C.sub,marginTop:6}}>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.total}</b> comentários atendidos</span>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.semana}</b> nos últimos 7 dias</span>
+        <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.privadas}</b> mensagens no privado</span>
+        {r.numeros.falhas>0&&<span style={{color:C.hot}}><b style={{fontFamily:MONO}}>{r.numeros.falhas}</b> com falha</span>}
+      </div>
+      {r.faltam_permissoes.length>0&&<div style={{color:"#6b561a",background:C.amberSoft,fontSize:12,borderRadius:8,padding:"7px 10px",marginTop:8,lineHeight:1.45}}>
+        Falta a Meta liberar: {descreverPermissoes(r.faltam_permissoes)}. Até lá esta parte não sai.</div>}
+      {r.ultimo_erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6,lineHeight:1.45}}>Último problema ({fmtDataHoraMkt(r.ultimo_erro.em)}): {r.ultimo_erro.erro}</div>}
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        <button onClick={()=>setEditando(r)} style={{...botaoLeveMkt,minHeight:34}}>Editar</button>
+        <button onClick={()=>setVendo(vendo===r.id?null:r.id)} style={{...botaoLeveMkt,minHeight:34}}>{vendo===r.id?"Esconder":"Últimos comentários"}</button>
+        <button onClick={()=>apagar(r)} style={{...botaoLeveMkt,minHeight:34}}>Apagar</button>
+      </div>
+      {vendo===r.id&&<UltimosComentarios acoes={acoes} id={r.id}/>}
+    </div>)}
+  </div>;
+}
+
+function UltimosComentarios({acoes,id}){
+  const [l,setL]=useState(null);
+  useEffect(()=>{acoes.redesComentarios(id).then(r=>setL(r.comentarios)).catch(()=>setL([]));},[id]);
+  if(!l) return <div style={{color:C.faint,fontSize:12,marginTop:8}}>Carregando…</div>;
+  if(!l.length) return <div style={{color:C.faint,fontSize:12,marginTop:8}}>Nenhum comentário atendido ainda.</div>;
+  const marca=(v)=>v==="ok"?<span style={{color:C.greenDeep}}>✓</span>:v==="erro"?<span style={{color:C.hot}}>✗</span>:<span style={{color:C.faint}}>—</span>;
+  return <div style={{marginTop:8,borderTop:`1px solid ${C.line}`,paddingTop:6}}>
+    {l.map((c,i)=><div key={i} style={{fontSize:12,color:C.sub,padding:"4px 0",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <span style={{fontFamily:MONO,color:C.faint}}>{fmtDataHoraMkt(c.em)}</span><LogoRede rede={c.rede} size={13}/>
+      <b style={{color:C.ink}}>{c.autor||"alguém"}</b>{c.palavra&&<span>· “{c.palavra}”</span>}
+      <span>· resposta {marca(c.publica)} · privado {marca(c.privada)}</span>
+      {c.erro&&<span style={{color:C.hot,flexBasis:"100%"}}>{c.erro}</span>}
+    </div>)}
+  </div>;
+}
+
+function EditorDeAutomacao({acoes,isMobile,pagina,regra,whatsapp,aoSalvar,aoCancelar}){
+  const temIg=!!pagina.instagram;
+  const [nome,setNome]=useState(regra?.nome||"");
+  const [redes,setRedes]=useState(regra?.redes||(temIg?["instagram","facebook"]:["facebook"]));
+  const [qualquer,setQualquer]=useState(regra?!regra.palavras.length:false);
+  const [palavras,setPalavras]=useState((regra?.palavras||[]).join(", "));
+  const [todosPosts,setTodosPosts]=useState(regra?!regra.posts.length:true);
+  const [posts,setPosts]=useState(regra?.posts||[]);
+  const [respostas,setRespostas]=useState(regra?.respostas?.length?regra.respostas:["Te mandei no direct, {nome}! 📩"]);
+  const [mensagem,setMensagem]=useState(regra?.mensagem_privada??"Oi {nome}! Que bom que gostou 😊 Fala com a gente no WhatsApp que te mando todos os detalhes: {whatsapp}");
+  const [disponiveis,setDisponiveis]=useState(null);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const msgRef=useRef(null);
+  useEffect(()=>{ if(!todosPosts&&!disponiveis) acoes.redesEngajamento(pagina.page_id,false).then(r=>setDisponiveis(r.posts)).catch(e=>setErro(e.message)); },[todosPosts]);
+  const alternarRede=(r)=>setRedes(x=>x.includes(r)?x.filter(y=>y!==r):[...x,r]);
+  const alternarPost=(p)=>setPosts(x=>x.some(y=>y.id===p.id)?x.filter(y=>y.id!==p.id):[...x,{id:p.id,rede:p.rede,texto:p.texto.slice(0,80)}]);
+  const inserir=(t)=>{ const el=msgRef.current; if(!el){ setMensagem(m=>m+t); return; }
+    const a=el.selectionStart??mensagem.length, b=el.selectionEnd??mensagem.length; setMensagem(mensagem.slice(0,a)+t+mensagem.slice(b)); };
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const corpo={page_id:pagina.page_id,nome,redes,palavras:qualquer?[]:palavras.split(",").map(x=>x.trim()).filter(Boolean),
+      posts:todosPosts?[]:posts,respostas:respostas.map(x=>x.trim()).filter(Boolean),mensagem_privada:mensagem,ativo:regra?regra.ativo:true};
+    if(!qualquer&&!corpo.palavras.length){ setErro("Escreva pelo menos uma palavra, ou marque “Qualquer comentário”."); setSalvando(false); return; }
+    try{ regra?await acoes.redesEditarAutomacao(regra.id,corpo):await acoes.redesCriarAutomacao(corpo); aoSalvar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const pilula=(on)=>({fontSize:12.5,fontWeight:600,padding:"8px 13px",borderRadius:999,cursor:"pointer",minHeight:36,
+    border:`1px solid ${on?C.greenDeep:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,display:"inline-flex",alignItems:"center",gap:6});
+  const rotulo={fontSize:12,fontWeight:700,color:C.ink,marginBottom:6};
+  const doPost=(disponiveis||[]).filter(p=>redes.includes(p.rede));
+  return <div style={{...CARTAO_MKT,padding:isMobile?13:16}}>
+    <div style={{...TITULO_MKT,marginBottom:12}}>{regra?"Editar automação":"Nova automação de comentários"}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Nome</div>
+      <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={60} placeholder="Ex.: Lançamento Horizon" style={campoMkt(isMobile)}/></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Em que rede</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button disabled={!temIg} onClick={()=>alternarRede("instagram")} style={{...pilula(redes.includes("instagram")),opacity:temIg?1:.5}}><LogoInstagram size={15}/>Instagram</button>
+        <button onClick={()=>alternarRede("facebook")} style={pilula(redes.includes("facebook"))}><LogoFacebook size={15}/>Facebook</button>
+      </div></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Quando o comentário tiver</div>
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:C.sub,marginBottom:6,minHeight:32}}>
+        <input type="checkbox" checked={qualquer} onChange={e=>setQualquer(e.target.checked)} style={{width:18,height:18}}/>Qualquer comentário</label>
+      {!qualquer&&<React.Fragment>
+        <input value={palavras} onChange={e=>setPalavras(e.target.value)} placeholder="eu quero, valor, info" style={campoMkt(isMobile)}/>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Separe por vírgula. Vale a palavra inteira, sem olhar maiúscula nem acento: “valor” acha “Qual o VALOR?”, não “valorizou”.</div>
+      </React.Fragment>}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Em que posts</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>setTodosPosts(true)} style={pilula(todosPosts)}>Todos os posts</button>
+        <button onClick={()=>setTodosPosts(false)} style={pilula(!todosPosts)}>Só posts escolhidos</button>
+      </div>
+      {!todosPosts&&<div style={{marginTop:8,maxHeight:260,overflowY:"auto",border:`1px solid ${C.line}`,borderRadius:10}}>
+        {!disponiveis&&<div style={{color:C.faint,fontSize:12,padding:10}}>Buscando os posts…</div>}
+        {disponiveis&&!doPost.length&&<div style={{color:C.faint,fontSize:12,padding:10}}>Nenhum post recente nessas redes.</div>}
+        {doPost.map(p=>{const on=posts.some(y=>y.id===p.id);
+          return <label key={p.rede+p.id} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${C.line}`,cursor:"pointer",minHeight:44}}>
+            <input type="checkbox" checked={on} onChange={()=>alternarPost(p)} style={{width:18,height:18,flexShrink:0}}/>
+            <LogoRede rede={p.rede} size={14}/>
+            {p.imagem&&<img src={p.imagem} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>}
+            <span style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{p.texto||"(sem texto)"}</span>
+          </label>;})}
+      </div>}</div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Resposta no comentário (pública)</div>
+      {respostas.map((t,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+        <input value={t} onChange={e=>setRespostas(x=>x.map((y,j)=>j===i?e.target.value:y))} maxLength={300} style={campoMkt(isMobile)}/>
+        <button onClick={()=>setRespostas(x=>x.filter((_,j)=>j!==i))} title="Tirar" style={{...botaoLeveMkt,padding:"0 12px"}}>×</button>
+      </div>)}
+      {respostas.length<5&&<button onClick={()=>setRespostas(x=>[...x,""])} style={{...botaoLeveMkt,minHeight:34}}>+ Outra variação</button>}
+      <div style={{color:C.faint,fontSize:11.5,marginTop:4}}>Cada comentário recebe uma das variações, ao acaso — a mesma frase repetida em todo comentário é o que faz a Meta tratar a página como robô. Deixe vazio para não responder em público.</div></div>
+    <div style={{marginBottom:14}}><div style={rotulo}>Mensagem no privado (direct / Messenger)</div>
+      <textarea ref={msgRef} value={mensagem} onChange={e=>setMensagem(e.target.value)} rows={4} maxLength={1000} style={{...campoMkt(isMobile),resize:"vertical",lineHeight:1.5}}/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+        <button onClick={()=>inserir("{nome}")} style={{...botaoLeveMkt,minHeight:32}}>Inserir nome</button>
+        <button onClick={()=>inserir("{whatsapp}")} style={{...botaoLeveMkt,minHeight:32}}>Inserir link do WhatsApp</button>
+      </div>
+      <div style={{color:whatsapp?C.faint:C.amber,fontSize:11.5,marginTop:4,lineHeight:1.45}}>
+        {whatsapp?<React.Fragment>O link vira {whatsapp}. </React.Fragment>:"Esta conta ainda não tem número de WhatsApp (o do site ou da conexão): o link sairia vazio. "}
+        A Meta deixa uma mensagem no privado por comentário, em até 7 dias.</div></div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button onClick={salvar} disabled={salvando} style={botaoMkt(!salvando)}>{salvando?"Salvando…":"Salvar"}</button>
+      <button onClick={aoCancelar} style={botaoLeveMkt}>Voltar</button>
+    </div>
+  </div>;
+}
+
 function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,aoSalvar}){
   const [pipe,setPipe]=useState(f.pipeline_id||"");
   /* AS CATRACAS DESTE FORMULÁRIO (03/10/2026): um formulário pode estar em
@@ -11296,6 +12776,9 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
   }
   const [etapa,setEtapa]=useState(f.stage_id||"");
   const [estado,setEstado]=useState("");   // "" | salvando | salvo | erro:...
+  const fichas=usarFichasIA(acoes);
+  const [ficha,setFicha]=useState(f.ia_produto_id||null);
+  useEffect(()=>{setFicha(f.ia_produto_id||null);},[f.ia_produto_id]);
   useEffect(()=>{setPipe(f.pipeline_id||"");setEtapa(f.stage_id||"");},[f.pipeline_id,f.stage_id]);
   const ativos=pipelines.filter(p=>p.is_active!==false&&p.is_active!==0);
   const escolhido=ativos.find(p=>p.id===pipe);
@@ -11360,6 +12843,14 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
           :!marcadas.some(x=>catracasAtivas.some(c=>c.id===x))?"Nenhuma marcada: os leads deste formulário usam a catraca principal."
           :"Com mais de uma marcada, elas se revezam. O funil e a etapa que acionam cada uma se escolhem na tela Catraca."}</div>}
     </div>}
+    {fichas&&fichas.length>0&&<React.Fragment>
+      <div style={rotuloForm}>Ficha de produto da IA</div>
+      <SeletorDeFicha valor={ficha} fichas={fichas} caixa={caixa} disabled={estado==="salvando"} aoMudar={async(v)=>{
+        setFicha(v); setEstado("salvando");
+        try{ await acoes.fichaDoFormulario(f.id,v,f.nome); esquecerFichas(); setEstado("salvo"); aoSalvar&&aoSalvar(); setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500); }
+        catch(e){ setEstado("erro:"+e.message); setFicha(f.ia_produto_id||null); }}}/>
+      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>É o produto que o Autoatendimento conhece nos atendimentos que chegam por este formulário.</div>
+    </React.Fragment>}
     {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
       O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
     {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
@@ -11558,16 +13049,18 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
               /* apagada enquanto está sendo editada lá embaixo, para a pessoa
                  saber qual balão vai mudar */
               opacity:editando&&editando.id===m.id?.45:1}}>
-            {meu&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
-            {meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {meu&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
+            {meu&&<BotaoApagar m={m} pode leadId={sel.id} acoes={acoes}/>}
+            {meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={meu} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={meu}/>
               {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
-            {!meu&&<BotaoResponder m={m} aoResponder={setCitando}/>}
+            {!meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
             </div>
           </React.Fragment>;})}
         {sel.cutucadoEm&&<AvisoCutucada lead={sel} acoes={acoes}/>}
@@ -11954,6 +13447,7 @@ const MOTIVO_ROBO={
   // Na linha pessoal a trava do dono se inverte (todo lead dali é dele), então
   // o que decide é o consentimento: quem liga o robô é o dono do número.
   linha_de_disparo:"Esta conversa está no número de disparo do marketing — quem conduz ali é o fluxo do disparo, não o robô.",
+  fora_do_escopo:"Este lead está num funil ou etapa em que a IA não atua (Configurações → Autoatendimento → Onde a IA atua).",
   fluxo_de_disparo:"Este cliente está no meio de um fluxo de disparo do marketing — enquanto o fluxo estiver conduzindo, o robô fica quieto.",
   robo_desligado_nesta_linha:"Esta conversa sai pelo WhatsApp pessoal do corretor, e ele não ligou o robô nesse número. Ele liga em Minha conta → Meu WhatsApp.",
   sem_autoatendimento:"O Autoatendimento com IA não está no plano desta conta. Ele liga em Configurações → Autoatendimento.",
@@ -12000,6 +13494,10 @@ function RoboNoLead({lead,acoes,isMobile}){
           ?"O atendimento automático está desligado na conta inteira (Configurações → Autoatendimento)."
           :MOTIVO_ROBO[e.motivo]||"A IA não responderia agora."}</span>}
     </div>
+    {/* A IA tentou e falhou: a conversa ficou parada. Sem isto, a linha de
+        cima diria "a IA responde" enquanto o cliente esperava sem resposta. */}
+    {e.ultima_falha&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
+      A última tentativa da IA neste lead falhou ({fmtClock(e.ultima_falha.em)}): {e.ultima_falha.erro} A conversa ficou sem resposta.</div>}
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
       Já respondeu {e.mensagens} vez(es) neste lead, de no máximo {e.teto}.</div>}
 
@@ -12201,8 +13699,10 @@ function EtapaIA({lead,acoes,isMobile}){
    WhatsApp) e faz o número deixar de entrar; o "voltar a receber" fica na
    configuração da linha.
 
-   Fica no FIM da ficha, discreto: é uma faxina rara, e no meio dos botões do
-   atendimento seria um toque errado esperando para acontecer. Quem vê: a
+   Fica perto do fim da ficha, longe dos botões do atendimento (seria um toque
+   errado esperando para acontecer), mas como BOTÃO de verdade e antes do
+   cartão da LGPD — como link cinza ninguém achava (08/10/2026). E o clique só
+   abre a confirmação; nada some no primeiro toque. Quem vê: a
    supervisão (qualquer número) e o dono do WhatsApp pessoal, no lead que fala
    por ele — no número da casa o corretor não marca, porque ali quem escreve
    é cliente da imobiliária, não dele. */
@@ -12216,9 +13716,14 @@ function ConversaPessoal({lead,acoes,session,minhaLinha,isMobile}){
     try{ await acoes.marcarPessoal(lead.id); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
+  /* Botão de verdade (08/10/2026, pedido do Ali): como link sublinhado e
+     cinza ninguém achava. Continua neutro, não coral — coral é urgência, e a
+     confirmação vermelha vem no passo seguinte. */
   if(!confirmando) return <button onClick={()=>setConfirmando(true)}
-    style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:"4px 0",marginTop:4,textAlign:"left"}}>
-    Isto é conversa pessoal, não um lead</button>;
+    style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+      border:`1px solid ${C.line}`,background:C.surface,color:C.ink,borderRadius:11,
+      padding:isMobile?"12px":"10px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",marginTop:8,marginBottom:14}}>
+    <Icon n="user" size={14} color={C.sub}/> Isto é conversa pessoal, não um lead</button>;
   return <div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:12,marginTop:8}}>
     <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:4}}>Tirar esta conversa do CRM?</div>
     <div style={{color:C.ink,fontSize:12,lineHeight:1.55,marginBottom:10}}>
@@ -12344,6 +13849,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
+      <OrigemDoLead lead={lead}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
@@ -12351,8 +13857,8 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ConversaPessoal lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
         <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
@@ -12951,6 +14457,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
       {/* MEU WHATSAPP fica aqui, e não em Configurações, porque o número é
           dele: quem pareia o aparelho é quem tem o aparelho na mão. E fica
           acima das notificações porque é o que muda o dia dele. */}
+      {podeGerir(session)&&!session.master&&!contaInterna()&&<CodigoDeAcesso acoes={acoes}/>}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {/* O ambiente interno do ConHub não tem mensalidade. */}
@@ -12960,6 +14467,88 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     </div>
   </div>;
 }
+/* ===== CÓDIGO DE ACESSO DA CONTA (14/10/2026) =====
+   Seis dígitos que mudam a cada 60 segundos. Só a gestão da conta vê. O
+   suporte do ConHub só entra na conta digitando o código do momento — então
+   entra quando a gestão passa o código, e a lista embaixo diz quando entrou.
+   O contador corre no aparelho; ao zerar, o código novo é buscado no servidor. */
+function CodigoDeAcesso({acoes}){
+  const [d,setD]=useState(null),[erro,setErro]=useState(""),[agora,setAgora]=useState(Date.now());
+  const [encerrando,setEncerrando]=useState(false),[copiado,setCopiado]=useState(false);
+  const [desligando,setDesligando]=useState(false);
+  const delta=useRef(0);
+  const ler=()=>acoes.codigoAcesso().then(x=>{ delta.current=(x.agora||Date.now())-Date.now(); setD(x); setErro(""); }).catch(e=>setErro(e.message));
+  useEffect(()=>{ ler(); },[]);
+  useEffect(()=>{ const t=setInterval(()=>setAgora(Date.now()),1000); return()=>clearInterval(t); },[]);
+  const resta=d&&d.muda_em?Math.max(0,Math.ceil((d.muda_em-(agora+delta.current))/1000)):0;
+  useEffect(()=>{ if(d&&d.muda_em&&resta===0) ler(); },[resta===0]);
+  if(erro) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,color:C.hot,fontSize:13}}>{erro}</div>;
+  if(!d||!d.pede_codigo) return null;
+  const abertos=(d.acessos||[]).filter(a=>a.aberto);
+  const fmtData=(t)=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+  const encerrar=async()=>{ setEncerrando(true); try{ const x=await acoes.encerrarAcessoMaster(); setD(v=>({...v,acessos:x.acessos})); }catch(e){ setErro(e.message); } setEncerrando(false); };
+  const desligarLivre=async()=>{ if(!window.confirm("Voltar a exigir o código de acesso? O ConHub só entra de novo com o código que você passar.")) return;
+    setDesligando(true); try{ const x=await acoes.desligarAcessoLivre(); setD(v=>({...v,livre:null,acessos:x.acessos})); }catch(e){ setErro(e.message); } setDesligando(false); };
+  const copiar=()=>{ try{ navigator.clipboard.writeText(d.codigo); setCopiado(true); setTimeout(()=>setCopiado(false),1500); }catch(e){} };
+  const pct=Math.max(0,Math.min(100,(resta/(d.segundos||60))*100));
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+    <div>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Código de acesso do suporte ConHub</div>
+      <div style={{color:C.sub,fontSize:12.5,marginTop:4,lineHeight:1.45}}>O suporte do ConHub só entra na sua conta com este código. Passe-o apenas quando você pedir ajuda. Ele muda a cada 60 segundos.</div>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+      <button onClick={copiar} title="Copiar o código" style={{fontFamily:MONO,fontSize:32,fontWeight:700,letterSpacing:6,color:C.greenDeep,background:C.greenSoft,border:"none",borderRadius:12,padding:"8px 16px",cursor:"pointer"}}>
+        {d.codigo.slice(0,3)} {d.codigo.slice(3)}</button>
+      <div style={{flex:1,minWidth:140}}>
+        <div style={{height:6,borderRadius:3,background:C.line,overflow:"hidden"}}>
+          <div style={{height:"100%",width:pct+"%",background:resta<=10?C.hot:C.green,transition:"width 1s linear"}}/></div>
+        <div style={{color:resta<=10?C.hot:C.sub,fontSize:12,marginTop:5}}>{copiado?"Copiado.":`Muda em ${resta} s`}</div>
+      </div>
+    </div>
+    {d.livre&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
+      <b>O ConHub pode entrar sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta: até {d.livre.horas} horas por dia, e você é avisado a cada entrada. Hoje foram usados {fmtDuracao(d.livre.usado_hoje_ms)}.
+      <div><button onClick={desligarLivre} disabled={desligando}
+        style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:9,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        {desligando?"Desligando…":"Voltar a exigir o código"}</button></div>
+    </div>}
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>Entradas do ConHub na sua conta</div>
+      {!(d.acessos||[]).length
+        ?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma até agora.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.acessos.slice(0,6).map(a=>
+          <div key={a.id} style={{fontSize:12.5,color:a.aberto?C.ink:C.sub}}>
+            {fmtData(a.inicio)} · {a.quem||"ConHub"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>{a.sem_codigo?"aberta agora":`aberta até ${fmtData(a.ate)}`}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
+      {abertos.length>0&&<button onClick={encerrar} disabled={encerrando}
+        style={{marginTop:10,border:`1px solid ${C.line}`,background:"#fff",color:C.ink,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        {encerrando?"Encerrando…":"Encerrar o acesso do ConHub agora"}</button>}
+    </div>
+  </div>;
+}
+
+/* A janela em que o master digita o código que a gestão da conta passou. */
+function PedirCodigoDeAcesso({pedido,aoEnviar,aoFechar}){
+  const [codigo,setCodigo]=useState(""),[enviando,setEnviando]=useState(false),[erro,setErro]=useState(pedido.erro||"");
+  useEffect(()=>{ setErro(pedido.erro||""); setEnviando(false); },[pedido]);
+  const enviar=async()=>{ if(codigo.length!==6) return; setEnviando(true); setErro("");
+    try{ await aoEnviar(codigo); }catch(e){ setErro(e.message); setEnviando(false); } };
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:50}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,padding:20,width:"100%",maxWidth:380,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{fontFamily:DISPLAY,fontSize:17,fontWeight:700,color:C.ink}}>Código de acesso{pedido.nome?` — ${pedido.nome}`:""}</div>
+      <div style={{color:C.sub,fontSize:13,lineHeight:1.45}}>Peça à gestão da conta o código que aparece em <b>Minha conta</b>. Ele muda a cada 60 segundos.</div>
+      <input autoFocus inputMode="numeric" autoComplete="one-time-code" value={codigo}
+        onChange={e=>setCodigo(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>{ if(e.key==="Enter") enviar(); }}
+        placeholder="000000" style={{fontFamily:MONO,fontSize:26,letterSpacing:8,textAlign:"center",padding:"10px",border:`1px solid ${C.line}`,borderRadius:12,outline:"none"}}/>
+      {erro&&<div style={{color:C.hot,fontSize:12.5}}>{erro}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={aoFechar} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:10,padding:"11px",fontSize:13.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={enviar} disabled={enviando||codigo.length!==6}
+          style={{flex:2,border:"none",background:enviando||codigo.length!==6?C.faint:C.greenDeep,color:"#fff",borderRadius:10,padding:"11px",fontSize:13.5,fontWeight:700,cursor:"pointer"}}>
+          {enviando?"Entrando…":"Entrar na conta"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /* ===== NOTIFICAÇÕES NO CELULAR =====
    Avisa o corretor quando um lead cai na mão dele ou quando o cliente responde,
    mesmo com o CRM fechado.
@@ -14905,7 +16494,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
           return <button key={p.id} onClick={()=>setSel(p)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",padding:9,marginBottom:6,borderRadius:11,cursor:"pointer",
             border:`1px solid ${sel&&sel.id===p.id?C.green:C.line}`,background:sel&&sel.id===p.id?C.greenSoft:C.card}}>
             <div style={{width:52,height:52,borderRadius:9,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
+              {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
             </div>
             <div style={{minWidth:0,flex:1}}>
               <div style={{color:C.ink,fontSize:13.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.titulo}</div>
@@ -14954,7 +16543,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
                         title={marcada?"Tirar esta foto do envio":"Incluir esta foto"}
                         style={{position:"relative",width:58,height:58,borderRadius:9,overflow:"hidden",padding:0,cursor:"pointer",
                           border:`2px solid ${marcada?C.green:C.line}`,background:C.card,opacity:marcada?1:.45}}>
-                        <img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        <img src={m.miniatura||m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                         {/* A capa leva a legenda no WhatsApp — quem escolhe
                             precisa saber qual é. */}
                         {i===0&&<span style={{position:"absolute",left:0,bottom:0,right:0,background:"rgba(10,20,16,.65)",
@@ -15007,7 +16596,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [recarga,setRecarga]=useState(0);
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("imoveis.gaveta",false);
   const [portais,setPortais]=useState(false);
-  const [site,setSite]=useState(false);
   const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
   const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
@@ -15028,7 +16616,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     if(!window.confirm(`Excluir "${p.titulo}" do catálogo?\n\nO cadastro e as fotos são apagados e não dá para desfazer.`)) return;
     try{ await acoes.apagarProduto(p.id); setAberto(null); atualizar(); }catch(e){ setErro(e.message); } };
 
-  if(site) return <TelaSite acoes={acoes} isMobile={isMobile} aoFechar={()=>{setSite(false);atualizar();}}/>;
   if(portais) return <TelaPortais acoes={acoes} isMobile={isMobile} aoFechar={()=>{setPortais(false);atualizar();}}
     aoAbrirProduto={async(pid)=>{try{const p=await acoes.produto(pid);setPortais(false);setEditando(p);}catch(e){setErro(e.message);}}}/>;
   if(editando) return <FormularioProduto produto={editando==="novo"?null:editando} pessoas={pessoas} equipeToda={equipeToda} acoes={acoes}
@@ -15061,9 +16648,6 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               imobiliária não é algo que cada corretor liga por conta própria. */}
           {gestor&&<button onClick={()=>setPortais(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
             <Icon n="link" size={15}/> Portais
-          </button>}
-          {gestor&&<button onClick={()=>setSite(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
-            <Icon n="grid" size={15}/> Site
           </button>}
         </div>
         {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
@@ -15119,7 +16703,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
         {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto"),s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
           return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
             <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
-              {capa?<img src={capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
               <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
               {/* Aluguel ganha selo — venda é o padrão do catálogo desde
@@ -15326,13 +16910,247 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
    propósito — o pedido foi "sem função demais": o conteúdo vem do catálogo, a
    logo e a cor vêm da Identidade, e o que sobra para decidir aqui é onde o
    site mora, para qual WhatsApp ele leva e se há Pixel. */
-function TelaSite({acoes,isMobile,aoFechar}){
+/* OS MODELOS DO SITE — Cetrolab (12/10/2026). O Clássico vem em todo plano;
+   os premium pedem a ferramenta Cetrolab. "Ver prévia" abre o site com o
+   modelo trocado só naquela aba (?previa=), com uma faixa avisando que é
+   prévia — dá para experimentar antes de contratar, e o site no ar não muda.
+   Quem decide se pode usar é o servidor; aqui só se mostra o que ele disse. */
+/* A miniatura de cada modelo no cartão — um esboço, não uma foto: diz de
+   relance se o modelo é claro ou escuro e como a página se organiza. */
+function MiniaturaModelo({id}){
+  const base={height:78,borderRadius:8,border:`1px solid ${C.line}`,position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:8,gap:5,boxSizing:"border-box"};
+  if(id==="bairros") return <div aria-hidden="true" style={{...base,background:"#F3F4F6"}}>
+    <div style={{height:10,width:"55%",background:"#0D0F12",borderRadius:3}}/>
+    <div style={{height:34,borderRadius:7,background:"#0D0F12",backgroundImage:"radial-gradient(rgba(255,255,255,.2) 1px,transparent 1px)",backgroundSize:"8px 8px",display:"flex",gap:4,alignItems:"center",padding:"0 6px"}}>
+      {[0,1,2].map(k=><span key={k} style={{width:18,height:7,borderRadius:9,background:k===1?C.green:"rgba(255,255,255,.3)"}}/>)}<span style={{marginLeft:"auto",width:26,height:22,borderRadius:5,background:"#fff"}}/></div></div>;
+  if(id==="editorial") return <div aria-hidden="true" style={{...base,background:"#0A0B0D",backgroundImage:"linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)",backgroundSize:"14px 14px"}}>
+    <div style={{height:9,width:"70%",background:"#EDEFF2",borderRadius:3}}/>
+    {[0,1,2].map(k=><div key={k} style={{height:1,background:"rgba(255,255,255,.25)",marginTop:6}}/>)}</div>;
+  if(id==="institucional") return <div aria-hidden="true" style={{...base,background:"#F4F5F4",padding:0,justifyContent:"flex-start",gap:0}}>
+    <div style={{height:13,background:"#fff",display:"flex",alignItems:"center",gap:4,padding:"0 6px",borderBottom:"1px solid #E6E9E7"}}>
+      <span style={{width:14,height:5,borderRadius:2,background:C.greenDeep}}/>{[0,1,2].map(k=><span key={k} style={{width:10,height:3,borderRadius:2,background:"#C9CFCC"}}/>)}<span style={{marginLeft:"auto",width:18,height:6,borderRadius:9,background:C.green}}/></div>
+    <div style={{margin:"5px 6px 0",height:36,borderRadius:7,background:"linear-gradient(180deg,#8A9590,#3B4743)",display:"flex",alignItems:"flex-end",padding:5,gap:3}}>
+      <span style={{width:"45%",height:5,borderRadius:2,background:"#fff"}}/><span style={{width:14,height:6,borderRadius:2,background:C.green}}/></div>
+    <div style={{margin:"-6px 12px 0",height:12,borderRadius:5,background:"#fff",boxShadow:"0 2px 6px rgba(0,0,0,.12)"}}/>
+    <div style={{display:"flex",gap:4,margin:"5px 6px 0"}}>{[0,1,2,3].map(k=><span key={k} style={{flex:1,height:9,borderRadius:3,background:"#fff"}}/>)}</div></div>;
+  if(id==="lancamento") return <div aria-hidden="true" style={{...base,background:"linear-gradient(180deg,#3A4148,#0A0B0D)"}}>
+    <div style={{display:"flex",alignItems:"flex-end",gap:6}}><div style={{height:16,flex:1,background:"#EDEFF2",borderRadius:3}}/>
+      <div style={{width:34,height:26,borderRadius:6,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
+  return <div aria-hidden="true" style={{...base,background:"#F6F6F3",flexDirection:"row",alignItems:"flex-end"}}>
+    {[0,1,2].map(k=><span key={k} style={{flex:1,height:30,borderRadius:5,background:"#E1E3DE"}}/>)}</div>;
+}
+
+/* A ORDEM DA TELA (12/10/2026, pedido do Ali): o Clássico grátis primeiro, à
+   vista antes de tudo; depois o bloco do Cetrolab, com o preço único e o botão
+   "Assinar o Cetrolab", e os modelos premium, cada um com "Ver prévia" e
+   "Assinar". A assinatura abre ALI MESMO (a mesma contratação de Minha conta →
+   Ferramentas, filtrada no Cetrolab) — mandar a pessoa para outra tela no
+   minuto em que ela decidiu contratar é perder a venda. Sem plano cadastrado
+   pelo ConHub, o botão não aparece e a tela diz que ainda não está à venda:
+   botão que só leva a "em breve" é pior que nenhum. */
+function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embutido}){
+  const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
+  const [assinando,setAssinando]=useState(false);
+  const blocoAssinar=useRef(null);
+  const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
+  const plano=d.cetrolab_plano;
+  async function usar(id){
+    setErro(""); setSalvando(id);
+    try{ aoMudar(await acoes.modeloDoSite(id)); }catch(e){ setErro(e.message); }finally{ setSalvando(null); }
+  }
+  function abrirAssinatura(){
+    setAssinando(true);
+    setTimeout(()=>{ if(blocoAssinar.current) blocoAssinar.current.scrollIntoView({behavior:"smooth",block:"center"}); },50);
+  }
+  // A prévia abre no endereço que o site usa de verdade (o domínio próprio, quando ativo).
+  const linkSite=d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url;
+  const gratis=d.modelos.filter(m=>!m.premium);
+  const premium=d.modelos.filter(m=>m.premium);
+  const botaoVerde={background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38};
+  const linkVerde={color:C.greenMid,fontSize:12.5,fontWeight:600};
+
+  const acoesDoModelo=(m)=>{
+    const noAr=d.modelo_no_ar===m.id; const escolhido=d.modelo===m.id;
+    return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      {m.disponivel&&!escolhido&&<button onClick={()=>usar(m.id)} disabled={!!salvando} style={botaoVerde}>{salvando===m.id?"Trocando…":"Usar este modelo"}</button>}
+      {!m.disponivel&&plano&&<button onClick={abrirAssinatura} style={{...botaoVerde,background:C.greenDeep}}>Assinar o Cetrolab</button>}
+      {d.ligado&&!noAr&&<a href={`${linkSite}?previa=${m.id}`} target="_blank" rel="noreferrer" style={linkVerde}>Ver prévia</a>}
+      {d.ligado&&noAr&&<a href={linkSite} target="_blank" rel="noreferrer" style={linkVerde}>Ver o site no ar</a>}
+    </div>;
+  };
+  const cartaoModelo=(m,largo)=>{
+    const noAr=d.modelo_no_ar===m.id;
+    return <div key={m.id} style={{border:`1.5px solid ${noAr?C.green:C.line}`,borderRadius:12,padding:12,background:noAr?C.greenSoft:C.surface,
+      display:"grid",gridTemplateColumns:largo&&!isMobile?"200px minmax(0,1fr)":"1fr",gap:largo&&!isMobile?14:8,alignItems:"start"}}>
+      <MiniaturaModelo id={m.id}/>
+      <div style={{display:"flex",flexDirection:"column",gap:8,height:"100%"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:14,fontWeight:700}}>{m.nome}</span>
+          {!m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,background:C.card,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 8px"}}>GRÁTIS · no seu plano</span>}
+          {noAr&&<span style={{fontSize:10.5,fontWeight:700,color:"#fff",background:C.green,borderRadius:99,padding:"2px 8px"}}>NO AR</span>}
+          {m.premium&&<span style={{fontSize:10.5,fontWeight:700,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:99,padding:"1px 7px"}}>Cetrolab</span>}
+        </div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,flex:1}}>{m.resumo}</div>
+        {acoesDoModelo(m)}
+      </div>
+    </div>;
+  };
+
+  return <div style={embutido?{}:cartao}>
+    {!embutido&&<div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
+      <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
+    </div>}
+    {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
+      O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
+
+    {gratis.map(m=>cartaoModelo(m,true))}
+
+    {premium.length>0&&<div style={{marginTop:16}}>
+      <div style={{border:`1px solid ${C.green}44`,background:C.greenSoft,borderRadius:12,padding:12,marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Modelos Cetrolab</div>
+            <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginTop:2}}>
+              {premium.length} modelos premium num plano só{plano?<React.Fragment> · <b>{fmtPreco(plano.valor_mensal)}/mês</b></React.Fragment>:""}.
+              {" "}A prévia mostra o seu site, com os seus imóveis, sem mudar o site no ar.</div>
+          </div>
+          {temCetrolab
+            ?<span style={{color:C.greenDeep,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><Icon n="check" size={13}/>Assinado</span>
+            :plano
+              ?(!assinando&&<button onClick={abrirAssinatura} style={{...botaoVerde,background:C.greenDeep}}>Assinar o Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>)
+              :<span style={{color:C.faint,fontSize:11.5}}>Ainda não está à venda. Fale com o ConHub.</span>}
+        </div>
+        {!temCetrolab&&plano&&assinando&&<div ref={blocoAssinar} style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.green}33`}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+            <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Assinar o Cetrolab</span>
+            <button onClick={()=>setAssinando(false)} style={{background:"none",border:"none",color:C.faint,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Fechar</button>
+          </div>
+          <FerramentasDaConta acoes={acoes} isMobile={isMobile} so="cetrolab" aoMudar={()=>acoes.site().then(r=>(aoAtualizar||aoMudar)(r)).catch(()=>{})}/>
+        </div>}
+      </div>
+      {premium.some(m=>m.id==="institucional")&&<div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
+        O Institucional mostra também o conteúdo cadastrado em <b>Conteúdo do site</b>, logo abaixo: sobre nós, equipe, depoimentos e redes.</div>}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:10}}>
+        {premium.map(m=>cartaoModelo(m,false))}
+      </div>
+    </div>}
+    {!d.ligado&&<div style={{color:C.faint,fontSize:11.5,marginTop:9}}>Ligue o site para ver a prévia de cada modelo.</div>}
+  </div>;
+}
+
+/* A linha de resumo da gaveta "Conteúdo do site": o que já está preenchido,
+   para não precisar abrir a gaveta para saber. */
+function resumoDoConteudo(r){
+  const p=[];
+  if((r.sobre||"").trim()) p.push("sobre nós");
+  const redes=["instagram","facebook","youtube"].filter(k=>(r[k]||"").trim()).length;
+  if(redes) p.push(redes===1?"1 rede":`${redes} redes`);
+  if((r.equipe||[]).length) p.push(`${r.equipe.length} na equipe`);
+  if((r.depoimentos||[]).length) p.push(`${r.depoimentos.length} depoimento${r.depoimentos.length>1?"s":""}`);
+  return p.length?p.join(" · "):"Nada preenchido ainda";
+}
+
+/* GAVETAS DO CETROLAB (12/10/2026, pedido do Ali: "tô tendo que descer muito
+   pra ver todas as funções… criar as gavetas de cada uma e organizar tudo na
+   primeira dobra"). Fechada, cada parte é uma linha: nome e o estado em uma
+   frase. Uma aberta por vez. O conteúdo de uma gaveta fechada continua montado
+   (só escondido): fechar sem salvar não pode apagar o que foi digitado. */
+function GavetaSite({titulo,resumo,aberta,onAlternar,alerta,children,isMobile}){
+  const ref=useRef(null);
+  useEffect(()=>{ if(aberta&&ref.current&&ref.current.scrollIntoView) ref.current.scrollIntoView({block:"start",behavior:"smooth"}); },[aberta]);
+  return <div ref={ref} style={{background:C.card,border:`1px solid ${aberta?C.green+"66":C.line}`,borderRadius:14,marginBottom:10,overflow:"hidden"}}>
+    <button type="button" onClick={onAlternar} aria-expanded={aberta}
+      style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:isMobile?"14px 13px":"14px 16px",border:"none",background:"transparent",cursor:"pointer",textAlign:"left",minHeight:56}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:14.5,fontWeight:700}}>{titulo}</div>
+        {resumo&&<div style={{color:alerta?"#8a6d1f":C.faint,fontSize:12,marginTop:2,lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:isMobile?"normal":"nowrap"}}>{resumo}</div>}
+      </div>
+      <span style={{display:"flex",flexShrink:0,color:C.faint,transform:aberta?"rotate(90deg)":"none",transition:"transform .15s ease"}}><Icon n="chevron" size={17}/></span>
+    </button>
+    <div style={{display:aberta?"block":"none",padding:isMobile?"0 13px 14px":"0 16px 16px",borderTop:`1px solid ${C.line}`,paddingTop:14}}>{children}</div>
+  </div>;
+}
+
+/* O conteúdo institucional do site (12/10/2026): o que o catálogo não tem —
+   sobre nós, redes sociais, quem da equipe aparece (um por um, escolha da
+   gestão) e depoimentos. Sem conteúdo, a seção não aparece no site: nada é
+   preenchido de exemplo. Um Salvar para tudo, como a marca. */
+function ConteudoDoSite({acoes,isMobile,cartao,embutido,aoResumo}){
+  const [c,setC]=useState(null); const [f,setF]=useState(null);
+  const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
+  const carregar=(r)=>{setC(r);setF({sobre:r.sobre,instagram:r.instagram,facebook:r.facebook,youtube:r.youtube,equipe:r.equipe||[],
+    depoimentos:(r.depoimentos||[]).length?r.depoimentos:[]});
+    if(aoResumo) aoResumo(resumoDoConteudo(r));};
+  useEffect(()=>{acoes.conteudoDoSite().then(carregar).catch(e=>setErro(e.message));},[]);
+  async function salvar(){
+    setErro("");setOk("");setSalvando(true);
+    try{ carregar(await acoes.salvarConteudoDoSite(f)); setOk("Salvo."); setTimeout(()=>setOk(""),2600); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  if(!f) return erro?<div style={{...cartao,color:C.hot,fontSize:12.5}}>{erro}</div>:null;
+  const entrada={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 12px",fontSize:14,background:C.surface,color:C.ink,fontFamily:"inherit"};
+  const marcado=(id)=>f.equipe.includes(id);
+  const alternar=(id)=>setF({...f,equipe:marcado(id)?f.equipe.filter(x=>x!==id):[...f.equipe,id]});
+  const mudo=JSON.stringify(f)!==JSON.stringify({sobre:c.sobre,instagram:c.instagram,facebook:c.facebook,youtube:c.youtube,equipe:c.equipe||[],depoimentos:c.depoimentos||[]});
+  return <div style={embutido?{}:cartao}>
+    {!embutido&&<div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Conteúdo do site</div>}
+    <div style={{color:C.faint,fontSize:12,marginTop:embutido?0:3,marginBottom:14,lineHeight:1.5}}>Aparece no modelo Institucional. O que ficar em branco não aparece no site.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div>{rotulo("Sobre nós")}
+        <textarea value={f.sobre} onChange={e=>setF({...f,sobre:e.target.value})} rows={5} maxLength={1500}
+          placeholder="Quem é a imobiliária, há quanto tempo atua, onde, o que a diferencia." style={{...entrada,resize:"vertical",lineHeight:1.55}}/>
+        <div style={{color:C.faint,fontSize:11,textAlign:"right"}}>{f.sobre.length}/1500</div></div>
+      <div>{rotulo("Redes sociais")}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))",gap:8}}>
+          {[["instagram","https://instagram.com/…"],["facebook","https://facebook.com/…"],["youtube","https://youtube.com/@…"]].map(([k,ph])=>
+            <input key={k} value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} placeholder={ph} aria-label={k} inputMode="url" style={entrada}/>)}
+        </div></div>
+      <div>{rotulo(`Equipe no site (${f.equipe.length})`)}
+        <div style={{color:C.faint,fontSize:11.5,marginBottom:8,lineHeight:1.5}}>Só aparece quem você marcar, na ordem em que marcar. Vai nome, foto (a de Minha conta) e função — nunca telefone nem e-mail: o contato é sempre o WhatsApp da imobiliária.</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {c.pessoas.map(p=>{const on=marcado(p.id);
+            return <button key={p.id} type="button" onClick={()=>alternar(p.id)} aria-pressed={on}
+              style={{display:"inline-flex",alignItems:"center",gap:7,borderRadius:999,padding:"7px 12px",minHeight:38,fontSize:13,cursor:"pointer",
+                border:`1.5px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,fontWeight:on?700:500}}>
+              {on?<span style={{fontWeight:800}}>{f.equipe.indexOf(p.id)+1}</span>:null}{p.nome}
+              <span style={{color:C.faint,fontWeight:500,fontSize:11.5}}>{p.cargo}{p.tem_foto?"":" · sem foto"}</span></button>;})}
+          {!c.pessoas.length&&<span style={{color:C.faint,fontSize:12}}>Ninguém ativo na equipe.</span>}
+        </div></div>
+      <div>{rotulo(`O que falam de nós (${f.depoimentos.length})`)}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {f.depoimentos.map((d,n)=><div key={n} style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:7}}>
+            <div style={{display:"flex",gap:8}}>
+              <input value={d.nome} maxLength={60} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,nome:e.target.value}:x)})} placeholder="Nome do cliente" style={{...entrada,flex:1}}/>
+              <button type="button" onClick={()=>setF({...f,depoimentos:f.depoimentos.filter((_,k)=>k!==n)})} aria-label="Tirar este depoimento"
+                style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,width:42,cursor:"pointer",flexShrink:0}}>×</button></div>
+            <textarea value={d.texto} maxLength={500} rows={3} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,texto:e.target.value}:x)})}
+              placeholder="O que o cliente disse, com as palavras dele" style={{...entrada,resize:"vertical"}}/></div>)}
+          {f.depoimentos.length<12&&<button type="button" onClick={()=>setF({...f,depoimentos:[...f.depoimentos,{nome:"",texto:""}]})}
+            style={{alignSelf:"flex-start",border:`1px dashed ${C.green}88`,background:C.greenSoft,color:C.greenMid,borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>+ Adicionar depoimento</button>}
+          <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Use depoimentos de verdade, com a autorização do cliente.</div>
+        </div></div>
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginTop:12}}>{erro}</div>}
+    <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
+      <button onClick={salvar} disabled={salvando||!mudo} style={{background:salvando||!mudo?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:salvando||!mudo?"default":"pointer"}}>{salvando?"Salvando…":"Salvar conteúdo"}</button>
+      {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
+      {mudo&&!salvando&&<span style={{color:"#8a6d1f",fontSize:12}}>Alterações não salvas</span>}
+    </div>
+  </div>;
+}
+
+function TelaSite({acoes,isMobile,aoFechar,irPara}){
   const [d,setD]=useState(null); const [f,setF]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState(""); const [salvando,setSalvando]=useState(false);
   const carregar=(r)=>{setD(r);setF({slug:r.slug,whatsapp:r.whatsapp?fmtTel(r.whatsapp):"",frase:r.frase,pixel_id:r.pixel_id,
-    gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||""});};
+    gtm_id:r.gtm_id||"",seo_titulo:r.seo_titulo||"",seo_descricao:r.seo_descricao||"",dominio:r.dominio||"",
+    nome_site:r.nome_site||"",google_verificacao:r.google_verificacao||""});};
   useEffect(()=>{acoes.site().then(carregar).catch(e=>setErro(e.message));},[]);
   const [conferindo,setConferindo]=useState(false);
+  const [aberta,setAberta]=useState(null); const [resumoConteudo,setResumoConteudo]=useState("");
+  const alternar=(k)=>setAberta(a=>a===k?null:k);
   async function conferirDominio(){
     setConferindo(true); setErro("");
     try{ carregar(await acoes.verificarDominio()); }catch(e){ setErro(e.message); }finally{ setConferindo(false); }
@@ -15350,8 +17168,11 @@ function TelaSite({acoes,isMobile,aoFechar}){
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:680,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-        <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
-        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Site da imobiliária</div>
+        {aoFechar&&<button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>}
+        <div>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Cetrolab</div>
+          <div style={{color:C.faint,fontSize:12}}>O site da imobiliária: modelo, endereço, domínio e Google</div>
+        </div>
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
       {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
@@ -15376,8 +17197,21 @@ function TelaSite({acoes,isMobile,aoFechar}){
           </div>}
         </div>
 
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:12}}>Configuração</div>
+        {(()=>{
+          const noAr=(d.modelos||[]).find(m=>m.id===d.modelo_no_ar);
+          const premium=(d.modelos||[]).filter(m=>m.premium).length;
+          const temCetrolab=d.cetrolab&&d.cetrolab.ativo;
+          return <GavetaSite titulo="Modelo do site" isMobile={isMobile} aberta={aberta==="modelo"} onAlternar={()=>alternar("modelo")}
+            resumo={`No ar: ${noAr?noAr.nome:"Clássico"} · ${temCetrolab?"Cetrolab ativo":`Clássico grátis · ${premium} modelos no Cetrolab`}`}>
+            <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} aoAtualizar={setD} isMobile={isMobile} irPara={irPara} cartao={cartao} embutido/>
+          </GavetaSite>;})()}
+        <GavetaSite titulo="Conteúdo do site" isMobile={isMobile} aberta={aberta==="conteudo"} onAlternar={()=>alternar("conteudo")}
+          resumo={resumoConteudo?`${resumoConteudo} · usado no Institucional`:"Sobre nós, redes, equipe e depoimentos"}>
+          <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao} embutido aoResumo={setResumoConteudo}/>
+        </GavetaSite>
+
+        <GavetaSite titulo="Endereço, WhatsApp e Pixel" isMobile={isMobile} aberta={aberta==="config"} onAlternar={()=>alternar("config")}
+          alerta={!d.whatsapp} resumo={`…/imoveis/${d.slug} · ${d.whatsapp?"WhatsApp "+fmtTel(d.whatsapp):"WhatsApp não informado"}${d.pixel_id?" · Pixel ligado":""}`}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div>
               {rotulo("Endereço do site")}
@@ -15411,15 +17245,16 @@ function TelaSite({acoes,isMobile,aoFechar}){
               acabou de clicar em Salvar lá embaixo, e a recusa passava como
               se tivesse salvo. */}
           {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12}}>{erro}</div>}
-        </div>
+        </GavetaSite>
 
         {/* DOMÍNIO PRÓPRIO (04/10/2026, pedido do Ali): o site abrindo no
             endereço da imobiliária. São três passos, e a tela diz em qual está:
             registrar aqui → o ConHub ativa na hospedagem → a imobiliária aponta
             o DNS. "No ar" só aparece quando o site responde de verdade pelo
             domínio, com https. */}
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Domínio próprio</div>
+        <GavetaSite titulo="Domínio próprio" isMobile={isMobile} aberta={aberta==="dominio"} onAlternar={()=>alternar("dominio")}
+          alerta={!!d.dominio&&d.dominio_estado!=="ativo"}
+          resumo={!d.dominio?"Não usa — o site abre no endereço do ConHub":`${d.dominio} · ${d.dominio_estado==="ativo"?"no ar":d.dominio_estado==="aguardando_dns"?"falta criar os registros no DNS":"preparando"}`}>
           <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>O site abre no endereço da imobiliária, como www.suaimobiliaria.com.br.</div>
           {rotulo("Domínio")}
           <input value={f.dominio} onChange={e=>setF({...f,dominio:e.target.value.trim().toLowerCase()})} placeholder="www.suaimobiliaria.com.br" style={entrada} autoCapitalize="none"/>
@@ -15447,19 +17282,25 @@ function TelaSite({acoes,isMobile,aoFechar}){
             </div>;})()}
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
             <button onClick={()=>salvar({},f.dominio?"Domínio salvo.":"Domínio removido.")} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>Salvar domínio</button>
+            {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
           </div>
-        </div>
+        </GavetaSite>
 
         {/* COMO O SITE APARECE NO GOOGLE (04/10/2026). O resto da otimização
             é automática: cada imóvel tem título, descrição, foto, dados
             estruturados e entra no mapa do site (sitemap). */}
-        <div style={cartao}>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginBottom:4}}>Aparência no Google (SEO)</div>
-          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como a página inicial aparece na busca. Cada imóvel já entra com o próprio título, descrição e foto.</div>
+        <GavetaSite titulo="Aparência no Google (SEO)" isMobile={isMobile} aberta={aberta==="seo"} onAlternar={()=>alternar("seo")}
+          resumo={[d.google_verificacao?"Search Console com código":"Search Console não ligado",d.seo_titulo?"título próprio":"título automático",d.gtm_id?"Tag Manager ligado":null].filter(Boolean).join(" · ")}>
+          <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>Como o site aparece na busca. Cada imóvel já entra com o próprio título (nome, lugar e marca), descrição, fotos com texto para o Google e os dados do imóvel.</div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div>
+              {rotulo("Nome da marca no site")}
+              <input value={f.nome_site} onChange={e=>setF({...f,nome_site:e.target.value.slice(0,60)})} placeholder={d.org_nome||"Nome da imobiliária"} style={entrada}/>
+              {ajuda(`Aparece no topo, no rodapé, nos títulos e na mensagem do WhatsApp do site. Vazio, vale o nome da conta${d.org_nome?` (“${d.org_nome}”)`:""}. Use quando a conta está no nome de uma pessoa e o site é da marca — ex.: VJ Imóveis.`)}
+            </div>
+            <div>
               {rotulo(`Título (${f.seo_titulo.length}/70)`)}
-              <input value={f.seo_titulo} onChange={e=>setF({...f,seo_titulo:e.target.value.slice(0,70)})} placeholder={`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`} style={entrada}/>
+              <input value={f.seo_titulo} onChange={e=>setF({...f,seo_titulo:e.target.value.slice(0,70)})} placeholder={`${f.nome_site||d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`} style={entrada}/>
             </div>
             <div>
               {rotulo(`Descrição (${f.seo_descricao.length}/160)`)}
@@ -15469,22 +17310,41 @@ function TelaSite({acoes,isMobile,aoFechar}){
             {/* A prévia é o que a pessoa vê no Google — escrever sem ela é escrever no escuro. */}
             <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",background:"#fff"}}>
               <div style={{color:"#4d5156",fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url}</div>
-              <div style={{color:"#1a0dab",fontSize:16,lineHeight:1.3,marginTop:2}}>{f.seo_titulo||`${d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`}</div>
+              <div style={{color:"#1a0dab",fontSize:16,lineHeight:1.3,marginTop:2}}>{f.seo_titulo||`${f.nome_site||d.org_nome||"Imobiliária"} — Imóveis à venda e para alugar`}</div>
               <div style={{color:"#4d5156",fontSize:12.5,lineHeight:1.45,marginTop:3}}>{f.seo_descricao||"Imóveis à venda e para alugar. Fale com a imobiliária pelo WhatsApp."}</div>
             </div>
             <div>
               {rotulo("Google Tag Manager (opcional)")}
               <input value={f.gtm_id} onChange={e=>setF({...f,gtm_id:e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,"")})} placeholder="GTM-ABC1234" style={entrada}/>
-              {ajuda("Para o Google Analytics e o Google Ads: o ID fica no topo do painel do Tag Manager. O site já envia o mapa de imóveis ao Google em "+((d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url)+"/sitemap.xml")+" — informe esse endereço no Search Console.")}
+              {ajuda("Para o Google Analytics e o Google Ads: o ID fica no topo do painel do Tag Manager.")}
+            </div>
+            {/* GOOGLE SEARCH CONSOLE (16/10/2026, pedido do Ali): o Google só
+                garante que o site aparece nas buscas depois de a imobiliária
+                provar que é dona dele e enviar o mapa de imóveis. O jeito que
+                funciona em qualquer site daqui é a "Tag HTML" — a etiqueta
+                entra em todas as páginas do site. */}
+            <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,background:C.surface}}>
+              <div style={{fontWeight:700,fontSize:13.5,color:C.ink}}>Google Search Console {d.google_verificacao&&<span style={{color:C.greenMid,fontSize:11.5,fontWeight:600,marginLeft:6}}>código no site ✓</span>}</div>
+              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,margin:"3px 0 10px"}}>É o que faz o Google achar e mostrar os imóveis nas pesquisas. Feito uma vez.</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,fontSize:12.5,color:C.ink,lineHeight:1.5}}>
+                <div><b>1.</b> No Search Console, em <b>Adicionar propriedade</b>, escolha <b>Prefixo do URL</b> (a caixa da direita) e cole este endereço:
+                  <div style={{marginTop:6}}><CopiarEndereco url={d.google_endereco}/></div></div>
+                <div><b>2.</b> Em <b>Tag HTML</b>, copie a etiqueta que o Google mostra e cole aqui. Depois clique em <b>Salvar</b>, e só então em <b>Verificar</b> no Google.
+                  <input value={f.google_verificacao} onChange={e=>setF({...f,google_verificacao:e.target.value.slice(0,400)})}
+                    placeholder={'<meta name="google-site-verification" content="…" />'} style={{...entrada,marginTop:6,fontFamily:MONO,fontSize:12}}/></div>
+                <div><b>3.</b> Verificado, abra <b>Sitemaps</b> no menu do Search Console e envie:
+                  <div style={{marginTop:6}}><CopiarEndereco url={d.google_sitemap}/></div></div>
+              </div>
+              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:10}}>{d.dominio?(d.dominio_estado==="ativo"?"Com o domínio próprio ativo, cadastre o domínio. Se antes cadastrou o endereço do ConHub, cadastre de novo com o domínio.":"Quando o domínio próprio ficar ativo, os endereços acima mudam para ele — cadastre de novo."):"Se o site ganhar um domínio próprio depois, os endereços mudam e é preciso cadastrar de novo."} O Google leva de alguns dias a algumas semanas para mostrar as páginas.</div>
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
             <button onClick={()=>salvar({})} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
             {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
           </div>
-        </div>
+        </GavetaSite>
 
-        <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"0 4px 20px"}}>
+        <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"4px 4px 20px"}}>
           A logo e a cor vêm de <b>Configurações → Identidade</b>. A página de cada imóvel usa a descrição do anúncio e respeita o que foi escolhido em "O que mostrar do endereço". Construtora, comissão, quem captou e as observações internas <b>nunca</b> aparecem no site.
         </div>
       </React.Fragment>}
@@ -15563,6 +17423,8 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   // regra que monta o feed. Atualiza a cada salvamento.
   const [portal,setPortal]=useState(produto?produto.portal:null);
   const [midias,setMidias]=useState(produto?produto.midias||[]:[]);
+  // A foto que o tratamento automático acha claramente melhor que a capa (só sugere).
+  const [capaSugerida,setCapaSugerida]=useState(produto?produto.capa_sugerida||null:null);
   const [id,setId]=useState(produto?produto.id:null);
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
   const [subindo,setSubindo]=useState(false); const [progresso,setProgresso]=useState("");
@@ -15659,11 +17521,11 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
       try{
         if(video){
           const r=await acoes.subirVideoProduto(alvo,arq,(pct)=>setProgresso(`Enviando vídeo ${i+1} de ${arquivos.length}… ${pct}%`));
-          setMidias(m=>[...m,r.midia]);
+          setMidias(m=>[...m,r.midia]); if("capa_sugerida" in r) setCapaSugerida(r.capa_sugerida);
         }else{
           const {mime,base64}=await prepararArquivo(arq);
           const r=await acoes.subirMidia(alvo,mime,base64);
-          setMidias(m=>[...m,r.midia]);
+          setMidias(m=>[...m,r.midia]); if("capa_sugerida" in r) setCapaSugerida(r.capa_sugerida);
         }
       }catch(e){
         problemas.push(`${arq.name}: ${e.message}`);
@@ -15676,7 +17538,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
       :`${problemas.length} arquivo(s) não subiram:\n• ${problemas.join("\n• ")}`);
   }
   async function removerMidia(m){
-    try{ await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); }catch(e){ setErro(e.message); }
+    try{ const r=await acoes.apagarMidia(id,m.id); setMidias(x=>x.filter(y=>y.id!==m.id)); setCapaSugerida(r&&r.capa_sugerida||null); }catch(e){ setErro(e.message); }
+  }
+  async function usarComoCapa(m){
+    try{ const p=await acoes.capaProduto(id,m.id); setMidias(p.midias||[]); setCapaSugerida(p.capa_sugerida||null); }catch(e){ setErro(e.message); }
   }
   const comissao=numeroBR(f.valor)&&numeroBR(f.comissao_pct)?(numeroBR(f.valor)*numeroBR(f.comissao_pct))/100:null;
 
@@ -15803,12 +17668,31 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         <div>
           {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
-            {midias.map(m=><div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",border:`1px solid ${C.line}`,background:C.surface}}>
-              {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            {midias.map(m=>{const capa=m.tipo==="foto"&&fotos[0]&&fotos[0].id===m.id, avisos=m.avisos||[];
+              return <div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",
+                border:`${m.id===capaSugerida?2:1}px solid ${m.id===capaSugerida?C.green:avisos.length?C.amber:C.line}`,background:C.surface}}
+                title={avisos.length?"Esta foto: "+avisos.map(a=>a.texto).join("; "):undefined}>
+              {m.tipo==="foto"?<img src={m.miniatura||m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub}}><Icon n="phone2" size={20}/></div>}
+              {capa&&<span style={{position:"absolute",left:0,bottom:0,right:0,background:"rgba(10,20,16,.65)",color:"#fff",fontSize:9,fontWeight:700,textAlign:"center",padding:"1px 0"}}>capa</span>}
+              {avisos.length>0&&<span aria-label={`${avisos.length} aviso(s)`} style={{position:"absolute",top:3,left:3,minWidth:18,height:18,borderRadius:999,
+                background:C.amber,color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>!</span>}
               <button onClick={()=>removerMidia(m)} aria-label="Remover" style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:999,border:"none",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:12,cursor:"pointer",lineHeight:1}}>×</button>
-            </div>)}
+            </div>;})}
           </div>
+          {/* O tratamento automático (servidor) gira, limpa e cria as versões
+              leves de cada foto, e avisa o que pode prejudicar o anúncio. Só
+              avisa: quem decide a foto é quem captou. */}
+          {(()=>{const comAviso=fotos.map((m,i)=>({m,i})).filter(x=>(x.m.avisos||[]).length);
+            const sug=capaSugerida&&fotos.find(x=>x.id===capaSugerida);
+            if(!comAviso.length&&!sug) return null;
+            return <div style={{background:C.amberSoft,borderRadius:10,padding:"9px 11px",marginBottom:9,fontSize:12,color:"#6b5416",lineHeight:1.55}}>
+              {comAviso.map(({m,i})=><div key={m.id}><b>Foto {i+1}{i===0?" (capa)":""}:</b> {m.avisos.map(a=>a.texto).join(" · ")}</div>)}
+              {sug&&<div style={{marginTop:comAviso.length?7:0,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span>A foto {fotos.indexOf(sug)+1} parece uma capa melhor.</span>
+                <button onClick={()=>usarComoCapa(sug)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar como capa</button>
+              </div>}
+            </div>;})()}
           <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
             <Icon n={subindo?"loader":"userplus"} size={15} spin={subindo}/>{subindo?(progresso||"Enviando…"):"Adicionar fotos ou vídeo"}
             <input type="file" multiple accept="image/*,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
@@ -15898,7 +17782,11 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
           <button onClick={()=>{aoMudarSituacao(p,"ativo");aoFechar();}} style={{flex:1,minWidth:130,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
           <button onClick={()=>{aoMudarSituacao(p,"recusado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Recusar</button>
         </React.Fragment>}
-        {supervisor&&p.status==="ativo"&&<button onClick={()=>{aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
+        {(supervisor||p.captador_id===session?.id)&&p.status==="ativo"&&<button onClick={()=>{
+            /* O corretor fecha o imóvel que ELE captou (12/10/2026); desfazer é
+               da gestão, então ele confirma antes. A regra mora no servidor. */
+            if(!supervisor&&!window.confirm(`Marcar "${p.titulo}" como ${p.finalidade==="aluguel"?"alugado":"vendido"}?\n\nEle sai do catálogo, do site e dos portais. Para desfazer, só a gestão.`)) return;
+            aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
       </div>
       {/* Excluir é só da gestão, e fica separado do resto para não ser clicado sem querer. */}
       {supervisor&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:14}}>
@@ -16232,7 +18120,12 @@ function Equipe({acoes,session,org,isMobile,versao}){
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
 function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
-  const [aba,setAba]=useState(()=>RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis");
+  const [aba,setAba]=useState(()=>{
+    // Outra tela pediu para abrir numa aba (Redes sociais → "conectar a página de novo").
+    const pedida=abaConfigPedida; abaConfigPedida=null;
+    if(pedida&&session&&podeGerir(session)) return pedida;
+    return RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis";
+  });
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
      nem aparece para os outros — botão que só devolve "não pode" é pior do que
@@ -16476,6 +18369,8 @@ function AnunciosDoMeta({acoes,isMobile}){
         </div>}
       </div>
 
+      {d.paginas.length>0&&<ContaDeAnuncios acoes={acoes} isMobile={isMobile} estado={d.anuncios} cartao={cartao} botaoFace={botaoFace}/>}
+
       <div style={{...cartao,background:C.surface}}>
         <button onClick={()=>setOutroJeito(v=>!v)} style={{border:"none",background:"transparent",padding:0,cursor:"pointer",
           display:"flex",alignItems:"center",gap:8,color:C.sub,fontSize:13,fontWeight:600,width:"100%",textAlign:"left",minHeight:32}}>
@@ -16485,6 +18380,117 @@ function AnunciosDoMeta({acoes,isMobile}){
         {outroJeito&&<div style={{marginTop:12}}><PonteZapierMake acoes={acoes} isMobile={isMobile}/></div>}
       </div>
     </React.Fragment>}
+  </div>;
+}
+
+/* A conta de anúncios de onde vêm os números de desempenho (22/10/2026).
+   O Facebook conectado mostra as contas a que a pessoa tem acesso; escolhe-se
+   uma, e Operação → Visão geral → Campanhas passa a mostrar investimento,
+   alcance, cliques e o custo por lead e por venda. */
+function ContaDeAnuncios({acoes,isMobile,estado,cartao,botaoFace}){
+  const [est,setEst]=useState(estado||{conectado:false});
+  const [contas,setContas]=useState(null);
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  useEffect(()=>{
+    if(!est.conectado) return;
+    acoes.contasDeAnuncio().then(r=>{setContas(r.contas);setEst(r.estado);}).catch(e=>setErro(e.message));
+  },[est.conectado]);
+  async function escolher(id){
+    setErro(""); setSalvando(true);
+    try{ setEst(await acoes.escolherContaDeAnuncio(id)); }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  return <div style={cartao}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Desempenho dos anúncios</div>
+    <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:12}}>
+      Escolha a conta de anúncios da imobiliária. O investimento, as impressões, o alcance, os cliques e os resultados de cada
+      campanha aparecem em <b>Operação → Visão geral → Campanhas</b>, ao lado dos leads e das vendas que ela trouxe. Só leitura:
+      o ConHub não cria nem altera anúncios.</div>
+    {!est.conectado&&<React.Fragment>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>
+        Para ler os números, conecte o Facebook de quem tem acesso à conta de anúncios e aceite a permissão de ler os anúncios.</div>
+      {botaoFace("Conectar o Facebook")}
+    </React.Fragment>}
+    {est.conectado&&<React.Fragment>
+      {est.vencido&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>
+        A conexão com o Facebook venceu (ela dura cerca de 60 dias). Conecte de novo para os números voltarem. Os leads continuam entrando.</div>}
+      {est.ultimo_erro&&!est.vencido&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>
+        Último problema ({dataHoraCurta(est.ultimo_erro_em)}): {est.ultimo_erro}</div>}
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:10,lineHeight:1.5}}>{erro}</div>}
+      {!contas&&!erro&&<div style={{color:C.faint,fontSize:12.5}}>Buscando as contas de anúncios…</div>}
+      {contas&&contas.length===0&&<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>
+        O Facebook conectado não tem acesso a nenhuma conta de anúncios. Conecte com o Facebook de quem administra os anúncios.</div>}
+      {contas&&contas.length>0&&<label style={{display:"block"}}>
+        <span style={{display:"block",color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Conta de anúncios</span>
+        <select value={est.conta?.id||""} disabled={salvando} onChange={e=>escolher(e.target.value)}
+          style={{width:"100%",maxWidth:isMobile?"100%":420,minHeight:40,borderRadius:10,border:`1px solid ${C.line}`,padding:"0 10px",fontSize:13,background:C.card,color:C.ink}}>
+          <option value="">— nenhuma —</option>
+          {contas.map(c=><option key={c.id} value={c.id}>{c.nome}{c.empresa?` · ${c.empresa}`:""}{c.status&&c.status!=="ativa"?` (${c.status})`:""}</option>)}
+        </select>
+      </label>}
+      {est.conta&&<div style={{color:C.greenDeep,fontSize:12,marginTop:8}}>✓ Lendo os números de <b>{est.conta.nome}</b>.</div>}
+    </React.Fragment>}
+  </div>;
+}
+
+/* Os números dos anúncios, ao vivo da Meta, no topo da aba Campanhas
+   (22/10/2026). Investimento, impressões, alcance, cliques e resultados vêm da
+   conta de anúncios; leads e vendas são do CRM, pela mesma campanha — é o que
+   dá o custo por lead e o custo por venda. */
+function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
+  const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [lendo,setLendo]=useState(false);
+  const ler=(atualizar)=>{
+    setLendo(true); setErro("");
+    acoes.desempenhoAnuncios(f,atualizar).then(setD).catch(e=>{setD(null);setErro(e.message);}).finally(()=>setLendo(false));
+  };
+  useEffect(()=>{ler(false);},[JSON.stringify([f.periodo,f.de,f.ate])]);
+  const moeda=d?.conta?.moeda||"BRL";
+  const dinheiro=(v)=>v==null?"—":v.toLocaleString("pt-BR",{style:"currency",currency:moeda,maximumFractionDigits:2});
+  const inteiro=(v)=>v==null?"—":Math.round(v).toLocaleString("pt-BR");
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const irConfig=()=>{abaConfigPedida="anuncios";irPara&&irPara("config");};
+  if(erro) return <div style={cartao}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
+    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>{erro}</div>
+    {irPara&&<button onClick={irConfig} style={{marginTop:9,border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir Anúncios do Meta</button>}
+  </div>;
+  if(!d) return <div style={{...cartao,color:C.faint,fontSize:12.5}}>Lendo os anúncios na Meta…</div>;
+  const t=d.total;
+  const metricas=[["Investimento",dinheiro(t.investimento)],["Impressões",inteiro(t.impressoes)],["Alcance",inteiro(t.alcance)],
+    ["Cliques",inteiro(t.cliques)],["Leads (Meta)",inteiro(t.leads_meta)],["Leads no CRM",inteiro(t.leads_crm)],
+    ["Custo por lead",dinheiro(t.custo_por_lead)],["Vendas",inteiro(t.vendas)],["Custo por venda",dinheiro(t.custo_por_venda)]];
+  return <div style={cartao}>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:7,flex:"1 1 auto"}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
+      <button onClick={()=>ler(true)} disabled={lendo} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:34,padding:"0 12px",background:C.card,color:C.sub,fontSize:12,cursor:lendo?"default":"pointer"}}>
+        {lendo?"Lendo…":"Atualizar da Meta"}</button>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:12,lineHeight:1.5}}>
+      Conta <b>{d.conta.nome}</b> · {d.periodo.since.split("-").reverse().join("/")} a {d.periodo.until.split("-").reverse().join("/")} ·
+      lido da Meta às {new Date(d.lido_em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:14}}>
+      {metricas.map(([r,v])=><div key={r} style={{background:C.surface,borderRadius:10,padding:"9px 11px"}}>
+        <div style={{color:C.faint,fontSize:11}}>{r}</div>
+        <div style={{color:C.ink,fontFamily:MONO,fontSize:15,fontWeight:700,marginTop:2,overflowWrap:"anywhere"}}>{v}</div>
+      </div>)}
+    </div>
+    {d.campanhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma campanha com veiculação neste período.</div>:
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+        <thead><tr style={{color:C.faint,textAlign:"left"}}>
+          {["Campanha","Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Vendas","Custo/venda"].map(h=>
+            <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
+        </tr></thead>
+        <tbody>{d.campanhas.map(c=><tr key={c.campaign_id||c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
+          <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}</td>
+          {[dinheiro(c.investimento),inteiro(c.impressoes),inteiro(c.alcance),inteiro(c.cliques),inteiro(c.leads_meta),inteiro(c.leads_crm),
+            dinheiro(c.custo_por_lead),inteiro(c.vendas),dinheiro(c.custo_por_venda)].map((v,i)=>
+            <td key={i} style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.sub}}>{v}</td>)}
+        </tr>)}</tbody>
+      </table>
+    </div>}
+    <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
+      Investimento, impressões, alcance, cliques e leads (Meta) vêm da conta de anúncios. Leads no CRM e vendas são os que
+      entraram no período por aquela campanha; o custo por lead e por venda divide o investimento por eles.</div>
   </div>;
 }
 
@@ -16800,6 +18806,16 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
    que saber o que soltou. */
 // Domingo = 0, como o JavaScript conta. A ordem na tela começa na segunda,
 // que é como quem trabalha lê a semana.
+/* As proibições que eram fixas no texto da IA até 08/10/2026 — agora cada conta
+   escolhe se quer cada uma (cartão de orientações do Autoatendimento). */
+const SUGESTOES_ENSINO=[
+  "Nunca diga valor de parcela, entrada mínima, juros ou preço de imóvel — diga que o corretor passa os valores.",
+  "Nunca diga que a pessoa foi aprovada ou que consegue financiar — quem confirma é o corretor com a simulação.",
+  "Nunca marque visita, dia ou horário, nem prometa que alguém liga em tal hora.",
+  "Nunca diga que temos imóvel num bairro ou faixa de preço — anote o que a pessoa procura e diga que a equipe encontra o imóvel ideal.",
+  "Pergunte primeiro se a pessoa quer comprar ou alugar.",
+  "Para compra, pergunte (uma coisa por vez): renda da família, quanto tem de entrada, se tem restrição no CPF e em quanto tempo pretende comprar.",
+];
 const DIAS_SEMANA=[[1,"seg"],[2,"ter"],[3,"qua"],[4,"qui"],[5,"sex"],[6,"sáb"],[0,"dom"]];
 function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
@@ -16877,29 +18893,17 @@ function RoboConfig({acoes,session,isMobile}){
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6}}>
         {cfg.sempre
-          ?"Quando um lead chama e você não está no celular, a IA conversa com ele, acolhe e anota as informações da simulação. Assim que você responde, ela sai da conversa e não volta."
-          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele, acolhe e anota as informações da simulação. Na manhã seguinte a atendente confere e encaminha."}
+          ?"Quando um lead chama e você não está no celular, a IA conversa com ele seguindo as regras que você escrever abaixo. Assim que você responde, ela sai da conversa e não volta."
+          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele seguindo as regras que a sua equipe escrever abaixo. Na manhã seguinte a atendente confere e encaminha."}
       </div>
 
-      {/* O que ele NUNCA faz vem antes do interruptor, e não escondido num
-          "saiba mais". É a parte que muda a decisão de ligar. */}
-      <div style={{background:C.surface,borderRadius:11,padding:"11px 13px",margin:"11px 0"}}>
-        <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>O que ele nunca faz</div>
-        {/* Duas linhas mudam na conta de um corretor só, e as duas mudariam de
-            VERDADEIRAS para FALSAS se ficassem como estão: ali todo lead é
-            dele desde o primeiro segundo (então "não atende lead de corretor"
-            silenciaria a IA em 100% das conversas, que é o oposto do que
-            acontece), e não existe atendente para olhar a etapa de manhã. */}
-        {[["Falar valor","nada de parcela, entrada mínima, juros ou preço de imóvel"],
-          ["Dizer que aprovou",cfg.autonomo?"quem diz se enquadra é você, com a simulação na mão":"quem diz se enquadra é o corretor com a simulação"],
-          ["Marcar visita","nem dia, nem hora, nem promessa de ligação"],
-          ...(cfg.autonomo?[]:[["Atender lead de corretor","lead já repassado é atendimento de gente, com nome"]]),
-          ["Falar por cima de alguém","na primeira mensagem de uma pessoa, ele sai da conversa e não volta"],
-          ["Mexer no funil",cfg.autonomo?"a etapa fica parada até você olhar a conversa":"a etapa fica parada até a atendente olhar de manhã"]].map(([t,d])=>
-          <div key={t} style={{display:"flex",gap:7,marginTop:5,alignItems:"flex-start"}}>
-            <span style={{color:C.hot,fontSize:12,fontWeight:700,lineHeight:1.5}}>×</span>
-            <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5}}><b style={{color:C.ink}}>{t}.</b> {d}</div>
-          </div>)}
+      {/* AS REGRAS SÃO DE CADA CONTA (08/10/2026, pedido do Ali). Aqui havia
+          o quadro "O que ele nunca faz" com proibições fixas do ConHub; elas
+          saíram do texto da IA e viraram sugestões no cartão de orientações. */}
+      <div style={{background:C.surface,borderRadius:11,padding:"10px 13px",margin:"11px 0",color:C.sub,fontSize:11.5,lineHeight:1.55}}>
+        <b style={{color:C.ink}}>As regras são suas.</b> O que a IA pergunta, o que ela pode falar e o que ela nunca faz
+        está em <b>{cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</b>, mais abaixo.
+        Sem nenhuma orientação, ela só acolhe, entende o que a pessoa procura e diz que a equipe dá continuidade.
       </div>
 
       {!cfg.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,
@@ -17010,6 +19014,9 @@ function RoboConfig({acoes,session,isMobile}){
         Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
     </React.Fragment>,cfg.ativo?{borderColor:C.greenMid}:null)}
 
+    {ehAdm&&<AcoesDaIA cfg={cfg} aoSalvar={setCfg} acoes={acoes} isMobile={isMobile} cartao={cartao}/>}
+    <FichasDeProduto acoes={acoes} isMobile={isMobile} cartao={cartao}/>
+
     {/* ===== O QUE A EQUIPE ENSINA =====
 
         A ATENDENTE edita, não só o gestor. O robô cobre a ausência dela; se as
@@ -17023,23 +19030,36 @@ function RoboConfig({acoes,session,isMobile}){
         {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
-        Escreva aqui como {cfg.autonomo?"você fala":"a equipe fala"} — o jeito de tratar o cliente, o que explicar quando
-        perguntarem de um programa, o que sempre perguntar. A IA lê estas linhas antes de cada
-        resposta. <b>Elas não desbloqueiam o que é proibido:</b> nada de valor, aprovação ou
-        agendamento, mesmo que escrito aqui.
+        Estas linhas são as regras do atendimento: o jeito de tratar o cliente, o que perguntar, o que
+        explicar e <b>o que a IA nunca pode fazer</b>. Ela lê todas antes de cada resposta.
       </div>
 
-      {/* Exemplos concretos: campo em branco é campo que ninguém preenche. */}
-      {ensino&&!ensino.length&&<div style={{background:C.card,borderRadius:10,padding:"9px 11px",
-        marginBottom:9,color:C.faint,fontSize:11,lineHeight:1.6}}>
-        Exemplos: <i>"Chame a pessoa de você, nunca de senhor ou senhora."</i> · <i>"Se perguntarem
-        do Morar Bem PE, diga que é o programa do governo de Pernambuco."</i> · <i>"Sempre pergunte
-        em qual bairro a pessoa quer morar."</i>
-      </div>}
+      {/* Sugestões de um clique: as proibições que eram fixas até 08/10/2026.
+          Só aparece a que ainda não está escrita; o gestor escolhe as que valem. */}
+      {ensino&&(()=>{
+        const tem=new Set(ensino.map(e=>e.texto.trim()));
+        const faltam=SUGESTOES_ENSINO.filter(t=>!tem.has(t));
+        if(!faltam.length) return null;
+        return <div style={{marginBottom:10}}>
+          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>SUGESTÕES — TOQUE PARA ADICIONAR</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {faltam.map(t=><button key={t} disabled={salvando} onClick={async()=>{
+                setErro(""); setSalvando(true);
+                try{ setEnsino((await acoes.roboEnsinar(t)).linhas); }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+              }}
+              style={{textAlign:"left",background:C.card,border:`1px dashed ${C.line}`,borderRadius:9,
+                padding:isMobile?"10px 11px":"7px 10px",fontSize:11.5,color:C.sub,cursor:"pointer",lineHeight:1.45}}>
+              <b style={{color:C.greenDeep}}>+</b> {t}</button>)}
+          </div>
+        </div>;
+      })()}
 
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
-        <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2} maxLength={500}
-          placeholder="Ex.: Se perguntarem se atendemos Juazeiro, diga que sim."
+        {/* Sem maxLength: colar um texto longo era cortado calado pelo campo, e
+            a IA lia só o começo. O servidor recusa acima de 500 e diz onde
+            descrever produto (Fichas de produto). */}
+        <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2}
+          placeholder="Ex.: Nunca fale o valor do condomínio — diga que o corretor confirma."
           style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
             border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
             color:C.ink,outline:"none",resize:"vertical"}}/>
@@ -17047,6 +19067,8 @@ function RoboConfig({acoes,session,isMobile}){
           style={{alignSelf:"flex-start",background:novaLinha.trim()?C.greenDeep:C.faint,color:"#fff",
             border:"none",borderRadius:9,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
             fontWeight:700,cursor:novaLinha.trim()?"pointer":"default"}}>Ensinar</button>
+        {novaLinha.length>400&&<div style={{width:"100%",fontSize:11,color:novaLinha.trim().length>500?C.hot:C.faint}}>
+          {novaLinha.trim().length} de 500 letras{novaLinha.trim().length>500?" — para descrever um produto, use as Fichas de produto.":""}</div>}
       </div>
 
       {!ensino&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
@@ -17111,6 +19133,123 @@ function RoboConfig({acoes,session,isMobile}){
       </div>)}
     </React.Fragment>)}
   </React.Fragment>;
+}
+
+/* ONDE A IA ATUA E O QUE ELA FAZ NO LEAD (08/10/2026, pedido do Ali). Só o
+   gestor: é decidir o que a máquina faz sozinha com o funil. Nada marcado em
+   "onde" = em todo lugar, como sempre foi. */
+function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
+  const [pipes,setPipes]=useState(null);
+  const [campos,setCampos]=useState(null);
+  const [f,setF]=useState({escopo:cfg.escopo||{pipelines:[],etapas:[]},campos:cfg.campos||[],observacao:!!cfg.observacao,etapa_final:cfg.etapa_final||""});
+  const [estado,setEstado]=useState("");
+  useEffect(()=>{ acoes.pipelines().then(d=>setPipes((d.pipelines||[]).filter(p=>p.is_active))).catch(()=>setPipes([]));
+    acoes.camposPersonalizados().then(d=>setCampos(d.campos||[])).catch(()=>setCampos([])); },[]);
+  const alterna=(lista,id)=>lista.includes(id)?lista.filter(x=>x!==id):[...lista,id];
+  const mexe=(patch)=>{setF(x=>({...x,...patch}));setEstado("pendente");};
+  async function salvar(){
+    setEstado("salvando");
+    try{ aoSalvar(await acoes.salvarAcoesRobo(f)); setEstado("salvo"); }catch(e){ setEstado("Erro: "+e.message); }
+  }
+  const pill=(on)=>({fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,fontFamily:FONT,
+    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub});
+  const sub={color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5,marginTop:12};
+  const todasEtapas=(pipes||[]).flatMap(p=>(p.stages||[]).filter(e=>e.is_active).map(e=>({...e,funil:p.name,pipeline_id:p.id})));
+  const nada=!f.escopo.pipelines.length&&!f.escopo.etapas.length;
+  return cartao(<React.Fragment>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="columns" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Onde a IA atua e o que ela faz no lead</span>
+    </div>
+    {!pipes||!campos?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:<React.Fragment>
+      <div style={sub}>EM QUAIS FUNIS OU ETAPAS ELA ATENDE</div>
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:6}}>{nada?"Nada marcado: ela atende em todos os funis.":"Ela só fala com leads dos funis marcados ou das etapas marcadas."}</div>
+      {pipes.map(p=><div key={p.id} style={{marginBottom:8}}>
+        <button onClick={()=>mexe({escopo:{...f.escopo,pipelines:alterna(f.escopo.pipelines,p.id)}})} style={pill(f.escopo.pipelines.includes(p.id))}>
+          {f.escopo.pipelines.includes(p.id)?"✓ ":""}Funil {p.name} inteiro</button>
+        {!f.escopo.pipelines.includes(p.id)&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:5,paddingLeft:10}}>
+          {(p.stages||[]).filter(e=>e.is_active).map(e=><button key={e.id} onClick={()=>mexe({escopo:{...f.escopo,etapas:alterna(f.escopo.etapas,e.id)}})}
+            style={pill(f.escopo.etapas.includes(e.id))}>{f.escopo.etapas.includes(e.id)?"✓ ":""}{e.name}</button>)}</div>}
+      </div>)}
+      <div style={sub}>CAMPOS QUE ELA PREENCHE NA CONVERSA</div>
+      {!campos.length?<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Nenhum campo personalizado ainda. Crie em Configurações → Funis e etapas (ex.: Produto, Forma de atendimento, Melhor período, Finalidade).</div>
+        :<div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{campos.map(c=><button key={c.key} onClick={()=>mexe({campos:alterna(f.campos,c.key)})} style={pill(f.campos.includes(c.key))}>
+          {f.campos.includes(c.key)?"✓ ":""}{c.name}</button>)}</div>}
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:5}}>Ela só preenche o que o cliente deixou claro. Campo preenchido também dispara os fluxos com gatilho “Campo preenchido”.</div>
+      <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12,color:C.ink,lineHeight:1.45,cursor:"pointer",marginTop:12}}>
+        <input type="checkbox" checked={f.observacao} onChange={e=>mexe({observacao:e.target.checked})} style={{marginTop:3}}/>
+        <span>Ao se despedir, escrever o resumo do atendimento como observação do lead <span style={{color:C.faint}}>— no formato que as orientações abaixo pedirem.</span></span></label>
+      <div style={sub}>QUANDO ELA TERMINA E O CLIENTE QUER SEGUIR, MOVER PARA</div>
+      <select value={f.etapa_final} onChange={e=>mexe({etapa_final:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",maxWidth:420}}>
+        <option value="">Não mover (a equipe move)</option>
+        {[...new Set(todasEtapas.map(e=>e.funil))].map(fn=><optgroup key={fn} label={fn}>{todasEtapas.filter(e=>e.funil===fn).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:5}}>Vale a regra “quando um lead chegar nesta etapa” — se ela entrega a um corretor ou a uma catraca, o lead segue sozinho.</div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:12,flexWrap:"wrap"}}>
+        <button onClick={salvar} disabled={estado==="salvando"||!estado||estado==="salvo"} style={{background:estado==="pendente"?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {estado==="salvando"?"Salvando…":"Salvar"}</button>
+        {estado==="salvo"&&<span style={{color:C.greenDeep,fontSize:12}}>Salvo.</span>}
+        {estado==="pendente"&&<span style={{color:"#8a6d1f",fontSize:12}}>Alteração não salva.</span>}
+        {estado.startsWith("Erro")&&<span style={{color:C.hot,fontSize:12}}>{estado.slice(6)}</span>}
+      </div>
+    </React.Fragment>}
+  </React.Fragment>);
+}
+
+/* AS FICHAS DE PRODUTO (08/10/2026). Uma por empreendimento: o que a IA
+   precisa saber para responder sobre ele. Ligada a um formulário (Marketing →
+   Formulários) ou a uma catraca (tela Catraca), vale nos atendimentos que
+   chegam por ali. */
+function FichasDeProduto({acoes,isMobile,cartao}){
+  const [lista,setLista]=useState(null);
+  const [imoveis,setImoveis]=useState([]);
+  const [edit,setEdit]=useState(null);
+  const [erro,setErro]=useState("");
+  const carregar=()=>acoes.fichasIA().then(d=>setLista(d.fichas||[])).catch(e=>{setLista([]);setErro(e.message);});
+  useEffect(()=>{ carregar(); acoes.produtos({}).then(d=>setImoveis(Array.isArray(d)?d:(d.produtos||[]))).catch(()=>{}); },[]);
+  async function salvar(){
+    setErro("");
+    try{ if(edit.id) await acoes.editarFichaIA(edit.id,{nome:edit.nome,texto:edit.texto,produto_id:edit.produto_id||null});
+      else await acoes.criarFichaIA({nome:edit.nome,texto:edit.texto,produto_id:edit.produto_id||null});
+      setEdit(null); carregar(); }catch(e){ setErro(e.message); }
+  }
+  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",boxSizing:"border-box",fontFamily:FONT};
+  return cartao(<React.Fragment>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="pin" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Fichas de produto</span>
+      {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Uma ficha por empreendimento: localização, diferenciais, o que explicar. A IA conhece todas as fichas ligadas: quando o cliente fala de um produto, ela usa a ficha dele. Ligada a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, a ficha vira o produto principal de quem chega por ali. O que ela pode ou não falar continua sendo o que as orientações dizem.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
+    {edit&&<div style={{background:C.surface,borderRadius:11,padding:11,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
+      <input value={edit.nome} onChange={e=>setEdit({...edit,nome:e.target.value})} maxLength={80} placeholder="Nome (ex.: Residencial Jardins)" style={campo}/>
+      <textarea value={edit.texto} onChange={e=>setEdit({...edit,texto:e.target.value})} rows={6} maxLength={4000} placeholder="O que a IA precisa saber: bairro, tipologias, lazer, prazo de entrega, programa de financiamento…" style={{...campo,resize:"vertical",lineHeight:1.5}}/>
+      <select value={edit.produto_id||""} onChange={e=>setEdit({...edit,produto_id:e.target.value})} style={campo}>
+        <option value="">Sem imóvel do catálogo</option>
+        {imoveis.map(p=><option key={p.id} value={p.id}>{p.titulo}</option>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5}}>Do catálogo vai só o que é público (local, cômodos, áreas, descrição do anúncio) — nunca observações internas, construtora ou valor.</div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={salvar} disabled={!edit.nome.trim()} style={{background:edit.nome.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar ficha</button>
+        <button onClick={()=>setEdit(null)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
+    {!lista?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:!lista.length&&!edit?<div style={{color:C.faint,fontSize:12}}>Nenhuma ficha ainda.</div>:
+    lista.map(fc=><div key={fc.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",marginBottom:6,opacity:fc.ativo?1:.55}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{fc.nome}{!fc.ativo&&<span style={{color:C.faint,fontSize:10.5}}> · desligada</span>}</span>
+        <button onClick={()=>setEdit({id:fc.id,nome:fc.nome,texto:fc.texto,produto_id:fc.produto_id||""})} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>editar</button>
+        <button onClick={()=>acoes.editarFichaIA(fc.id,{ativo:!fc.ativo}).then(carregar).catch(e=>setErro(e.message))} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>{fc.ativo?"desligar":"ligar"}</button>
+        <button onClick={()=>{ if(window.confirm(`Apagar a ficha “${fc.nome}”? Ela sai dos formulários e catracas em que está.`)) acoes.apagarFichaIA(fc.id).then(carregar).catch(e=>setErro(e.message)); }} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,padding:"5px 9px",fontSize:11,cursor:"pointer"}}>×</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.5}}>
+        {[...fc.formularios.map(x=>"Formulário "+x.nome),...fc.catracas.map(x=>"Catraca "+x.nome)].join(" · ")||"Ainda não está ligada a nenhum formulário nem catraca."}
+        {fc.produto_titulo&&<span> · imóvel: {fc.produto_titulo}</span>}</div>
+    </div>)}
+  </React.Fragment>);
 }
 
 // Como cada campo da simulação aparece escrito na tela.
@@ -17536,7 +19675,7 @@ function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConvers
   </div>;
 }
 
-function PainelGestao({acoes,session,isMobile,abrirConversa}){
+function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
   const [f,setF]=usarFiltrosComPeriodo("painel.filtros");
   const tick=usarAtualizacao();
   const [d,setD]=useState(null);
@@ -17709,6 +19848,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa}){
         </div>}
 
         {/* ===== CAMPANHAS ===== */}
+        {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
         {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
           {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
@@ -18098,18 +20238,58 @@ function TagsConfig({acoes,session,isMobile}){
    dez formulários iguais. */
 /* O que a automação da etapa faz, em uma frase — a mesma no resumo da linha
    e no aviso do editor. */
-function resumoDaAutomacao(cfg,pessoas,funis){
+/* As fichas de produto da IA, lidas uma vez por tela (08/10/2026). Sem o
+   Autoatendimento, a lista vem vazia e a escolha não aparece. */
+let memoriaFichas={em:0,d:null,pedido:null};
+const esquecerFichas=()=>{memoriaFichas={em:0,d:null,pedido:null};};
+function usarFichasIA(acoes){
+  const [d,setD]=useState(memoriaFichas.d);
+  useEffect(()=>{ let vivo=true;
+    if(memoriaFichas.d&&Date.now()-memoriaFichas.em<30000){ setD(memoriaFichas.d); return; }
+    if(!memoriaFichas.pedido) memoriaFichas.pedido=acoes.fichasIA().then(x=>{memoriaFichas={em:Date.now(),d:(x.fichas||[]),pedido:null};return memoriaFichas.d;})
+      .catch(()=>{memoriaFichas.pedido=null;return [];});
+    memoriaFichas.pedido.then(x=>vivo&&setD(x));
+    return()=>{vivo=false;}; },[]);
+  return d;
+}
+const SeletorDeFicha=({valor,aoMudar,fichas,caixa,disabled})=><select aria-label="Ficha de produto da IA" value={valor||""} disabled={disabled} onChange={e=>aoMudar(e.target.value||null)} style={caixa}>
+  <option value="">Nenhuma ficha de produto</option>
+  {(fichas||[]).filter(f=>f.ativo||f.id===valor).map(f=><option key={f.id} value={f.id}>{f.nome}{!f.ativo?" (desligada)":""}</option>)}
+</select>;
+
+/* As etiquetas da conta, lidas UMA vez para todas as etapas da tela (são
+   onze linhas pedindo a mesma lista). Guarda por um minuto. */
+let memoriaTags={em:0,d:null,pedido:null};
+function usarTagsDaCasa(acoes){
+  const [d,setD]=useState(memoriaTags.d);
+  useEffect(()=>{ let vivo=true;
+    if(memoriaTags.d&&Date.now()-memoriaTags.em<60000){ setD(memoriaTags.d); return; }
+    if(!memoriaTags.pedido) memoriaTags.pedido=acoes.tags().then(x=>{memoriaTags={em:Date.now(),d:x.tags||[],pedido:null};return memoriaTags.d;})
+      .catch(()=>{memoriaTags.pedido=null;return [];});
+    memoriaTags.pedido.then(x=>vivo&&setD(x));
+    return()=>{vivo=false;}; },[]);
+  return d;
+}
+function resumoDaAutomacao(cfg,pessoas,funis,catracas,tags){
   const c=cfg||{}, partes=[];
   if(c.mover_para_pipeline){
     const f=(funis||[]).find(x=>x.id===c.mover_para_pipeline);
     partes.push(`vai para o funil ${f?f.name:"(funil não encontrado)"}`);
   }
   if(c.distribuir==="rodizio") partes.push("entrega ao próximo corretor da roleta");
+  else if(c.distribuir==="catraca"){
+    const k=(catracas||[]).find(x=>x.id===c.catraca_id);
+    partes.push(`entrega ao próximo da catraca ${k?k.nome:catracas?"(catraca desativada)":"de produto"}`);
+  }
   else if(c.distribuir){
     const p=(pessoas||[]).find(x=>x.id===c.distribuir);
     partes.push(`entrega a ${p?p.name:"uma pessoa que saiu da equipe"}`);
   }
   if(c.limpar_responsavel) partes.push("devolve à fila, sem dono");
+  const nomeTag=(id)=>((tags||[]).find(t=>t.id===id)||{}).nome||"etiqueta";
+  if((c.adicionar_tags||[]).length) partes.push(`ganha ${c.adicionar_tags.map(nomeTag).join(", ")}`);
+  if((c.remover_tags||[]).length) partes.push(`perde ${c.remover_tags.map(nomeTag).join(", ")}`);
+  if(c.tag_do_corretor) partes.push("ganha a etiqueta com o nome do corretor");
   return partes.join(" e ");
 }
 
@@ -18117,6 +20297,9 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
   useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
+  // Catracas de produto e etiquetas da conta, para a regra "ao chegar" (08/10/2026).
+  const catracasCasa=usarCatracas(acoes,true);
+  const tagsCasa=usarTagsDaCasa(acoes);
 
   // Recusado pelo servidor, a tela volta ao que está gravado — senão o campo
   // ficaria mostrando uma escolha que não valeu.
@@ -18138,7 +20321,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
           {etapa.entrada_comercial?" · início do processo comercial":""}
-          {resumoDaAutomacao(etapa.automation_config,pessoas,funis)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis):""}
+          {resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa):""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
           {etapa.required_fields&&etapa.required_fields.length?` · exige ${etapa.required_fields.length} campo(s)`:""}
           {etapa.status_type&&etapa.status_type!=="aberto"?` · ${etapa.status_type}`:""}
@@ -18217,15 +20400,25 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           gravar (pipelines.js → validarAutomacao). */}
       {(()=>{
         const cfg=f.automation_config||{};
-        const resp=cfg.limpar_responsavel?"__fila":cfg.distribuir||"";
+        const resp=cfg.limpar_responsavel?"__fila":cfg.distribuir==="catraca"?"cat:"+(cfg.catraca_id||""):cfg.distribuir||"";
+        const listaCat=((catracasCasa&&catracasCasa.catracas)||[]).filter(k=>k.ativa!==false&&k.ativa!==0);
         const salvarCfg=(novo)=>{setF({...f,automation_config:novo});salvar({automation_config:novo});};
-        const mudarResp=(v)=>{const n={...cfg};delete n.distribuir;delete n.limpar_responsavel;
-          if(v==="__fila") n.limpar_responsavel=true; else if(v) n.distribuir=v; salvarCfg(n);};
+        const mudarResp=(v)=>{const n={...cfg};delete n.distribuir;delete n.limpar_responsavel;delete n.catraca_id;
+          if(v==="__fila") n.limpar_responsavel=true;
+          else if(v.startsWith("cat:")){n.distribuir="catraca";n.catraca_id=v.slice(4);}
+          else if(v) n.distribuir=v; salvarCfg(n);};
+        const trocarTag=(lista,id)=>{const n={...cfg};const atual=n[lista]||[];
+          n[lista]=atual.includes(id)?atual.filter(x=>x!==id):[...atual,id];
+          const outra=lista==="adicionar_tags"?"remover_tags":"adicionar_tags";
+          if(n[outra]) n[outra]=n[outra].filter(x=>x!==id);
+          for(const k of ["adicionar_tags","remover_tags"]) if(n[k]&&!n[k].length) delete n[k];
+          salvarCfg(n);};
         const mudarFunil=(v)=>{const n={...cfg};delete n.mover_para_pipeline; if(v) n.mover_para_pipeline=v; salvarCfg(n);};
         const outros=(funis||[]).filter(x=>x.id!==pipelineId&&x.is_active);
-        const fora=cfg.distribuir&&cfg.distribuir!=="rodizio"&&!pessoas.some(p=>p.id===cfg.distribuir);
+        const fora=cfg.distribuir&&cfg.distribuir!=="rodizio"&&cfg.distribuir!=="catraca"&&!pessoas.some(p=>p.id===cfg.distribuir);
+        const catFora=cfg.distribuir==="catraca"&&catracasCasa&&!listaCat.some(k=>k.id===cfg.catraca_id);
         const ordem={corretor:0,sdr:1,adm:2};
-        const resumo=resumoDaAutomacao(cfg,pessoas,funis);
+        const resumo=resumoDaAutomacao(cfg,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa);
         return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 11px",display:"flex",flexDirection:"column",gap:8}}>
           <div style={{color:C.ink,fontSize:12,fontWeight:700}}>Quando um lead chegar nesta etapa</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -18235,6 +20428,10 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
                 <option value="rodizio">Próximo corretor da roleta</option>
                 <option value="__fila">Devolver à fila, sem dono</option>
                 {fora&&<option value={cfg.distribuir}>Pessoa que saiu da equipe</option>}
+                {catFora&&<option value={resp}>Catraca desativada</option>}
+                {listaCat.length>0&&<optgroup label="Próximo corretor da catraca">
+                  {listaCat.map(k=><option key={k.id} value={"cat:"+k.id}>Catraca {k.nome}</option>)}
+                </optgroup>}
                 <optgroup label="Entregar sempre a">
                   {[...pessoas].sort((a,b)=>(ordem[a.role]??3)-(ordem[b.role]??3)||a.name.localeCompare(b.name))
                     .map(p=><option key={p.id} value={p.id}>{p.name} · {roleParaTexto(p.role)}</option>)}
@@ -18249,6 +20446,25 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
               </select></div>
           </div>
           {fora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A pessoa configurada não está mais ativa: o lead vai chegar sem dono até você escolher outra.</div>}
+          {catFora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A catraca escolhida foi desativada: o lead vai pela catraca principal até você escolher outra.</div>}
+          <div>{rot("Etiquetas","Toque uma vez para colocar, de novo para tirar, e mais uma para não mexer.")}
+            {tagsCasa===null?<div style={{color:C.faint,fontSize:11}}>Carregando…</div>:
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {tagsCasa.map(t=>{const poe=(cfg.adicionar_tags||[]).includes(t.id), tira=(cfg.remover_tags||[]).includes(t.id);
+                return <button key={t.id} onClick={()=>poe?trocarTag("remover_tags",t.id):tira?trocarTag("remover_tags",t.id):trocarTag("adicionar_tags",t.id)}
+                  title={poe?"Coloca esta etiqueta":tira?"Tira esta etiqueta":"Não mexe nesta etiqueta"}
+                  style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,
+                    border:`1px solid ${poe?t.cor:tira?C.hot+"88":C.line}`,background:poe?t.cor+"22":C.card,
+                    color:tira?C.hot:C.ink,textDecoration:tira?"line-through":"none"}}>
+                  {poe?"+ ":tira?"− ":""}{t.nome}</button>;})}
+              <button onClick={()=>{const n={...cfg}; if(n.tag_do_corretor) delete n.tag_do_corretor; else n.tag_do_corretor=true; salvarCfg(n);}}
+                style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,
+                  border:`1px solid ${cfg.tag_do_corretor?C.green:C.line}`,background:cfg.tag_do_corretor?C.greenSoft:C.card,
+                  color:cfg.tag_do_corretor?C.greenDeep:C.sub}}>
+                {cfg.tag_do_corretor?"+ ":""}Nome do corretor que recebeu</button>
+              {!tagsCasa.length&&<span style={{color:C.faint,fontSize:11,alignSelf:"center"}}>Crie etiquetas na ficha de um lead para usá-las aqui.</span>}
+            </div>}
+          </div>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5}}>
             {resumo?<React.Fragment>Ao chegar aqui, o lead <b style={{color:C.sub}}>{resumo}</b>. </React.Fragment>:null}
             Vale quando alguém move o lead para esta etapa — na mão, no funil ou confirmando a sugestão da IA.

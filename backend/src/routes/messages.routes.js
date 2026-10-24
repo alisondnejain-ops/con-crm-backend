@@ -2,7 +2,7 @@ import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead, emitirTokenAnexo } from "../auth.js";
-import { sendText, sendMedia, sendLocation, editMessage } from "../services/uazapi.js";
+import { sendText, sendMedia, sendLocation, editMessage, deleteMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
@@ -163,6 +163,46 @@ r.patch("/:id/messages/:msgId", async (req, res) => {
 
   // O texto mudou, e é o texto que move o funil.
   advanceStage(lead.id);
+  res.json({ ok: true });
+});
+
+/* APAGAR PARA TODOS (15/10/2026, pedido do Ali: "todos tenham a opção de
+   apagar a mensagem exatamente como é no WhatsApp").
+
+   As regras do WhatsApp: só o que saiu daqui, e até cerca de 2 dias e meio
+   depois de enviada. O cliente passa a ver "Esta mensagem foi apagada".
+   Quem apaga: quem enviou, e a supervisão qualquer uma — a mesma régua da
+   edição. Mensagem do cliente não se apaga: o CRM é o registro do atendimento.
+
+   Como na edição, NADA muda no banco se o WhatsApp não apagar: CRM dizendo
+   "apagada" com a mensagem ainda no celular do cliente seria pior que não
+   ter o botão. E no banco ela não some: fica marcada, e a supervisão
+   continua podendo ver o que era. */
+export const JANELA_APAGAR = 60 * 3600000;
+r.delete("/:id/messages/:msgId", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead))
+    return res.status(403).json({ error: "Este lead não está com você" });
+
+  const msg = db.prepare("SELECT * FROM messages WHERE id = ? AND lead_id = ?").get(req.params.msgId, lead.id);
+  if (!msg) return res.status(404).json({ error: "Mensagem não encontrada nesta conversa." });
+  if (msg.apagada_em) return res.status(409).json({ error: "Esta mensagem já foi apagada." });
+  if (msg.direction !== "out") return res.status(400).json({ error: "Só dá para apagar mensagem enviada por vocês — a do cliente fica no registro do atendimento." });
+  if (msg.from_user_id && msg.from_user_id !== req.user.id && !supervisiona(req.user))
+    return res.status(403).json({ error: "Esta mensagem foi enviada por outra pessoa." });
+  if (!msg.wa_id) return res.status(400).json({ error: "Esta mensagem não tem o identificador do WhatsApp (antiga, ou o WhatsApp não o devolveu no envio), então não dá para apagá-la lá." });
+  const idade = Date.now() - msg.created_at;
+  if (idade > JANELA_APAGAR)
+    return res.status(400).json({ error: "O WhatsApp só deixa apagar para todos até cerca de 2 dias e meio depois do envio." });
+
+  try {
+    // Pela linha por onde a mensagem SAIU (a mesma razão da edição).
+    await deleteMessage({ orgId: lead.org_id, canalId: msg.canal_id || linhaDo(lead), messageid: msg.wa_id, toPhone: lead.phone });
+  } catch (e) {
+    return res.status(502).json({ error: "Não consegui apagar no WhatsApp — a mensagem continua como está", detail: e.message });
+  }
+  db.prepare("UPDATE messages SET apagada_em = ?, apagada_por = ? WHERE id = ?").run(Date.now(), req.user.id, msg.id);
   res.json({ ok: true });
 });
 

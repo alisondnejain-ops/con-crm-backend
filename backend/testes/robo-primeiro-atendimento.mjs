@@ -44,13 +44,17 @@ try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 const real = globalThis.fetch;
 let respostaDaIA = { texto: "Oi! Que bom que chamou 😊 Me conta, é pra morar ou pra investir?",
   coletado: {}, encerrar: false };
-let chamadasIA = 0, enviadas = [], ultimoPedido = "";
+let chamadasIA = 0, enviadas = [], ultimoPedido = "", demoraDaIA = 0, cortarIA = false;
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
   if (u.includes("api.anthropic.com")) {
     chamadasIA++;
+    if (demoraDaIA) await new Promise(r => setTimeout(r, demoraDaIA));
     ultimoPedido = String(opts && opts.body || "");
-    return { ok: true, status: 200, json: async () => ({
+    // O raciocínio comeu o limite: a API responde 200 com o texto pela metade.
+    if (cortarIA) return { ok: true, status: 200, json: async () => ({ stop_reason: "max_tokens",
+      content: [{ type: "text", text: '{"texto":"Que bom! O Hori' }], usage: { input_tokens: 1200, output_tokens: 500 } }) };
+    return { ok: true, status: 200, json: async () => ({ stop_reason: "end_turn",
       content: [{ type: "text", text: JSON.stringify(respostaDaIA) }],
       usage: { input_tokens: 1200, output_tokens: 90 } }) };
   }
@@ -64,7 +68,7 @@ globalThis.fetch = async (url, opts) => {
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, conferir,
-  palavraProibida, configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
+  configDoRobo, estadoNoLead, ligarNoLead, orientacoes } = await import("../src/services/robo.js");
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Imobiliária Aurora", "A-1", Date.now());
@@ -209,24 +213,18 @@ console.log(`   motivo: ${t10.motivo}`);
 assert.equal(t10.motivo, "robo_encerrado");
 assert.equal(estadoNoLead(org, naFila, NOITE).motivo, "gente_assumiu", "e a ficha diz QUEM: uma pessoa entrou");
 
-console.log("11. Palavra que move o funil é barrada ANTES de sair");
-for (const frase of ["Podemos agendar sua visita amanhã!", "Me manda os documentos por aqui",
-  "Vou passar pro atendimento", "Fechamos o contrato assim"]) {
-  const achou = palavraProibida(frase);
-  console.log(`   "${frase.slice(0, 34)}…" → barrada (${achou})`);
-  assert.ok(achou, "essa frase moveria o lead de etapa sozinha");
-}
-assert.equal(palavraProibida("Oi! Que bom que chamou. É pra morar ou investir?"), null,
-  "conversa normal passa");
-
-const barrado = lead({ nome: "Frase perigosa", dono: vanessa });
+console.log("11. Sem regra fixa do ConHub: a resposta sai como a IA escreveu, e o funil não anda");
+/* Até 08/10/2026 havia um filtro que barrava "visita", "contrato" etc. As
+   regras agora são de cada conta (orientações); o que a equipe não proibiu,
+   a IA pode dizer. O funil continua parado: palavra só RECOMENDA etapa. */
+const barrado = lead({ nome: "Frase que antes era barrada", dono: vanessa });
 doCliente(barrado, "quero ver as casas");
 respostaDaIA = { texto: "Claro! Posso agendar uma visita pra você.", coletado: {}, encerrar: false };
 const antesDoBarrado = enviadas.length;
 const r11 = await atender(org, barrado, { agora: NOITE, atraso: 0 });
-console.log(`   resultado: ${r11.motivo}`);
-assert.equal(r11.atendeu, false);
-assert.equal(enviadas.length, antesDoBarrado, "nada saiu no WhatsApp do cliente");
+console.log(`   resultado: ${r11.atendeu ? "enviada" : r11.motivo}`);
+assert.equal(r11.atendeu, true);
+assert.equal(enviadas.length, antesDoBarrado + 1, "a mensagem saiu");
 assert.equal(db.prepare("SELECT stage FROM leads WHERE id=?").get(barrado).stage, "Lead", "e o funil não andou");
 
 console.log("12. O teto de mensagens segura a conversa (e a conta)");
@@ -284,8 +282,14 @@ assert.ok(atendimento.usos > 0, "atendimento automático precisa aparecer na con
 console.log("18. Duas mensagens seguidas do cliente NÃO viram duas respostas");
 db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
 const apressado = lead({ nome: "Mandou tudo junto", dono: vanessa });
-doCliente(apressado, "oi");
-doCliente(apressado, "tenho interesse nas casas");
+// Hora real (o `doCliente` empurra o relógio alguns ms para a frente, e aqui
+// importa a ordem de verdade entre a mensagem do cliente e a do robô).
+let tic = 0;
+const doClienteAgora = (leadId, texto) => db.prepare(
+  "INSERT INTO messages (id,lead_id,direction,body,created_at) VALUES (?,?,'in',?,?)")
+  .run("m_" + randomUUID(), leadId, texto, Date.now() + (tic++ % 2));
+doClienteAgora(apressado, "oi");
+doClienteAgora(apressado, "tenho interesse nas casas");
 respostaDaIA = { texto: "Oi! Me conta, é pra morar ou investir?", coletado: {}, encerrar: false };
 const antes18 = enviadas.length;
 // Os dois webhooks chegando ao mesmo tempo, como acontece de verdade.
@@ -297,6 +301,24 @@ const saiu = enviadas.length - antes18;
 console.log(`   ${[a, b2].map(x => x.atendeu ? "respondeu" : x.motivo).join(" + ")} → ${saiu} mensagem(ns) no WhatsApp`);
 assert.equal(saiu, 1, "o cliente não pode receber duas respostas quase iguais");
 assert.ok([a, b2].some(x => x.motivo === "ja_respondendo"), "a segunda foi segurada pela trava");
+await new Promise(r => setTimeout(r, 200));
+assert.equal(enviadas.length - antes18, 1, "a conferência de depois vê que as duas já foram respondidas juntas");
+
+console.log("18b. Mensagem que chega enquanto a IA escreve não fica sem resposta (09/10/2026)");
+const tardio = lead({ nome: "Mandou depois", dono: vanessa });
+doClienteAgora(tardio, "oi");
+const antes18b = enviadas.length;
+demoraDaIA = 150; // a IA "escrevendo" — a mensagem nova chega nesse meio-tempo
+const primeira = atender(org, tardio, { agora: NOITE, atraso: 10 });
+await new Promise(r => setTimeout(r, 60)); // a conversa já foi lida
+doClienteAgora(tardio, "e qual o valor da entrada?");
+const segurada = await atender(org, tardio, { agora: NOITE, atraso: 10 }); // o webhook dela
+assert.equal(segurada.motivo, "ja_respondendo");
+await primeira;
+demoraDaIA = 0;
+await new Promise(r => setTimeout(r, 300));
+console.log(`   ${enviadas.length - antes18b} resposta(s) no WhatsApp`);
+assert.equal(enviadas.length - antes18b, 2, "a segunda mensagem do cliente também é respondida");
 
 console.log("19. Gente respondendo durante a espera cancela a resposta do robô");
 const atropelado = lead({ nome: "A Vanessa chegou junto", dono: vanessa });
@@ -422,14 +444,17 @@ assert.ok(/nunca de 'senhor'/.test(ultimoPedido), "o que a Vanessa escreveu cheg
 assert.ok(/Morar Bem PE/.test(ultimoPedido));
 assert.ok(!/está desligada/.test(ultimoPedido), "orientação desligada NÃO pode ir junto");
 
-console.log("28. E o ensino vem DEPOIS das proibições, sem poder derrubá-las");
-const posProibicoes = ultimoPedido.indexOf("NUNCA diga valor de parcela");
-const posEnsino = ultimoPedido.indexOf("COMO A EQUIPE DESTA IMOBILIÁRIA FALA");
-console.log(`   proibições na posição ${posProibicoes}, ensino em ${posEnsino}`);
-assert.ok(posProibicoes > 0 && posEnsino > posProibicoes,
-  "campo que qualquer pessoa preenche não pode vir antes da trava");
-assert.ok(/nunca valem mais que as proibições/.test(ultimoPedido),
-  "e está escrito que uma não derruba a outra");
+console.log("28. Não há proibição fixa no pedido: as regras são as orientações da conta");
+console.log(`   ${/NUNCA diga valor de parcela/.test(ultimoPedido) ? "ainda tem regra fixa" : "sem regra fixa"}`);
+assert.ok(!/NUNCA diga valor de parcela|NUNCA marque visita|PRIMEIRO DESCUBRA/.test(ultimoPedido),
+  "o roteiro e as proibições do ConHub saíram");
+assert.ok(/ORIENTAÇÕES DA EQUIPE DESTA IMOBILIÁRIA/.test(ultimoPedido), "as orientações entram como as regras");
+// Sem nenhuma orientação, vale o mínimo: acolher e passar adiante.
+const pedidoComEnsino = ultimoPedido;
+const { atenderPrimeiroContato } = await import("../src/services/ia.js");
+await atenderPrimeiroContato({ mensagens: [{ de: "cliente", texto: "oi" }], orientacoes: [] });
+assert.ok(/AINDA NÃO ESCREVEU ORIENTAÇÕES/.test(ultimoPedido), "sem orientação, o pedido diz isso");
+ultimoPedido = pedidoComEnsino;
 
 console.log("29. A IA se apresenta com o nome DESTA imobiliária, e não com um nome fixo");
 /* O texto sai pelo WhatsApp, para o cliente. Enquanto houve uma casa só, o
@@ -524,5 +549,101 @@ db.prepare("UPDATE orgs SET robo_sempre=1 WHERE id=?").run(org);
 assert.equal(dentroDaJanela(configDoRobo(org), new Date("2026-08-19T14:00:00-03:00").getTime()), true,
   "a opção vale nos dois sentidos");
 db.prepare("UPDATE orgs SET robo_sempre=NULL WHERE id=?").run(org);
+
+console.log("34. Modelo que pensa antes de responder: a segunda mensagem também sai (09/10/2026)");
+/* O Ali trocou ANTHROPIC_MODEL para o Sonnet 5.5 e o robô passou a responder
+   só a primeira mensagem. Os modelos da família 5 pensam por padrão, e o
+   raciocínio gasta o mesmo limite da resposta: com 500, a segunda resposta
+   saía cortada e o robô ficava calado sem nada na tela. */
+const pedido = () => JSON.parse(ultimoPedido);
+const modeloAntes = process.env.ANTHROPIC_MODEL;
+process.env.ANTHROPIC_MODEL = "claude-sonnet-5-5";
+const horizon = lead({ nome: "Quer o Horizon", dono: vanessa });
+doClienteAgora(horizon, "Oi");
+respostaDaIA = { texto: "Oi! Tudo bem? Me conta o que você procura 😊", coletado: {}, encerrar: false };
+const r34a = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(r34a.atendeu, true);
+console.log(`   pedido: max_tokens ${pedido().max_tokens} · esforço ${pedido().output_config?.effort} · raciocínio ${pedido().thinking?.type}`);
+assert.ok(pedido().max_tokens >= 4000, "o limite tem folga para o raciocínio");
+assert.equal(pedido().output_config?.effort, "low");
+assert.equal(pedido().thinking?.type, "between_tools", "no Sonnet 5.5 o raciocínio fica desligado");
+
+// A resposta cortada não some calada: vira falha com motivo, e a ficha mostra.
+doClienteAgora(horizon, "O horizon");
+cortarIA = true;
+const r34b = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+cortarIA = false;
+console.log(`   resposta cortada: ${r34b.motivo} — ${r34b.erro}`);
+assert.equal(r34b.motivo, "ia_falhou");
+assert.match(r34b.erro, /cortada/);
+const e34 = estadoNoLead(org, horizon, NOITE);
+assert.ok(e34.ultima_falha && /cortada/.test(e34.ultima_falha.erro), "a ficha diz que a IA falhou, e por quê");
+
+// Na tentativa seguinte (resposta inteira) a segunda mensagem é respondida.
+respostaDaIA = { texto: "O Horizon é ótimo! Você busca para morar?", coletado: {}, encerrar: false };
+const r34c = await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(r34c.atendeu, true, "o cliente que escreveu de novo recebe resposta");
+assert.equal(estadoNoLead(org, horizon, NOITE).ultima_falha, null, "deu certo: o aviso de falha sai");
+
+// O padrão (Haiku 4.5) não tem esses campos — mandá-los daria erro na API.
+if (modeloAntes === undefined) delete process.env.ANTHROPIC_MODEL; else process.env.ANTHROPIC_MODEL = modeloAntes;
+doClienteAgora(horizon, "e tem 3 quartos?");
+await atender(org, horizon, { agora: NOITE, atraso: 0 });
+assert.equal(pedido().output_config, undefined);
+assert.equal(pedido().thinking, undefined);
+assert.equal(pedido().max_tokens, 500);
+
+console.log("35. Lead do WhatsApp direto cita o produto: a IA recebe a ficha dele (09/10/2026)");
+/* Print do Ali: "Gostaria de saber mais sobre o Horizon" e a IA respondeu "não
+   tenho os dados" — com a ficha do Horizon escrita. A ficha só valia para lead
+   de formulário ou catraca ligados a ela. */
+const { criarFicha } = await import("../src/services/ia-produtos.js");
+criarFicha(org, ali, { nome: "Residencial Horizon", texto: "Fica no bairro Areia Branca, 2 quartos com suíte, entrega em 2027." });
+criarFicha(org, ali, { nome: "Jardins do Vale", texto: "Casas térreas de 3 quartos, condomínio fechado." });
+db.prepare("INSERT INTO ia_produtos (id,org_id,nome,texto,ativo,created_at,updated_at) VALUES ('ip_desl',?,'Antigo Desligado','não usar',0,?,?)").run(org, Date.now(), Date.now());
+const direto = lead({ nome: "Alison", dono: vanessa });
+doClienteAgora(direto, "Gostaria de saber mais informações sobre o horizon");
+respostaDaIA = { texto: "O Horizon fica no Areia Branca, com 2 quartos e suíte. É pra morar?", coletado: {}, encerrar: false };
+assert.equal((await atender(org, direto, { agora: NOITE, atraso: 0 })).atendeu, true);
+const texto35 = pedido().messages[0].content[0].text;
+console.log(`   ficha do Horizon no pedido: ${texto35.includes("Areia Branca")} · a outra também: ${texto35.includes("Casas térreas")}`);
+assert.ok(texto35.includes("Areia Branca"), "a IA recebe o que a equipe escreveu do produto citado");
+assert.ok(texto35.indexOf("Residencial Horizon") < texto35.indexOf("Jardins do Vale"), "o produto citado vem primeiro");
+assert.ok(!texto35.includes("não usar"), "ficha desligada não vai");
+
+console.log("36. Produto escolhido põe o lead na catraca dele, e a apresentação sai em partes (09/10/2026)");
+/* Print do Ali: a IA apresentou o Horizon num parágrafo só e o lead continuou
+   na catraca principal. */
+const fichaH = db.prepare("SELECT id FROM ia_produtos WHERE org_id = ? AND nome = 'Residencial Horizon'").get(org).id;
+db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,created_at,ia_produto_id) VALUES ('cat_hor',?,'Horizon','corretor',1,?,?)").run(org, Date.now(), fichaH);
+const escolheu = lead({ nome: "Escolheu o Horizon", dono: vanessa });
+doClienteAgora(escolheu, "quero saber do horizon");
+respostaDaIA = { texto: "Que bom! O *Residencial Horizon*:\n📍 Areia Branca\n🏠 2 quartos com suíte\n\nÉ pra morar ou investir?",
+  coletado: {}, encerrar: false, produto: "Residencial Horizon" };
+const antes36 = enviadas.length;
+assert.equal((await atender(org, escolheu, { agora: NOITE, atraso: 0 })).atendeu, true);
+assert.ok(pedido().messages[0].content[0].text.includes('"produto"'), "a IA é perguntada sobre o produto escolhido");
+console.log(`   ${enviadas.length - antes36} mensagem(ns) no WhatsApp · catraca: ${db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(escolheu).catraca_id}`);
+assert.equal(enviadas.length - antes36, 2, "a apresentação e a pergunta saem separadas");
+assert.equal(enviadas[enviadas.length - 1].text, "É pra morar ou investir?");
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(escolheu).catraca_id, "cat_hor");
+const doRobo36 = db.prepare("SELECT body FROM messages WHERE lead_id = ? AND direction = 'out' ORDER BY created_at").all(escolheu);
+assert.equal(doRobo36.length, 2, "as duas partes ficam na conversa, na ordem");
+assert.equal(db.prepare("SELECT robo_msgs FROM leads WHERE id = ?").get(escolheu).robo_msgs, 1, "conta como uma resposta no teto");
+
+// Catraca escolhida por alguém não é trocada pela leitura da IA.
+db.prepare("INSERT INTO catracas (id,org_id,nome,entrega,ativa,created_at) VALUES ('cat_out',?,'Aluguel','corretor',1,?)").run(org, Date.now());
+const jaTinha = lead({ nome: "Já tinha catraca", dono: vanessa });
+db.prepare("UPDATE leads SET catraca_id = 'cat_out' WHERE id = ?").run(jaTinha);
+doClienteAgora(jaTinha, "e o horizon?");
+await atender(org, jaTinha, { agora: NOITE, atraso: 0 });
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(jaTinha).catraca_id, "cat_out");
+
+// Nome que não está na lista é descartado.
+const inventou = lead({ nome: "IA inventou", dono: vanessa });
+doClienteAgora(inventou, "oi");
+respostaDaIA = { texto: "Oi!", coletado: {}, encerrar: false, produto: "Edifício Inventado" };
+await atender(org, inventou, { agora: NOITE, atraso: 0 });
+assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(inventou).catraca_id, null);
 
 console.log("\nTudo certo ✅");

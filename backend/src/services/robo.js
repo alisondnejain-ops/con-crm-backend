@@ -39,6 +39,10 @@ import { semDisparo } from "./marca-disparo.js";
 import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
 import { semAtendenteAtiva } from "./rodizio.js";
+import { fichaDoLead, outrasFichas, catracaDoProduto } from "./ia-produtos.js";
+import { definirCatracaDoLead } from "./catracas.js";
+import { gravarCampos } from "./campos-lead.js";
+import { moverLead } from "./movimento.js";
 
 export const TETO_PADRAO = 12;
 
@@ -61,8 +65,14 @@ export const ASSINATURA_ROBO = "Atendimento automático";
    duas chamadas ao mesmo tempo — as duas veem uma conversa esperando resposta
    e as duas respondem. O cliente receberia duas mensagens quase iguais. A
    trava embaixo segura a segunda, e o atraso faz a primeira já ler as duas
-   frases juntas, que é como uma pessoa responderia. */
-const ATRASO_MIN = 8000, ATRASO_MAX = 20000;
+   frases juntas, que é como uma pessoa responderia.
+
+   3 a 8 segundos desde 09/10/2026 (pedido do Ali: "reduz a espera, tá muito
+   ruim") — eram 8 a 20. Com a espera curta, a mensagem que o cliente manda
+   enquanto a IA ainda está escrevendo fica mais comum; ela não é mais
+   descartada: `deNovo` faz o atendimento rodar outra vez ao terminar. */
+const ATRASO_MIN = 3000, ATRASO_MAX = 8000;
+const deNovo = new Set();
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
 /* Conversas sendo atendidas AGORA, neste processo. Um Set na memória basta:
@@ -93,8 +103,11 @@ export function orientacoes(orgId, todas = false) {
 
 export function configDoRobo(orgId) {
   const o = db.prepare(
-    `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo
+    `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo,
+            robo_escopo, robo_campos, robo_observacao, robo_etapa_final
        FROM orgs WHERE id = ?`).get(orgId) || {};
+  const json = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
+  const esc = json(o.robo_escopo, {});
   const autonomo = o.tipo === "autonomo";
   /* NULO = ninguém escolheu, e aí quem responde é o TIPO da conta.
 
@@ -128,6 +141,11 @@ export function configDoRobo(orgId) {
     teto: Number(o.robo_teto) > 0 ? Number(o.robo_teto) : TETO_PADRAO,
     dias: lerDias(o.robo_dias),
     configurada: iaConfigurada(),
+    /* ONDE E O QUE A IA FAZ (08/10/2026). `escopo` vazio = em todo lugar. */
+    escopo: { pipelines: Array.isArray(esc.pipelines) ? esc.pipelines : [], etapas: Array.isArray(esc.etapas) ? esc.etapas : [] },
+    campos: json(o.robo_campos, []).filter(k => typeof k === "string"),
+    observacao: !!o.robo_observacao,
+    etapa_final: o.robo_etapa_final || null,
   };
 }
 
@@ -176,31 +194,6 @@ export function dentroDaJanela(cfg, agora = Date.now()) {
   return a === b ? true : a < b ? (min >= a && min < b) : (min >= a || min < b);
 }
 
-/* Palavras que fazem o funil andar sozinho (`services/stages.js` → GATILHOS).
-
-   A resposta da IA pode estar ótima e ainda assim conter "podemos agendar sua
-   visita" — e aí o lead pula duas etapas às 3h da manhã sem ninguém ter feito
-   nada. Barrar é mais seguro do que reescrever: a conversa fica parada para a
-   atendente ver de manhã, que é exatamente onde ela estaria sem o robô. */
-const PROIBIDAS = [
-  { palavra: "atendimento", padrao: /\batendiment/i },
-  { palavra: "documentação", padrao: /\bdocumenta/i },
-  { palavra: "documentos", padrao: /\bdocumentos?\b/i },
-  { palavra: "aprovação", padrao: /\baprova/i },
-  { palavra: "visita", padrao: /\bvisita/i },
-  { palavra: "agendar", padrao: /\bagend/i },
-  { palavra: "proposta", padrao: /\bproposta\b/i },
-  { palavra: "fechar", padrao: /\bfech(ar|amos|ou)\b/i },
-  { palavra: "contrato", padrao: /\bcontrato/i },
-];
-/* Devolve a palavra POR EXTENSO, não o regex. O nome dela vai para o log e
-   para a tela do gestor: "contém vsta" não explica nada a ninguém. */
-export const palavraProibida = (texto) => {
-  const t = String(texto || "");
-  const achou = PROIBIDAS.find(p => p.padrao.test(t));
-  return achou ? achou.palavra : null;
-};
-
 /* Quem é o dono de uma casa de corretor autônomo — ou nulo, se a conta é uma
    imobiliária. Vai ao BANCO e não ao crachá: é a mesma régua de `ehDonoAutonomo`
    em `auth.js`, e aqui não existe crachá nenhum (o robô responde a um webhook,
@@ -233,6 +226,10 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
      "alguém já respondeu" neste ponto fazia a ficha culpar uma pessoa que
      nunca falou. */
   if (lead.robo_parado) return { pode: false, motivo: "robo_encerrado" };
+  /* EM QUAIS FUNIS E ETAPAS ELA ATUA (08/10/2026, pedido do Ali). Nada
+     marcado = em todo lugar, que é o de sempre. Marcado, vale o funil inteiro
+     OU a etapa escolhida. */
+  if (!noEscopo(cfg.escopo, lead)) return { pode: false, motivo: "fora_do_escopo" };
   /* A trava é o CORRETOR, e só ele. Lead na fila, com a atendente OU com o
      gestor é tudo a mesma situação: ainda não tem dono de verdade, ninguém
      tem esse atendimento no nome para ser cobrado por ele. Lead repassado a
@@ -295,6 +292,25 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
    Chamado de todo lugar em que um humano manda mensagem — pelo CRM ou pelo
    celular. Só marca quem o robô estava atendendo: marcar lead nenhum tocado
    pelo robô encheria a coluna de 1 sem significar nada. */
+export const noEscopo = (esc, lead) => {
+  const ps = esc?.pipelines || [], es = esc?.etapas || [];
+  if (!ps.length && !es.length) return true;
+  return ps.includes(lead.pipeline_id) || es.includes(lead.stage_id);
+};
+
+/* A ÚLTIMA VEZ QUE A IA FALHOU NESTE LEAD (09/10/2026). Falha da IA deixa a
+   conversa parada, e sem isto a ficha dizia "se o cliente escrever agora, a IA
+   responde" — verdade sobre as regras, mentira sobre o que estava acontecendo.
+   Em memória: some na publicação seguinte, que é quando um conserto chega. */
+const falhas = new Map();
+
+/* Partes separadas por linha em branco, no máximo três. */
+export function partesDaResposta(texto) {
+  const p = String(texto || "").split(/\n\s*\n/).map(t => t.trim()).filter(Boolean);
+  if (p.length <= 3) return p.length ? p : [String(texto || "").trim()];
+  return [p[0], p[1], p.slice(2).join("\n\n")];
+}
+
 export function pararPorGente(leadId) {
   const l = db.prepare("SELECT robo_msgs, robo_parado FROM leads WHERE id = ?").get(leadId);
   if (!l || l.robo_parado || !(l.robo_msgs > 0)) return false;
@@ -310,10 +326,13 @@ const lerColetado = (lead) => { try { return JSON.parse(lead.robo_json || "{}") 
    Nunca lança. É chamado sem `await` pelo webhook — uma exceção aqui viraria
    um `unhandledRejection` que derruba o processo inteiro, e o processo inteiro
    é o CRM da Conecta. */
-export async function atender(orgId, leadId, { agora = Date.now(), atraso = null } = {}) {
+export async function atender(orgId, leadId, opcoes = {}) {
+  const { agora = Date.now(), atraso = null } = opcoes;
   // Já tem uma resposta a caminho para esta conversa: a segunda mensagem do
   // cliente não vira uma segunda resposta. Ela vai ser lida pela primeira.
-  if (atendendoAgora.has(leadId)) return { atendeu: false, motivo: "ja_respondendo" };
+  // Se ela chegou depois de a conversa ter sido lida, a resposta a caminho
+  // não a viu: ao terminar, o atendimento confere de novo (ver `deNovo`).
+  if (atendendoAgora.has(leadId)) { deNovo.add(leadId); return { atendeu: false, motivo: "ja_respondendo" }; }
   atendendoAgora.add(leadId);
   try {
     // `agora` existe para o teste poder ser 21h de sábado a qualquer hora do
@@ -332,11 +351,29 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
     if (!t.pode) return { atendeu: false, motivo: t.motivo };
     const { lead, cfg } = t;
 
+    /* A resposta entra na conversa com a hora em que a IA LEU a conversa, não
+       com a hora em que saiu. Ela responde ao que leu: a mensagem que o cliente
+       manda enquanto ela escreve fica DEPOIS dela, como pergunta ainda sem
+       resposta — e é isso que faz a conferência de `deNovo` respondê-la. */
+    const lidoEm = Date.now();
     const msgs = db.prepare(
-      "SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
+      "SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(leadId);
     const coletado = lerColetado(lead);
 
+    // A ficha do produto deste atendimento e os campos que ela pode preencher.
+    const ficha = fichaDoLead(orgId, lead);
+    // As outras fichas da conta, as citadas na conversa primeiro (ia-produtos.js).
+    const outros = outrasFichas(orgId, ficha?.id || null,
+      msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" "));
+    const defs = cfg.campos.length ? db.prepare(`SELECT key, name, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1
+      AND key IN (${cfg.campos.map(() => "?").join(",")})`).all(orgId, ...cfg.campos).map(d => ({ chave: d.key, nome: d.name, tipo: d.type,
+        opcoes: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() })) : [];
+    let jaPreenchidos = {}; try { jaPreenchidos = JSON.parse(lead.custom_fields || "{}"); } catch {}
     const r = await atenderPrimeiroContato({
+      produto: ficha,
+      outrosProdutos: outros,
+      campos: defs.map(d => ({ ...d, valor: jaPreenchidos[d.chave] })),
+      resumo: cfg.observacao,
       nome: lead.name,
       // A IA se apresenta com o nome DESTA imobiliária, não com um nome fixo.
       imobiliaria: db.prepare("SELECT name FROM orgs WHERE id = ?").get(orgId)?.name || "",
@@ -348,14 +385,18 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
       orientacoes: orientacoes(orgId).map(o => o.texto),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
-    if (!r.ok) { console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`); return { atendeu: false, motivo: "ia_falhou", erro: r.erro }; }
+    if (!r.ok) {
+      console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`);
+      falhas.set(leadId, { em: Date.now(), erro: r.erro });
+      return { atendeu: false, motivo: "ia_falhou", erro: r.erro };
+    }
+    falhas.delete(leadId);
     registrarUsoIA({ orgId, userId: null, leadId, recurso: "atendimento", uso: r.uso });
 
-    const proibida = palavraProibida(r.resposta.texto);
-    if (proibida) {
-      console.warn(`[robo] mensagem barrada para ${lead.name}: contém "${proibida}", que move o funil`);
-      return { atendeu: false, motivo: "palavra_que_move_o_funil", palavra: proibida };
-    }
+    /* O filtro de palavras que barrava a resposta ("visita", "contrato",
+       "proposta"…) saiu em 08/10/2026: ele era uma regra fixa do ConHub, e as
+       regras do atendimento agora são de cada conta. A palavra também já não
+       move o funil (26/08/2026), e `advanceStage` não roda enquanto a IA atende. */
 
     /* Grava o que ele apurou ANTES de enviar. Se o envio falhar, o CRM perdeu
        uma mensagem; se a ordem fosse a outra e a gravação falhasse, o cliente
@@ -369,16 +410,24 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
        não tem corretor e não vai fingir um. Sai como a Conecta falando. */
     const canalDaVez = canalDoLead(lead);
     const canalId = canalDaVez && canalDaVez.tipo === "corretor" ? canalDaVez.id : null;
-    const envio = await sendText({ orgId, canalId, toPhone: lead.phone, text: r.resposta.texto });
-
-    /* A mensagem entra na conversa SEM autor (`from_user_id` nulo) e com
-       `from_name` dizendo que foi o atendimento automático. Duas consequências
-       de propósito: a tela mostra quem falou, e o score não conta isso como
-       resposta de ninguém — o tempo de primeira resposta continua sendo o da
-       Vanessa, que é o número que o gestor usa. */
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
-      VALUES (?,?,'out',NULL,?,?,?,?,?)`)
-      .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, r.resposta.texto, envio?.messageid || null, Date.now(), canalId);
+    /* EM PARTES, NÃO UM BLOCO (09/10/2026, print do Ali: a apresentação do
+       empreendimento chegou num parágrafo só, "cansativo pra os olhos"). A IA
+       separa por linha em branco; cada parte sai como uma mensagem, na ordem,
+       no máximo três (o resto vai junto da última). Conta como UMA resposta
+       no teto: é uma vez que ela falou. */
+    const partes = partesDaResposta(r.resposta.texto);
+    for (let i = 0; i < partes.length; i++) {
+      if (i > 0 && atraso == null) await esperar(1200);
+      const envio = await sendText({ orgId, canalId, toPhone: lead.phone, text: partes[i] });
+      /* A mensagem entra na conversa SEM autor (`from_user_id` nulo) e com
+         `from_name` dizendo que foi o atendimento automático. Duas consequências
+         de propósito: a tela mostra quem falou, e o score não conta isso como
+         resposta de ninguém — o tempo de primeira resposta continua sendo o da
+         Vanessa, que é o número que o gestor usa. */
+      db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
+        VALUES (?,?,'out',NULL,?,?,?,?,?)`)
+        .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, partes[i], envio?.messageid || null, lidoEm + i, canalId);
+    }
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o
        robô o marcasse, um lead atendido só por robô apareceria no relatório
@@ -386,15 +435,74 @@ export async function atender(orgId, leadId, { agora = Date.now(), atraso = null
 
     if (r.resposta.encerrar) db.prepare("UPDATE leads SET robo_parado = 1 WHERE id = ?").run(leadId);
 
+    /* O QUE A IA FAZ NO LEAD (08/10/2026, pedido do Ali: "isso fecha o ciclo
+       sem depender de uma pessoa"). Depois do envio, e nunca derruba o
+       atendimento: a mensagem já foi; o que falhar aqui vira log. */
+    const acoes = aplicarAcoesDaIA(orgId, lead, cfg, r.resposta, defs);
+
     console.log(`[robo] respondeu ${lead.name} (${(lead.robo_msgs || 0) + 1}/${cfg.teto})` +
       `${r.resposta.encerrar ? " — encerrou" : ""}`);
-    return { atendeu: true, texto: r.resposta.texto, coletado: juntado, encerrou: r.resposta.encerrar };
+    return { atendeu: true, texto: r.resposta.texto, coletado: juntado, encerrou: r.resposta.encerrar, acoes };
   } catch (e) {
     console.error("[robo] erro ao atender:", e.message);
     return { atendeu: false, motivo: "erro", erro: e.message };
   } finally {
     atendendoAgora.delete(leadId);
+    /* Chegou mensagem do cliente durante este atendimento: roda outra vez.
+       Se a última mensagem já é a resposta que acabou de sair (a espera leu as
+       duas juntas), `podeAtender` vê "sem cliente esperando" e não responde. */
+    if (deNovo.delete(leadId)) setTimeout(() => { atender(orgId, leadId, { ...opcoes, agora: opcoes.agora ?? Date.now() }).catch(() => {}); }, 0);
   }
+}
+
+/* As três ações, cada uma só quando o gestor ligou:
+   - campos: os que a IA preencheu (só os escolhidos; tipados pela mesma
+     função da ficha, e o que não servir é pulado — `estrito: false`);
+   - observação: o resumo, quando ela se despede;
+   - etapa final: quando ela se despede E o cliente quer seguir. Vai pela
+     porta de sempre (moverLead), então a automação e a catraca da etapa
+     entregam o lead ao corretor. Motivo 'automatica', não 'ia': no score,
+     'ia' conta como etapa confirmada por gente, e isto é a máquina movendo. */
+function aplicarAcoesDaIA(orgId, lead, cfg, resposta, defs) {
+  const feito = {};
+  /* O produto que a pessoa escolheu põe o lead na catraca dele (09/10/2026).
+     Só quando o lead ainda está na principal: catraca escolhida na ficha ou
+     vinda do formulário foi decisão de alguém, e a leitura da IA não a desfaz.
+     Não muda o dono — muda quem recebe no próximo repasse. */
+  try {
+    if (resposta.produto && !lead.catraca_id) {
+      const alvo = catracaDoProduto(orgId, resposta.produto);
+      if (alvo) {
+        definirCatracaDoLead(orgId, lead.id, alvo.catraca_id);
+        feito.catraca = alvo.catraca;
+        console.log(`[robo] ${lead.name} escolheu ${alvo.ficha} — entrou na catraca ${alvo.catraca}`);
+      }
+    }
+  } catch (e) {
+    console.error("[robo] catraca do produto não aplicada:", e.message);
+  }
+  try {
+    const permitidos = new Set(defs.map(d => d.chave));
+    const valores = Object.fromEntries(Object.entries(resposta.campos || {}).filter(([k, v]) => permitidos.has(k) && v !== "" && v != null));
+    if (Object.keys(valores).length) {
+      const g = gravarCampos(orgId, lead.id, valores, { estrito: false });
+      feito.campos = g.preenchidos;
+    }
+    if (resposta.encerrar && cfg.observacao && resposta.resumo) {
+      // Sem autor de gente (a observação não é de ninguém da equipe): o texto diz de onde veio.
+      db.prepare("INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at) VALUES (?,?,?,?,NULL,?)")
+        .run("ob_" + randomUUID(), orgId, lead.id, `Resumo do ${ASSINATURA_ROBO}:\n${String(resposta.resumo).slice(0, 2000)}`, Date.now());
+      feito.observacao = true;
+    }
+    if (resposta.encerrar && resposta.interessado && cfg.etapa_final) {
+      const m = moverLead({ leadId: lead.id, paraEtapaId: cfg.etapa_final, motivo: "automatica", userId: null });
+      if (m.bloqueado || m.erro) console.warn(`[robo] não movi ${lead.name} para a etapa final: ${m.error || m.erro}`);
+      else feito.etapa = m.stage;
+    }
+  } catch (e) {
+    console.error("[robo] ação da IA não aplicada:", e.message);
+  }
+  return feito;
 }
 
 /* ===== LIGAR E DESLIGAR NUM LEAD ESPECÍFICO =====
@@ -459,6 +567,7 @@ export function estadoNoLead(orgId, leadId, agora = Date.now()) {
     // O que aconteceria se o cliente escrevesse AGORA, e por quê.
     responderia: t.pode,
     motivo: t.pode ? null : (doLead || t.motivo),
+    ultima_falha: falhas.get(leadId) || null,
   };
 }
 

@@ -3,6 +3,7 @@ import { filaDaVez } from "../services/rodizio.js";
 import { filaDoLead, filaDaCatraca, pegarProximoDoLead, marcarQueRecebeuNoLead, listar as listarCatracas,
   criar as criarCatraca, editar as editarCatraca, apagar as apagarCatraca, definirCatracaDoLead,
   ErroCatraca } from "../services/catracas.js";
+import { relatorioDasCatracas, relatorioDaCatraca } from "../services/relatorio-catracas.js";
 import db from "../db.js";
 import { vezDasAtendentes } from "../services/catraca.js";
 import { authRequired, roles, semMaster } from "../auth.js";
@@ -188,6 +189,15 @@ const erroCatraca = (res, e) => e instanceof ErroCatraca
   : (console.error("[catracas]", e), res.status(500).json({ error: "Não consegui salvar a catraca." }));
 
 r.get("/catracas", roles("sdr", "adm"), (req, res) => res.json(listarCatracas(req.user.org_id)));
+/* O relatório das catracas (12/10/2026): a comparação de todas, inclusive as
+   desativadas, e cada uma por dentro. Registrado antes de qualquer
+   "/catracas/:id" que viesse a ser GET. */
+r.get("/catracas/relatorio", roles("sdr", "adm"), (req, res) => res.json(relatorioDasCatracas(req.user.org_id, req.query)));
+r.get("/catracas/:id/relatorio", roles("sdr", "adm"), (req, res) => {
+  const d = relatorioDaCatraca(req.user.org_id, req.params.id, req.query);
+  if (!d) return res.status(404).json({ error: "Catraca não encontrada." });
+  res.json(d);
+});
 r.post("/catracas", roles("adm"), (req, res) => {
   try { res.json({ ok: true, id: criarCatraca(req.user.org_id, req.user.id, req.body || {}) }); }
   catch (e) { erroCatraca(res, e); }

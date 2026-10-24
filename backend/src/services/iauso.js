@@ -27,6 +27,7 @@ const PRECOS = {
   "claude-opus-5": { entrada: 5, saida: 25 },
   "claude-opus-5-5": { entrada: 4, saida: 20 },
   "claude-sonnet-5-5": { entrada: 2, saida: 10 },
+  "claude-haiku-5-5": { entrada: 0.1, saida: 0.5 },
 };
 
 export function custoDe(uso, modelo) {

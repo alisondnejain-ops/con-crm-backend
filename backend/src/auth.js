@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import db from "./db.js";
 import { resumoDeToken } from "./services/cofre.js";
+import { contaPedeCodigo, acessoValido, registrarUso, acessoSemCodigo } from "./services/acesso-master.js";
 
 /* ===== O TOKEN DO LINK DE CRIAR SENHA =====
 
@@ -173,7 +174,7 @@ const SECRET = (() => {
 
    Só o master usa isso. Para qualquer outra pessoa o org_id é o da conta dela,
    e quem emite o token é o login, não o usuário. */
-export function sign(user, { orgId } = {}) {
+export function sign(user, { orgId, acesso } = {}) {
   /* `sd` é o CARIMBO DE VALIDADE DAS SESSÕES desta pessoa (`sessoes_desde`).
 
      A primeira versão desta trava comparava o `iat` do crachá com a data em que
@@ -196,7 +197,7 @@ export function sign(user, { orgId } = {}) {
      esta versão NÃO desloga a equipe inteira. */
   const sd = db.prepare("SELECT sessoes_desde FROM users WHERE id = ?").get(user.id)?.sessoes_desde || 0;
   return jwt.sign({ id: user.id, role: user.role, org_id: orgId || user.org_id,
-    name: user.name, master: !!user.master, sd }, SECRET, { expiresIn: "30d" });
+    name: user.name, master: !!user.master, sd, ...(acesso ? { ac: acesso } : {}) }, SECRET, { expiresIn: "30d" });
 }
 
 /* O CRACHÁ VALE — MAS A CONTA AINDA EXISTE? (02/09/2026)
@@ -259,8 +260,21 @@ export function conferirCrachaDeSessao(token) {
 
   if (dados.org_id !== u.org_id && !u.master)
     return { erro: "Este acesso não vale mais para esta conta.", status: 403 };
+  /* Crachás curtos (anexo, Facebook) têm `escopo` e não servem de sessão. */
+  if (dados.escopo) return { erro: "Token inválido", status: 401 };
 
-  return { user: { ...dados, role: u.role, master: !!u.master } };
+  /* O MASTER NUMA CONTA ALHEIA SÓ COM O CÓDIGO DA CONTA (14/10/2026). A
+     entrada (`ac`) foi aberta com o código de 60s que só a gestão vê, e vale
+     por um prazo. Vencida ou encerrada pela gestão, o crachá continua servindo
+     para o hub (`/orgs`) e para `/auth/me` — é assim que ele volta ao hub —,
+     mas não abre mais nada da conta. Quem decide isso é `authRequired`. */
+  let acessoVencido = false;
+  if (u.master && dados.org_id !== u.org_id) {
+    const org = db.prepare("SELECT id, tipo, demo FROM orgs WHERE id = ?").get(dados.org_id);
+    if (contaPedeCodigo(org) && !acessoValido(dados.ac, dados.org_id, u.id)) acessoVencido = true;
+  }
+
+  return { user: { ...dados, role: u.role, master: !!u.master, acessoVencido } };
 }
 
 export function authRequired(req, res, next) {
@@ -270,6 +284,18 @@ export function authRequired(req, res, next) {
 
   const r = conferirCrachaDeSessao(token);
   if (r.erro) return res.status(r.status).json({ error: r.erro });
+  const caminho = req.baseUrl + req.path;
+  const doHub = caminho.startsWith("/orgs") || caminho === "/auth/me";
+  if (r.user.acessoVencido) {
+    if (!doHub)
+      return res.status(403).json({ codigo: "acesso_vencido",
+        error: acessoSemCodigo(r.user.ac)
+          ? "O tempo de hoje sem código nesta conta acabou. Amanhã ele renova; para entrar agora, peça à gestão o código de acesso do momento."
+          : "O acesso do ConHub a esta conta terminou. Para entrar de novo, peça à gestão o código de acesso do momento." });
+  } else if (r.user.master && r.user.ac && !doHub) {
+    // Entrada sem código: o tempo com a conta aberta sai do saldo do dia.
+    registrarUso(r.user.ac);
+  }
 
   req.user = r.user;
   next();
@@ -420,3 +446,26 @@ export const PAPEIS = {
   adm:      { rotulo: "Gestor(a)",   precisaAprovacao: true },
 };
 export const papelDoFormulario = (v) => ({ corretor: "corretor", atendente: "sdr", gestor: "adm" }[String(v || "").toLowerCase()]);
+
+/* QUEM UMA PORTA DE CADASTRO PODE REAPROVEITAR (14/10/2026, análise de
+   segurança). As portas públicas (`/publico/comecar`, `/publico/assinar`,
+   `/auth/criar-imobiliaria`) reaproveitavam QUALQUER conta não ativa com o
+   e-mail digitado — e a de `/publico/comecar` devolve o link de senha na
+   resposta. Bastava saber o e-mail de um sócio convidado e ainda não
+   confirmado para ficar com a conta dele, com a marca de master junto: acesso
+   a todas as imobiliárias. O mesmo servia para "sequestrar" o convite pendente
+   de um corretor de outra casa.
+
+   Agora só se reaproveita o que a própria porta criou e nunca foi usado: a
+   conta de FUNDADOR pendente, que não é master, dona de uma conta sem nenhum
+   lead e sem mais ninguém. É o caso que a regra existia para cobrir (fechou a
+   aba antes de criar a senha e tentou de novo). Todo o resto recusa. */
+export function cadastroPodeReaproveitar(u) {
+  if (!u) return true;
+  if (u.master || u.status !== "pendente" || u.invite_tipo !== "fundador") return false;
+  const outros = db.prepare("SELECT COUNT(*) n FROM users WHERE org_id = ? AND id <> ?").get(u.org_id, u.id).n;
+  const leads = db.prepare("SELECT COUNT(*) n FROM leads WHERE org_id = ?").get(u.org_id).n;
+  return !outros && !leads;
+}
+export const EMAIL_EM_USO = "Esse e-mail já está cadastrado no ConHub. Entre com a sua senha (ou use “Esqueci minha senha”). Se não conseguir, fale com a gente.";
+

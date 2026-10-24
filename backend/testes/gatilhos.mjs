@@ -169,11 +169,15 @@ try {
   assert.equal(salvo.nos[0].dados.carona, undefined);
   assert.equal(salvo.nos[0].dados.gatilho.pipeline_id, undefined);
   r = await chamar(tGestora, `/marketing/fluxos/${fluxo}`);
-  assert.deepEqual(r.d.grafo.nos[0].dados.gatilho.catraca_ids, [catAluguel], "a leitura traz o funil e as catracas do formulário");
+  // O fluxo salvo no formato antigo (um form_id) é lido como uma lista de um formulário.
+  const lido = r.d.grafo.nos[0].dados.gatilho;
+  assert.deepEqual(lido.formularios.map(f => f.id), ["F1"]);
+  assert.deepEqual(lido.formularios[0].catraca_ids, [catAluguel], "a leitura traz o funil e as catracas do formulário");
+  assert.equal(lido.formularios[0].pipeline_id, loc.id);
   assert.deepEqual(r.d.avisos, []);
   // Várias catracas por formulário: a lista que a tela manda substitui a de antes.
   const comLista = (ids) => ({ ...r.d.grafo, nos: r.d.grafo.nos.map(x => x.id === "inicio"
-    ? { ...x, dados: { gatilho: { ...x.dados.gatilho, catraca_ids: ids } } } : x) });
+    ? { ...x, dados: { gatilho: { ...x.dados.gatilho, formularios: x.dados.gatilho.formularios.map(f => ({ ...f, catraca_ids: ids })) } } } : x) });
   assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo: comLista([]) })).status, 200);
   assert.deepEqual(C.catracasDoFormulario(orgA, "F1"), []);
   assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo: comLista([catAluguel]) })).status, 200);
@@ -324,6 +328,53 @@ try {
   assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}`)).status, 404);
   assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}/ativar`, "POST", {})).status, 404);
   assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}/logs`)).status, 404);
+
+  caso("Um fluxo para vários formulários: cada um com o seu funil, todos entram, e o conflito é por formulário");
+  r = await chamar(tGestora, "/marketing/fluxos", "POST", { nome: "Boas-vindas lançamentos" });
+  const fluxoVarios = r.d.id;
+  const inicioCom = (gatilho) => ({ nos: [{ id: "inicio", tipo: "inicio", x: 0, y: 0, dados: { gatilho } },
+    { id: "m1", tipo: "mensagem", x: 300, y: 0, dados: { texto: "Oi, {nome}!" } }],
+    ligacoes: [{ de: "inicio", saida: "proximo", para: "m1" }] });
+  r = await chamar(tGestora, `/marketing/fluxos/${fluxoVarios}`, "PUT", { grafo: inicioCom({ tipo: "formulario", formularios: [
+    { id: "F2", nome: "Lançamento Norte", pipeline_id: loc.id, stage_id: etapasLoc[1].id, catraca_ids: [] },
+    { id: "F3", nome: "Lançamento Sul", pipeline_id: comercial.id, stage_id: null, catraca_ids: [catAluguel] },
+    { id: "F4", nome: "Só o nome" },
+    { id: "F2", nome: "repetido" }] }) });
+  assert.equal(r.status, 200, JSON.stringify(r.d));
+  const gv = r.d.grafo.nos[0].dados.gatilho;
+  assert.deepEqual(gv.formularios.map(f => f.id), ["F2", "F3", "F4"], "repetido sai, a ordem fica");
+  assert.equal(db.prepare("SELECT pipeline_id FROM meta_formularios WHERE org_id = ? AND form_id = 'F2'").get(orgA).pipeline_id, loc.id);
+  assert.equal(db.prepare("SELECT pipeline_id FROM meta_formularios WHERE org_id = ? AND form_id = 'F3'").get(orgA).pipeline_id, comercial.id);
+  assert.deepEqual(C.catracasDoFormulario(orgA, "F3"), [catAluguel]);
+  assert.equal(db.prepare("SELECT 1 FROM meta_formularios WHERE org_id = ? AND form_id = 'F4'").get(orgA), undefined,
+    "formulário sem funil escolhido na tela não ganha escolha nenhuma");
+  // Com o F1 junto, ligar é recusado dizendo qual formulário já liga outra automação.
+  const comF1 = inicioCom({ tipo: "formulario", formularios: [...gv.formularios.map(({ id, nome }) => ({ id, nome })), { id: "F1", nome: "Aluguel Centro" }] });
+  assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxoVarios}`, "PUT", { grafo: comF1 })).status, 200);
+  r = await chamar(tGestora, `/marketing/fluxos/${fluxoVarios}/ativar`, "POST", { ativo: true });
+  assert.equal(r.status, 409);
+  assert.match(r.d.error, /Aluguel Centro/);
+  assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxoVarios}`, "PUT", {
+    grafo: inicioCom({ tipo: "formulario", formularios: gv.formularios.map(({ id, nome }) => ({ id, nome })) }) })).status, 200);
+  r = await chamar(tGestora, `/marketing/fluxos/${fluxoVarios}/ativar`, "POST", { ativo: true });
+  assert.equal(r.status, 200, JSON.stringify(r.d));
+  assert.equal(db.prepare("SELECT gatilho_ref FROM marketing_fluxos WHERE id = ?").get(fluxoVarios).gatilho_ref, ",F2,F3,F4,");
+  const norte = chegaFormulario("F2", "Norte"), sul = chegaFormulario("F3", "Sul");
+  assert.equal(norte.pipeline_id, loc.id, "cada formulário nasce no funil dele");
+  assert.equal(sul.pipeline_id, comercial.id);
+  chegaFormulario("F4", "Quatro");
+  assert.equal(execsDe(fluxoVarios).length, 3, "quem preenche qualquer um entra");
+  chegaFormulario("F22", "Parecido");
+  assert.equal(execsDe(fluxoVarios).length, 3, "id parecido (F22) não casa com F2");
+  assert.equal(execsDe(fluxo).length, 1, "o fluxo do F1 não pegou ninguém daqui");
+  // E o fluxo do F1 não pode ser religado com um formulário que este já usa.
+  const gF1 = (await chamar(tGestora, `/marketing/fluxos/${fluxo}`)).d.grafo;
+  await chamar(tGestora, `/marketing/fluxos/${fluxo}/ativar`, "POST", { ativo: false });
+  assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}`, "PUT", { grafo: { ...gF1, nos: gF1.nos.map(x => x.id === "inicio"
+    ? { ...x, dados: { gatilho: { ...x.dados.gatilho, formularios: [{ id: "F1" }, { id: "F3" }] } } } : x) } })).status, 200);
+  r = await chamar(tGestora, `/marketing/fluxos/${fluxo}/ativar`, "POST", { ativo: true });
+  assert.equal(r.status, 409);
+  assert.match(r.d.error, /Lançamento Sul|F3/);
 
   caso("Apagar o fluxo para quem estava no meio");
   r = await chamar(tGestora, "/leads", "POST", { nome: "Fernanda Reis", telefone: "87 99123-0002", assigned_to: marina });

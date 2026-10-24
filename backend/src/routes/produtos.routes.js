@@ -5,6 +5,8 @@ import { authRequired, roles, supervisiona } from "../auth.js";
 import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pendencias } from "../services/portais.js";
+import { guardarFotoTratada, apagarArquivosDaMidia } from "../services/fotos-imovel.js";
+import { sugestaoDeCapa } from "../services/fotos.js";
 import { caminhoDoImovel } from "../services/site.js";
 
 const r = Router();
@@ -20,7 +22,19 @@ const LIMITES = { casa: { foto: 10, video: 1 }, terreno: { foto: 4, video: 1 } }
 export const MODALIDADES = ["Morar Bem PE", "Minha Casa Minha Vida", "SBPE"];
 const modalidadeValida = (m) => (m && MODALIDADES.includes(m) ? m : null);
 
-const midiasDe = (id) => db.prepare("SELECT id,tipo,url,ordem FROM produto_midias WHERE produto_id=? ORDER BY tipo DESC, ordem, created_at").all(id);
+/* Cada mídia vai à tela com o que o tratamento automático achou dela: a
+   versão pequena para a miniatura (a lista do catálogo deixava de baixar a
+   foto inteira), os avisos ("escura", "em pé"…) e a nota que escolhe a capa
+   sugerida. Foto ainda não tratada vem sem nada disso, e a tela usa a original. */
+const midiasDe = (id) => db.prepare(`SELECT id,tipo,url,ordem,variantes,avisos,nota,tratada_em,tratamento_erro
+  FROM produto_midias WHERE produto_id=? ORDER BY tipo DESC, ordem, created_at`).all(id).map(m => {
+  let variantes = [], avisos = [];
+  try { variantes = JSON.parse(m.variantes || "[]"); } catch {}
+  try { avisos = JSON.parse(m.avisos || "[]"); } catch {}
+  return { id: m.id, tipo: m.tipo, url: m.url, ordem: m.ordem,
+    miniatura: variantes[0]?.url || null, avisos, nota: m.nota,
+    tratada: !!m.tratada_em && !m.tratamento_erro };
+});
 
 function comValores(p) {
   if (!p) return p;
@@ -32,6 +46,8 @@ function comValores(p) {
     modalidade: p.modalidade || null,
     publicar_portais: !!p.publicar_portais,
     midias,
+    // A foto que o tratamento acha claramente melhor que a capa atual — só sugestão.
+    capa_sugerida: sugestaoDeCapa(midias.filter(m => m.tipo === "foto")),
     // O formulário mostra o que falta para ir ao portal com a MESMA regra que
     // decide o feed — uma cópia no navegador divergiria na primeira mudança.
     portal: pendencias(p, midias.filter(m => m.tipo === "foto").map(m => m.url)),
@@ -228,11 +244,31 @@ r.patch("/:id", (req, res) => {
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
 });
 
-// Aprovação do produto enviado por corretor.
-r.post("/:id/status", roles("adm", "sdr"), (req, res) => {
+/* O corretor fecha o negócio do imóvel que ELE captou (12/10/2026, pedido do
+   Ali): "Vendido" no de venda, "Alugado" no de aluguel, e só a partir de
+   publicado. A régua é o CAPTADOR, não quem cadastrou: a atendente pode
+   cadastrar a captação de um corretor, e quem fechou foi ele. Desfazer, ou
+   qualquer outra situação, continua sendo da supervisão — fechado, o imóvel
+   sai do catálogo, do site e dos portais, e reabrir é decisão da gestão. */
+export function corretorPodeFechar(user, p, status) {
+  if (!p || p.captador_id !== user.id || p.status !== "ativo") return false;
+  return status === (p.finalidade === "aluguel" ? "alugado" : "vendido");
+}
+
+// Aprovação do produto enviado por corretor; supervisão muda qualquer situação.
+r.post("/:id/status", (req, res) => {
   const permitidos = ["ativo", "recusado", "vendido", "alugado", "inativo"];
   const { status } = req.body || {};
   if (!permitidos.includes(status)) return res.status(400).json({ error: "Situação inválida." });
+  if (!supervisiona(req.user)) {
+    const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+    if (!p) return res.status(404).json({ error: "Produto não encontrado" });
+    if (!corretorPodeFechar(req.user, p, status))
+      return res.status(403).json({ error: p.captador_id !== req.user.id
+        ? "Só quem captou este imóvel (ou a gestão) pode marcar como " + (p.finalidade === "aluguel" ? "alugado." : "vendido.")
+        : p.status !== "ativo" ? "O imóvel precisa estar publicado no catálogo."
+        : `Este imóvel é de ${p.finalidade === "aluguel" ? "aluguel: marque como alugado." : "venda: marque como vendido."}` });
+  }
   const info = db.prepare("UPDATE produtos SET status=? WHERE id=? AND org_id=?").run(status, req.params.id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Produto não encontrado" });
   res.json({ ok: true, status });
@@ -243,7 +279,7 @@ r.post("/:id/status", roles("adm", "sdr"), (req, res) => {
 r.delete("/:id", roles("adm", "sdr"), (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!p) return res.status(404).json({ error: "Produto não encontrado" });
-  for (const m of db.prepare("SELECT chave FROM produto_midias WHERE produto_id=?").all(p.id)) apagar(m.chave);
+  for (const m of db.prepare("SELECT chave, variantes FROM produto_midias WHERE produto_id=?").all(p.id)) apagarArquivosDaMidia(m);
   db.prepare("DELETE FROM produto_midias WHERE produto_id=?").run(p.id);
   db.prepare("DELETE FROM produtos WHERE id=?").run(p.id);
   res.json({ ok: true });
@@ -268,11 +304,15 @@ function podeReceberMidia(req, res, tipo) {
   return { p, jaTem, max };
 }
 
-function gravarMidia({ p, jaTem, max, tipo, url, chave }) {
+function gravarMidia({ p, jaTem, max, tipo, url, chave, campos = {} }) {
   const id = "m_" + randomUUID();
   db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,chave,ordem,created_at) VALUES (?,?,?,?,?,?,?)")
     .run(id, p.id, tipo, url, chave, jaTem, Date.now());
-  return { ok: true, midia: { id, tipo, url }, restantes: max - jaTem - 1 };
+  const nomes = Object.keys(campos);
+  if (nomes.length) db.prepare(`UPDATE produto_midias SET ${nomes.map(n => `${n}=@${n}`).join(",")} WHERE id=@id`).run({ ...campos, id });
+  const todas = midiasDe(p.id);
+  const midia = todas.find(m => m.id === id) || { id, tipo, url };
+  return { ok: true, midia, restantes: max - jaTem - 1, capa_sugerida: sugestaoDeCapa(todas.filter(m => m.tipo === "foto")) };
 }
 
 // Upload de foto (e, historicamente, vídeo pequeno). O arquivo chega em
@@ -293,6 +333,12 @@ r.post("/:id/midias", async (req, res) => {
   if (!alvo) return;
 
   try {
+    /* Foto passa pelo tratamento automático: original limpo (girado, sem a
+       localização do celular), versões leves e avisos — `services/fotos.js`. */
+    if (tipo === "foto") {
+      const { url, chave, campos } = await guardarFotoTratada({ buffer, mime, prefixo: `produtos/${alvo.p.id}` });
+      return res.json(gravarMidia({ ...alvo, tipo, url, chave, campos }));
+    }
     const { url, chave } = await salvar({ buffer, mime, prefixo: `produtos/${alvo.p.id}` });
     res.json(gravarMidia({ ...alvo, tipo, url, chave }));
   } catch (e) {
@@ -353,14 +399,29 @@ r.post("/:id/midias/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, typ
   }
 });
 
+/* Pôr uma foto como capa: ela vai para o primeiro lugar e as outras descem
+   uma posição, na ordem em que estavam. A capa é a foto que abre o card no
+   site e leva a legenda no WhatsApp — por isso quem decide é quem pode editar
+   o imóvel; o tratamento automático só sugere. */
+r.post("/:id/midias/:midiaId/capa", (req, res) => {
+  const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Sem permissão." });
+  const fotos = db.prepare("SELECT id FROM produto_midias WHERE produto_id=? AND tipo='foto' ORDER BY ordem, created_at").all(p.id);
+  if (!fotos.some(f => f.id === req.params.midiaId)) return res.status(404).json({ error: "Foto não encontrada" });
+  const nova = [req.params.midiaId, ...fotos.map(f => f.id).filter(id => id !== req.params.midiaId)];
+  const upd = db.prepare("UPDATE produto_midias SET ordem=? WHERE id=?");
+  db.transaction(() => nova.forEach((id, i) => upd.run(i, id)))();
+  res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
+});
+
 r.delete("/:id/midias/:midiaId", (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Sem permissão." });
   const m = db.prepare("SELECT * FROM produto_midias WHERE id=? AND produto_id=?").get(req.params.midiaId, p.id);
   if (!m) return res.status(404).json({ error: "Mídia não encontrada" });
-  apagar(m.chave);
+  apagarArquivosDaMidia(m);
   db.prepare("DELETE FROM produto_midias WHERE id=?").run(m.id);
-  res.json({ ok: true });
+  res.json({ ok: true, capa_sugerida: sugestaoDeCapa(midiasDe(p.id).filter(x => x.tipo === "foto")) });
 });
 
 export default r;

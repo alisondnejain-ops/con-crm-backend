@@ -21,6 +21,8 @@ import { salvar, limiteBytes, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } fro
 import { garantirH264 } from "../services/video.js";
 import db from "../db.js";
 import { garantirWebhook } from "../services/webhook-uazapi.js";
+import { linhaDaMeta } from "../services/uazapi.js";
+import { listarModelos } from "../services/whatsapp_oficial.js";
 
 const r = Router();
 r.use(roles("adm"));
@@ -124,6 +126,18 @@ r.delete("/fluxos/:id", trata((req, res) => {
   exigirPronto(req.user.org_id);
   apagarFluxo(req.user.org_id, req.params.id);
   res.json({ ok: true });
+}));
+
+/* ===== MODELOS APROVADOS DA META (08/10/2026) =====
+   Os modelos da conta do WhatsApp Business conectada pela API oficial. Sem
+   linha na API oficial a lista vem vazia com o motivo — o bloco de mensagem
+   continua aceitando texto livre, que é o que a Uazapi manda. */
+r.get("/modelos-meta", trata(async (req, res) => {
+  exigirPronto(req.user.org_id);
+  const linha = linhaDaMeta(req.user.org_id);
+  if (!linha) return res.json({ modelos: [], aviso: "Esta conta não usa a API oficial da Meta. Modelo aprovado só existe nela; aqui a mensagem sai como texto livre." });
+  try { res.json({ modelos: await listarModelos(linha) }); }
+  catch (e) { res.json({ modelos: [], aviso: "A Meta não devolveu os modelos: " + e.message }); }
 }));
 
 /* ===== ARQUIVOS DOS BLOCOS DE MENSAGEM =====

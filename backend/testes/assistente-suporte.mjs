@@ -33,7 +33,9 @@ const ia = http.createServer((req, res) => {
   req.on("end", () => {
     const pedido = JSON.parse(corpo || "{}");
     pedidosIA.push({ headers: req.headers, corpo: pedido });
-    const prox = roteiro.shift();
+    let prox = roteiro.shift();
+    // Um passo do roteiro pode ser uma função: lê o pedido (ex.: o código de uma prévia) e responde.
+    if (typeof prox === "function") prox = prox(pedido);
     res.setHeader("content-type", "application/json");
     if (!prox) { res.statusCode = 500; return res.end(JSON.stringify({ error: { message: "roteiro vazio" } })); }
     res.end(JSON.stringify({ id: "msg_" + pedidosIA.length, model: pedido.model, role: "assistant", type: "message",
@@ -148,8 +150,9 @@ caso("Consulta do corretor: nenhuma ferramenta que mude a conta, pesquisa na web
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(pedidosIA.length - antes, 3);
   const primeiro = pedidosIA[antes].corpo;
-  assert.ok(primeiro.tools.some(t => t.type === "web_search_20260209" && t.name === "web_search"), "pesquisa na web disponível");
+  assert.ok(primeiro.tools.some(t => t.type === "web_search_20250305" && t.name === "web_search"), "pesquisa na web disponível");
   assert.ok(!primeiro.tools.some(t => /^(criar|editar|ordenar|definir|adicionar)_/.test(t.name || "")), "nenhuma ferramenta que escreve");
+  assert.ok(!primeiro.tools.some(t => /^(mover_leads|migrar_|repassar_|etiquetar_|finalizar_|cadastrar_|registrar_venda|corrigir_)/.test(t.name || "")), "nenhuma ferramenta de lead do gestor na consulta");
   const resultado = pedidosIA[antes + 1].corpo.messages.slice(-1)[0].content[0];
   assert.ok(/Ana Corretor/.test(resultado.content) && !/Ana Gestora/.test(resultado.content), "só o lead dele: " + resultado.content);
   // A continuação da pesquisa pausada volta como a MESMA fala do assistente.
@@ -218,11 +221,16 @@ assert.deepEqual(ecoado.content[0], pensa, "o bloco de raciocínio volta exatame
 const resultadoFunis = terceiro.messages[2].content[0];
 assert.equal(resultadoFunis.type, "tool_result");
 assert.ok(/"funis"/.test(resultadoFunis.content), "o resultado de ver_funis chega à IA");
-assert.equal(terceiro.model, "claude-opus-5-5", "modelo padrão");
-assert.equal(terceiro.fallbacks, "default");
-assert.equal(pedidosIA[pedidosIA.length - 1].headers["anthropic-beta"], "server-side-fallback-2026-07-01");
+assert.equal(terceiro.model, "claude-haiku-5-5", "modelo padrão: o mais barato (08/10/2026)");
+assert.equal(terceiro.fallbacks, undefined, "o Haiku 5.5 não tem a nova tentativa do lado da Anthropic");
+assert.equal(pedidosIA[pedidosIA.length - 1].headers["anthropic-beta"], undefined);
 assert.deepEqual(terceiro.output_config, { effort: "medium" });
-assert.ok(terceiro.tools.some(t => t.name === "editar_etapa") && !terceiro.tools.some(t => /apagar/.test(t.name)), "não existe ferramenta de apagar");
+/* Apagar, só os textos da própria equipe que o Ali pediu (08/10/2026):
+   orientação da IA e ficha de produto. Lead, funil, etapa, tag, fluxo e
+   catraca continuam sem ferramenta de apagar. */
+assert.ok(terceiro.tools.some(t => t.name === "editar_etapa"));
+assert.deepEqual(terceiro.tools.filter(t => /apagar/.test(t.name)).map(t => t.name).sort(),
+  ["apagar_ficha_de_produto", "apagar_orientacao_da_ia"], "só apaga orientação e ficha");
 assert.equal(db.prepare("SELECT COUNT(*) n FROM assistente_acoes WHERE org_id = ? AND ferramenta = 'criar_funil' AND ok = 1").get(cliente).n, 1, "a ação fica registrada");
 assert.ok(db.prepare("SELECT COUNT(*) n FROM ia_uso WHERE org_id = ? AND recurso = 'assistente'").get(cliente).n >= 3, "o gasto entra no Uso da IA");
 
@@ -249,22 +257,265 @@ const ultimas = pedidosIA[pedidosIA.length - 1].corpo.messages;
 assert.equal(ultimas[ultimas.length - 1].content, "oi de novo");
 assert.equal(ultimas[ultimas.length - 2].role, "assistant", "alterna certo depois da recusa");
 
-caso("IA fora do ar: erro na tela, e o histórico não fica com pedido de ferramenta sem resposta");
+caso("IA fora do ar no meio do trabalho: erro na tela, e o que já foi feito FICA no histórico (08/10/2026)");
 roteiro.push(usa("tu_4", "ver_tags", {}));  // a segunda chamada não tem roteiro: a IA "cai"
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "lista as tags" });
 assert.ok(r.body.itens.some(i => i.de === "erro"));
-const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config'").get().mensagens);
-const fimHist = hist[hist.length - 1];
-assert.equal(fimHist.role, "assistant");
-assert.ok(!fimHist.content.some(b => b.type === "tool_use"));
+assert.equal(r.body.parou, false, "erro não continua sozinho");
+{
+  const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config'").get().mensagens);
+  const fimHist = hist[hist.length - 1];
+  // Termina no resultado da ferramenta: nenhum pedido sem resposta, e o feito não some.
+  assert.equal(fimHist.role, "user");
+  assert.ok(fimHist.content.some(b => b.type === "tool_result" && b.tool_use_id === "tu_4"));
+  assert.ok(hist[hist.length - 2].content.some(b => b.type === "tool_use" && b.id === "tu_4"));
+  // A próxima pergunta entra NA MESMA mensagem (duas falas seguidas da pessoa não valem).
+  roteiro.push(fala("Pronto, aqui estão."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "tenta de novo" });
+  const ult = pedidosIA[pedidosIA.length - 1].corpo.messages;
+  const m = ult[ult.length - 1];
+  assert.equal(m.role, "user");
+  assert.ok(m.content.some(b => b.type === "tool_result") && m.content.some(b => b.type === "text" && b.text === "tenta de novo"));
+  assert.equal(ult[ult.length - 2].role, "assistant");
+}
+
+/* ===== O CLAUDE DO GESTOR FAZ O TRABALHO DA GESTÃO (07/10/2026) ===== */
+const ultimoResultado = (pedido) => {
+  const m = pedido.messages[pedido.messages.length - 1];
+  return JSON.parse(m.content.find(b => b.type === "tool_result").content);
+};
+const locacao = db.prepare("SELECT id FROM pipelines WHERE org_id = ? AND name = 'Locação'").get(cliente).id;
+const etapasLoc = db.prepare("SELECT id, name FROM pipeline_stages WHERE pipeline_id = ? ORDER BY ordem").all(locacao);
+const [et1, et2, et3] = etapasLoc;
+
+caso("Gestor: as ferramentas de lead e a pesquisa vêm só no modo dele");
+roteiro.push(fala("Oi."));
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "oi" });
+{
+  const tools = pedidosIA[pedidosIA.length - 1].corpo.tools.map(t => t.name);
+  for (const t of ["buscar_leads", "mover_leads", "migrar_funil_da_pessoa", "repassar_leads", "etiquetar_leads", "finalizar_leads",
+    "criar_tarefa", "adicionar_observacao", "cadastrar_lead", "registrar_venda", "ver_numeros", "web_search"])
+    assert.ok(tools.includes(t), "falta " + t);
+  // Só orientação e ficha de produto se apagam (08/10/2026); nada fala com o cliente.
+  assert.ok(!tools.some(t => /excluir|enviar_mensagem|disparar/.test(t) || (/apagar/.test(t) && !["apagar_ficha_de_produto", "apagar_orientacao_da_ia"].includes(t))),
+    "nada de apagar lead/funil/fluxo nem de falar com o cliente");
+  assert.ok(/AÇÃO EM MASSA/.test(pedidosIA[pedidosIA.length - 1].corpo.system[0].text));
+}
+
+caso("Gestor move poucos leads direto, pela rota de mudar etapa (de funil, inclusive)");
+roteiro.push(usa("tu_l1", "mover_leads", { lead_ids: ["l_ana_dela", "l_ana_outra"], etapa_id: et2.id }), fala("Movi os dois."));
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "Põe as duas Anas em " + et2.name });
+assert.equal(r.status, 200, JSON.stringify(r.body));
+for (const id of ["l_ana_dela", "l_ana_outra"]) {
+  const l = db.prepare("SELECT stage_id, pipeline_id FROM leads WHERE id = ?").get(id);
+  assert.equal(l.stage_id, et2.id); assert.equal(l.pipeline_id, locacao);
+}
+assert.ok(r.body.itens.some(i => i.de === "acao" && /2 leads movidos/.test(i.texto)), JSON.stringify(r.body.itens));
+assert.ok(db.prepare("SELECT COUNT(*) n FROM lead_etapas WHERE lead_id = 'l_ana_dela' AND para_stage_id = ?").get(et2.id).n >= 1, "fica no histórico de etapas");
+
+caso("Ação em massa: prévia com código, e executar na MESMA pergunta é recusado");
+{
+  const ins = db.prepare(`INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,created_at) VALUES (?,?,?,?,?,?,?)`);
+  for (let i = 0; i < 13; i++) ins.run("l_massa_" + i, cliente, "Massa " + i, "558799900" + String(i).padStart(4, "0"), "Lead", "u_corretor", Date.now());
+}
+let codigo = null, recusaMesmaPergunta = null;
+roteiro.push(
+  usa("tu_l2", "mover_leads", { filtro: { texto: "Massa" }, etapa_id: et3.id }),
+  (pedido) => { const res = ultimoResultado(pedido); codigo = res.codigo; return usa("tu_l3", "mover_leads", { confirmacao: res.codigo }); },
+  (pedido) => { recusaMesmaPergunta = pedido.messages[pedido.messages.length - 1].content[0]; return fala("São 13 leads. Posso mover?"); },
+);
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "Move todos os Massa para " + et3.name });
+assert.ok(/^cf_/.test(codigo || ""), "a prévia devolve um código");
+assert.equal(recusaMesmaPergunta.is_error, true);
+assert.ok(/ainda não confirmou/.test(recusaMesmaPergunta.content), recusaMesmaPergunta.content);
+assert.equal(db.prepare("SELECT COUNT(*) n FROM leads WHERE id LIKE 'l_massa_%' AND stage_id = ?").get(et3.id).n, 0, "nada mudou antes da confirmação");
+assert.ok(r.body.itens.some(i => i.de === "aviso" && /mover 13 leads/.test(i.texto)), "a pessoa vê o que espera confirmação");
+
+caso("Confirmada na mensagem seguinte, executa EXATAMENTE a prévia — mesmo que venha outra etapa junto");
+roteiro.push(() => usa("tu_l4", "mover_leads", { confirmacao: codigo, etapa_id: et1.id }), fala("Pronto."));
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "pode" });
+assert.equal(db.prepare("SELECT COUNT(*) n FROM leads WHERE id LIKE 'l_massa_%' AND stage_id = ?").get(et3.id).n, 13, "foram para a etapa da prévia");
+assert.ok(r.body.itens.some(i => i.de === "acao" && /13 leads movidos/.test(i.texto)));
+// O código vale uma vez só.
+roteiro.push(() => usa("tu_l5", "mover_leads", { confirmacao: codigo }), fala("Já foi."));
+await api("u_gestora", "POST", "/assistente/mensagem", { texto: "de novo" });
+assert.ok(/não existe ou venceu/.test(pedidosIA[pedidosIA.length - 1].corpo.messages.slice(-1)[0].content[0].content));
+assert.ok(db.prepare("SELECT COUNT(*) n FROM assistente_acoes WHERE user_id='u_gestora' AND ferramenta='mover_leads' AND ok=1").get().n >= 2, "fica registrado");
+
+caso("Repassar, tag, tarefa e observação passam pelas rotas de sempre");
+{
+  const cor = (await api("u_gestora", "GET", "/tags")).body.cores[0];
+  assert.equal((await api("u_gestora", "POST", "/tags", { nome: "Investidor", cor })).status, 200);
+  const tagId = db.prepare("SELECT id FROM tags WHERE org_id = ? AND nome = 'Investidor'").get(cliente).id;
+  roteiro.push(
+    usa("tu_l6", "repassar_leads", { lead_ids: ["l_ana_dela"], para: "fila" }),
+    usa("tu_l7", "repassar_leads", { lead_ids: ["l_ana_outra"], para: "u_atendente" }),
+    usa("tu_l8", "etiquetar_leads", { lead_ids: ["l_ana_outra"], tag_id: tagId, acao: "colocar" }),
+    usa("tu_l9", "criar_tarefa", { lead_id: "l_ana_outra", titulo: "Ligar para a Ana", quando: "2026-12-01T10:00" }),
+    usa("tu_l10", "adicionar_observacao", { lead_id: "l_ana_outra", texto: "Quem decide é o marido." }),
+    fala("Feito."),
+  );
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "Organiza as Anas" });
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id='l_ana_dela'").get().assigned_to, null, "voltou para a fila");
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id='l_ana_outra'").get().assigned_to, "u_atendente");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM lead_tags WHERE lead_id='l_ana_outra' AND tag_id=?").get(tagId).n, 1);
+  const t = db.prepare("SELECT * FROM tarefas WHERE lead_id='l_ana_outra'").get();
+  assert.ok(t && t.titulo === "Ligar para a Ana" && t.user_id === "u_atendente", "tarefa no nome de quem está com o lead");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM observacoes WHERE lead_id='l_ana_outra' AND texto LIKE 'Quem decide%'").get().n, 1);
+  assert.equal(r.body.itens.filter(i => i.de === "acao").length, 5, JSON.stringify(r.body.itens));
+}
+
+caso("Migrar o funil de uma pessoa: sempre com prévia; cadastrar lead e registrar venda");
+{
+  const novoFunil = (await api("u_gestora", "POST", "/pipelines", { name: "Comercial 2", template: "recaptacao" })).body;
+  const funil2 = db.prepare("SELECT id FROM pipelines WHERE org_id = ? AND name = 'Comercial 2'").get(cliente).id;
+  assert.ok(novoFunil && funil2);
+  let cod = null;
+  roteiro.push(usa("tu_m1x", "migrar_funil_da_pessoa", { pessoa_id: "u_corretor", funil_id: funil2 }),
+    (pedido) => { cod = ultimoResultado(pedido).codigo; return fala("Vou levar os leads da Marina. Confirma?"); });
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "Leva os leads da Marina para o Comercial 2" });
+  assert.ok(/^cf_/.test(cod || ""));
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM leads WHERE assigned_to='u_corretor' AND pipeline_id=?").get(funil2).n, 0, "nada antes de confirmar");
+  assert.ok(r.body.itens.some(i => i.de === "aviso" && /Marina/.test(i.texto)));
+  roteiro.push(() => usa("tu_m2x", "migrar_funil_da_pessoa", { pessoa_id: "u_corretor", funil_id: funil2, confirmacao: cod }), fala("Feito."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "confirmo" });
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM leads WHERE assigned_to='u_corretor' AND pipeline_id <> ?").get(funil2).n, 0, "todos os da Marina no funil novo");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM leads WHERE id LIKE 'l_massa_%' AND assigned_to='u_corretor'").get().n, 13, "o responsável não muda");
+
+  roteiro.push(usa("tu_c1x", "cadastrar_lead", { nome: "Bruno Lima", telefone: "(87) 99876-5432", responsavel_id: "u_corretor" }), fala("Cadastrei."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "cadastra o Bruno" });
+  const bruno = db.prepare("SELECT * FROM leads WHERE org_id = ? AND name = 'Bruno Lima'").get(cliente);
+  assert.ok(bruno && bruno.phone === "5587998765432" && bruno.assigned_to === "u_corretor", "mesma normalização do cadastro na mão");
+  roteiro.push(usa("tu_v1x", "registrar_venda", { lead_id: bruno.id, valor: 250000, data: "2026-10-07" }), fala("Venda registrada."));
+  await api("u_gestora", "POST", "/assistente/mensagem", { texto: "o Bruno comprou por 250 mil" });
+  assert.equal(db.prepare("SELECT sale_value FROM leads WHERE id = ?").get(bruno.id).sale_value, 250000);
+}
+
+caso("Texto longo e arquivos: o gestor manda; o corretor e a atendente não");
+r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "x".repeat(4001) });
+assert.equal(r.status, 400); assert.ok(/máximo é 4\.000/.test(r.body.error), r.body.error);
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+r = await api("u_corretor", "POST", "/assistente/mensagem", { texto: "olha", anexos: [{ nome: "p.png", tipo: "image/png", dados: PNG }] });
+assert.equal(r.status, 403);
+assert.equal((await api("u_atendente", "POST", "/assistente/mensagem", { texto: "olha", anexos: [{ nome: "p.png", tipo: "image/png", dados: PNG }] })).status, 403);
+assert.equal((await api("u_gestora", "GET", "/assistente")).body.anexos, true);
+assert.equal((await api("u_corretor", "GET", "/assistente")).body.anexos, false);
+await api("u_gestora", "POST", "/assistente/nova");  // conversa nova: a anterior passou de 60 mensagens e recomeçaria no meio do caso
+roteiro.push(fala("Li tudo."));
+const longo = "Monte assim: " + "etapa ".repeat(4000);
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: longo, anexos: [
+  { nome: "print.png", tipo: "image/png", dados: PNG },
+  { nome: "tabela.pdf", tipo: "application/pdf", dados: Buffer.from("%PDF-1.4 teste").toString("base64") },
+  { nome: "leads.csv", tipo: "text/csv", dados: Buffer.from("nome;telefone\nAna;87999\n").toString("base64") },
+  { nome: "visita.mp4", tipo: "video/mp4", duracao: 12, quadros: [{ em: 2, dados: PNG }, { em: 8, dados: PNG }] },
+] });
+assert.equal(r.status, 200, JSON.stringify(r.body));
+{
+  const msg = pedidosIA[pedidosIA.length - 1].corpo.messages.slice(-1)[0];
+  assert.ok(Array.isArray(msg.content));
+  assert.equal(msg.content[msg.content.length - 1].text, longo.trim(), "o texto longo chega inteiro, depois dos arquivos");
+  assert.equal(msg.content.filter(b => b.type === "image").length, 3, "o print e as duas cenas do vídeo");
+  assert.ok(msg.content.some(b => b.type === "document" && b.source.media_type === "application/pdf" && b.title === "tabela.pdf"));
+  const csv = msg.content.find(b => b.type === "document" && b.title === "leads.csv");
+  assert.ok(csv && csv.source.type === "text" && /Ana\t87999/.test(csv.source.data), "a planilha vira texto");
+  assert.ok(msg.content.some(b => b.type === "text" && /NÃO assiste ao vídeo/.test(b.text)), "a IA sabe que só viu cenas");
+  const eu = r.body.itens.find(i => i.de === "voce");
+  assert.deepEqual(eu.anexos.map(a => a.nome), ["print.png", "tabela.pdf", "leads.csv", "visita.mp4"], "a tela guarda só os nomes");
+}
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "ouve", anexos: [{ nome: "a.ogg", tipo: "audio/ogg", dados: PNG }] });
+assert.equal(r.status, 400); assert.ok(/não consigo ouvir/i.test(r.body.error));
+r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "lê", anexos: [{ nome: "c.docx", tipo: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", dados: PNG }] });
+assert.equal(r.status, 400); assert.ok(/PDF/.test(r.body.error));
+assert.equal((await api("u_gestora", "POST", "/assistente/mensagem", { texto: "x".repeat(30001) })).status, 400);
+
+caso("Arquivos antigos NÃO são apagados do histórico (seria edição): o histórico vai como estava (08/10/2026)");
+roteiro.push(fala("Ok 2."), fala("Ok 3."));
+await api("u_gestora", "POST", "/assistente/mensagem", { texto: "segunda", anexos: [{ nome: "b.png", tipo: "image/png", dados: PNG }] });
+const antesDaTerceira = pedidosIA[pedidosIA.length - 1].corpo.messages;
+await api("u_gestora", "POST", "/assistente/mensagem", { texto: "terceira", anexos: [{ nome: "c.png", tipo: "image/png", dados: PNG }] });
+{
+  const msgs = pedidosIA[pedidosIA.length - 1].corpo.messages;
+  // O começo do pedido novo é EXATAMENTE o pedido anterior: nada foi editado.
+  assert.equal(JSON.stringify(msgs.slice(0, antesDaTerceira.length)), JSON.stringify(antesDaTerceira));
+  assert.ok(msgs.filter(m => m.role === "assistant").every(m => m.content[0].signature === "assinatura-secreta-123"), "as falas da IA não são mexidas");
+}
+
+caso("Parou no meio (resposta cortada): fica pendente e a continuação segue sem gastar pergunta do mês");
+{
+  roteiro.push({ stop_reason: "max_tokens", content: [pensa, { type: "text", text: "Começando o funil grande…" }] });
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "monta tudo" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.parou, true, "a tela vai pedir para continuar");
+  assert.equal((await api("u_gestora", "GET", "/assistente")).body.parou, true, "reabrir o painel mostra que ficou no meio");
+  const turnos = db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora'").get().n;
+  roteiro.push(fala("Terminei o funil."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.parou, false);
+  assert.ok(r.body.itens.some(i => i.de === "assistente" && /Terminei/.test(i.texto)));
+  assert.ok(!r.body.itens.some(i => i.de === "voce"), "a continuação não aparece como fala da pessoa");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora'").get().n, turnos, "não conta no limite do mês");
+  const ult = pedidosIA[pedidosIA.length - 1].corpo.messages;
+  assert.ok(/continuação automática/.test(JSON.stringify(ult[ult.length - 1].content)));
+  // Sem nada pendente, continuar não chama a IA.
+  const n = pedidosIA.length;
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.status, 200);
+  assert.equal(pedidosIA.length, n);
+}
+
+caso("Trabalho longo (teto de passos de uma vez): o feito fica, e a continuação segue dali");
+{
+  for (let i = 0; i < 25; i++) roteiro.push(usa("tu_l" + i, "ver_tags", {}));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "confere as tags 25 vezes" });
+  assert.equal(r.body.parou, true);
+  const hist = JSON.parse(db.prepare("SELECT mensagens FROM assistente_conversas WHERE user_id = 'u_gestora' AND tipo = 'config' ORDER BY updated_at DESC LIMIT 1").get().mensagens);
+  assert.ok(hist[hist.length - 1].content.some(b => b.tool_use_id === "tu_l24"), "o último passo feito continua no histórico: " + JSON.stringify(hist.slice(-2)).slice(0, 600));
+  roteiro.push(fala("Conferi todas."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { continuar: true });
+  assert.equal(r.body.parou, false);
+  const m = pedidosIA[pedidosIA.length - 1].corpo.messages.slice(-1)[0];
+  assert.ok(m.content.some(b => b.tool_use_id === "tu_l24") && m.content.some(b => /continuação automática/.test(b.text || "")));
+}
+
+caso("Conversa grande é RESUMIDA, não apagada: o resumo abre a conversa nova (08/10/2026)");
+{
+  db.prepare("UPDATE assistente_conversas SET contexto_tokens = 90000 WHERE user_id = 'u_gestora' AND tipo = 'config'").run();
+  roteiro.push(fala("- Pedido: montar funil\n- Feito: funil criado"), fala("Seguindo daqui."));
+  const n = pedidosIA.length;
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "e agora?" });
+  assert.equal(r.status, 200);
+  assert.equal(pedidosIA.length - n, 2, "uma chamada para resumir, outra para responder");
+  const resumo = pedidosIA[n].corpo;
+  assert.deepEqual(resumo.tool_choice, { type: "none" }, "o resumo não chama ferramenta");
+  assert.ok(/RESUMO desta conversa/.test(JSON.stringify(resumo.messages[resumo.messages.length - 1].content)));
+  const depois = pedidosIA[n + 1].corpo;
+  assert.equal(depois.messages.length, 1, "a conversa recomeça do resumo");
+  assert.ok(/Feito: funil criado/.test(JSON.stringify(depois.messages[0].content)) && /e agora\?/.test(JSON.stringify(depois.messages[0].content)));
+  assert.ok(!JSON.stringify(depois.messages).includes("thinking"), "nenhum raciocínio antigo vai junto");
+  assert.ok(r.body.itens.some(i => i.de === "sistema" && /resumi/.test(i.texto)));
+}
 
 caso("Teto do mês: passado o limite, o assistente recusa com a frase certa");
 const ins = db.prepare("INSERT INTO assistente_turnos (id,org_id,user_id,tipo,created_at) VALUES (?,?,?,?,?)");
-for (let i = 0; i < 200; i++) ins.run("x" + i, cliente, "u_gestora", "config", Date.now());
+for (let i = 0; i < 1000; i++) ins.run("x" + i, cliente, "u_gestora", "config", Date.now());
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "mais uma" });
 assert.equal(r.status, 409);
-assert.ok(/limite/.test(r.body.error));
+assert.ok(/limite de 1000/.test(r.body.error), "o padrão do gestor é 1000 por mês (10/10/2026)");
 db.prepare("DELETE FROM assistente_turnos WHERE id LIKE 'x%'").run();
+
+caso("A IA falha antes de responder: a pergunta NÃO conta no teto do mês (10/10/2026)");
+{
+  const contar = () => db.prepare("SELECT COUNT(*) n FROM assistente_turnos WHERE user_id = 'u_gestora' AND tipo = 'config'").get().n;
+  const antes = contar();
+  // Roteiro vazio: a primeira chamada à IA "cai".
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "pergunta que falha" });
+  assert.ok(r.body.itens.some(i => i.de === "erro"));
+  assert.equal(contar(), antes, "pergunta sem resposta é devolvida");
+  roteiro.push(fala("Agora sim."));
+  r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "de novo" });
+  assert.equal(contar(), antes + 1, "pergunta respondida conta");
+}
 
 caso("Nuvem de suporte: a IA responde e, sem solução, oferece a pessoa com o resumo");
 roteiro.push(

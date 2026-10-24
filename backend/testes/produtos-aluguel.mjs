@@ -107,5 +107,44 @@ r = await fetch(`${BASE}/produtos/${idAluguel}`, { headers: { authorization: "Be
 console.log(`   ${r.status}`);
 assert.equal(r.status, 404);
 
+console.log("8. O corretor fecha o imóvel que ELE captou: vendido na venda, alugado no aluguel (12/10/2026)");
+const apiC = (path, body) => fetch(`${BASE}/produtos${path}`, { method: "POST", headers: authCorretor, body: JSON.stringify(body) })
+  .then(async r => ({ status: r.status, body: await r.json() }));
+const cria = (dados) => api("/", { method: "POST", body: JSON.stringify({ tipo: "casa", formato: "solta", cidade: "Petrolina", ...dados }) }).then(r => r.body.id);
+// A gestora cadastra a captação do Bruno (o captador é ele) — vale a captação, não quem digitou.
+const vendaBruno = await cria({ titulo: "Casa que o Bruno captou", captador_id: corretor });
+const aluguelBruno = await cria({ titulo: "Aluguel que o Bruno captou", finalidade: "aluguel", captador_id: corretor });
+const vendaGestora = await cria({ titulo: "Casa que a gestora captou" });
+
+r = await apiC(`/${vendaBruno}/status`, { status: "alugado" });
+console.log(`   alugado num imóvel de venda: ${r.status} · ${r.body.error}`);
+assert.equal(r.status, 403);
+r = await apiC(`/${vendaBruno}/status`, { status: "inativo" });
+assert.equal(r.status, 403, "o corretor só fecha o negócio; outras situações são da gestão");
+r = await apiC(`/${vendaBruno}/status`, { status: "vendido" });
+assert.equal(r.status, 200);
+r = await apiC(`/${aluguelBruno}/status`, { status: "vendido" });
+assert.equal(r.status, 403);
+r = await apiC(`/${aluguelBruno}/status`, { status: "alugado" });
+assert.equal(r.status, 200);
+assert.equal(db.prepare("SELECT status FROM produtos WHERE id=?").get(vendaBruno).status, "vendido");
+assert.equal(db.prepare("SELECT status FROM produtos WHERE id=?").get(aluguelBruno).status, "alugado");
+
+console.log("9. Desfazer e mexer no imóvel de outra pessoa continuam sendo da gestão");
+r = await apiC(`/${vendaBruno}/status`, { status: "ativo" });
+assert.equal(r.status, 403, "reabrir é da gestão");
+r = await apiC(`/${vendaGestora}/status`, { status: "vendido" });
+console.log(`   imóvel que outra pessoa captou: ${r.status} · ${r.body.error}`);
+assert.equal(r.status, 403);
+assert.equal(db.prepare("SELECT status FROM produtos WHERE id=?").get(vendaGestora).status, "ativo");
+// O corretor que CADASTRA o próprio imóvel: nasce aguardando aprovação e não fecha antes de publicado.
+const r0 = await fetch(`${BASE}/produtos`, { method: "POST", headers: authCorretor,
+  body: JSON.stringify({ tipo: "casa", formato: "solta", cidade: "Petrolina", titulo: "Ainda não aprovado" }) }).then(x => x.json());
+assert.equal(r0.status, "aguardando_aprovacao");
+r = await apiC(`/${r0.id}/status`, { status: "vendido" });
+assert.equal(r.status, 403);
+r = await api(`/${vendaBruno}/status`, { method: "POST", body: JSON.stringify({ status: "ativo" }) });
+assert.equal(r.status, 200, "a gestão continua mudando qualquer situação");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

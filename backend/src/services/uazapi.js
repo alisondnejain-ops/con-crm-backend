@@ -414,6 +414,27 @@ export async function editMessage({ orgId, canalId = null, messageid, text }) {
   throw new Error("Esta conta da Uazapi não tem como editar mensagem enviada (nenhum dos endereços conhecidos existe).");
 }
 
+/* APAGAR PARA TODOS (15/10/2026). Mesma régua da edição: endereço que não
+   existe devolve 404 e passamos para o próximo; qualquer outra recusa para. A
+   uazapiGO chama de `/message/delete`; os outros nomes são de versões antigas. */
+const CAMINHOS_APAGAR = ["/message/delete", "/message/revoke", "/send/delete"];
+export async function deleteMessage({ orgId, canalId = null, messageid, toPhone }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.deleteMessage();
+  if (!uazapiConfigured(orgId, canalId)) return { ok: false, simulated: true };
+  const tentativas = [];
+  for (const caminho of CAMINHOS_APAGAR) {
+    try {
+      const r = await call(orgId, caminho, { id: messageid, messageid, number: toPhone, forEveryone: true }, canalId);
+      return { ok: true, caminho, data: r.data };
+    } catch (e) {
+      tentativas.push(`${caminho}: ${e.message.slice(0, 120)}`);
+      if (!/\b404\b/.test(e.message)) throw e;
+    }
+  }
+  throw new Error("Esta conta da Uazapi não tem como apagar mensagem enviada (nenhum dos endereços conhecidos existe).");
+}
+
 /* A ASSINATURA EXISTE POR CAUSA DO NÚMERO ÚNICO — e some quando ele não é único.
 
    `*Marina:*` na frente da mensagem nasceu de uma necessidade só: todo mundo
@@ -443,6 +464,19 @@ function assinar(text, signedBy, canal) {
    trecho citado escrito em cima. Fica mais feio, mas o cliente continua
    sabendo do que se está falando — e o corretor não perde a mensagem por
    causa de um recurso que a API não tem. */
+/* MODELO APROVADO DA META (08/10/2026). Só existe na API oficial. Numa linha
+   da Uazapi não há modelo — lá texto livre sai a qualquer hora —, então vai o
+   texto do modelo já preenchido, como mensagem comum. `texto` é esse texto. */
+export async function sendTemplate({ orgId, canalId = null, toPhone, nome, idioma, variaveis = [], texto }) {
+  const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
+  if (canalAlvo?.provider === "meta") return oficial.sendTemplate({ canal: canalAlvo, toPhone, nome, idioma, variaveis });
+  if (!String(texto || "").trim()) throw new Error("O modelo está sem texto para enviar nesta linha.");
+  return sendText({ orgId, canalId, toPhone, text: texto });
+}
+export function linhaDaMeta(orgId) {
+  return db.prepare("SELECT * FROM canais WHERE org_id = ? AND provider = 'meta' AND token IS NOT NULL ORDER BY CASE tipo WHEN 'imobiliaria' THEN 0 ELSE 1 END LIMIT 1").get(orgId) || null;
+}
+
 export async function sendText({ orgId, canalId = null, toPhone, text, signedBy, replyTo, quotedText }) {
   const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
   if (canalAlvo?.provider === "meta") return oficial.sendText({ canal: canalAlvo, toPhone, text, signedBy, replyTo });

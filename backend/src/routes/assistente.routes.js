@@ -18,7 +18,7 @@ import { authRequired, soMaster, ehDonoAutonomo } from "../auth.js";
 import { daEquipeConHub } from "../services/interno.js";
 import {
   conversar, conversaAtual, novaConversa, itensDa, disponibilidade,
-  FERRAMENTAS_CONFIG, executorDeConfig, sistemaDeConfig,
+  ferramentasDeConfig, executorDeConfig, sistemaDeConfig,
   FERRAMENTAS_CONSULTA, executorDeConsulta, sistemaDeConsulta, menuDoCorpo,
 } from "../services/assistente.js";
 import {
@@ -26,6 +26,7 @@ import {
   chamadoAberto, mensagensDo, abrirChamado, mensagemDoCliente, fecharChamado,
   respostaDoSuporte, configDoSuporte, salvarConfig, testarEnvio, chamadosParaOHub, chamadosEsperando,
 } from "../services/suporte.js";
+import { montarAnexos } from "../services/assistente-anexos.js";
 
 const orgDe = (orgId) => db.prepare("SELECT id, name, tipo FROM orgs WHERE id = ?").get(orgId);
 const textoDoCorpo = (req) => String(req.body?.texto || "").trim().slice(0, 4000);
@@ -41,36 +42,69 @@ const modoDe = (user) => (configura(user) ? "config" : "consulta");
 
 assistente.get("/", (req, res) => {
   const modo = modoDe(req.user);
-  res.json({ ...disponibilidade(req.user, modo), modo, itens: itensDa(conversaAtual(req.user.id, modo)) });
+  const c = conversaAtual(req.user.id, modo);
+  // `parou`: o último trabalho ficou no meio — a tela oferece continuar.
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: itensDa(c), parou: !!(c && c.pendente),
+    teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
 assistente.post("/nova", (req, res) => {
   const modo = modoDe(req.user);
   novaConversa(req.user, modo);
-  res.json({ ...disponibilidade(req.user, modo), modo, itens: [] });
+  res.json({ ...disponibilidade(req.user, modo), modo, itens: [], teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
+/* O GESTOR ESCREVE MAIS E MANDA ARQUIVO (07/10/2026, pedido do Ali — "essa
+   liberdade maior é apenas para gestores"). O teto do texto e os anexos são
+   decididos AQUI, pelo modo: a tela só esconde o botão, e esconder botão não
+   é trava. Texto acima do teto é recusado com a frase, não cortado calado —
+   cortar faria a IA responder a um pedido que não é o que a pessoa escreveu. */
+export const TETO_TEXTO = { config: 30000, consulta: 4000 };
+
+// O que cada modo leva para a conversa — o mesmo na pergunta e na continuação.
+function parametrosDoModo(modo, user, conversa, autorizacao, menu) {
+  return modo === "config" ? {
+    conversa, user, tipo: "config", effort: "medium", voltas: 25,
+    system: sistemaDeConfig(user, orgDe(user.org_id)),
+    tools: ferramentasDeConfig(),
+    executar: executorDeConfig({ autorizacao, user, conversaId: conversa.id, menu }),
+  } : {
+    conversa, user, tipo: "consulta", effort: "medium", voltas: 15,
+    system: sistemaDeConsulta(user, orgDe(user.org_id)),
+    tools: FERRAMENTAS_CONSULTA(),
+    executar: executorDeConsulta({ autorizacao, user, conversaId: conversa.id, menu }),
+  };
+}
 assistente.post("/mensagem", async (req, res) => {
   const modo = modoDe(req.user);
-  const texto = textoDoCorpo(req);
+  /* CONTINUAÇÃO AUTOMÁTICA (08/10/2026): o trabalho da pergunta anterior
+     parou pelo tempo de uma requisição e a tela pede para seguir. Não é
+     pergunta nova: não traz texto nem arquivo e não conta no limite do mês —
+     o trabalho já foi pago quando a pessoa perguntou. */
+  if (req.body?.continuar === true) {
+    const conversa = conversaAtual(req.user.id, modo);
+    if (!conversa || !conversa.pendente) return res.json({ itens: [], parou: false, falhou: false, ...disponibilidade(req.user, modo), modo });
+    const autorizacao = req.headers.authorization;
+    const menu = menuDoCorpo(req.body?.menu);
+    const r = await conversar({ ...parametrosDoModo(modo, req.user, conversa, autorizacao, menu), continuar: true, texto: "" });
+    return res.json({ ...r, ...disponibilidade(req.user, modo), modo, teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
+  }
+  const bruto = String(req.body?.texto || "").trim();
+  const teto = TETO_TEXTO[modo];
+  if (bruto.length > teto) return res.status(400).json({ error: `O texto tem ${bruto.length.toLocaleString("pt-BR")} caracteres; o máximo é ${teto.toLocaleString("pt-BR")}.` });
+  const temAnexos = Array.isArray(req.body?.anexos) && req.body.anexos.length > 0;
+  if (temAnexos && modo !== "config") return res.status(403).json({ error: "Mandar arquivos para o Claude é só da gestão." });
+  const anexos = temAnexos ? montarAnexos(req.body.anexos) : null;
+  if (anexos?.erro) return res.status(400).json({ error: anexos.erro });
+  const texto = bruto || (temAnexos ? "(sem texto — veja o que mandei)" : "");
   if (!texto) return res.status(400).json({ error: modo === "config" ? "Escreva o que você quer configurar." : "Escreva a sua pergunta." });
   const disp = disponibilidade(req.user, modo);
   if (!disp.disponivel) return res.status(409).json({ error: disp.motivo });
   const conversa = conversaAtual(req.user.id, modo) || novaConversa(req.user, modo);
   const autorizacao = req.headers.authorization;
   const menu = menuDoCorpo(req.body?.menu);
-  const r = await conversar(modo === "config" ? {
-    conversa, user: req.user, tipo: "config", texto, effort: "medium",
-    system: sistemaDeConfig(req.user, orgDe(req.user.org_id)),
-    tools: FERRAMENTAS_CONFIG,
-    executar: executorDeConfig({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
-  } : {
-    conversa, user: req.user, tipo: "consulta", texto, effort: "medium",
-    system: sistemaDeConsulta(req.user, orgDe(req.user.org_id)),
-    tools: FERRAMENTAS_CONSULTA(),
-    executar: executorDeConsulta({ autorizacao, user: req.user, conversaId: conversa.id, menu }),
-  });
-  res.json({ ...r, ...disponibilidade(req.user, modo), modo });
+  const r = await conversar({ ...parametrosDoModo(modo, req.user, conversa, autorizacao, menu), texto, anexos });
+  res.json({ ...r, ...disponibilidade(req.user, modo), modo, teto_texto: TETO_TEXTO[modo], anexos: modo === "config" });
 });
 
 /* ===== NUVEM DE SUPORTE ===== */

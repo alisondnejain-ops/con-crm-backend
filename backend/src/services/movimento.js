@@ -34,6 +34,7 @@ import { moverEtapa, camposQueFaltam } from "./etapas.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
 import { pegarProximoDoLead, marcarQueRecebeuNoLead, catracaDaEtapa } from "./catracas.js";
 import { avisar } from "./push.js";
+import { marcarTag, desmarcarTag, tagComNome } from "./tags.js";
 
 /* Resolve o destino aceitando nome OU id.
 
@@ -92,7 +93,10 @@ export function moverLead({ leadId, para = null, paraEtapaId = null, motivo = "m
   let depois = null;
   if (!daCatraca?.responsavel && automacao.responsavel === undefined && automacao.stage_id && automacao.stage_id !== destino?.id)
     depois = acionarCatraca(lead.id, automacao.stage_id, userId);
-  return { ok: true, mudou: true, stage: nomeDestino, stage_id: destino?.id || null, ...automacao, ...(daCatraca || {}), ...(depois || {}) };
+  // 5. Etiquetas da etapa — por último, para a do corretor sair com o dono final.
+  const etiquetas = destino ? aplicarEtiquetas(lead.id, destino) : null;
+  return { ok: true, mudou: true, stage: nomeDestino, stage_id: destino?.id || null, ...automacao, ...(daCatraca || {}), ...(depois || {}),
+    ...(etiquetas?.aviso && !automacao.aviso && !daCatraca?.aviso && !depois?.aviso ? { aviso: etiquetas.aviso } : {}) };
 }
 
 /* ===== A ETAPA QUE ACIONA UMA CATRACA (03/10/2026) =====
@@ -175,11 +179,24 @@ function rodarAutomacao(lead, etapa, userId, { semResponsavel = false } = {}) {
     } else if (cfg.distribuir) {
       /* O rodízio é o da catraca do produto do lead, quando ele tem uma
          (03/10/2026); senão, ou sem ninguém disponível nela, o principal. */
-      const novo = cfg.distribuir === "rodizio"
-        ? pegarProximoDoLead(lead.org_id, lead).userId
-        : validarPessoa(lead.org_id, cfg.distribuir);
+      let alvo = lead, reserva = false;
+      /* Catraca de produto escolhida na etapa (08/10/2026): o lead passa a
+         lembrá-la (é ela que o próximo repasse usa) e vai ao próximo dela. */
+      if (cfg.distribuir === "catraca" && cfg.catraca_id) {
+        if (db.prepare("SELECT 1 FROM catracas WHERE id = ? AND org_id = ? AND ativa = 1").get(cfg.catraca_id, lead.org_id)) {
+          db.prepare("UPDATE leads SET catraca_id = ? WHERE id = ?").run(cfg.catraca_id, lead.id);
+          alvo = { ...lead, catraca_id: cfg.catraca_id };
+        } else resultado.aviso = "A catraca escolhida nesta etapa foi desativada — o lead foi pela catraca principal.";
+      }
+      let novo;
+      if (cfg.distribuir === "rodizio" || cfg.distribuir === "catraca") {
+        const vez = pegarProximoDoLead(lead.org_id, alvo);
+        novo = vez.userId; reserva = !!vez.reserva;
+      } else novo = validarPessoa(lead.org_id, cfg.distribuir);
+      if (novo && reserva && cfg.distribuir === "catraca")
+        resultado.aviso = "Ninguém da catraca desta etapa estava disponível — o lead foi pela catraca principal.";
       if (novo) {
-        if (cfg.distribuir !== "rodizio") marcarQueRecebeuNoLead(lead.org_id, lead, novo);
+        if (cfg.distribuir !== "rodizio" && cfg.distribuir !== "catraca") marcarQueRecebeuNoLead(lead.org_id, lead, novo);
         trocarResponsavel(lead, novo, userId, "automatica");
         resultado.responsavel = novo;
         resultado.responsavel_nome = db.prepare("SELECT name FROM users WHERE id = ?").get(novo)?.name || null;
@@ -188,7 +205,7 @@ function rodarAutomacao(lead, etapa, userId, { semResponsavel = false } = {}) {
            O lead entrou na etapa e não tem dono: sem esta frase ele fica na
            fila parecendo distribuído, e ninguém descobre até o cliente
            reclamar. */
-        resultado.aviso = cfg.distribuir === "rodizio"
+        resultado.aviso = cfg.distribuir === "rodizio" || cfg.distribuir === "catraca"
           ? "Ninguém está disponível no rodízio agora — o lead entrou na etapa sem responsável."
           : "A pessoa configurada nesta etapa não está mais ativa — o lead entrou sem responsável.";
       }
@@ -198,6 +215,32 @@ function rodarAutomacao(lead, etapa, userId, { semResponsavel = false } = {}) {
     resultado.aviso = "A automação desta etapa não pôde ser aplicada. O lead foi movido mesmo assim.";
   }
   return resultado;
+}
+
+/* ===== ETIQUETAS DA ETAPA (08/10/2026) =====
+   `adicionar_tags`, `remover_tags` e `tag_do_corretor` na automação da etapa:
+   a etiqueta por etapa e a de follow-up sem precisar de fluxo. A do corretor
+   leva o nome de quem ficou com o lead DEPOIS da catraca e da automação —
+   lead sem dono não ganha etiqueta nenhuma. Nunca lança. */
+function aplicarEtiquetas(leadId, etapa) {
+  const cfg = etapa.automation_config || {};
+  if (!cfg.adicionar_tags && !cfg.remover_tags && !cfg.tag_do_corretor) return null;
+  try {
+    const lead = db.prepare("SELECT id, org_id, assigned_to FROM leads WHERE id = ?").get(leadId);
+    if (!lead) return null;
+    for (const t of cfg.remover_tags || []) desmarcarTag(lead.org_id, lead.id, t);
+    for (const t of cfg.adicionar_tags || []) marcarTag(lead.org_id, lead.id, t, null);
+    if (cfg.tag_do_corretor && lead.assigned_to) {
+      const nome = db.prepare("SELECT name FROM users WHERE id = ?").get(lead.assigned_to)?.name;
+      const t = nome ? tagComNome(lead.org_id, nome) : null;
+      if (t?.erro) return { aviso: `A etiqueta do corretor não foi colocada: ${t.erro}` };
+      if (t?.id) marcarTag(lead.org_id, lead.id, t.id, null);
+    }
+    return {};
+  } catch (e) {
+    console.error("[movimento] etiquetas da etapa falharam:", e.message);
+    return { aviso: "As etiquetas desta etapa não puderam ser aplicadas. O lead foi movido mesmo assim." };
+  }
 }
 
 const validarPessoa = (orgId, userId) =>

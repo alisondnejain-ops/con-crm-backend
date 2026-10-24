@@ -26,11 +26,28 @@
 const CHAVE = process.env.ANTHROPIC_API_KEY || "";
 // Haiku dá conta de ler números de uma tela e custa uma fração de centavo por
 // print. Trocável por variável se um dia precisar de mais precisão.
-const MODELO = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+// Lido a cada chamada: trocar a variável no Railway vale no próximo start, e o
+// teste consegue trocar de modelo sem reimportar o arquivo.
+const modeloAtual = () => (process.env.ANTHROPIC_MODEL || "").trim() || "claude-haiku-4-5-20251001";
 
 export const iaConfigurada = () => !!CHAVE;
 // Qual modelo está atendendo. Só para o diagnóstico — a chave nunca sai daqui.
-export const modeloIA = () => MODELO;
+export const modeloIA = () => modeloAtual();
+
+/* OS MODELOS DA FAMÍLIA 5 PENSAM ANTES DE RESPONDER, POR PADRÃO (09/10/2026,
+   relato do Ali depois de trocar ANTHROPIC_MODEL para o Sonnet 5.5: "só envia
+   a primeira mensagem"). O raciocínio sai do MESMO limite (`max_tokens`) que a
+   resposta: com 500, o "Oi" cabia, e na segunda mensagem — mais conversa para
+   pensar — o raciocínio comia o limite, o JSON saía cortado e o robô ficava
+   calado ("a IA respondeu fora do formato"), sem nada na tela.
+
+   Para estes modelos: limite folgado (só se paga o que é usado) e esforço
+   baixo — são respostas de uma ou duas frases, e cada segundo pensando é um
+   segundo a mais com o cliente esperando. No Sonnet 5.5 o raciocínio é
+   desligado (`between_tools`, o modo sem pensar dele). O Haiku 4.5, padrão
+   daqui, não tem nada disso e mandar os campos daria erro. */
+const PENSA_POR_PADRAO = (m) => /claude-(opus|sonnet|haiku|fable)-5/.test(m);
+const LIMITE_COM_RACIOCINIO = 4000;
 
 /* Uma chamada ao modelo, sem SDK — do mesmo jeito que o e-mail fala com o
    Resend. Fica separada porque agora tem mais de um uso (ler o print da
@@ -42,6 +59,8 @@ export const modeloIA = () => MODELO;
    que derruba o manual é pior do que não existir. */
 async function perguntar({ content, max_tokens = 600, system }) {
   if (!iaConfigurada()) return { ok: false, erro: "IA não configurada." };
+  const MODELO = modeloAtual();
+  const pensa = PENSA_POR_PADRAO(MODELO);
   let res;
   try {
     res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -53,7 +72,9 @@ async function perguntar({ content, max_tokens = 600, system }) {
       },
       body: JSON.stringify({
         model: MODELO,
-        max_tokens,
+        max_tokens: pensa ? Math.max(max_tokens, LIMITE_COM_RACIOCINIO) : max_tokens,
+        ...(pensa ? { output_config: { effort: "low" } } : {}),
+        ...(/claude-sonnet-5-5/.test(MODELO) ? { thinking: { type: "between_tools" } } : {}),
         ...(system ? { system } : {}),
         messages: [{ role: "user", content }],
       }),
@@ -67,6 +88,16 @@ async function perguntar({ content, max_tokens = 600, system }) {
     const msg = corpo?.error?.message || `HTTP ${res.status}`;
     console.warn("[ia] chamada falhou:", msg);
     return { ok: false, erro: res.status === 401 ? "Chave da IA inválida." : "A IA falhou: " + msg };
+  }
+  /* Resposta cortada ou recusada vem com HTTP 200. Sem conferir o motivo, o
+     pedaço de JSON virava "fora do formato" e ninguém sabia que era o limite. */
+  if (corpo.stop_reason === "max_tokens") {
+    console.warn(`[ia] resposta cortada pelo limite de tamanho (${MODELO}, max_tokens ${pensa ? Math.max(max_tokens, LIMITE_COM_RACIOCINIO) : max_tokens})`);
+    return { ok: false, erro: "A resposta da IA saiu cortada (limite de tamanho)." };
+  }
+  if (corpo.stop_reason === "refusal") {
+    console.warn(`[ia] o modelo recusou responder (${MODELO})`);
+    return { ok: false, erro: "A IA recusou responder a esta conversa." };
   }
   const texto = (corpo.content || []).filter(c => c.type === "text").map(c => c.text).join("").trim();
   // Quanto custou. Vai para o log e para o diagnóstico: gasto de IA que
@@ -381,20 +412,11 @@ export async function temperaturaDaConversa({ mensagens, nome }) {
 
    Este é o único lugar do CRM em que a IA FALA COM O CLIENTE. Todo o resto —
    resumo, etapa, temperatura — é leitura para gente de dentro ler. Aqui o
-   texto sai pelo WhatsApp da Conecta, com o nome da Conecta, e não tem
-   desfazer. Por isso o prompt é mais uma lista de proibições do que de
-   instruções.
+   texto sai pelo WhatsApp da imobiliária, com o nome dela, e não tem desfazer.
 
-   A missão é estreita de propósito: ACOLHER e COLHER. Ele conversa como
-   gente, pergunta as cinco informações que o formulário do Meta pergunta, e
-   encerra dizendo que a atendente confere e encaminha. Ele não vende, não
-   calcula, não agenda e não promete — não porque a IA erraria a conta, mas
-   porque uma parcela dita de madrugada por um robô vira promessa que a
-   Conecta tem que desmontar na frente do cliente depois.
-
-   O texto ainda passa por um filtro de palavras antes de sair (`services/
-   robo.js`): a resposta pode ser ótima e mesmo assim conter a palavra que faz
-   o funil andar sozinho. */
+   O que ela pode e não pode dizer é definido por CADA CONTA, nas orientações
+   (Configurações → Autoatendimento). O texto fixo daqui só ensina a conversar
+   e a não inventar o que não está escrito. */
 
 // Os cinco campos da ficha — os mesmos que o formulário do Meta preenche.
 /* Os campos mudam conforme a pessoa quer COMPRAR ou ALUGAR.
@@ -421,64 +443,39 @@ const CAMPOS_ROBO = [...new Set([...CAMPOS_SIMULACAO, ...CAMPOS_ALUGUEL, "finali
 
    A cidade saiu junto, pelo mesmo motivo: dizer a região errada a quem mora
    em outra é pior do que não dizer região nenhuma. */
-const instrucaoAtendimento = (imobiliaria) => `Você atende o WhatsApp da ${imobiliaria || "imobiliária"},
-uma imobiliária. É fora do horário comercial e a equipe volta amanhã de manhã. Seu trabalho
-é receber bem a pessoa, ENTENDER o que ela precisa e anotar as informações para a equipe.
+/* AS REGRAS SÃO DE CADA CLIENTE (08/10/2026, pedido do Ali: "a regra ali vai
+   ser definida por cada cliente que se cadastrar"). Até aqui este texto trazia
+   um roteiro (comprar ou alugar primeiro, renda/entrada/CPF/prazo, "a equipe
+   volta amanhã") e uma lista de proibições fixas (preço, aprovação, visita,
+   imóvel num bairro) que valiam mais que tudo o que a equipe escrevesse. Agora
+   fica só o JEITO DE CONVERSAR — o que vale para qualquer negócio — e o que a
+   IA faz, pergunta e não pode fazer vem das orientações da conta. As
+   proibições antigas viraram sugestões de um clique na tela (SUGESTOES_ENSINO,
+   em app.jsx). */
+const instrucaoAtendimento = (imobiliaria) => `Você atende o WhatsApp da ${imobiliaria || "imobiliária"}.
+Seu trabalho é receber bem a pessoa, ENTENDER o que ela precisa e anotar as informações para a
+equipe, seguindo as ORIENTAÇÕES DA EQUIPE abaixo — são elas que dizem o que você faz, o que
+pergunta e o que não pode fazer.
 
 A REGRA MAIS IMPORTANTE: RESPONDA ANTES DE PERGUNTAR.
 Você é uma conversa, não um formulário. A cada mensagem:
-1. reaja ao que a pessoa acabou de dizer, com as palavras dela. Se ela citou um bairro, um
-   tipo de imóvel, uma dificuldade, mostre que você entendeu AQUILO;
-2. se ela fez uma pergunta, responda — ou diga com honestidade que quem responde é o corretor,
-   amanhã;
+1. reaja ao que a pessoa acabou de dizer, com as palavras dela;
+2. se ela fez uma pergunta, responda — ou diga com honestidade que quem responde é a equipe;
 3. só então, se couber, faça UMA pergunta.
-Nunca emende uma pergunta nova por cima de algo que a pessoa disse e você ignorou. É isso que
-faz parecer robô, muito mais do que qualquer palavra.
+Nunca emende uma pergunta nova por cima de algo que a pessoa disse e você ignorou.
 
-PRIMEIRO DESCUBRA: A PESSOA QUER COMPRAR OU ALUGAR?
-É a primeira coisa, e tudo depois depende dela. Se a pessoa já disse, NÃO pergunte de novo.
-Se não deu para saber, pergunte de um jeito natural.
-Anote em "finalidade": "comprar" ou "alugar".
-
-SE FOR COMPRAR, anote (sem parecer interrogatório):
-- renda: renda que a família soma por mês
-- entrada: quanto tem disponível para dar de entrada
-- situacao: o que a pessoa procura E a situação dela. Inclua aqui, com as palavras dela, o
-  BAIRRO ou a região que ela citou, o tipo de imóvel, se é o primeiro, se é para morar ou
-  investir, e se já tem financiamento. É o campo que o corretor lê primeiro
-- cpf: se tem restrição/negativação no CPF
-- prazo: em quanto tempo pretende comprar
-
-SE FOR ALUGAR, os campos são OUTROS. Não pergunte entrada, não pergunte restrição no CPF e não
-fale em simulação nem em financiamento — nada disso existe no aluguel, e perguntar isso mostra
-que você não ouviu:
-- renda: renda que a família soma por mês
-- orcamento: quanto ela pode pagar de aluguel por mês
-- situacao: o que procura — bairro ou região, tipo de imóvel, quantas pessoas vão morar, se
-  tem pet, e qualquer detalhe que ela contar. É o campo que o corretor lê primeiro
-- garantia: como pretende garantir o aluguel (fiador, depósito, seguro-fiança) — e tudo bem se
-  ela não souber, anote que não sabe
-- prazo: para quando precisa mudar
-
-O QUE VOCÊ NUNCA FAZ — sem exceção, nem se a pessoa insistir:
-- NUNCA diga valor de parcela, de entrada mínima, de juros, de subsídio, de aluguel ou preço
-  de imóvel
-- NUNCA diga que a pessoa foi aprovada, que se enquadra ou que consegue financiar/alugar
-- NUNCA marque visita, horário, dia ou reunião
-- NUNCA prometa que alguém liga em tal hora
-- NUNCA invente empreendimento, endereço, metragem ou disponibilidade
-- NUNCA diga ou dê a entender que a imobiliária TEM imóvel num bairro, região ou faixa de
-  preço. Nada de "temos ótimas opções por lá", "temos bastante coisa nessa faixa" ou
-  parecido. Nem sempre tem, e a pessoa aparece na segunda cobrando o que foi prometido.
-  Quando ela citar um bairro ou uma região, ANOTE com carinho e responda no espírito de
-  "vou anotar aqui e a gente encontra o imóvel ideal pra você" — quem procura é a equipe,
-  com o perfil na mão. Diga isso com as suas palavras, não repita esta frase igual
-Se perguntarem qualquer uma dessas coisas, seja honesto: quem responde é o corretor, amanhã,
-com as informações na mão. E siga a conversa.
+NÃO INVENTE: só diga o que estiver nas orientações, na ficha do produto ou na própria conversa.
+Endereço, valor, disponibilidade ou condição que não está escrito aqui, diga que a equipe confirma.
 
 COMO FALAR
-- Português do Brasil, informal e caloroso, como um atendente de imobiliária no WhatsApp
+- Português do Brasil, informal e caloroso, como um atendente no WhatsApp
 - Mensagens CURTAS: uma ou duas frases. Ninguém lê parágrafo no WhatsApp
+- Para apresentar um produto (localização, tamanhos, lazer, entrega, valor), NÃO escreva um bloco
+  corrido: separe em linhas curtas, um assunto por linha, começando com um emoji (📍 local,
+  🏠 plantas e tamanhos, 🌊 lazer, 🔑 entrega, 💰 valor), e só o que a pessoa precisa agora —
+  três a cinco linhas. Deixe uma LINHA EM BRANCO entre a apresentação e a pergunta do fim: cada
+  parte separada por linha em branco chega como uma mensagem própria no WhatsApp (no máximo três)
+- Use *negrito* do WhatsApp só no nome do produto
 - UMA pergunta por mensagem, no máximo
 - Pode usar no máximo um emoji, e só quando couber
 - Trate a pessoa pelo primeiro nome depois que ela disser
@@ -490,21 +487,25 @@ COMO FALAR
 com jeito para a pessoa mandar por escrito, dizendo que agora você não consegue ouvir.
 
 QUANDO ENCERRAR (encerrar: true):
-- Quando tiver as informações do caso dela, OU a pessoa não quiser mais responder, OU ela só
-  quiser deixar recado. Na despedida diga, com suas palavras: que anotou tudo, que amanhã a
-  atendente confere as informações e encaminha para o corretor responsável, e que ele apresenta
-  as opções. Sem prometer horário.
+- Quando tiver entendido o que a pessoa precisa (e o que as orientações mandam colher), OU a
+  pessoa não quiser mais responder, OU ela só quiser deixar recado. Na despedida diga, com suas
+  palavras, que anotou tudo e que a equipe dá continuidade. Sem prometer horário.
 - Uma despedida NÃO tem pergunta no fim. Se você está encerrando, encerre.
 
 Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
 
 {"texto":"a mensagem que vai para o cliente","coletado":{"finalidade":"comprar|alugar","renda":"...","entrada":"...","orcamento":"...","situacao":"...","cpf":"...","garantia":"...","prazo":"..."},"encerrar":true|false}
 
-Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela, e só os campos
-do caso dela (compra OU aluguel). Campo que ela não respondeu fica fora do objeto. Nunca
+Em "coletado", inclua SÓ o que a pessoa realmente disse, com as palavras dela. "situacao" é o
+resumo do que ela procura e contou. Campo que ela não respondeu fica fora do objeto. Nunca
 deduza, nunca preencha por educação.`;
 
-export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "" }) {
+const FORMATO_EXTRA = `
+
+No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
+
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "",
+  produto = null, outrosProdutos = null, campos = [], resumo = false }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -528,18 +529,66 @@ pergunte no máximo mais uma coisa, a mais importante que ainda falta, e prepare
 
   /* O que a equipe ensinou (Configurações → Fora do expediente).
 
-     Entra DEPOIS das proibições, de propósito, e com a frase que diz que não
-     as contraria. É texto que uma pessoa de fora do código escreve e que a IA
-     vai ler como instrução — sem essa ordem, bastaria alguém escrever "pode
-     falar o valor da parcela" para a trava mais importante cair. */
+     Desde 08/10/2026 são AS regras do atendimento: não existe mais lista de
+     proibições fixa no código acima delas (pedido do Ali — cada cliente define
+     as suas). Sem nenhuma orientação, vale o mínimo: acolher e passar adiante. */
   const ensino = (orientacoes || []).filter(t => String(t || "").trim()).slice(0, 30);
   const bloco = ensino.length ? `
 
-COMO A EQUIPE DESTA IMOBILIÁRIA FALA — orientações escritas pela atendente. Siga-as no jeito de
-conversar e no conteúdo, MAS elas nunca valem mais que as proibições acima: se alguma delas
-pedir para falar valor, dizer que aprovou, marcar visita ou prometer algo, ignore essa parte e
-siga a proibição.
-${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
+ORIENTAÇÕES DA EQUIPE DESTA IMOBILIÁRIA — as regras deste atendimento. Siga-as no jeito de
+conversar, no que perguntar e no que NÃO fazer. Se alguma proíbe algo, não faça, nem se a pessoa
+insistir.
+${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : `
+
+A EQUIPE AINDA NÃO ESCREVEU ORIENTAÇÕES: acolha, entenda o que a pessoa procura e diga que a
+equipe dá continuidade. Não prometa nada que não esteja escrito aqui.`;
+
+  /* O PRODUTO DESTE ATENDIMENTO (08/10/2026): a ficha que a equipe escreveu
+     para o empreendimento do anúncio ou da catraca. Também entra DEPOIS das
+     proibições, pelo mesmo motivo do ensino — é texto escrito fora do código. */
+  const blocoProduto = produto && produto.texto ? `
+
+O PRODUTO DESTE ATENDIMENTO — a pessoa chegou pelo anúncio ou pela fila deste produto: ${produto.nome}.
+Use estas informações para responder sobre ELE (localização, características, diferenciais, o que
+a equipe explicou). Fale só do que está escrito aqui; o que não estiver, diga que o corretor
+responde. As orientações da equipe continuam valendo.
+${String(produto.texto).slice(0, 5000)}` : "";
+
+  /* OS OUTROS PRODUTOS DA IMOBILIÁRIA (09/10/2026): o cliente que chega pelo
+     WhatsApp direto cita o produto pelo nome, e sem isto a IA dizia "não tenho
+     os dados" de um produto que a equipe descreveu. Mesma regra da ficha: só
+     o que está escrito; o que não estiver, o corretor responde. */
+  const outF = (outrosProdutos?.fichas || []), outN = (outrosProdutos?.soNomes || []);
+  const nomesProdutos = [produto && produto.texto ? produto.nome : null, ...outF.map(f => f.nome), ...outN].filter(Boolean);
+  const blocoOutros = outF.length || outN.length ? `
+
+${produto && produto.texto ? "OUTROS PRODUTOS" : "OS PRODUTOS"} DA IMOBILIÁRIA, descritos pela equipe. Quando a pessoa falar de um
+deles, responda com estas informações — fale só do que está escrito; o que não estiver, diga que o
+corretor confirma. Não ofereça um produto que a pessoa não pediu sem antes entender o que ela procura.
+${outF.map(f => `\n--- ${f.nome} ---\n${f.texto}`).join("\n")}${outN.length ? `\n\nA imobiliária também tem (sem descrição aqui — o corretor detalha): ${outN.join(", ")}.` : ""}` : "";
+
+  /* OS CAMPOS QUE ELA PODE PREENCHER (08/10/2026, escolhidos pelo gestor). */
+  const listaCampos = (campos || []).slice(0, 15);
+  const blocoCampos = listaCampos.length ? `
+
+CAMPOS DA FICHA QUE VOCÊ PODE PREENCHER — devolva em "campos" só os que a pessoa deixou claros na
+conversa, com a chave exata. Em campo com opções, use exatamente uma das opções.
+${listaCampos.map(c => `- ${c.chave} (${c.nome})${c.opcoes && c.opcoes.length ? `: uma de ${c.opcoes.join(" | ")}` : ""}${c.tipo === "boolean" ? ": sim ou não" : ""}${c.valor !== undefined && c.valor !== null && c.valor !== "" ? ` — já preenchido: ${Array.isArray(c.valor) ? c.valor.join(", ") : c.valor}` : ""}`).join("\n")}` : "";
+
+  const blocoResumo = resumo ? `
+
+QUANDO VOCÊ ENCERRAR, escreva também em "resumo" um resumo do atendimento para a equipe (o que a
+pessoa quer, o que ela contou, o que ficou combinado e o que falta), seguindo o formato que as
+orientações da equipe pedirem, se pedirem. E diga em "interessado" se a pessoa quer seguir com o
+atendimento (true) ou não (false — só deixou recado, desistiu ou não quis responder).` : "";
+
+  /* QUAL PRODUTO A PESSOA ESCOLHEU (09/10/2026): é o que põe o lead na
+     catraca do produto (robo.js). Só nomes da lista; o resto é descartado. */
+  const blocoEscolha = nomesProdutos.length ? `
+
+No JSON, acrescente também "produto": o nome EXATO (como escrito acima) do produto em que a pessoa
+demonstrou interesse nesta conversa — que ela citou, perguntou ou escolheu. Se ela ainda não
+falou de nenhum, ou falou de mais de um sem escolher, deixe "produto" de fora.` : "";
 
   const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
   const contexto = jaTem.length
@@ -549,7 +598,7 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -568,9 +617,18 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : "";
     if (typeof v === "string" && v.trim()) limpo[c] = v.trim().slice(0, 200);
   }
 
+  // Campos da ficha: só as chaves que foram oferecidas.
+  const chaves = new Set(listaCampos.map(c => c.chave));
+  const camposOut = {};
+  if (d.campos && typeof d.campos === "object" && !Array.isArray(d.campos))
+    for (const [k, v] of Object.entries(d.campos)) if (chaves.has(k) && v !== null && v !== "") camposOut[k] = Array.isArray(v) ? v.slice(0, 10).map(String) : typeof v === "boolean" || typeof v === "number" ? v : String(v).slice(0, 200);
   return { ok: true, uso: r.uso, resposta: {
-    texto: texto.slice(0, 900),
+    texto: texto.slice(0, 1500),
     coletado: limpo,
+    campos: camposOut,
+    resumo: resumo && typeof d.resumo === "string" ? d.resumo.trim().slice(0, 2000) : "",
+    interessado: d.interessado === true,
+    produto: typeof d.produto === "string" && nomesProdutos.some(n => n.toLowerCase() === d.produto.trim().toLowerCase()) ? d.produto.trim() : "",
     // Na última mensagem o encerramento não é opinião da IA: a conversa acabou
     // de qualquer jeito, e marcar isso mantém a tela dizendo a verdade.
     encerrar: d.encerrar === true || (restantes != null && restantes <= 1),

@@ -16,10 +16,12 @@ import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverLead, transferenciasDoLead } from "../services/movimento.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { dispararGatilho } from "../services/automacoes.js";
+import { gravarCampos, ErroCampo } from "../services/campos-lead.js";
 import { slaDoLead } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
-import { estadoNoLead, ligarNoLead } from "../services/robo.js";
+import { estadoNoLead, ligarNoLead, ASSINATURA_ROBO } from "../services/robo.js";
+import { semDisparo } from "../services/marca-disparo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
@@ -35,10 +37,19 @@ r.use(authRequired);
 // foram lidas e qual foi a última mensagem da conversa.
 const SELECT_LEAD = `
   SELECT l.*,
+    /* NÃO LIDAS = mensagens do cliente depois da última leitura E depois da
+       última RESPOSTA DE GENTE (08/10/2026, reclamação da atendente da Conecta:
+       "mesmo eu tendo respondido aparece como mensagem nova"). Responder é a
+       prova mais forte de ter lido — vale a resposta pelo CRM e a digitada no
+       celular (eco sem autor). Disparo, automação e robô não contam: não são
+       gente olhando a conversa. */
     (SELECT COUNT(*) FROM messages m
       WHERE m.lead_id = l.id AND m.direction = 'in'
-        AND m.created_at > COALESCE(l.last_read_at, 0)) AS unread,
-    (SELECT m.body FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+        AND m.created_at > COALESCE(l.last_read_at, 0)
+        AND m.created_at > COALESCE((SELECT MAX(o.created_at) FROM messages o
+          WHERE o.lead_id = l.id AND o.direction = 'out' AND ${semDisparo("o.")}
+            AND COALESCE(o.from_name, '') <> '${ASSINATURA_ROBO}'), 0)) AS unread,
+    (SELECT CASE WHEN m.apagada_em IS NOT NULL THEN 'Mensagem apagada' ELSE m.body END FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
     (SELECT m.direction FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_direction,
     (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at DESC LIMIT 1) AS last_at,
     (SELECT u.name FROM users u WHERE u.id = l.assigned_to) AS assigned_name,
@@ -70,7 +81,7 @@ const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread
    Campo novo que a lista precise mostrar entra AQUI e lá. */
 const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "created_at", "first_resp_at",
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
-  "last_interaction_at", "custom_fields", "campaign_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
+  "last_interaction_at", "custom_fields", "campaign_name", "adset_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
   "sugestao_etapa", "aguarda_contato", "catraca_id"];
 const enxuto = (l) => {
@@ -742,7 +753,7 @@ function reanalisar(orgId, aplicar) {
     try { return JSON.parse(l.etapa_ia_json).etapa === l.stage; } catch { return false; }
   };
 
-  const daConversa = db.prepare("SELECT direction,body,media_url FROM messages WHERE lead_id=? ORDER BY created_at ASC");
+  const daConversa = db.prepare("SELECT direction,body,media_url FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC");
   const mudancas = [];
   let comConversa = 0;
 
@@ -1064,10 +1075,18 @@ r.get("/:id", (req, res) => {
     SELECT m.*,
       q.body AS reply_body, q.direction AS reply_direction,
       q.from_name AS reply_from_name, q.media_mime AS reply_media_mime,
-      q.wa_id AS reply_wa_id
+      q.wa_id AS reply_wa_id, q.apagada_em AS reply_apagada,
+      (SELECT name FROM users WHERE id = m.apagada_por) AS apagada_por_nome
     FROM messages m
     LEFT JOIN messages q ON q.id = m.reply_to
-    WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id);
+    WHERE m.lead_id = ? ORDER BY m.created_at ASC`).all(lead.id)
+    /* Mensagem apagada: só a supervisão continua vendo o que era (o registro
+       do atendimento); para o resto, como no WhatsApp, só "foi apagada". */
+    .map(m => {
+      if (m.reply_apagada) m.reply_body = "";
+      if (!m.apagada_em || supervisiona(req.user)) return m;
+      return { ...m, body: "", body_original: null, media_url: null, media_name: null, media_mime: null };
+    });
 
   /* As ligações entram na MESMA linha do tempo da conversa.
 
@@ -1226,7 +1245,7 @@ r.post("/:id/resumo", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "O resumo automático não está ligado nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
   const r2 = await resumirConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
@@ -1260,7 +1279,7 @@ r.post("/:id/etapa-ia", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "A leitura de etapa por IA não está ligada nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
   const r2 = await etapaDaConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
@@ -1295,7 +1314,10 @@ function etapaIaGuardada(lead, quantasMensagens) {
 r.post("/:id/read", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Sem acesso a este lead" });
-  if (supervisiona(req.user) && lead.assigned_to !== req.user.id)
+  /* Lead SEM DONO (a fila) é da caixa de quem supervisiona: não há aviso de
+     corretor nenhum a preservar, e sem isto o lead da fila que a atendente
+     abriu e respondeu continuava como "novo" na caixa dela (08/10/2026). */
+  if (supervisiona(req.user) && lead.assigned_to && lead.assigned_to !== req.user.id)
     return res.json({ ok: true, ignorado: "supervisão não marca como lida" });
   db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(Date.now(), lead.id);
   res.json({ ok: true });
@@ -1526,41 +1548,14 @@ r.patch("/:id/qualificacao", (req, res) => {
 r.patch("/:id/campos", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-
-  const definicoes = db.prepare(
-    "SELECT key, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1").all(req.user.org_id);
-  const porChave = new Map(definicoes.map(d => [d.key, d]));
-
-  const campos = JSON.parse(lead.custom_fields || "{}");
-  for (const chave of Object.keys(req.body || {})) {
-    const def = porChave.get(chave);
-    if (!def) continue; // campo que não existe (ou foi desativado) não entra
-    const bruto = req.body[chave];
-    const opcoes = (() => { try { return JSON.parse(def.options || "[]"); } catch (e) { return []; } })();
-
-    if (bruto === "" || bruto === null || bruto === undefined || (Array.isArray(bruto) && !bruto.length)) {
-      delete campos[chave];
-      continue;
-    }
-    if (def.type === "number" || def.type === "currency") {
-      const n = Number(String(bruto).replace(",", "."));
-      if (!Number.isFinite(n)) return res.status(400).json({ error: `"${chave}" precisa ser um número.` });
-      campos[chave] = n;
-    } else if (def.type === "boolean") {
-      campos[chave] = !!bruto;
-    } else if (def.type === "multiselect") {
-      const v = (Array.isArray(bruto) ? bruto : [bruto]).map(String).filter(x => opcoes.includes(x));
-      if (v.length) campos[chave] = v; else delete campos[chave];
-    } else if (def.type === "select") {
-      if (!opcoes.includes(String(bruto)))
-        return res.status(400).json({ error: `"${chave}" precisa ser uma das opções.` });
-      campos[chave] = String(bruto);
-    } else {
-      campos[chave] = String(bruto).trim().slice(0, 200);
-    }
+  // A tipagem e o gatilho "campo preenchido" moram em services/campos-lead.js.
+  try {
+    const { campos } = gravarCampos(req.user.org_id, lead.id, req.body || {});
+    res.json({ ok: true, campos });
+  } catch (e) {
+    if (e instanceof ErroCampo) return res.status(400).json({ error: e.message });
+    throw e;
   }
-  db.prepare("UPDATE leads SET custom_fields = ? WHERE id = ?").run(JSON.stringify(campos), lead.id);
-  res.json({ ok: true, campos });
 });
 
 // Ajuste manual de etapa. NÃO existe mais avanço automático: desde 26/08/2026 a

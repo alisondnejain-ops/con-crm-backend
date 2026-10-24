@@ -274,11 +274,9 @@ CREATE TABLE IF NOT EXISTS mensagens_rapidas (
    poder escrever o jeito de falar — e não depender de alguém mexer no código
    toda vez que a abordagem muda.
 
-   IMPORTANTE: isto orienta o ESTILO e o conteúdo permitido. Nunca destrava o
-   que é proibido (valor, aprovação, agendamento) — a montagem do prompt em
-   services/ia.js coloca as proibições DEPOIS destas linhas, e diz por
-   escrito que elas não podem ser contrariadas. Campo de texto que qualquer
-   pessoa preenche e que a IA obedece cegamente é porta destrancada. */
+   Desde 08/10/2026 estas linhas SÃO as regras do atendimento (o que perguntar,
+   o que falar, o que nunca fazer): não há mais proibição fixa do ConHub no
+   texto da IA — cada conta define as suas (pedido do Ali). */
 CREATE TABLE IF NOT EXISTS robo_ensino (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,
@@ -1175,6 +1173,98 @@ db.exec(`CREATE TABLE IF NOT EXISTS meta_paginas (
   ultimo_erro_em INTEGER
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_org ON meta_paginas(org_id)");
+/* REDES SOCIAIS (20/10/2026): o Instagram profissional ligado à página e as
+   permissões que a pessoa concedeu ao conectar (lista separada por vírgula;
+   nulo = página conectada antes disso, ninguém sabe). */
+const metaPagCols = db.prepare("PRAGMA table_info(meta_paginas)").all().map(c => c.name);
+for (const [nome, ddl] of [["ig_id", "TEXT"], ["ig_usuario", "TEXT"], ["ig_foto", "TEXT"], ["ig_seguidores", "INTEGER"],
+  ["permissoes", "TEXT"], ["avisos_campos", "TEXT"], ["redes_atualizado_em", "INTEGER"]])
+  if (!metaPagCols.includes(nome)) db.exec(`ALTER TABLE meta_paginas ADD COLUMN ${nome} ${ddl}`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_meta_paginas_ig ON meta_paginas(ig_id)");
+/* Posts programados. Um post vale para uma página e uma ou duas redes; cada
+   rede tem a própria linha em `redes_destinos`, com o próprio andamento —
+   o Instagram processa vídeo por minutos, o Facebook publica na hora, e um
+   pode falhar sem o outro. */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_posts (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  formato TEXT NOT NULL,
+  texto TEXT,
+  midias_json TEXT,
+  redes_json TEXT NOT NULL,
+  agendar_para INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_posts_org ON redes_posts(org_id, agendar_para)");
+db.exec(`CREATE TABLE IF NOT EXISTS redes_destinos (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  rede TEXT NOT NULL,
+  status TEXT NOT NULL,
+  etapa TEXT,
+  container_id TEXT,
+  filhos_json TEXT,
+  publicado_id TEXT,
+  link TEXT,
+  erro TEXT,
+  tentativas INTEGER DEFAULT 0,
+  proxima_em INTEGER,
+  iniciado_em INTEGER,
+  publicado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_fila ON redes_destinos(status, proxima_em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_post ON redes_destinos(post_id)");
+/* Seguidores anotados um por dia: a Meta não devolve a série antiga, então o
+   crescimento só existe a partir do dia em que o ConHub começou a anotar. */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_seguidores (
+  org_id TEXT NOT NULL, page_id TEXT NOT NULL, rede TEXT NOT NULL, dia TEXT NOT NULL, seguidores INTEGER,
+  PRIMARY KEY (org_id, page_id, rede, dia)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS redes_cache (
+  org_id TEXT NOT NULL, chave TEXT NOT NULL, json TEXT, em INTEGER,
+  PRIMARY KEY (org_id, chave)
+)`);
+/* AUTOMAÇÃO DE COMENTÁRIOS, estilo ManyChat (20/10/2026): quem comenta a
+   palavra num post recebe uma resposta pública e uma mensagem no privado.
+   `redes_comentarios` guarda cada comentário atendido (o id do comentário é a
+   chave: a Meta pode avisar duas vezes, e responder duas vezes seria o robô
+   aparecendo em público). */
+db.exec(`CREATE TABLE IF NOT EXISTS redes_regras (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  redes_json TEXT NOT NULL,
+  posts_json TEXT,
+  palavras_json TEXT,
+  respostas_json TEXT,
+  mensagem_privada TEXT,
+  ativo INTEGER DEFAULT 1,
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_regras_org ON redes_regras(org_id)");
+db.exec(`CREATE TABLE IF NOT EXISTS redes_comentarios (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  regra_id TEXT,
+  rede TEXT NOT NULL,
+  post_id TEXT,
+  autor TEXT,
+  palavra TEXT,
+  publica TEXT,
+  privada TEXT,
+  erro TEXT,
+  em INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_comentarios_regra ON redes_comentarios(regra_id, em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_redes_comentarios_org ON redes_comentarios(org_id, em)");
 /* FORMULÁRIOS DA META E O FUNIL DE CADA UM (03/10/2026, pedido do Ali: "a
    opção de aplicar um determinado formulário a um funil específico"). Uma
    linha por formulário que a imobiliária configurou. `pipeline_id` nulo é
@@ -1312,10 +1402,32 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
     ["seo_titulo", "TEXT"], ["seo_descricao", "TEXT"],
     // Domínio cadastrado no Railway pela API: o id lá e os registros de DNS
     // (JSON [{tipo,nome,valor,ok}]) que a imobiliária tem que criar.
-    ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"]])
+    ["dominio_railway_id", "TEXT"], ["dominio_registros", "TEXT"],
+    // 16/10/2026: o nome da marca no site (vazio = o nome da conta) e o código
+    // de verificação do Google Search Console.
+    ["nome_site", "TEXT"], ["google_verificacao", "TEXT"]])
     if (!cols.includes(c)) db.exec(`ALTER TABLE sites ADD COLUMN ${c} ${ddl}`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sites_dominio ON sites(dominio) WHERE dominio IS NOT NULL");
+  /* CETROLAB (12/10/2026): o modelo visual do site. Nulo = o Clássico, que é o
+     que todo site sempre foi — nenhum site existente muda por causa disto. */
+  if (!cols.includes("modelo")) db.exec("ALTER TABLE sites ADD COLUMN modelo TEXT");
 }
+/* Os planos do Cetrolab, cadastrados pelo master no hub (decisão do Ali:
+   preço de site ele define, não fica escrito no código). `para`: 'conhub' é o
+   preço da ferramenta para quem já é cliente (um só ativo, porque é ele que a
+   contratação avulsa cobra); 'fora' são os planos de quem vai contratar só o
+   site, servidos por /publico/cetrolab/planos para a página de venda. */
+db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_planos (
+  id TEXT PRIMARY KEY,
+  nome TEXT NOT NULL,
+  resumo TEXT,
+  valor_mensal REAL NOT NULL,
+  para TEXT NOT NULL,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
 
 // Foto, áudio e documento que o cliente manda pelo WhatsApp. Antes o arquivo era
 // descartado e a conversa guardava só um marcador de texto tipo "[ImageMessage]".
@@ -1510,6 +1622,11 @@ addMsgCol("reply_to", "TEXT");
 addMsgCol("edited_at", "INTEGER");
 addMsgCol("edited_by", "TEXT");
 addMsgCol("body_original", "TEXT");
+/* APAGAR PARA TODOS (15/10/2026). A mensagem continua no banco (é o registro do
+   atendimento, e a supervisão pode conferir o que foi apagado); a tela mostra
+   "Esta mensagem foi apagada", como o WhatsApp. */
+addMsgCol("apagada_em", "INTEGER");
+addMsgCol("apagada_por", "TEXT");
 
 /* ===== AS LINHAS DE WHATSAPP (canais) =====
 
@@ -1903,6 +2020,10 @@ if (!db.prepare("PRAGMA table_info(marketing_envios)").all().some(c => c.name ==
     db.exec("ALTER TABLE marketing_campanhas ADD COLUMN tipo TEXT DEFAULT 'disparo'");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_fluxos_gatilho ON marketing_fluxos(org_id, ativo, gatilho_tipo)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mkt_exec_lead ON marketing_execucoes(campanha_id, lead_id)");
+  /* VÁRIOS GATILHOS NUM FLUXO (16/10/2026): por qual gatilho a pessoa entrou.
+     Nulo = o primeiro início (toda execução de antes desta data). */
+  if (!db.prepare("PRAGMA table_info(marketing_execucoes)").all().some(c => c.name === "gatilho_no"))
+    db.exec("ALTER TABLE marketing_execucoes ADD COLUMN gatilho_no TEXT");
 }
 
 /* Os leads que o disparo tocou antes do gatilho novo ficaram com a "última
@@ -2233,5 +2354,170 @@ db.exec(`CREATE TABLE IF NOT EXISTS agente_mensagens (
 );
 CREATE INDEX IF NOT EXISTS idx_agente_estado ON agente_mensagens(estado, id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agente_wa ON agente_mensagens(wa_id) WHERE wa_id IS NOT NULL;`);
+/* O ASSISTENTE CONTINUA DE ONDE PAROU (08/10/2026). `contexto_tokens` é o
+   tamanho do último pedido à IA — é por ele que a conversa é resumida antes
+   de ficar cara; `pendente` diz que a última pergunta parou no meio do
+   trabalho (teto de tempo ou de passos) e o próximo "continuar" segue dali. */
+{
+  const colsConv = db.prepare("PRAGMA table_info(assistente_conversas)").all().map(c => c.name);
+  if (!colsConv.includes("contexto_tokens")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN contexto_tokens INTEGER DEFAULT 0");
+  if (!colsConv.includes("pendente")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN pendente INTEGER DEFAULT 0");
+  if (!colsConv.includes("pergunta_em_curso")) db.exec("ALTER TABLE assistente_conversas ADD COLUMN pergunta_em_curso TEXT");
+}
+
+/* AUTOATENDIMENTO: ONDE A IA ATUA, AS FICHAS DE PRODUTO E O QUE ELA FAZ NO
+   LEAD (08/10/2026, pedido do Ali).
+
+   - orgs.robo_escopo: JSON {pipelines:[ids], etapas:[ids]}. Vazio = em todo
+     lugar (o de sempre). Com algo marcado, a IA só fala com lead daqueles
+     funis/etapas.
+   - orgs.robo_campos: JSON com as chaves dos campos personalizados que a IA
+     pode preencher na conversa.
+   - orgs.robo_observacao: 1 = ao se despedir, a IA escreve o resumo do
+     atendimento como observação do lead.
+   - orgs.robo_etapa_final: etapa para onde a IA move o lead quando termina a
+     qualificação e o cliente quer seguir (o "Lead Interessado").
+   - ia_produtos: uma ficha por empreendimento, escrita pela equipe, ligada a
+     um formulário de anúncio e/ou a uma catraca — é o produto que a IA
+     conhece naquele atendimento. */
+addOrgCol("robo_escopo", "TEXT");
+addOrgCol("robo_campos", "TEXT");
+addOrgCol("robo_observacao", "INTEGER");
+addOrgCol("robo_etapa_final", "TEXT");
+db.exec(`CREATE TABLE IF NOT EXISTS ia_produtos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  texto TEXT NOT NULL DEFAULT '',
+  produto_id TEXT,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_por TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_ia_produtos_org ON ia_produtos(org_id)");
+if (!db.prepare("PRAGMA table_info(meta_formularios)").all().some(c => c.name === "ia_produto_id"))
+  db.exec("ALTER TABLE meta_formularios ADD COLUMN ia_produto_id TEXT");
+if (!db.prepare("PRAGMA table_info(catracas)").all().some(c => c.name === "ia_produto_id"))
+  db.exec("ALTER TABLE catracas ADD COLUMN ia_produto_id TEXT");
+
+/* TRATAMENTO DAS FOTOS (12/10/2026, `services/fotos.js`). Por foto de imóvel:
+   - variantes: JSON [{l: largura, url, chave}] — as versões WebP menores;
+   - largura/altura: do original limpo;
+   - foco_x/foco_y: onde centrar o recorte do card (0-100, como object-position);
+   - avisos: JSON [{tipo, texto}] — pequena, escura, desfocada, em pé;
+   - nota: para sugerir a melhor capa;
+   - tratada_em: quando foi tratada (nulo = ainda não; o batimento trata as antigas);
+   - tratamento_erro: o motivo, quando não deu — e aí ela não é tentada de novo. */
+{
+  const cols = db.prepare("PRAGMA table_info(produto_midias)").all().map(c => c.name);
+  for (const [c, ddl] of [["variantes", "TEXT"], ["largura", "INTEGER"], ["altura", "INTEGER"],
+    ["foco_x", "INTEGER"], ["foco_y", "INTEGER"], ["avisos", "TEXT"], ["nota", "INTEGER"],
+    ["tratada_em", "INTEGER"], ["tratamento_erro", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE produto_midias ADD COLUMN ${c} ${ddl}`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_midias_url ON produto_midias(url)");
+}
+
+/* CONTEÚDO INSTITUCIONAL DO SITE (12/10/2026, modelo Institucional do
+   Cetrolab): o que o catálogo não tem e o site institucional mostra — o texto
+   "Sobre nós", as redes sociais, quem da equipe aparece no site (escolha da
+   gestão, um por um: ninguém vai para a internet sem ser escolhido) e os
+   depoimentos de clientes, escritos pela própria imobiliária. Tabela à parte
+   de `sites` porque é do Cetrolab, que vai virar produto separado. */
+db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_conteudo (
+  org_id TEXT PRIMARY KEY,
+  sobre TEXT,
+  instagram TEXT,
+  facebook TEXT,
+  youtube TEXT,
+  equipe TEXT,
+  depoimentos TEXT,
+  atualizado_em INTEGER
+)`);
+
+/* SEGURANÇA DE 14/10/2026 (pedido do Ali, depois da análise de vulnerabilidades).
+
+   - users.senha_erros / senha_bloqueada_em: 4 senhas erradas seguidas travam a
+     conta, e só a nova senha pelo e-mail ("Esqueci minha senha") destrava.
+   - orgs.acesso_segredo: a semente do CÓDIGO DE ACESSO de cada conta — 6
+     dígitos que mudam a cada 60 segundos, vistos só pela gestão da conta. O
+     master do ConHub só entra na conta digitando o código do momento.
+     Guardada fechada pelo cofre quando há CRYPTO_KEY.
+   - acessos_master: cada entrada do master numa conta, com prazo. É o
+     registro que a gestão vê ("o ConHub entrou na sua conta em…"). */
+{
+  const u = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!u.includes("senha_erros")) db.exec("ALTER TABLE users ADD COLUMN senha_erros INTEGER DEFAULT 0");
+  if (!u.includes("senha_bloqueada_em")) db.exec("ALTER TABLE users ADD COLUMN senha_bloqueada_em INTEGER");
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("acesso_segredo")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_segredo TEXT");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS acessos_master (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  inicio INTEGER NOT NULL,
+  ate INTEGER NOT NULL,
+  encerrado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org_id, inicio)");
+
+/* BOLETO, SÓ NAS CONTAS QUE O MASTER LIBERA (15/10/2026, pedido do Ali: "o
+   cliente entra em contato com o suporte e a gente libera a opção de boleto").
+
+   - orgs.boleto_liberado (+ quando e quem): a chave do master. Desligada, a
+     conta continua só no cartão, como sempre.
+   - orgs.boleto_endereco_json: o endereço de cobrança, pedido uma vez só e só
+     quando o Pagar.me cobra a conta (o boleto dele exige endereço).
+   - boletos: cada boleto gerado, com o id da cobrança no provedor. É por ele
+     que o aviso de "pago" acha a conta e sabe quantos meses creditar. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("boleto_liberado")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado INTEGER DEFAULT 0");
+  if (!o.includes("boleto_liberado_em")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_em INTEGER");
+  if (!o.includes("boleto_liberado_por")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_por TEXT");
+  if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
+}
+/* ENTRADA DO MASTER SEM CÓDIGO, conta por conta (15/10/2026) — ver
+   services/acesso-master.js → ACESSO_LIVRE_HORAS. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("acesso_livre")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre INTEGER DEFAULT 0");
+  if (!o.includes("acesso_livre_em")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre_em INTEGER");
+  if (!o.includes("acesso_livre_por")) db.exec("ALTER TABLE orgs ADD COLUMN acesso_livre_por TEXT");
+  const a = db.prepare("PRAGMA table_info(acessos_master)").all().map(c => c.name);
+  if (!a.includes("sem_codigo")) db.exec("ALTER TABLE acessos_master ADD COLUMN sem_codigo INTEGER DEFAULT 0");
+  if (!a.includes("visto_em")) db.exec("ALTER TABLE acessos_master ADD COLUMN visto_em INTEGER");
+}
+// O saldo diário da entrada sem código: quanto já foi usado em cada dia.
+db.exec(`CREATE TABLE IF NOT EXISTS acesso_livre_uso (
+  org_id TEXT NOT NULL,
+  dia TEXT NOT NULL,
+  usado_ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, dia)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS boletos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  provedor TEXT NOT NULL,
+  cobranca_id TEXT,
+  pedido_id TEXT,
+  plano_id TEXT,
+  descricao TEXT,
+  valor REAL NOT NULL,
+  meses INTEGER NOT NULL DEFAULT 1,
+  vencimento TEXT NOT NULL,
+  url TEXT,
+  pdf TEXT,
+  linha TEXT,
+  status TEXT NOT NULL DEFAULT 'aberto',
+  criado_por TEXT,
+  criado_em INTEGER NOT NULL,
+  pago_em INTEGER,
+  cancelado_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_org ON boletos(org_id, criado_em)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_cobranca ON boletos(cobranca_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_pedido ON boletos(pedido_id)");
 
 export default db;

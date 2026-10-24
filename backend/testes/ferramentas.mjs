@@ -129,7 +129,7 @@ assert.equal(d.ferramenta.origem, "fora_do_plano");
 
 console.log("3. A sessão traz as ferramentas (é o que decide o menu)");
 let s = await login("basico@fe.com");
-assert.deepEqual(s.org.recursos, { autoatendimento: false, marketing: false });
+assert.deepEqual(s.org.recursos, { autoatendimento: false, marketing: false, cetrolab: false });
 assert.equal(s.org.marketing_liberado, false);
 
 console.log("4. O master libera e retira, nos dois sentidos — e só ele");

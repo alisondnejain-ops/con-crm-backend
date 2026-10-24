@@ -8,7 +8,11 @@ import { situacao, registrarPagamento, marcarAtraso, AVISO_ANTES,
   ehDono, donoDa, listarPagamentos, apagarPagamento, editarPagamento, recalcularVencimento, somaMeses, TRIAL_DIAS,
   dataDoFormulario, baseParaVencimento } from "../services/assinatura.js";
 import { asaasConfigurado, ambienteAsaas, criarCliente, criarAssinatura, criarParcelado,
-  linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK } from "../services/asaas.js";
+  linkDaPrimeiraFatura, cancelarAssinatura, interpretarEvento, cartaoRegistrado, TOKEN_WEBHOOK,
+  criarBoleto as criarBoletoAsaas, linhaDoBoleto, lerPagamento, apagarPagamentoAsaas } from "../services/asaas.js";
+import { boletoLiberado, boletoPorCobranca, boletoPorPedido, confirmarBoleto, estornarBoleto,
+  cancelarBoletoLocal, boletosParaTela } from "../services/boleto.js";
+import { randomUUID } from "node:crypto";
 import { planosParaTela, planoPorId, planoDaFamilia, planosDe, mesesPagos } from "../services/planos.js";
 import { RECURSOS, ehRecurso, recursosDaOrg, situacaoDoRecurso, registrarContratacao, avulsoDaAssinatura,
   avulsoPago, avulsoCancelado } from "../services/recursos.js";
@@ -76,6 +80,21 @@ r.post("/webhooks/asaas", async (req, res) => {
         const estorno = ["PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED"].includes(req.body?.event);
         avulsoCancelado(avulso, { estorno });
         console.log(`[asaas] ferramenta ${avulso.recurso} ${estorno ? "estornada" : "cancelada"} (${avulso.org_id})`);
+      }
+      return;
+    }
+
+    /* BOLETO LIBERADO PELO MASTER (15/10/2026): cobrança avulsa, sem
+       assinatura — achada pelo id da cobrança gravado em `boletos`, antes do
+       consolo de "imobiliária única", que creditaria o boleto de uma conta
+       na conta errada. */
+    const boleto = boletoPorCobranca("asaas", pagamento);
+    if (boleto) {
+      if (acao === "pago") {
+        if (confirmarBoleto(boleto, { valor: req.body?.payment?.value })) console.log(`[asaas] boleto pago (${boleto.org_id})`);
+      } else if (acao === "cancelado") {
+        if (req.body?.event === "PAYMENT_REFUNDED") estornarBoleto(boleto);
+        else cancelarBoletoLocal(boleto);
       }
       return;
     }
@@ -633,6 +652,9 @@ r.get("/assinatura/recursos", authRequired, soDono, async (req, res) => {
 r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) => {
   const recurso = req.params.recurso;
   if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
+  // Ferramenta sem preço cadastrado (o Cetrolab antes de o master criar o plano) não se vende.
+  if (!(RECURSOS[recurso].avulso > 0))
+    return res.status(409).json({ error: `${RECURSOS[recurso].nome} ainda não está à venda. Fale com o ConHub.` });
   const pelaPagarme = provedorDe(orgCompleta(req.user.org_id)) === "pagarme";
   if (!pelaPagarme && !asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const antes = situacaoDoRecurso(req.user.org_id, recurso);
@@ -1018,6 +1040,175 @@ async function conferirAvulsosPagarme(orgId) {
   }
 }
 
+/* ===== BOLETO, SÓ NAS CONTAS QUE O MASTER LIBEROU (15/10/2026) =====
+   Ver services/boleto.js. O cliente escolhe o plano; o valor e quantos meses
+   ele compra saem daqui. Vale pelo provedor da conta (Asaas ou Pagar.me). */
+
+/* O que esta conta pode pagar por boleto. Preço combinado (sem plano da
+   tabela): um mês da mensalidade combinada. Com prateleira: cada plano da
+   família dela, um período inteiro (o anual, os doze meses de uma vez). */
+function opcoesDeBoleto(org) {
+  if (!org.plano_id && Number(org.valor_mensal) > 0)
+    return [{ id: "combinada", nome: "Mensalidade combinada", valor: Number(org.valor_mensal), meses: 1, plano_id: null }];
+  return planosDe(org.tipo).map(p => ({ id: p.id, nome: p.nome, plano: p.plano || p.nome, ciclo: p.ciclo_nome,
+    valor: p.total, meses: p.meses, mensal: p.mensal, plano_id: p.id }));
+}
+
+/* Cobrança automática no cartão correndo ao mesmo tempo que um boleto é
+   cobrança dupla do mesmo período. Por isso o boleto só sai depois de a
+   assinatura do cartão ser cancelada (o acesso continua até o que foi pago). */
+function temCartaoCobrando(org) {
+  return !!(org.pagarme_subscription_id || org.asaas_subscription_id)
+    && !org.cancelado_em && org.assinatura_status !== "cancelado";
+}
+
+const UFS = new Set(["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"]);
+function conferirEndereco(e) {
+  if (!e || typeof e !== "object") return "Informe o endereço de cobrança.";
+  const cep = String(e.cep || "").replace(/\D/g, "");
+  if (cep.length !== 8) return "CEP com 8 dígitos.";
+  for (const [c, nome] of [["rua", "a rua"], ["numero", "o número"], ["bairro", "o bairro"], ["cidade", "a cidade"]])
+    if (!String(e[c] || "").trim()) return `Informe ${nome} do endereço de cobrança.`;
+  if (!UFS.has(String(e.uf || "").toUpperCase())) return "Escolha o estado (UF).";
+  return null;
+}
+const enderecoLimpo = (e) => ({ cep: String(e.cep).replace(/\D/g, ""), rua: String(e.rua).trim().slice(0, 120),
+  numero: String(e.numero).trim().slice(0, 20), complemento: String(e.complemento || "").trim().slice(0, 60),
+  bairro: String(e.bairro).trim().slice(0, 80), cidade: String(e.cidade).trim().slice(0, 80), uf: String(e.uf).toUpperCase() });
+
+/* Segunda chance além do aviso do provedor: o boleto em aberto é conferido
+   quando a tela abre. Nunca lança — a tela não pode quebrar por causa disto. */
+async function conferirBoletosAbertos(orgId) {
+  for (const b of db.prepare("SELECT * FROM boletos WHERE org_id = ? AND status = 'aberto' AND cobranca_id IS NOT NULL").all(orgId)) {
+    try {
+      if (b.provedor === "asaas") {
+        if (!asaasConfigurado()) continue;
+        const p = await lerPagamento(b.cobranca_id);
+        if (PAGO.includes(p.status)) confirmarBoleto(b, { valor: p.value });
+        else if (p.deleted || p.status === "REFUNDED") cancelarBoletoLocal(b);
+      } else if (b.provedor === "pagarme") {
+        if (!pagarme.pagarmeConfigurado()) continue;
+        const c = await pagarme.lerCobranca(b.cobranca_id);
+        if (pagarme.PAGA.has(c.status)) confirmarBoleto(b, { valor: Number(c.paid_amount || c.amount || 0) / 100 || null });
+        else if (["canceled", "failed"].includes(c.status)) cancelarBoletoLocal(b);
+      }
+    } catch (e) { console.warn(`[boleto] não consegui conferir o boleto ${b.id}: ${e.message}`); }
+  }
+}
+
+function enderecoSalvo(org) {
+  try { return org.boleto_endereco_json ? JSON.parse(org.boleto_endereco_json) : null; } catch { return null; }
+}
+
+r.get("/assinatura/boleto", authRequired, soDono, async (req, res) => {
+  let org = orgCompleta(req.user.org_id);
+  if (!boletoLiberado(org)) return res.json({ liberado: false });
+  await conferirBoletosAbertos(org.id);
+  org = orgCompleta(org.id);
+  const provedor = provedorDe(org);
+  res.json({ liberado: true, provedor, opcoes: opcoesDeBoleto(org), atual: org.plano_id || (opcoesDeBoleto(org)[0]?.id ?? null),
+    cartao_cobrando: temCartaoCobrando(org),
+    pede_cpf: provedor === "pagarme" ? !org.pagarme_customer_id : !org.asaas_customer_id,
+    pede_endereco: provedor === "pagarme" && !enderecoSalvo(org),
+    boletos: boletosParaTela(org.id), ...situacao(org.id) });
+});
+
+r.post("/assinatura/boleto", authRequired, soDono, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  if (!boletoLiberado(org))
+    return res.status(403).json({ error: "O pagamento por boleto não está liberado nesta conta. Fale com o suporte do ConHub." });
+  const provedor = provedorDe(org);
+  if (provedor === "pagarme" ? !pagarme.pagarmeConfigurado() : !asaasConfigurado())
+    return res.status(503).json({ error: `O ${provedor === "pagarme" ? "Pagar.me" : "Asaas"} não está configurado no servidor.` });
+  if (temCartaoCobrando(org))
+    return res.status(409).json({ error: "Esta conta tem cobrança automática no cartão. Para pagar por boleto, cancele a assinatura do cartão primeiro (o acesso continua até o que já foi pago) — senão o mesmo período seria cobrado duas vezes." });
+
+  const opcoes = opcoesDeBoleto(org);
+  if (!opcoes.length)
+    return res.status(409).json({ error: "O valor da mensalidade desta conta ainda não foi definido. Fale com o ConHub." });
+  const pedido = req.body?.plano_id || org.plano_id || opcoes[0].id;
+  const op = opcoes.find(o => o.id === pedido);
+  if (!op) return res.status(400).json({ error: "Escolha um dos planos da lista." });
+
+  const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
+  const temCliente = provedor === "pagarme" ? !!org.pagarme_customer_id : !!org.asaas_customer_id;
+  if (!temCliente && doc.length !== 11 && doc.length !== 14)
+    return res.status(400).json({ error: "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)." });
+  const t = titularDaConta(org, req.user.id);
+  if (!t.nome || !t.email) return res.status(400).json({ error: "A sua conta está sem nome ou e-mail. Ajuste em Minha conta e tente de novo." });
+  let endereco = enderecoSalvo(org);
+  if (provedor === "pagarme" && (req.body?.endereco || !endereco)) {
+    const recusa = conferirEndereco(req.body?.endereco);
+    if (recusa) return res.status(400).json({ error: recusa });
+    endereco = enderecoLimpo(req.body.endereco);
+  }
+
+  /* UM BOLETO EM ABERTO POR VEZ. O mesmo plano, ainda no prazo, devolve o que
+     já existe — gerar outro a cada clique deixaria dois boletos pagáveis do
+     mesmo período. Outro plano (ou o vencido) cancela o anterior no provedor;
+     se o cancelamento falhar, o anterior continua valendo (pago, ele credita). */
+  const hoje = dataISO(Date.now());
+  const aberto = db.prepare("SELECT * FROM boletos WHERE org_id = ? AND status = 'aberto' ORDER BY criado_em DESC").all(org.id);
+  const mesmo = aberto.find(b => b.provedor === provedor && (b.plano_id || "combinada") === op.id && b.vencimento >= hoje
+    && Math.abs(b.valor - op.valor) < 0.005);
+  if (mesmo) return res.json({ ok: true, existente: true, boleto: boletosParaTela(org.id).find(b => b.id === mesmo.id) });
+
+  /* O VENCIMENTO: em 3 dias (prazo de compensação). Se a mensalidade em vigor
+     vence mais adiante dentro de 30 dias, o boleto vence junto com ela — é
+     pagar o próximo período até o dia certo, sem pressa à toa. */
+  const em3 = Date.now() + 3 * 86400000;
+  const vence = org.vence_em && org.vence_em > em3 && org.vence_em < Date.now() + 30 * 86400000 ? org.vence_em : em3;
+  const vencimento = dataISO(vence);
+  const descricao = op.plano_id
+    ? `ConHub — Plano ${op.nome} (${op.meses > 1 ? `${op.meses} meses · ` : ""}boleto)`
+    : `ConHub — Mensalidade (boleto)`;
+  const id = "bol_" + randomUUID();
+
+  try {
+    for (const b of aberto) {
+      try {
+        if (b.provedor === "asaas") await apagarPagamentoAsaas(b.cobranca_id);
+        else if (b.cobranca_id) await pagarme.cancelarCobranca(b.cobranca_id);
+        cancelarBoletoLocal(b);
+      } catch (e) { console.warn(`[boleto] o boleto anterior ${b.id} não foi cancelado no provedor: ${e.message}`); }
+    }
+
+    let dados;
+    if (provedor === "asaas") {
+      const clienteId = await clienteDoAsaas(org, req.user.id, doc);
+      const p = await criarBoletoAsaas({ clienteId, valor: op.valor, vencimento, descricao, referencia: id });
+      let linha = null;
+      try { linha = (await linhaDoBoleto(p.id))?.identificationField || null; }
+      catch (e) { console.warn(`[boleto] a linha digitável do boleto ${p.id} não veio: ${e.message}`); }
+      dados = { cobrancaId: p.id, pedidoId: null, url: p.bankSlipUrl || p.invoiceUrl || null, pdf: p.bankSlipUrl || null, linha };
+    } else {
+      const clienteId = await clienteDoPagarme(org, req.user.id, doc);
+      if (req.body?.endereco || !enderecoSalvo(org)) {
+        await pagarme.enderecoDoCliente(clienteId, { nome: t.nome, email: t.email, documento: doc || undefined, endereco });
+        db.prepare("UPDATE orgs SET boleto_endereco_json = ? WHERE id = ?").run(JSON.stringify(endereco), org.id);
+      }
+      const p = await pagarme.criarBoleto({ clienteId, valor: op.valor, vencimento, descricao,
+        codigo: op.plano_id || "mensalidade", metadata: { org_id: org.id, boleto_id: id, plano_id: op.plano_id || "" } });
+      const d = pagarme.dadosDoBoleto(p);
+      if (p.status === "failed" || d.status === "failed")
+        return res.status(502).json({ error: "O Pagar.me não gerou o boleto. Confira o CPF/CNPJ e o endereço e tente de novo." });
+      dados = { cobrancaId: d.cobrancaId, pedidoId: p.id, url: d.url, pdf: d.pdf, linha: d.linha };
+    }
+
+    db.prepare(`INSERT INTO boletos (id,org_id,provedor,cobranca_id,pedido_id,plano_id,descricao,valor,meses,vencimento,url,pdf,linha,status,criado_por,criado_em)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'aberto',?,?)`).run(id, org.id, provedor, dados.cobrancaId, dados.pedidoId,
+      op.plano_id, descricao, op.valor, op.meses, vencimento, dados.url, dados.pdf, dados.linha, req.user.id, Date.now());
+    console.log(`[boleto] ${req.user.name} gerou um boleto de ${brl(op.valor)} (${op.nome}) — ${org.name}, ${provedor}`);
+    /* Sem endereço nem linha, a pessoa não tem como pagar: é falha, e a tela
+       precisa dizer, não mostrar um "pronto" vazio. */
+    if (!dados.url && !dados.linha)
+      return res.status(502).json({ error: "O boleto foi criado, mas o provedor não devolveu o endereço nem a linha digitável. Fale com o suporte do ConHub." });
+    res.json({ ok: true, boleto: boletosParaTela(org.id).find(b => b.id === id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 /* ===== WEBHOOK DO PAGAR.ME =====
 
    NÃO CONFIA NO QUE CHEGA. O aviso diz "a cobrança X mudou"; a rota busca a
@@ -1073,6 +1264,16 @@ export async function processarAvisoPagarme(corpo) {
 
   const subId = pagarme.assinaturaDaCobranca(c);
   const pedidoId = pagarme.pedidoDaCobranca(c);
+  /* O boleto liberado pelo master (15/10/2026) é um pedido próprio. */
+  const boleto = boletoPorPedido(pedidoId) || boletoPorCobranca("pagarme", c.id);
+  if (boleto && boleto.org_id === org.id) {
+    if (pagarme.PAGA.has(c.status)) {
+      if (confirmarBoleto(boleto, { valor: Number(c.paid_amount || c.amount || 0) / 100 || null }))
+        console.log(`[pagarme] boleto pago (${org.name})`);
+    } else if (pagarme.ESTORNADA.has(c.status)) estornarBoleto(boleto);
+    else if (["canceled", "failed"].includes(c.status)) cancelarBoletoLocal(boleto);
+    return;
+  }
   const avulso = subId ? avulsoDaAssinatura(subId) : null;
   const daFerramenta = avulso && avulso.org_id === org.id && avulso.avulso_provedor === "pagarme";
   const doPlano = (subId && subId === org.pagarme_subscription_id) || (pedidoId && pedidoId === org.pagarme_order_id);
@@ -1089,6 +1290,20 @@ export async function processarAvisoPagarme(corpo) {
     if (!daFerramenta) marcarAtraso(org.id, null);
     console.log(`[pagarme] cartão recusou a cobrança (${org.name})`);
   }
+}
+
+/* Os boletos em aberto de uma conta que vai ser apagada saem do provedor —
+   senão o cliente ainda poderia pagar um boleto de uma conta que não existe.
+   Devolve quantos não deu para cancelar, para o aviso na tela. */
+export async function cancelarBoletosAbertos(org) {
+  let falhas = 0;
+  for (const b of db.prepare("SELECT * FROM boletos WHERE org_id = ? AND status = 'aberto' AND cobranca_id IS NOT NULL").all(org.id)) {
+    try {
+      if (b.provedor === "asaas") { if (asaasConfigurado()) await apagarPagamentoAsaas(b.cobranca_id); else { falhas++; continue; } }
+      else { if (pagarme.pagarmeConfigurado()) await pagarme.cancelarCobranca(b.cobranca_id); else { falhas++; continue; } }
+    } catch (e) { falhas++; console.warn(`[boleto] não consegui cancelar o boleto ${b.id}: ${e.message}`); }
+  }
+  return falhas;
 }
 
 /* Cancela tudo que a conta tem no Pagar.me — usado ao apagar a conta.

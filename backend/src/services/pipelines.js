@@ -256,7 +256,15 @@ export function validarAutomacao(orgId, pipelineId, cfg) {
   const config = {};
   if (cfg.distribuir) {
     if (cfg.distribuir === "rodizio") config.distribuir = "rodizio";
-    else {
+    /* Uma catraca de produto específica (08/10/2026): o lead passa a lembrar
+       esta catraca e vai para o próximo disponível dela — sem ninguém nela,
+       pela principal, como em todo repasse. */
+    else if (cfg.distribuir === "catraca") {
+      const c = db.prepare("SELECT id FROM catracas WHERE id = ? AND org_id = ? AND ativa = 1").get(String(cfg.catraca_id || ""), orgId);
+      if (!c) return { erro: "Escolha uma catraca ativa desta conta." };
+      config.distribuir = "catraca";
+      config.catraca_id = c.id;
+    } else {
       const p = db.prepare("SELECT id FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'").get(String(cfg.distribuir), orgId);
       if (!p) return { erro: "A pessoa escolhida para receber o lead não está ativa na equipe." };
       config.distribuir = p.id;
@@ -274,6 +282,21 @@ export function validarAutomacao(orgId, pipelineId, cfg) {
     if (!primeiraEtapa(orgId, alvo.id)) return { erro: "O funil de destino não tem etapa ativa para receber o lead." };
     config.mover_para_pipeline = alvo.id;
   }
+  /* ETIQUETAS AO CHEGAR (08/10/2026): colocar e tirar etiquetas sem precisar
+     de um fluxo — a etiqueta por etapa e a de follow-up. A mesma etiqueta nas
+     duas listas não faz sentido (colocaria e tiraria no mesmo instante). */
+  for (const k of ["adicionar_tags", "remover_tags"]) {
+    if (cfg[k] === undefined || cfg[k] === null) continue;
+    if (!Array.isArray(cfg[k])) return { erro: "Lista de etiquetas inválida." };
+    const ids = [...new Set(cfg[k].map(String))].slice(0, 20);
+    for (const id of ids)
+      if (!db.prepare("SELECT 1 FROM tags WHERE id = ? AND org_id = ?").get(id, orgId))
+        return { erro: "Uma das etiquetas escolhidas não existe nesta conta." };
+    if (ids.length) config[k] = ids;
+  }
+  if (config.adicionar_tags && config.remover_tags && config.adicionar_tags.some(t => config.remover_tags.includes(t)))
+    return { erro: "A mesma etiqueta não pode ser colocada e tirada na mesma etapa." };
+  if (cfg.tag_do_corretor) config.tag_do_corretor = true;
   return { config };
 }
 

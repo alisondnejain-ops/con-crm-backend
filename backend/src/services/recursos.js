@@ -23,6 +23,7 @@
    no Plus (04/10/2026); fora deles, depende de liberação ou de contratação. */
 import db from "../db.js";
 import { planoPorId } from "./planos.js";
+import { precoParaClientes } from "./cetrolab/planos.js";
 
 /* O catálogo. O preço avulso mora aqui, no servidor, pela mesma razão da
    tabela de planos: preço que muda por engano vira fatura errada. */
@@ -36,6 +37,17 @@ export const RECURSOS = {
     nome: "Marketing",
     resumo: "Disparo em massa e fluxos de mensagens para listas e etiquetas do CRM.",
     avulso: 97,
+  },
+  /* O CETROLAB (12/10/2026): os modelos premium do site. O modelo Clássico
+     continua em todo plano, sem esta ferramenta (decisão do Ali — ninguém perde
+     o site que já tem). O preço NÃO mora aqui: é o plano "para clientes do
+     ConHub" que o master cadastra no hub (services/cetrolab/planos.js). Sem
+     plano cadastrado o preço é nulo, e a contratação recusa — nada se vende
+     por um valor que ninguém escolheu. */
+  cetrolab: {
+    nome: "Cetrolab",
+    resumo: "Os modelos premium do site — Bairros, Editorial e Lançamento — todos no mesmo plano. O Clássico continua grátis.",
+    get avulso() { return precoParaClientes(); },
   },
 };
 export const ehRecurso = (id) => Object.prototype.hasOwnProperty.call(RECURSOS, id);

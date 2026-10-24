@@ -25,6 +25,7 @@ import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
+import redesRoutes from "./routes/redes.routes.js";
 import { assistente as assistenteRoutes, suporte as suporteRoutes } from "./routes/assistente.routes.js";
 import { webhook as agenteWebhook, api as agenteApi } from "./routes/agente-dev.routes.js";
 import { processarAgente, garantirWebhookDoAgente } from "./services/agente-dev.js";
@@ -52,8 +53,10 @@ import { avisarPlantaoEmTodas } from "./services/plantao.js";
 import { avisarSemRespostaEmTodas } from "./services/alerta.js";
 import { garantirContaDemo, reseedDemoSePassouDaHora } from "./services/demo.js";
 import { processarDisparos } from "./services/disparo.js";
+import { processarRedes } from "./services/redes.js";
 import { garantirWebhooksEmTodas } from "./services/webhook-uazapi.js";
 import { conferirDominiosPendentes } from "./services/site.js";
+import { tratarFotosPendentes } from "./services/fotos-imovel.js";
 
 const app = express();
 
@@ -101,7 +104,8 @@ app.use(cors({
    ARQUIVO depois de decodificado; 30 MB em base64 pedem uns 40 MB de corpo,
    e o resto é folga para o JSON em volta. */
 // "/marketing": a lista de contatos sobe em base64 (até 8 MB, igual à escala do plantão).
-const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing"];
+// "/assistente": o gestor manda foto, print e PDF ao Claude (até 16 MB por mensagem, em base64).
+const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing", "/assistente", "/redes"];
 const jsonGrande = express.json({ limit: "45mb" });
 /* Os webhooks guardam o corpo CRU: a assinatura da Meta é sobre os bytes
    que ela mandou, e refazer o texto com JSON.stringify não reproduz o
@@ -380,6 +384,7 @@ app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 app.use("/anuncios-meta", cobrando, metaConexaoGestao); // "Conectar com Facebook" (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
 app.use("/marketing", cobrando, marketingRoutes); // Marketing: termo, listas, bloqueio, número de disparo (só gestor)
+app.use("/redes", cobrando, redesRoutes); // Redes sociais: posts programados, engajamento e automação de comentários (só gestor)
 app.use("/assistente", cobrando, assistenteRoutes); // assistente de configuração (Claude), só gestão
 /* A nuvem de suporte fica FORA do porteiro: conta travada por pagamento é a
    que mais precisa falar com o suporte. O router exige login sozinho. */
@@ -536,7 +541,17 @@ app.listen(PORT, () => {
     setTimeout(() => garantirWebhookDoAgente(), 25000);
     setInterval(() => garantirWebhookDoAgente(), 30 * 60000);
   }
+  /* FOTOS ANTIGAS DOS IMÓVEIS (12/10/2026): as que entraram antes do
+     tratamento automático são tratadas aos poucos — três a cada 20 segundos,
+     uma por vez — até acabar. `FOTOS_AGENDADOR=0` desliga. */
+  if (process.env.FOTOS_AGENDADOR !== "0")
+    setInterval(() => tratarFotosPendentes(3).catch(e => console.error("[fotos] tratamento:", e.message)), 20000);
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
+  /* POSTS PROGRAMADOS DAS REDES SOCIAIS (20/10/2026, services/redes.js): o
+     ConHub publica ele mesmo na hora marcada. `REDES_AGENDADOR=0` desliga
+     (os testes chamam a função direto). */
+  if (process.env.REDES_AGENDADOR !== "0")
+    setInterval(() => processarRedes().catch(e => console.error("[redes] erro no ciclo:", e.message)), 10000);
   console.log(`Diagnóstico das integrações: ${base}/integracoes`);
 });

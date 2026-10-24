@@ -21,9 +21,15 @@ import { roles, emitirTokenCurto, verificarTokenCurto } from "../auth.js";
 import { fechar, abrir } from "../services/cofre.js";
 import {
   botaoConfigurado, urlDeLogin, trocarCodigo, paginasDoUsuario, assinarPagina, desassinarPagina, PERMISSOES,
+  permissoesConcedidas, instagramDaPagina,
 } from "../services/meta.js";
 import { avisosDaMeta } from "./meta.webhook.js";
+import { resolverPeriodo } from "../services/painel.js";
+import {
+  guardarTokenDoUsuario, estado as estadoAnuncios, contasDeAnuncio, escolherConta, desligar as desligarAnuncios, desempenho, ErroAnuncios,
+} from "../services/anuncios-desempenho.js";
 import { listarFormularios, definirFunil, definirCatraca, ErroFormulario } from "../services/formularios.js";
+import { ligarFichaAoFormulario, ErroFicha } from "../services/ia-produtos.js";
 
 const ESCOPO = "meta-conectar";
 const baseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
@@ -48,11 +54,21 @@ retorno.get("/retorno", async (req, res) => {
   const voltar = (q) => res.redirect(`${baseDe(req)}/app?${new URLSearchParams(q)}`);
   const st = verificarTokenCurto(req.query.state, ESCOPO);
   if (!st) return voltar({ meta: "erro", motivo: "A conexão demorou demais ou o link não é válido. Clique em Conectar de novo." });
-  if (req.query.error || !req.query.code) return voltar({ meta: "cancelado" });
+  /* Recusa de verdade (a pessoa clicou em cancelar) é "cancelado". Qualquer
+     outro erro que o Facebook devolve vai escrito: antes tudo virava
+     "cancelado", e um erro de permissão parecia desistência de quem clicou. */
+  if (req.query.error || !req.query.code) {
+    const motivo = String(req.query.error_description || req.query.error_reason || req.query.error || "").replace(/\+/g, " ").slice(0, 200);
+    if (!req.query.error || req.query.error_reason === "user_denied" || /denied|cancel/i.test(String(req.query.error)))
+      return voltar({ meta: "cancelado" });
+    console.warn("[meta] o Facebook devolveu erro na conexão:", motivo);
+    return voltar({ meta: "erro", motivo: "O Facebook recusou a conexão: " + motivo });
+  }
   try {
-    const userToken = await trocarCodigo(String(req.query.code), retornoDe(req));
+    const { token: userToken, expira } = await trocarCodigo(String(req.query.code), retornoDe(req));
     const paginas = await paginasDoUsuario(userToken);
-    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas });
+    const permissoes = await permissoesConcedidas(userToken);
+    const chave = guardarEscolha({ orgId: st.o, userId: st.u, paginas, permissoes, userToken, expira });
     voltar({ meta: "escolher", k: chave });
   } catch (e) {
     console.error("[meta] conectar com Facebook falhou:", e.message);
@@ -65,7 +81,8 @@ export const gestao = Router();
 gestao.use(roles("adm"));
 
 const listaDaConta = (orgId) => db.prepare(`
-  SELECT p.page_id, p.nome, p.conectado_em, p.ultimo_lead_em, p.ultimo_erro, p.ultimo_erro_em, u.name AS conectado_por
+  SELECT p.page_id, p.nome, p.conectado_em, p.ultimo_lead_em, p.ultimo_erro, p.ultimo_erro_em, u.name AS conectado_por,
+    p.ig_id, p.ig_usuario
   FROM meta_paginas p LEFT JOIN users u ON u.id = p.conectado_por
   WHERE p.org_id = ? ORDER BY p.conectado_em`).all(orgId);
 
@@ -76,8 +93,23 @@ gestao.get("/", (req, res) => {
     paginas,
     permissoes: PERMISSOES,
     avisos: avisosDaMeta(paginas.map(p => p.page_id), !!req.user.master),
+    anuncios: estadoAnuncios(req.user.org_id),
   });
 });
+
+/* ===== Desempenho dos anúncios (22/10/2026) ===== */
+const trataAnuncios = (fn) => async (req, res) => {
+  try { res.json(await fn(req)); }
+  catch (e) {
+    if (e instanceof ErroAnuncios) return res.status(e.status).json({ error: e.message });
+    console.error("[anuncios]", e.message); res.status(500).json({ error: "Não consegui ler os anúncios agora." });
+  }
+};
+gestao.get("/contas-anuncio", trataAnuncios(async (req) => ({ contas: await contasDeAnuncio(req.user.org_id), estado: estadoAnuncios(req.user.org_id) })));
+gestao.post("/conta-anuncio", trataAnuncios((req) => escolherConta(req.user.org_id, req.body?.conta_id)));
+gestao.delete("/conta-anuncio", trataAnuncios((req) => { desligarAnuncios(req.user.org_id); return estadoAnuncios(req.user.org_id); }));
+gestao.get("/desempenho", trataAnuncios((req) => desempenho(req.user.org_id,
+  resolverPeriodo({ periodo: req.query.periodo, de: req.query.de, ate: req.query.ate }), { atualizar: req.query.atualizar === "1" })));
 
 /* Os formulários da página, com o funil próprio e as catracas de cada um —
    a lista que o editor da catraca e o gatilho de formulário dos fluxos
@@ -92,6 +124,16 @@ gestao.post("/formularios/:formId/catraca", (req, res) => {
   try { res.json({ ok: true, ...definirCatraca(req.user.org_id, req.user.id, req.params.formId, req.body || {}) }); }
   catch (e) {
     if (e instanceof ErroFormulario) return res.status(e.status).json({ error: e.message });
+    console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui salvar." });
+  }
+});
+/* A ficha de produto da IA para os leads deste formulário (08/10/2026). */
+gestao.post("/formularios/:formId/produto", (req, res) => {
+  try {
+    ligarFichaAoFormulario(req.user.org_id, req.user.id, req.params.formId, req.body?.ia_produto_id || null, req.body?.nome);
+    res.json({ ok: true, ia_produto_id: req.body?.ia_produto_id || null });
+  } catch (e) {
+    if (e instanceof ErroFicha) return res.status(e.status).json({ error: e.message });
     console.error("[formularios]", e.message); res.status(500).json({ error: "Não consegui salvar." });
   }
 });
@@ -142,18 +184,32 @@ gestao.post("/escolha/:chave", async (req, res) => {
       continue;
     }
     try {
-      await assinarPagina(id, p.token);
-      db.prepare(`INSERT INTO meta_paginas (page_id,org_id,nome,page_token,conectado_por,conectado_em)
-                  VALUES (?,?,?,?,?,?)
+      const campos = await assinarPagina(id, p.token);
+      // O Instagram ligado à página (redes sociais). Falhar aqui não impede a
+      // conexão: o lead de formulário não depende disso.
+      const ig = await instagramDaPagina(id, p.token).catch(() => null);
+      db.prepare(`INSERT INTO meta_paginas (page_id,org_id,nome,page_token,conectado_por,conectado_em,
+                    permissoes,avisos_campos,ig_id,ig_usuario,ig_foto,ig_seguidores,redes_atualizado_em)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                   ON CONFLICT(page_id) DO UPDATE SET nome = excluded.nome, page_token = excluded.page_token,
-                    conectado_por = excluded.conectado_por, ultimo_erro = NULL`)
-        .run(id, req.user.org_id, p.nome, fechar(p.token), req.user.id, Date.now());
+                    conectado_por = excluded.conectado_por, ultimo_erro = NULL,
+                    permissoes = excluded.permissoes, avisos_campos = excluded.avisos_campos,
+                    ig_id = excluded.ig_id, ig_usuario = excluded.ig_usuario, ig_foto = excluded.ig_foto,
+                    ig_seguidores = excluded.ig_seguidores, redes_atualizado_em = excluded.redes_atualizado_em`)
+        .run(id, req.user.org_id, p.nome, fechar(p.token), req.user.id, Date.now(),
+          e.permissoes ? e.permissoes.join(",") : null, campos.join(","),
+          ig?.id || null, ig?.usuario || null, ig?.foto || null, ig?.seguidores ?? null, Date.now());
       resultado.push({ id, nome: p.nome, ok: true });
     } catch (err) {
       resultado.push({ id, nome: p.nome, ok: false, erro: "O Facebook recusou ligar os avisos de lead desta página: " + String(err.message).slice(0, 160) });
     }
   }
-  if (resultado.some(r => r.ok)) escolhas.delete(String(req.params.chave));
+  if (resultado.some(r => r.ok)) {
+    // O token de usuário vai para o banco só agora, com a conexão feita de
+    // fato: é com ele que se leem os números da conta de anúncios.
+    guardarTokenDoUsuario(req.user.org_id, req.user.id, e.userToken, e.expira, e.permissoes);
+    escolhas.delete(String(req.params.chave));
+  }
   res.json({ resultado, paginas: listaDaConta(req.user.org_id) });
 });
 
