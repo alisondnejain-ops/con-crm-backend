@@ -4,6 +4,9 @@
 
    Rodar:  npm run teste:anuncios-desempenho
 */
+// O servidor conta o dia no fuso de Recife (src/tz.js); o teste precisa do mesmo,
+// senão entre 21h e meia-noite o "hoje" de um é o "amanhã" do outro.
+process.env.TZ = "America/Recife";
 import assert from "node:assert";
 import os from "node:os";
 import path from "node:path";

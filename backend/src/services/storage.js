@@ -169,7 +169,27 @@ const EXTENSOES_RECEBIDAS = {
   "application/vnd.ms-excel": ".xls",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
   "text/plain": ".txt",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/vnd.oasis.opendocument.text": ".odt",
+  "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+  "application/rtf": ".rtf",
+  "text/csv": ".csv",
+  "application/zip": ".zip",
 };
+/* DOCUMENTO QUE A EQUIPE MANDA NA CONVERSA (27/10/2026, relato de cliente: "não
+   consigo enviar arquivo pelo chat"). Até aqui o clipe só tinha foto, vídeo e
+   áudio, e o servidor recusava o resto — contrato, simulação, ficha do imóvel
+   em PDF não tinham por onde sair. A lista é FECHADA de propósito: executável
+   ou página HTML não entram (o arquivo fica num endereço do CRM). */
+export const DOCUMENTOS = new Set([
+  "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.oasis.opendocument.text", "application/vnd.oasis.opendocument.spreadsheet",
+  "application/rtf", "text/plain", "text/csv", "application/zip",
+]);
+export const ehDocumento = (mime) => DOCUMENTOS.has(String(mime));
 export const tipoPermitido = (mime) => !!EXTENSOES[mime];
 export const ehVideo = (mime) => String(mime).startsWith("video/");
 
@@ -200,7 +220,7 @@ export const ehVideo = (mime) => String(mime).startsWith("video/");
    `jsonGrande` de lá volta a ter um limite de rota que nunca dispara porque
    o corpo já foi recusado antes. */
 export const limiteBytes = (mime) =>
-  ehVideo(mime) ? 30 * 1024 * 1024 : 8 * 1024 * 1024;
+  ehVideo(mime) || ehDocumento(mime) ? 30 * 1024 * 1024 : 8 * 1024 * 1024;
 
 /* VÍDEO GRANDE (150 MB) SAIU DO CAMINHO DO base64. (14/09/2026, pedido do
    Ali: *"aumenta o limite do vídeo para 150mb"*.)

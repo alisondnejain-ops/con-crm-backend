@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead, emitirTokenAnexo } from "../auth.js";
 import { sendText, sendMedia, sendLocation, editMessage, deleteMessage } from "../services/uazapi.js";
-import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
+import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, ehDocumento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
@@ -216,8 +216,10 @@ r.delete("/:id/messages/:msgId", async (req, res) => {
    O arquivo é guardado primeiro porque a Uazapi envia a partir de uma URL
    pública: sem guardar, não há o que mandar. Como o arquivo fica salvo, ele
    também aparece no balão da conversa, igual ao que o cliente manda. */
-const LIMITES = { image: 10, video: 1, audio: 1 };
-const familia = (mime) => (/^image\//.test(mime) ? "image" : /^video\//.test(mime) ? "video" : /^audio\//.test(mime) ? "audio" : "");
+const LIMITES = { image: 10, video: 1, audio: 1, document: 5 };
+const familia = (mime) => (/^image\//.test(mime) ? "image" : /^video\//.test(mime) ? "video" : /^audio\//.test(mime) ? "audio"
+  : ehDocumento(mime) ? "document" : "");
+const NOME_FAMILIA = { image: "fotos", video: "vídeo", audio: "áudio", document: "documentos" };
 
 r.post("/:id/anexo", async (req, res) => {
   const { arquivos } = req.body || {};
@@ -233,10 +235,10 @@ r.post("/:id/anexo", async (req, res) => {
   const contagem = {};
   for (const a of arquivos) {
     const f = familia(a.mime || "");
-    if (!f) return res.status(400).json({ error: `Tipo de arquivo não aceito: ${a.mime || "desconhecido"}` });
+    if (!f) return res.status(400).json({ error: `Este tipo de arquivo não pode ser enviado (${a.nome || a.mime || "desconhecido"}). Dá para mandar foto, vídeo, áudio, PDF, Word, Excel, PowerPoint, texto e ZIP.` });
     contagem[f] = (contagem[f] || 0) + 1;
     if (contagem[f] > LIMITES[f])
-      return res.status(400).json({ error: `Máximo de ${LIMITES[f]} ${f === "image" ? "fotos" : f === "video" ? "vídeo" : "áudio"} por envio.` });
+      return res.status(400).json({ error: `Máximo de ${LIMITES[f]} ${NOME_FAMILIA[f]} por envio.` });
   }
 
   const firstName = (req.user.name || "").split(" ")[0];
@@ -257,8 +259,10 @@ r.post("/:id/anexo", async (req, res) => {
       const legenda = i === 0 && req.body.texto ? String(req.body.texto).trim() : "";
       // `bytes` é o mesmo arquivo que acabou de subir: se a Uazapi não
       // conseguir baixar pela URL, ele vai embutido, sem reler nada.
+      // Documento leva o NOME: sem ele o cliente recebe "arquivo.pdf" sem saber o que é.
+      const docName = f === "document" ? String(a.nome || "documento").replace(/[\r\n\/\\]/g, " ").slice(0, 120) : undefined;
       const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: tipoUazapi, file: url, bytes: buffer, mime: a.mime,
-        caption: legenda || undefined, signedBy: legenda ? firstName : undefined });
+        caption: legenda || undefined, signedBy: legenda ? firstName : undefined, docName });
       enviados.push({ url, mime: a.mime, nome: a.nome || "", legenda, wa_id: envio?.messageid || null });
     }
   } catch (e) {
