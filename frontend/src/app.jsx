@@ -267,7 +267,8 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   apagadaEm:m.apagada_em||null, apagadaPor:m.apagada_por_nome||null, apagadaPorId:m.apagada_por||null,
   // "Foto"/"Vídeo"/"Áudio" existem para a prévia da lista de conversas. Dentro
   // do balão seriam redundantes — a mídia já está à vista.
-  rotuloAuto:!!m.media_url&&["Foto","Vídeo","Áudio"].includes(m.body),
+  // O documento sem legenda tem o próprio NOME como texto — o cartão já mostra o nome.
+  rotuloAuto:!!m.media_url&&(["Foto","Vídeo","Áudio","Arquivo"].includes(m.body)||(!!m.media_name&&m.body===m.media_name)),
 });
 /* Temperatura do lead. `SEM` é um estado de verdade, não um erro.
 
@@ -8631,9 +8632,25 @@ const LIMITE_FOTOS=10;
    competir com o teto do corpo em JSON que limitava foto/áudio/documento,
    e por isso pôde subir bem mais (150 MB, pedido do Ali). */
 const LIMITE_MB_FOTO=8, LIMITE_MB_VIDEO=150;
-const lerArquivo=(f)=>new Promise((ok,erro)=>{
+/* Documentos (27/10/2026): PDF, Word, Excel, PowerPoint, texto e ZIP, até 5 por
+   vez e 30 MB cada — espelho de `DOCUMENTOS` e `limiteBytes` em storage.js.
+   O tipo vem da EXTENSÃO quando o navegador não diz (acontece no Android e com
+   .docx em alguns Windows): sem tipo, o servidor recusaria um PDF de verdade. */
+const LIMITE_DOCS=5, LIMITE_MB_DOC=30;
+const TIPO_DOC={pdf:"application/pdf",doc:"application/msword",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls:"application/vnd.ms-excel",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt:"application/vnd.ms-powerpoint",pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  odt:"application/vnd.oasis.opendocument.text",ods:"application/vnd.oasis.opendocument.spreadsheet",
+  rtf:"application/rtf",txt:"text/plain",csv:"text/csv",zip:"application/zip"};
+const ACEITA_DOC=Object.keys(TIPO_DOC).map(e=>"."+e).join(",");
+const tipoDoDocumento=(f)=>{
+  const ext=(String(f.name).match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase();
+  if(ext&&TIPO_DOC[ext]) return TIPO_DOC[ext];
+  return Object.values(TIPO_DOC).includes(f.type)?f.type:"";
+};
+const lerArquivo=(f,mime)=>new Promise((ok,erro)=>{
   const r=new FileReader();
-  r.onload=()=>ok({mime:f.type,nome:f.name,base64:String(r.result).split(",")[1]});
+  r.onload=()=>ok({mime:mime||f.type,nome:f.name,base64:String(r.result).split(",")[1]});
   r.onerror=()=>erro(new Error(`Não consegui ler "${f.name}".`));
   r.readAsDataURL(f);
 });
@@ -8988,14 +9005,14 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
   // `descartar` marca que a parada foi um cancelamento; `gravadosRef` guarda a
   // duração, que o `onstop` precisa depois de o cronômetro já ter sido zerado.
   const descartar=useRef(false), gravadosRef=useRef(0);
-  const fotos=useRef(null), video=useRef(null);
+  const fotos=useRef(null), video=useRef(null), docs=useRef(null);
 
   const aviso=(m)=>aoAvisar&&aoAvisar(m);
 
-  async function mandar(lista,rotulo){
+  async function mandar(lista,rotulo,tipoDe){
     setAberto(false); setOcupado(rotulo);
     try{
-      const arquivos=await Promise.all(lista.map(lerArquivo));
+      const arquivos=await Promise.all(lista.map(f=>lerArquivo(f,tipoDe&&tipoDe(f))));
       await acoes.anexar(lead.id,arquivos);
     }catch(e){ aviso(e.message); }
     finally{ setOcupado(""); }
@@ -9008,6 +9025,16 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
     const grande=lista.find(f=>f.size>LIMITE_MB_FOTO*1024*1024);
     if(grande) return aviso(`"${grande.name}" passa de ${LIMITE_MB_FOTO} MB — não vai dar para enviar.`);
     mandar(lista,"fotos");
+  }
+  function escolheuDocumentos(e){
+    const lista=[...e.target.files]; e.target.value="";
+    if(!lista.length) return;
+    if(lista.length>LIMITE_DOCS) return aviso(`Dá para mandar até ${LIMITE_DOCS} documentos por vez. Você escolheu ${lista.length}.`);
+    const estranho=lista.find(f=>!tipoDoDocumento(f));
+    if(estranho) return aviso(`"${estranho.name}" não é um tipo de documento aceito. Dá para mandar PDF, Word, Excel, PowerPoint, texto e ZIP.`);
+    const grande=lista.find(f=>f.size>LIMITE_MB_DOC*1024*1024);
+    if(grande) return aviso(`"${grande.name}" passa de ${LIMITE_MB_DOC} MB — não vai dar para enviar.`);
+    mandar(lista,"documento",tipoDoDocumento);
   }
   function escolheuVideo(e){
     const f=e.target.files[0]; e.target.value="";
@@ -9105,11 +9132,13 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
   return <div style={{position:"relative",flexShrink:0}}>
     <input ref={fotos} type="file" accept="image/*" multiple onChange={escolheuFotos} style={{display:"none"}}/>
     <input ref={video} type="file" accept="video/*" onChange={escolheuVideo} style={{display:"none"}}/>
+    <input ref={docs} type="file" accept={ACEITA_DOC} multiple onChange={escolheuDocumentos} style={{display:"none"}}/>
     {aberto&&<React.Fragment>
       <div onClick={()=>setAberto(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
       <div style={{position:"absolute",bottom:52,left:0,zIndex:21,background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.14)",padding:"5px 0",minWidth:186}}>
         {item("star",`Fotos (até ${LIMITE_FOTOS})`,()=>fotos.current.click())}
         {item("msg","Vídeo (1)",()=>video.current.click())}
+        {item("form",`Documento (até ${LIMITE_DOCS})`,()=>docs.current.click())}
         {item("phone","Gravar áudio",gravar)}
         {item("pin","Minha localização",local)}
       </div>

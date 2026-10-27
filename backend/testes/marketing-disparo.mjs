@@ -372,7 +372,9 @@ assert.equal((await chamar(tGestora, `/marketing/fluxos/${fluxo}/teste`, "POST",
 assert.equal((await chamar(tOutro, `/marketing/fluxos/${fluxo}/teste`, "POST", { telefone: "87900000099" })).status, 404);
 
 /* ===== O DISPARO NOS RELATÓRIOS (27/09/2026) ===== */
-const hojeISO = new Date().toISOString().slice(0, 10);
+// Começa ONTEM: a data vai em UTC e o servidor lê no fuso de Recife — entre 21h
+// e meia-noite o "hoje" em UTC já é amanhã, e o lead de agora ficaria de fora.
+const hojeISO = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 const depoisISO = new Date(Date.now() + 86400000 * 60).toISOString().slice(0, 10);
 const janela = `de=${hojeISO}&ate=${depoisISO}`;
 
