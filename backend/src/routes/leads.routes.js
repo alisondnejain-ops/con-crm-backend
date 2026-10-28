@@ -14,6 +14,7 @@ import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
 import { moverLead, transferenciasDoLead } from "../services/movimento.js";
+import { linhaDoTempo } from "../services/linha-do-tempo.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { dispararGatilho } from "../services/automacoes.js";
 import { gravarCampos, ErroCampo } from "../services/campos-lead.js";
@@ -1063,6 +1064,15 @@ function sugestaoGuardada(lead) {
     palavra: g ? g.palavra : null,
   };
 }
+
+/* A linha do tempo do lead (services/linha-do-tempo.js): só quando alguém
+   abre o cartão, não a cada vez que a conversa abre. Vê quem pode ver o lead. */
+r.get("/:id/linha-do-tempo", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json(linhaDoTempo(lead));
+});
 
 r.get("/:id", (req, res) => {
   const lead = db.prepare(`${SELECT_LEAD} WHERE l.id = ?`).get(req.params.id);

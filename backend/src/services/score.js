@@ -89,8 +89,14 @@ const nota = (valor, bom, ruim) => {
 
 /* Espera do cliente a cada pergunta. Com `userId`, conta só as esperas que
    ESSA pessoa fez o cliente esperar — mas a resposta de um colega encerra a
-   espera do mesmo jeito, porque do lado do cliente ele foi atendido. */
-export function temposDeResposta(leadIds, userId = null) {
+   espera do mesmo jeito, porque do lado do cliente ele foi atendido.
+
+   `desde` (Map lead → instante em que o lead ficou com a pessoa): a espera
+   conta a partir do MAIOR entre a pergunta do cliente e a chegada do lead na
+   mão dela (28/10/2026, pedido do Fernando). Sem isso, a pergunta feita
+   enquanto o lead estava com a atendente entrava inteira na conta do corretor
+   que o recebeu horas depois. */
+export function temposDeResposta(leadIds, userId = null, desde = null) {
   if (!leadIds.length) return [];
   const msgs = emLotes(leadIds, (marcas, lote) => db.prepare(
     `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} ORDER BY lead_id, created_at`
@@ -102,7 +108,10 @@ export function temposDeResposta(leadIds, userId = null) {
     if (m.lead_id !== leadAtual) { leadAtual = m.lead_id; perguntaEm = null; }
     if (m.direction === "in") { if (perguntaEm == null) perguntaEm = m.created_at; }
     else if (perguntaEm != null) {
-      if (!userId || m.from_user_id === userId) esperas.push((m.created_at - perguntaEm) / 60000);
+      if (!userId || m.from_user_id === userId) {
+        const inicio = Math.max(perguntaEm, (desde && desde.get(m.lead_id)) || 0);
+        esperas.push(Math.max(0, m.created_at - inicio) / 60000);
+      }
       perguntaEm = null;
     }
   }
@@ -133,6 +142,9 @@ export function primeirasRespostas(leads, userId) {
 }
 
 // Quantos destes leads esta pessoa de fato respondeu.
+// Quando cada lead ficou com quem está com ele — o começo da conta da pessoa.
+export const desdeDe = (leads) => new Map(leads.map(l => [l.id, l.assigned_at || l.created_at || 0]));
+
 export const quantosRespondeu = (leads, userId) => primeirasRespostas(leads, userId).length;
 
 /* Números de um atendente no período.
@@ -236,7 +248,7 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
     // Quantos leads ele de fato respondeu — sem isso, "mediana de 4 min" com
     // dois leads respondidos parece o mesmo que com trinta.
     respondidos: primeiras.length,
-    atendimento_min: mediana(temposDeResposta(ids, u.id)),
+    atendimento_min: mediana(temposDeResposta(ids, u.id, desdeDe(meus))),
     // Nome idêntico ao da tela, e conta idêntica: dos leads que entraram no
     // período, quantos já viraram venda.
     conversao: pct(vendasDaCoorte.length, meus.length),

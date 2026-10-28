@@ -2,7 +2,7 @@ import { Router } from "express";
 import db, { emLotes } from "../db.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
@@ -184,7 +184,7 @@ r.get("/", (req, res) => {
       // Mediana em vez de média: um único lead esquecido no fim de semana
       // distorce a média e faz o corretor parecer pior do que é.
       primeira_resposta_mediana_min: mediana(temposResposta) ?? 0,
-      atendimento_mediana_min: mediana(temposDeResposta(meus.map(l => l.id), u.id)),
+      atendimento_mediana_min: mediana(temposDeResposta(meus.map(l => l.id), u.id, desdeDe(meus))),
       // Onde os leads DO PERÍODO estão hoje no funil. É uma foto do momento,
       // não "quantos avançaram nesta semana" — o sistema não guarda a data de
       // cada mudança de etapa, então prometer isso seria inventar número.

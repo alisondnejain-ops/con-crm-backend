@@ -23,7 +23,7 @@ try { fs.unlinkSync(process.env.DB_PATH); } catch (e) {}
 
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
-const { primeirasRespostas, temposDeResposta, mediana } = await import("../src/services/score.js");
+const { primeirasRespostas, temposDeResposta, mediana, desdeDe } = await import("../src/services/score.js");
 
 const MIN = 60000;
 const org = "org_" + randomUUID().slice(0, 8);
@@ -91,6 +91,22 @@ db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,body,created
 const semResposta = primeirasRespostas(db.prepare("SELECT * FROM leads WHERE id=?").all(antes), marina);
 console.log(`   respostas contadas: ${semResposta.length}`);
 assert.deepEqual(semResposta, [], "mensagem anterior à entrega não é resposta a esta entrega");
+
+console.log("5b. A pergunta feita antes do repasse só conta desde que o lead chegou à Marina");
+// O cliente pergunta 10 min antes de o lead ser dela (t0+50); ela responde em t0+65.
+const repassado = "l_" + randomUUID();
+db.prepare(`INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,assigned_at,created_at)
+  VALUES (?,?,?,?,?,?,?,?)`).run(repassado, org, "Repassado", "5587900004444", "Atendimento", marina, t0 + 60 * MIN, t0);
+db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,body,created_at) VALUES (?,?,?,?,?,?)`)
+  .run("m_" + randomUUID(), repassado, "in", null, "e aí?", t0 + 50 * MIN);
+db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,body,created_at) VALUES (?,?,?,?,?,?)`)
+  .run("m_" + randomUUID(), repassado, "out", marina, "oi!", t0 + 65 * MIN);
+const lr = db.prepare("SELECT * FROM leads WHERE id=?").all(repassado);
+const semDesde = temposDeResposta([repassado], marina);
+const comDesde = temposDeResposta([repassado], marina, desdeDe(lr));
+console.log(`   sem a chegada: ${semDesde} min · contando da chegada: ${comDesde} min`);
+assert.deepEqual(semDesde, [15]);
+assert.deepEqual(comDesde, [5], "os 10 minutos antes de ser dela não são dela");
 
 console.log("6. Visita só conta quando uma PESSOA colocou o lead ali");
 const { moverEtapa } = await import("../src/services/etapas.js");
