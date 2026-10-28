@@ -8716,13 +8716,12 @@ function TemperaturaDoLead({lead,acoes}){
   const atual=lead.prio||null;
   const escolher=async(k)=>{ if(salvando) return; setSalvando(true);
     try{ await acoes.mudarTemperatura(lead.id,atual===k?null:k); } finally{ setSalvando(false); } };
-  return <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",margin:"6px 0 2px"}}>
-    <span style={{color:C.faint,fontSize:10.5,fontWeight:600,marginRight:2}}>Temperatura</span>
+  return <div style={{display:"flex",alignItems:"center",gap:5,margin:"8px 0 8px"}} title="Temperatura do lead">
     {["QUENTE","MORNO","FRIO"].map(k=>{const on=atual===k, p=prioDe(k);
       return <button key={k} onClick={()=>escolher(k)} disabled={salvando} aria-pressed={on}
-        title={on?"Tocar de novo tira a temperatura":`Marcar como ${p.label.toLowerCase()}`}
-        style={{border:`1px solid ${on?p.c:C.line}`,background:on?p.bg:C.card,color:on?p.c:C.faint,
-          borderRadius:999,padding:"5px 11px",minHeight:30,fontSize:11.5,fontWeight:700,cursor:salvando?"wait":"pointer"}}>{p.label}</button>;})}
+        title={on?"Tocar de novo tira a temperatura":`Temperatura: ${p.label.toLowerCase()}`}
+        style={{flex:1,border:`1px solid ${on?p.c:C.line}`,background:on?p.bg:C.card,color:on?p.c:C.faint,
+          borderRadius:999,padding:"5px 6px",minHeight:32,fontSize:11.5,fontWeight:700,cursor:salvando?"wait":"pointer"}}>{p.label}</button>;})}
   </div>;
 }
 const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagram:"Instagram",an:"Audience Network",msgr:"Messenger",disparo:"Disparo em massa"};
@@ -8732,14 +8731,20 @@ function OrigemDoLead({lead}){
   const plat=lead.plataforma?(NOME_PLATAFORMA[String(lead.plataforma).toLowerCase()]||lead.plataforma):null;
   const veio=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(lead.fonte==="portal"?"Portal":lead.origem||"WhatsApp");
   const linhas=[["Campanha",lead.campanha],["Conjunto",lead.conjunto],["Anúncio",lead.anuncio],["Formulário",lead.formulario]].filter(([,v])=>v);
-  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",marginBottom:14}}>
-    <div style={{display:"flex",alignItems:"center",gap:6,color:C.sub,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>
-      <Icon n="target" size={12} color={C.faint}/> De onde veio</div>
-    <div style={{color:C.ink,fontSize:13,fontWeight:600,marginTop:5}}>{veio}</div>
-    {linhas.map(([r,v])=><div key={r} style={{display:"flex",gap:6,fontSize:12,marginTop:4,lineHeight:1.35}}>
-      <span style={{color:C.faint,flexShrink:0,minWidth:70}}>{r}</span>
-      <span style={{color:C.ink,fontWeight:r==="Campanha"?600:400,overflowWrap:"anywhere"}}>{v}</span></div>)}
-    {doAnuncio&&!lead.campanha&&<div style={{color:C.faint,fontSize:11.5,marginTop:4,lineHeight:1.4}}>A Meta não informou a campanha deste lead.</div>}
+  /* Uma linha só (28/10/2026, limpeza da ficha): "De onde veio" era um
+     cartão inteiro para dizer "WhatsApp", e o rodapé repetia "via WhatsApp"
+     e "entrou há". Os detalhes do anúncio continuam, em texto pequeno. */
+  return <div style={{marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:5,color:C.sub,fontSize:11.5,flexWrap:"wrap"}}>
+      <Icon n="target" size={12} color={C.faint}/>
+      <span style={{color:C.ink,fontWeight:600}}>{veio}</span>
+      {lead.createdAt?<span style={{color:C.faint}}>· entrou há {fmtAge(Date.now()-lead.createdAt)}</span>:null}
+    </div>
+    {linhas.length>0&&<div style={{marginTop:3,paddingLeft:17,display:"flex",flexDirection:"column",gap:1}}>
+      {linhas.map(([r,v])=><div key={r} style={{fontSize:11,lineHeight:1.4,color:C.sub,overflowWrap:"anywhere"}}>
+        <span style={{color:C.faint}}>{r}: </span><span style={{fontWeight:r==="Campanha"?600:400,color:C.ink}}>{v}</span></div>)}
+    </div>}
+    {doAnuncio&&!lead.campanha&&<div style={{color:C.faint,fontSize:11,marginTop:2,paddingLeft:17}}>A Meta não informou a campanha.</div>}
   </div>;
 }
 
@@ -10149,35 +10154,17 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     </div>}
     {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
       <div style={{padding:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-          {fichaPorBotao&&backBtn(()=>setPane("chat"),"Voltar para a conversa")}
-          <Icon n="star" size={14} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/><span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
-        </div>
+        {fichaPorBotao&&<div style={{marginBottom:10}}>{backBtn(()=>setPane("chat"),"Voltar para a conversa")}</div>}
 
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
         <TemperaturaDoLead lead={sel} acoes={acoes}/>
         <OrigemDoLead lead={sel}/>
-        <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
-        <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         <SugestaoDaConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <RoboNoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
-        {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
-          <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Primeiro atendimento da SDR</div>
-          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.4,marginBottom:8}}>Faça o contato inicial e repasse — o lead sai da sua conta e vai para o corretor.</div>
-          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
-          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>{textoDaVez(proximoDaVez)}</div>}
-          <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-            {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
-          </div>
-        </div>}
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
         {(()=>{
           const etapasFunil=etapasFunilDoLead;
@@ -10192,25 +10179,25 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </select>;
         })()}
         <DicaEtapa etapa={sel.status}/>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {(contaInterna()?[]:CAMPOS_QUAL).map(([k,n,campo])=>
-            <CampoQual key={k} rotulo={k} valor={sel.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(sel.id,{[campo]:novo})}/>)}
-          <CamposPersonalizadosDoLead lead={sel} acoes={acoes} session={session}/>
-        </div>
+        <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+          <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Repassar para um corretor</div>
+          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
+          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>{textoDaVez(proximoDaVez)}</div>}
+          <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
+          </div>
+        </div>}
+        <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
+        <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
+        <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
-            do subsídio de quem vai comprar — por isso mora aqui na ficha, e não
-            no cadastro do imóvel. */}
-        {!contaInterna()&&<button onClick={()=>setSimulando(true)}
-          style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
-            borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
-          <Icon n="chart" size={15}/> Registrar simulação
-        </button>}
-        <FichaVenda lead={sel} onSalvar={(d)=>acoes.registrarVenda(sel.id,d)}/>
-        <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
-          <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {sel.origem}</div>
-          <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="clock" size={12} color={C.faint}/> entrou há {fmtAge(Date.now()-sel.createdAt)}</div>
-          <ConversaPessoal lead={sel} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
-        </div>
+            do subsídio de quem vai comprar — por isso mora aqui na ficha. */}
+        <QualificacaoDoLead lead={sel} acoes={acoes} session={session}/>
+        <SimulacaoEVenda lead={sel} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
+        <div style={{marginTop:14}}><RoboNoLead lead={sel} acoes={acoes} isMobile={isMobile}/></div>
+        <RodapeDaFicha lead={sel} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
       </div>
     </div>}
   </div>;
@@ -13916,44 +13903,15 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
   </div>;
   return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
     <div style={{padding:16}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-        {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
-        <Icon n="star" size={14} color={prioDe(lead.prio).c} fill={prioDe(lead.prio).c}/>
-        <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Ficha do lead</span>
-      </div>
+      {/* Sem o título "Ficha do lead": o nome logo abaixo já diz de quem é. */}
+      {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",marginBottom:10}}><Icon n="chevron" size={17}/></button>}
 
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
       <TemperaturaDoLead lead={lead} acoes={acoes}/>
       <OrigemDoLead lead={lead}/>
-      <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
-      <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <ConversaPessoal lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
-      <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
-
-      <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
-        <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
-        <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Direcionar para um corretor</div>
-
-        <button onClick={()=>acoes.repassar(lead.id)} disabled={!corretoresDisponiveis.length}
-          style={{width:"100%",background:corretoresDisponiveis.length?C.green:C.coolSoft,color:corretoresDisponiveis.length?"#fff":C.faint,border:"none",cursor:corretoresDisponiveis.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
-        </button>
-        {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>
-          {textoDaVez(proximoDaVez)}</div>}
-        <CatracaDoLead lead={lead} acoes={acoes}/>
-        <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher:</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {corretoresDisponiveis.length
-            ?corretoresDisponiveis.map(b=><button key={b.id} onClick={()=>acoes.repassar(lead.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>)
-            :<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora — marque alguém na catraca.</span>}
-        </div>
-      </div>
 
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
       {(()=>{
@@ -13969,29 +13927,81 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       })()}
       <DicaEtapa etapa={lead.status}/>
       <MoverParaOutroFunil lead={lead} acoes={acoes} session={session}/>
+      <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {(contaInterna()?[]:CAMPOS_QUAL).map(([k,n,campo])=>
-          <CampoQual key={k} rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/>)}
-        <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
+      <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+        <Recomendacao leadId={lead.id} acoes={acoes} onDirecionar={(id)=>acoes.repassar(lead.id,id)}/>
+        <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Direcionar para um corretor</div>
+
+        {/* Sem ninguém disponível, uma frase — e não um botão cinza que não
+            faz nada mais um "ou escolher:" sem ninguém para escolher. */}
+        {corretoresDisponiveis.length?<React.Fragment>
+          <button onClick={()=>acoes.repassar(lead.id)}
+            style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
+          </button>
+          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>
+            {textoDaVez(proximoDaVez)}</div>}
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center",marginTop:8}}>
+            <span style={{color:C.faint,fontSize:10.5}}>ou:</span>
+            {corretoresDisponiveis.map(b=><button key={b.id} onClick={()=>acoes.repassar(lead.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>)}
+          </div>
+        </React.Fragment>
+        :<div style={{color:C.sub,fontSize:11.5,lineHeight:1.45}}>Ninguém disponível agora — marque alguém na catraca.</div>}
+        <CatracaDoLead lead={lead} acoes={acoes}/>
       </div>
 
-      {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e do
-          subsídio de quem vai comprar. Por isso o botão mora aqui na ficha. */}
-      {!contaInterna()&&<button onClick={()=>setSimulando(true)}
-        style={{width:"100%",marginTop:14,border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
-          borderRadius:11,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
-        <Icon n="chart" size={15}/> Registrar simulação
-      </button>}
-
-      <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
-
-      <div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:12,display:"flex",flexDirection:"column",gap:6}}>
-        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="users" size={12} color={C.faint}/> {lead.assignedName?"com "+lead.assignedName:"na fila da catraca"}</div>
-        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="mail" size={12} color={C.faint}/> via {lead.origem}</div>
-        <div style={{color:C.sub,fontSize:11.5,display:"flex",alignItems:"center",gap:6}}><Icon n="clock" size={12} color={C.faint}/> entrou há {fmtAge(Date.now()-lead.createdAt)}</div>
-      </div>
+      <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
+      <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <QualificacaoDoLead lead={lead} acoes={acoes} session={session}/>
+      <SimulacaoEVenda lead={lead} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
+      <div style={{marginTop:14}}><RoboNoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/></div>
+      <RodapeDaFicha lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
     </div>
+  </div>;
+}
+
+/* ===== PEÇAS COMUNS ÀS DUAS FICHAS (28/10/2026, limpeza pedida pelo Ali) =====
+   A ficha da supervisão e a do corretor são componentes diferentes e já
+   divergiram antes; o que é igual nas duas mora aqui. */
+
+/* Qualificação em duas colunas: cinco campos vazios, um embaixo do outro,
+   eram a parte mais comprida da ficha para dizer "—" cinco vezes. */
+function QualificacaoDoLead({lead,acoes,session}){
+  return <div style={{marginTop:6}}>
+    {!contaInterna()&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 12px"}}>
+      {CAMPOS_QUAL.map(([k,n,campo])=><div key={k} style={{minWidth:0}}>
+        <CampoQual rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/></div>)}
+    </div>}
+    <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:10}}>
+      <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
+    </div>
+  </div>;
+}
+
+/* Simulação e venda lado a lado: dois botões grandes empilhados ocupavam a
+   altura de quatro linhas. A venda registrada (ou o formulário aberto) toma a
+   largura inteira. */
+function SimulacaoEVenda({lead,acoes,aoSimular}){
+  return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-start",marginTop:14}}>
+    {!contaInterna()&&<button onClick={aoSimular}
+      style={{flex:"1 1 100px",border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
+        borderRadius:11,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+      <Icon n="chart" size={14}/> Simulação
+    </button>}
+    <div style={{flex:lead.venda?"1 1 100%":"1 1 100px",minWidth:0,marginTop:-14}}>
+      <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
+    </div>
+  </div>;
+}
+
+/* As ações raras e sérias ficam no fim, num rodapé discreto: o que se usa
+   todo dia vem antes. */
+function RodapeDaFicha({lead,acoes,session,minhaLinha,isMobile}){
+  return <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
+    <ConversaPessoal lead={lead} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
+    <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={isMobile}/>
   </div>;
 }
 
@@ -19578,6 +19588,15 @@ function NumeroConferivel({v,etapa,conjunto,tit,cor,peso=700,pedir,impressao}){
       cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3,fontSize:"inherit"}}>{v}</button>;
 }
 
+function legendaDoFunil(c,ganho){
+  return <React.Fragment>
+    A base são os leads que entraram no processo comercial no período{c.periodo?<React.Fragment>, acompanhados até {fmtCorte(c)}</React.Fragment>:null}; Inbox e triagem não entram.{" "}
+    <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
+    Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
+    {ganho&&<React.Fragment> <b>{ganho.name}</b> aqui é quem chegou à etapa até o corte; as <b>vendas</b> do Painel contam a data da venda registrada no período, de qualquer lead — por isso os dois números podem ser diferentes.</React.Fragment>}
+  </React.Fragment>;
+}
+
 function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa,impressao,titulo}){
   const [conf,setConf]=useState(null);   // {etapa,conjunto,titulo}
   const c=dados;
@@ -19588,10 +19607,11 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
 
   const cabecalho=<div style={{marginBottom:10}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
+    {/* Uma linha (28/10/2026, limpeza): o parágrafo inteiro sobre a base
+        repetia a legenda do fim do quadro, que agora abre em "Como ler". */}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
-      Base: <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Base: entraram no processo comercial`}/> lead(s)</b> que entraram
-      no processo comercial (<b>{c.entrada.name}</b> ou adiante) de <b>{fmtData(c.periodo.de)}</b> a <b>{fmtData(c.periodo.ate)}</b>,
-      acompanhados até <b>{fmtCorte(c)}</b>. Inbox e triagem não entram na base.
+      <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Base: entraram no processo comercial`}/> lead(s)</b> entraram
+      no comercial (<b>{c.entrada.name}</b> ou adiante) de {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}.
     </div>}
   </div>;
 
@@ -19675,7 +19695,10 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
   const ganho=linhas.find(l=>l.status_type==="ganho");
 
   return <div>
-    {cabecalho}{avisos}{tabela}
+    {/* No relatório de uma pessoa, os avisos de configuração do funil (os
+        mesmos da Visão geral) ficam dentro de "Como ler" — repetidos em cada
+        corretor viravam ruído. Impresso, vão no topo. */}
+    {cabecalho}{(impressao||!(filtros&&filtros.responsavel))&&avisos}{tabela}
     {grupos.length>1&&<div style={{marginTop:14}}>
       <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>Por responsável na entrada</div>
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -19686,11 +19709,14 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         </div>)}
       </div>
     </div>}
-    <div style={{color:C.faint,fontSize:10.5,lineHeight:1.6,marginTop:12}}>
-      <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
-      Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
-      {ganho&&<React.Fragment> <b>{ganho.name}</b> aqui é quem chegou à etapa até o corte; as <b>vendas</b> do Painel contam a data da venda registrada no período, de qualquer lead — por isso os dois números podem ser diferentes.</React.Fragment>}
-    </div>
+    {/* A legenda continua — recolhida. Impressa (relatório de reunião), vai aberta. */}
+    {impressao
+      ?<div style={{color:C.faint,fontSize:10.5,lineHeight:1.6,marginTop:12}}>{legendaDoFunil(c,ganho)}</div>
+      :<details style={{marginTop:10}}>
+        <summary style={{color:C.faint,fontSize:11,cursor:"pointer",fontWeight:600}}>Como ler estes números</summary>
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.6,marginTop:6}}>{legendaDoFunil(c,ganho)}</div>
+        {filtros&&filtros.responsavel&&<div style={{marginTop:8}}>{avisos}</div>}
+      </details>}
     {conf&&<ConferenciaDoFunil acoes={acoes} pipelineId={pipelineId} filtros={filtros} conf={conf} isMobile={isMobile}
       abrirConversa={abrirConversa} aoFechar={()=>setConf(null)}/>}
   </div>;
@@ -19846,7 +19872,16 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
         </div>
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+        {/* Sem prazo em etapa nenhuma, os três primeiros números são zero
+            por definição — quatro caixas para dizer isso viram uma linha. */}
+        {d.sla.sem_sla_configurado>=d.sla.total_em_aberto&&!d.sla.vencidos&&!d.sla.em_aviso
+        ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 13px":"12px 16px",
+            display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Quem está esperando</span>
+          <span style={{color:C.sub,fontSize:12,flex:1,minWidth:200,lineHeight:1.45}}>
+            Nenhuma etapa tem prazo, então não há atrasados para medir. Defina em Configurações → Funis e etapas.</span>
+        </div>
+        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
           <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
             <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
@@ -19861,7 +19896,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
             <b>{d.sla.sem_sla_configurado} de {d.sla.total_em_aberto} leads</b> estão em etapas sem prazo
             e não entram na conta de atrasados. Defina em Configurações → Funis e etapas.
           </div>}
-        </div>
+        </div>}
 
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           {[["funil","Funil"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
@@ -22034,9 +22069,6 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
       <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
         <SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>
       </div>
-      {/* Ponto das atendentes: a primeira coisa que a gestão confere de manhã. */}
-      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
-
       {/* Os totais da casa (leads, vendas, valor) moram no Painel. Aqui é
           cada pessoa — repetir os totais dava a mesma palavra em dois lugares. */}
       {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
@@ -22045,6 +22077,9 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         funil={rosca&&!rosca.erro&&rosca.chave===linha.id+funilDoRelatorio+chavePeriodo?rosca:null}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
+      {/* O ponto das atendentes desceu (28/10/2026): é registro de presença,
+          e o que se abre esta tela para ver é o desempenho. */}
+      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
       {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
         ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
@@ -22065,7 +22100,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
           <Avatar ini={initials(linha.nome)} color={COLORS[[...linha.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={46}/>
           <div style={{minWidth:0}}>
             <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700}}>{linha.nome}</div>
-            <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
+            <div style={{color:C.faint,fontSize:12}}>{linha.papel==="sdr"?"SDR":linha.papel==="adm"?"Gestor(a)":"Corretor(a)"} · {fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</div>
           </div>
           </div>
           {/* O relatório de reunião sai do lado do nome de quem ele descreve. */}
