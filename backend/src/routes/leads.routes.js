@@ -1688,6 +1688,22 @@ r.patch("/:id/nome", (req, res) => {
   res.json({ ok: true, nome });
 });
 
+/* Temperatura na mão (28/10/2026, pedido do Fernando: o filtro existia e não
+   havia onde preencher). Quem pode abrir a conversa marca; vazio = sem
+   temperatura, que é estado válido. `priority_por='mao'` separa a leitura de
+   gente da leitura da IA (`ia`), como a regra de 16/08/2026 pede. */
+r.patch("/:id/temperatura", (req, res) => {
+  const bruto = req.body?.temperatura;
+  const t = bruto === null || bruto === "" ? null : String(bruto).toUpperCase();
+  if (t !== null && !["QUENTE", "MORNO", "FRIO"].includes(t))
+    return res.status(400).json({ error: "Temperatura inválida: use quente, morno, frio ou nenhuma." });
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("UPDATE leads SET priority = ?, priority_por = ?, priority_em = ? WHERE id = ?")
+    .run(t, t ? "mao" : null, t ? Date.now() : null, lead.id);
+  res.json({ ok: true, temperatura: t });
+});
+
 // Registro da venda: valor do imóvel, data, qual unidade e a comissão desta
 // venda. Registrar a venda também move o lead para a etapa "Venda" — as duas
 // coisas andam juntas.

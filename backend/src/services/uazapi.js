@@ -594,6 +594,40 @@ export function sendLocation({ orgId, canalId = null, toPhone, latitude, longitu
 
 // Estado da instância — usado pelo diagnóstico, para conferir a conexão sem expor o token.
 // Reporta endereço e token separadamente: "não configurado" sozinho não diz qual faltou.
+/* As últimas mensagens de UMA conversa, lidas da Uazapi (28/10/2026). Usada
+   só pelo "É lead" da triagem: as mensagens que chegaram antes da decisão
+   não foram guardadas (de propósito), e sem elas a primeira mensagem do lead
+   — "Olá, vim do Instagram" — sumia. Buscar só DEPOIS de alguém dizer "é
+   lead" mantém a regra: conversa pessoal nunca é gravada. Devolve só o que
+   chegou desde `desde`, em ordem; qualquer falha devolve [] (a triagem não
+   pode falhar por causa disto). A API oficial da Meta não tem histórico. */
+export async function mensagensRecentesDoChat(orgId, canalId, phone, desde = 0) {
+  const alvo = resolverCanalDoEnvio(orgId, canalId);
+  if (alvo?.provider === "meta") return [];
+  const lista = [];
+  for (const numero of [phone, numeroAlternativo(phone)].filter(Boolean)) {
+    try {
+      const r = await chamar(orgId, "/message/find", { chatid: `${numero}@s.whatsapp.net`, limit: 30 }, canalId);
+      const d = r?.data || {};
+      const msgs = Array.isArray(d) ? d : (d.messages || d.data || d.results || []);
+      if (Array.isArray(msgs) && msgs.length) { lista.push(...msgs); break; }
+    } catch (e) {
+      console.warn("[uazapi] histórico do chat indisponível:", e.message);
+      return [];
+    }
+  }
+  const msTs = (t) => { const n = Number(t) || 0; return n && n < 1e12 ? n * 1000 : n; };
+  return lista.map(m => ({
+    id: String(m.messageid || m.id || m.key?.id || ""),
+    fromMe: !!(m.fromMe ?? m.key?.fromMe),
+    texto: String(m.text || m.body || m.caption || (typeof m.content === "string" ? m.content : m.content?.text) || "").trim(),
+    tipo: String(m.messageType || m.type || ""),
+    em: msTs(m.messageTimestamp || m.timestamp || m.t),
+  }))
+    .filter(m => m.id && m.em && m.em >= desde && !/protocol|revoke|reaction/i.test(m.tipo))
+    .sort((a, b) => a.em - b.em);
+}
+
 export async function instanceStatus(orgId, canalId = null) {
   const canalAlvo = resolverCanalDoEnvio(orgId, canalId);
   if (canalAlvo?.provider === "meta") return oficial.instanceStatus(canalAlvo);

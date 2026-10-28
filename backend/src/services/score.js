@@ -391,6 +391,30 @@ export const COMPONENTES_DO_SCORE = COMPONENTES.map(({ chave, rotulo, peso, como
    escolheu na tela de Relatórios. A segunda forma existe para o relatório de
    reunião: score e tela precisam falar do MESMO pedaço de tempo, senão os dois
    números estão certos e mesmo assim não batem. */
+/* QUEM ENTRA NA CONTA DA EQUIPE (28/10/2026, pedido do Fernando: "o gestor
+   acaba não aparecendo nas métricas"). Corretor ativo entra sempre. O GESTOR
+   entra quando atendeu no período — recebeu lead, vendeu ou ligou: em muita
+   imobiliária o dono também atende, e o trabalho dele sumia do relatório. O
+   gestor que só gerencia continua fora, senão o ranking ganharia uma linha
+   "sem dados" para cada um. A atendente continua no bloco próprio dela. */
+export function equipeDeAtendimento(orgId, de, ate, eventos = null) {
+  const corretores = db.prepare(
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")}`
+  ).all(orgId);
+  const gestores = db.prepare(
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='adm' AND u.status='ativo'${semMaster("u")}`
+  ).all(orgId);
+  if (gestores.length) {
+    const ev = eventos || eventosDeAtribuicao(orgId);
+    const vendeu = db.prepare("SELECT 1 FROM leads WHERE org_id=? AND assigned_to=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ? LIMIT 1");
+    const ligou = db.prepare("SELECT 1 FROM ligacoes WHERE user_id=? AND created_at BETWEEN ? AND ? LIMIT 1");
+    for (const g of gestores)
+      if (noPeriodo(ev.recebidos, g.id, de, ate).length || vendeu.get(orgId, g.id, de, ate) || ligou.get(g.id, de, ate))
+        corretores.push(g);
+  }
+  return corretores.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+}
+
 export function ranking(orgId, periodo = 90) {
   const { de, ate } = typeof periodo === "object" && periodo
     ? { de: periodo.de, ate: periodo.ate ?? Date.now() }
@@ -398,9 +422,9 @@ export function ranking(orgId, periodo = 90) {
 
   // Só CORRETOR entra no ranking. A atendente faz o primeiro contato e repassa
   // — a venda não é dela, e cobrá-la por conversão seria medir a pessoa errada.
-  const equipe = db.prepare(
-    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`
-  ).all(orgId);
+  // Mais o gestor que atendeu no período — ver `equipeDeAtendimento`.
+  const eventos = eventosDeAtribuicao(orgId);
+  const equipe = equipeDeAtendimento(orgId, de, ate, eventos);
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?").all(orgId, de, ate);
   const tipoDaEtapa = new Map(db.prepare("SELECT id, status_type FROM pipeline_stages WHERE org_id = ?")
     .all(orgId).map(e => [e.id, e.status_type]));
@@ -411,8 +435,6 @@ export function ranking(orgId, periodo = 90) {
   // Uma vez para a imobiliária inteira, não uma consulta por corretor dentro
   // do `.map` abaixo — mesma razão de `leads`/`vendasDoPeriodo` também serem
   // calculados aqui fora do laço.
-  const eventos = eventosDeAtribuicao(orgId);
-
   /* As ligações são filtradas pela imobiliária. Antes a busca varria a tabela
      inteira e só depois pegava as linhas dos usuários desta casa: dava o
      resultado certo, mas lendo o movimento das outras — e com o CRM já rodando
