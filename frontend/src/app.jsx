@@ -770,13 +770,19 @@ const passaNaEntrada=(l,entrada,campanha)=>{
      1. lead novo sem resposta nenhuma: conta desde a chegada;
      2. a última palavra é do cliente: conta desde a mensagem dele;
      3. o prazo (SLA) da etapa venceu: conta desde que venceu.
-   Fora disso, nada de relógio. Uma regra só, para as duas caixas. */
-function cronometroDoLead(l,agora=Date.now()){
+   Fora disso, nada de relógio. Uma regra só, para as duas caixas.
+
+   Na caixa do CORRETOR (`daChegada`), os dois primeiros contam de quando o
+   lead chegou na mão dele, se foi depois (28/10/2026, pedido do Fernando): é o
+   tempo de resposta DELE, a mesma régua do ranking. Na supervisão o relógio
+   continua sendo o do cliente, que esperou desde antes do repasse. */
+function cronometroDoLead(l,agora=Date.now(),{daChegada=false}={}){
   if(!l||l.finalizado) return null;
+  const aPartir=(t)=>daChegada&&l.assignedAt?Math.max(t||0,l.assignedAt):t;
   if(l.aguardaContato||(!l.firstRespAt&&l.lastDirection==="in"))
-    return {rotulo:"sem resposta",titulo:"Lead novo: ninguém respondeu ainda",desde:l.createdAt};
+    return {rotulo:"sem resposta",titulo:"Lead novo: ninguém respondeu ainda",desde:aPartir(l.createdAt)};
   if(l.lastDirection==="in"&&l.lastAt)
-    return {rotulo:"aguardando",titulo:"A última mensagem é do cliente",desde:l.lastAt};
+    return {rotulo:"aguardando",titulo:"A última mensagem é do cliente",desde:aPartir(l.lastAt)};
   const s=l.sla;
   if(s&&s.limite&&s.desde){
     const venceu=s.desde+s.limite*60000;
@@ -2036,6 +2042,7 @@ function ConCRM(){
     roboConferido:(leadId)=>api("/config/robo/conferir/"+leadId,{method:"POST",body:{}}),
     roboNoLead:(leadId,ativo)=>api(`/leads/${leadId}/robo`,{method:"POST",body:{ativo}}),
     observacoes:(leadId)=>api(`/leads/${leadId}/observacoes`),
+    linhaDoTempo:(leadId)=>api(`/leads/${leadId}/linha-do-tempo`),
     anotar:(leadId,texto)=>api(`/leads/${leadId}/observacoes`,{method:"POST",body:{texto}}),
     apagarObs:(leadId,obsId)=>api(`/leads/${leadId}/observacoes/${obsId}`,{method:"DELETE"}),
     roboEnsino:()=>api("/config/robo/ensino"),
@@ -8601,7 +8608,7 @@ function SeloDaLinha({linha,grande}){
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
   const naoLida=esperandoContato(l), quando=l.lastAt||l.createdAt;
-  const relogio=cronometroDoLead(l), espera=relogio?Date.now()-relogio.desde:0;
+  const relogio=cronometroDoLead(l,Date.now(),{daChegada:!mostrarDono}), espera=relogio?Date.now()-relogio.desde:0;
   return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
@@ -11733,7 +11740,7 @@ function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
             {num("Leads",uma.leads,`${uma.em_aberto} em aberto`)}
             {num("Vendas",uma.vendas,fmtMoeda(uma.vgv))}
             {num("Conversão",pctCatraca(uma.conversao),`${uma.perdidos} perdido${uma.perdidos===1?"":"s"}`)}
-            {num("1ª resposta",uma.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(uma.primeira_resposta_mediana_min)),`mediana · ${uma.sem_resposta} sem resposta`)}
+            {num("1ª resposta da equipe",uma.primeira_resposta_mediana_min==null?"—":fmtMin(Math.round(uma.primeira_resposta_mediana_min)),`mediana desde a chegada · ${uma.sem_resposta} sem resposta`)}
           </div>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>Autoatendimento × atendimento sem IA</div>
           {iaVsSem(uma)}
@@ -11744,7 +11751,8 @@ function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
                 :<div style={{border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden"}}>{lista.map((x,i)=>
                   <div key={x.chave+i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 11px",borderTop:i?`1px solid ${C.line}`:"none",fontSize:12.5}}>
                     <span style={{flex:1,minWidth:0,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.nome}</span>
-                    <span style={{fontFamily:MONO,color:C.sub,whiteSpace:"nowrap"}}>{x.leads} · {x.vendas} venda{x.vendas===1?"":"s"} · {pctCatraca(x.conversao)}</span>
+                    <span style={{fontFamily:MONO,color:C.sub,whiteSpace:"nowrap"}}>{x.leads} · {x.vendas} venda{x.vendas===1?"":"s"} · {pctCatraca(x.conversao)}
+                      {x.primeira_resposta_mediana_min!==undefined&&x.chave&&<span title="1ª resposta dele, de quando recebeu o lead (mediana)"> · {x.primeira_resposta_mediana_min==null?"sem resposta":"1ª resp. "+fmtMin(Math.round(x.primeira_resposta_mediana_min))}</span>}</span>
                   </div>)}</div>}
             </div>)}
           <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginTop:12}}>Leads que entraram no período e estão nesta catraca hoje. A conversão é a fração deles que já tem venda registrada.</div>
@@ -14062,8 +14070,48 @@ function SimulacaoEVenda({lead,acoes,aoSimular}){
 
 /* As ações raras e sérias ficam no fim, num rodapé discreto: o que se usa
    todo dia vem antes. */
+/* LINHA DO TEMPO DO LEAD (28/10/2026, pedido do Fernando). Recolhida: só
+   busca ao abrir, porque a conversa ao lado abre a toda hora e quase nunca
+   alguém precisa do histórico inteiro. A mais recente em cima. */
+const ICONE_EVENTO={entrada:"userplus",etapa:"columns",dono:"transfer",ligacao:"phone",tarefa:"calendar",tarefa_feita:"check",
+  observacao:"msg",tag:"lista",mensagem:"msg",venda:"trend",finalizado:"check"};
+function LinhaDoTempo({lead,acoes,isMobile}){
+  const [aberta,setAberta]=useState(false); const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  useEffect(()=>{ setAberta(false); setD(null); setErro(""); },[lead.id]);
+  useEffect(()=>{ if(aberta&&!d) acoes.linhaDoTempo(lead.id).then(setD).catch(e=>setErro(e.message)); },[aberta,lead.id]);
+  const quando=(ms)=>new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,background:C.card}}>
+    <button onClick={()=>setAberta(a=>!a)} aria-expanded={aberta}
+      style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:"none",border:"none",cursor:"pointer",fontFamily:FONT,textAlign:"left"}}>
+      <Icon n="clock" size={14} color={C.greenMid}/>
+      <span style={{flex:1,color:C.ink,fontSize:12.5,fontWeight:600}}>Linha do tempo</span>
+      <span style={{display:"inline-flex",transform:aberta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13} color={C.faint}/></span>
+    </button>
+    {aberta&&<div style={{padding:"0 12px 12px"}}>
+      {erro&&<div style={{color:C.hot,fontSize:12}}>{erro}</div>}
+      {!d&&!erro&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
+      {d&&<div style={{position:"relative",paddingLeft:22}}>
+        <div style={{position:"absolute",left:8,top:4,bottom:4,width:1,background:C.line}}/>
+        {d.eventos.map((e,i)=><div key={i} style={{position:"relative",paddingBottom:10}}>
+          <span style={{position:"absolute",left:-22,top:0,width:17,height:17,borderRadius:99,background:e.tipo==="venda"?C.green:C.surface,
+            border:`1px solid ${e.tipo==="venda"?C.green:C.line}`,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon n={ICONE_EVENTO[e.tipo]||"clock"} size={9} color={e.tipo==="venda"?"#fff":C.sub}/></span>
+          <div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1.35,overflowWrap:"anywhere"}}>
+            {e.texto}{e.valor?` · ${fmtMoeda(e.valor)}`:""}</div>
+          <div style={{color:C.faint,fontSize:11,lineHeight:1.4}}>
+            {quando(e.quando)}{e.quem?` · ${e.quem}`:""}{e.detalhe&&e.tipo!=="observacao"?` · ${e.detalhe}`:""}
+            {e.para_quando?` · para ${fmtTarefa(e.para_quando)}`:""}</div>
+          {e.tipo==="observacao"&&e.detalhe&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginTop:2,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{e.detalhe}</div>}
+        </div>)}
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>As mudanças de etapa são gravadas desde 14/08/2026 e as trocas de responsável desde 02/09/2026.</div>
+      </div>}
+    </div>}
+  </div>;
+}
+
 function RodapeDaFicha({lead,acoes,session,minhaLinha,isMobile}){
   return <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
+    <LinhaDoTempo lead={lead} acoes={acoes} isMobile={isMobile}/>
     <ConversaPessoal lead={lead} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
     <DadosDoTitular lead={lead} acoes={acoes} session={session} isMobile={isMobile}/>
   </div>;

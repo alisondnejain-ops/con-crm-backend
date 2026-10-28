@@ -22,6 +22,7 @@
    - Sem base não vira zero: conversão sem lead é nula ("—"). */
 import db from "../db.js";
 import { resolverPeriodo } from "./painel.js";
+import { primeirasRespostas } from "./score.js";
 
 const mediana = (xs) => {
   if (!xs.length) return null;
@@ -39,7 +40,7 @@ export function periodoDoRelatorio(q = {}) {
 
 function leadsDoPeriodo(orgId, de, ate, filtro = "", args = []) {
   return db.prepare(
-    `SELECT l.id, l.catraca_id, l.assigned_to, l.created_at, l.first_resp_at, l.closed_at, l.sale_date, l.sale_value,
+    `SELECT l.id, l.catraca_id, l.assigned_to, l.assigned_at, l.created_at, l.first_resp_at, l.closed_at, l.sale_date, l.sale_value,
             COALESCE(l.robo_msgs,0) AS robo_msgs, l.stage, l.stage_id, l.origem, l.source,
             s.status_type, s.name AS etapa_nome
        FROM leads l LEFT JOIN pipeline_stages s ON s.id = l.stage_id
@@ -119,7 +120,14 @@ export function relatorioDaCatraca(orgId, catracaId, q = {}) {
     catraca: c ? { id: c.id, nome: c.nome, entrega: c.entrega, ativa: !!c.ativa, criada_em: c.created_at }
                : { id: "principal", nome: "Catraca principal", ativa: true, principal: true },
     ...numeros(leads),
-    por_corretor: agrupar(l => l.assigned_to || "").map(x => ({ ...x, nome: x.chave ? (nomes.get(x.chave) || "Ex-integrante") : "Na fila, sem dono" })),
+    /* A 1ª resposta de cada corretor conta de quando o lead ficou com ELE e só
+       olha as mensagens que ELE escreveu (a régua do ranking, `primeirasRespostas`)
+       — a 1ª resposta da catraca, lá em cima, é a da equipe desde a chegada. */
+    por_corretor: agrupar(l => l.assigned_to || "").map(x => {
+      const deles = x.chave ? leads.filter(l => l.assigned_to === x.chave) : [];
+      return { ...x, nome: x.chave ? (nomes.get(x.chave) || "Ex-integrante") : "Na fila, sem dono",
+        primeira_resposta_mediana_min: x.chave ? mediana(primeirasRespostas(deles, x.chave)) : null };
+    }),
     por_origem: agrupar(l => l.origem || (l.source === "meta" ? "Meta Ads" : l.source === "portal" ? "Portal" : "WhatsApp")).map(x => ({ ...x, nome: x.chave })),
     por_etapa: agrupar(l => l.etapa_nome || l.stage || "Sem etapa").map(x => ({ ...x, nome: x.chave })),
   };
