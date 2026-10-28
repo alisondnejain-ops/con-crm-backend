@@ -2,7 +2,7 @@ import { Router } from "express";
 import db, { emLotes } from "../db.js";
 import { authRequired, supervisiona, semMaster } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
@@ -53,8 +53,9 @@ r.get("/", (req, res) => {
      o primeiro atendimento e repassa. Pior: como o lead deixa de ser dela no
      repasse, o trabalho que ela fez sumia da conta. Ela tem um bloco próprio,
      logo abaixo, medido pelo que ela de fato faz. */
+  const eventos = eventosDeAtribuicao(req.user.org_id);
   const equipe = supervisiona(req.user)
-    ? db.prepare(`SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
+    ? equipeDeAtendimento(req.user.org_id, de, ate, eventos)
     : db.prepare("SELECT id,name,role FROM users WHERE id=? AND role='corretor'").all(req.user.id);
 
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?")
@@ -109,8 +110,7 @@ r.get("/", (req, res) => {
      Calculado UMA VEZ para a imobiliária inteira (não um SELECT por pessoa
      dentro do map abaixo) pela mesma razão de `leads`/`vendasDoPeriodo`
      already serem calculados fora do loop: evitar N consultas onde uma
-     resolve para todo mundo. */
-  const eventos = eventosDeAtribuicao(req.user.org_id);
+     resolve para todo mundo. `eventos` é lido lá em cima, junto da equipe. */
 
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);

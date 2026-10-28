@@ -38,7 +38,7 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { supervisiona, ehDonoAutonomo } from "../auth.js";
-import { numeroAlternativo } from "./uazapi.js";
+import { numeroAlternativo, mensagensRecentesDoChat } from "./uazapi.js";
 import { campanhaQueAlcancou } from "./disparo.js";
 import { canalPorId, garantirCasa } from "./canais.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
@@ -161,7 +161,40 @@ export function estado(orgId, user) {
 
 /* ===== Decisões ===== */
 
-export function decidir(orgId, user, id, decisao) {
+/* O que o cliente escreveu enquanto esperava a decisão (28/10/2026, pedido do
+   Fernando: a primeira mensagem — "Olá, vim do Instagram" — se perdia). Só
+   depois do "É lead", só desde a chegada do número na triagem (com 10 min de
+   folga para o relógio da Uazapi), e só texto: foto e áudio desse intervalo
+   entram como o rótulo, sem baixar o arquivo. Nunca lança. */
+const ROTULO_MIDIA = [[/image/i, "Foto"], [/video/i, "Vídeo"], [/audio|ptt/i, "Áudio"], [/document/i, "Documento"], [/sticker/i, "Figurinha"], [/location/i, "Localização"]];
+async function recuperarConversa(orgId, canal, lead, desde) {
+  try {
+    const msgs = await mensagensRecentesDoChat(orgId, canal.tipo === "imobiliaria" ? null : canal.id, lead.phone, desde - 10 * 60 * 1000);
+    let gravadas = 0;
+    const linha = canal.tipo === "imobiliaria" ? null : canal.id;
+    for (const m of msgs) {
+      const corpo = m.texto || (ROTULO_MIDIA.find(([re]) => re.test(m.tipo)) || [, ""])[1];
+      if (!corpo) continue;
+      const curto = m.id.includes(":") ? m.id.split(":").pop() : m.id;
+      const ja = db.prepare(`SELECT 1 FROM messages WHERE lead_id = ? AND (wa_id = ? OR wa_id = ? OR wa_id LIKE ?) LIMIT 1`)
+        .get(lead.id, m.id, curto, "%:" + curto);
+      if (ja) continue;
+      try {
+        db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
+          VALUES (?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, m.fromMe ? "out" : "in", null, null,
+            corpo.slice(0, 4096), m.id, m.em, linha);
+        gravadas++;
+      } catch (e) { if (!/UNIQUE/i.test(e.message)) throw e; }
+    }
+    if (gravadas) console.log(`[triagem] ${gravadas} mensagem(ns) de antes do "É lead" recuperadas (${mascararTelefone(lead.phone)})`);
+    return gravadas;
+  } catch (e) {
+    console.warn("[triagem] não deu para recuperar a conversa:", e.message);
+    return 0;
+  }
+}
+
+export async function decidir(orgId, user, id, decisao) {
   const n = db.prepare("SELECT * FROM contatos_novos WHERE id = ? AND org_id = ?").get(id, orgId);
   if (!n) throw new ErroTriagem(404, "Esse contato já foi decidido ou não existe.");
   if (!podeDecidir(orgId, user, n.linha)) throw new ErroTriagem(403, "Só quem cuida deste número decide sobre ele.");
@@ -186,10 +219,13 @@ export function decidir(orgId, user, id, decisao) {
     if (!lead) lead = nascerLeadDoWhatsapp({ canal, phone: n.phone, nome: n.nome });
     db.prepare("DELETE FROM contatos_novos WHERE id = ?").run(n.id);
   })();
+  // Teto de 8s: a resposta do botão não pode ficar esperando uma Uazapi lenta.
+  const recuperadas = await Promise.race([recuperarConversa(orgId, canal, lead, n.primeira_em),
+    new Promise(r => setTimeout(() => r(0), 8000))]);
   // Caiu na mão de outra pessoa (a catraca do número da casa): ela precisa saber.
   if (novo && lead.assigned_to && lead.assigned_to !== user.id)
     avisar(lead.assigned_to, { titulo: "Novo lead no WhatsApp", corpo: `${lead.name} acabou de chamar.`, leadId: lead.id }).catch(() => {});
-  return { ok: true, decisao, lead_id: lead.id, novo };
+  return { ok: true, decisao, lead_id: lead.id, novo, recuperadas };
 }
 
 export function voltarAReceber(orgId, user, linha, phone) {

@@ -859,6 +859,32 @@ function fmtQuando(ts){
   return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",
     ...(d.getFullYear()!==new Date().getFullYear()?{year:"2-digit"}:{})});
 }
+/* Dia de uma TAREFA — ela olha para a frente, ao contrário da última mensagem.
+   O fmtQuando acima foi feito para o passado: para amanhã ele devolvia só a
+   hora (dias negativos caíam no "hoje"), e a tarefa aparecia como "15:00 ·
+   15:00" sem dizer o dia (28/10/2026, pedido do Fernando). */
+function fmtDiaTarefa(ts){
+  if(!ts) return "";
+  const d=new Date(ts);
+  const dias=Math.round((new Date(ts).setHours(0,0,0,0)-new Date().setHours(0,0,0,0))/86400000);
+  if(dias===0) return "hoje";
+  if(dias===1) return "amanhã";
+  if(dias===-1) return "ontem";
+  return `${SEMANA[d.getDay()].slice(0,3).toLowerCase()}, ${d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",
+    ...(d.getFullYear()!==new Date().getFullYear()?{year:"numeric"}:{})})}`;
+}
+const fmtTarefa=(ts)=>ts?`${fmtDiaTarefa(ts)} às ${fmtClock(ts)}`:"";
+/* Valor de campo personalizado escrito como se lê no Brasil. A data é guardada
+   como "2026-10-28" (é o que o campo de data do navegador grava), e mostrada
+   assim crua parecia o formato trocado. */
+function fmtValorCampo(v,tipo){
+  if(Array.isArray(v)) return v.join(", ");
+  if(typeof v==="boolean") return v?"Sim":"Não";
+  const t=String(v??"");
+  const m=t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m&&(!tipo||tipo==="date")) return `${m[3]}/${m[2]}/${m[1]}`;
+  return t;
+}
 // Abre o discador do celular com o número já preenchido.
 /* Ligar para o lead e, na volta, dizer o que aconteceu.
 
@@ -1605,6 +1631,7 @@ function ConCRM(){
       }
     },
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
+    mudarTemperatura:acao((leadId,temperatura)=>api(`/leads/${leadId}/temperatura`,{method:"PATCH",body:{temperatura}})),
     // Sem o `acao()`: o erro (número repetido, formato) volta para o campo
     // que está aberto, em vez de ir para a faixa do topo e fechar a edição.
     corrigirTelefone:async(leadId,telefone,pais)=>{
@@ -8680,6 +8707,24 @@ function BotaoEditar({m,podeEditar,aoEditar}){
    Lead de anúncio sem campanha diz isso em vez de sumir com a linha: quase
    sempre é lead de teste ou a Meta recusou ler a campanha (ver Configurações
    → Anúncios do Meta). */
+/* Temperatura na mão (28/10/2026, pedido do Fernando): o filtro do funil
+   existia e não havia onde marcar. Tocar de novo na escolhida tira (sem
+   temperatura é estado válido). */
+function TemperaturaDoLead({lead,acoes}){
+  const [salvando,setSalvando]=useState(false);
+  if(!lead||!acoes?.mudarTemperatura) return null;
+  const atual=lead.prio||null;
+  const escolher=async(k)=>{ if(salvando) return; setSalvando(true);
+    try{ await acoes.mudarTemperatura(lead.id,atual===k?null:k); } finally{ setSalvando(false); } };
+  return <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",margin:"6px 0 2px"}}>
+    <span style={{color:C.faint,fontSize:10.5,fontWeight:600,marginRight:2}}>Temperatura</span>
+    {["QUENTE","MORNO","FRIO"].map(k=>{const on=atual===k, p=prioDe(k);
+      return <button key={k} onClick={()=>escolher(k)} disabled={salvando} aria-pressed={on}
+        title={on?"Tocar de novo tira a temperatura":`Marcar como ${p.label.toLowerCase()}`}
+        style={{border:`1px solid ${on?p.c:C.line}`,background:on?p.bg:C.card,color:on?p.c:C.faint,
+          borderRadius:999,padding:"5px 11px",minHeight:30,fontSize:11.5,fontWeight:700,cursor:salvando?"wait":"pointer"}}>{p.label}</button>;})}
+  </div>;
+}
 const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagram:"Instagram",an:"Audience Network",msgr:"Messenger",disparo:"Disparo em massa"};
 function OrigemDoLead({lead}){
   if(!lead) return null;
@@ -10111,6 +10156,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
+        <TemperaturaDoLead lead={sel} acoes={acoes}/>
         <OrigemDoLead lead={sel}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
@@ -10776,7 +10822,7 @@ function TarefasDoLead({lead,acoes,isMobile}){
           <div style={{minWidth:0,flex:1}}>
             <div style={{color:C.ink,fontSize:12,lineHeight:1.35}}>{t.titulo}</div>
             <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
-              {atrasada?"venceu ":""}{fmtQuando(t.quando)} · {fmtClock(t.quando)}
+              {atrasada?"venceu ":""}{fmtTarefa(t.quando)}
               {t.de_quem?` · ${first(t.de_quem)}`:""}
             </div>
           </div>
@@ -10847,7 +10893,7 @@ function fmtCurto(ms){
   return Math.round(h/24)+"d";
 }
 
-const fmtCampoCard=(v)=>Array.isArray(v)?v.join(", "):typeof v==="boolean"?(v?"Sim":"Não"):String(v);
+const fmtCampoCard=(v,tipo)=>fmtValorCampo(v,tipo);
 
 function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,camposCard=[],ocultar}){
   /* O SLA MANDA NA FAIXA DE URGENCIA, quando existe.
@@ -10916,7 +10962,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
         textoSla(sla), CORES_SLA[sla.status])}
 
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
-        `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtQuando(tar.proxima)}`,
+        `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtTarefa(tar.proxima)}`,
         tar.atrasada?C.hot:C.greenMid)}
 
       {/* AS TAGS, em pastilha. Não é linha de texto como o resto: a tag existe
@@ -10938,7 +10984,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
       {camposCard.map(def=>{
         const v=(l.campos||{})[def.key];
         const vazio=v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
-        return vazio?null:<React.Fragment key={def.id}>{linha("lista",`${def.name}: ${fmtCampoCard(v)}`)}</React.Fragment>;
+        return vazio?null:<React.Fragment key={def.id}>{linha("lista",`${def.name}: ${fmtCampoCard(v,def.type)}`)}</React.Fragment>;
       })}
 
       {mostrarDono&&<div style={{color:C.faint,fontSize:9.5,marginTop:4,paddingTop:4,borderTop:`1px solid ${C.line}`,
@@ -12168,7 +12214,7 @@ function NovosContatos({triagem,recarregar,acoes,abrir,isMobile,session}){
   const ondeConfigura=podeSupervisionar(session)?"Configurações → Conexão":"Minha conta → Meu WhatsApp";
   return <div style={{padding:isMobile?"12px 14px":"12px"}}>
     <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>
-      Escreveram e ainda não estão no CRM. Nada da conversa é guardado até você tocar em <b>É lead</b> — a partir daí ela entra.
+      Escreveram e ainda não estão no CRM. Nada da conversa é guardado até você tocar em <b>É lead</b> — aí o que ele escreveu enquanto esperava é trazido do WhatsApp, e a conversa passa a entrar.
     </div>
     {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
     {!novos.length&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:"24px 8px"}}>Nenhum número novo esperando.</div>}
@@ -13878,6 +13924,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
+      <TemperaturaDoLead lead={lead} acoes={acoes}/>
       <OrigemDoLead lead={lead}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
@@ -14935,7 +14982,7 @@ function CampoPersonalizado({def,valor,onSalvar}){
           borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
-          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto||"—"}</button>}
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto?fmtValorCampo(bruto,def.type):"—"}</button>}
   </div>;
 }
 

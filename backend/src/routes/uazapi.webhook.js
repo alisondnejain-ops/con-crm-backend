@@ -113,11 +113,30 @@ function extrair(p) {
      campo varia; não achando, `apagou` fica nulo e o evento é só descartado. */
   const protocolo = /protocol|revoke/i.test(String(tipo));
   const pm = m.protocolMessage || content?.protocolMessage || m.message?.protocolMessage || null;
-  const apagou = protocolo
+  /* EDITADA NO WHATSAPP (28/10/2026, pedido do Fernando: "mensagens duplicadas
+     quando eu edito"). A edição chega como uma mensagem NOVA, com id próprio,
+     que aponta a original — ou como protocolo (tipo 14, MESSAGE_EDIT), ou com o
+     tipo "edited…", ou com o campo `edited` da uazapiGO. Sem reconhecer isso,
+     ela virava um segundo balão; e a de protocolo era lida como "apagou",
+     marcando a original como apagada. Os nomes variam; vale qualquer um. */
+  const textoDe = (o) => !o || typeof o !== "object" ? ""
+    : (o.conversation || o.extendedTextMessage?.text || o.text || o.caption
+       || o.imageMessage?.caption || o.videoMessage?.caption || o.message?.conversation
+       || o.message?.extendedTextMessage?.text || "");
+  const editProto = !!(pm && (pm.editedMessage || pm.type === 14 || /edit/i.test(String(pm.type ?? ""))));
+  const campoEdited = typeof m.edited === "string" && m.edited.length >= 4 && !/^(true|false)$/i.test(m.edited) && m.edited !== (m.messageid || m.id) ? m.edited : null;
+  const editado = editProto || /edit/i.test(String(tipo)) || !!(m.editedMessage || content?.editedMessage) || !!campoEdited;
+  const editou = editado
+    ? (pm?.key?.id || m.editedMessage?.key?.id || content?.editedMessage?.key?.id || campoEdited || content?.key?.id || null)
+    : null;
+  const textoEditado = editado
+    ? String(textoDe(pm?.editedMessage) || textoDe(m.editedMessage) || textoDe(content?.editedMessage) || texto).trim()
+    : "";
+  const apagou = protocolo && !editProto
     ? (pm?.key?.id || content?.key?.id || m.key?.revokedId || null)
     : null;
   return {
-    protocolo, apagou,
+    protocolo, apagou, editado, editou, textoEditado,
     // O número do remetente sempre traz o país — não é lido como brasileiro.
     phone: normalizePhone(chat.split("@")[0], { comCodigo: true }),
     texto: String(texto).trim(),
@@ -160,7 +179,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou, editado, editou, textoEditado } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
@@ -217,6 +236,24 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
        conversa: nunca vira balão. Se ela aponta uma mensagem desta conta que o
        CRM conhece, a mensagem passa a "apagada" — vale para o cliente apagando
        e para o eco do "Apagar para todos" feito pelo próprio CRM. */
+    /* Edição nunca vira balão novo. Achando a original desta conta, troca o
+       texto — só das que NÃO saíram pelo CRM: as do CRM já foram trocadas na
+       rota de editar, e o eco traz a assinatura "*Nome:*" na frente. */
+    if (editado) {
+      let trocada = 0;
+      if (editou && textoEditado) {
+        const curto = String(editou).includes(":") ? String(editou).split(":").pop() : String(editou);
+        trocada = db.prepare(`UPDATE messages SET body_original = COALESCE(body_original, body), body = ?, edited_at = ?
+            WHERE apagada_em IS NULL AND from_user_id IS NULL AND direction = ?
+            AND (wa_id = ? OR wa_id = ? OR wa_id LIKE ?)
+            AND lead_id IN (SELECT id FROM leads WHERE org_id = ?)`)
+          // Cada lado só edita o que escreveu: o cliente, as dele; o eco, as que saíram.
+          .run(textoEditado.slice(0, 4096), Date.now(), fromMe ? "out" : "in", String(editou), curto, "%:" + curto, canal.org_id).changes;
+      }
+      return lembrar({ em: Date.now(), evento, provider: "uazapi",
+        resultado: trocada ? "mensagem editada no WhatsApp" : editou ? "aviso de edição (original não está no CRM ou saiu pelo CRM)" : "ignorado: edição sem o id da original" });
+    }
+
     if (protocolo) {
       let marcada = 0;
       if (apagou) {
