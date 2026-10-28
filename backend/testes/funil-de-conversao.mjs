@@ -25,8 +25,8 @@ const C = await import("../src/services/conversao.js");
 const PA = await import("../src/services/painel.js");
 const { moverEtapa } = await import("../src/services/etapas.js");
 
-const org = "org_fc", outra = "org_outra";
-for (const [id, cod] of [[org, "FC-1"], [outra, "FC-2"]])
+const org = "org_fc", outra = "org_outra", orgTopo = "org_topo";
+for (const [id, cod] of [[org, "FC-1"], [outra, "FC-2"], [orgTopo, "FC-3"]])
   db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(id, id, cod, Date.now());
 
 const bcrypt = (await import("bcryptjs")).default;
@@ -329,6 +329,25 @@ k = C.conferenciaDoFunil(org, F4.id, PERIODO, { etapa: F4.e["Visita"], conjunto:
 assert.deepEqual(k.itens.map(i => i.id).sort(), [d4, n4].sort());
 assert.ok(C.conferenciaDoFunil(org, F1.id, PERIODO, { conjunto: "tudo" }).erro);
 console.log("   8 no Agendamento · 6 vieram · paginação 20 em 7 · 2 diretas");
+
+console.log("22b. O topo: dos que CHEGARAM no período, quantos já entraram — a mesma turma");
+const FT = novoFunil("Topo", { o: orgTopo });
+const chegados = [];
+for (let i = 0; i < 10; i++) chegados.push(lead(FT, "Inbox", SET(11)));
+chegados.slice(0, 4).forEach((id, i) => mover(FT, id, "Qualificado", SET(12 + i)));
+mover(FT, chegados[4], "Qualificado", SET(25));            // entrou depois do corte do período: não conta
+const antigo = lead(FT, "Inbox", SET(5)); mover(FT, antigo, "Qualificado", SET(12)); // chegou antes do período
+r = C.funilDeConversao(orgTopo, FT.id, PERIODO, AGORA);
+console.log(`   chegaram ${r.topo.chegaram} · entraram ${r.topo.entraram} · ${r.topo.taxa}% · base do funil ${r.base}`);
+assert.equal(r.topo.chegaram, 10);
+assert.equal(r.topo.entraram, 4, "o que entrou depois do corte não conta; o que chegou antes não é desta turma");
+quase(r.topo.taxa, 40);
+assert.equal(r.base, 5, "a base do funil é outra turma (inclui quem chegou antes)");
+const nasceuNaFaixa = lead(FT, "Qualificado", SET(15));
+r = C.funilDeConversao(orgTopo, FT.id, PERIODO, AGORA);
+assert.equal(r.topo.entraram, 5, "quem nasceu numa etapa do comercial já entrou");
+r = C.funilDeConversao(orgTopo, FT.id, { de: "2026-08-01", ate: "2026-09-20" }, AGORA);
+assert.equal(r.topo, null, "período antes do histórico de etapas: sem a linha, em vez de subcontar");
 
 console.log("\n===== PELA ROTA =====");
 async function entrar(email) {

@@ -19853,6 +19853,14 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
     <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
     {/* Uma linha (28/10/2026, limpeza): o parágrafo inteiro sobre a base
         repetia a legenda do fim do quadro, que agora abre em "Como ler". */}
+    {/* O topo (28/10/2026): a MESMA turma do começo ao fim — dos que chegaram
+        no período, quantos já entraram no comercial deste funil. Não é a base
+        do funil dividida pelos que chegaram: são duas turmas diferentes. */}
+    {c.topo&&c.topo.chegaram>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
+      <b style={{color:C.ink}}>{c.topo.chegaram}</b> {c.topo.chegaram===1?"lead chegou":"leads chegaram"} no período ·{" "}
+      <b style={{color:C.ink}}>{c.topo.entraram}</b> {c.topo.entraram===1?"deles já entrou":"deles já entraram"} no comercial
+      {" "}(<b style={{color:C.ink,fontFamily:MONO}}>{fmtTaxa(c.topo.taxa)}</b>)
+    </div>}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
       <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Base: entraram no processo comercial`}/> lead(s)</b> entraram
       no comercial (<b>{c.entrada.name}</b> ou adiante) de {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}.
@@ -19887,6 +19895,12 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
     return itens;
   };
 
+  /* Os degraus (28/10/2026, pedido do Fernando): a barra de cada etapa fica
+     CENTRADA e com a largura do "desde a entrada" — lidas de cima para baixo,
+     formam o funil. É desenho do mesmo número, não um número a mais. */
+  const degrau=(l,max)=>l.desde_entrada===null?null:<div style={{maxWidth:max,margin:"0 auto"}}>
+    <div style={{width:Math.max(l.desde_entrada,l.chegaram?3:0)+"%",height:impressao?10:16,margin:"0 auto",borderRadius:4,
+      background:corDaEtapa(l,l.name),opacity:.9,transition:"width .4s"}}/></div>;
   const tabela=isMobile&&!impressao
     ?<div style={{display:"flex",flexDirection:"column",gap:7}}>
       {linhas.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
@@ -19895,6 +19909,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
           <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{l.name}{l.papel==="entrada"&&<span style={{color:C.faint,fontWeight:500}}> · início</span>}</span>
           <span style={{fontSize:15}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></span>
         </div>
+        <div style={{marginTop:8}}>{degrau(l,"100%")}</div>
         <div style={{display:"flex",gap:14,marginTop:7,flexWrap:"wrap"}}>
           <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Desde a entrada</div>
             <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</div></div>
@@ -19907,9 +19922,9 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
     </div>
     :<table style={{width:"100%",borderCollapse:"collapse"}}>
       <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-        {["Etapa","Chegaram","Desde a entrada","Da etapa anterior"].map((h,i)=>
-          <th key={h} style={{padding:"6px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
-            letterSpacing:.4,textAlign:i?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
+        {["Etapa","","Chegaram","Desde a entrada","Da etapa anterior"].map((h,i)=>
+          <th key={i} style={{padding:"6px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
+            letterSpacing:.4,textAlign:i>1?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
       </tr></thead>
       <tbody>{linhas.map(l=><tr key={l.id} style={{borderBottom:`1px solid ${C.line}`,verticalAlign:"top"}}>
         <td style={{padding:"8px 8px",fontSize:12,color:C.ink}}>
@@ -19918,9 +19933,8 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
             <b>{l.name}</b>{l.papel==="entrada"&&<span style={{color:C.faint,fontSize:11}}>início do processo comercial</span>}
           </div>
           {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:4,paddingLeft:16,display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
-          {!impressao&&l.desde_entrada!==null&&<div style={{height:5,borderRadius:999,background:C.surface,overflow:"hidden",marginTop:6,marginLeft:16,maxWidth:260}}>
-            <div style={{width:Math.max(l.desde_entrada,l.chegaram?2:0)+"%",height:"100%",borderRadius:999,background:corDaEtapa(l,l.name)}}/></div>}
         </td>
+        <td style={{padding:"9px 8px",width:"28%",minWidth:120}}>{degrau(l,"100%")}</td>
         <td style={{padding:"8px 8px",fontSize:13,textAlign:"right"}}>
           <NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></td>
         <td style={{padding:"8px 8px",fontSize:12.5,fontFamily:MONO,color:C.ink,textAlign:"right",fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</td>
