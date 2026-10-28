@@ -252,8 +252,16 @@ export function tirarExigencia(orgId, key) {
 
    Sem `sla_minutes` na etapa, não há SLA — e isso é `null`, não "ok". Dizer
    "em dia" para uma etapa que ninguém configurou é inventar uma medição que
-   não existe. */
-export function slaDoLead(etapa, lead, agora = Date.now()) {
+   não existe.
+
+   TAREFA MARCADA PARA O FUTURO SEGURA O PRAZO (28/10/2026, pedido do
+   Fernando): o corretor combinou voltar depois ("ligar quinta"), e o lead não
+   está abandonado — está agendado. Com `segura`, o que seria aviso ou vencido
+   volta como "ok" com `segura: true`, e o número de minutos continua o real.
+   É a mesma régua do repasse por prazo vencido (`services/prazo-vencido.js`):
+   QUALQUER tarefa em aberto com a hora no futuro. Tarefa que já venceu não
+   segura nada — ela mesma é o atraso. */
+export function slaDoLead(etapa, lead, agora = Date.now(), segura = false) {
   if (!etapa || !etapa.sla_minutes) return null;
   const base = lead.last_interaction_at || lead.stage_entered_at || lead.created_at;
   if (!base) return null;
@@ -261,15 +269,29 @@ export function slaDoLead(etapa, lead, agora = Date.now()) {
   const minutos = Math.floor((agora - base) / 60000);
   const limite = etapa.sla_minutes;
   const aviso = etapa.warning_before_minutes ?? Math.round(limite * 0.75);
-  const status = minutos >= limite ? "overdue"
+  const pelaConta = minutos >= limite ? "overdue"
     : minutos >= Math.max(0, limite - aviso) ? "warning"
     : "ok";
+  const seguro = !!segura && pelaConta !== "ok";
   return {
-    status, minutos, limite,
+    status: seguro ? "ok" : pelaConta, minutos, limite,
     restam: Math.max(0, limite - minutos),
     desde: base,
+    ...(seguro ? { segura: true } : {}),
   };
 }
+
+/* Os leads com alguma tarefa em aberto marcada para AGORA ou depois. Uma
+   consulta para a imobiliária inteira (índice idx_tarefas_abertas): quem
+   chama `slaDoLead` numa lista passa `comTarefa.has(l.id)`. */
+export function leadsComTarefaFutura(orgId, agora = Date.now()) {
+  return new Set(db.prepare(
+    "SELECT DISTINCT lead_id FROM tarefas WHERE org_id = ? AND feito_em IS NULL AND quando >= ?")
+    .all(orgId, agora).map(r => r.lead_id));
+}
+
+export const temTarefaFutura = (leadId, agora = Date.now()) => !!db.prepare(
+  "SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? LIMIT 1").get(leadId, agora);
 
 // Desde quando cada lead está na etapa atual. Um SELECT só para a lista
 // inteira: uma consulta por card deixaria o funil lento com a base crescendo.

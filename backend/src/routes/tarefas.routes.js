@@ -113,7 +113,7 @@ export function tarefasAbertasPorLead(orgId, ids = null) {
     ? emLotes(ids, (m, lote) => db.prepare(sql(`AND lead_id IN (${m})`)).all(orgId, ...lote))
     : db.prepare(sql("")).all(orgId);
   const linhas = ler((f) => `
-    SELECT lead_id, COUNT(*) AS abertas, MIN(quando) AS proxima
+    SELECT lead_id, COUNT(*) AS abertas, MIN(quando) AS proxima, MAX(quando) AS ultima
     FROM tarefas WHERE org_id = ? AND feito_em IS NULL ${f}
     GROUP BY lead_id`);
   const titulos = ler((f) => `
@@ -126,6 +126,9 @@ export function tarefasAbertasPorLead(orgId, ids = null) {
     // "Já passou da hora" é o que muda a cor do card. Calculado aqui para a
     // tela não precisar repetir a regra.
     atrasada: l.proxima < Date.now(),
+    // Há alguma marcada para agora ou depois? É o que segura o prazo da etapa
+    // (`slaDoLead` com `segura`) — a mesma régua do repasse por prazo vencido.
+    futura: l.ultima >= Date.now(),
   }]));
 }
 
