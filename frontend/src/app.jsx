@@ -784,7 +784,8 @@ function cronometroDoLead(l,agora=Date.now(),{daChegada=false}={}){
   if(l.lastDirection==="in"&&l.lastAt)
     return {rotulo:"aguardando",titulo:"A última mensagem é do cliente",desde:aPartir(l.lastAt)};
   const s=l.sla;
-  if(s&&s.limite&&s.desde){
+  // Tarefa marcada para o futuro segura o prazo (o servidor manda `segura`).
+  if(s&&s.limite&&s.desde&&!s.segura){
     const venceu=s.desde+s.limite*60000;
     if(agora>=venceu) return {rotulo:"SLA vencido",titulo:"O prazo da etapa venceu",desde:venceu,sla:true};
   }
@@ -9931,6 +9932,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [gaveta,setGaveta]=usarEscolha("atendimento.gaveta",false);
   const [fEtapa,setFEtapa]=usarEscolha("atendimento.etapa","");
   const [fPrio,setFPrio]=usarEscolha("atendimento.prio","");
+  const [fTag,setFTag]=usarEscolha("atendimento.tag","");
+  const [fSit,setFSit]=usarEscolha("atendimento.situacao","");
+  const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [de,setDe]=usarEscolha("atendimento.de","");
   const [ate,setAte]=usarEscolha("atendimento.ate","");
   // No celular só cabe um painel por vez: lista → conversa → ficha.
@@ -10001,9 +10005,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
-  const filtrosAtivos=[fEtapa,fPrio,de,ate].filter(Boolean).length;
-  const limparFiltros=()=>{setFEtapa("");setFPrio("");setDe("");setAte("");};
-  const [limiteLista,maisLista]=usarLimite(150,[linha,vista,busca,fEtapa,fPrio,de,ate,campanha].join("|"));
+  const filtrosAtivos=[fEtapa,fPrio,fTag,fSit,de,ate].filter(Boolean).length;
+  const limparFiltros=()=>{setFEtapa("");setFPrio("");setFTag("");setFSit("");setDe("");setAte("");};
+  const [limiteLista,maisLista]=usarLimite(150,[linha,vista,busca,fEtapa,fPrio,fTag,fSit,de,ate,campanha].join("|"));
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   // A linha, antes de tudo: os outros filtros valem dentro do número escolhido.
   const daLinha=myLeads.filter(l=>!minhaLinha||linha==="todas"?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id);
@@ -10039,6 +10043,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
     })
     .filter(l=>fEtapa?l.status===fEtapa:true)
     .filter(l=>fPrio?l.prio===fPrio:true)
+    .filter(l=>!fTag||(l.tags||[]).some(t=>t.id===fTag))
+    .filter(l=>passaNaSituacao(l,fSit))
     .filter(l=>{
       if(!de&&!ate) return true;
       const q=l.createdAt||0;
@@ -10082,6 +10088,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {seloCorretor("Etapa",fEtapa,setFEtapa,opcoesDeEtapa(funisDaConta))}
           {seloCorretor("Temperatura",fPrio,setFPrio,[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          {!!tagsDaCasa.length&&seloCorretor("Tag",fTag,setFTag,tagsDaCasa.map(t=>({v:t.id,t:t.nome})))}
+          {seloCorretor("Situação",fSit,setFSit,SITUACOES)}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
@@ -10387,10 +10395,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
      mostraria um resultado que não é o que a pessoa deixou na tela. */
   const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
   const [ocultar,setOcultar]=usarContatoOculto();
-  const [f,setF]=useState({dono:"",prioridade:"",tag:"",de:"",ate:""});
+  const [f,setF]=useState({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
   const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
-  const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.de,f.ate].filter(Boolean).length;
+  const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.situacao,f.de,f.ate].filter(Boolean).length;
 
   /* SÓ OS LEADS DESTE FUNIL.
 
@@ -10432,6 +10440,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       // Filtrar por tag é a razão de a tag existir: é daqui que sai o
       // "mostre os investidores" que ninguém conseguia perguntar ao CRM.
       if(f.tag&&!(l.tags||[]).some(t=>t.id===f.tag)) return false;
+      if(!passaNaSituacao(l,f.situacao)) return false;
       const quando=l.createdAt||0;
       if(inicio&&quando<inicio) return false;
       if(fim&&quando>fim) return false;
@@ -10439,7 +10448,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     });
   },[doFunil,busca,onde,f]);
 
-  const limpar=()=>setF({dono:"",prioridade:"",de:"",ate:""});
+  const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
       border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
@@ -10683,6 +10692,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           {/* Só aparece quando a casa tem tag: um seletor vazio é um filtro
               que promete uma peneira que não existe. */}
           {!!tagsDaCasa.length&&selo("Tag",f.tag,"tag",tagsDaCasa.map(t=>({v:t.id,t:t.nome})))}
+          {selo("Situação",f.situacao,"situacao",SITUACOES)}
           {filtrosAtivos>0&&<button onClick={limpar}
             style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,
               cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
@@ -10917,11 +10927,32 @@ function TarefasDoLead({lead,acoes,isMobile}){
    ninguém respondeu está em chamas. Verde some de propósito — quadro cheio de
    verde vira enfeite e o olho para de ver a cor. Só aparece âmbar (esfriando)
    e vermelho (parado), que são os dois estados que pedem ação. */
+/* FILTRO "SITUAÇÃO" (28/10/2026, pedido do Fernando): prazo da etapa vencido
+   e tarefa vencida, no Funil e nas duas caixas — uma regra só para as três.
+   O prazo vem do servidor já com a tarefa futura descontada (`slaDoLead`);
+   etapa sem prazo configurado não entra em "prazo vencido": sem medida, não
+   há atraso para mostrar. */
+const SITUACOES=[{v:"sla",t:"Prazo da etapa vencido"},{v:"tarefa",t:"Tarefa vencida"}];
+function passaNaSituacao(l,sit){
+  if(sit==="sla") return !!(l.sla&&l.sla.status==="overdue");
+  if(sit==="tarefa") return !!(l.tarefas&&l.tarefas.abertas>0&&l.tarefas.atrasada);
+  return true;
+}
+// O seletor da gaveta de filtros, para quem guarda cada filtro num estado próprio.
+function SeloLocal({rotulo,valor,mudar,opcoes,isMobile}){
+  return <select value={valor} onChange={e=>mudar(e.target.value)}
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    <option value="">{rotulo}</option>
+    {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+  </select>;
+}
 const URGENCIA_AMBAR=24*3600000;    // um dia sem falar: esfriando
 const URGENCIA_VERMELHA=72*3600000; // três dias: parado
 
 function corDeUrgencia(l){
   if(l.finalizado||l.status==="Venda"||l.status==="Perdido") return null;
+  // Tarefa marcada para o futuro: o lead está agendado, não parado (28/10/2026).
+  if(l.tarefas&&l.tarefas.futura) return null;
   const desde=Date.now()-(l.lastAt||l.createdAt);
   if(desde>=URGENCIA_VERMELHA) return C.hot;
   if(desde>=URGENCIA_AMBAR) return C.amber;
@@ -13047,11 +13078,15 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   const [filtrosAbertos,setFiltrosAbertos]=usarEscolha("conversas.gaveta",false);
   // Por qual número (imobiliária ou o pessoal de um corretor) — ver usarLinhas.
   const [numero,setNumero]=usarEscolha("conversas.numero","");
+  // Tag e situação: peneira no navegador, sobre o que o servidor já mandou.
+  const [fTag,setFTag]=usarEscolha("conversas.tag","");
+  const [fSit,setFSit]=usarEscolha("conversas.situacao","");
+  const {tags:tagsDaCasa}=usarTags(acoes,session);
   // Quantos filtros detalhados estão ligados. A busca não conta: ela fica sempre à vista.
-  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(numero?1:0);
+  const filtrosAtivos=[f.atendente,f.etapa,f.prioridade,f.de,f.ate].filter(Boolean).length+(numero?1:0)+(fTag?1:0)+(fSit?1:0);
   const verFinalizados=vista==="finalizados";
   const [campanha,setCampanha]=usarEscolha("conversas.campanha","");
-  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,vista,campanha,numero]));
+  const [limiteLista,maisLista]=usarLimite(150,JSON.stringify([escopo,f,vista,campanha,numero,fTag,fSit]));
   const [triagem,lerTriagem]=usarTriagem(acoes);
   const [novoLead,setNovoLead]=useState(false);
   const [lista,setLista]=useState([]);
@@ -13084,7 +13119,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
      supervisiona escolhe o número no mesmo seletor que já listava os da equipe. */
   const peneirados=useMemo(()=>lista
     .filter(l=>passaNaVista(l,vista,campanha))
-    .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero),[lista,vista,campanha,numero]);
+    .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
+    .filter(l=>!fTag||(l.tags||[]).some(t=>t.id===fTag))
+    .filter(l=>passaNaSituacao(l,fSit)),[lista,vista,campanha,numero,fTag,fSit]);
   const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
   const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa),[peneirados,ordemCaixa]);
   const contagem=contagemDaCaixa(lista,triagem);
@@ -13115,12 +13152,14 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         contador={carregando?"Buscando…":(filtrosAtivos||busca.trim()||vista!=="todos")?`${visiveis.length} ${visiveis.length===1?"conversa":"conversas"}`:""}>
         {/* O "limpar" só existe com a gaveta aberta, longe do botão que se
             aperta o tempo todo — errar o dedo apagava tudo de uma vez. */}
-        {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setNumero("");}}
+        {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setNumero("");setFTag("");setFSit("");}}
           style={{alignSelf:"flex-end",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>limpar filtros</button>}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
           {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
           {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+          {!!tagsDaCasa.length&&<SeloLocal rotulo="Tag" valor={fTag} mudar={setFTag} opcoes={tagsDaCasa.map(t=>({v:t.id,t:t.nome}))} isMobile={isMobile}/>}
+          <SeloLocal rotulo="Situação" valor={fSit} mudar={setFSit} opcoes={SITUACOES} isMobile={isMobile}/>
           {/* Por qual número: a peneira é no navegador. */}
           {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
             style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>

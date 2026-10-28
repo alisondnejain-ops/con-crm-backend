@@ -18,7 +18,7 @@ import { linhaDoTempo } from "../services/linha-do-tempo.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { dispararGatilho } from "../services/automacoes.js";
 import { gravarCampos, ErroCampo } from "../services/campos-lead.js";
-import { slaDoLead } from "../services/etapas.js";
+import { slaDoLead, temTarefaFutura } from "../services/etapas.js";
 import { etapaPorId, pipelinePorId, formatarEtapa } from "../services/pipelines.js";
 import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etapas.js";
 import { estadoNoLead, ligarNoLead, ASSINATURA_ROBO } from "../services/robo.js";
@@ -161,7 +161,7 @@ r.get("/", (req, res) => {
   const agoraMs = Date.now();
   const lista = rows.map(l => ({
     ...enxuto(l),
-    sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs) : null,
+    sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs, !!(tarefas.get(l.id) || {}).futura) : null,
     // null quando o lead nunca mudou de etapa desde que o histórico existe. A
     // tela mostra "—": inventar a data de criação seria dizer que ele está ali
     // desde que entrou, o que muitas vezes é falso.
@@ -1133,7 +1133,7 @@ r.get("/:id", (req, res) => {
        procurar. */
     pipeline: lead.pipeline_id ? pipelinePorId(lead.org_id, lead.pipeline_id) : null,
     etapa: lead.stage_id ? etapaPorId(lead.org_id, lead.stage_id) : null,
-    sla: lead.stage_id ? slaDoLead(etapaPorId(lead.org_id, lead.stage_id), lead) : null,
+    sla: lead.stage_id ? slaDoLead(etapaPorId(lead.org_id, lead.stage_id), lead, Date.now(), temTarefaFutura(lead.id)) : null,
     // Por onde passou: funil e dono. Outra pergunta que o histórico de etapas
     // não responde.
     transferencias: transferenciasDoLead(lead.id),

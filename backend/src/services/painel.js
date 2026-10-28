@@ -27,7 +27,7 @@
 import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
 import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js";
-import { slaDoLead } from "./etapas.js";
+import { slaDoLead, leadsComTarefaFutura } from "./etapas.js";
 import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { resumoDeDisparos } from "./disparo.js";
@@ -203,9 +203,10 @@ export function painel(orgId, filtros = {}) {
     .map(e => [e.id, formatarEtapa(e)]));
 
   const agora = Date.now();
+  const comTarefa = leadsComTarefaFutura(orgId, agora);
   let vencidos = 0, emAviso = 0, semInteracao = 0, semSla = 0;
   for (const l of agoraLeads) {
-    const s = l.stage_id ? slaDoLead(etapas.get(l.stage_id), l, agora) : null;
+    const s = l.stage_id ? slaDoLead(etapas.get(l.stage_id), l, agora, comTarefa.has(l.id)) : null;
     if (!s) { semSla++; } else if (s.status === "overdue") vencidos++;
     else if (s.status === "warning") emAviso++;
     // "Sem interação" não depende de SLA configurado: é ausência, não atraso.
@@ -265,6 +266,7 @@ export function atividades(orgId, periodo, filtros = {}) {
   const etapas = new Map(db.prepare("SELECT * FROM pipeline_stages WHERE org_id = ?").all(orgId)
     .map(e => [e.id, formatarEtapa(e)]));
   const agora = Date.now();
+  const comTarefa = leadsComTarefaFutura(orgId, agora);
   const eventos = eventosDeAtribuicao(orgId);
 
   /* UMA leitura dos leads da casa para a equipe inteira (28/09/2026, teste de
@@ -292,7 +294,7 @@ export function atividades(orgId, periodo, filtros = {}) {
     const meus = porDono.get(u.id) || [];
     let vencidos = 0, semResposta = 0;
     for (const l of meus) {
-      const s = l.stage_id ? slaDoLead(etapas.get(l.stage_id), l, agora) : null;
+      const s = l.stage_id ? slaDoLead(etapas.get(l.stage_id), l, agora, comTarefa.has(l.id)) : null;
       if (s && s.status === "overdue") vencidos++;
       if (l.ultima_dir === "in") semResposta++;
     }
@@ -345,11 +347,12 @@ export function funil(orgId, pipelineId, filtros = {}) {
   const cfg = configDoFunil(orgId, pipelineId);
 
   const agora = Date.now();
+  const comTarefa = leadsComTarefaFutura(orgId, agora);
   const operacional = etapas.map(e => {
     const aqui = emAberto.filter(l => l.stage_id === e.id);
     const tempos = aqui.map(l => agora - (l.stage_entered_at || l.created_at)).sort((a, b) => a - b);
     let vencidos = 0;
-    for (const l of aqui) { const s = slaDoLead(e, l, agora); if (s && s.status === "overdue") vencidos++; }
+    for (const l of aqui) { const s = slaDoLead(e, l, agora, comTarefa.has(l.id)); if (s && s.status === "overdue") vencidos++; }
     return {
       id: e.id, name: e.name, color: e.color, status_type: e.status_type,
       counts_as_conversion: e.counts_as_conversion,
