@@ -1,3 +1,4 @@
+import { processarAgendadas } from "./services/agendadas.js";
 import "dotenv/config";
 import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
@@ -538,6 +539,10 @@ app.listen(PORT, () => {
      uma por vez — até acabar. `FOTOS_AGENDADOR=0` desliga. */
   if (process.env.FOTOS_AGENDADOR !== "0")
     setInterval(() => tratarFotosPendentes(3).catch(e => console.error("[fotos] tratamento:", e.message)), 20000);
+  /* MENSAGENS AGENDADAS NA CONVERSA (28/10/2026, services/agendadas.js).
+     `AGENDADAS_AGENDADOR=0` desliga (os testes chamam a função direto). */
+  if (process.env.AGENDADAS_AGENDADOR !== "0")
+    setInterval(() => processarAgendadas().catch(e => console.error("[agendadas] erro no ciclo:", e.message)), 20000);
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   /* POSTS PROGRAMADOS DAS REDES SOCIAIS (20/10/2026, services/redes.js): o

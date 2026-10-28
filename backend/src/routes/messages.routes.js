@@ -7,6 +7,7 @@ import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, ehDocume
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
+import { agendar, cancelar, listarDoLead } from "../services/agendadas.js";
 
 /* POR QUAL LINHA ESTA MENSAGEM SAI.
 
@@ -82,24 +83,29 @@ r.post("/:id/messages", async (req, res) => {
     : null;
   if (reply_to && !citada) return res.status(400).json({ error: "A mensagem citada não é desta conversa." });
 
-  const firstName = (req.user.name || "").split(" ")[0];
+  try { await enviarTextoDoCrm({ user: req.user, lead, text, citada }); }
+  catch (e) { return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message }); }
+  res.json({ ok: true });
+});
 
-  let envio;
-  try {
-    envio = await sendText({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, text: text.trim(), signedBy: firstName,
-      // Sem `wa_id` (mensagem anterior a 09/08/2026) não dá para citar no
-      // WhatsApp — mas a citação continua valendo dentro do CRM.
-      replyTo: citada && citada.wa_id ? citada.wa_id : null, quotedText: citada ? citada.body : null });
-  } catch (e) {
-    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
-  }
+/* O ENVIO DE TEXTO, num lugar só: o botão Enviar e a mensagem agendada
+   (services/agendadas.js) passam por aqui — mesma linha, mesma assinatura,
+   mesmo registro na conversa e o mesmo efeito no relatório (primeira
+   resposta, o robô saindo, a etapa recomendada). Duas cópias divergiriam.
+   Lança se o WhatsApp recusar; nada é gravado nesse caso. */
+export async function enviarTextoDoCrm({ user, lead, text, citada = null }) {
+  const firstName = (user.name || "").split(" ")[0];
+  const envio = await sendText({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, text: text.trim(), signedBy: firstName,
+    // Sem `wa_id` (mensagem anterior a 09/08/2026) não dá para citar no
+    // WhatsApp — mas a citação continua valendo dentro do CRM.
+    replyTo: citada && citada.wa_id ? citada.wa_id : null, quotedText: citada ? citada.body : null });
 
   const now = Date.now();
   // `wa_id`: o webhook devolve esta mesma mensagem daqui a instantes, e e por
   // ele que ela e reconhecida como eco em vez de virar uma copia na conversa.
-  gravarOuAssumirEco(envio?.messageid, { user: req.user, firstName, body: text.trim(), replyTo: citada ? citada.id : null }, () =>
+  gravarOuAssumirEco(envio?.messageid, { user, firstName, body: text.trim(), replyTo: citada ? citada.id : null }, () =>
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,reply_to,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, text.trim(),
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", user.id, firstName, text.trim(),
         envio?.messageid || null, citada ? citada.id : null, now, linhaDo(lead)));
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
@@ -107,7 +113,36 @@ r.post("/:id/messages", async (req, res) => {
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
 
   advanceStage(lead.id);
-  res.json({ ok: true });
+}
+
+/* MENSAGENS AGENDADAS (28/10/2026) — regras em services/agendadas.js.
+   Agendar e ver é de quem pode abrir a conversa (dono + supervisão). O master
+   não agenda dentro da conta de um cliente: a mensagem sairia assinada por
+   ele, e na hora de sair ele já não estaria nessa conta. */
+r.get("/:id/agendadas", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json({ agendadas: listarDoLead(lead.id) });
+});
+r.post("/:id/agendadas", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const casa = db.prepare("SELECT org_id FROM users WHERE id = ?").get(req.user.id);
+  if (!casa || casa.org_id !== lead.org_id)
+    return res.status(403).json({ error: "Agendar mensagem é de quem atende nesta conta." });
+  const r2 = agendar({ user: req.user, lead, texto: req.body?.texto, quando: req.body?.quando });
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json({ ok: true, agendada: r2.agendada, agendadas: listarDoLead(lead.id) });
+});
+r.delete("/:id/agendadas/:agId", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const r2 = cancelar({ user: req.user, lead, id: req.params.agId });
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json({ ok: true, agendadas: listarDoLead(lead.id) });
 });
 
 /* Editar uma mensagem já enviada, nas regras do WhatsApp.

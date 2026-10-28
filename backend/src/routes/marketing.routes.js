@@ -13,7 +13,7 @@ import {
   bloquear, listaDeBloqueio, salvarNumero, removerNumero, salvarLimites,
 } from "../services/marketing.js";
 import {
-  listarFluxos, criarFluxo, lerFluxo, salvarFluxo, apagarFluxo, ativarFluxo, logsDoFluxo,
+  listarFluxos, criarFluxo, duplicarFluxo, lerFluxo, salvarFluxo, apagarFluxo, ativarFluxo, logsDoFluxo,
   opcoesDePublico, previaDoPublico, criarCampanha, listarCampanhas, relatorio,
   pausar, retomar, cancelar, DECLARACAO_DISPARO, RODAPE_SAIR, enviarTeste,
 } from "../services/disparo.js";
@@ -107,6 +107,7 @@ r.get("/fluxos", trata((req, res) => {
   res.json({ fluxos: listarFluxos(req.user.org_id) });
 }));
 r.post("/fluxos", trata((req, res) => res.status(201).json(criarFluxo(req.user.org_id, req.user, req.body || {}))));
+r.post("/fluxos/:id/duplicar", trata((req, res) => res.status(201).json(duplicarFluxo(req.user.org_id, req.user, req.params.id))));
 r.get("/fluxos/:id", trata((req, res) => {
   exigirPronto(req.user.org_id);
   res.json(lerFluxo(req.user.org_id, req.params.id));
