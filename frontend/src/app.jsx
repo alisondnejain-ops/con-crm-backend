@@ -705,6 +705,38 @@ const chegouAgora=(l)=>!!l.assignedAt&&(Date.now()-l.assignedAt)<NOVO_NA_MAO;
    "aguardando" e pintar o item. */
 const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
 
+/* A ORDEM DA CAIXA (28/10/2026, pedido do Ali). Uma regra só para as duas
+   caixas — a do corretor e a da supervisão —, porque elas já divergiram antes.
+
+   Por grupo, de cima para baixo:
+   1. o lead do FORMULÁRIO (ou portal) que ainda não teve contato, por ORDEM DE
+      CHEGADA — o mais antigo primeiro, sempre: é fila, e quem pediu contato
+      antes é atendido antes;
+   2. no corretor, o que acabou de chegar na mão dele (repasse das últimas 24h);
+   3. o cliente esperando resposta;
+   4. o resto.
+   Dentro dos grupos 2 a 4 vale a escolha "Mais recentes / Mais antigos
+   primeiro" da própria pessoa (`usarOrdemDaCaixa`): o mais antigo primeiro é
+   o jeito de zerar as conversas sem descer a lista. */
+const chegadaNaCaixa=(l)=>l.assignedAt||l.createdAt||0;
+function ordenarCaixa(lista,ordem,{repasseNoTopo=false}={}){
+  const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:esperandoContato(l)?2:3;
+  const quando=(l,g)=>g===1?(l.assignedAt||0):(l.lastAt||l.createdAt||0);
+  return [...lista].sort((a,b)=>{
+    const ga=grupo(a), gb=grupo(b);
+    if(ga!==gb) return ga-gb;
+    if(ga===0) return chegadaNaCaixa(a)-chegadaNaCaixa(b);
+    const d=quando(a,ga)-quando(b,ga);
+    return ordem==="antigos"?d:-d;
+  });
+}
+function usarOrdemDaCaixa(){
+  const nome="conhub:caixa.ordem";
+  const [v,setV]=useState(()=>{ try{ return localStorage.getItem(nome)==="antigos"?"antigos":"recentes"; }catch(e){ return "recentes"; } });
+  useEffect(()=>{ try{ localStorage.setItem(nome,v); }catch(e){} },[v]);
+  return [v,setV];
+}
+
 /* POR ONDE O LEAD ENTROU (03/10/2026, pedido do Ali: separar na caixa quem veio
    do formulário do anúncio de quem chamou direto no WhatsApp, e de qual
    campanha veio). Vale a ENTRADA, não a conversa de hoje: o lead do formulário
@@ -1376,7 +1408,7 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 // As sete cores do funil de atividade da tela de entrada (08/09/2026) — as
 // MESMAS de CORES_TAG no servidor (services/tags.js), reaproveitadas em vez
 // de validar uma paleta nova para mais um gráfico de sete séries.
-const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2"];
+const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2","#57534E"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
@@ -2012,6 +2044,8 @@ function ConCRM(){
     roboEnsinoApagar:(id)=>api("/config/robo/ensino/"+id,{method:"DELETE"}),
     semResposta:()=>api("/distribution/sem-resposta"),
     definirEspera:(minutos)=>api("/distribution/sem-resposta",{method:"PATCH",body:{minutos}}),
+    prazoVencido:()=>api("/distribution/prazo"),
+    definirPrazoVencido:(dados)=>api("/distribution/prazo",{method:"PATCH",body:dados}),
     // Não passa pelo `acao()`: quem chama precisa da RESPOSTA (se o push saiu
     // ou se ficou só marcado no CRM). Mas recarrega assim mesmo, senão o
     // pedido só apareceria na tela no ciclo seguinte.
@@ -7842,15 +7876,9 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      Agora sobe para o topo o que acabou de chegar na mão dele, junto com quem
      está esperando resposta. As duas coisas somam: lead recém-recebido COM
      mensagem do cliente sem resposta é o primeiro de todos. */
-  const myLeads=useMemo(()=>leads.filter(l=>l.assignedTo===session.id)
-    .sort((a,b)=>{
-      const topo=(l)=>(chegouAgora(l)?2:0)+(esperandoContato(l)?1:0);
-      return topo(b)-topo(a)
-        // Entre os recém-chegados, o mais recente primeiro.
-        ||(chegouAgora(a)&&chegouAgora(b)?b.assignedAt-a.assignedAt:0)
-        ||ordemTemp(a.prio)-ordemTemp(b.prio)
-        // E, no resto, a conversa mais recente — não a entrada mais recente.
-        ||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt);}),[leads,session,tick]);
+  const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
+  const myLeads=useMemo(()=>ordenarCaixa(leads.filter(l=>l.assignedTo===session.id),ordemCaixa,{repasseNoTopo:true}),
+    [leads,session,tick,ordemCaixa]);
   const sel=leads.find(l=>l.id===selId);
 
   async function send(){
@@ -8106,7 +8134,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
         {supervisor&&view==="equipe"&&<Equipe {...{acoes,session,org,isMobile,versao}}/>}
         {/* Configurações: mensagens automáticas (gestor e atendente) e conexão. */}
-        {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile} org={org}
+        {supervisor&&view==="config"&&<Configuracoes acoes={acoes} session={session} isMobile={isMobile} org={org} irPara={setView}
           aoMudarMensagens={()=>setVersaoMsgs(v=>v+1)}/>}
         {podeGerir(session)&&view==="base"&&<BaseLeads acoes={acoes} isMobile={isMobile} pessoas={pessoas} abrirConversa={openLead}/>}
       </div>
@@ -10040,7 +10068,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         vista={vista} setVista={setVista} contagem={contagem} lista={daLinha} campanha={campanha} setCampanha={setCampanha}
         seletor={minhaLinha?{rotulo:"Número",valor:linha,mudar:setLinha,opcoes:[
           {v:"todas",t:"Todos os números"},{v:"casa",t:contaInterna()?"Do ConHub":"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
-        filtrosAtivos={filtrosAtivos} gaveta={gaveta} setGaveta={setGaveta}
+        filtrosAtivos={filtrosAtivos} gaveta={gaveta} setGaveta={setGaveta} ordem={ordemCaixa} setOrdem={setOrdemCaixa}
         contador={(filtrosAtivos||busca.trim()||vista!=="todos")?`${list.length} ${list.length===1?"conversa":"conversas"}`:""}>
         {filtrosAtivos>0&&<button onClick={limparFiltros}
           style={{alignSelf:"flex-end",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>limpar filtros</button>}
@@ -12089,7 +12117,7 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
    prometendo uma coisa que não existe. O componente é UM para as duas caixas
    (corretor e supervisão): já divergiram antes, quando cada uma tinha o seu. */
 const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","finalizados"];
-function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem,lista,campanha,setCampanha,seletor,filtrosAtivos,gaveta,setGaveta,contador,children}){
+function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem,lista,campanha,setCampanha,seletor,filtrosAtivos,gaveta,setGaveta,contador,ordem,setOrdem,children}){
   const chips=[
     ["todos","Tudo"],
     ["aguardando","Aguardando",contagem.aguardando,true],
@@ -12140,6 +12168,16 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
         {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
         <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       </button>
+      {/* Inverter a ordem fica à vista, ao lado dos filtros: é o gesto de quem
+          quer zerar a caixa começando pelo que espera há mais tempo. O
+          formulário sem contato fica sempre por ordem de chegada (ordenarCaixa). */}
+      {setOrdem&&<button onClick={()=>setOrdem(o=>o==="antigos"?"recentes":"antigos")}
+        title={ordem==="antigos"?"Mostrando os mais antigos primeiro — toque para os mais recentes":"Mostrando os mais recentes primeiro — toque para os mais antigos"}
+        aria-label="Inverter a ordem da lista"
+        style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${ordem==="antigos"?C.green+"66":C.line}`,background:ordem==="antigos"?C.greenSoft:C.surface,
+          color:ordem==="antigos"?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+        <span style={{fontSize:isMobile?14:13,lineHeight:1}}>{ordem==="antigos"?"↑":"↓"}</span>{ordem==="antigos"?"Antigos":"Recentes"}
+      </button>}
       {/* O total só aparece quando algo está peneirando a lista: sem filtro, as
           pastilhas já dizem quantos esperam, e o número sobrando empurrava a
           linha para baixo na coluna estreita do corretor. */}
@@ -13036,10 +13074,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   /* O número (o da casa ou o pessoal de alguém) é um filtro da gaveta; as
      abas "Da imobiliária / Meu WhatsApp" que existiam aqui saíram — quem
      supervisiona escolhe o número no mesmo seletor que já listava os da equipe. */
-  const visiveis=useMemo(()=>lista
+  const peneirados=useMemo(()=>lista
     .filter(l=>passaNaVista(l,vista,campanha))
-    .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero)
-    .sort((a,b)=>esperandoContato(b)-esperandoContato(a)||(b.lastAt||b.createdAt)-(a.lastAt||a.createdAt)),[lista,vista,campanha,numero]);
+    .filter(l=>!numero?true:numero==="casa"?!l.canalId:l.canalId===numero),[lista,vista,campanha,numero]);
+  const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
+  const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa),[peneirados,ordemCaixa]);
   const contagem=contagemDaCaixa(lista,triagem);
   const linhas=usarLinhas(acoes,session,lista);
 
@@ -13064,7 +13103,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         /* A atendente abre na PRÓPRIA caixa (o que está com ela + a fila); o
            gestor, na equipe inteira. Os dois trocam aqui, no mesmo lugar. */
         seletor={{rotulo:"Caixa (a minha inclui a fila, sem dono)",valor:escopo,mudar:setEscopo,opcoes:[{v:"meus",t:"Minha caixa"},{v:"todos",t:"Toda a equipe"}]}}
-        filtrosAtivos={filtrosAtivos} gaveta={filtrosAbertos} setGaveta={setFiltrosAbertos}
+        filtrosAtivos={filtrosAtivos} gaveta={filtrosAbertos} setGaveta={setFiltrosAbertos} ordem={ordemCaixa} setOrdem={setOrdemCaixa}
         contador={carregando?"Buscando…":(filtrosAtivos||busca.trim()||vista!=="todos")?`${visiveis.length} ${visiveis.length===1?"conversa":"conversas"}`:""}>
         {/* O "limpar" só existe com a gaveta aberta, longe do botão que se
             aperta o tempo todo — errar o dedo apagava tudo de uma vez. */}
@@ -18242,12 +18281,130 @@ function Equipe({acoes,session,org,isMobile,versao}){
      semana conforme o que converte, e quem sabe isso é quem atende.
    - CONEXÃO: só leitura para a atendente, mexida só pelo gestor. Desconectar
      derruba o WhatsApp da imobiliária inteira. */
-function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
+/* CONFIGURAÇÕES DE ATENDIMENTO (28/10/2026, pedido do Ali: "nela unir tudo
+   que o gestor precisa configurar pra deixar a operação dele personalizada").
+   O que é decisão de uma linha fica aqui mesmo — o prazo vencido, o aviso de
+   cliente sem resposta, o fim do expediente. O que tem tela própria (catraca,
+   funis, mensagens, Autoatendimento, conexão) aparece como um atalho com uma
+   frase: copiar aquelas telas para cá faria duas telas da mesma coisa, e é
+   assim que elas começam a divergir. Só o gestor. */
+const ACOES_PRAZO=[
+  ["marcar","Só marcar em coral","O lead fica com quem está. É como sempre foi."],
+  ["proximo_corretor","Passar para o próximo corretor","Vai para o próximo disponível da catraca do lead (ou da principal), na vez dela."],
+  ["atendente","Devolver para a atendente","Volta para a atendente da vez. Sem nenhuma ativa, fica com o corretor."],
+];
+function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
+  const autonomo=!!(org&&org.tipo==="autonomo");
+  const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
+  const [fim,setFim]=useState(""); const [fimSalvo,setFimSalvo]=useState(null);
+  const [erro,setErro]=useState(""); const [ok,setOk]=useState("");
+  useEffect(()=>{
+    if(!autonomo) acoes.prazoVencido().then(setPrazo).catch(e=>setErro(e.message));
+    acoes.semResposta().then(x=>{setEspera(String(x.minutos));setEsperaSalva(x.minutos);}).catch(()=>{});
+    acoes.expediente().then(x=>{setFim(x.fim||"");setFimSalvo(x.fim||"");}).catch(()=>{});
+  },[]);
+  const aviso=(t)=>{setOk(t);setErro("");setTimeout(()=>setOk(""),2500);};
+  async function mudarPrazo(dados){
+    setErro("");
+    try{ setPrazo(await acoes.definirPrazoVencido(dados)); aviso("Salvo."); }catch(e){ setErro(e.message); }
+  }
+  async function salvarEspera(){
+    try{ const r=await acoes.definirEspera(espera); setEsperaSalva(r.minutos); setEspera(String(r.minutos)); aviso("Salvo."); }catch(e){ setErro(e.message); }
+  }
+  async function salvarFim(){
+    try{ const r=await acoes.definirExpediente(fim.trim()); setFimSalvo(r.fim||""); setFim(r.fim||""); aviso("Salvo."); }catch(e){ setErro(e.message); }
+  }
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:16,marginBottom:12};
+  const titulo={color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:3};
+  const sub={color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10};
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",width:90};
+  const botao=(ativo)=>({fontSize:12,fontWeight:600,padding:"8px 13px",borderRadius:9,border:"none",cursor:ativo?"pointer":"default",
+    background:ativo?C.greenDeep:C.surface,color:ativo?"#fff":C.faint});
+  const atalhos=[
+    ...(autonomo?[]:[["Catraca","transfer","Quem recebe os leads, a ordem da vez e as catracas por produto.",()=>irPara&&irPara("catraca")]]),
+    ["Funis e etapas","columns","As etapas de cada funil, o prazo de cada uma e o que acontece quando o lead chega nela.",()=>irParaAba("funis")],
+    ["Mensagens automáticas","msg","Os textos prontos que aparecem acima do campo da conversa.",()=>irParaAba("mensagens")],
+    ...(contaInterna()?[]:[["Autoatendimento","spark","A IA que atende o cliente quando ninguém está disponível.",()=>irParaAba("robo")]]),
+    ["Conexão","link","O WhatsApp da imobiliária e dos corretores.",()=>irParaAba("conexao")],
+  ];
+  return <div>
+    {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:12}}>{erro||ok}</div>}
+
+    {!autonomo&&prazo&&<div style={cartao}>
+      <div style={titulo}>Quando o prazo da etapa vencer</div>
+      <div style={sub}>
+        Vale para lead de corretor parado além do prazo da etapa, contado da última conversa com o cliente.
+        {" "}{prazo.etapas_com_prazo
+          ?<span>{prazo.etapas_com_prazo} {prazo.etapas_com_prazo===1?"etapa tem":"etapas têm"} prazo.</span>
+          :<span style={{color:"#8a6d1f"}}>Nenhuma etapa tem prazo ainda — defina em <button onClick={()=>irParaAba("funis")} style={{border:"none",background:"none",padding:0,color:C.greenMid,fontWeight:600,cursor:"pointer",textDecoration:"underline",fontSize:11.5}}>Funis e etapas</button>.</span>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {ACOES_PRAZO.map(([v,t,d])=>{
+          const sel=prazo.acao===v;
+          return <button key={v} onClick={()=>!sel&&mudarPrazo({acao:v})} aria-pressed={sel}
+            style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",padding:"10px 12px",borderRadius:11,cursor:"pointer",fontFamily:FONT,
+              border:`1px solid ${sel?C.green:C.line}`,background:sel?C.greenSoft:C.card}}>
+            <span style={{width:16,height:16,borderRadius:99,border:`2px solid ${sel?C.green:C.line}`,flexShrink:0,marginTop:1,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{width:8,height:8,borderRadius:99,background:C.green}}/>}</span>
+            <span><span style={{display:"block",color:C.ink,fontSize:13,fontWeight:600}}>{t}</span>
+              <span style={{display:"block",color:C.faint,fontSize:11.5,lineHeight:1.45,marginTop:2}}>{d}</span></span>
+          </button>;
+        })}
+      </div>
+      {prazo.acao!=="marcar"&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{color:C.sub,fontSize:12.5}}>Tirar o mesmo lead de alguém no máximo</span>
+        <select value={prazo.max_repasses} onChange={e=>mudarPrazo({max_repasses:Number(e.target.value)})}
+          style={{...campo,width:"auto",cursor:"pointer"}}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+        <span style={{color:C.sub,fontSize:12.5}}>{prazo.max_repasses===1?"vez":"vezes"} seguidas sem conversa.</span>
+        <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,width:"100%"}}>
+          Tarefa marcada para o futuro segura o lead. A etapa e o funil não mudam — muda quem atende, e os dois são avisados no celular.
+        </div>
+      </div>}
+    </div>}
+
+    <div style={cartao}>
+      <div style={titulo}>Aviso de cliente sem resposta</div>
+      <div style={sub}>O corretor recebe um aviso no celular quando o cliente espera mais que isso. Zero desliga.</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <input value={espera} onChange={e=>setEspera(e.target.value.replace(/\D/g,""))} inputMode="numeric" style={campo} aria-label="Minutos"/>
+        <span style={{color:C.sub,fontSize:12.5}}>minutos</span>
+        <button onClick={salvarEspera} disabled={String(esperaSalva)===espera} style={botao(String(esperaSalva)!==espera)}>Salvar</button>
+      </div>
+    </div>
+
+    {!autonomo&&<div style={cartao}>
+      <div style={titulo}>Fim do expediente</div>
+      <div style={sub}>A essa hora a disponibilidade de todos cai sozinha, e ninguém recebe lead até se prontificar de novo. Em branco, não cai.</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <input value={fim} onChange={e=>setFim(e.target.value)} placeholder="18:00" style={campo} aria-label="Horário"/>
+        <button onClick={salvarFim} disabled={fimSalvo===fim.trim()} style={botao(fimSalvo!==fim.trim())}>Salvar</button>
+      </div>
+    </div>}
+
+    <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 8px"}}>Também faz parte do atendimento</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
+      {atalhos.map(([t,ic,d,ir])=><button key={t} onClick={ir}
+        style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
+          padding:"12px 13px",cursor:"pointer",fontFamily:FONT}}>
+        <span style={{width:30,height:30,borderRadius:9,background:C.greenSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Icon n={ic} size={15} color={C.greenDeep}/></span>
+        <span style={{minWidth:0,flex:1}}><span style={{display:"block",color:C.ink,fontSize:13,fontWeight:600}}>{t}</span>
+          <span style={{display:"block",color:C.faint,fontSize:11.5,lineHeight:1.45,marginTop:2}}>{d}</span></span>
+        <Icon n="chevron" size={14} color={C.faint}/>
+      </button>)}
+    </div>
+  </div>;
+}
+
+function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
   const [aba,setAba]=useState(()=>{
     // Outra tela pediu para abrir numa aba (Redes sociais → "conectar a página de novo").
     const pedida=abaConfigPedida; abaConfigPedida=null;
     if(pedida&&session&&podeGerir(session)) return pedida;
-    return RETORNO_META&&session&&podeGerir(session)?"anuncios":"funis";
+    if(RETORNO_META&&session&&podeGerir(session)) return "anuncios";
+    return session&&podeGerir(session)?"atendimento":"funis";
   });
   /* Identidade só para o GESTOR: trocar a logo e a cor muda o que a equipe
      inteira vê ao abrir o sistema, e isso não é decisão de quem atende. A aba
@@ -18273,7 +18430,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
      passou a ser uma opção dentro dela, não o nome dela. */
   /* No ambiente interno do ConHub o Autoatendimento não existe: o texto da IA
      atende comprador de imóvel. */
-  const abas=[["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
+  const abas=[...(session&&podeGerir(session)?[["atendimento","Atendimento"]]:[]),["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
     ...(contaInterna()?[]:[["robo","Autoatendimento"]]),
     ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
     ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
@@ -18293,6 +18450,8 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens}){
         A logo e a cor do menu ficam em <b style={{color:C.sub}}>Identidade</b>, no computador — é lá que
         está o arquivo da sua marca e a tela para conferir o resultado.
       </div>}
+      {aba==="atendimento"&&session&&podeGerir(session)&&<ConfigAtendimento acoes={acoes} isMobile={isMobile} org={org}
+        irParaAba={(a)=>setAba(a)} irPara={irPara}/>}
       {aba==="funis"&&<FunisConfig acoes={acoes} session={session} isMobile={isMobile}/>}
       {aba==="mensagens"&&<MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile} aoMudar={aoMudarMensagens}/>}
       {aba==="robo"&&<RoboConfig acoes={acoes} session={session} isMobile={isMobile}/>}
@@ -22363,7 +22522,7 @@ function FunilAtividadeViz({passos,isMobile}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-      Quanto se trabalhou no período — contagem de ações, não conversão de leads (essa fica em Operação → Funil).
+      Quanto se trabalhou no período. Trabalhados, faladas e qualificadas contam pessoas; o resto conta ações — não é conversão (essa fica em Operação → Funil).
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {passos.map((p,i)=>{
@@ -22377,7 +22536,7 @@ function FunilAtividadeViz({passos,isMobile}){
             </div>
           </div>
           <div style={{width:isMobile?58:120,flexShrink:0,textAlign:"right",fontSize:10,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
-            {i===0?"—":<React.Fragment><div title="sobre o passo anterior">{pctBR(p.taxa_sequencial)} do anterior</div><div>{pctBR(p.taxa_sobre_leads)} dos leads</div></React.Fragment>}
+            {i===0?"—":<React.Fragment><div title="sobre o passo anterior">{pctBR(p.taxa_sequencial)} {isMobile?"ant.":"do anterior"}</div><div title="sobre os leads trabalhados">{pctBR(p.taxa_sobre_leads)} {isMobile?"trab.":"dos trabalhados"}</div></React.Fragment>}
           </div>
         </div>;
       })}
@@ -22385,8 +22544,8 @@ function FunilAtividadeViz({passos,isMobile}){
   </div>;
 }
 
-const CHAVES_SERIE=[["leads","Leads"],["ligacoes","Ligações"],["contato","Contato"],["visita_agendada","Visita Agendada"],
-  ["visita_realizada","Visita Realizada"],["proposta","Proposta"],["venda","Vendas"]];
+const CHAVES_SERIE=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"],["faladas","Pessoas faladas"],["qualificadas","Qualificadas"],
+  ["visita_agendada","Agendados"],["visita_realizada","Visitas"],["proposta","Propostas"],["venda","Vendas"]];
 
 function SerieBarrasEmpilhadas({serie,isMobile}){
   const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));

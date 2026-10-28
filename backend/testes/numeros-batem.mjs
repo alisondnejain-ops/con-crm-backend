@@ -99,11 +99,15 @@ for (const [tela, v] of Object.entries(valores)) assert.equal(v, 2, `${tela} dev
 console.log("2. O gestor filtrando a Marina no Painel vê o MESMO número que ela");
 const painelGestorFiltrado = await get(tAli, `/painel/geral?periodo=mes&responsavel=${marina}`);
 assert.equal(painelGestorFiltrado.kpis.leads.atual, painelDela.kpis.leads.atual);
-// E o gráfico de 14 dias soma o mesmo que o cartão, quando o período cabe nele.
+// E o gráfico de 14 dias tem, no último dia, o mesmo que o funil de atividades
+// de hoje (desde 28/10/2026 o gráfico segue os degraus do funil, não o cartão Leads).
 const hoje = await get(tMarina, "/painel/geral?periodo=hoje");
-const somaSerie = hoje.serie.reduce((s, d) => s + d.leads, 0);
-console.log(`   cartão de hoje=${hoje.kpis.leads.atual} · gráfico de hoje=${hoje.serie[hoje.serie.length - 1].leads} · soma 14 dias=${somaSerie}`);
-assert.equal(hoje.serie[hoje.serie.length - 1].leads, hoje.kpis.leads.atual, "o último dia do gráfico é o cartão de hoje");
+const ultimo = hoje.serie[hoje.serie.length - 1];
+for (const passo of hoje.funil_atividade) {
+  const chave = { proposta: "proposta", venda: "venda" }[passo.id] || passo.id;
+  console.log(`   ${passo.id}: funil=${passo.valor} · gráfico de hoje=${ultimo[chave]}`);
+  assert.equal(ultimo[chave], passo.valor, `o último dia do gráfico é o degrau ${passo.id} de hoje`);
+}
 
 console.log("3. VENDAS e VGV da casa: Painel = Operação = Relatórios = Score");
 const painelCasa = await get(tAli, "/painel/geral?periodo=mes");
