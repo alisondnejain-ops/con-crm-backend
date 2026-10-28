@@ -8099,7 +8099,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             o papel dele de gestor pra corretor (correto, é a regra do
             recurso), e a caixa errada passou a ganhar da certa — parecendo
             que as mensagens simplesmente pararam. */}
-        {role==="corretor"&&!supervisor&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}}/>}
+        {role==="corretor"&&!supervisor&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}}/>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
@@ -9904,7 +9904,7 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
 }
 
 /* ===== ATENDIMENTO ===== */
-function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha}){
+function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}){
   // A pastilha da caixa — ver TopoDaCaixa (03/10/2026).
   const [vistaGuardada,setVista]=usarEscolha("atendimento.vista","todos");
   const vista=VISTAS_DA_CAIXA.includes(vistaGuardada)?vistaGuardada:"todos";
