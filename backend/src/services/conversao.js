@@ -55,7 +55,7 @@
 
 import db, { emLotes } from "../db.js";
 import { etapasDoPipeline, pipelinePorId } from "./pipelines.js";
-import { peneira, resolverPeriodo } from "./painel.js";
+import { peneira, resolverPeriodo, recebidosDaPessoa } from "./painel.js";
 
 /* Desde quando o histórico é completo. Um dia depois de cada recurso entrar,
    de propósito: o que entrou no meio do dia da publicação pode ter mudado
@@ -304,6 +304,50 @@ const veioDaAnterior = (u, atual, anterior) => {
 };
 const taxa = (parte, total) => (total ? (parte / total) * 100 : null);
 
+/* ===== O TOPO: DE TUDO QUE CHEGOU, QUANTO ENTROU NO PROCESSO COMERCIAL =====
+   (28/10/2026, pedido do Fernando, no desenho que o Ali aprovou)
+
+   O Fernando pediu uma coluna "sobre a etapa Lead". Dividir a base do funil
+   (quem ENTROU no comercial no período) pelos leads que CHEGARAM no período
+   mistura duas turmas — o lead que chegou em setembro e foi qualificado em
+   outubro está numa e não na outra — e podia passar de 100%.
+
+   Aqui a turma é UMA só, do começo ao fim: os leads que chegaram no período
+   (para uma pessoa, os que chegaram NA MÃO dela), e destes quantos já
+   entraram na faixa comercial DESTE funil até o corte, em qualquer data.
+   Antes de 14/08/2026 não há histórico de etapas: período que começa antes
+   disso não ganha a linha (seria um número que subconta sem avisar). */
+function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
+  if (cfg.sem_marcos || periodo.de < COBERTURA_ETAPAS || periodo.de > corte) return null;
+  const { responsavel, origem, source, campanha, campaign_id, produto_id } = filtros || {};
+  let ids;
+  if (responsavel && responsavel !== "fila") {
+    ids = [...new Set(recebidosDaPessoa(orgId, responsavel, { origem, source, campanha, campaign_id, produto_id }, periodo.de, corte)
+      .map(e => e.lead_id))];
+  } else {
+    const p = peneira(orgId, { origem, source, campanha, campaign_id, produto_id });
+    ids = db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`
+      + (responsavel === "fila" ? " AND l.assigned_to IS NULL" : "")).all(...p.args, periodo.de, corte).map(r => r.id);
+  }
+  if (!ids.length) return { chegaram: 0, entraram: 0, taxa: null };
+  const faixa = [...cfg.faixa];
+  const naFaixa = (sid) => !!sid && cfg.faixa.has(sid);
+  const marcas = faixa.map(() => "?").join(",");
+  const entraram = new Set(emLotes(ids, (m, lote) => db.prepare(
+    `SELECT DISTINCT lead_id FROM lead_etapas WHERE org_id = ? AND lead_id IN (${m})
+     AND para_stage_id IN (${marcas}) AND created_at <= ?`).all(orgId, ...lote, ...faixa, corte)).map(r => r.lead_id));
+  // Quem NASCEU numa etapa da faixa também entrou (a etapa de origem da
+  // primeira mudança, ou a etapa de hoje de quem nunca mudou).
+  for (const l of emLotes(ids, (m, lote) => db.prepare(
+    `SELECT l.id, l.stage_id, (SELECT de_stage_id FROM lead_etapas e WHERE e.lead_id = l.id ORDER BY e.created_at, e.rowid LIMIT 1) primeira_de,
+       (SELECT COUNT(*) FROM lead_etapas e WHERE e.lead_id = l.id) n
+     FROM leads l WHERE l.id IN (${m})`).all(...lote))) {
+    if (entraram.has(l.id)) continue;
+    if (l.n ? naFaixa(l.primeira_de) : naFaixa(l.stage_id)) entraram.add(l.id);
+  }
+  return { chegaram: ids.length, entraram: entraram.size, taxa: taxa(entraram.size, ids.length) };
+}
+
 /* ===== A RESPOSTA PARA AS TELAS ===== */
 export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const c = calcular(orgId, pipelineId, filtros, agora);
@@ -375,6 +419,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     entrada: cfg.entrada ? { id: cfg.entrada.id, name: cfg.entrada.name, configurada: cfg.configurada } : null,
     sem_marcos: cfg.sem_marcos,
     base: n,
+    topo: topoDoFunil(orgId, cfg, filtros, periodo, corte),
     linhas,
     por_responsavel: porResponsavel,
     cobertura: {
