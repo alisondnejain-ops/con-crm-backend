@@ -323,6 +323,24 @@ export function criarFluxo(orgId, user, { nome }) {
   return lerFluxo(orgId, id);
 }
 
+/* DUPLICAR UM FLUXO (28/10/2026, pedido do Fernando): copia os blocos, as
+   ligações e o gatilho, com o nome "Cópia de …". A cópia nasce DESLIGADA —
+   duas automações iguais ligadas mandariam a mesma mensagem duas vezes ao
+   mesmo lead; quem liga é a pessoa, pelo botão de sempre, que confere tudo
+   (inclusive "um formulário, uma automação"). Copia o grafo GUARDADO, não o
+   que `lerFluxo` monta: o funil e a catraca do formulário são do formulário. */
+export function duplicarFluxo(orgId, user, id) {
+  exigirPronto(orgId);
+  const f = fluxoDaOrg(orgId, id);
+  if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
+  const nome = ("Cópia de " + f.nome).slice(0, 80);
+  const novo = "mf_" + randomUUID();
+  const agora = agoraFn();
+  db.prepare(`INSERT INTO marketing_fluxos (id,org_id,nome,grafo,criado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?)`)
+    .run(novo, orgId, nome, f.grafo, user.id, agora, agora);
+  return lerFluxo(orgId, novo);
+}
+
 export function lerFluxo(orgId, id) {
   const f = fluxoDaOrg(orgId, id);
   if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");

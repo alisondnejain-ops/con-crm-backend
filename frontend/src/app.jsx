@@ -1651,6 +1651,11 @@ function ConCRM(){
 
   const acoes={
     enviar:acao((leadId,text,replyTo)=>api(`/leads/${leadId}/messages`,{method:"POST",body:{text,reply_to:replyTo||undefined}})),
+    // Mensagens agendadas: sem o `acao()`, porque a recusa (horário no passado,
+    // lead que não é mais seu) é o que a tela precisa mostrar.
+    agendadas:(leadId)=>api(`/leads/${leadId}/agendadas`),
+    agendar:(leadId,texto,quando)=>api(`/leads/${leadId}/agendadas`,{method:"POST",body:{texto,quando}}),
+    cancelarAgendada:(leadId,id)=>api(`/leads/${leadId}/agendadas/${id}`,{method:"DELETE"}),
     /* Editar NÃO passa pelo `acao()`: aquele envelope engole o erro e recarrega
        como se tivesse dado certo. Aqui o erro é a informação mais importante —
        é ele que diz que a mensagem do cliente continua a antiga. */
@@ -2103,6 +2108,7 @@ function ConCRM(){
     fluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`),
     salvarFluxoMarketing:(id,dados)=>api(`/marketing/fluxos/${id}`,{method:"PUT",body:dados}),
     apagarFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}`,{method:"DELETE"}),
+    duplicarFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}/duplicar`,{method:"POST"}),
     testarFluxoMarketing:(id,telefone)=>api(`/marketing/fluxos/${id}/teste`,{method:"POST",body:{telefone}}),
     ativarFluxoMarketing:(id,ativo)=>api(`/marketing/fluxos/${id}/ativar`,{method:"POST",body:{ativo}}),
     logsFluxoMarketing:(id)=>api(`/marketing/fluxos/${id}/logs`),
@@ -4648,6 +4654,13 @@ function FluxosDeMarketing({acoes,org,isMobile}){
     try{ const f=await acoes.criarFluxoMarketing(novoNome); setNovoNome(""); setCriando(false); await rever(); setAberto(f); }
     catch(e){ setErro(e.message); }
   }
+  /* Duplicar (28/10/2026): a cópia nasce desligada e abre direto no editor,
+     que é onde se muda o que faz ela ser diferente da original. */
+  async function duplicar(f){
+    setErro("");
+    try{ const novo=await acoes.duplicarFluxoMarketing(f.id); await rever(); setAberto(novo); }
+    catch(e){ setErro(e.message); }
+  }
   async function apagar(f){
     if(!window.confirm(`Apagar o fluxo "${f.nome}"? Os disparos que já usaram este fluxo continuam com a cópia deles.${f.ativo?" A automação dele para — inclusive para quem está no meio.":""}`)) return;
     try{ await acoes.apagarFluxoMarketing(f.id); await rever(); }catch(e){ setErro(e.message); }
@@ -4691,6 +4704,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
                 {f.blocos} blocos · {f.gatilho&&f.gatilho.tipo!=="manual"?`${f.entraram} entraram`:`${f.disparos} disparo(s)`} · editado em {fmtDataHoraMkt(f.atualizado_em)}</div>
             </div>
             <button onClick={()=>abrir(f.id)} style={botaoMkt()}>Editar</button>
+            <button onClick={()=>duplicar(f)} title="Duplicar fluxo (a cópia nasce desligada)" style={botaoLeveMkt}>Duplicar</button>
             <button onClick={()=>apagar(f)} title="Apagar fluxo" style={{...botaoLeveMkt,color:C.hot,padding:"8px 10px"}}><Icon n="trash" size={14}/></button>
           </div>)}
         </div>}
@@ -9945,6 +9959,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const [erroAnexo,setErroAnexo]=useState("");
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
+  const ag=usarAgendamento(sel,acoes);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
   /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
@@ -10186,6 +10201,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           onEnviar={gravado.enviar}/>
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
+        <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
@@ -10196,6 +10212,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               digitada) em vez de mandar só o texto e deixar a foto para trás. */}
           {/* Durante a edição o mesmo botão SALVA — dois botões de ação no mesmo
               canto seria o jeito mais fácil de mandar a mensagem sem querer. */}
+          <BotaoAgendar ag={ag} desligado={!!editando||!!colados.length} isMobile={isMobile}/>
           <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():send()}
             title={editando?"Salvar a edição":"Enviar"}
             disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
@@ -14193,6 +14210,99 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 /* ===== CAMPO DE ENVIO DA ADM =====
    A mensagem sai pelo número da Conecta assinada com o nome da ADM, igual à do
    corretor — o cliente sempre sabe com quem está falando. */
+/* ===== MENSAGEM AGENDADA (28/10/2026, pedido do Fernando) =====
+
+   O texto do campo sai sozinho na hora marcada, pelo mesmo envio do botão
+   Enviar (o servidor confere na hora se quem agendou ainda atende o lead).
+   Um gancho e dois pedaços — o relógio ao lado do Enviar e a faixa acima do
+   campo — usados pelos DOIS campos de mensagem (corretor e supervisão), que
+   já divergiram antes quando cada um tinha o seu. */
+function usarAgendamento(lead,acoes){
+  const [lista,setLista]=useState([]);
+  const [aberto,setAberto]=useState(false);
+  const id=lead&&lead.id;
+  const ler=React.useCallback(()=>{ if(!id) return;
+    acoes.agendadas(id).then(r=>setLista(r.agendadas||[])).catch(()=>{}); },[id,acoes]);
+  useEffect(()=>{ setLista([]); setAberto(false); ler();
+    // De minuto em minuto: a que saiu some da faixa e aparece na conversa.
+    const t=setInterval(ler,60000); return()=>clearInterval(t); },[id]);
+  return {lista,setLista,aberto,setAberto,ler,leadId:id};
+}
+
+function BotaoAgendar({ag,desligado,isMobile}){
+  const pendentes=ag.lista.filter(a=>a.status==="pendente").length;
+  return <button onClick={()=>ag.setAberto(v=>!v)} disabled={desligado} title="Agendar o envio desta mensagem"
+    aria-label="Agendar mensagem" aria-pressed={ag.aberto}
+    style={{width:isMobile?40:36,height:44,borderRadius:12,border:`1px solid ${ag.aberto?C.green:C.line}`,
+      background:ag.aberto?C.greenSoft:C.surface,color:ag.aberto?C.greenDeep:C.sub,cursor:desligado?"default":"pointer",
+      display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative",opacity:desligado?.5:1}}>
+    <Icon n="clock" size={17}/>
+    {pendentes>0&&<span style={{position:"absolute",top:-5,right:-5,minWidth:16,height:16,padding:"0 4px",borderRadius:999,
+      background:C.green,color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{pendentes}</span>}
+  </button>;
+}
+
+function amanhaAs(h){const d=new Date();d.setDate(d.getDate()+1);d.setHours(h,0,0,0);return d.getTime();}
+
+function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
+  const [quando,setQuando]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{setQuando("");setErro("");},[ag.leadId]);
+  const pendentes=ag.lista.filter(a=>a.status==="pendente"||a.status==="enviando");
+  /* O que deu errado nos últimos 2 dias. Cancelada pela própria pessoa não
+     aparece: ela sabe que cancelou. */
+  const problemas=ag.lista.filter(a=>(a.status==="falhou"||(a.status==="cancelada"&&!/^Cancelada por/.test(a.motivo||"")))
+    &&Date.now()-a.created_at<2*86400000);
+  if(!ag.aberto&&!pendentes.length&&!problemas.length) return null;
+  const ts=quando?new Date(quando).getTime():null;
+  const texto=draft.trim();
+  async function agendar(){
+    if(!texto){setErro("Escreva a mensagem no campo abaixo.");return;}
+    if(!ts){setErro("Escolha o dia e a hora.");return;}
+    setOcupado(true);setErro("");
+    try{ const r=await acoes.agendar(lead.id,draft.replace("{nome}",first(lead.nome)).trim(),ts);
+      ag.setLista(r.agendadas||[]); setDraft(""); setQuando(""); ag.setAberto(false); }
+    catch(e){ setErro(e.message); }
+    finally{ setOcupado(false); }
+  }
+  async function cancelar(id){
+    try{ const r=await acoes.cancelarAgendada(lead.id,id); ag.setLista(r.agendadas||[]); }
+    catch(e){ setErro(e.message); ag.ler(); }
+  }
+  const atalho=(rotulo,t)=><button key={rotulo} onClick={()=>setQuando(paraCampoDataHora(t))}
+    style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:999,padding:isMobile?"7px 11px":"4px 10px",fontSize:11.5,cursor:"pointer",fontFamily:FONT}}>{rotulo}</button>;
+  /* No celular o botão redondo do suporte fica no canto direito, por cima
+     desta faixa: a folga à direita impede que ele cubra o "cancelar". */
+  return <div style={{border:`1px solid ${C.line}`,background:C.surface,borderRadius:12,padding:isMobile?"8px 54px 8px 10px":"8px 10px",marginBottom:8,display:"flex",flexDirection:"column",gap:6}}>
+    {pendentes.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:12}}>
+      <Icon n="clock" size={13} color={C.greenMid}/>
+      <span style={{color:C.greenDeep,fontWeight:700,flexShrink:0}}>{a.status==="enviando"?"saindo agora":fmtTarefa(a.quando)}</span>
+      <span style={{color:C.sub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={a.texto}>{a.texto}</span>
+      {a.status==="pendente"&&<button onClick={()=>cancelar(a.id)} style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer",padding:isMobile?"6px 2px":0,flexShrink:0}}>cancelar</button>}
+    </div>)}
+    {problemas.map(a=><div key={a.id} style={{fontSize:11.5,color:C.hot,lineHeight:1.4}}>
+      <b>Não saiu</b> ({fmtTarefa(a.quando)}): {a.motivo}
+      {" "}<button onClick={()=>setDraft(a.texto)} style={{border:"none",background:"transparent",color:C.hot,textDecoration:"underline",cursor:"pointer",padding:0,fontSize:11.5}}>pôr o texto no campo</button>
+    </div>)}
+    {ag.aberto&&<div style={{display:"flex",flexDirection:"column",gap:6,borderTop:(pendentes.length||problemas.length)?`1px solid ${C.line}`:"none",paddingTop:(pendentes.length||problemas.length)?6:0}}>
+      <div style={{color:C.ink,fontSize:12,fontWeight:700}}>Agendar o envio do texto do campo</div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {atalho("Em 1 hora",Date.now()+3600000)}{atalho("Amanhã 9h",amanhaAs(9))}{atalho("Amanhã 14h",amanhaAs(14))}
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="datetime-local" value={quando} min={paraCampoDataHora(Date.now())} onChange={e=>setQuando(e.target.value)} aria-label="Dia e hora do envio"
+          style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",color:C.ink,background:C.card,outline:"none",minWidth:0}}/>
+        <button onClick={agendar} disabled={ocupado}
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 14px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {ocupado?"Agendando…":ts?`Agendar para ${fmtTarefa(ts)}`:"Agendar"}</button>
+      </div>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Sai em seu nome, pelo mesmo número da conversa. Se o lead passar para outra pessoa antes, a mensagem não sai.</div>
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5}}>{erro}</div>}
+  </div>;
+}
+
 function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setEditando,versaoMsgs,aoMudarLinha}){
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
@@ -14200,6 +14310,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const [erroAnexo,setErroAnexo]=useState("");
   const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
+  const ag=usarAgendamento(lead,acoes);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
@@ -14269,6 +14380,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
       onEnviar={gravado.enviar}/>
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
+    <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
@@ -14277,6 +14389,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
           if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():enviar();}}}
         rows={2} placeholder={colando?"Colando a imagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+      <BotaoAgendar ag={ag} desligado={!!editando||!!colados.length} isMobile={isMobile}/>
       <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():enviar()}
         title={editando?"Salvar a edição":"Enviar"}
         disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}

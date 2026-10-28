@@ -119,6 +119,7 @@ export function anonimizar(orgId, leadId, { por = null } = {}) {
     // Estes existem só para guardar coisas sobre a pessoa: somem inteiros.
     db.prepare("DELETE FROM observacoes WHERE lead_id = ?").run(leadId);
     db.prepare("DELETE FROM simulacoes WHERE lead_id = ?").run(leadId);
+    db.prepare("DELETE FROM mensagens_agendadas WHERE lead_id = ?").run(leadId);
     db.prepare("UPDATE ligacoes SET obs = NULL WHERE lead_id = ?").run(leadId);
     db.prepare("UPDATE tarefas SET titulo = '[removido a pedido do titular]' WHERE lead_id = ?").run(leadId);
   });

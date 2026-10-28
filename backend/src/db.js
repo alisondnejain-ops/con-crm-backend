@@ -147,6 +147,25 @@ CREATE TABLE IF NOT EXISTS tarefas (
   created_at INTEGER NOT NULL
 );
 
+/* Mensagens agendadas na conversa (28/10/2026, pedido do Fernando): o texto
+   escrito agora sai sozinho na hora marcada, pelo mesmo envio do botão
+   Enviar (enviarTextoDoCrm). status: pendente → enviando → enviada |
+   falhou | cancelada. "enviando" é a trava contra mandar duas vezes. */
+CREATE TABLE IF NOT EXISTS mensagens_agendadas (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  quando INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pendente',
+  motivo TEXT,
+  enviada_em INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agendadas_fila ON mensagens_agendadas(status, quando);
+CREATE INDEX IF NOT EXISTS idx_agendadas_lead ON mensagens_agendadas(lead_id, status);
+
 /* Observações do lead: o quadro de recados do atendimento.
 
    "O cliente só atende depois das 18h", "o marido é quem decide", "já foi
