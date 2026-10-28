@@ -10204,7 +10204,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 }
 
 /* ===== REGISTRO DE VENDA (pedido do Ali: valor, data e qual imóvel) ===== */
-function FichaVenda({lead,onSalvar}){
+function FichaVenda({lead,onSalvar,lado,aoAbrir}){
   const v=lead.venda;
   // No ambiente interno do ConHub a venda é uma assinatura, não um imóvel.
   const interna=contaInterna();
@@ -10216,6 +10216,7 @@ function FichaVenda({lead,onSalvar}){
       imovel:v&&v.imovel||"",comissao:v&&v.comissao!=null?String(v.comissao):""});
   },[lead.id]);
 
+  useEffect(()=>{ if(aoAbrir) aoAbrir(aberto); },[aberto]);
   async function salvar(){
     const valor=numeroBR(f.valor);
     if(!valor||valor<=0) return setErro("Informe o valor da venda.");
@@ -10238,7 +10239,8 @@ function FichaVenda({lead,onSalvar}){
     <button onClick={()=>setAberto(true)} style={{marginTop:8,border:"none",background:"transparent",color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Editar registro</button>
   </div>;
 
-  if(!aberto) return <button onClick={()=>setAberto(true)} style={{width:"100%",marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:6,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,fontSize:12.5,fontWeight:600,padding:"10px",borderRadius:12,cursor:"pointer"}}><Icon n="award" size={14}/> Registrar venda</button>;
+  // `lado`: ao lado da Simulação, com a mesma altura dela (28/10/2026).
+  if(!aberto) return <button onClick={()=>setAberto(true)} style={{width:"100%",marginTop:lado?0:14,height:lado?"100%":undefined,display:"flex",alignItems:"center",justifyContent:"center",gap:6,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,fontSize:12.5,fontWeight:600,padding:"10px",borderRadius:12,cursor:"pointer"}}><Icon n="award" size={14}/> Registrar venda</button>;
 
   return <div style={{background:C.card,border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:8}}>Registrar venda</div>
@@ -13984,14 +13986,17 @@ function QualificacaoDoLead({lead,acoes,session}){
    altura de quatro linhas. A venda registrada (ou o formulário aberto) toma a
    largura inteira. */
 function SimulacaoEVenda({lead,acoes,aoSimular}){
-  return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-start",marginTop:14}}>
+  // Venda registrada ou formulário aberto ocupam a linha inteira.
+  const [vendaAberta,setVendaAberta]=useState(false);
+  const cheia=!!lead.venda||vendaAberta;
+  return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"stretch",marginTop:14}}>
     {!contaInterna()&&<button onClick={aoSimular}
       style={{flex:"1 1 100px",border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
         borderRadius:11,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
       <Icon n="chart" size={14}/> Simulação
     </button>}
-    <div style={{flex:lead.venda?"1 1 100%":"1 1 100px",minWidth:0,marginTop:-14}}>
-      <FichaVenda lead={lead} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
+    <div style={{flex:cheia?"1 1 100%":"1 1 100px",minWidth:0,marginTop:cheia?-14:0}}>
+      <FichaVenda lead={lead} lado={!cheia} aoAbrir={setVendaAberta} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
     </div>
   </div>;
 }
@@ -14865,6 +14870,17 @@ function mapearColunas(cabecalho){
 /* Campo da qualificação, editável no toque.
    Antes eram só leitura: vinham do formulário da Meta e, se o cliente contasse
    a renda na conversa, o corretor não tinha onde anotar. */
+/* Resposta do formulário da Meta como se lê (28/10/2026, print do Ali): a
+   Meta manda o valor da opção cru — "r$_5.000,01_a_9.600,00" —, e na ficha em
+   duas colunas o texto sem espaço vazava para a coluna do lado. Só a TELA
+   muda; o que está gravado continua como veio. */
+function fmtResposta(v){
+  let t=String(v??"").trim();
+  if(!t||t==="—") return t;
+  if(t.includes("_")&&!/\s/.test(t)) t=t.replace(/_+/g," ");
+  t=t.replace(/\br\$\s*/gi,"R$ ");
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
 function CampoQual({rotulo,valor,icone,onSalvar}){
   const [editando,setEditando]=useState(false);
   const [texto,setTexto]=useState(valor==="—"?"":valor);
@@ -14881,7 +14897,7 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
           borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
-          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{valor}</button>}
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%",overflowWrap:"anywhere",lineHeight:1.35}}>{fmtResposta(valor)}</button>}
   </div>;
 }
 
@@ -14913,9 +14929,10 @@ function TagsDoLead({lead,acoes,session,isMobile}){
   return <div style={{marginBottom:14}}>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:6}}>
       <Icon n="award" size={11}/>Tags</div>
-    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+    <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
       {minhas.map(t=>pastilha(t,()=>acoes.desmarcarTag(lead.id,t.id),"Tirar esta tag"))}
-      {!minhas.length&&!abrindo&&<span style={{color:C.faint,fontSize:11.5}}>Nenhuma ainda.</span>}
+      {/* "Nenhuma ainda" só quando não há o botão: os dois juntos diziam a mesma coisa. */}
+      {!minhas.length&&!abrindo&&!todas.length&&<span style={{color:C.faint,fontSize:11.5}}>Nenhuma ainda.</span>}
       {/* Sem tag nenhuma criada, o botão não aparece: ele abriria uma lista
           vazia, e a criação é da gestão, em Configurações. */}
       {!!todas.length&&<button onClick={()=>setAbrindo(a=>!a)}
@@ -14992,7 +15009,7 @@ function CampoPersonalizado({def,valor,onSalvar}){
           borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
-          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%"}}>{bruto?fmtValorCampo(bruto,def.type):"—"}</button>}
+          fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%",overflowWrap:"anywhere"}}>{bruto?fmtValorCampo(bruto,def.type):"—"}</button>}
   </div>;
 }
 
