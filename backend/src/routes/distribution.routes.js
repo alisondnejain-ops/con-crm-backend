@@ -13,6 +13,7 @@ import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
   lerHorario, proximoCorte, PADRAO, validarPonto, ehPonto } from "../services/expediente.js";
 import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
 import { esperando, minutosDaOrg, definirMinutos } from "../services/alerta.js";
+import { configDoPrazo, definirConfigDoPrazo, etapasComPrazo } from "../services/prazo-vencido.js";
 
 const r = Router();
 r.use(authRequired);
@@ -122,6 +123,17 @@ r.get("/sem-resposta", roles("adm", "sdr"), (req, res) => {
 
 r.patch("/sem-resposta", roles("adm"), (req, res) =>
   res.json({ minutos: definirMinutos(req.user.org_id, req.body && req.body.minutos) }));
+
+/* O que acontece quando o prazo da etapa vence num lead de corretor
+   (services/prazo-vencido.js). Só o gestor lê e muda: é a tela
+   Configurações → Atendimento. */
+r.get("/prazo", roles("adm"), (req, res) =>
+  res.json({ ...configDoPrazo(req.user.org_id), etapas_com_prazo: etapasComPrazo(req.user.org_id) }));
+r.patch("/prazo", roles("adm"), (req, res) => {
+  const r2 = definirConfigDoPrazo(req.user.org_id, req.body || {});
+  if (r2.erro) return res.status(400).json({ error: r2.erro });
+  res.json({ ...r2, etapas_com_prazo: etapasComPrazo(req.user.org_id) });
+});
 
 r.patch("/expediente", roles("adm"), (req, res) => {
   const bruto = req.body?.fim == null ? PADRAO : String(req.body.fim).trim();

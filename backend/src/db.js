@@ -2503,4 +2503,17 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_org ON boletos(org_id, criado_em
 db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_cobranca ON boletos(cobranca_id)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_pedido ON boletos(pedido_id)");
 
+/* PRAZO DA ETAPA VENCIDO COM CONSEQUÊNCIA (28/10/2026, services/prazo-vencido.js).
+   - orgs.prazo_acao: o que acontece quando o prazo da etapa vence num lead
+     de corretor — nulo/'marcar' (só fica em coral, como sempre foi),
+     'proximo_corretor' ou 'atendente'. Quem decide é o gestor.
+   - orgs.prazo_max_repasses: quantas vezes seguidas, sem ninguém falar com o
+     cliente, o mesmo lead pode ser tirado de alguém (padrão 2).
+   - leads.prazo_repasses / prazo_repasse_em: a contagem e a hora do último —
+     a contagem zera quando alguém volta a falar com o cliente. */
+addOrgCol("prazo_acao", "TEXT");
+addOrgCol("prazo_max_repasses", "INTEGER");
+addLeadCol("prazo_repasses", "INTEGER");
+addLeadCol("prazo_repasse_em", "INTEGER");
+
 export default db;

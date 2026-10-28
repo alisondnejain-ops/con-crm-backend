@@ -255,7 +255,7 @@ const validarPessoa = (orgId, userId) =>
    `assigned_at` continua sendo carimbado: é ele que faz o lead repassado subir
    ao topo da caixa do corretor com o selo "novo com você" (regra de
    13/08/2026). */
-export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao") {
+export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao", { manterFunil = false } = {}) {
   const atual = typeof lead === "string"
     ? db.prepare("SELECT * FROM leads WHERE id = ?").get(lead) : lead;
   if (!atual) return false;
@@ -287,7 +287,10 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao") 
      significa "uso o funil padrão da casa", e mover por causa disso puxaria de
      volta para o padrão um lead que alguém pôs de propósito num funil especial
      — uma mudança silenciosa em quem nunca configurou nada. */
-  const funil = novoUserId ? mudarParaOFunilDe(atual, novoUserId, quemMandou) : null;
+  /* `manterFunil`: o prazo vencido (services/prazo-vencido.js) troca QUEM
+     atende, não onde o lead está — devolver à atendente não pode jogá-lo de
+     volta para o começo do funil de SDR. */
+  const funil = novoUserId && !manterFunil ? mudarParaOFunilDe(atual, novoUserId, quemMandou) : null;
   return { trocou: true, funil };
 }
 

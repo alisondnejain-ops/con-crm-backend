@@ -90,6 +90,18 @@ moverEtapa({ leadId: m2, para: "Proposta", motivo: "mao", userId: marina });
 // Rafael: 1 ligação (falou), sem venda.
 ligar(r1, rafael, "falou");
 
+/* Para o funil de atividades (28/10/2026): r2 conversa pelo WhatsApp nos dois
+   sentidos e é qualificado (vai à etapa marcada como início do processo
+   comercial); m3 recebe uma mensagem que ninguém responde. Uma mensagem do
+   disparo e uma do Autoatendimento não são trabalho de ninguém. */
+db.prepare("UPDATE pipeline_stages SET entrada_comercial = CASE WHEN name='Atendimento' THEN 1 ELSE 0 END WHERE pipeline_id=?").run(funilId);
+const msg = (lead, dir, autor, nome) => db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at)
+  VALUES (?,?,?,?,?,'oi',?)`).run("m_" + randomUUID(), lead, dir, autor, nome, Date.now());
+msg(r2, "in", null, null); msg(r2, "out", rafael, "Rafael");
+msg(m3, "out", marina, "Marina");
+msg(r2, "out", null, "Disparo · Campanha"); msg(m1, "out", null, "Atendimento automático");
+moverEtapa({ leadId: r2, para: "Atendimento", motivo: "mao", userId: rafael });
+
 const tAli = await entrar("Ali"), tMarina = await entrar("Marina"), tRafael = await entrar("Rafael");
 
 console.log("1. Marina registra a própria venda, com comissão");
@@ -136,18 +148,37 @@ console.log(`   leads=${d.kpis.leads.atual} vendas=${d.kpis.vendas.atual}`);
 assert.equal(d.kpis.leads.atual, 5, "5 leads no total");
 assert.equal(d.kpis.vendas.atual, 2, "2 vendas no total (Marina + Rafael)");
 
-console.log("7. O funil de atividade tem as sete linhas, com as duas colunas de %");
+console.log("7. O funil de atividades tem os oito degraus, com as duas colunas de %");
 r = await chamar(tAli, "/painel/geral?periodo=hoje");
 d = await r.json();
 const passos = d.funil_atividade.map(p => `${p.id}=${p.valor}`).join(" · ");
 console.log(`   ${passos}`);
-assert.equal(d.funil_atividade.length, 7);
-assert.equal(d.funil_atividade[0].id, "leads");
+assert.deepEqual(d.funil_atividade.map(p => p.nome),
+  ["Leads trabalhados", "Ligações", "Pessoas faladas", "Qualificadas", "Agendados", "Visitas", "Propostas", "Vendas"]);
 assert.equal(d.funil_atividade[0].taxa_sequencial, null, "o primeiro degrau não tem taxa");
-const ligacoesPasso = d.funil_atividade.find(p => p.id === "ligacoes");
-assert.equal(ligacoesPasso.valor, 4, "3 da Marina + 1 do Rafael");
-const contatoPasso = d.funil_atividade.find(p => p.id === "contato");
-assert.equal(contatoPasso.valor, 3, "só as ligações com resultado 'falou'");
+const valor = (id) => d.funil_atividade.find(p => p.id === id).valor;
+// Todos os cinco leads tiveram alguém agindo: ligação (m1, m2, r1), venda (m3), mensagem (m3, r2).
+assert.equal(valor("trabalhados"), 5, "leads distintos, não ações");
+assert.equal(valor("ligacoes"), 4, "3 da Marina + 1 do Rafael");
+// m1 e r1 falaram por ligação; r2 conversou nos dois sentidos; m3 só recebeu.
+assert.equal(valor("faladas"), 3);
+assert.equal(valor("qualificadas"), 1, "só r2 chegou ao início do processo comercial");
+assert.equal(valor("visita_agendada"), 1);
+assert.equal(valor("visita_realizada"), 1);
+assert.equal(valor("proposta"), 1);
+assert.equal(valor("venda"), 2);
+const hoje = d.serie[d.serie.length - 1];
+assert.equal(hoje.trabalhados, 5, "a série de hoje bate com o período");
+assert.equal(hoje.faladas, 3);
+
+console.log("7b. O corretor vê os degraus dele");
+r = await chamar(tRafael, "/painel/geral?periodo=hoje");
+d = await r.json();
+console.log(`   ${d.funil_atividade.map(p => `${p.id}=${p.valor}`).join(" · ")}`);
+const vR = (id) => d.funil_atividade.find(p => p.id === id).valor;
+assert.equal(vR("trabalhados"), 2, "r1 (ligação e venda) e r2 (mensagem e etapa)");
+assert.equal(vR("faladas"), 2);
+assert.equal(vR("qualificadas"), 1);
 
 console.log("8. VGC soma só quem tem comissão — e diz a cobertura");
 r = await chamar(tAli, "/painel/geral?periodo=hoje");

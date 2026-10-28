@@ -40,6 +40,10 @@ import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
 import { resolverPeriodo, pct, peneira, recebidosDaPessoa } from "./painel.js";
 import { eventosDeAtribuicao } from "./movimento.js";
+import { semDisparo } from "./marca-disparo.js";
+import { ASSINATURA_ROBO } from "./robo.js";
+import { listarPipelines, etapasDoPipeline } from "./pipelines.js";
+import { configDoFunil } from "./conversao.js";
 
 const DIA = 86400000;
 
@@ -92,6 +96,103 @@ function momentosDeEtapa(orgId, paraEtapa, filtros, de, ate) {
     WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
 }
 const contarEtapa = (...a) => momentosDeEtapa(...a).length;
+
+/* ===== OS DEGRAUS DE "QUANTAS PESSOAS" (28/10/2026, pedido do Fernando) =====
+
+   Três degraus do funil de atividades contam LEADS DISTINTOS, não ações:
+   "Leads trabalhados", "Pessoas faladas" e "Qualificadas". Cada função devolve
+   pares {lead, t} — o lead e o instante da ação —, e quem conta tira os
+   repetidos: no período inteiro, o lead conta uma vez; no gráfico de 14 dias,
+   uma vez por dia.
+
+   MENSAGEM DE GENTE = enviada, e não por disparo, automação nem pelo
+   Autoatendimento. Com uma pessoa no filtro, só as que ELA escreveu
+   (`from_user_id`) — a digitada no celular não tem autor e conta só para a casa. */
+function msgsDeGente(orgId, filtros, de, ate) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const where = [p.sql, "m.direction = 'out'", "m.created_at BETWEEN ? AND ?", semDisparo("m."),
+    `NOT (m.from_user_id IS NULL AND COALESCE(m.from_name, '') = '${ASSINATURA_ROBO}')`];
+  const args = [...p.args, de, ate];
+  const quem = condPessoa(filtros);
+  if (quem) { where.push("m.from_user_id = ?"); args.push(quem); }
+  return db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE ${where.join(" AND ")}`).all(...args);
+}
+function ligacoesComLead(orgId, filtros, de, ate, apenasContato = false) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const where = [p.sql, "lg.created_at BETWEEN ? AND ?"];
+  const args = [...p.args, de, ate];
+  if (apenasContato) where.push("lg.resultado = 'falou'");
+  const quem = condPessoa(filtros);
+  if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
+  return db.prepare(`SELECT lg.lead_id lead, lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
+    WHERE ${where.join(" AND ")}`).all(...args);
+}
+/* Mudança de etapa feita por uma PESSOA (tem autor). A regra automática da
+   palavra-chave e a reanálise não têm, e não são trabalho de ninguém. */
+function etapasMovidasPorGente(orgId, filtros, de, ate) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const where = ["le.org_id = ?", p.sql, "le.user_id IS NOT NULL", "le.created_at BETWEEN ? AND ?"];
+  const args = [orgId, ...p.args, de, ate];
+  const quem = condPessoa(filtros);
+  if (quem) { where.push("le.user_id = ?"); args.push(quem); }
+  return db.prepare(`SELECT le.lead_id lead, le.created_at t FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
+    WHERE ${where.join(" AND ")}`).all(...args);
+}
+
+/* LEADS TRABALHADOS: leads em que alguém agiu no período — mandou mensagem,
+   ligou ou mudou a etapa. */
+function trabalhados(orgId, filtros, de, ate) {
+  return [...msgsDeGente(orgId, filtros, de, ate), ...ligacoesComLead(orgId, filtros, de, ate),
+    ...etapasMovidasPorGente(orgId, filtros, de, ate)];
+}
+
+/* PESSOAS FALADAS: a conversa aconteceu nos dois sentidos. Uma ligação em que
+   se falou com o cliente, ou — no WhatsApp — o cliente escreveu no período E
+   alguém da equipe (ou a pessoa do filtro) escreveu para ele no período. Mensagem
+   mandada sem resposta é lead trabalhado, não pessoa falada. */
+function faladas(orgId, filtros, de, ate) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const doCliente = new Set(db.prepare(`SELECT DISTINCT m.lead_id lead FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ?`).all(...p.args, de, ate).map(r => r.lead));
+  return [...ligacoesComLead(orgId, filtros, de, ate, true),
+    ...msgsDeGente(orgId, filtros, de, ate).filter(m => doCliente.has(m.lead))];
+}
+
+/* QUALIFICADAS: o lead chegou à etapa que diz que ele está qualificado — a
+   etapa marcada como início do processo comercial em cada funil (a mesma do
+   funil de conversão) e toda etapa com "qualific" no nome (a "Lead qualificado"
+   do funil de SDR). Pela id da etapa; as linhas antigas do histórico, só com o
+   nome, casam pelo nome. */
+function etapasDeQualificacao(orgId) {
+  const ids = new Set(), nomes = new Set();
+  for (const pl of listarPipelines(orgId)) {
+    const cfg = configDoFunil(orgId, pl.id);
+    if (cfg.entrada) { ids.add(cfg.entrada.id); nomes.add(cfg.entrada.name); }
+    for (const e of etapasDoPipeline(orgId, pl.id))
+      if (/qualific/i.test(semAcentoTexto(e.name))) { ids.add(e.id); nomes.add(e.name); }
+  }
+  return { ids, nomes };
+}
+const semAcentoTexto = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+function qualificadas(orgId, filtros, de, ate, etapas = null) {
+  const q = etapas || etapasDeQualificacao(orgId);
+  if (!q.ids.size && !q.nomes.size) return [];
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const where = ["le.org_id = ?", p.sql, "le.created_at BETWEEN ? AND ?"];
+  const args = [orgId, ...p.args, de, ate];
+  const quem = condPessoa(filtros);
+  if (quem) { where.push("le.user_id = ?"); args.push(quem); }
+  return db.prepare(`SELECT le.lead_id lead, le.created_at t, le.para_stage_id sid, le.para nome
+    FROM lead_etapas le JOIN leads l ON l.id = le.lead_id WHERE ${where.join(" AND ")}`).all(...args)
+    .filter(r => r.sid ? q.ids.has(r.sid) : q.nomes.has(r.nome));
+}
+const distintos = (pares) => new Set(pares.map(x => x.lead)).size;
 
 /* LEADS: para a casa, os que ENTRARAM no período. Para UMA pessoa, os que
    CHEGARAM NA MÃO DELA — a mesma conta de Relatórios e da Operação
@@ -149,9 +250,19 @@ function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
     }
     return n;
   };
-  const leads = porDia(momentosDeLeads(orgId, filtros, de, ate, eventos));
+  // Leads distintos por dia: o mesmo lead trabalhado três vezes num dia conta uma.
+  const porDiaDistintos = (pares) => {
+    const n = janelas.map(() => new Set());
+    for (const x of pares) {
+      const i = janelas.findIndex(j => x.t >= j.de && x.t <= j.ate);
+      if (i >= 0) n[i].add(x.lead);
+    }
+    return n.map(s => s.size);
+  };
+  const trab = porDiaDistintos(trabalhados(orgId, filtros, de, ate));
   const ligacoes = porDia(momentosDeLigacao(orgId, filtros, de, ate));
-  const contato = porDia(momentosDeLigacao(orgId, filtros, de, ate, true));
+  const fal = porDiaDistintos(faladas(orgId, filtros, de, ate));
+  const qual = porDiaDistintos(qualificadas(orgId, filtros, de, ate));
   const nomes = etapasDeContagem(orgId);
   const agendada = porDia(momentosDeEtapa(orgId, nomes.agendada, filtros, de, ate));
   const realizada = porDia(momentosDeEtapa(orgId, nomes.realizada, filtros, de, ate));
@@ -159,7 +270,7 @@ function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
   const venda = porDia(vendasDoPeriodo(orgId, filtros, de, ate).map(v => v.sale_date));
   return janelas.map((j, i) => ({
     rotulo: j.rotulo,
-    leads: leads[i], ligacoes: ligacoes[i], contato: contato[i],
+    trabalhados: trab[i], ligacoes: ligacoes[i], faladas: fal[i], qualificadas: qual[i],
     visita_agendada: agendada[i], visita_realizada: realizada[i],
     proposta: proposta[i], venda: venda[i],
   }));
@@ -217,23 +328,26 @@ export function visaoGeral(orgId, filtros = {}) {
   };
 
   const ligacoes = contarLigacoes(orgId, filtros, periodo.de, periodo.ate);
-  const contatos = contarLigacoes(orgId, filtros, periodo.de, periodo.ate, true);
   const agendadas = contarEtapa(orgId, nomes.agendada, filtros, periodo.de, periodo.ate);
   const propostas = contarEtapa(orgId, nomes.proposta, filtros, periodo.de, periodo.ate);
 
+  /* Os oito degraus do Fernando (28/10/2026). Três contam PESSOAS (leads
+     distintos): trabalhados, faladas e qualificadas. Os outros contam AÇÕES
+     (ligações, mudanças de etapa, vendas) — por isso um degrau pode ser maior
+     que o de cima, e a tela diz que isto é atividade, não conversão. */
   const passos = [
-    { id: "leads", nome: "Leads", valor: leadsAtual },
+    { id: "trabalhados", nome: "Leads trabalhados", valor: distintos(trabalhados(orgId, filtros, periodo.de, periodo.ate)) },
     { id: "ligacoes", nome: "Ligações", valor: ligacoes },
-    { id: "contato", nome: "Contato", valor: contatos },
-    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Visita Agendada" : "Demonstrações agendadas", valor: agendadas },
-    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas Realizadas" : "Demonstrações feitas", valor: visitasAtual },
-    { id: "proposta", nome: "Proposta", valor: propostas },
+    { id: "faladas", nome: "Pessoas faladas", valor: distintos(faladas(orgId, filtros, periodo.de, periodo.ate)) },
+    { id: "qualificadas", nome: "Qualificadas", valor: distintos(qualificadas(orgId, filtros, periodo.de, periodo.ate)) },
+    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Agendados" : "Demonstrações agendadas", valor: agendadas },
+    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas" : "Demonstrações feitas", valor: visitasAtual },
+    { id: "proposta", nome: "Propostas", valor: propostas },
     { id: "venda", nome: "Vendas", valor: vAtual.quantidade },
   ];
-  /* Duas colunas de porcentagem, como no painel de referência: SEQUENCIAL
-     (sobre o degrau anterior — mostra onde trava) e SOBRE OS LEADS (sobre o
-     primeiro degrau — mostra o funil inteiro de uma vez). O primeiro degrau
-     não tem nenhuma das duas: não existe "degrau anterior" a Leads. */
+  /* Duas colunas de porcentagem: SEQUENCIAL (sobre o degrau anterior — mostra
+     onde trava) e SOBRE OS TRABALHADOS (sobre o primeiro degrau). O primeiro
+     degrau não tem nenhuma das duas. */
   const funilAtividade = passos.map((p, i) => ({
     ...p,
     taxa_sequencial: i === 0 ? null : pct(p.valor, passos[i - 1].valor),
