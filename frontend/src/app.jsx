@@ -12185,7 +12185,7 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
     const ativo=vista===v, quente=urgente&&n>0;
     return <button key={v} onClick={()=>{setVista(v);if(v!=="formulario")setCampanha("");}}
       style={{display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
-        fontSize:isMobile?12.5:11.5,fontWeight:600,padding:isMobile?"7px 12px":"4px 9px",borderRadius:999,cursor:"pointer",
+        fontSize:isMobile?12:11.5,fontWeight:600,padding:isMobile?"5px 10px":"4px 9px",borderRadius:999,cursor:"pointer",
         border:`1px solid ${ativo?C.greenDeep:C.line}`,background:ativo?C.greenDeep:C.card,color:ativo?"#fff":C.sub}}>
       {rot}
       {n>0&&<span style={{minWidth:16,height:16,padding:"0 4px",borderRadius:999,fontSize:10,fontWeight:700,fontFamily:MONO,
@@ -12193,6 +12193,64 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
         background:ativo?"rgba(255,255,255,.22)":quente?C.hot:C.surface,color:ativo||quente?"#fff":C.faint}}>{n}</span>}
     </button>;
   };
+  const botaoOrdem=setOrdem&&<button onClick={()=>setOrdem(o=>o==="antigos"?"recentes":"antigos")}
+    title={ordem==="antigos"?"Mostrando os mais antigos primeiro — toque para os mais recentes":"Mostrando os mais recentes primeiro — toque para os mais antigos"}
+    aria-label="Inverter a ordem da lista"
+    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${ordem==="antigos"?C.green+"66":C.line}`,background:ordem==="antigos"?C.greenSoft:C.surface,
+      color:ordem==="antigos"?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"6px 10px":"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+    <span style={{fontSize:13,lineHeight:1}}>{ordem==="antigos"?"↑":"↓"}</span>{ordem==="antigos"?"Antigos":"Recentes"}
+  </button>;
+
+  /* NO CELULAR, TUDO NUMA GAVETA (28/10/2026, reclamação de um corretor pelo
+     Ali: o topo ocupava meia tela antes da primeira conversa). Fora fica uma
+     linha só: "Buscar e filtrar", a ordem (Recentes/Antigos) e o cadastrar
+     lead, menores. Dentro da gaveta, a mesma busca, as pastilhas e os filtros
+     de antes. Fechada, ela diz o que está ligado — a pastilha escolhida no
+     rótulo, quantos filtros no número verde e quem espera no número vermelho
+     —, senão a lista filtrada pareceria a caixa inteira. No computador nada
+     muda: lá a largura sobra. */
+  const [aberta,setAberta]=useState(false);
+  if(isMobile){
+    const nomeVista=(chips.find(c=>c[0]===vista)||[])[1];
+    const ligados=filtrosAtivos+(busca.trim()?1:0)+(vista!=="todos"?1:0);
+    return <div style={{padding:"8px 12px",borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <button onClick={()=>setAberta(a=>!a)} aria-expanded={aberta}
+          style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:6,border:`1px solid ${ligados?C.green+"66":C.line}`,
+            background:ligados?C.greenSoft:C.surface,color:ligados?C.greenDeep:C.sub,borderRadius:9,padding:"6px 10px",
+            fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+          <Icon n="search" size={14}/>
+          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {busca.trim()?`“${busca.trim()}”`:vista!=="todos"?nomeVista:"Buscar e filtrar"}</span>
+          {ligados>0&&<span style={{minWidth:16,height:16,padding:"0 4px",borderRadius:999,background:C.green,color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ligados}</span>}
+          {contagem.aguardando>0&&vista!=="aguardando"&&<span title="Clientes aguardando resposta" style={{minWidth:16,height:16,padding:"0 4px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10,fontWeight:700,fontFamily:MONO,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{contagem.aguardando}</span>}
+          <span style={{marginLeft:"auto",display:"inline-flex",transform:aberta?"rotate(90deg)":"none",transition:"transform .15s",flexShrink:0}}><Icon n="chevron" size={13}/></span>
+        </button>
+        {vista!=="novos"&&botaoOrdem}
+        <button onClick={onNovoLead} title="Cadastrar um lead na mão" aria-label="Cadastrar um lead na mão"
+          style={{width:32,height:32,flexShrink:0,borderRadius:9,border:`1px solid ${C.green}55`,background:C.card,
+            color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon n="userplus" size={15}/></button>
+      </div>
+      {contador&&!aberta&&<div style={{color:C.faint,fontSize:11}}>{contador}</div>}
+      {aberta&&<React.Fragment>
+        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"0 10px"}}>
+          <Icon n="search" size={14} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:16,padding:"6px 0",color:C.ink,minWidth:0}}/>
+        </div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{chips.map(chip)}</div>
+        {vista==="formulario"&&<SeletorDeCampanha lista={lista} campanha={campanha} setCampanha={setCampanha} isMobile={isMobile}/>}
+        {vista!=="novos"&&seletor&&<select value={seletor.valor} onChange={e=>seletor.mudar(e.target.value)} aria-label={seletor.rotulo} title={seletor.rotulo}
+          style={{fontSize:16,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 10px",outline:"none",minWidth:0,alignSelf:"flex-start",maxWidth:"100%"}}>
+          {seletor.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+        </select>}
+        {vista!=="novos"&&children}
+        {contador&&<div style={{color:C.faint,fontSize:11}}>{contador}</div>}
+        <button onClick={()=>setAberta(false)} style={{alignSelf:"center",border:"none",background:"transparent",color:C.sub,fontSize:12,fontWeight:600,cursor:"pointer",padding:"4px 10px"}}>Fechar</button>
+      </React.Fragment>}
+    </div>;
+  }
   return <div style={{padding:12,borderBottom:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:9}}>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
       <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
@@ -12227,13 +12285,7 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
       {/* Inverter a ordem fica à vista, ao lado dos filtros: é o gesto de quem
           quer zerar a caixa começando pelo que espera há mais tempo. O
           formulário sem contato fica sempre por ordem de chegada (ordenarCaixa). */}
-      {setOrdem&&<button onClick={()=>setOrdem(o=>o==="antigos"?"recentes":"antigos")}
-        title={ordem==="antigos"?"Mostrando os mais antigos primeiro — toque para os mais recentes":"Mostrando os mais recentes primeiro — toque para os mais antigos"}
-        aria-label="Inverter a ordem da lista"
-        style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${ordem==="antigos"?C.green+"66":C.line}`,background:ordem==="antigos"?C.greenSoft:C.surface,
-          color:ordem==="antigos"?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-        <span style={{fontSize:isMobile?14:13,lineHeight:1}}>{ordem==="antigos"?"↑":"↓"}</span>{ordem==="antigos"?"Antigos":"Recentes"}
-      </button>}
+      {botaoOrdem}
       {/* O total só aparece quando algo está peneirando a lista: sem filtro, as
           pastilhas já dizem quantos esperam, e o número sobrando empurrava a
           linha para baixo na coluna estreita do corretor. */}
