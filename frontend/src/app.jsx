@@ -1090,6 +1090,26 @@ function Pill({children,c,bg}){return <span style={{color:c,background:bg,fontSi
    A régua encolhe conforme o texto: valor curto continua grande, valor longo
    diminui até caber. Melhor um número menor e inteiro do que um número grande
    pela metade. */
+/* Número de indicador que CABE numa linha (28/10/2026, print do Ali: o VGV
+   "R$ 10.794.551" quebrava e o "1" ia para a linha de baixo). Contar letras não
+   basta — a largura do cartão muda com a tela. Aqui a fonte começa no tamanho
+   cheio e desce até o número caber, medida no próprio cartão, e volta a
+   medir quando a largura muda. O valor inteiro fica no `title`. */
+function NumeroQueCabe({texto,max=21,min=12,style}){
+  const ref=useRef(null);
+  const [tam,setTam]=useState(max);
+  React.useLayoutEffect(()=>{
+    const el=ref.current; if(!el) return;
+    const ajustar=()=>{ let t=max; el.style.fontSize=t+"px";
+      while(t>min&&el.scrollWidth>el.clientWidth+1){ t--; el.style.fontSize=t+"px"; }
+      setTam(t); };
+    ajustar();
+    if(typeof ResizeObserver==="undefined") return;
+    const ro=new ResizeObserver(ajustar); ro.observe(el); return ()=>ro.disconnect();
+  },[texto,max,min]);
+  return <div ref={ref} title={texto} style={{...style,fontSize:tam,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{texto}</div>;
+}
+
 function Metric({n,label,value,sub,accent=C.green}){
   const txt=String(value ?? "");
   const tamanho=txt.length<=6?26:txt.length<=9?22:txt.length<=12?18:16;
@@ -1098,7 +1118,7 @@ function Metric({n,label,value,sub,accent=C.green}){
       <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
       <span style={{color:C.sub,fontSize:12,fontWeight:500,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
     </div>
-    <div style={{color:C.ink,fontFamily:MONO,fontSize:tamanho,fontWeight:600,lineHeight:1.1,overflowWrap:"anywhere"}}>{txt}</div>
+    <NumeroQueCabe texto={txt} max={tamanho} min={12} style={{color:C.ink,fontFamily:MONO,fontWeight:600,lineHeight:1.1}}/>
     {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4,overflowWrap:"anywhere"}}>{sub}</div>}
   </div>;
 }
@@ -22245,12 +22265,11 @@ const dinheiro=(v)=>v===null||v===undefined?"—":fmtMoeda(v);
 const variacaoCor=(v)=>v===null?C.faint:v>0?C.green:v<0?C.hot:C.faint;
 const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${pctBR(v)}`:v<0?pctBR(v):"estável";
 
-function KpiCard({label,valor,comp,sub,isMobile}){
+function KpiCard({label,valor,comp,sub,isMobile,span}){
   const txt=String(valor??"—");
-  const tamanho=txt.length<=9?21:txt.length<=13?17:14;
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 12px":"13px 15px",flex:"1 1 145px",minWidth:0}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 12px":"13px 15px",minWidth:0,gridColumn:span?`span ${span}`:undefined}}>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
-    <div style={{color:C.ink,fontFamily:MONO,fontSize:tamanho,fontWeight:700,lineHeight:1.15,overflowWrap:"anywhere"}}>{txt}</div>
+    <NumeroQueCabe texto={txt} max={isMobile?19:22} min={12} style={{color:C.ink,fontFamily:MONO,fontWeight:700,lineHeight:1.15}}/>
     <div style={{display:"flex",alignItems:"center",gap:4,marginTop:6,minHeight:14}}>
       {comp&&<React.Fragment>
         {comp.variacao_pct!==null&&<span style={{display:"inline-flex",transform:comp.variacao_pct<0?"scaleY(-1)":undefined}}>
@@ -22279,8 +22298,16 @@ function LinhaKpis({kpis,isMobile}){
     // Mesmo nome do degrau do funil de atividade e da meta: é o mesmo número.
     {label:interna?"Demonstrações feitas":"Visitas realizadas",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
   ];
-  return <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
-    {cards.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile}/>)}
+  /* Grade fixa, não "o que couber" (28/10/2026): com sete cartões soltos, o
+     sétimo caía sozinho numa linha inteira. Dinheiro em cima, mais largo
+     (os números são os maiores), contagens embaixo. No celular, o VGV ocupa a
+     linha e o resto vai de dois em dois. */
+  const dinheiros=cards.length-4, contagens=cards.slice(dinheiros);
+  const spanDinheiro=isMobile?null:12/dinheiros;
+  return <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(12,minmax(0,1fr))",gap:9}}>
+    {cards.slice(0,dinheiros).map((c,i)=><KpiCard key={c.label} {...c} isMobile={isMobile}
+      span={isMobile?(i===0&&dinheiros%2===1?2:1):spanDinheiro}/>)}
+    {contagens.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile} span={isMobile?1:3}/>)}
   </div>;
 }
 
