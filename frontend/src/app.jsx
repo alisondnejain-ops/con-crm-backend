@@ -1049,6 +1049,7 @@ const ICO={
   sparkles:<React.Fragment><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></React.Fragment>,
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
+  gear:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
   voltar:<React.Fragment><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></React.Fragment>,
   users:<React.Fragment><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></React.Fragment>,
@@ -10383,6 +10384,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
   const podeCriarFunil=podeSupervisionar(session);
+  // A engrenagem do prazo de cada coluna é só do gestor (30/10/2026).
+  const gestorFunil=!!(session&&podeGerir(session))&&TIPO_CONTA!=="autonomo";
+  const [engrenagem,setEngrenagem]=useState(null);
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -10740,7 +10744,13 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
         const corCol=corDaEtapa(col,st);
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:4}}>
+            {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
+              aria-label={"Prazo e consequência de "+st}
+              style={{border:"none",background:"none",padding:2,cursor:"pointer",display:"flex",alignItems:"center",
+                color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
+              <Icon n="gear" size={13} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}
+            <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></span></div>
           <div ref={el=>{colunas.current[st]=el;}}
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
               background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
@@ -10767,6 +10777,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     </div>}
     {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
+    {engrenagem&&<PrazoDaEtapaModal etapa={engrenagem} acoes={acoes} isMobile={isMobile}
+      aoFechar={()=>setEngrenagem(null)} aoSalvo={()=>reverFunis&&reverFunis()}/>}
     </div>
   </div>;
 }
@@ -18631,7 +18643,72 @@ const ACOES_PRAZO=[
   ["marcar","Só marcar em coral","O lead fica com quem está. É como sempre foi."],
   ["proximo_corretor","Passar para o próximo corretor","Vai para o próximo disponível da catraca do lead (ou da principal), na vez dela."],
   ["atendente","Devolver para a atendente","Volta para a atendente da vez. Sem nenhuma ativa, fica com o corretor."],
+  ["tarefa","Criar uma tarefa para o corretor","O lead fica com ele, e aparece a tarefa “falar com o cliente”, já atrasada, na caixa e no funil."],
 ];
+/* O PRAZO E A CONSEQUÊNCIA DE UMA ETAPA (30/10/2026, áudio do Fernando: "a
+   etapa X tem que ter a sua consequência"). Usado na engrenagem da coluna do
+   Funil e em Configurações → Funis e etapas, para as duas telas nunca
+   divergirem. Vazio = segue o padrão da conta (Configurações → Atendimento). */
+const UNIDADES_PRAZO=[["min",1,"minutos"],["h",60,"horas"],["d",1440,"dias"]];
+const prazoEmPartes=(m)=>{ if(!m) return {n:"",u:"h"};
+  if(m%1440===0) return {n:String(m/1440),u:"d"}; if(m%60===0) return {n:String(m/60),u:"h"}; return {n:String(m),u:"min"}; };
+function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
+  const ini=prazoEmPartes(etapa.sla_minutes);
+  const [n,setN]=useState(ini.n); const [u,setU]=useState(ini.u);
+  const [acao,setAcao]=useState(etapa.prazo_acao||"");
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [padrao,setPadrao]=useState(null);
+  useEffect(()=>{ acoes.prazoVencido().then(p=>setPadrao(p.acao)).catch(()=>{}); },[]);
+  const nomeDe=(v)=>(ACOES_PRAZO.find(x=>x[0]===v)||[])[1]||"Só marcar em coral";
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const mult=(UNIDADES_PRAZO.find(x=>x[0]===u)||[0,1])[1];
+    const minutos=n.trim()===""?null:Number(n)*mult;
+    if(minutos!==null&&(!Number.isFinite(minutos)||minutos<=0)){ setSalvando(false); return setErro("Digite um número maior que zero, ou deixe em branco."); }
+    try{ await acoes.editarEtapa(etapa.id,{sla_minutes:minutos,prazo_acao:acao}); aoSalvo&&aoSalvo(); aoFechar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:80,display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div onClick={e=>e.stopPropagation()} role="dialog" aria-label={"Prazo de "+etapa.name}
+      style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":14,width:"100%",maxWidth:440,padding:18,boxSizing:"border-box",
+        maxHeight:"90dvh",overflowY:"auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <span style={{background:etapa.color||"#64748B",width:9,height:9,borderRadius:"50%"}}/>
+        <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>{etapa.name}</span>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.faint,fontSize:18}}>×</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>Só o gestor vê esta engrenagem. Vale para os leads de corretor nesta etapa.</div>
+      <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Prazo sem falar com o cliente</div>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <input value={n} onChange={e=>setN(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="sem prazo" style={{...campo,width:110}} aria-label="Prazo"/>
+        <select value={u} onChange={e=>setU(e.target.value)} style={{...campo,cursor:"pointer"}} aria-label="Unidade">
+          {UNIDADES_PRAZO.map(([v,,t])=><option key={v} value={v}>{t}</option>)}</select>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginBottom:14}}>Em branco, a etapa não tem prazo e nada acontece.</div>
+      <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Quando o prazo vencer</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {[["",`Padrão da conta${padrao?` (hoje: ${nomeDe(padrao).toLowerCase()})`:""}`,"Muda em Configurações → Atendimento."],...ACOES_PRAZO].map(([v,t,d])=>{
+          const sel=acao===v;
+          return <button key={v||"padrao"} onClick={()=>setAcao(v)} aria-pressed={sel}
+            style={{display:"flex",alignItems:"flex-start",gap:9,textAlign:"left",padding:"9px 11px",borderRadius:10,cursor:"pointer",fontFamily:FONT,
+              border:`1px solid ${sel?C.green:C.line}`,background:sel?C.greenSoft:C.card}}>
+            <span style={{width:14,height:14,borderRadius:99,border:`2px solid ${sel?C.green:C.line}`,flexShrink:0,marginTop:2,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{width:6,height:6,borderRadius:99,background:C.green}}/>}</span>
+            <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{t}</span>
+              <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4,marginTop:1}}>{d}</span></span>
+          </button>;})}
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:10}}>{erro}</div>}
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {salvando?"Salvando…":"Salvar"}</button>
+      </div>
+    </div>
+  </div>;
+}
 function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const autonomo=!!(org&&org.tipo==="autonomo");
   const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
@@ -18670,9 +18747,11 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
     {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:12}}>{erro||ok}</div>}
 
     {!autonomo&&prazo&&<div style={cartao}>
-      <div style={titulo}>Quando o prazo da etapa vencer</div>
+      <div style={titulo}>Quando o prazo da etapa vencer <span style={{color:C.faint,fontWeight:500,fontSize:12}}>· padrão da conta</span></div>
       <div style={sub}>
         Vale para lead de corretor parado além do prazo da etapa, contado da última conversa com o cliente.
+        {" "}Cada etapa pode ter a própria escolha na engrenagem ⚙ da coluna, no Funil; esta vale para as que não escolheram.
+        {prazo.etapas_proprias?<span> {prazo.etapas_proprias} {prazo.etapas_proprias===1?"etapa tem escolha própria":"etapas têm escolha própria"}.</span>:null}
         {" "}{prazo.etapas_com_prazo
           ?<span>{prazo.etapas_com_prazo} {prazo.etapas_com_prazo===1?"etapa tem":"etapas têm"} prazo.</span>
           :<span style={{color:"#8a6d1f"}}>Nenhuma etapa tem prazo ainda — defina em <button onClick={()=>irParaAba("funis")} style={{border:"none",background:"none",padding:0,color:C.greenMid,fontWeight:600,cursor:"pointer",textDecoration:"underline",fontSize:11.5}}>Funis e etapas</button>.</span>}
@@ -18690,7 +18769,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
           </button>;
         })}
       </div>
-      {prazo.acao!=="marcar"&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      {prazo.acao!=="marcar"&&prazo.acao!=="tarefa"&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <span style={{color:C.sub,fontSize:12.5}}>Tirar o mesmo lead de alguém no máximo</span>
         <select value={prazo.max_repasses} onChange={e=>mudarPrazo({max_repasses:Number(e.target.value)})}
           style={{...campo,width:"auto",cursor:"pointer"}}>
@@ -18722,7 +18801,8 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
       </div>
     </div>}
 
-    <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 8px"}}>Também faz parte do atendimento</div>
+    <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 2px"}}>Outras telas do atendimento</div>
+    <div style={{color:C.faint,fontSize:11.5,margin:"0 2px 8px"}}>Cada atalho abre a tela onde aquilo se configura.</div>
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
       {atalhos.map(([t,ic,d,ir])=><button key={t} onClick={ir}
         style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
@@ -20956,7 +21036,7 @@ function resumoDaAutomacao(cfg,pessoas,funis,catracas,tags){
 function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover,pessoas=[],funis=[],pipelineId}){
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
-  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
+  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.prazo_acao,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
   // Catracas de produto e etiquetas da conta, para a regra "ao chegar" (08/10/2026).
   const catracasCasa=usarCatracas(acoes,true);
   const tagsCasa=usarTagsDaCasa(acoes);
@@ -20980,6 +21060,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           {etapa.name}</div>
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
+          {etapa.sla_minutes&&etapa.prazo_acao&&etapa.prazo_acao!=="marcar"?" → "+((ACOES_PRAZO.find(x=>x[0]===etapa.prazo_acao)||[])[1]||"").toLowerCase():""}
           {etapa.entrada_comercial?" · início do processo comercial":""}
           {resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa):""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
@@ -21026,6 +21107,12 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
             <option value="perdido">Perdido</option>
           </select></div>
       </div>
+      {f.sla_minutes?<div>
+        {rot("Quando o prazo vencer","Vazio segue o padrão da conta, em Configurações → Atendimento.")}
+        <select value={f.prazo_acao||""} onChange={e=>{setF({...f,prazo_acao:e.target.value||null});salvar({prazo_acao:e.target.value});}} style={entrada}>
+          <option value="">Padrão da conta</option>
+          {ACOES_PRAZO.map(([v,t])=><option key={v} value={v}>{t}</option>)}
+        </select></div>:null}
 
       {/* A separação entre conversão e trabalho administrativo, decidida aqui e
           não na hora de desenhar o gráfico. */}

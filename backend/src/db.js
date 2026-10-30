@@ -2535,4 +2535,11 @@ addOrgCol("prazo_max_repasses", "INTEGER");
 addLeadCol("prazo_repasses", "INTEGER");
 addLeadCol("prazo_repasse_em", "INTEGER");
 
+/* A CONSEQUÊNCIA DO PRAZO POR ETAPA (30/10/2026, áudio do Fernando): cada
+   etapa pode ter a própria ação quando o prazo vence — nula segue a da conta
+   (orgs.prazo_acao). Valores: 'marcar', 'proximo_corretor', 'atendente',
+   'tarefa' (cria uma tarefa para o dono "falar com o cliente"). */
+if (!db.prepare("PRAGMA table_info(pipeline_stages)").all().some(c => c.name === "prazo_acao"))
+  db.exec("ALTER TABLE pipeline_stages ADD COLUMN prazo_acao TEXT");
+
 export default db;
