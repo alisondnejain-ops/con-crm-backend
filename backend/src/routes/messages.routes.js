@@ -313,6 +313,34 @@ r.post("/:id/anexo", async (req, res) => {
   res.json({ ok: true, enviados: enviados.length });
 });
 
+/* O ARQUIVO DE UMA MENSAGEM PRONTA (30/10/2026, lista do Fernando). O arquivo
+   já está guardado (subiu em Configurações → Mensagens automáticas); aqui ele
+   só sai para o cliente, pelo mesmo envio do anexo, e entra na conversa com
+   o autor. O texto da mensagem vai à parte, pelo campo, como sempre: assim o
+   corretor ainda pode mexer nele antes de mandar. */
+r.post("/:id/pronta/:mid", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id = ? AND org_id = ? AND ativo = 1").get(req.params.mid, lead.org_id);
+  if (!m) return res.status(404).json({ error: "Mensagem pronta não encontrada." });
+  if (!m.midia_url) return res.status(400).json({ error: "Esta mensagem pronta não tem arquivo." });
+  const firstName = (req.user.name || "").split(" ")[0];
+  const f = familia(m.midia_mime || "");
+  if (!f) return res.status(400).json({ error: "Tipo de arquivo não suportado." });
+  try {
+    const docName = f === "document" ? String(m.midia_nome || "documento").slice(0, 120) : undefined;
+    const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone,
+      type: f === "audio" ? "ptt" : f, file: m.midia_url, mime: m.midia_mime, docName });
+    gravarSaida(lead, req.user, firstName, { url: m.midia_url, mime: m.midia_mime, nome: m.midia_nome || "", legenda: "", wa_id: envio?.messageid || null });
+  } catch (e) {
+    return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
+  }
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+  pararPorGente(lead.id);
+  res.json({ ok: true });
+});
+
 /* VÍDEO GRANDE SOBE CRU, NÃO EM base64. (14/09/2026, pedido do Ali: "aumenta
    o limite do vídeo para 150mb".)
 

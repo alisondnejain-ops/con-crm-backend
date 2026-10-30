@@ -106,7 +106,7 @@ app.use(cors({
    e o resto é folga para o JSON em volta. */
 // "/marketing": a lista de contatos sobe em base64 (até 8 MB, igual à escala do plantão).
 // "/assistente": o gestor manda foto, print e PDF ao Claude (até 16 MB por mensagem, em base64).
-const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing", "/assistente", "/redes"];
+const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/config/mensagens", "/plantoes", "/orgs", "/marketing", "/assistente", "/redes"];
 const jsonGrande = express.json({ limit: "45mb" });
 /* Os webhooks guardam o corpo CRU: a assinatura da Meta é sobre os bytes
    que ela mandou, e refazer o texto com JSON.stringify não reproduz o

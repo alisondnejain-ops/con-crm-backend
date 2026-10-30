@@ -22,7 +22,7 @@ import { iaConfigurada, modeloIA } from "../services/ia.js";
 import { garantirWebhook, garantirWebhooksDaOrg, enderecoDoWebhook } from "../services/webhook-uazapi.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
-import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
+import { salvar, apagar, tipoPermitido, ehVideo, ehDocumento, limiteBytes, chaveDaUrl } from "../services/storage.js";
 
 const r = Router();
 r.use(authRequired);
@@ -82,7 +82,7 @@ function etapasValidas(orgId, bruto) {
 }
 
 const listar = (orgId, todas) => db.prepare(
-  `SELECT id,titulo,corpo,ordem,ativo,etapas FROM mensagens_rapidas
+  `SELECT id,titulo,corpo,ordem,ativo,etapas,midia_url,midia_mime,midia_nome FROM mensagens_rapidas
    WHERE org_id = ?${todas ? "" : " AND ativo = 1"} ORDER BY ordem, created_at`).all(orgId)
   .map(m => ({ ...m, ativo: !!m.ativo, etapas: etapasValidas(orgId, m.etapas) }));
 
@@ -132,7 +132,36 @@ r.patch("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
+/* O ARQUIVO DA MENSAGEM PRONTA (30/10/2026, lista do Fernando). Um por
+   mensagem: foto, vídeo, áudio ou documento, com o mesmo limite de tamanho do
+   anexo da conversa. Trocar apaga o anterior do armazenamento. */
+r.post("/mensagens/:id/midia", roles("adm", "sdr"), async (req, res) => {
+  const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!m) return res.status(404).json({ error: "Mensagem não encontrada." });
+  const mime = String(req.body?.mime || "").toLowerCase();
+  const nome = String(req.body?.nome || "arquivo").replace(/[\r\n\/\\]/g, " ").slice(0, 120);
+  if (!/^(image|video|audio)\//.test(mime) && !ehDocumento(mime))
+    return res.status(400).json({ error: "Dá para anexar foto, vídeo, áudio, PDF, Word, Excel, PowerPoint, texto e ZIP." });
+  const buffer = Buffer.from(String(req.body?.base64 || "").replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+  if (buffer.length > limiteBytes(mime))
+    return res.status(413).json({ error: `O arquivo passa do limite de ${Math.round(limiteBytes(mime) / 1048576)} MB.` });
+  const { url } = await salvar({ buffer, mime, prefixo: "mensagens" });
+  if (m.midia_url) apagar(chaveDaUrl(m.midia_url)).catch(() => {});
+  db.prepare("UPDATE mensagens_rapidas SET midia_url=?, midia_mime=?, midia_nome=? WHERE id=?").run(url, mime, nome, m.id);
+  res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
+});
+r.delete("/mensagens/:id/midia", roles("adm", "sdr"), (req, res) => {
+  const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!m) return res.status(404).json({ error: "Mensagem não encontrada." });
+  if (m.midia_url) apagar(chaveDaUrl(m.midia_url)).catch(() => {});
+  db.prepare("UPDATE mensagens_rapidas SET midia_url=NULL, midia_mime=NULL, midia_nome=NULL WHERE id=?").run(m.id);
+  res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
+});
+
 r.delete("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
+  const antes = db.prepare("SELECT midia_url FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (antes && antes.midia_url) apagar(chaveDaUrl(antes.midia_url)).catch(() => {});
   const info = db.prepare("DELETE FROM mensagens_rapidas WHERE id=? AND org_id=?").run(req.params.id, req.user.org_id);
   if (!info.changes) return res.status(404).json({ error: "Mensagem não encontrada." });
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });

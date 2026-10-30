@@ -2541,6 +2541,11 @@ addOrgCol("prazo_acao", "TEXT");
 addOrgCol("prazo_max_repasses", "INTEGER");
 addLeadCol("prazo_repasses", "INTEGER");
 addLeadCol("prazo_repasse_em", "INTEGER");
+{ /* Mensagem pronta com arquivo (30/10/2026, lista do Fernando): foto, vídeo,
+     áudio ou documento guardado junto do texto. */
+  const c = db.prepare("PRAGMA table_info(mensagens_rapidas)").all().map(x => x.name);
+  for (const col of ["midia_url", "midia_mime", "midia_nome"]) if (!c.includes(col)) db.exec(`ALTER TABLE mensagens_rapidas ADD COLUMN ${col} TEXT`);
+}
 addLeadCol("valor_negociacao", "REAL"); // valor em negociação (30/10/2026, lista do Fernando): o VGV em aberto
 addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este lead de alguém por falta de resposta
 

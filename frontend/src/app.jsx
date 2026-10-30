@@ -1064,6 +1064,7 @@ const ICO={
   sparkles:<React.Fragment><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></React.Fragment>,
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
+  clip:<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
   gear:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
   voltar:<React.Fragment><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></React.Fragment>,
@@ -2044,6 +2045,9 @@ function ConCRM(){
     editarMensagem2:(id,dados)=>api(`/config/mensagens/${id}`,{method:"PATCH",body:dados}),
     apagarMensagem:(id)=>api(`/config/mensagens/${id}`,{method:"DELETE"}),
     moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
+    anexarNaMensagem:(id,dados)=>api(`/config/mensagens/${id}/midia`,{method:"POST",body:dados}),
+    tirarDaMensagem:(id)=>api(`/config/mensagens/${id}/midia`,{method:"DELETE"}),
+    enviarArquivoPronto:(leadId,mid)=>api(`/leads/${leadId}/pronta/${mid}`,{method:"POST",body:{}}),
     // Toda leitura da tela de Conexão (inclusive a de 3 em 3s do QR Code)
     // atualiza o selo do topo — antes ele só era lido ao entrar no sistema.
     conexao:()=>api("/config/conexao").then(d=>{
@@ -9003,12 +9007,35 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     else if(etapaId&&ids.includes(etapaId)) daEtapa.push(m);
     else outras.push(m);
   }
-  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>onEscolher(tp.corpo)} style={{fontSize:11,fontWeight:destaque?600:500,
+  // A mensagem com arquivo escolhida: o texto vai ao campo, o arquivo espera o "Enviar arquivo".
+  const [comArquivo,setComArquivo]=useState(null);
+  const [enviandoArq,setEnviandoArq]=useState(false);
+  const [erroArq,setErroArq]=useState("");
+  useEffect(()=>{setComArquivo(null);setErroArq("");},[lead&&lead.id]);
+  const escolher=(tp)=>{ onEscolher(tp.corpo); setErroArq(""); setComArquivo(tp.midia_url?tp:null); };
+  const enviarArquivo=async()=>{
+    if(!comArquivo||enviandoArq) return;
+    setEnviandoArq(true); setErroArq("");
+    try{ await acoes.enviarArquivoPronto(lead.id,comArquivo.id); setComArquivo(null); acoes.abrir&&acoes.abrir(lead.id,true); }
+    catch(e){ setErroArq(e.message); } finally{ setEnviandoArq(false); }
+  };
+  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>escolher(tp)} style={{fontSize:11,fontWeight:destaque?600:500,
     padding:"4px 10px",borderRadius:999,border:destaque?`1px solid ${C.green}66`:"none",cursor:"pointer",whiteSpace:"nowrap",
     display:"flex",alignItems:"center",gap:4,color:destaque?C.greenDeep:C.greenMid,background:C.greenSoft,flexShrink:0}}>
-    <Icon n="zap" size={11}/> {tp.titulo}</button>;
+    <Icon n={tp.midia_url?"clip":"zap"} size={11}/> {tp.titulo}</button>;
   const rotulo=(t)=><span style={{color:C.faint,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
-  return <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
+  return <React.Fragment>
+  {comArquivo&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.greenSoft,border:`1px solid ${C.green}44`,
+    borderRadius:10,padding:"7px 10px",marginBottom:8,fontSize:12}}>
+    <Icon n="clip" size={13} color={C.greenDeep}/>
+    <span style={{flex:1,minWidth:120,color:C.greenDeep}}>Esta mensagem tem <b>{comArquivo.midia_nome||ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}</b>. O texto já está no campo.</span>
+    <button onClick={enviarArquivo} disabled={enviandoArq}
+      style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+      {enviandoArq?"Enviando…":`Enviar ${ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}`}</button>
+    <button onClick={()=>setComArquivo(null)} style={{border:"none",background:"none",color:C.sub,cursor:"pointer",fontSize:12}}>Não enviar</button>
+    {erroArq&&<span style={{color:C.hot,fontSize:11.5,width:"100%"}}>{erroArq}</span>}
+  </div>}
+  <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
     {!contaInterna()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
     {daEtapa.length>0&&rotulo(`${lead.status}:`)}
     {daEtapa.map(m=>chip(m,true))}
@@ -9019,7 +9046,8 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
         whiteSpace:"nowrap",color:C.sub,background:C.card,flexShrink:0}}>
       {abertas?"Menos":`Outras etapas (${outras.length})`}</button>}
     {abertas&&outras.map(m=>chip(m,false))}
-  </div>;
+  </div>
+  </React.Fragment>;
 }
 
 function usarColar({lead,aoColar,aoAvisar,aoMudarEstado,quantasJa=0}){
@@ -21415,6 +21443,45 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
 }
 
 
+/* O ARQUIVO DE UMA MENSAGEM PRONTA (30/10/2026, lista do Fernando): foto,
+   vídeo, áudio ou documento. Na conversa, tocar na mensagem põe o texto no
+   campo e oferece mandar o arquivo — o arquivo sai na hora, o texto quando a
+   pessoa enviar. */
+const ROTULO_ARQ=(mime)=>/^image\//.test(mime||"")?"Foto":/^video\//.test(mime||"")?"Vídeo":/^audio\//.test(mime||"")?"Áudio":"Documento";
+function ArquivoDaMensagem({m,acoes,aoMudar,aoErro}){
+  const ref=React.useRef(null);
+  const [subindo,setSubindo]=useState(false);
+  async function escolher(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const teto=/^image\//.test(f.type)||/^audio\//.test(f.type)?8:30;
+    if(f.size>teto*1024*1024) return aoErro(`O arquivo passa do limite de ${teto} MB.`);
+    setSubindo(true); aoErro("");
+    try{
+      const base64=await new Promise((ok,falhou)=>{const l=new FileReader();l.onload=()=>ok(String(l.result));l.onerror=()=>falhou(new Error("Não consegui ler o arquivo."));l.readAsDataURL(f);});
+      aoMudar(await acoes.anexarNaMensagem(m.id,{base64,mime:f.type||"application/octet-stream",nome:f.name}));
+    }catch(err){ aoErro(err.message); } finally{ setSubindo(false); }
+  }
+  return <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:9,fontSize:11.5}}>
+    <input ref={ref} type="file" hidden onChange={escolher}
+      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.zip"/>
+    {m.midia_url
+      ?<React.Fragment>
+        <span style={{display:"flex",alignItems:"center",gap:5,color:C.sub,minWidth:0}}>
+          <Icon n="clip" size={12} color={C.greenMid}/>
+          <b style={{color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{m.midia_nome||ROTULO_ARQ(m.midia_mime)}</b>
+          <span style={{color:C.faint}}>· {ROTULO_ARQ(m.midia_mime).toLowerCase()}</span></span>
+        <button onClick={()=>ref.current&&ref.current.click()} disabled={subindo}
+          style={{border:"none",background:"none",color:C.greenMid,fontWeight:600,cursor:"pointer",padding:0,fontSize:11.5}}>{subindo?"Enviando…":"trocar"}</button>
+        <button onClick={async()=>{aoErro("");try{aoMudar(await acoes.tirarDaMensagem(m.id));}catch(err){aoErro(err.message);}}}
+          style={{border:"none",background:"none",color:C.faint,cursor:"pointer",padding:0,fontSize:11.5}}>tirar</button>
+      </React.Fragment>
+      :<button onClick={()=>ref.current&&ref.current.click()} disabled={subindo}
+        style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+        <Icon n="clip" size={12}/> {subindo?"Enviando…":"Anexar foto, vídeo, áudio ou documento"}</button>}
+  </div>;
+}
+
 function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);
   const [erro,setErro]=useState("");
@@ -21495,6 +21562,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
           {(m.etapas||[]).length
             ?<React.Fragment>Aparece primeiro em: <b style={{color:C.sub}}>{m.etapas.map(id=>nomeDaEtapa[id]||"etapa desativada").join(", ")}</b></React.Fragment>
             :"Geral — aparece em todas as etapas"}</div>
+        <ArquivoDaMensagem m={m} acoes={acoes} aoMudar={aplicar} aoErro={setErro}/>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
           <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}
