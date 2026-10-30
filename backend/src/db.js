@@ -1355,6 +1355,13 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_catraca_canais_org ON catraca_canais(org
   if (!cols.includes("pipeline_id")) db.exec("ALTER TABLE catracas ADD COLUMN pipeline_id TEXT");
   if (!cols.includes("stage_id")) db.exec("ALTER TABLE catracas ADD COLUMN stage_id TEXT");
   if (!cols.includes("ultima_entrega_em")) db.exec("ALTER TABLE catracas ADD COLUMN ultima_entrega_em INTEGER");
+  /* Tempo para pegar o lead (30/10/2026, áudio do Fernando): o corretor que
+     recebe pela catraca e não fala com o cliente em X minutos perde o lead
+     para o próximo da vez — no máximo `max_voltas` vezes por lead. */
+  if (!cols.includes("tempo_resposta_min")) db.exec("ALTER TABLE catracas ADD COLUMN tempo_resposta_min INTEGER");
+  if (!cols.includes("max_voltas")) db.exec("ALTER TABLE catracas ADD COLUMN max_voltas INTEGER");
+  // Desde quando o tempo vale: lead entregue antes disso não é tirado de ninguém.
+  if (!cols.includes("tempo_desde")) db.exec("ALTER TABLE catracas ADD COLUMN tempo_desde INTEGER");
   /* O formulário ligado a UMA catraca (meta_formularios.catraca_id, de
      03/10/2026) passa para a tabela de canais, uma vez só: a coluna é zerada
      ao copiar, senão desmarcar o formulário na catraca o traria de volta no
@@ -2534,6 +2541,7 @@ addOrgCol("prazo_acao", "TEXT");
 addOrgCol("prazo_max_repasses", "INTEGER");
 addLeadCol("prazo_repasses", "INTEGER");
 addLeadCol("prazo_repasse_em", "INTEGER");
+addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este lead de alguém por falta de resposta
 
 /* A CONSEQUÊNCIA DO PRAZO POR ETAPA (30/10/2026, áudio do Fernando): cada
    etapa pode ter a própria ação quando o prazo vence — nula segue a da conta

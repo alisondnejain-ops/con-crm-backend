@@ -11848,6 +11848,9 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const [etapa,setEtapa]=useState(inicial.stage_id||"");
   const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
   const fichas=usarFichasIA(acoes);
+  // Tempo para pegar o lead (30/10/2026): vazio desliga.
+  const [tempo,setTempo]=useState(inicial.tempo_resposta_min?String(inicial.tempo_resposta_min):"");
+  const [voltas,setVoltas]=useState(inicial.max_voltas||2);
   const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
@@ -11870,6 +11873,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
       canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null,
+      tempo_resposta_min:tempo.trim()===""?null:Number(tempo),max_voltas:Number(voltas),
       ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
@@ -11945,6 +11949,22 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       {opcao("atendente","Pela atendente",etapaEscolhida?`A atendente da vez recebe. Ao mover para ${etapaEscolhida.name}, a catraca entrega ao corretor.`:"A atendente da vez recebe e repassa por esta catraca.")}
       {opcao("corretor","Direto ao corretor",etapaEscolhida?`Já nasce em ${etapaEscolhida.name}, com o próximo disponível desta catraca. Sem ninguém disponível, vai para a atendente.`:"O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
     </div>
+
+    <div style={rotulo}>Tempo para pegar o lead</div>
+    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+      <input aria-label="Minutos para pegar o lead" value={tempo} onChange={e=>setTempo(e.target.value.replace(/\D/g,"").slice(0,4))}
+        inputMode="numeric" placeholder="desligado" style={{...caixa,width:110,flex:"0 0 auto"}}/>
+      <span style={{color:C.sub,fontSize:12}}>minutos</span>
+      {tempo.trim()!==""&&<React.Fragment>
+        <span style={{color:C.sub,fontSize:12}}>· no máximo</span>
+        <select aria-label="Voltas" value={voltas} onChange={e=>setVoltas(Number(e.target.value))} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}</select>
+        <span style={{color:C.sub,fontSize:12}}>{voltas===1?"volta":"voltas"} por lead</span>
+      </React.Fragment>}
+    </div>
+    <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+      {tempo.trim()!==""?<>O corretor desta catraca que não mandar mensagem nem ligar para o cliente em <b>{tempo} min</b> perde o lead para o próximo disponível dela. Vale para os leads entregues depois de ligar — ninguém perde o que já tinha.</>
+        :"Em branco, o lead fica com quem recebeu, sem tempo."}</div>
 
     <div style={rotulo}>Corretores ({membros.length})</div>
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>

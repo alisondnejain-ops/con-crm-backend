@@ -4,6 +4,7 @@ import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
 import zlib from "node:zlib";
 import { agirNosVencidosEmTodas } from "./services/prazo-vencido.js";
+import { agirSemRespostaEmTodas } from "./services/catraca-tempo.js";
 import cors from "cors";
 import path from "path";
 import { readFileSync } from "fs";
@@ -513,6 +514,8 @@ app.listen(PORT, () => {
     // Prazo da etapa vencido com consequência (services/prazo-vencido.js).
     if (process.env.PRAZO_AGENDADOR !== "0")
       agirNosVencidosEmTodas().catch(e => console.error("[prazo] erro no ciclo:", e.message));
+    if (process.env.CATRACA_TEMPO_AGENDADOR !== "0")
+      agirSemRespostaEmTodas().catch(e => console.error("[catraca] erro no ciclo:", e.message));
     // `catch` explícito: é async, e promessa rejeitada solta derruba o Node.
     backupSePassouDaHora().catch(e => console.error("[backup] erro no ciclo:", e.message));
     reseedDemoSePassouDaHora();

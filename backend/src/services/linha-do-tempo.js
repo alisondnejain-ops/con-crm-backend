@@ -23,7 +23,7 @@ const MOTIVO_ETAPA = {
 };
 const MOTIVO_DONO = {
   mao: "", automatica: "pela regra da etapa", saida_equipe: "porque a pessoa saiu da equipe",
-  prazo_vencido: "porque o prazo da etapa venceu", catraca: "pela catraca",
+  prazo_vencido: "porque o prazo da etapa venceu", sem_resposta: "porque ninguém falou com o cliente no tempo da catraca", catraca: "pela catraca",
 };
 const RESULTADO_LIGACAO = { falou: "falou com o cliente", nao_atendeu: "não atendeu",
   caixa_postal: "caixa postal", numero_errado: "número errado" };

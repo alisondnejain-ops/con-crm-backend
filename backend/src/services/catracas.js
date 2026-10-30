@@ -258,6 +258,7 @@ export function listar(orgId) {
       leads_abertos: leads.get(orgId, c.id).n,
       ...canaisDe(c.id),
       pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null, ia_produto_id: c.ia_produto_id || null,
+      tempo_resposta_min: c.tempo_resposta_min || null, max_voltas: c.max_voltas || 2,
       /* A etapa escolhida, com nomes; `etapa_invalida` quando foi apagada ou
          desativada depois — a catraca deixa de ser acionada e a tela avisa. */
       etapa: c.stage_id ? (() => { const e = etapa.get(c.stage_id, orgId); return e ? { funil: e.funil, nome: e.etapa, ok: !!e.ok } : { ok: false }; })() : null,
@@ -316,6 +317,19 @@ function gravarCanais(orgId, catracaId, c) {
   for (const k of ["whatsapp", "portal", "site"]) if (c[k]) ins.run(catracaId, orgId, k, "");
   for (const f of c.formularios) ins.run(catracaId, orgId, "formulario", f);
 }
+/* Tempo para pegar o lead: vazio desliga; de 1 minuto a 24 horas. */
+function tempoValido(v) {
+  if (v === null || v === "" || v === undefined || Number(v) === 0) return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 1440) throw new ErroCatraca(400, "O tempo para pegar o lead vai de 1 minuto a 24 horas.");
+  return n;
+}
+function voltasValidas(v) {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 10) throw new ErroCatraca(400, "O número de voltas vai de 1 a 10.");
+  return n;
+}
+
 /* A etapa que aciona: do funil escolhido, desta conta e ativa. Vazio tira. */
 function etapaValida(orgId, pipelineId, stageId) {
   if (!stageId) return { pipeline_id: null, stage_id: null };
@@ -333,7 +347,7 @@ function gravarMembros(orgId, catracaId, ids) {
   for (const id of ids) ins.run(catracaId, id, orgId, agora);
 }
 
-export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id, ia_produto_id } = {}) {
+export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas } = {}) {
   if (ehAutonomo(orgId)) throw new ErroCatraca(403, "Conta de corretor autônomo não tem catraca.");
   const n = nomeValido(nome);
   nomeLivre(orgId, n);
@@ -349,10 +363,11 @@ export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipe
     if (ch) gravarCanais(orgId, id, ch);
   })();
   if (ia_produto_id) editar(orgId, id, { ia_produto_id });
+  if (tempo_resposta_min !== undefined || max_voltas !== undefined) editar(orgId, id, { tempo_resposta_min, max_voltas });
   return id;
 }
 
-export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id, ia_produto_id } = {}) {
+export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas } = {}) {
   const c = db.prepare("SELECT * FROM catracas WHERE id = ? AND org_id = ?").get(String(catracaId), orgId);
   if (!c) throw new ErroCatraca(404, "Catraca não encontrada.");
   const campos = {};
@@ -360,6 +375,15 @@ export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais
   if (entrega !== undefined) campos.entrega = entregaValida(entrega);
   if (ativa !== undefined) campos.ativa = ativa ? 1 : 0;
   if (stage_id !== undefined) Object.assign(campos, etapaValida(orgId, pipeline_id, stage_id));
+  if (tempo_resposta_min !== undefined) {
+    campos.tempo_resposta_min = tempoValido(tempo_resposta_min);
+    /* Ligar agora não tira de ninguém o lead que já estava com ele: o tempo
+       vale para o que for entregue DAQUI EM DIANTE. Mudar o número de minutos
+       com ele já ligado não reinicia. */
+    if (campos.tempo_resposta_min && !c.tempo_resposta_min) campos.tempo_desde = Date.now();
+    if (!campos.tempo_resposta_min) campos.tempo_desde = null;
+  }
+  if (max_voltas !== undefined) campos.max_voltas = voltasValidas(max_voltas);
   /* A ficha de produto que a IA usa com os leads desta catraca (08/10/2026). */
   if (ia_produto_id !== undefined) {
     if (ia_produto_id && !db.prepare("SELECT 1 FROM ia_produtos WHERE id = ? AND org_id = ?").get(String(ia_produto_id), orgId))
