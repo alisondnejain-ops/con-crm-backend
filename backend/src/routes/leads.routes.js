@@ -84,7 +84,7 @@ const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
   "last_interaction_at", "custom_fields", "campaign_name", "adset_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
-  "sugestao_etapa", "aguarda_contato", "catraca_id"];
+  "sugestao_etapa", "aguarda_contato", "catraca_id", "valor_negociacao"];
 const enxuto = (l) => {
   const o = {};
   // Nulo vai como nulo, e não omitido: `adaptLead` lê "não veio" como "use o
@@ -1707,6 +1707,27 @@ r.patch("/:id/nome", (req, res) => {
    havia onde preencher). Quem pode abrir a conversa marca; vazio = sem
    temperatura, que é estado válido. `priority_por='mao'` separa a leitura de
    gente da leitura da IA (`ia`), como a regra de 16/08/2026 pede. */
+/* VALOR EM NEGOCIAÇÃO (30/10/2026, lista do Fernando: "VGV em aberto por
+   etapa"). O valor do negócio que está sendo conversado — o imóvel de interesse,
+   a proposta. Não é venda: venda é `sale_value`, gravada só por "Registrar
+   venda", e é ela que conta nos relatórios de dinheiro. Este número só
+   soma nas colunas do Funil, para a gestão ver quanto está parado em cada
+   etapa. Quem pode abrir a conversa edita; vazio apaga. */
+r.patch("/:id/negociacao", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const bruto = req.body?.valor;
+  let v = null;
+  if (!(bruto === null || bruto === "" || bruto === undefined)) {
+    // "R$ 350.000" vem do próprio campo da ficha, que mostra o valor formatado.
+    v = numeroBR(typeof bruto === "number" ? bruto : String(bruto).replace(/[^\d.,]/g, ""));
+    if (!v || v <= 0 || v > 1e10) return res.status(400).json({ error: "Informe um valor válido, ex.: 350.000" });
+  }
+  db.prepare("UPDATE leads SET valor_negociacao = ? WHERE id = ?").run(v, lead.id);
+  res.json({ ok: true, valor_negociacao: v });
+});
+
 r.patch("/:id/temperatura", (req, res) => {
   const bruto = req.body?.temperatura;
   const t = bruto === null || bruto === "" ? null : String(bruto).toUpperCase();

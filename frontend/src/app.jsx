@@ -205,6 +205,8 @@ function adaptLead(l,anterior){
     // entrada: o lead pode ter chegado em junho e ter sido repassado hoje.
     assignedAt:l.assigned_at!==undefined?l.assigned_at:(anterior?anterior.assignedAt:null),
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property,comissao:l.sale_commission_pct??null}:null,
+    // Valor em negociação (30/10/2026): o VGV em aberto — não é venda.
+    negociacao:l.valor_negociacao!==undefined?(l.valor_negociacao||null):(anterior?anterior.negociacao:null),
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
     carregado:!!l.messages||(anterior?anterior.carregado:false),
@@ -883,6 +885,11 @@ function SeletorDePais({valor,aoMudar,style,altura=40}){
 // O que escrever no campo do número, conforme o país.
 const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+// Curto, para caber no cabeçalho da coluna e no card: "R$ 350 mil", "R$ 1,2 mi".
+const fmtMoedaCurta=(v)=>{ v=v||0;
+  if(v>=1e6) return "R$ "+(v/1e6).toLocaleString("pt-BR",{maximumFractionDigits:v>=1e7?0:1})+" mi";
+  if(v>=1e3) return "R$ "+Math.round(v/1e3).toLocaleString("pt-BR")+" mil";
+  return fmtMoeda(v); };
 /* Preço de assinatura: com centavos quando tem (R$ 79,90 não pode virar R$ 80 na tela de contratar). */
 // Duração curta: "3h20", "45 min".
 const fmtDuracao=(ms)=>{ const m=Math.max(0,Math.round((ms||0)/60000)); return m>=60?`${Math.floor(m/60)}h${String(m%60).padStart(2,"0")}`:`${m} min`; };
@@ -1777,6 +1784,7 @@ function ConCRM(){
     enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
     apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
     salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
+    salvarNegociacao:acao((leadId,valor)=>api(`/leads/${leadId}/negociacao`,{method:"PATCH",body:{valor}})),
     salvarCampos:acao((leadId,campos)=>api(`/leads/${leadId}/campos`,{method:"PATCH",body:campos})),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
@@ -10477,6 +10485,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       return true;
     });
   },[doFunil,busca,onde,f]);
+  // Alguma coluna tem valor em negociação? Então todas reservam a linha, para não desalinhar.
+  const algumaNegociacao=visiveis.some(l=>!l.venda&&l.negociacao);
 
   const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
@@ -10751,6 +10761,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         const items=visiveis.filter(l=>col.id&&l.stageId?l.stageId===col.id:l.status===st);
         const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
         const corCol=corDaEtapa(col,st);
+        // O VGV em aberto da coluna: soma do valor em negociação de quem ainda não vendeu.
+        const emNegociacao=items.reduce((t,l)=>t+(!l.venda&&l.negociacao?l.negociacao:0),0);
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:4}}>
             {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
@@ -10759,6 +10771,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
                 color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
               <Icon n="gear" size={13} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}
             <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></span></div>
+          {algumaNegociacao&&<div title={emNegociacao>0?"Soma do valor em negociação dos leads desta coluna (sem os vendidos)":undefined}
+            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,margin:"-4px 4px 7px",height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {emNegociacao>0?`${fmtMoedaCurta(emNegociacao)} em negociação`:""}</div>}
           <div ref={el=>{colunas.current[st]=el;}}
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
               background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
@@ -11067,6 +11082,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
       {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
 
       {linha("msg", l.lastAt?`falou ${fmtQuando(l.lastAt)}`:"sem conversa", urgencia)}
+      {l.negociacao&&!l.venda&&linha("trend", `${fmtMoedaCurta(l.negociacao)} em negociação`, C.greenDeep)}
 
       {/* O cronômetro, escrito. A faixa colorida diz QUE está atrasado; esta
           linha diz HÁ QUANTO — e é a diferença entre o gestor olhar e agir, ou
@@ -14199,6 +14215,11 @@ function QualificacaoDoLead({lead,acoes,session}){
       {CAMPOS_QUAL.map(([k,n,campo])=><div key={k} style={{minWidth:0}}>
         <CampoQual rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/></div>)}
     </div>}
+    {/* O valor do negócio que está sendo conversado (30/10/2026). Soma no
+        cabeçalho das colunas do Funil; venda continua sendo "Registrar venda". */}
+    {!lead.venda&&<div style={{marginTop:10}}>
+      <CampoQual rotulo="Valor em negociação" valor={lead.negociacao?fmtMoeda(lead.negociacao):"—"} icone="trend"
+        onSalvar={(novo)=>acoes.salvarNegociacao(lead.id,novo)}/></div>}
     <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:10}}>
       <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
     </div>

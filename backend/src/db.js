@@ -2541,6 +2541,7 @@ addOrgCol("prazo_acao", "TEXT");
 addOrgCol("prazo_max_repasses", "INTEGER");
 addLeadCol("prazo_repasses", "INTEGER");
 addLeadCol("prazo_repasse_em", "INTEGER");
+addLeadCol("valor_negociacao", "REAL"); // valor em negociação (30/10/2026, lista do Fernando): o VGV em aberto
 addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este lead de alguém por falta de resposta
 
 /* A CONSEQUÊNCIA DO PRAZO POR ETAPA (30/10/2026, áudio do Fernando): cada
