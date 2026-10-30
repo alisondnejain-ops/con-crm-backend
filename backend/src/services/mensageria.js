@@ -24,6 +24,7 @@ import { randomUUID } from "crypto";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
 import { triarNumeroNovo } from "./triagem.js";
+import { dispararGatilho } from "./automacoes.js";
 import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { atender, pararPorGente } from "./robo.js";
@@ -251,6 +252,10 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      mandado e faz o fluxo seguir pelo caminho da resposta (services/disparo.js).
      Nunca lança. */
   if (!fromMe) respostaAoDisparo({ orgId, lead, texto: corpo });
+
+  /* Gatilho "Mensagem do cliente" dos fluxos (30/10/2026): palavra, frase
+     inicial ou código de imóvel. Nunca lança (services/automacoes.js). */
+  if (!fromMe && texto) dispararGatilho(orgId, "palavra", { leadId: lead.id, valor: texto });
 
   /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
 

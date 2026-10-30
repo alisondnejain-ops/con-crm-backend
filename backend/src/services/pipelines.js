@@ -60,6 +60,8 @@ export const formatarEtapa = (e) => e && ({
   warning_before_minutes: e.warning_before_minutes ?? null,
   required_fields: parseJson(e.required_fields, []),
   automation_config: parseJson(e.automation_config, {}),
+  // Nulo = segue o padrão da conta (Configurações → Atendimento).
+  prazo_acao: e.prazo_acao || null,
 });
 
 export const formatarPipeline = (p) => p && ({
@@ -338,6 +340,15 @@ export function editarEtapa(orgId, id, dados) {
   // etapa que conta como conversão, e a tela do funil diz isso.
   if (entrada && !ativaFinal) entrada = false;
 
+  /* O que acontece quando o prazo desta etapa vence (30/10/2026). Vazio =
+     segue o padrão da conta, em Configurações → Atendimento. */
+  let prazoAcao = atual.prazo_acao || null;
+  if (dados.prazo_acao !== undefined) {
+    prazoAcao = dados.prazo_acao === null || dados.prazo_acao === "" ? null : String(dados.prazo_acao);
+    if (prazoAcao && !["marcar", "proximo_corretor", "atendente", "tarefa"].includes(prazoAcao))
+      return { erro: "Escolha o que acontece quando o prazo vence." };
+  }
+
   let automacao = null;
   if (dados.automation_config !== undefined) {
     const v = validarAutomacao(orgId, atual.pipeline_id, dados.automation_config);
@@ -347,6 +358,7 @@ export function editarEtapa(orgId, id, dados) {
 
   const rodar = db.transaction(() => {
     db.prepare("UPDATE pipeline_stages SET entrada_comercial = ? WHERE id = ?").run(entrada ? 1 : 0, id);
+    db.prepare("UPDATE pipeline_stages SET prazo_acao = ? WHERE id = ?").run(prazoAcao, id);
     if (entrada && !atual.entrada_comercial) soUmaEntrada(atual.pipeline_id, id);
     db.prepare(`UPDATE pipeline_stages SET name = ?, ordem = ?, color = ?, status_type = ?, is_active = ?,
       counts_as_conversion = ?, sla_minutes = ?, warning_before_minutes = ?, required_fields = ?,

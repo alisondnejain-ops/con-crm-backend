@@ -4,6 +4,7 @@ import "./tz.js";   // fuso da operação — antes de qualquer conta com data
 import express from "express";
 import zlib from "node:zlib";
 import { agirNosVencidosEmTodas } from "./services/prazo-vencido.js";
+import { agirSemRespostaEmTodas } from "./services/catraca-tempo.js";
 import cors from "cors";
 import path from "path";
 import { readFileSync } from "fs";
@@ -105,7 +106,7 @@ app.use(cors({
    e o resto é folga para o JSON em volta. */
 // "/marketing": a lista de contatos sobe em base64 (até 8 MB, igual à escala do plantão).
 // "/assistente": o gestor manda foto, print e PDF ao Claude (até 16 MB por mensagem, em base64).
-const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/plantoes", "/orgs", "/marketing", "/assistente", "/redes"];
+const CORPO_GRANDE = ["/leads", "/produtos", "/auth/me/foto", "/config/marca", "/config/mensagens", "/plantoes", "/orgs", "/marketing", "/assistente", "/redes"];
 const jsonGrande = express.json({ limit: "45mb" });
 /* Os webhooks guardam o corpo CRU: a assinatura da Meta é sobre os bytes
    que ela mandou, e refazer o texto com JSON.stringify não reproduz o
@@ -513,6 +514,8 @@ app.listen(PORT, () => {
     // Prazo da etapa vencido com consequência (services/prazo-vencido.js).
     if (process.env.PRAZO_AGENDADOR !== "0")
       agirNosVencidosEmTodas().catch(e => console.error("[prazo] erro no ciclo:", e.message));
+    if (process.env.CATRACA_TEMPO_AGENDADOR !== "0")
+      agirSemRespostaEmTodas().catch(e => console.error("[catraca] erro no ciclo:", e.message));
     // `catch` explícito: é async, e promessa rejeitada solta derruba o Node.
     backupSePassouDaHora().catch(e => console.error("[backup] erro no ciclo:", e.message));
     reseedDemoSePassouDaHora();

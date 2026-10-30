@@ -16,7 +16,7 @@ import {
   canaisDaOrg, garantirCasa, canalDoUsuario, canalPorId,
   criarCanalDoCorretor, salvarConexao, salvarConexaoOficial, desligarCanal, limites,
 } from "../services/canais.js";
-import { instanceStatus, PROVEDORES } from "../services/uazapi.js";
+import { instanceStatus, conectarInstancia, PROVEDORES } from "../services/uazapi.js";
 import { garantirWebhook } from "../services/webhook-uazapi.js";
 
 const r = Router();
@@ -174,8 +174,31 @@ r.post("/meu/credenciais", async (req, res) => {
   res.json({
     ok: true, meu: enxuto(canalPorId(meu.id)), whatsapp, recebimento,
     aviso: !whatsapp.ok ? "Salvei, mas a Uazapi não respondeu com esses dados. Confira o endereço e o token da SUA instância."
-      : recebimento && recebimento.estado !== "ok" ? `Conectado, mas o recebimento das mensagens não foi ligado: ${recebimento.detalhe}` : null,
+      : recebimento && recebimento.estado !== "ok" ? `${whatsapp.conectado === false ? "Instância salva" : "Conectado"}, mas o recebimento das mensagens não foi ligado: ${recebimento.detalhe}` : null,
   });
+});
+
+/* O QR Code da MINHA linha (30/10/2026, a Nadja da VJ não conseguia conectar).
+   A tela do corretor só aceitava host+token, e a instância nova da Uazapi
+   nasce DESPAREADA: o token salvava, o selo dizia "ligado" e nenhuma
+   mensagem saía — parear só era possível no painel da Uazapi. Agora o QR sai
+   aqui, pela mesma função da linha da casa, mas SÓ da própria linha: parear
+   o WhatsApp de outra pessoa continua não existindo, nem para o gestor. */
+r.post("/meu/conectar", async (req, res) => {
+  const meu = canalDoUsuario(req.user.org_id, req.user.id);
+  if (!meu || !meu.token) return res.status(404).json({ error: "Cole primeiro o endereço e o token da sua instância da Uazapi." });
+  if (meu.provider === "meta") return res.status(400).json({ error: "A API oficial da Meta não usa QR Code." });
+  try {
+    const r2 = await conectarInstancia(req.user.org_id, meu.id, { forcar: !!req.body?.forcar });
+    if (r2.conectado) {
+      const whatsapp = await instanceStatus(req.user.org_id, meu.id);
+      if (whatsapp && whatsapp.numero) db.prepare("UPDATE canais SET wa_number = ? WHERE id = ?").run(whatsapp.numero, meu.id);
+      garantirWebhook(req.user.org_id, meu.id).catch(() => {});
+    }
+    res.json(r2);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 /* A MINHA linha, na API oficial da Meta.

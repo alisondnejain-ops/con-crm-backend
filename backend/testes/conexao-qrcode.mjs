@@ -137,6 +137,28 @@ try {
   console.log("  ", r.status);
   assert.equal(r.status, 403);
 
+  console.log("9. CORRETOR NA PRÓPRIA LINHA (a Nadja, 30/10/2026): instância nova despareada → o status diz e o QR sai");
+  db.prepare("UPDATE users SET canal_liberado = 1 WHERE email = 'corretor@qr.com'").run();
+  inst.status = "disconnected"; inst.qr = "";
+  r = await fetch(url("/canais/meu/conectar"), { method: "POST", headers: authC, body: "{}" });
+  assert.equal(r.status, 404, "sem instância salva, não há o que parear");
+  r = await fetch(url("/canais/meu/credenciais"), { method: "POST", headers: authC,
+    body: JSON.stringify({ host, token: "tok-corretor" }) });
+  const salvo = await r.json();
+  console.log("  ", r.status, JSON.stringify({ conectado: salvo.whatsapp && salvo.whatsapp.conectado }));
+  assert.equal(r.status, 200);
+  assert.equal(salvo.whatsapp.conectado, false, "a tela precisa saber que falta parear — antes dizia só LIGADO");
+  r = await fetch(url("/canais/meu/conectar"), { method: "POST", headers: authC, body: "{}" });
+  q = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(q));
+  assert.ok(q.qrcode.startsWith("data:image/png;base64,"));
+  const st = await (await fetch(url("/canais/" + salvo.meu.id + "/status"), { headers: authC })).json();
+  assert.equal(st.whatsapp.conectado, false); assert.ok(st.whatsapp.qrcode);
+
+  console.log("10. O gestor não gera o QR da linha pessoal de outra pessoa");
+  r = await post("/canais/meu/conectar");
+  assert.equal(r.status, 404, "a rota é só da PRÓPRIA linha");
+
   console.log("\nTudo certo ✅");
 } catch (e) {
   console.error(saida.slice(-2000));

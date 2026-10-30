@@ -43,6 +43,7 @@ import { campoCasa } from "./campos-lead.js";
 import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proximoEnvioEm, ritmoDaOrg } from "./marketing.js";
 import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
 import { gatilhoLimpo, problemasDoGatilho, formulariosDaRef, gatilhosDoGrafo, sobreposicoes, chavesDoFluxo, MAX_GATILHOS, nomeDoTipoDeGatilho } from "./automacoes.js";
+import { temRecurso } from "./recursos.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
 import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
@@ -1337,6 +1338,110 @@ export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
   return { mensagens, parou, pelo: linha.propria ? "número de contingência" : "número de atendimento" };
 }
 
+/* ============ MANDAR UM FLUXO DE DENTRO DA CONVERSA (30/10/2026) ============
+
+   Pedido do Fernando: o corretor escolhe um fluxo e ele roda para AQUELE
+   lead. Por dentro é a mesma automação: a execução mora na campanha
+   'automacao' do fluxo (criada aqui se o fluxo nunca foi ligado — sem
+   gatilho ligado, ninguém entra nela sozinho), sai pela linha da conversa,
+   sem o ritmo do disparo nem o rodapé de saída, e para quando alguém da
+   equipe escreve. Três cuidados pedidos junto:
+   - a PRÉVIA do que sai até o fluxo esperar alguma coisa;
+   - "parar quando o cliente responder", escolhido na hora (padrão: sim);
+   - a faixa na conversa dizendo que o fluxo está rodando, com "parar". */
+function mensagensDaPrevia(grafo, no0) {
+  const porId = new Map(grafo.nos.map(n => [n.id, n]));
+  let no = porId.get(proximoDe(grafo, no0, "proximo"));
+  const out = []; let parou = "fim do fluxo";
+  for (let passos = 0; no && passos < 12; passos++) {
+    if (no.tipo === "espera") { parou = "uma espera"; break; }
+    if (BLOCOS_DE_CRM.includes(no.tipo)) { no = porId.get(proximoDe(grafo, no.id, "proximo")); continue; }
+    if (no.tipo === "resposta") { parou = "esperar a resposta do cliente"; break; }
+    if (no.tipo === "condicao") { parou = "uma condição"; break; }
+    const d = no.dados || {};
+    out.push({ texto: String(d.texto || d.modelo_texto || "").slice(0, 600), arquivo: d.midia_nome || (d.midia_url ? "arquivo" : null),
+      botoes: no.tipo === "botoes" ? (d.botoes || []).map(b => b.texto || b.titulo || "").filter(Boolean) : null });
+    if (no.tipo === "botoes") { parou = "o cliente escolher um botão"; break; }
+    no = porId.get(proximoDe(grafo, no.id, "proximo"));
+  }
+  return { mensagens: out, parou };
+}
+
+export function fluxosParaConversa(orgId, leadId) {
+  if (!temRecurso(orgId, "marketing")) return { liberado: false, fluxos: [], em_andamento: [] };
+  const fluxos = db.prepare("SELECT id, nome, grafo FROM marketing_fluxos WHERE org_id = ? AND apagado_em IS NULL ORDER BY nome").all(orgId)
+    .map(f => {
+      let grafo; try { grafo = JSON.parse(f.grafo); } catch { return null; }
+      const v = validarGrafo(grafo, { paraDisparar: true });
+      if (v.erros.length || conferirReferencias(orgId, v.grafo).length) return null;
+      return { id: f.id, nome: f.nome, previa: mensagensDaPrevia(v.grafo, inicioDoDisparo(v.grafo)) };
+    }).filter(Boolean);
+  const em = db.prepare(`SELECT e.id, e.estado, e.criado_em, e.parar_ao_responder, c.nome FROM marketing_execucoes e
+    JOIN marketing_campanhas c ON c.id = e.campanha_id
+    WHERE e.org_id = ? AND e.lead_id = ? AND e.estado IN ('ativa','aguardando_resposta') AND c.status = 'rodando' AND c.tipo = 'automacao'
+    ORDER BY e.criado_em DESC`).all(orgId, leadId)
+    .map(x => ({ id: x.id, nome: x.nome, estado: x.estado, desde: x.criado_em, para_se_responder: x.parar_ao_responder !== 0 }));
+  return { liberado: true, fluxos, em_andamento: em };
+}
+
+export function mandarFluxoNaConversa(orgId, user, leadId, fluxoId, { pararAoResponder = true } = {}) {
+  if (!temRecurso(orgId, "marketing")) throw new ErroMarketing(403, "Os fluxos fazem parte do Marketing, que não está liberado nesta conta.");
+  const f = fluxoDaOrg(orgId, fluxoId);
+  if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
+  const lead = db.prepare("SELECT id, name, phone FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
+  if (!lead || !lead.phone) throw new ErroMarketing(404, "Lead sem telefone.");
+  const fs = formas(lead.phone);
+  if (fs.length && db.prepare(`SELECT 1 FROM marketing_bloqueio WHERE org_id = ? AND telefone IN (${fs.map(() => "?").join(",")})`).get(orgId, ...fs))
+    throw new ErroMarketing(409, "Este cliente pediu para não receber mensagens automáticas.");
+  const { grafo, erros } = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
+  const refs = conferirReferencias(orgId, grafo);
+  if (erros.length || refs.length) throw new ErroMarketing(422, "Este fluxo ainda não está pronto: " + (erros[0] || refs[0]));
+  // Um fluxo por vez na mesma conversa: dois rodando juntos se atropelariam.
+  const ja = db.prepare(`SELECT c.nome FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
+    WHERE e.org_id = ? AND e.lead_id = ? AND e.estado IN ('ativa','aguardando_resposta') AND c.status = 'rodando' LIMIT 1`).get(orgId, lead.id);
+  if (ja) throw new ErroMarketing(409, `O fluxo “${ja.nome}” já está rodando nesta conversa. Pare-o antes de mandar outro.`);
+  const agora = agoraFn();
+  const eu = db.prepare("SELECT id, name FROM users WHERE id = ?").get(user.id) || {};
+  let campId = f.automacao_id && db.prepare("SELECT id, status FROM marketing_campanhas WHERE id = ? AND org_id = ?").get(f.automacao_id, orgId);
+  db.transaction(() => {
+    if (!campId || campId.status !== "rodando") {
+      if (campId) {
+        // Campanha do fluxo existe mas foi encerrada: volta a rodar com a versão salva.
+        db.prepare("UPDATE marketing_campanhas SET status = 'rodando', grafo = ?, nome = ?, fluxo_nome = ?, concluida_em = NULL WHERE id = ?")
+          .run(JSON.stringify(grafo), f.nome, f.nome, campId.id);
+        campId = campId.id;
+      } else {
+        campId = "mc_" + randomUUID();
+        db.prepare(`INSERT INTO marketing_campanhas (id,org_id,nome,fluxo_id,fluxo_nome,grafo,publico,declaracao,status,total,
+            criado_por,criado_por_nome,criado_em,iniciada_em,tipo) VALUES (?,?,?,?,?,?,'{}',NULL,'rodando',0,?,?,?,?,'automacao')`)
+          .run(campId, orgId, f.nome, f.id, f.nome, JSON.stringify(grafo), eu.id || user.id, eu.name || null, agora, agora);
+        db.prepare("UPDATE marketing_fluxos SET automacao_id = ? WHERE id = ?").run(campId, f.id);
+      }
+    } else {
+      campId = campId.id;
+      // Fluxo NÃO ligado: a campanha é só da conversa, então leva a versão salva agora.
+      if (!f.ativo) db.prepare("UPDATE marketing_campanhas SET grafo = ?, nome = ?, fluxo_nome = ? WHERE id = ?").run(JSON.stringify(grafo), f.nome, f.nome, campId);
+    }
+    const camp = db.prepare("SELECT grafo FROM marketing_campanhas WHERE id = ?").get(campId);
+    const inicio = inicioDoDisparo(JSON.parse(camp.grafo));
+    db.prepare(`INSERT INTO marketing_execucoes (id,org_id,campanha_id,telefone,nome,lead_id,no_atual,gatilho_no,estado,proxima_em,criado_em,atualizado_em,parar_ao_responder,iniciado_por)
+      VALUES (?,?,?,?,?,?,?,?,'ativa',?,?,?,?,?)`)
+      .run("me_" + randomUUID(), orgId, campId, lead.phone, lead.name || null, lead.id, inicio, inicio, agora, agora, agora, pararAoResponder ? 1 : 0, eu.name || null);
+    db.prepare("UPDATE marketing_campanhas SET total = total + 1 WHERE id = ?").run(campId);
+  })();
+  console.log(`[fluxo] ${eu.name} mandou "${f.nome}" para um lead em ${orgId}`);
+  return fluxosParaConversa(orgId, lead.id);
+}
+
+export function pararFluxoNaConversa(orgId, leadId, execId, user) {
+  const e = db.prepare("SELECT * FROM marketing_execucoes WHERE id = ? AND org_id = ? AND lead_id = ?").get(execId, orgId, leadId);
+  if (!e) throw new ErroMarketing(404, "Este fluxo não está rodando nesta conversa.");
+  if (["ativa", "aguardando_resposta"].includes(e.estado))
+    db.prepare("UPDATE marketing_execucoes SET estado = 'cancelada', fim_motivo = ?, proxima_em = NULL, atualizado_em = ? WHERE id = ?")
+      .run(`parado na conversa por ${user.name || "alguém da equipe"}`, agoraFn(), e.id);
+  return fluxosParaConversa(orgId, leadId);
+}
+
 /* A pessoa está no meio de um fluxo de disparo (em andamento ou pausado)?
    O robô de atendimento usa isto para não responder por cima do fluxo. */
 export function emFluxoDeDisparo(orgId, phone) {
@@ -1438,7 +1543,9 @@ export function mensagemRecebida({ orgId, lead, texto: recebido, fromMe }) {
     for (const x of emEspera) {
       let g = null;
       try { const gs = gatilhosDoGrafo(JSON.parse(x.camp_grafo)); g = gs.find(y => y.no_id === x.gatilho_no) || gs[0]; } catch {}
-      if (g?.parar_ao_responder) { delete x.camp_grafo; finalizar(x, "concluida", "o cliente respondeu"); }
+      // Mandado da conversa, vale a escolha de quem mandou (`parar_ao_responder` da execução).
+      const parar = x.parar_ao_responder === 1 || (x.parar_ao_responder !== 0 && g?.parar_ao_responder);
+      if (parar) { delete x.camp_grafo; delete x.parar_ao_responder; delete x.iniciado_por; finalizar(x, "concluida", "o cliente respondeu"); }
     }
     const e = db.prepare(`SELECT e.* FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
       WHERE e.org_id = ? AND e.telefone IN (${em}) AND e.estado = 'aguardando_resposta' AND c.status = 'rodando'

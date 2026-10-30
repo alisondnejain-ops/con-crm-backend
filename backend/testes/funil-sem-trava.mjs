@@ -97,6 +97,26 @@ d = await r.json();
 console.log(`   ${r.status} · etapa ${d.stage || d.error}`);
 assert.equal(r.status, 200);
 
+console.log("3b. Tarefa obrigatória para entrar (30/10/2026): sem tarefa futura, recusa; tarefa vencida não vale; com ela, entra");
+{
+  db.prepare("UPDATE pipeline_stages SET required_fields = ? WHERE id = ?").run(JSON.stringify(["tarefa"]), etapa("Agendamento").id);
+  const lt = novoLead("Com tarefa obrigatória", "5587911110077", "Atendimento", marina);
+  r = await chamar(tMarina, `/leads/${lt}/stage`, { method: "PATCH", body: JSON.stringify({ stage_id: etapa("Agendamento").id }) });
+  d = await r.json();
+  assert.equal(r.status, 422); assert.equal(d.faltam[0].key, "tarefa"); assert.match(d.faltam[0].label, /tarefa marcada/i);
+  db.prepare("INSERT INTO tarefas (id,org_id,lead_id,user_id,titulo,quando,created_at) VALUES (?,?,?,?,?,?,?)")
+    .run("t_" + randomUUID(), org, lt, marina, "Já venceu", Date.now() - 3600000, Date.now());
+  r = await chamar(tMarina, `/leads/${lt}/stage`, { method: "PATCH", body: JSON.stringify({ stage_id: etapa("Agendamento").id }) });
+  assert.equal(r.status, 422, "tarefa vencida não é próximo passo");
+  r = await chamar(tMarina, `/leads/${lt}/tarefas`, { method: "POST", body: JSON.stringify({ titulo: "Confirmar visita", quando: new Date(Date.now() + 86400000).toISOString() }) });
+  assert.ok(r.status < 300, "criou a tarefa");
+  r = await chamar(tMarina, `/leads/${lt}/stage`, { method: "PATCH", body: JSON.stringify({ stage_id: etapa("Agendamento").id }) });
+  d = await r.json();
+  console.log(`   ${r.status} · etapa ${d.stage || d.error}`);
+  assert.equal(r.status, 200);
+  db.prepare("UPDATE pipeline_stages SET required_fields = '[]' WHERE id = ?").run(etapa("Agendamento").id);
+}
+
 console.log("4. Campo nativo continua valendo (temperatura)");
 db.prepare("UPDATE pipeline_stages SET required_fields = ? WHERE id = ?").run(JSON.stringify(["temperatura"]), etapa("Visita").id);
 r = await chamar(tMarina, `/leads/${lead}/stage`, { method: "PATCH", body: JSON.stringify({ stage_id: etapa("Visita").id }) });

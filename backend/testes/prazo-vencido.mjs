@@ -133,6 +133,30 @@ await agirNosVencidos(org, agora);
 assert.equal(donoDe(paraAtendente).assigned_to, vanessa);
 assert.equal(donoDe(paraAtendente).stage_id, etapa, "não muda de etapa");
 
+console.log("6b. A ETAPA manda mais que o padrão da conta (30/10/2026): 'marcar' na etapa segura o lead");
+r = await req(tGestor, "PATCH", "/pipelines/etapas/" + etapa, { prazo_acao: "voar" });
+assert.equal(r.status, 400, "ação desconhecida recusada");
+r = await req(tMarina, "PATCH", "/pipelines/etapas/" + etapa, { prazo_acao: "marcar" });
+assert.equal(r.status, 403, "corretor não configura etapa");
+r = await req(tGestor, "PATCH", "/pipelines/etapas/" + etapa, { prazo_acao: "marcar" });
+assert.equal(r.status, 200); assert.equal((await r.json()).etapa.prazo_acao, "marcar");
+const naEtapaMarcar = lead("Etapa só marca", marina, agora - 2 * H);
+await agirNosVencidos(org, agora);
+assert.equal(donoDe(naEtapaMarcar).assigned_to, marina, "conta diz atendente, a etapa diz só marcar");
+
+console.log("6c. 'Tarefa' na etapa com a conta em 'marcar': cria UMA tarefa para o dono, sem tirar o lead");
+await req(tGestor, "PATCH", "/distribution/prazo", { acao: "marcar" });
+await req(tGestor, "PATCH", "/pipelines/etapas/" + etapa, { prazo_acao: "tarefa" });
+const { agirNosVencidosEmTodas } = await import("../src/services/prazo-vencido.js");
+await agirNosVencidosEmTodas(agora);
+const tarefasDe = () => db.prepare("SELECT * FROM tarefas WHERE lead_id = ? AND titulo LIKE 'Prazo de%'").all(naEtapaMarcar);
+assert.equal(donoDe(naEtapaMarcar).assigned_to, marina, "a tarefa não tira o lead de ninguém");
+assert.equal(tarefasDe().length, 1); assert.equal(tarefasDe()[0].user_id, marina);
+await agirNosVencidos(org, agora + 3 * H);
+assert.equal(tarefasDe().length, 1, "não empilha enquanto a anterior está aberta");
+r = await req(tGestor, "PATCH", "/pipelines/etapas/" + etapa, { prazo_acao: "" });
+assert.equal((await r.json()).etapa.prazo_acao, null, "vazio volta ao padrão da conta");
+
 console.log("7. Conta de autônomo não tem para onde mandar");
 const orgA = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at,tipo) VALUES (?,?,?,?,'autonomo')").run(orgA, "Solo", "PV-2", Date.now());

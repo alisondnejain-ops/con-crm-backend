@@ -205,6 +205,8 @@ function adaptLead(l,anterior){
     // entrada: o lead pode ter chegado em junho e ter sido repassado hoje.
     assignedAt:l.assigned_at!==undefined?l.assigned_at:(anterior?anterior.assignedAt:null),
     venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property,comissao:l.sale_commission_pct??null}:null,
+    // Valor em negociação (30/10/2026): o VGV em aberto — não é venda.
+    negociacao:l.valor_negociacao!==undefined?(l.valor_negociacao||null):(anterior?anterior.negociacao:null),
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
     msgs:l.messages?l.messages.map(adaptMsg):(anterior?anterior.msgs:[]),
     carregado:!!l.messages||(anterior?anterior.carregado:false),
@@ -713,15 +715,23 @@ const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
       CHEGADA — o mais antigo primeiro, sempre: é fila, e quem pediu contato
       antes é atendido antes;
    2. no corretor, o que acabou de chegar na mão dele (repasse das últimas 24h);
-   3. o cliente esperando resposta;
+   3. o cliente esperando resposta — e, junto, o lead com o PRAZO DA ETAPA
+      vencido (30/10/2026, lista do Fernando: o atrasado não podia ficar
+      enterrado). Tarefa marcada para o futuro segura, como no relógio;
    4. o resto.
    Dentro dos grupos 2 a 4 vale a escolha "Mais recentes / Mais antigos
    primeiro" da própria pessoa (`usarOrdemDaCaixa`): o mais antigo primeiro é
    o jeito de zerar as conversas sem descer a lista. */
 const chegadaNaCaixa=(l)=>l.assignedAt||l.createdAt||0;
+const prazoEstourado=(l)=>{ const s=l&&l.sla; return !!(s&&!s.segura&&!l.finalizado&&s.limite&&s.desde&&Date.now()>=s.desde+s.limite*60000); };
 function ordenarCaixa(lista,ordem,{repasseNoTopo=false}={}){
-  const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:esperandoContato(l)?2:3;
-  const quando=(l,g)=>g===1?(l.assignedAt||0):(l.lastAt||l.createdAt||0);
+  const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:(esperandoContato(l)||prazoEstourado(l))?2:3;
+  /* A hora que ordena é a da última INTERAÇÃO (mensagem de gente, ligação),
+     não a da última mensagem: o follow-up automático de um fluxo ou disparo
+     levava o lead ao topo a cada envio, como se algo novo tivesse acontecido
+     (30/10/2026, lista do Fernando). `ultimaInteracao` vem do servidor e já
+     ignora disparo e automação; lead antigo sem ela usa a última mensagem. */
+  const quando=(l,g)=>g===1?(l.assignedAt||0):(l.ultimaInteracao||l.lastAt||l.createdAt||0);
   return [...lista].sort((a,b)=>{
     const ga=grupo(a), gb=grupo(b);
     if(ga!==gb) return ga-gb;
@@ -875,6 +885,11 @@ function SeletorDePais({valor,aoMudar,style,altura=40}){
 // O que escrever no campo do número, conforme o país.
 const dicaDoNumero=(iso)=>iso==="BR"?"(87) 9 9999-8888":"Número, sem o código do país";
 const fmtMoeda=(v)=>(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+// Curto, para caber no cabeçalho da coluna e no card: "R$ 350 mil", "R$ 1,2 mi".
+const fmtMoedaCurta=(v)=>{ v=v||0;
+  if(v>=1e6) return "R$ "+(v/1e6).toLocaleString("pt-BR",{maximumFractionDigits:v>=1e7?0:1})+" mi";
+  if(v>=1e3) return "R$ "+Math.round(v/1e3).toLocaleString("pt-BR")+" mil";
+  return fmtMoeda(v); };
 /* Preço de assinatura: com centavos quando tem (R$ 79,90 não pode virar R$ 80 na tela de contratar). */
 // Duração curta: "3h20", "45 min".
 const fmtDuracao=(ms)=>{ const m=Math.max(0,Math.round((ms||0)/60000)); return m>=60?`${Math.floor(m/60)}h${String(m%60).padStart(2,"0")}`:`${m} min`; };
@@ -1049,6 +1064,8 @@ const ICO={
   sparkles:<React.Fragment><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></React.Fragment>,
   star:<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
   chevron:<polyline points="9 18 15 12 9 6"/>,
+  clip:<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
+  gear:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
   voltar:<React.Fragment><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></React.Fragment>,
   users:<React.Fragment><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></React.Fragment>,
@@ -1768,6 +1785,7 @@ function ConCRM(){
     enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
     apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
     salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
+    salvarNegociacao:acao((leadId,valor)=>api(`/leads/${leadId}/negociacao`,{method:"PATCH",body:{valor}})),
     salvarCampos:acao((leadId,campos)=>api(`/leads/${leadId}/campos`,{method:"PATCH",body:campos})),
     /* O CSV precisa do cabeçalho de autenticação, então não dá para usar um
        link simples: baixamos com o token e entregamos o arquivo ao navegador. */
@@ -2004,6 +2022,7 @@ function ConCRM(){
     conectarMeuCanalOficial:(phoneNumberId)=>api("/canais/meu/oficial",{method:"POST",body:{phone_number_id:phoneNumberId}}),
     roboDoMeuCanal:(ligado)=>api("/canais/meu/robo",{method:"POST",body:{ligado}}),
     desligarMeuCanal:()=>api("/canais/meu",{method:"DELETE"}),
+    qrMeuCanal:(forcar)=>api("/canais/meu/conectar",{method:"POST",body:{forcar:!!forcar}}),
     liberarCanal:(user_id,liberado)=>api("/canais/liberar",{method:"POST",body:{user_id,liberado}}),
     desligarCanalDe:(id)=>api(`/canais/${id}`,{method:"DELETE"}),
     // O atalho da conversa: passar este atendimento para o meu WhatsApp, e voltar.
@@ -2026,6 +2045,12 @@ function ConCRM(){
     editarMensagem2:(id,dados)=>api(`/config/mensagens/${id}`,{method:"PATCH",body:dados}),
     apagarMensagem:(id)=>api(`/config/mensagens/${id}`,{method:"DELETE"}),
     moverMensagem:(id,direcao)=>api(`/config/mensagens/${id}/mover`,{method:"POST",body:{direcao}}),
+    anexarNaMensagem:(id,dados)=>api(`/config/mensagens/${id}/midia`,{method:"POST",body:dados}),
+    tirarDaMensagem:(id)=>api(`/config/mensagens/${id}/midia`,{method:"DELETE"}),
+    enviarArquivoPronto:(leadId,mid)=>api(`/leads/${leadId}/pronta/${mid}`,{method:"POST",body:{}}),
+    fluxosDaConversa:(leadId)=>api(`/leads/${leadId}/fluxos`),
+    mandarFluxo:(leadId,fluxoId,parar)=>api(`/leads/${leadId}/fluxos`,{method:"POST",body:{fluxo_id:fluxoId,parar_ao_responder:parar}}),
+    pararFluxo:(leadId,execId)=>api(`/leads/${leadId}/fluxos/${execId}`,{method:"DELETE"}),
     // Toda leitura da tela de Conexão (inclusive a de 3 em 3s do QR Code)
     // atualiza o selo do topo — antes ele só era lido ao entrar no sistema.
     conexao:()=>api("/config/conexao").then(d=>{
@@ -3614,7 +3639,9 @@ const GATILHOS=[
   ["etapa","Entrou na etapa","Quando um lead entra numa etapa do funil.","columns"],
   ["etiqueta","Etiqueta adicionada","Quando alguém coloca uma etiqueta num lead.","tag"],
   ["campo","Campo preenchido","Quando um campo do lead ganha um valor — na ficha ou pela IA.","lista"],
+  ["palavra","Mensagem do cliente","Quando o cliente escreve uma palavra, começa com uma frase ou manda o código de um imóvel.","msg"],
 ];
+const MODOS_PALAVRA=[["contem","Tem a palavra ou frase"],["comeca","Começa com"],["codigo","Manda o código de um imóvel do catálogo"]];
 const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
 const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"],
   ["campo","Campo com valor"],["respondeu","O cliente respondeu"]];
@@ -3658,6 +3685,10 @@ function resumoDoGatilho(g,op){
   if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
   if(g.tipo==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===g.campo);
     return g.campo?`${c?c.name:"Campo"} ${g.valor?`= ${g.valor}`:"preenchido"}`:"Escolha o campo…"; }
+  if(g.tipo==="palavra"){
+    if(g.modo==="codigo") return "O cliente mandou o código de um imóvel";
+    const ps=(g.palavras||[]); if(!ps.length) return "Escreva a palavra…";
+    return `${g.modo==="comeca"?"Começa com":"Tem"}: ${ps.map(p=>`“${p}”`).join(", ")}`; }
   return "Disparo em massa — entra quem o disparo escolher.";
 }
 function resumoDoBloco(no,op){
@@ -4152,6 +4183,19 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
     {g.tipo==="campo"&&<React.Fragment>
       <div><div style={rot}>Campo</div><SeletorDeCampoFluxo valor={g.campo} aoMudar={v=>muda({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/></div>
       {g.campo&&<div><div style={rot}>Com o valor</div><ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===g.campo)} valor={g.valor} aoMudar={v=>muda({valor:v})} isMobile={isMobile}/></div>}
+    </React.Fragment>}
+    {g.tipo==="palavra"&&<React.Fragment>
+      <div><div style={rot}>Quando</div>
+        <select value={g.modo||"contem"} onChange={e=>muda({modo:e.target.value})} aria-label="Quando"
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}>
+          {MODOS_PALAVRA.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
+      {(g.modo||"contem")!=="codigo"&&<div><div style={rot}>Palavras ou frases</div>
+        <input defaultValue={(g.palavras||[]).join(", ")} key={(g.palavras||[]).join("|")}
+          onBlur={e=>muda({palavras:e.target.value.split(/[,;\n]/).map(x=>x.trim()).filter(Boolean)})}
+          placeholder="ex.: quero alugar, valor, simulação" aria-label="Palavras"
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}/>
+        <div style={{color:C.faint,fontSize:11,marginTop:4}}>Separe com vírgula. Palavra inteira, sem olhar maiúscula nem acento.</div></div>}
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.45}}>Não dispara se alguém da equipe escreveu para o cliente nas últimas 12 horas, nem se ele já está em outro fluxo — a palavra no meio de uma negociação não pode mandar boas-vindas.</div>
     </React.Fragment>}
     <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.parar_ao_responder} onChange={e=>muda({parar_ao_responder:e.target.checked})} style={{marginTop:3}}/>
@@ -4680,7 +4724,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido) e ligue para rodar sozinho.</div>
+        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido, mensagem do cliente) e ligue para rodar sozinho.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
@@ -8985,12 +9029,35 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     else if(etapaId&&ids.includes(etapaId)) daEtapa.push(m);
     else outras.push(m);
   }
-  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>onEscolher(tp.corpo)} style={{fontSize:11,fontWeight:destaque?600:500,
+  // A mensagem com arquivo escolhida: o texto vai ao campo, o arquivo espera o "Enviar arquivo".
+  const [comArquivo,setComArquivo]=useState(null);
+  const [enviandoArq,setEnviandoArq]=useState(false);
+  const [erroArq,setErroArq]=useState("");
+  useEffect(()=>{setComArquivo(null);setErroArq("");},[lead&&lead.id]);
+  const escolher=(tp)=>{ onEscolher(tp.corpo); setErroArq(""); setComArquivo(tp.midia_url?tp:null); };
+  const enviarArquivo=async()=>{
+    if(!comArquivo||enviandoArq) return;
+    setEnviandoArq(true); setErroArq("");
+    try{ await acoes.enviarArquivoPronto(lead.id,comArquivo.id); setComArquivo(null); acoes.abrir&&acoes.abrir(lead.id,true); }
+    catch(e){ setErroArq(e.message); } finally{ setEnviandoArq(false); }
+  };
+  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>escolher(tp)} style={{fontSize:11,fontWeight:destaque?600:500,
     padding:"4px 10px",borderRadius:999,border:destaque?`1px solid ${C.green}66`:"none",cursor:"pointer",whiteSpace:"nowrap",
     display:"flex",alignItems:"center",gap:4,color:destaque?C.greenDeep:C.greenMid,background:C.greenSoft,flexShrink:0}}>
-    <Icon n="zap" size={11}/> {tp.titulo}</button>;
+    <Icon n={tp.midia_url?"clip":"zap"} size={11}/> {tp.titulo}</button>;
   const rotulo=(t)=><span style={{color:C.faint,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
-  return <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
+  return <React.Fragment>
+  {comArquivo&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.greenSoft,border:`1px solid ${C.green}44`,
+    borderRadius:10,padding:"7px 10px",marginBottom:8,fontSize:12}}>
+    <Icon n="clip" size={13} color={C.greenDeep}/>
+    <span style={{flex:1,minWidth:120,color:C.greenDeep}}>Esta mensagem tem <b>{comArquivo.midia_nome||ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}</b>. O texto já está no campo.</span>
+    <button onClick={enviarArquivo} disabled={enviandoArq}
+      style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+      {enviandoArq?"Enviando…":`Enviar ${ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}`}</button>
+    <button onClick={()=>setComArquivo(null)} style={{border:"none",background:"none",color:C.sub,cursor:"pointer",fontSize:12}}>Não enviar</button>
+    {erroArq&&<span style={{color:C.hot,fontSize:11.5,width:"100%"}}>{erroArq}</span>}
+  </div>}
+  <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
     {!contaInterna()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
     {daEtapa.length>0&&rotulo(`${lead.status}:`)}
     {daEtapa.map(m=>chip(m,true))}
@@ -9001,7 +9068,8 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
         whiteSpace:"nowrap",color:C.sub,background:C.card,flexShrink:0}}>
       {abertas?"Menos":`Outras etapas (${outras.length})`}</button>}
     {abertas&&outras.map(m=>chip(m,false))}
-  </div>;
+  </div>
+  </React.Fragment>;
 }
 
 function usarColar({lead,aoColar,aoAvisar,aoMudarEstado,quantasJa=0}){
@@ -9112,7 +9180,7 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
   </div>;
 }
 
-function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
+function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar,aoFluxo}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
   // Progresso do upload de vídeo — só o XHR avisa isso, e só existe pra ele:
@@ -9261,6 +9329,7 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
         {item("form",`Documento (até ${LIMITE_DOCS})`,()=>docs.current.click())}
         {item("phone","Gravar áudio",gravar)}
         {item("pin","Minha localização",local)}
+        {aoFluxo&&item("branch","Mandar um fluxo",()=>{setAberto(false);aoFluxo();})}
       </div>
     </React.Fragment>}
     {/* Sem isto, um vídeo de 150MB levando minutos numa rede fraca não dá
@@ -9960,6 +10029,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(sel,acoes);
+  const fx=usarFluxoConversa(sel,acoes);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
   /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
@@ -10202,8 +10272,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+        <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
+          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
+            aoFluxo={fx.d&&fx.d.liberado?()=>fx.setAberto(true):null}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{
             if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
@@ -10382,6 +10454,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
   const podeCriarFunil=podeSupervisionar(session);
+  // A engrenagem do prazo de cada coluna é só do gestor (30/10/2026).
+  const gestorFunil=!!(session&&podeGerir(session))&&TIPO_CONTA!=="autonomo";
+  const [engrenagem,setEngrenagem]=useState(null);
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
@@ -10464,6 +10539,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       return true;
     });
   },[doFunil,busca,onde,f]);
+  // Alguma coluna tem valor em negociação? Então todas reservam a linha, para não desalinhar.
+  const algumaNegociacao=visiveis.some(l=>!l.venda&&l.negociacao);
 
   const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
@@ -10738,8 +10815,19 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         const items=visiveis.filter(l=>col.id&&l.stageId?l.stageId===col.id:l.status===st);
         const destacada=arrasto&&alvo===st&&alvo!==arrasto.de;
         const corCol=corDaEtapa(col,st);
+        // O VGV em aberto da coluna: soma do valor em negociação de quem ainda não vendeu.
+        const emNegociacao=items.reduce((t,l)=>t+(!l.venda&&l.negociacao?l.negociacao:0),0);
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:4}}>
+            {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
+              aria-label={"Prazo e consequência de "+st}
+              style={{border:"none",background:"none",padding:2,cursor:"pointer",display:"flex",alignItems:"center",
+                color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
+              <Icon n="gear" size={13} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}
+            <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></span></div>
+          {algumaNegociacao&&<div title={emNegociacao>0?"Soma do valor em negociação dos leads desta coluna (sem os vendidos)":undefined}
+            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,margin:"-4px 4px 7px",height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {emNegociacao>0?`${fmtMoedaCurta(emNegociacao)} em negociação`:""}</div>}
           <div ref={el=>{colunas.current[st]=el;}}
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
               background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
@@ -10766,6 +10854,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     </div>}
     {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
+    {engrenagem&&<PrazoDaEtapaModal etapa={engrenagem} acoes={acoes} isMobile={isMobile}
+      aoFechar={()=>setEngrenagem(null)} aoSalvo={()=>reverFunis&&reverFunis()}/>}
     </div>
   </div>;
 }
@@ -11046,6 +11136,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
       {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
 
       {linha("msg", l.lastAt?`falou ${fmtQuando(l.lastAt)}`:"sem conversa", urgencia)}
+      {l.negociacao&&!l.venda&&linha("trend", `${fmtMoedaCurta(l.negociacao)} em negociação`, C.greenDeep)}
 
       {/* O cronômetro, escrito. A faixa colorida diz QUE está atrasado; esta
           linha diz HÁ QUANTO — e é a diferença entre o gestor olhar e agir, ou
@@ -11835,6 +11926,9 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const [etapa,setEtapa]=useState(inicial.stage_id||"");
   const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
   const fichas=usarFichasIA(acoes);
+  // Tempo para pegar o lead (30/10/2026): vazio desliga.
+  const [tempo,setTempo]=useState(inicial.tempo_resposta_min?String(inicial.tempo_resposta_min):"");
+  const [voltas,setVoltas]=useState(inicial.max_voltas||2);
   const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
@@ -11857,6 +11951,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
       canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null,
+      tempo_resposta_min:tempo.trim()===""?null:Number(tempo),max_voltas:Number(voltas),
       ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
@@ -11932,6 +12027,22 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       {opcao("atendente","Pela atendente",etapaEscolhida?`A atendente da vez recebe. Ao mover para ${etapaEscolhida.name}, a catraca entrega ao corretor.`:"A atendente da vez recebe e repassa por esta catraca.")}
       {opcao("corretor","Direto ao corretor",etapaEscolhida?`Já nasce em ${etapaEscolhida.name}, com o próximo disponível desta catraca. Sem ninguém disponível, vai para a atendente.`:"O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
     </div>
+
+    <div style={rotulo}>Tempo para pegar o lead</div>
+    <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+      <input aria-label="Minutos para pegar o lead" value={tempo} onChange={e=>setTempo(e.target.value.replace(/\D/g,"").slice(0,4))}
+        inputMode="numeric" placeholder="desligado" style={{...caixa,width:110,flex:"0 0 auto"}}/>
+      <span style={{color:C.sub,fontSize:12}}>minutos</span>
+      {tempo.trim()!==""&&<React.Fragment>
+        <span style={{color:C.sub,fontSize:12}}>· no máximo</span>
+        <select aria-label="Voltas" value={voltas} onChange={e=>setVoltas(Number(e.target.value))} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}</select>
+        <span style={{color:C.sub,fontSize:12}}>{voltas===1?"volta":"voltas"} por lead</span>
+      </React.Fragment>}
+    </div>
+    <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+      {tempo.trim()!==""?<>O corretor desta catraca que não mandar mensagem nem ligar para o cliente em <b>{tempo} min</b> perde o lead para o próximo disponível dela. Vale para os leads entregues depois de ligar — ninguém perde o que já tinha.</>
+        :"Em branco, o lead fica com quem recebeu, sem tempo."}</div>
 
     <div style={rotulo}>Corretores ({membros.length})</div>
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
@@ -13106,6 +13217,8 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
   const [erro,setErro]=useState("");
   if(!canal||(!canal.tenho_linha&&canal.onde==="imobiliaria")) return null;
   const noMeu=canal.onde==="corretor";
+  // A linha pode ser de outra pessoa quando quem olha é a gestão (30/10/2026).
+  const deOutro=noMeu&&canal.atual&&canal.atual.minha===false;
   const trocar=async(para)=>{
     setErro("");setOcupado(true);
     try{ const r=await acoes.trocarLinha(leadId,para);
@@ -13119,13 +13232,18 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     <Icon n="whatsapp" size={13} color={noMeu?C.greenDeep:C.faint}/>
     <span style={{fontSize:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
       {noMeu
-        ?<React.Fragment>Sai pelo <b>seu WhatsApp</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
+        ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
         :"Sai pelo WhatsApp da imobiliária"}
     </span>
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
       style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
         borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
       {ocupado?"…":noMeu?"Voltar para o número da imobiliária":"Continuar no meu WhatsApp"}</button>}
+    {!canal.pode_trocar&&canal.pode_voltar_casa&&<button disabled={ocupado} onClick={()=>trocar("imobiliaria")}
+      title="A conversa volta a sair pelo número da imobiliária. Para o WhatsApp pessoal, só quem está com o lead leva."
+      style={{background:C.card,border:`1px solid ${C.line}`,color:C.sub,
+        borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      {ocupado?"…":"Trazer para o número da imobiliária"}</button>}
     {erro&&<span style={{color:C.hot,fontSize:11}}>{erro}</span>}
   </div>;
 }
@@ -14151,6 +14269,11 @@ function QualificacaoDoLead({lead,acoes,session}){
       {CAMPOS_QUAL.map(([k,n,campo])=><div key={k} style={{minWidth:0}}>
         <CampoQual rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/></div>)}
     </div>}
+    {/* O valor do negócio que está sendo conversado (30/10/2026). Soma no
+        cabeçalho das colunas do Funil; venda continua sendo "Registrar venda". */}
+    {!lead.venda&&<div style={{marginTop:10}}>
+      <CampoQual rotulo="Valor em negociação" valor={lead.negociacao?fmtMoeda(lead.negociacao):"—"} icone="trend"
+        onSalvar={(novo)=>acoes.salvarNegociacao(lead.id,novo)}/></div>}
     <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:10}}>
       <CamposPersonalizadosDoLead lead={lead} acoes={acoes} session={session}/>
     </div>
@@ -14269,6 +14392,75 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
    Um gancho e dois pedaços — o relógio ao lado do Enviar e a faixa acima do
    campo — usados pelos DOIS campos de mensagem (corretor e supervisão), que
    já divergiram antes quando cada um tinha o seu. */
+/* FLUXO MANDADO DA CONVERSA (30/10/2026, lista do Fernando). Pelo clipe:
+   "Mandar um fluxo" abre a lista dos fluxos prontos, com a prévia do que
+   sai e "parar quando o cliente responder" (marcado). Rodando, uma faixa
+   acima do campo diz qual e tem "parar". Só aparece com o Marketing liberado. */
+function usarFluxoConversa(lead,acoes){
+  const [d,setD]=useState(null);
+  const [aberto,setAberto]=useState(false);
+  const id=lead&&lead.id;
+  const ler=React.useCallback(()=>{ if(!id) return; acoes.fluxosDaConversa(id).then(setD).catch(()=>setD(null)); },[id,acoes]);
+  useEffect(()=>{ setD(null); setAberto(false); ler(); const t=setInterval(ler,60000); return()=>clearInterval(t); },[id]);
+  const podeMandar=!!(d&&d.liberado&&d.fluxos&&d.fluxos.length);
+  return {d,setD,aberto,setAberto,ler,podeMandar,leadId:id};
+}
+function FaixaFluxo({fx,acoes,isMobile}){
+  const [esc,setEsc]=useState(""); const [parar,setParar]=useState(true);
+  const [ocupado,setOcupado]=useState(false); const [erro,setErro]=useState("");
+  useEffect(()=>{setEsc("");setParar(true);setErro("");},[fx.leadId]);
+  if(!fx.d) return null;
+  const rodando=fx.d.em_andamento||[];
+  const escolhido=(fx.d.fluxos||[]).find(f=>f.id===esc);
+  async function mandar(){
+    if(!escolhido||ocupado) return; setOcupado(true); setErro("");
+    try{ fx.setD(await acoes.mandarFluxo(fx.leadId,escolhido.id,parar)); fx.setAberto(false); setEsc(""); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function parar_(execId){
+    setErro(""); try{ fx.setD(await acoes.pararFluxo(fx.leadId,execId)); }catch(e){ setErro(e.message); }
+  }
+  return <React.Fragment>
+    {rodando.map(x=><div key={x.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.coolSoft||C.surface,
+      border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"7px 54px 7px 10px":"7px 10px",marginBottom:8,fontSize:12}}>
+      <Icon n="branch" size={13} color={C.greenDeep}/>
+      <span style={{flex:1,minWidth:140,color:C.sub}}>Fluxo <b style={{color:C.ink}}>{x.nome}</b> rodando{x.para_se_responder?" · para se o cliente responder":""}. Se você escrever, ele para.</span>
+      <button onClick={()=>parar_(x.id)} style={{border:`1px solid ${C.hot}44`,background:C.card,color:C.hot,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button>
+    </div>)}
+    {fx.aberto&&<div style={{border:`1px solid ${C.green}55`,background:C.card,borderRadius:12,padding:12,marginBottom:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <Icon n="branch" size={14} color={C.greenDeep}/>
+        <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Mandar um fluxo</span>
+        <button onClick={()=>fx.setAberto(false)} aria-label="Fechar" style={{border:"none",background:"none",color:C.faint,cursor:"pointer",fontSize:16}}>×</button>
+      </div>
+      {!fx.podeMandar
+        ?<div style={{color:C.faint,fontSize:12}}>Nenhum fluxo pronto. Os fluxos são montados em Marketing → Fluxos.</div>
+        :<React.Fragment>
+          <select value={esc} onChange={e=>setEsc(e.target.value)} aria-label="Fluxo"
+            style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,marginBottom:8}}>
+            <option value="">Escolha o fluxo…</option>
+            {fx.d.fluxos.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+          </select>
+          {escolhido&&<div style={{background:C.surface,borderRadius:9,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>O que sai agora</div>
+            {escolhido.previa.mensagens.length===0&&<div style={{color:C.faint,fontSize:12}}>Nenhuma mensagem antes de {escolhido.previa.parou}.</div>}
+            {escolhido.previa.mensagens.map((m,i)=><div key={i} style={{fontSize:12,color:C.ink,whiteSpace:"pre-wrap",marginBottom:5}}>
+              {m.texto||<i style={{color:C.faint}}>(sem texto)</i>}{m.arquivo&&<span style={{color:C.faint}}> · 📎 {m.arquivo}</span>}
+              {m.botoes&&m.botoes.length>0&&<div style={{color:C.sub,fontSize:11}}>Botões: {m.botoes.join(" · ")}</div>}</div>)}
+            <div style={{color:C.faint,fontSize:11}}>Depois o fluxo para em {escolhido.previa.parou}.</div>
+          </div>}
+          <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.sub,marginBottom:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={parar} onChange={e=>setParar(e.target.checked)} style={{accentColor:C.green}}/>
+            Parar o fluxo quando o cliente responder</label>
+          <button onClick={mandar} disabled={!escolhido||ocupado}
+            style={{background:escolhido?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:escolhido?"pointer":"default"}}>
+            {ocupado?"Mandando…":"Mandar para o cliente"}</button>
+        </React.Fragment>}
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:6}}>{erro}</div>}
+  </React.Fragment>;
+}
+
 function usarAgendamento(lead,acoes){
   const [lista,setLista]=useState([]);
   const [aberto,setAberto]=useState(false);
@@ -14363,6 +14555,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(lead,acoes);
+  const fx=usarFluxoConversa(lead,acoes);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
@@ -14433,8 +14626,10 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+    <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
+      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
+        aoFluxo={fx.d&&fx.d.liberado?()=>fx.setAberto(true):null}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
         onKeyDown={e=>{
           if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
@@ -14601,6 +14796,61 @@ function ConfigTriagem({acoes,linha,isMobile}){
   </div>;
 }
 
+/* O QR CODE DA PRÓPRIA LINHA DO CORRETOR (30/10/2026, a Nadja da VJ). A
+   instância nova da Uazapi nasce despareada: o token salvava, o selo dizia
+   "ligado" e nada saía. Agora o selo mostra o estado que a Uazapi devolve, e o
+   QR sai aqui — o mesmo que o gestor tem para a linha da casa. */
+function usarQrDaLinha({gerar,status}){
+  const [qr,setQr]=useState(null);
+  const [gerando,setGerando]=useState(false);
+  const [erro,setErro]=useState("");
+  const [w,setW]=useState(null);
+  const rever=async()=>{ try{ const n=await status(); setW(n.whatsapp||null); return n.whatsapp||null; }catch(e){ return null; } };
+  async function pedir(forcar){
+    setGerando(true); setErro("");
+    try{ const r=await gerar(forcar);
+      if(r.conectado){ setQr(null); await rever(); }
+      else setQr({img:r.qrcode||"",codigo:r.paircode||"",desde:Date.now()});
+    }catch(e){ setErro(e.message); } finally{ setGerando(false); }
+  }
+  useEffect(()=>{
+    if(!qr) return;
+    const t=setInterval(async()=>{
+      if(Date.now()-qr.desde>600000){ setQr(null); setErro("O QR Code expirou. Gere outro."); return; }
+      const n=await rever(); if(!n) return;
+      if(whatsConectado(n)){ setQr(null); setErro(""); }
+      else if(n.qrcode) setQr(q=>q&&({...q,img:n.qrcode,codigo:n.paircode||q.codigo}));
+      else if(String(n.status||"").toLowerCase()==="disconnected"&&Date.now()-qr.desde>20000){
+        setQr(null); setErro("O QR Code expirou sem ser lido. Gere outro."); }
+    },3000);
+    return()=>clearInterval(t);
+  },[qr&&qr.desde]);
+  return {qr,setQr,gerando,erro,setErro,w,rever,pedir};
+}
+function PainelQr({qr,gerando,aoGerarOutro,aoFechar}){
+  return <div style={{marginTop:12,border:`1px solid ${C.line}`,borderRadius:12,padding:14,
+    display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+    {qr.img
+      ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,maxWidth:"100%",background:"#fff",borderRadius:8,padding:6,boxSizing:"border-box"}}/>
+      :<div style={{width:220,height:220,maxWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:12,
+        textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:8}}>Gerando o código…</div>}
+    <div style={{flex:"1 1 200px",minWidth:0}}>
+      <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:6}}>Leia com o celular do número</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+        No WhatsApp desse número: <b>Configurações → Aparelhos conectados → Conectar aparelho</b>, e aponte para o código.
+        Esta tela vira "conectado" sozinha quando ler.</div>
+      {qr.codigo&&<div style={{marginTop:8,color:C.sub,fontSize:12}}>Ou use o código de pareamento: <b style={{fontFamily:MONO,color:C.ink}}>{qr.codigo}</b></div>}
+      <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={aoGerarOutro} disabled={gerando}
+          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
+          {gerando?"Gerando…":"Gerar outro código"}</button>
+        <button onClick={aoFechar}
+          style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [f,setF]=useState({host:"",token:""});
   const [fMeta,setFMeta]=useState({phone_number_id:""});
@@ -14608,10 +14858,24 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [ocupado,setOcupado]=useState(false);
   const [abrindo,setAbrindo]=useState(false);
   const [confirmando,setConfirmando]=useState(false);
+  const meuId=canais&&canais.meu&&canais.meu.conectado?canais.meu.id:null;
+  const pq=usarQrDaLinha({gerar:(forcar)=>acoes.qrMeuCanal(forcar),status:()=>acoes.canalStatus(meuId)});
+  const casaOficialH=canais&&canais.casa_provider==="meta";
+  // Ao abrir (e a cada número salvo), pergunta à Uazapi o estado de verdade.
+  useEffect(()=>{ if(meuId&&!casaOficialH) pq.rever(); },[meuId]);
   if(!canais) return null;
   const meu=canais.meu;
   const liberado=!!canais.liberado;
   const ligado=!!(meu&&meu.conectado);
+  /* "ligado" quer dizer só que o token está salvo. O estado de verdade é o
+     que a Uazapi diz: pareado, esperando o QR, ou fora do ar. */
+  const w=pq.w;
+  const pareado=w?whatsConectado(w):null;
+  const estado=!ligado?null:casaOficialH?{t:"LIGADO",c:C.greenDeep,bg:C.greenSoft}
+    :!w?{t:"CONFERINDO…",c:C.sub,bg:C.surface}
+    :w.ok===false?{t:"NÃO RESPONDE",c:C.hot,bg:C.hotSoft}
+    :pareado?{t:"CONECTADO",c:C.greenDeep,bg:C.greenSoft}
+    :{t:"FALTA LER O QR CODE",c:"#8a6d1f",bg:C.amberSoft};
   // O corretor não escolhe provedor — ele segue o da CASA. Mostrar o
   // formulário errado (host+token numa casa oficial, ou o contrário) só
   // faria a pessoa preencher algo que a rota certa nunca aceitaria.
@@ -14621,8 +14885,11 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     setAviso(null);setOcupado(true);
     try{ const r=await acoes.conectarMeuCanal({host:f.host.trim(),token:f.token.trim()});
       setF({host:"",token:""});setAbrindo(false);
-      setAviso(r.aviso?{ok:false,txt:r.aviso}:{ok:true,txt:"Número ligado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."});
+      const pareou=r.whatsapp&&whatsConectado(r.whatsapp);
+      setAviso(r.aviso?{ok:false,txt:r.aviso+(r.whatsapp&&r.whatsapp.ok&&!pareou?" Falta também ler o QR Code abaixo com o celular do seu número.":"")}:pareou?{ok:true,txt:"Número conectado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."}
+        :{ok:true,txt:"Instância salva. Agora leia o QR Code abaixo com o celular do seu número."});
       aoMudar&&aoMudar();
+      if(r.whatsapp&&r.whatsapp.ok&&!pareou) pq.pedir(false);
     }catch(e){ setAviso({ok:false,txt:e.message}); }
     finally{ setOcupado(false); }
   };
@@ -14655,7 +14922,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
       <Icon n="whatsapp" size={17} color={ligado?C.greenDeep:C.faint}/>
       <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Meu WhatsApp</span>
-      {ligado&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>LIGADO</span>}
+      {estado&&<span style={{background:estado.bg,color:estado.c,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>{estado.t}</span>}
     </div>
 
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6,marginBottom:11}}>
@@ -14721,7 +14988,21 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     </React.Fragment>}
 
     {ligado&&<React.Fragment>
-      <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,marginBottom:11}}>
+      {!casaOficialH&&w&&pareado===false&&!pq.qr&&<div style={{background:C.amberSoft,borderRadius:11,padding:12,marginBottom:11}}>
+        <div style={{color:"#8a6d1f",fontSize:12.5,lineHeight:1.55,marginBottom:9}}>
+          {w.ok===false?<React.Fragment>A Uazapi não respondeu: {w.erro||"sem detalhe"}. Confira se a instância está ativa no painel dela.</React.Fragment>
+            :<React.Fragment>O token está salvo, mas <b>o WhatsApp do seu número ainda não foi pareado</b> — nenhuma mensagem sai nem chega até ler o QR Code.</React.Fragment>}
+        </div>
+        {w.ok!==false&&<button onClick={()=>pq.pedir(false)} disabled={pq.gerando}
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          {pq.gerando?"Gerando QR Code…":"Conectar com QR Code"}</button>}
+      </div>}
+      {pq.erro&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,color:C.hot,background:C.hotSoft}}>{pq.erro}
+        {!pq.qr&&<button onClick={()=>pq.pedir(true)} disabled={pq.gerando}
+          style={{marginLeft:8,background:"none",border:"none",color:C.hot,textDecoration:"underline",cursor:"pointer",fontSize:12.5,padding:0}}>
+          forçar reconexão com novo QR Code</button>}</div>}
+      {pq.qr&&<PainelQr qr={pq.qr} gerando={pq.gerando} aoGerarOutro={()=>pq.pedir(false)} aoFechar={()=>pq.setQr(null)}/>}
+      <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,margin:"11px 0"}}>
         {meu.wa_number&&<div><b style={{color:C.ink}}>Número:</b> {meu.wa_number}</div>}
         <div><b style={{color:C.ink}}>Onde aparece:</b> Atender → escolha “Meu WhatsApp” no seletor de número.</div>
         <div><b style={{color:C.ink}}>Como levar um cliente para cá:</b> abra a conversa dele e toque
@@ -15337,16 +15618,22 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState(false);
   const campos=(faltando.faltam||[]).filter(f=>f.campo);
-  const nativos=(faltando.faltam||[]).filter(f=>!f.campo);
+  // A tarefa se cria aqui mesmo (30/10/2026): mandar para a ficha seria mais um passo.
+  const pedeTarefa=(faltando.faltam||[]).some(f=>f.key==="tarefa");
+  const [tarefa,setTarefa]=useState({titulo:"",quando:paraCampoDataHora(Date.now()+86400000)});
+  const tarefaPronta=pedeTarefa&&tarefa.titulo.trim()&&tarefa.quando&&new Date(tarefa.quando).getTime()>Date.now();
+  const nativos=(faltando.faltam||[]).filter(f=>!f.campo&&f.key!=="tarefa");
   const mudar=(k,v)=>setValores(a=>({...a,[k]:v}));
   const vazio=(v)=>v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
   const prontos=campos.filter(f=>!vazio(valores[f.key]));
+  const algoPronto=prontos.length>0||!!tarefaPronta;
 
   const salvarEMover=async()=>{
     setOcupado(true); setErro("");
     try{
       if(prontos.length) await api(`/leads/${faltando.leadId}/campos`,{method:"PATCH",
         body:Object.fromEntries(prontos.map(f=>[f.key,valores[f.key]]))});
+      if(tarefaPronta) await acoes.criarTarefa(faltando.leadId,{titulo:tarefa.titulo.trim(),quando:new Date(tarefa.quando).toISOString()});
       const r=await acoes.mudarEtapa(faltando.leadId,faltando.stage,faltando.extra);
       if(r&&!r.bloqueado&&!r.erro) aoFechar();
       else if(r&&r.erro) setErro(r.erro);
@@ -15394,6 +15681,13 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
           <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>{f.label}</div>
           {editor(f)}
         </div>)}
+        {pedeTarefa&&<div>
+          <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>Próximo passo, com data</div>
+          <input value={tarefa.titulo} onChange={e=>setTarefa({...tarefa,titulo:e.target.value.slice(0,200)})}
+            placeholder="ex.: Ligar para confirmar a visita" style={{...caixa,marginBottom:6}} aria-label="Tarefa"/>
+          <input type="datetime-local" value={tarefa.quando} min={paraCampoDataHora(Date.now())}
+            onChange={e=>setTarefa({...tarefa,quando:e.target.value})} style={caixa} aria-label="Quando"/>
+        </div>}
         {nativos.length>0&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:C.sub,lineHeight:1.5}}>
           {campos.length>0?"E também, na ficha do lead: ":"Preencha na ficha do lead: "}
           <b style={{color:C.ink}}>{nativos.map(f=>f.label).join(", ")}</b>.
@@ -15402,11 +15696,11 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
         </div>}
         {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
       </div>
-      {campos.length>0&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
+      {(campos.length>0||pedeTarefa)&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
         <button onClick={aoFechar} style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-        <button onClick={salvarEMover} disabled={ocupado||!prontos.length}
-          style={{flex:2,border:"none",background:prontos.length?C.green:C.coolSoft,color:prontos.length?"#fff":C.faint,
-            borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:prontos.length?"pointer":"default"}}>
+        <button onClick={salvarEMover} disabled={ocupado||!algoPronto}
+          style={{flex:2,border:"none",background:algoPronto?C.green:C.coolSoft,color:algoPronto?"#fff":C.faint,
+            borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:algoPronto?"pointer":"default"}}>
           {ocupado?"Salvando…":"Salvar e mover"}</button>
       </div>}
     </div>
@@ -18544,7 +18838,72 @@ const ACOES_PRAZO=[
   ["marcar","Só marcar em coral","O lead fica com quem está. É como sempre foi."],
   ["proximo_corretor","Passar para o próximo corretor","Vai para o próximo disponível da catraca do lead (ou da principal), na vez dela."],
   ["atendente","Devolver para a atendente","Volta para a atendente da vez. Sem nenhuma ativa, fica com o corretor."],
+  ["tarefa","Criar uma tarefa para o corretor","O lead fica com ele, e aparece a tarefa “falar com o cliente”, já atrasada, na caixa e no funil."],
 ];
+/* O PRAZO E A CONSEQUÊNCIA DE UMA ETAPA (30/10/2026, áudio do Fernando: "a
+   etapa X tem que ter a sua consequência"). Usado na engrenagem da coluna do
+   Funil e em Configurações → Funis e etapas, para as duas telas nunca
+   divergirem. Vazio = segue o padrão da conta (Configurações → Atendimento). */
+const UNIDADES_PRAZO=[["min",1,"minutos"],["h",60,"horas"],["d",1440,"dias"]];
+const prazoEmPartes=(m)=>{ if(!m) return {n:"",u:"h"};
+  if(m%1440===0) return {n:String(m/1440),u:"d"}; if(m%60===0) return {n:String(m/60),u:"h"}; return {n:String(m),u:"min"}; };
+function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
+  const ini=prazoEmPartes(etapa.sla_minutes);
+  const [n,setN]=useState(ini.n); const [u,setU]=useState(ini.u);
+  const [acao,setAcao]=useState(etapa.prazo_acao||"");
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [padrao,setPadrao]=useState(null);
+  useEffect(()=>{ acoes.prazoVencido().then(p=>setPadrao(p.acao)).catch(()=>{}); },[]);
+  const nomeDe=(v)=>(ACOES_PRAZO.find(x=>x[0]===v)||[])[1]||"Só marcar em coral";
+  async function salvar(){
+    setErro(""); setSalvando(true);
+    const mult=(UNIDADES_PRAZO.find(x=>x[0]===u)||[0,1])[1];
+    const minutos=n.trim()===""?null:Number(n)*mult;
+    if(minutos!==null&&(!Number.isFinite(minutos)||minutos<=0)){ setSalvando(false); return setErro("Digite um número maior que zero, ou deixe em branco."); }
+    try{ await acoes.editarEtapa(etapa.id,{sla_minutes:minutos,prazo_acao:acao}); aoSalvo&&aoSalvo(); aoFechar(); }
+    catch(e){ setErro(e.message); } finally{ setSalvando(false); }
+  }
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:80,display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div onClick={e=>e.stopPropagation()} role="dialog" aria-label={"Prazo de "+etapa.name}
+      style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":14,width:"100%",maxWidth:440,padding:18,boxSizing:"border-box",
+        maxHeight:"90dvh",overflowY:"auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <span style={{background:etapa.color||"#64748B",width:9,height:9,borderRadius:"50%"}}/>
+        <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>{etapa.name}</span>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.faint,fontSize:18}}>×</button>
+      </div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>Só o gestor vê esta engrenagem. Vale para os leads de corretor nesta etapa.</div>
+      <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Prazo sem falar com o cliente</div>
+      <div style={{display:"flex",gap:8,marginBottom:4}}>
+        <input value={n} onChange={e=>setN(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="sem prazo" style={{...campo,width:110}} aria-label="Prazo"/>
+        <select value={u} onChange={e=>setU(e.target.value)} style={{...campo,cursor:"pointer"}} aria-label="Unidade">
+          {UNIDADES_PRAZO.map(([v,,t])=><option key={v} value={v}>{t}</option>)}</select>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginBottom:14}}>Em branco, a etapa não tem prazo e nada acontece.</div>
+      <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Quando o prazo vencer</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {[["",`Padrão da conta${padrao?` (hoje: ${nomeDe(padrao).toLowerCase()})`:""}`,"Muda em Configurações → Atendimento."],...ACOES_PRAZO].map(([v,t,d])=>{
+          const sel=acao===v;
+          return <button key={v||"padrao"} onClick={()=>setAcao(v)} aria-pressed={sel}
+            style={{display:"flex",alignItems:"flex-start",gap:9,textAlign:"left",padding:"9px 11px",borderRadius:10,cursor:"pointer",fontFamily:FONT,
+              border:`1px solid ${sel?C.green:C.line}`,background:sel?C.greenSoft:C.card}}>
+            <span style={{width:14,height:14,borderRadius:99,border:`2px solid ${sel?C.green:C.line}`,flexShrink:0,marginTop:2,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{width:6,height:6,borderRadius:99,background:C.green}}/>}</span>
+            <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{t}</span>
+              <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4,marginTop:1}}>{d}</span></span>
+          </button>;})}
+      </div>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:10}}>{erro}</div>}
+      <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
+        <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          {salvando?"Salvando…":"Salvar"}</button>
+      </div>
+    </div>
+  </div>;
+}
 function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const autonomo=!!(org&&org.tipo==="autonomo");
   const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
@@ -18583,9 +18942,11 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
     {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:12}}>{erro||ok}</div>}
 
     {!autonomo&&prazo&&<div style={cartao}>
-      <div style={titulo}>Quando o prazo da etapa vencer</div>
+      <div style={titulo}>Quando o prazo da etapa vencer <span style={{color:C.faint,fontWeight:500,fontSize:12}}>· padrão da conta</span></div>
       <div style={sub}>
         Vale para lead de corretor parado além do prazo da etapa, contado da última conversa com o cliente.
+        {" "}Cada etapa pode ter a própria escolha na engrenagem ⚙ da coluna, no Funil; esta vale para as que não escolheram.
+        {prazo.etapas_proprias?<span> {prazo.etapas_proprias} {prazo.etapas_proprias===1?"etapa tem escolha própria":"etapas têm escolha própria"}.</span>:null}
         {" "}{prazo.etapas_com_prazo
           ?<span>{prazo.etapas_com_prazo} {prazo.etapas_com_prazo===1?"etapa tem":"etapas têm"} prazo.</span>
           :<span style={{color:"#8a6d1f"}}>Nenhuma etapa tem prazo ainda — defina em <button onClick={()=>irParaAba("funis")} style={{border:"none",background:"none",padding:0,color:C.greenMid,fontWeight:600,cursor:"pointer",textDecoration:"underline",fontSize:11.5}}>Funis e etapas</button>.</span>}
@@ -18603,7 +18964,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
           </button>;
         })}
       </div>
-      {prazo.acao!=="marcar"&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      {prazo.acao!=="marcar"&&prazo.acao!=="tarefa"&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <span style={{color:C.sub,fontSize:12.5}}>Tirar o mesmo lead de alguém no máximo</span>
         <select value={prazo.max_repasses} onChange={e=>mudarPrazo({max_repasses:Number(e.target.value)})}
           style={{...campo,width:"auto",cursor:"pointer"}}>
@@ -18635,7 +18996,8 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
       </div>
     </div>}
 
-    <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 8px"}}>Também faz parte do atendimento</div>
+    <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 2px"}}>Outras telas do atendimento</div>
+    <div style={{color:C.faint,fontSize:11.5,margin:"0 2px 8px"}}>Cada atalho abre a tela onde aquilo se configura.</div>
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10}}>
       {atalhos.map(([t,ic,d,ir])=><button key={t} onClick={ir}
         style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
@@ -20869,7 +21231,7 @@ function resumoDaAutomacao(cfg,pessoas,funis,catracas,tags){
 function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoMudar,aoErro,aoMover,pessoas=[],funis=[],pipelineId}){
   const [f,setF]=useState(etapa);
   const [confirmar,setConfirmar]=useState(false);
-  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
+  useEffect(()=>{setF(etapa);},[etapa.id,etapa.name,etapa.sla_minutes,etapa.prazo_acao,etapa.counts_as_conversion,etapa.is_active,etapa.entrada_comercial,etapa.status_type,JSON.stringify(etapa.automation_config||{})]);
   // Catracas de produto e etiquetas da conta, para a regra "ao chegar" (08/10/2026).
   const catracasCasa=usarCatracas(acoes,true);
   const tagsCasa=usarTagsDaCasa(acoes);
@@ -20893,6 +21255,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           {etapa.name}</div>
         <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>
           {etapa.sla_minutes?`SLA ${etapa.sla_minutes>=1440?Math.round(etapa.sla_minutes/1440)+"d":etapa.sla_minutes+"min"}`:"sem SLA"}
+          {etapa.sla_minutes&&etapa.prazo_acao&&etapa.prazo_acao!=="marcar"?" → "+((ACOES_PRAZO.find(x=>x[0]===etapa.prazo_acao)||[])[1]||"").toLowerCase():""}
           {etapa.entrada_comercial?" · início do processo comercial":""}
           {resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa)?" · ao chegar: "+resumoDaAutomacao(etapa.automation_config,pessoas,funis,catracasCasa&&catracasCasa.catracas,tagsCasa):""}
           {etapa.counts_as_conversion?" · conta como conversão":""}
@@ -20939,6 +21302,12 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
             <option value="perdido">Perdido</option>
           </select></div>
       </div>
+      {f.sla_minutes?<div>
+        {rot("Quando o prazo vencer","Vazio segue o padrão da conta, em Configurações → Atendimento.")}
+        <select value={f.prazo_acao||""} onChange={e=>{setF({...f,prazo_acao:e.target.value||null});salvar({prazo_acao:e.target.value});}} style={entrada}>
+          <option value="">Padrão da conta</option>
+          {ACOES_PRAZO.map(([v,t])=><option key={v} value={v}>{t}</option>)}
+        </select></div>:null}
 
       {/* A separação entre conversão e trabalho administrativo, decidida aqui e
           não na hora de desenhar o gráfico. */}
@@ -21046,12 +21415,12 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           </div>
         </div>;})()}
 
-      {campos.length>0&&<div>
+      {<div>
         {rot("Campos obrigatórios para ENTRAR nesta etapa","Sem eles, o lead não avança — e a tela diz o que falta.")}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[...campos.map(c=>({k:c.key,t:c.name})),
             {k:"telefone",t:"Telefone"},{k:"temperatura",t:"Temperatura"},
-            {k:"responsavel",t:"Responsável"},{k:"produto",t:"Imóvel de interesse"}].map(({k,t})=>{
+            {k:"responsavel",t:"Responsável"},{k:"produto",t:"Imóvel de interesse"},{k:"tarefa",t:"Tarefa marcada"}].map(({k,t})=>{
             const on=(f.required_fields||[]).includes(k);
             return <button key={k} onClick={()=>{
                 const lista=on?(f.required_fields||[]).filter(x=>x!==k):[...(f.required_fields||[]),k];
@@ -21172,6 +21541,45 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
 }
 
 
+/* O ARQUIVO DE UMA MENSAGEM PRONTA (30/10/2026, lista do Fernando): foto,
+   vídeo, áudio ou documento. Na conversa, tocar na mensagem põe o texto no
+   campo e oferece mandar o arquivo — o arquivo sai na hora, o texto quando a
+   pessoa enviar. */
+const ROTULO_ARQ=(mime)=>/^image\//.test(mime||"")?"Foto":/^video\//.test(mime||"")?"Vídeo":/^audio\//.test(mime||"")?"Áudio":"Documento";
+function ArquivoDaMensagem({m,acoes,aoMudar,aoErro}){
+  const ref=React.useRef(null);
+  const [subindo,setSubindo]=useState(false);
+  async function escolher(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const teto=/^image\//.test(f.type)||/^audio\//.test(f.type)?8:30;
+    if(f.size>teto*1024*1024) return aoErro(`O arquivo passa do limite de ${teto} MB.`);
+    setSubindo(true); aoErro("");
+    try{
+      const base64=await new Promise((ok,falhou)=>{const l=new FileReader();l.onload=()=>ok(String(l.result));l.onerror=()=>falhou(new Error("Não consegui ler o arquivo."));l.readAsDataURL(f);});
+      aoMudar(await acoes.anexarNaMensagem(m.id,{base64,mime:f.type||"application/octet-stream",nome:f.name}));
+    }catch(err){ aoErro(err.message); } finally{ setSubindo(false); }
+  }
+  return <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:9,fontSize:11.5}}>
+    <input ref={ref} type="file" hidden onChange={escolher}
+      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.zip"/>
+    {m.midia_url
+      ?<React.Fragment>
+        <span style={{display:"flex",alignItems:"center",gap:5,color:C.sub,minWidth:0}}>
+          <Icon n="clip" size={12} color={C.greenMid}/>
+          <b style={{color:C.ink,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{m.midia_nome||ROTULO_ARQ(m.midia_mime)}</b>
+          <span style={{color:C.faint}}>· {ROTULO_ARQ(m.midia_mime).toLowerCase()}</span></span>
+        <button onClick={()=>ref.current&&ref.current.click()} disabled={subindo}
+          style={{border:"none",background:"none",color:C.greenMid,fontWeight:600,cursor:"pointer",padding:0,fontSize:11.5}}>{subindo?"Enviando…":"trocar"}</button>
+        <button onClick={async()=>{aoErro("");try{aoMudar(await acoes.tirarDaMensagem(m.id));}catch(err){aoErro(err.message);}}}
+          style={{border:"none",background:"none",color:C.faint,cursor:"pointer",padding:0,fontSize:11.5}}>tirar</button>
+      </React.Fragment>
+      :<button onClick={()=>ref.current&&ref.current.click()} disabled={subindo}
+        style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+        <Icon n="clip" size={12}/> {subindo?"Enviando…":"Anexar foto, vídeo, áudio ou documento"}</button>}
+  </div>;
+}
+
 function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
   const [lista,setLista]=useState(null);
   const [erro,setErro]=useState("");
@@ -21252,6 +21660,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
           {(m.etapas||[]).length
             ?<React.Fragment>Aparece primeiro em: <b style={{color:C.sub}}>{m.etapas.map(id=>nomeDaEtapa[id]||"etapa desativada").join(", ")}</b></React.Fragment>
             :"Geral — aparece em todas as etapas"}</div>
+        <ArquivoDaMensagem m={m} acoes={acoes} aoMudar={aplicar} aoErro={setErro}/>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
           <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}

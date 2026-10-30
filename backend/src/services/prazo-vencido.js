@@ -34,13 +34,19 @@
    com motivo 'prazo_vencido' — fica no histórico e o relatório mostra quem
    perdeu e quem recebeu. Não entra na penalidade "perdidos para outro
    corretor", que conta só repasse feito por uma pessoa (motivo 'mao'). */
+import { randomUUID } from "crypto";
 import db from "../db.js";
 import { trocarResponsavel } from "./movimento.js";
 import { filaDoLead, marcarQueRecebeuNoLead } from "./catracas.js";
 import { proximoAtendente } from "./catraca.js";
 import { avisar } from "./push.js";
 
-export const ACOES = ["marcar", "proximo_corretor", "atendente"];
+export const ACOES = ["marcar", "proximo_corretor", "atendente", "tarefa"];
+/* Cada etapa pode ter a própria ação (pipeline_stages.prazo_acao, 30/10/2026,
+   áudio do Fernando); nula segue a da conta. 'tarefa' não tira o lead de
+   ninguém: cria para o dono a tarefa "falar com o cliente", que aparece
+   atrasada na caixa e no funil — é o "prazo vencido vira tarefa" da lista. */
+const acaoDaEtapa = (cfg, l) => ACOES.includes(l.etapa_prazo_acao) ? l.etapa_prazo_acao : cfg.acao;
 export const PADRAO_MAX = 2;
 
 export function configDoPrazo(orgId) {
@@ -71,6 +77,12 @@ export function etapasComPrazo(orgId) {
     WHERE s.org_id = ? AND s.is_active = 1 AND p.is_active = 1 AND s.sla_minutes > 0`).get(orgId).n;
 }
 
+// Quantas etapas escolheram a própria ação (a tela de Atendimento diz isso).
+export function etapasComAcaoPropria(orgId) {
+  return db.prepare(`SELECT COUNT(*) n FROM pipeline_stages s JOIN pipelines p ON p.id = s.pipeline_id
+    WHERE s.org_id = ? AND s.is_active = 1 AND p.is_active = 1 AND s.sla_minutes > 0 AND s.prazo_acao IS NOT NULL`).get(orgId).n;
+}
+
 /* De quando o prazo conta, para esta regra. */
 function baseDoPrazo(l) {
   const conversa = l.last_interaction_at || l.stage_entered_at || l.created_at || 0;
@@ -80,8 +92,8 @@ function baseDoPrazo(l) {
 /* Os leads em que a regra agiria agora. Exportado para o teste. */
 export function vencidosParaAgir(orgId, agora = Date.now(), limite = 50) {
   const cfg = configDoPrazo(orgId);
-  if (!cfg.disponivel || cfg.acao === "marcar") return [];
-  const linhas = db.prepare(`SELECT l.*, s.sla_minutes, s.name etapa_nome, u.name dono_nome
+  if (!cfg.disponivel) return [];
+  const linhas = db.prepare(`SELECT l.*, s.sla_minutes, s.name etapa_nome, s.prazo_acao etapa_prazo_acao, u.name dono_nome
     FROM leads l JOIN pipeline_stages s ON s.id = l.stage_id JOIN users u ON u.id = l.assigned_to
     WHERE l.org_id = ? AND l.closed_at IS NULL AND l.sale_date IS NULL
       AND s.sla_minutes > 0 AND s.is_active = 1 AND COALESCE(s.status_type, 'aberto') NOT IN ('ganho', 'perdido')
@@ -89,12 +101,13 @@ export function vencidosParaAgir(orgId, agora = Date.now(), limite = 50) {
   const tarefaFutura = db.prepare("SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? LIMIT 1");
   const fora = [];
   for (const l of linhas) {
+    if (acaoDaEtapa(cfg, l) === "marcar") continue;
     if (baseDoPrazo(l) + l.sla_minutes * 60000 > agora) continue;
     // A contagem zera quando alguém voltou a falar com o cliente.
     const seguidos = l.prazo_repasse_em && (l.last_interaction_at || 0) <= l.prazo_repasse_em ? (l.prazo_repasses || 0) : 0;
     if (seguidos >= cfg.max_repasses) continue;
     if (tarefaFutura.get(l.id, agora)) continue;
-    fora.push({ ...l, seguidos });
+    fora.push({ ...l, seguidos, acao: acaoDaEtapa(cfg, l) });
     if (fora.length >= limite) break;
   }
   return fora;
@@ -113,11 +126,24 @@ export async function agirNosVencidos(orgId, agora = Date.now()) {
   const cfg = configDoPrazo(orgId);
   const feitos = [];
   for (const l of vencidosParaAgir(orgId, agora)) {
+    if (l.acao === "tarefa") {
+      const titulo = `Prazo de "${l.etapa_nome}" venceu: falar com o cliente`;
+      // Já existe uma em aberto com o mesmo aviso: não empilha outra.
+      const ja = db.prepare("SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND titulo = ? LIMIT 1").get(l.id, titulo);
+      if (!ja) db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,created_at)
+        VALUES (?,?,?,?,NULL,?,?,?)`).run("t_" + randomUUID(), orgId, l.id, l.assigned_to, titulo, agora, agora);
+      db.prepare("UPDATE leads SET prazo_repasses = ?, prazo_repasse_em = ? WHERE id = ?").run(l.seguidos + 1, agora, l.id);
+      if (!ja) {
+        feitos.push({ lead_id: l.id, de: l.assigned_to, para: l.assigned_to, tarefa: true });
+        avisar(l.assigned_to, { titulo: "Prazo vencido", corpo: `${l.name}: o prazo da etapa ${l.etapa_nome} venceu. Ficou uma tarefa para falar com o cliente.`, leadId: l.id }).catch(() => {});
+      }
+      continue;
+    }
     let destino = null;
-    if (cfg.acao === "proximo_corretor") {
+    if (l.acao === "proximo_corretor") {
       destino = outroCorretor(orgId, l);
       if (destino) marcarQueRecebeuNoLead(orgId, l, destino);
-    } else if (cfg.acao === "atendente") {
+    } else if (l.acao === "atendente") {
       destino = proximoAtendente(orgId);
       // Para a "atendente" que for o próprio dono (não acontece: dono é
       // corretor), ou ninguém ativo: o lead fica onde está.
@@ -139,7 +165,8 @@ export async function agirNosVencidos(orgId, agora = Date.now()) {
 }
 
 export async function agirNosVencidosEmTodas(agora = Date.now()) {
-  const orgs = db.prepare("SELECT id FROM orgs WHERE prazo_acao IN ('proximo_corretor','atendente')").all();
+  const orgs = db.prepare(`SELECT id FROM orgs WHERE prazo_acao IN ('proximo_corretor','atendente','tarefa')
+    OR id IN (SELECT org_id FROM pipeline_stages WHERE is_active = 1 AND prazo_acao IN ('proximo_corretor','atendente','tarefa'))`).all();
   for (const o of orgs) {
     try { await agirNosVencidos(o.id, agora); }
     catch (e) { console.error("[prazo] erro na conta", o.id, e.message); }
