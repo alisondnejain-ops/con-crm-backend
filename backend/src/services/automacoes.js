@@ -39,7 +39,7 @@ import db from "../db.js";
 import { temRecurso } from "./recursos.js";
 import { campoCasa } from "./campos-lead.js";
 
-export const TIPOS_DE_GATILHO = ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo"];
+export const TIPOS_DE_GATILHO = ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo", "palavra"];
 export const ORIGENS_DE_LEAD = ["whatsapp", "formulario", "portal", "manual"];
 
 /* O gatilho que vem do navegador, limpo. Os campos de funil e catraca do
@@ -80,6 +80,15 @@ export function gatilhoLimpo(g) {
   /* Parar o fluxo quando o cliente responder (08/10/2026): uma mensagem do
      cliente encerra a execução que está esperando um tempo ou ainda não
      chegou a um bloco que espera resposta. Vale para qualquer gatilho. */
+  /* MENSAGEM DO CLIENTE (30/10/2026, lista do Fernando): o cliente escreveu
+     uma palavra ou frase ('contem'), começou a mensagem com ela ('comeca'),
+     ou mandou o código de um imóvel do catálogo ('codigo' — o "cód. A1B2C3"
+     do site). Palavra inteira, sem olhar maiúscula nem acento. */
+  if (tipo === "palavra") {
+    out.modo = ["contem", "comeca", "codigo"].includes(g.modo) ? g.modo : "contem";
+    const brutas = Array.isArray(g.palavras) ? g.palavras : String(g.palavras || "").split(/[,;\n]/);
+    out.palavras = out.modo === "codigo" ? [] : [...new Set(brutas.map(p => String(p || "").replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean))].slice(0, 20);
+  }
   out.parar_ao_responder = !!g?.parar_ao_responder;
   return out;
 }
@@ -117,7 +126,7 @@ export function gatilhosDoGrafo(grafo) {
 }
 /* O nome curto de um gatilho, para as frases de erro e o histórico. */
 const NOME_TIPO = { manual: "Disparo em massa", formulario: "Formulário preenchido", lead_novo: "Lead novo",
-  etapa: "Entrou na etapa", etiqueta: "Etiqueta adicionada", campo: "Campo preenchido" };
+  etapa: "Entrou na etapa", etiqueta: "Etiqueta adicionada", campo: "Campo preenchido", palavra: "Mensagem do cliente" };
 export const nomeDoTipoDeGatilho = (t) => NOME_TIPO[t] || t;
 const semAcento = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 /* Duas ações iguais em dois gatilhos do mesmo fluxo. Devolve as frases. */
@@ -137,6 +146,11 @@ export function sobreposicoes(lista) {
     if (a.tipo === b.tipo && a.tipo === "campo" && a.campo && a.campo === b.campo
       && (!a.valor || !b.valor || semAcento(a.valor) === semAcento(b.valor)))
       motivo = a.valor && b.valor ? "os dois são o mesmo campo com o mesmo valor" : "os dois são o mesmo campo, e um deles vale para qualquer valor";
+    if (a.tipo === b.tipo && a.tipo === "palavra") {
+      if (a.modo === "codigo" && b.modo === "codigo") motivo = "os dois pegam o código do imóvel";
+      const comum = a.palavras.find(x => b.palavras.some(y => semAcento(y) === semAcento(x)));
+      if (comum) motivo = `a palavra “${comum}” está nos dois`;
+    }
     if (a.tipo === b.tipo && a.tipo === "lead_novo") {
       const oa = a.origens.length ? a.origens : ORIGENS_DE_LEAD, ob = b.origens.length ? b.origens : ORIGENS_DE_LEAD;
       if (oa.some(o => ob.includes(o))) motivo = "os dois pegam lead novo da mesma origem";
@@ -177,12 +191,30 @@ export function problemasDoGatilho(orgId, g) {
     if (!g.tag_id) return ["Escolha a etiqueta do gatilho."];
     if (!db.prepare("SELECT 1 FROM tags WHERE id = ? AND org_id = ?").get(g.tag_id, orgId)) return ["A etiqueta do gatilho não existe mais."];
   }
+  if (g.tipo === "palavra" && g.modo !== "codigo" && !g.palavras?.length) return ["Escreva a palavra ou frase do gatilho."];
   if (g.tipo === "campo") {
     if (!g.campo) return ["Escolha o campo do gatilho."];
     if (!db.prepare("SELECT 1 FROM custom_fields WHERE key = ? AND org_id = ? AND is_active = 1").get(g.campo, orgId))
       return ["O campo do gatilho não existe mais ou foi desativado."];
   }
   return [];
+}
+
+/* A mensagem casa com o gatilho "Mensagem do cliente"? */
+const palavrasDe = (t) => " " + semAcento(t).replace(/[^a-z0-9]+/g, " ").trim() + " ";
+export function palavraCasa(orgId, g, texto) {
+  const t = String(texto || "");
+  if (!t.trim()) return false;
+  if (g.modo === "codigo") {
+    const codigos = (t.toUpperCase().match(/\b[0-9A-F]{6}\b/g) || []);
+    return codigos.some(c => db.prepare("SELECT 1 FROM produtos WHERE org_id = ? AND UPPER(SUBSTR(REPLACE(SUBSTR(id,3),'-',''),1,6)) = ? LIMIT 1").get(orgId, c));
+  }
+  const msg = palavrasDe(t);
+  return (g.palavras || []).some(p => {
+    const w = palavrasDe(p);
+    if (w.trim() === "") return false;
+    return g.modo === "comeca" ? msg.startsWith(w) : msg.includes(w);
+  });
 }
 
 const formas = (t) => {
@@ -206,6 +238,13 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
     if (!temRecurso(orgId, "marketing")) return 0;
     const lead = db.prepare("SELECT id, name, phone FROM leads WHERE id = ? AND org_id = ?").get(leadId, orgId);
     if (!lead) return 0;
+    /* A palavra do cliente no MEIO de uma conversa com gente não liga fluxo:
+       "valor" dito numa negociação não pode disparar as boas-vindas. Só vale
+       quando ninguém da equipe escreveu para ele nas últimas 12 horas. */
+    if (tipo === "palavra" && db.prepare(`SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'out'
+        AND from_user_id IS NOT NULL AND created_at > ? LIMIT 1`).get(lead.id, agora - 12 * 3600000)) return 0;
+    // Nem quando ele já está andando por outro fluxo: dois automáticos se atropelariam.
+    if (tipo === "palavra" && db.prepare(`SELECT 1 FROM marketing_execucoes WHERE lead_id = ? AND estado IN ('ativa','aguardando_resposta') LIMIT 1`).get(lead.id)) return 0;
     const f = formas(lead.phone);
     if (f.length && db.prepare(`SELECT 1 FROM marketing_bloqueio WHERE org_id = ? AND telefone IN (${f.map(() => "?").join(",")})`).get(orgId, ...f))
       return 0;
@@ -221,6 +260,7 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
         if (tipo === "lead_novo") return !g.origens.length || g.origens.includes(origem);
         if (tipo === "formulario") return g.formularios.some(x => x.id === String(chave || ""));
         if (tipo === "campo") return g.campo === String(chave || "") && campoCasa(valor, g.valor);
+        if (tipo === "palavra") return palavraCasa(orgId, g, valor);
         return String(refDoGatilho(g) || "") === String(chave || "");
       };
       // Os gatilhos não se sobrepõem (`sobreposicoes` trava o ligar), então

@@ -3639,7 +3639,9 @@ const GATILHOS=[
   ["etapa","Entrou na etapa","Quando um lead entra numa etapa do funil.","columns"],
   ["etiqueta","Etiqueta adicionada","Quando alguém coloca uma etiqueta num lead.","tag"],
   ["campo","Campo preenchido","Quando um campo do lead ganha um valor — na ficha ou pela IA.","lista"],
+  ["palavra","Mensagem do cliente","Quando o cliente escreve uma palavra, começa com uma frase ou manda o código de um imóvel.","msg"],
 ];
+const MODOS_PALAVRA=[["contem","Tem a palavra ou frase"],["comeca","Começa com"],["codigo","Manda o código de um imóvel do catálogo"]];
 const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
 const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"],
   ["campo","Campo com valor"],["respondeu","O cliente respondeu"]];
@@ -3683,6 +3685,10 @@ function resumoDoGatilho(g,op){
   if(g.tipo==="etiqueta") return g.tag_id?`Etiqueta “${nomeEm(op&&op.tags,g.tag_id)||"…"}” adicionada`:"Escolha a etiqueta…";
   if(g.tipo==="campo"){ const c=((op&&op.campos)||[]).find(x=>x.key===g.campo);
     return g.campo?`${c?c.name:"Campo"} ${g.valor?`= ${g.valor}`:"preenchido"}`:"Escolha o campo…"; }
+  if(g.tipo==="palavra"){
+    if(g.modo==="codigo") return "O cliente mandou o código de um imóvel";
+    const ps=(g.palavras||[]); if(!ps.length) return "Escreva a palavra…";
+    return `${g.modo==="comeca"?"Começa com":"Tem"}: ${ps.map(p=>`“${p}”`).join(", ")}`; }
   return "Disparo em massa — entra quem o disparo escolher.";
 }
 function resumoDoBloco(no,op){
@@ -4177,6 +4183,19 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
     {g.tipo==="campo"&&<React.Fragment>
       <div><div style={rot}>Campo</div><SeletorDeCampoFluxo valor={g.campo} aoMudar={v=>muda({campo:v,valor:""})} campos={op&&op.campos} isMobile={isMobile}/></div>
       {g.campo&&<div><div style={rot}>Com o valor</div><ValorDoCampoFluxo campo={((op&&op.campos)||[]).find(c=>c.key===g.campo)} valor={g.valor} aoMudar={v=>muda({valor:v})} isMobile={isMobile}/></div>}
+    </React.Fragment>}
+    {g.tipo==="palavra"&&<React.Fragment>
+      <div><div style={rot}>Quando</div>
+        <select value={g.modo||"contem"} onChange={e=>muda({modo:e.target.value})} aria-label="Quando"
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}>
+          {MODOS_PALAVRA.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
+      {(g.modo||"contem")!=="codigo"&&<div><div style={rot}>Palavras ou frases</div>
+        <input defaultValue={(g.palavras||[]).join(", ")} key={(g.palavras||[]).join("|")}
+          onBlur={e=>muda({palavras:e.target.value.split(/[,;\n]/).map(x=>x.trim()).filter(Boolean)})}
+          placeholder="ex.: quero alugar, valor, simulação" aria-label="Palavras"
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}/>
+        <div style={{color:C.faint,fontSize:11,marginTop:4}}>Separe com vírgula. Palavra inteira, sem olhar maiúscula nem acento.</div></div>}
+      <div style={{color:C.faint,fontSize:11,lineHeight:1.45}}>Não dispara se alguém da equipe escreveu para o cliente nas últimas 12 horas, nem se ele já está em outro fluxo — a palavra no meio de uma negociação não pode mandar boas-vindas.</div>
     </React.Fragment>}
     <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.parar_ao_responder} onChange={e=>muda({parar_ao_responder:e.target.checked})} style={{marginTop:3}}/>
@@ -4705,7 +4724,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
         {!criando&&<button onClick={()=>setCriando(true)} style={botaoMkt()}>+ Novo fluxo</button>}
       </div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:12}}>
-        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido) e ligue para rodar sozinho.</div>
+        Mensagens e ações em sequência. Use num disparo em massa, ou escolha um <b>gatilho</b> (formulário preenchido, lead novo, etapa, etiqueta, campo preenchido, mensagem do cliente) e ligue para rodar sozinho.</div>
       {criando&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
         <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)} onKeyDown={e=>e.key==="Enter"&&criar()} maxLength={80}
           placeholder="Nome do fluxo (ex.: Reativação de leads frios)" style={{...campoMkt(isMobile),flex:1,minWidth:220}}/>
