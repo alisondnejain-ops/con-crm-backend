@@ -8,6 +8,7 @@ import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
 import { agendar, cancelar, listarDoLead } from "../services/agendadas.js";
+import { fluxosParaConversa, mandarFluxoNaConversa, pararFluxoNaConversa } from "../services/disparo.js";
 
 /* POR QUAL LINHA ESTA MENSAGEM SAI.
 
@@ -311,6 +312,33 @@ r.post("/:id/anexo", async (req, res) => {
   pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
+});
+
+/* FLUXO MANDADO DA CONVERSA (30/10/2026, lista do Fernando; ver
+   services/disparo.js → mandarFluxoNaConversa). Quem pode abrir a conversa
+   lista, manda e para. O master não manda fluxo dentro da conta de um cliente. */
+const fluxoErro = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : "Não deu para mexer no fluxo agora." });
+function leadDaConversa(req, res) {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) { res.status(404).json({ error: "Lead não encontrado" }); return null; }
+  if (!podeVerLead(req.user, lead)) { res.status(403).json({ error: "Este lead não está com você" }); return null; }
+  return lead;
+}
+r.get("/:id/fluxos", (req, res) => {
+  const lead = leadDaConversa(req, res); if (!lead) return;
+  try { res.json(fluxosParaConversa(lead.org_id, lead.id)); } catch (e) { fluxoErro(res, e); }
+});
+r.post("/:id/fluxos", (req, res) => {
+  const lead = leadDaConversa(req, res); if (!lead) return;
+  const dono = db.prepare("SELECT org_id FROM users WHERE id = ?").get(req.user.id);
+  if (req.user.master && dono && dono.org_id !== lead.org_id)
+    return res.status(403).json({ error: "O master não manda fluxo dentro da conta de um cliente." });
+  try { res.json(mandarFluxoNaConversa(lead.org_id, req.user, lead.id, String(req.body?.fluxo_id || ""),
+    { pararAoResponder: req.body?.parar_ao_responder !== false })); } catch (e) { fluxoErro(res, e); }
+});
+r.delete("/:id/fluxos/:execId", (req, res) => {
+  const lead = leadDaConversa(req, res); if (!lead) return;
+  try { res.json(pararFluxoNaConversa(lead.org_id, lead.id, req.params.execId, req.user)); } catch (e) { fluxoErro(res, e); }
 });
 
 /* O ARQUIVO DE UMA MENSAGEM PRONTA (30/10/2026, lista do Fernando). O arquivo

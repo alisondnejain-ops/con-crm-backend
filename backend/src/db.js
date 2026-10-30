@@ -2546,6 +2546,12 @@ addLeadCol("prazo_repasse_em", "INTEGER");
   const c = db.prepare("PRAGMA table_info(mensagens_rapidas)").all().map(x => x.name);
   for (const col of ["midia_url", "midia_mime", "midia_nome"]) if (!c.includes(col)) db.exec(`ALTER TABLE mensagens_rapidas ADD COLUMN ${col} TEXT`);
 }
+{ /* Fluxo mandado da conversa (30/10/2026, lista do Fernando): quem mandou e se
+     para quando o cliente responder (sobrepõe a escolha do gatilho). */
+  const c = db.prepare("PRAGMA table_info(marketing_execucoes)").all().map(x => x.name);
+  if (!c.includes("parar_ao_responder")) db.exec("ALTER TABLE marketing_execucoes ADD COLUMN parar_ao_responder INTEGER");
+  if (!c.includes("iniciado_por")) db.exec("ALTER TABLE marketing_execucoes ADD COLUMN iniciado_por TEXT");
+}
 addLeadCol("valor_negociacao", "REAL"); // valor em negociação (30/10/2026, lista do Fernando): o VGV em aberto
 addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este lead de alguém por falta de resposta
 

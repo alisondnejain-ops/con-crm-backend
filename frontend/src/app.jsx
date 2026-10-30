@@ -2048,6 +2048,9 @@ function ConCRM(){
     anexarNaMensagem:(id,dados)=>api(`/config/mensagens/${id}/midia`,{method:"POST",body:dados}),
     tirarDaMensagem:(id)=>api(`/config/mensagens/${id}/midia`,{method:"DELETE"}),
     enviarArquivoPronto:(leadId,mid)=>api(`/leads/${leadId}/pronta/${mid}`,{method:"POST",body:{}}),
+    fluxosDaConversa:(leadId)=>api(`/leads/${leadId}/fluxos`),
+    mandarFluxo:(leadId,fluxoId,parar)=>api(`/leads/${leadId}/fluxos`,{method:"POST",body:{fluxo_id:fluxoId,parar_ao_responder:parar}}),
+    pararFluxo:(leadId,execId)=>api(`/leads/${leadId}/fluxos/${execId}`,{method:"DELETE"}),
     // Toda leitura da tela de Conexão (inclusive a de 3 em 3s do QR Code)
     // atualiza o selo do topo — antes ele só era lido ao entrar no sistema.
     conexao:()=>api("/config/conexao").then(d=>{
@@ -9158,7 +9161,7 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
   </div>;
 }
 
-function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
+function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar,aoFluxo}){
   const [aberto,setAberto]=useState(false);
   const [ocupado,setOcupado]=useState("");
   // Progresso do upload de vídeo — só o XHR avisa isso, e só existe pra ele:
@@ -9307,6 +9310,7 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar}){
         {item("form",`Documento (até ${LIMITE_DOCS})`,()=>docs.current.click())}
         {item("phone","Gravar áudio",gravar)}
         {item("pin","Minha localização",local)}
+        {aoFluxo&&item("branch","Mandar um fluxo",()=>{setAberto(false);aoFluxo();})}
       </div>
     </React.Fragment>}
     {/* Sem isto, um vídeo de 150MB levando minutos numa rede fraca não dá
@@ -10006,6 +10010,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(sel,acoes);
+  const fx=usarFluxoConversa(sel,acoes);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
   /* AS ETAPAS DO FUNIL DESTE LEAD — buscadas AQUI, incondicional, e não lá
@@ -10248,8 +10253,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+        <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
+          <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
+            aoFluxo={fx.d&&fx.d.liberado?()=>fx.setAberto(true):null}/>
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{
             if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
@@ -14366,6 +14373,75 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
    Um gancho e dois pedaços — o relógio ao lado do Enviar e a faixa acima do
    campo — usados pelos DOIS campos de mensagem (corretor e supervisão), que
    já divergiram antes quando cada um tinha o seu. */
+/* FLUXO MANDADO DA CONVERSA (30/10/2026, lista do Fernando). Pelo clipe:
+   "Mandar um fluxo" abre a lista dos fluxos prontos, com a prévia do que
+   sai e "parar quando o cliente responder" (marcado). Rodando, uma faixa
+   acima do campo diz qual e tem "parar". Só aparece com o Marketing liberado. */
+function usarFluxoConversa(lead,acoes){
+  const [d,setD]=useState(null);
+  const [aberto,setAberto]=useState(false);
+  const id=lead&&lead.id;
+  const ler=React.useCallback(()=>{ if(!id) return; acoes.fluxosDaConversa(id).then(setD).catch(()=>setD(null)); },[id,acoes]);
+  useEffect(()=>{ setD(null); setAberto(false); ler(); const t=setInterval(ler,60000); return()=>clearInterval(t); },[id]);
+  const podeMandar=!!(d&&d.liberado&&d.fluxos&&d.fluxos.length);
+  return {d,setD,aberto,setAberto,ler,podeMandar,leadId:id};
+}
+function FaixaFluxo({fx,acoes,isMobile}){
+  const [esc,setEsc]=useState(""); const [parar,setParar]=useState(true);
+  const [ocupado,setOcupado]=useState(false); const [erro,setErro]=useState("");
+  useEffect(()=>{setEsc("");setParar(true);setErro("");},[fx.leadId]);
+  if(!fx.d) return null;
+  const rodando=fx.d.em_andamento||[];
+  const escolhido=(fx.d.fluxos||[]).find(f=>f.id===esc);
+  async function mandar(){
+    if(!escolhido||ocupado) return; setOcupado(true); setErro("");
+    try{ fx.setD(await acoes.mandarFluxo(fx.leadId,escolhido.id,parar)); fx.setAberto(false); setEsc(""); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function parar_(execId){
+    setErro(""); try{ fx.setD(await acoes.pararFluxo(fx.leadId,execId)); }catch(e){ setErro(e.message); }
+  }
+  return <React.Fragment>
+    {rodando.map(x=><div key={x.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.coolSoft||C.surface,
+      border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"7px 54px 7px 10px":"7px 10px",marginBottom:8,fontSize:12}}>
+      <Icon n="branch" size={13} color={C.greenDeep}/>
+      <span style={{flex:1,minWidth:140,color:C.sub}}>Fluxo <b style={{color:C.ink}}>{x.nome}</b> rodando{x.para_se_responder?" · para se o cliente responder":""}. Se você escrever, ele para.</span>
+      <button onClick={()=>parar_(x.id)} style={{border:`1px solid ${C.hot}44`,background:C.card,color:C.hot,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button>
+    </div>)}
+    {fx.aberto&&<div style={{border:`1px solid ${C.green}55`,background:C.card,borderRadius:12,padding:12,marginBottom:8}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+        <Icon n="branch" size={14} color={C.greenDeep}/>
+        <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Mandar um fluxo</span>
+        <button onClick={()=>fx.setAberto(false)} aria-label="Fechar" style={{border:"none",background:"none",color:C.faint,cursor:"pointer",fontSize:16}}>×</button>
+      </div>
+      {!fx.podeMandar
+        ?<div style={{color:C.faint,fontSize:12}}>Nenhum fluxo pronto. Os fluxos são montados em Marketing → Fluxos.</div>
+        :<React.Fragment>
+          <select value={esc} onChange={e=>setEsc(e.target.value)} aria-label="Fluxo"
+            style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,marginBottom:8}}>
+            <option value="">Escolha o fluxo…</option>
+            {fx.d.fluxos.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+          </select>
+          {escolhido&&<div style={{background:C.surface,borderRadius:9,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+            <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>O que sai agora</div>
+            {escolhido.previa.mensagens.length===0&&<div style={{color:C.faint,fontSize:12}}>Nenhuma mensagem antes de {escolhido.previa.parou}.</div>}
+            {escolhido.previa.mensagens.map((m,i)=><div key={i} style={{fontSize:12,color:C.ink,whiteSpace:"pre-wrap",marginBottom:5}}>
+              {m.texto||<i style={{color:C.faint}}>(sem texto)</i>}{m.arquivo&&<span style={{color:C.faint}}> · 📎 {m.arquivo}</span>}
+              {m.botoes&&m.botoes.length>0&&<div style={{color:C.sub,fontSize:11}}>Botões: {m.botoes.join(" · ")}</div>}</div>)}
+            <div style={{color:C.faint,fontSize:11}}>Depois o fluxo para em {escolhido.previa.parou}.</div>
+          </div>}
+          <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.sub,marginBottom:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={parar} onChange={e=>setParar(e.target.checked)} style={{accentColor:C.green}}/>
+            Parar o fluxo quando o cliente responder</label>
+          <button onClick={mandar} disabled={!escolhido||ocupado}
+            style={{background:escolhido?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:escolhido?"pointer":"default"}}>
+            {ocupado?"Mandando…":"Mandar para o cliente"}</button>
+        </React.Fragment>}
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:6}}>{erro}</div>}
+  </React.Fragment>;
+}
+
 function usarAgendamento(lead,acoes){
   const [lista,setLista]=useState([]);
   const [aberto,setAberto]=useState(false);
@@ -14460,6 +14536,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(lead,acoes);
+  const fx=usarFluxoConversa(lead,acoes);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
   const [mandandoColados,setMandandoColados]=useState(false);
@@ -14530,8 +14607,10 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+    <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}/>
+      <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
+        aoFluxo={fx.d&&fx.d.liberado?()=>fx.setAberto(true):null}/>
       <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar}
         onKeyDown={e=>{
           if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
