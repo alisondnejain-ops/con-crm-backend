@@ -1166,12 +1166,17 @@ function canalDaConversa(user, lead) {
   const meu = canalDoUsuario(lead.org_id, user.id);
   const meuLigado = !!(meu && meu.ativo && meu.token);
   return {
-    atual: atual && atual.ativo ? { id: atual.id, tipo: atual.tipo, nome: atual.nome, wa_number: atual.wa_number } : null,
+    atual: atual && atual.ativo ? { id: atual.id, tipo: atual.tipo, nome: atual.nome, wa_number: atual.wa_number,
+      minha: atual.user_id === user.id } : null,
     // Nulo em `atual` é a linha da casa. A tela escreve o nome, não o nulo.
     onde: atual && atual.ativo ? "corretor" : "imobiliaria",
     tenho_linha: meuLigado,
     minha_linha_id: meuLigado ? meu.id : null,
     pode_trocar: meuLigado && lead.assigned_to === user.id,
+    /* A gestão traz a conversa de volta para o número da IMOBILIÁRIA (30/10/2026,
+       pedido do Fernando) — o número é da casa. Mandar para o WhatsApp pessoal
+       de alguém continua sendo só do dono do lead. */
+    pode_voltar_casa: !!(atual && atual.ativo) && supervisiona(user) && lead.assigned_to !== user.id,
   };
 }
 
@@ -1192,10 +1197,10 @@ r.post("/:id/canal", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  if (lead.assigned_to !== req.user.id)
-    return res.status(403).json({ error: "Só quem está com o lead pode mudar o número da conversa." });
-
   const para = String(req.body?.para || "").trim();   // 'minha' | 'imobiliaria'
+  const gestaoVoltando = para === "imobiliaria" && supervisiona(req.user);
+  if (lead.assigned_to !== req.user.id && !gestaoVoltando)
+    return res.status(403).json({ error: "Só quem está com o lead pode mudar o número da conversa." });
   if (para === "imobiliaria") {
     db.prepare("UPDATE leads SET canal_id = NULL WHERE id = ?").run(lead.id);
     return res.json({ ok: true, canal: canalDaConversa(req.user, { ...lead, canal_id: null }) });

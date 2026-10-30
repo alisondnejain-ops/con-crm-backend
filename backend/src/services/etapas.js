@@ -185,6 +185,10 @@ export function camposQueFaltam(orgId, etapa, lead) {
     produto: lead.produto_id,
     ticket: lead.sale_value,
     sale_value: lead.sale_value,
+    /* TAREFA OBRIGATÓRIA PARA ENTRAR (30/10/2026, lista do Fernando): uma
+       tarefa em aberto marcada para agora ou depois — o próximo passo com
+       data. Tarefa já vencida não conta: ela mesma é o atraso. */
+    tarefa: exigidos.includes("tarefa") && lead.id && temTarefaFutura(lead.id) ? 1 : null,
   };
   // Rótulo próprio para o campo intrínseco — ele não tem definição em
   // `custom_fields`, e "sale_value" cru na mensagem não diria à pessoa que
@@ -227,6 +231,7 @@ const ROTULOS_DE_NATIVO = {
   temperatura: "Temperatura", priority: "Temperatura", origem: "Origem", source: "Origem",
   campanha: "Campanha", campaign: "Campanha", responsavel: "Responsável",
   produto: "Imóvel de interesse", ticket: "Valor da venda",
+  tarefa: "Uma tarefa marcada (o próximo passo, com data)",
 };
 
 /* Tira de todas as etapas da conta a exigência de um campo que deixou de

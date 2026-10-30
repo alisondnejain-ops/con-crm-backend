@@ -166,5 +166,23 @@ const ultimo2 = (diag2.eventos || diag2.webhooks || [])[0] || {};
 console.log(`   ${ultimo2.resultado}`);
 assert.ok(/SEM o token/i.test(ultimo2.resultado || ""), "e a recusa diz que faltou o token, não que a linha é desconhecida");
 
+console.log("9. A gestão TRAZ de volta para o número da casa, mas não manda para o WhatsApp de ninguém (30/10/2026)");
+{
+  const { sign } = await import("../src/auth.js");
+  novo("u_gestora", "Gestora", "adm");
+  const cr = (id) => ({ authorization: "Bearer " + sign(db.prepare("SELECT * FROM users WHERE id=?").get(id)), "content-type": "application/json" });
+  const lMarina = leadDe("5587911110002");
+  assert.equal(lMarina.canal_id, daMarina.id);
+  let ficha = await (await fetch(url("/leads/" + lMarina.id), { headers: cr("u_gestora") })).json();
+  const canal = ficha.canal || (ficha.lead && ficha.lead.canal);
+  assert.equal(canal.pode_voltar_casa, true); assert.equal(canal.atual.minha, false);
+  let r = await fetch(url(`/leads/${lMarina.id}/canal`), { method: "POST", headers: cr("u_gestora"), body: JSON.stringify({ para: "minha" }) });
+  assert.equal(r.status, 403, "o WhatsApp pessoal continua só do dono do lead");
+  r = await fetch(url(`/leads/${lMarina.id}/canal`), { method: "POST", headers: cr("u_vanessa"), body: JSON.stringify({ para: "imobiliaria" }) });
+  assert.equal(r.status, 200, "a atendente (supervisão) também traz de volta");
+  assert.equal(leadDe("5587911110002").canal_id, null);
+  console.log("   voltou para a casa");
+}
+
 console.log("\nTudo certo ✅");
 fim(0);

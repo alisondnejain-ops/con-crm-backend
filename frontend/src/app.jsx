@@ -713,15 +713,23 @@ const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
       CHEGADA — o mais antigo primeiro, sempre: é fila, e quem pediu contato
       antes é atendido antes;
    2. no corretor, o que acabou de chegar na mão dele (repasse das últimas 24h);
-   3. o cliente esperando resposta;
+   3. o cliente esperando resposta — e, junto, o lead com o PRAZO DA ETAPA
+      vencido (30/10/2026, lista do Fernando: o atrasado não podia ficar
+      enterrado). Tarefa marcada para o futuro segura, como no relógio;
    4. o resto.
    Dentro dos grupos 2 a 4 vale a escolha "Mais recentes / Mais antigos
    primeiro" da própria pessoa (`usarOrdemDaCaixa`): o mais antigo primeiro é
    o jeito de zerar as conversas sem descer a lista. */
 const chegadaNaCaixa=(l)=>l.assignedAt||l.createdAt||0;
+const prazoEstourado=(l)=>{ const s=l&&l.sla; return !!(s&&!s.segura&&!l.finalizado&&s.limite&&s.desde&&Date.now()>=s.desde+s.limite*60000); };
 function ordenarCaixa(lista,ordem,{repasseNoTopo=false}={}){
-  const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:esperandoContato(l)?2:3;
-  const quando=(l,g)=>g===1?(l.assignedAt||0):(l.lastAt||l.createdAt||0);
+  const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:(esperandoContato(l)||prazoEstourado(l))?2:3;
+  /* A hora que ordena é a da última INTERAÇÃO (mensagem de gente, ligação),
+     não a da última mensagem: o follow-up automático de um fluxo ou disparo
+     levava o lead ao topo a cada envio, como se algo novo tivesse acontecido
+     (30/10/2026, lista do Fernando). `ultimaInteracao` vem do servidor e já
+     ignora disparo e automação; lead antigo sem ela usa a última mensagem. */
+  const quando=(l,g)=>g===1?(l.assignedAt||0):(l.ultimaInteracao||l.lastAt||l.createdAt||0);
   return [...lista].sort((a,b)=>{
     const ga=grupo(a), gb=grupo(b);
     if(ga!==gb) return ga-gb;
@@ -13139,6 +13147,8 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
   const [erro,setErro]=useState("");
   if(!canal||(!canal.tenho_linha&&canal.onde==="imobiliaria")) return null;
   const noMeu=canal.onde==="corretor";
+  // A linha pode ser de outra pessoa quando quem olha é a gestão (30/10/2026).
+  const deOutro=noMeu&&canal.atual&&canal.atual.minha===false;
   const trocar=async(para)=>{
     setErro("");setOcupado(true);
     try{ const r=await acoes.trocarLinha(leadId,para);
@@ -13152,13 +13162,18 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     <Icon n="whatsapp" size={13} color={noMeu?C.greenDeep:C.faint}/>
     <span style={{fontSize:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
       {noMeu
-        ?<React.Fragment>Sai pelo <b>seu WhatsApp</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
+        ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
         :"Sai pelo WhatsApp da imobiliária"}
     </span>
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
       style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
         borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
       {ocupado?"…":noMeu?"Voltar para o número da imobiliária":"Continuar no meu WhatsApp"}</button>}
+    {!canal.pode_trocar&&canal.pode_voltar_casa&&<button disabled={ocupado} onClick={()=>trocar("imobiliaria")}
+      title="A conversa volta a sair pelo número da imobiliária. Para o WhatsApp pessoal, só quem está com o lead leva."
+      style={{background:C.card,border:`1px solid ${C.line}`,color:C.sub,
+        borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      {ocupado?"…":"Trazer para o número da imobiliária"}</button>}
     {erro&&<span style={{color:C.hot,fontSize:11}}>{erro}</span>}
   </div>;
 }
@@ -15456,16 +15471,22 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState(false);
   const campos=(faltando.faltam||[]).filter(f=>f.campo);
-  const nativos=(faltando.faltam||[]).filter(f=>!f.campo);
+  // A tarefa se cria aqui mesmo (30/10/2026): mandar para a ficha seria mais um passo.
+  const pedeTarefa=(faltando.faltam||[]).some(f=>f.key==="tarefa");
+  const [tarefa,setTarefa]=useState({titulo:"",quando:paraCampoDataHora(Date.now()+86400000)});
+  const tarefaPronta=pedeTarefa&&tarefa.titulo.trim()&&tarefa.quando&&new Date(tarefa.quando).getTime()>Date.now();
+  const nativos=(faltando.faltam||[]).filter(f=>!f.campo&&f.key!=="tarefa");
   const mudar=(k,v)=>setValores(a=>({...a,[k]:v}));
   const vazio=(v)=>v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
   const prontos=campos.filter(f=>!vazio(valores[f.key]));
+  const algoPronto=prontos.length>0||!!tarefaPronta;
 
   const salvarEMover=async()=>{
     setOcupado(true); setErro("");
     try{
       if(prontos.length) await api(`/leads/${faltando.leadId}/campos`,{method:"PATCH",
         body:Object.fromEntries(prontos.map(f=>[f.key,valores[f.key]]))});
+      if(tarefaPronta) await acoes.criarTarefa(faltando.leadId,{titulo:tarefa.titulo.trim(),quando:new Date(tarefa.quando).toISOString()});
       const r=await acoes.mudarEtapa(faltando.leadId,faltando.stage,faltando.extra);
       if(r&&!r.bloqueado&&!r.erro) aoFechar();
       else if(r&&r.erro) setErro(r.erro);
@@ -15513,6 +15534,13 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
           <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>{f.label}</div>
           {editor(f)}
         </div>)}
+        {pedeTarefa&&<div>
+          <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>Próximo passo, com data</div>
+          <input value={tarefa.titulo} onChange={e=>setTarefa({...tarefa,titulo:e.target.value.slice(0,200)})}
+            placeholder="ex.: Ligar para confirmar a visita" style={{...caixa,marginBottom:6}} aria-label="Tarefa"/>
+          <input type="datetime-local" value={tarefa.quando} min={paraCampoDataHora(Date.now())}
+            onChange={e=>setTarefa({...tarefa,quando:e.target.value})} style={caixa} aria-label="Quando"/>
+        </div>}
         {nativos.length>0&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:12.5,color:C.sub,lineHeight:1.5}}>
           {campos.length>0?"E também, na ficha do lead: ":"Preencha na ficha do lead: "}
           <b style={{color:C.ink}}>{nativos.map(f=>f.label).join(", ")}</b>.
@@ -15521,11 +15549,11 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
         </div>}
         {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
       </div>
-      {campos.length>0&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
+      {(campos.length>0||pedeTarefa)&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8}}>
         <button onClick={aoFechar} style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-        <button onClick={salvarEMover} disabled={ocupado||!prontos.length}
-          style={{flex:2,border:"none",background:prontos.length?C.green:C.coolSoft,color:prontos.length?"#fff":C.faint,
-            borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:prontos.length?"pointer":"default"}}>
+        <button onClick={salvarEMover} disabled={ocupado||!algoPronto}
+          style={{flex:2,border:"none",background:algoPronto?C.green:C.coolSoft,color:algoPronto?"#fff":C.faint,
+            borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:algoPronto?"pointer":"default"}}>
           {ocupado?"Salvando…":"Salvar e mover"}</button>
       </div>}
     </div>
@@ -21240,12 +21268,12 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           </div>
         </div>;})()}
 
-      {campos.length>0&&<div>
+      {<div>
         {rot("Campos obrigatórios para ENTRAR nesta etapa","Sem eles, o lead não avança — e a tela diz o que falta.")}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[...campos.map(c=>({k:c.key,t:c.name})),
             {k:"telefone",t:"Telefone"},{k:"temperatura",t:"Temperatura"},
-            {k:"responsavel",t:"Responsável"},{k:"produto",t:"Imóvel de interesse"}].map(({k,t})=>{
+            {k:"responsavel",t:"Responsável"},{k:"produto",t:"Imóvel de interesse"},{k:"tarefa",t:"Tarefa marcada"}].map(({k,t})=>{
             const on=(f.required_fields||[]).includes(k);
             return <button key={k} onClick={()=>{
                 const lista=on?(f.required_fields||[]).filter(x=>x!==k):[...(f.required_fields||[]),k];
