@@ -2004,6 +2004,7 @@ function ConCRM(){
     conectarMeuCanalOficial:(phoneNumberId)=>api("/canais/meu/oficial",{method:"POST",body:{phone_number_id:phoneNumberId}}),
     roboDoMeuCanal:(ligado)=>api("/canais/meu/robo",{method:"POST",body:{ligado}}),
     desligarMeuCanal:()=>api("/canais/meu",{method:"DELETE"}),
+    qrMeuCanal:(forcar)=>api("/canais/meu/conectar",{method:"POST",body:{forcar:!!forcar}}),
     liberarCanal:(user_id,liberado)=>api("/canais/liberar",{method:"POST",body:{user_id,liberado}}),
     desligarCanalDe:(id)=>api(`/canais/${id}`,{method:"DELETE"}),
     // O atalho da conversa: passar este atendimento para o meu WhatsApp, e voltar.
@@ -14601,6 +14602,61 @@ function ConfigTriagem({acoes,linha,isMobile}){
   </div>;
 }
 
+/* O QR CODE DA PRÓPRIA LINHA DO CORRETOR (30/10/2026, a Nadja da VJ). A
+   instância nova da Uazapi nasce despareada: o token salvava, o selo dizia
+   "ligado" e nada saía. Agora o selo mostra o estado que a Uazapi devolve, e o
+   QR sai aqui — o mesmo que o gestor tem para a linha da casa. */
+function usarQrDaLinha({gerar,status}){
+  const [qr,setQr]=useState(null);
+  const [gerando,setGerando]=useState(false);
+  const [erro,setErro]=useState("");
+  const [w,setW]=useState(null);
+  const rever=async()=>{ try{ const n=await status(); setW(n.whatsapp||null); return n.whatsapp||null; }catch(e){ return null; } };
+  async function pedir(forcar){
+    setGerando(true); setErro("");
+    try{ const r=await gerar(forcar);
+      if(r.conectado){ setQr(null); await rever(); }
+      else setQr({img:r.qrcode||"",codigo:r.paircode||"",desde:Date.now()});
+    }catch(e){ setErro(e.message); } finally{ setGerando(false); }
+  }
+  useEffect(()=>{
+    if(!qr) return;
+    const t=setInterval(async()=>{
+      if(Date.now()-qr.desde>600000){ setQr(null); setErro("O QR Code expirou. Gere outro."); return; }
+      const n=await rever(); if(!n) return;
+      if(whatsConectado(n)){ setQr(null); setErro(""); }
+      else if(n.qrcode) setQr(q=>q&&({...q,img:n.qrcode,codigo:n.paircode||q.codigo}));
+      else if(String(n.status||"").toLowerCase()==="disconnected"&&Date.now()-qr.desde>20000){
+        setQr(null); setErro("O QR Code expirou sem ser lido. Gere outro."); }
+    },3000);
+    return()=>clearInterval(t);
+  },[qr&&qr.desde]);
+  return {qr,setQr,gerando,erro,setErro,w,rever,pedir};
+}
+function PainelQr({qr,gerando,aoGerarOutro,aoFechar}){
+  return <div style={{marginTop:12,border:`1px solid ${C.line}`,borderRadius:12,padding:14,
+    display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+    {qr.img
+      ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,maxWidth:"100%",background:"#fff",borderRadius:8,padding:6,boxSizing:"border-box"}}/>
+      :<div style={{width:220,height:220,maxWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:12,
+        textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:8}}>Gerando o código…</div>}
+    <div style={{flex:"1 1 200px",minWidth:0}}>
+      <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:6}}>Leia com o celular do número</div>
+      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
+        No WhatsApp desse número: <b>Configurações → Aparelhos conectados → Conectar aparelho</b>, e aponte para o código.
+        Esta tela vira "conectado" sozinha quando ler.</div>
+      {qr.codigo&&<div style={{marginTop:8,color:C.sub,fontSize:12}}>Ou use o código de pareamento: <b style={{fontFamily:MONO,color:C.ink}}>{qr.codigo}</b></div>}
+      <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={aoGerarOutro} disabled={gerando}
+          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
+          {gerando?"Gerando…":"Gerar outro código"}</button>
+        <button onClick={aoFechar}
+          style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [f,setF]=useState({host:"",token:""});
   const [fMeta,setFMeta]=useState({phone_number_id:""});
@@ -14608,10 +14664,24 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
   const [ocupado,setOcupado]=useState(false);
   const [abrindo,setAbrindo]=useState(false);
   const [confirmando,setConfirmando]=useState(false);
+  const meuId=canais&&canais.meu&&canais.meu.conectado?canais.meu.id:null;
+  const pq=usarQrDaLinha({gerar:(forcar)=>acoes.qrMeuCanal(forcar),status:()=>acoes.canalStatus(meuId)});
+  const casaOficialH=canais&&canais.casa_provider==="meta";
+  // Ao abrir (e a cada número salvo), pergunta à Uazapi o estado de verdade.
+  useEffect(()=>{ if(meuId&&!casaOficialH) pq.rever(); },[meuId]);
   if(!canais) return null;
   const meu=canais.meu;
   const liberado=!!canais.liberado;
   const ligado=!!(meu&&meu.conectado);
+  /* "ligado" quer dizer só que o token está salvo. O estado de verdade é o
+     que a Uazapi diz: pareado, esperando o QR, ou fora do ar. */
+  const w=pq.w;
+  const pareado=w?whatsConectado(w):null;
+  const estado=!ligado?null:casaOficialH?{t:"LIGADO",c:C.greenDeep,bg:C.greenSoft}
+    :!w?{t:"CONFERINDO…",c:C.sub,bg:C.surface}
+    :w.ok===false?{t:"NÃO RESPONDE",c:C.hot,bg:C.hotSoft}
+    :pareado?{t:"CONECTADO",c:C.greenDeep,bg:C.greenSoft}
+    :{t:"FALTA LER O QR CODE",c:"#8a6d1f",bg:C.amberSoft};
   // O corretor não escolhe provedor — ele segue o da CASA. Mostrar o
   // formulário errado (host+token numa casa oficial, ou o contrário) só
   // faria a pessoa preencher algo que a rota certa nunca aceitaria.
@@ -14621,8 +14691,11 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     setAviso(null);setOcupado(true);
     try{ const r=await acoes.conectarMeuCanal({host:f.host.trim(),token:f.token.trim()});
       setF({host:"",token:""});setAbrindo(false);
-      setAviso(r.aviso?{ok:false,txt:r.aviso}:{ok:true,txt:"Número ligado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."});
+      const pareou=r.whatsapp&&whatsConectado(r.whatsapp);
+      setAviso(r.aviso?{ok:false,txt:r.aviso+(r.whatsapp&&r.whatsapp.ok&&!pareou?" Falta também ler o QR Code abaixo com o celular do seu número.":"")}:pareou?{ok:true,txt:"Número conectado. As conversas que passarem por ele aparecem em Atender → Meu WhatsApp."}
+        :{ok:true,txt:"Instância salva. Agora leia o QR Code abaixo com o celular do seu número."});
       aoMudar&&aoMudar();
+      if(r.whatsapp&&r.whatsapp.ok&&!pareou) pq.pedir(false);
     }catch(e){ setAviso({ok:false,txt:e.message}); }
     finally{ setOcupado(false); }
   };
@@ -14655,7 +14728,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
       <Icon n="whatsapp" size={17} color={ligado?C.greenDeep:C.faint}/>
       <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Meu WhatsApp</span>
-      {ligado&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>LIGADO</span>}
+      {estado&&<span style={{background:estado.bg,color:estado.c,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>{estado.t}</span>}
     </div>
 
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6,marginBottom:11}}>
@@ -14721,7 +14794,21 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     </React.Fragment>}
 
     {ligado&&<React.Fragment>
-      <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,marginBottom:11}}>
+      {!casaOficialH&&w&&pareado===false&&!pq.qr&&<div style={{background:C.amberSoft,borderRadius:11,padding:12,marginBottom:11}}>
+        <div style={{color:"#8a6d1f",fontSize:12.5,lineHeight:1.55,marginBottom:9}}>
+          {w.ok===false?<React.Fragment>A Uazapi não respondeu: {w.erro||"sem detalhe"}. Confira se a instância está ativa no painel dela.</React.Fragment>
+            :<React.Fragment>O token está salvo, mas <b>o WhatsApp do seu número ainda não foi pareado</b> — nenhuma mensagem sai nem chega até ler o QR Code.</React.Fragment>}
+        </div>
+        {w.ok!==false&&<button onClick={()=>pq.pedir(false)} disabled={pq.gerando}
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          {pq.gerando?"Gerando QR Code…":"Conectar com QR Code"}</button>}
+      </div>}
+      {pq.erro&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,color:C.hot,background:C.hotSoft}}>{pq.erro}
+        {!pq.qr&&<button onClick={()=>pq.pedir(true)} disabled={pq.gerando}
+          style={{marginLeft:8,background:"none",border:"none",color:C.hot,textDecoration:"underline",cursor:"pointer",fontSize:12.5,padding:0}}>
+          forçar reconexão com novo QR Code</button>}</div>}
+      {pq.qr&&<PainelQr qr={pq.qr} gerando={pq.gerando} aoGerarOutro={()=>pq.pedir(false)} aoFechar={()=>pq.setQr(null)}/>}
+      <div style={{background:C.surface,borderRadius:11,padding:12,fontSize:12.5,color:C.sub,lineHeight:1.7,margin:"11px 0"}}>
         {meu.wa_number&&<div><b style={{color:C.ink}}>Número:</b> {meu.wa_number}</div>}
         <div><b style={{color:C.ink}}>Onde aparece:</b> Atender → escolha “Meu WhatsApp” no seletor de número.</div>
         <div><b style={{color:C.ink}}>Como levar um cliente para cá:</b> abra a conversa dele e toque
