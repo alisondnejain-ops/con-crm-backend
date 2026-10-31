@@ -1068,6 +1068,7 @@ const ICO={
   gear:<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
   arrow:<React.Fragment><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></React.Fragment>,
   voltar:<React.Fragment><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></React.Fragment>,
+  x:<React.Fragment><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></React.Fragment>,
   users:<React.Fragment><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></React.Fragment>,
   /* Uma pessoa só. "Minha conta" e "Equipe" usavam o MESMO desenho de duas
      pessoas — na barra recolhida, onde só sobra o ícone, viravam dois itens
@@ -1434,6 +1435,9 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 // de validar uma paleta nova para mais um gráfico de sete séries.
 const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2","#57534E"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
+/* As permissões individuais (31/10/2026): acréscimos que o gestor dá a um
+   corretor. Quem decide é o servidor; aqui só mostra ou esconde o botão. */
+const temPerm=(s,k)=>!!(s&&Array.isArray(s.permissoes)&&s.permissoes.includes(k));
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
   return {id:u.id,name:u.name,email:u.email,phone:u.phone,role:u.role,funcao:u.funcao,
@@ -1454,6 +1458,8 @@ function toSession(u){
              silêncio, e o dono da conta abriria o CRM sem Configurações,
              Equipe, Conexão nem Assinatura, sem nenhum erro aparecer. */
           gestor:!!u.gestor,
+          // Permissões a mais que o gestor deu ao corretor (31/10/2026).
+          permissoes:Array.isArray(u.permissoes)?u.permissoes:[],
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
@@ -1722,11 +1728,16 @@ function ConCRM(){
        recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
        precisa chegar ao popup para dizer o que faltou preencher. */
     criarTarefa:(leadId,dados)=>api(`/leads/${leadId}/tarefas`,{method:"POST",body:dados}).then(r=>{recarregar();return r;}),
+    googleEstado:()=>api("/google/estado"),
+    googleConectar:()=>api("/google/conectar"),
+    googleDesconectar:()=>api("/google",{method:"DELETE"}),
     marcarTarefa:(id,feito)=>api(`/tarefas/${id}`,{method:"PATCH",body:{feito}}).then(r=>{recarregar();return r;}),
     apagarTarefa:(id)=>api(`/tarefas/${id}`,{method:"DELETE"}).then(r=>{recarregar();return r;}),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:atribuir((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:atribuir((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
+    permissoesDisponiveis:()=>api("/auth/permissoes"),
+    definirPermissoes:(id,permissoes)=>api(`/auth/users/${id}/permissoes`,{method:"PATCH",body:{permissoes}}),
     repassar:atribuir((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     assumir:acao((leadId)=>api("/distribution/assumir",{method:"POST",body:{lead_id:leadId}})),
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
@@ -2000,6 +2011,7 @@ function ConCRM(){
       setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
+    relatorioSdr:(params)=>api("/reports/sdr?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
     expediente:()=>api("/distribution/expediente"),
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
@@ -2009,6 +2021,11 @@ function ConCRM(){
     canais:()=>api("/canais"),
     // Triagem de números novos (services/triagem.js): quem escreveu e ainda não é lead.
     triagem:()=>api("/triagem"),
+    grupos:()=>api("/grupos"),
+    grupo:(id)=>api("/grupos/"+id),
+    enviarAoGrupo:(id,texto)=>api(`/grupos/${id}/mensagens`,{method:"POST",body:{texto}}),
+    linhasDeGrupos:()=>api("/grupos/linhas"),
+    ligarGruposDaLinha:(id,ligado)=>api(`/grupos/linhas/${id}`,{method:"POST",body:{ligado}}),
     decidirContato:(id,decisao)=>api(`/triagem/novos/${id}`,{method:"POST",body:{decisao}}).then(r=>{recarregar();return r;}),
     definirTriagem:(linha,ligada)=>api("/triagem/linhas",{method:"POST",body:{linha,ligada}}),
     voltarAReceber:(linha,phone)=>api("/triagem/pessoais/voltar",{method:"POST",body:{linha,phone}}),
@@ -2212,6 +2229,7 @@ function ConCRM(){
     metasConfig:(mes)=>api("/painel/metas"+(mes?`?mes=${mes}`:"")),
     salvarMeta:(dados)=>api("/painel/metas",{method:"POST",body:dados}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
+    proximaMensagem:(id,pedido)=>api(`/leads/${id}/proxima-mensagem`,{method:"POST",body:{pedido:pedido||""}}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
   };
@@ -3614,6 +3632,7 @@ function WebhookDoDisparo({url}){
 const TIPO_BLOCO={
   inicio:{nome:"Gatilho",cor:C.greenDeep,icone:"zap"},
   mensagem:{nome:"Mensagem",cor:C.green,icone:"msg"},
+  ia:{nome:"Chamar a IA",cor:"#C2572F",icone:"spark"},
   espera:{nome:"Espera",cor:C.cool,icone:"clock"},
   resposta:{nome:"Esperar resposta",cor:"#2F80C4",icone:"reply"},
   botoes:{nome:"Botões",cor:"#7A5AD6",icone:"grid"},
@@ -3626,7 +3645,7 @@ const TIPO_BLOCO={
 };
 /* A PALETA, agrupada como no exemplo que o Ali mandou (03/10/2026): o que
    fala com o cliente, o que decide o caminho e o que mexe no lead. */
-const GRUPOS_DE_BLOCO=[["Mensagem",["mensagem","botoes","resposta","espera"]],["Fluxo",["condicao"]],
+const GRUPOS_DE_BLOCO=[["Mensagem",["mensagem","ia","botoes","resposta","espera"]],["Fluxo",["condicao"]],
   ["CRM",["add_tag","remover_tag","mover_etapa","atribuir","tarefa"]]];
 const TIPOS_NOVOS=GRUPOS_DE_BLOCO.flatMap(([,t])=>t);
 const BLOCOS_CRM=["add_tag","remover_tag","mover_etapa","atribuir","tarefa"];
@@ -3655,7 +3674,7 @@ function saidasDoBloco(no){
   const d=no.dados||{};
   switch(no.tipo){
     case "inicio": return [["proximo","Começa aqui"]];
-    case "mensagem": case "espera": case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return [["proximo","Depois"]];
+    case "mensagem": case "ia": case "espera": case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return [["proximo","Depois"]];
     case "condicao": return [["sim","Sim"],["nao","Não"]];
     case "resposta": return [...(d.regras||[]).map((r,i)=>[r.id,r.palavras?`Contém: ${r.palavras}`:`Caminho ${i+1} (sem palavras)`]),
       ["outra","Qualquer outra resposta"],["sem_resposta",`Não respondeu em ${fmtPrazo(d.prazo)}`]];
@@ -3696,6 +3715,7 @@ function resumoDoBloco(no,op){
   if(no.tipo==="inicio") return resumoDoGatilho(d.gatilho,op);
   if(no.tipo==="mensagem"&&d.modelo) return `Modelo da Meta: ${d.modelo.nome}`;
   if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
+  if(no.tipo==="ia") return d.instrucao?`A IA escreve: ${d.instrucao}`:"Diga o que a IA deve escrever…";
   if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
   if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
   if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
@@ -3724,6 +3744,7 @@ const idNovoFluxo=(p)=>p+Math.random().toString(36).slice(2,8);
 function blocoNovo(tipo,x,y){
   const prazo={quantidade:24,unidade:"horas"};
   const dados=tipo==="mensagem"?{texto:"",midia:null}
+    :tipo==="ia"?{instrucao:""}
     :tipo==="espera"?{quantidade:1,unidade:"dias"}
     :tipo==="resposta"?{regras:[{id:idNovoFluxo("r"),palavras:""}],prazo}
     :tipo==="botoes"?{texto:"",botoes:[{id:idNovoFluxo("b"),rotulo:""},{id:idNovoFluxo("b"),rotulo:""}],escrever_opcoes:true,prazo}
@@ -4262,6 +4283,13 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         <select value={d.user_id||""} onChange={e=>dados({user_id:e.target.value})} style={campoMkt(isMobile)}>
           <option value="">Escolha…</option>{((op&&op.responsaveis)||[]).map(u=><option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>}
     </React.Fragment>}
+    {no.tipo==="ia"&&<div><div style={rot}>O que a IA deve escrever</div>
+      <textarea value={d.instrucao||""} onChange={e=>dados({instrucao:e.target.value})} maxLength={1000} rows={4}
+        placeholder="Ex.: pergunte se a pessoa ainda procura imóvel e se prefere casa ou apartamento"
+        style={{...campoMkt(isMobile),resize:"vertical",fontFamily:FONT}}/>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:6,lineHeight:1.5}}>
+        A IA lê a conversa e as orientações do Autoatendimento e escreve a mensagem, que <b>sai sem ninguém conferir</b>.
+        Ela não inventa valor, prazo nem endereço. Faz parte do Autoatendimento: precisa estar no plano.</div></div>}
     {no.tipo==="tarefa"&&<React.Fragment>
       <div><div style={rot}>Tarefa</div>
         <input value={d.titulo||""} onChange={e=>dados({titulo:e.target.value})} maxLength={160} placeholder="Ligar para o cliente" style={campoMkt(isMobile)}/></div>
@@ -7807,6 +7835,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
   const [view,setView]=usarEscolha("view",role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
   // Voltando da janela do Facebook ("Conectar com Facebook"): abre onde a pessoa estava.
   useEffect(()=>{ if(RETORNO_META&&podeGerir(session)) setView("config"); },[]);
+  useEffect(()=>{ if(RETORNO_GOOGLE) setView("conta"); },[]);
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
@@ -8010,6 +8039,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     .concat(podeGerir(session)&&role==="corretor"
       ?[["produtividade","trend","Produção","Minha conta"]]
       :[])
+    .concat(role==="corretor"&&!podeGerir(session)&&temPerm(session,"editar_mensagens")?[["mensagens","msg","Mensagens prontas","Ferramentas"]]:[])
     .concat([["conta","user","Minha conta","Configurações"]])
     /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA E O PLANTÃO SOMEM.
 
@@ -8052,7 +8082,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -8162,7 +8192,10 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
-        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
+        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}
+          pickable={temPerm(session,"ver_relatorios_equipe")}/>}
+        {role==="corretor"&&temPerm(session,"editar_mensagens")&&view==="mensagens"&&<div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"22px 28px"}}>
+          <div style={{maxWidth:820,margin:"0 auto"}}><MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile}/></div></div>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
@@ -10029,6 +10062,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(sel,acoes);
+  const sg=usarSugestaoIA(sel);
   const fx=usarFluxoConversa(sel,acoes);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
@@ -10096,7 +10130,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   // A linha, antes de tudo: os outros filtros valem dentro do número escolhido.
   const daLinha=myLeads.filter(l=>!minhaLinha||linha==="todas"?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id);
-  const contagem=contagemDaCaixa(daLinha,triagem);
+  const [grupos,lerGrupos]=usarGrupos(acoes);
+  const contagem=comGrupos(contagemDaCaixa(daLinha,triagem),grupos);
   const list=daLinha
     .filter(l=>passaNaVista(l,vista,campanha))
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
@@ -10186,7 +10221,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {vista==="novos"
+        {vista==="grupos"?<GruposDoWhatsapp dados={grupos} recarregar={lerGrupos} acoes={acoes} isMobile={isMobile}/>
+          :vista==="novos"
           ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");openChat(id);}} isMobile={isMobile} session={session}/>
           :<React.Fragment>
             {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
@@ -10272,6 +10308,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+        <FaixaSugestaoIA sg={sg} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
         <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
@@ -10297,7 +10334,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/>
           {sel.canal&&sel.canal.onde==="corretor"
             ?<React.Fragment>Sai pelo seu número, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
-            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}</div>
+            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+          <BotaoSugestaoIA sg={sg}/></div>
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
@@ -10332,6 +10370,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         })()}
         <DicaEtapa etapa={sel.status}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        {!canHandoff&&temPerm(session,"repassar_leads")&&sel.assignedTo===session.id&&<RepasseDoCorretor lead={sel} acoes={acoes} session={session}/>}
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Repassar para um corretor</div>
           <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
@@ -10936,6 +10975,59 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar})
 /* Tarefas marcadas com este cliente. Pequeno de propósito: o que precisa ser
    feito, quando, e um risco para dizer que já foi. Tarefa vencida fica em
    coral — é a única que muda alguma coisa em quem está olhando. */
+/* ===== GOOGLE AGENDA (31/10/2026, services/google-agenda.js) =====
+   Cada pessoa liga a própria conta Google; a tarefa no nome dela vira evento
+   na agenda, com Meet opcional. Sem as chaves do Google no servidor, o
+   cartão aparece só para o gestor, dizendo o que falta. */
+const RETORNO_GOOGLE=(()=>{
+  try{
+    const q=new URLSearchParams(window.location.search); const g=q.get("google");
+    if(!g) return null;
+    window.history.replaceState(null,"",window.location.pathname);
+    return {estado:g,motivo:q.get("motivo")||""};
+  }catch(e){ return null; }
+})();
+let memoriaGoogle=null;
+function usarGoogleEstado(acoes){
+  const [d,setD]=useState(memoriaGoogle);
+  useEffect(()=>{ if(memoriaGoogle) return; acoes.googleEstado().then(r=>{memoriaGoogle=r;setD(r);}).catch(()=>{}); },[]);
+  return d;
+}
+function GoogleAgenda({acoes,session,isMobile}){
+  const [d,setD]=useState(null), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState("");
+  const [aviso]=useState(()=>RETORNO_GOOGLE);
+  const ler=()=>acoes.googleEstado().then(r=>{memoriaGoogle=r;setD(r);}).catch(()=>{});
+  useEffect(()=>{ler();},[]);
+  if(!d) return null;
+  if(!d.configurado&&!d.conectado&&!podeGerir(session)) return null;
+  async function conectar(){
+    setOcupado(true);setErro("");
+    try{ const r=await acoes.googleConectar(); window.location.href=r.url; }catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  async function desconectar(){
+    setOcupado(true);setErro("");
+    try{ await acoes.googleDesconectar(); await ler(); }catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="calendar" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Google Agenda e Meet</span>
+      {d.conectado&&<span style={{color:C.greenDeep,background:C.greenSoft,fontSize:10.5,fontWeight:700,padding:"2px 8px",borderRadius:999}}>LIGADO</span>}
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Ligado, cada tarefa no seu nome vira um evento na sua agenda, e dá para criar o link do Meet junto.
+      Vai para o Google só o título da tarefa, a hora e o nome do cliente.</div>
+    {aviso&&aviso.estado==="ok"&&<div style={{color:C.greenDeep,background:C.greenSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Google Agenda ligado.</div>}
+    {aviso&&aviso.estado==="erro"&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Não deu para ligar: {aviso.motivo}</div>}
+    {!d.configurado&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"8px 10px"}}>
+      Ainda não está ligado nesta instalação: falta o projeto do ConHub no Google Cloud (e a verificação do Google). Fale com o ConHub.</div>}
+    {d.configurado&&(d.conectado
+      ?<button onClick={desconectar} disabled={ocupado} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado?"…":"Desligar o Google"}</button>
+      :<button onClick={conectar} disabled={ocupado} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"Abrindo o Google…":"Conectar com o Google"}</button>)}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function TarefasDoLead({lead,acoes,isMobile}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
@@ -10943,6 +11035,9 @@ function TarefasDoLead({lead,acoes,isMobile}){
   const [abrindo,setAbrindo]=useState(false);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
+  const [meet,setMeet]=useState(false);
+  const [avisoAgenda,setAvisoAgenda]=useState("");
+  const google=usarGoogleEstado(acoes);
 
   useEffect(()=>{ setLista(lead.listaTarefas||[]); },[lead.id,lead.listaTarefas]);
   useEffect(()=>{ setAbrindo(false); setTitulo(""); setQuando(""); setErro(""); },[lead.id]);
@@ -10954,8 +11049,11 @@ function TarefasDoLead({lead,acoes,isMobile}){
   async function criar(){
     if(!titulo.trim()) return setErro("Escreva o que precisa ser feito.");
     if(!quando) return setErro("Escolha o dia e a hora.");
-    await roda("nova",()=>acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString()}));
-    setTitulo(""); setQuando(""); setAbrindo(false);
+    setAvisoAgenda("");
+    await roda("nova",async()=>{ const r=await acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString(),meet});
+      if(r&&r.agenda&&r.agenda.erro) setAvisoAgenda("A tarefa foi marcada, mas não entrou no Google Agenda: "+r.agenda.erro);
+      return r; });
+    setTitulo(""); setQuando(""); setMeet(false); setAbrindo(false);
   }
 
   const abertas=lista.filter(t=>!t.feito_em), feitas=lista.filter(t=>t.feito_em);
@@ -10985,7 +11083,9 @@ function TarefasDoLead({lead,acoes,isMobile}){
             <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
               {atrasada?"venceu ":""}{fmtTarefa(t.quando)}
               {t.de_quem?` · ${first(t.de_quem)}`:""}
+              {t.na_agenda?" · na agenda":""}
             </div>
+            {t.meet&&<a href={t.meet} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>Entrar no Meet</a>}
           </div>
           <button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
             aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>
@@ -11005,7 +11105,11 @@ function TarefasDoLead({lead,acoes,isMobile}){
         <button onClick={()=>{setAbrindo(false);setErro("");}}
           style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",padding:4}}>cancelar</button>
       </div>
+      {google&&google.configurado&&<label style={{display:"flex",alignItems:"center",gap:7,color:C.sub,fontSize:11.5,cursor:"pointer"}}>
+        <input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/>
+        Criar link do Meet (vai para o Google Agenda de quem é a tarefa, se a pessoa ligou o Google)</label>}
     </div>}
+    {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
 
     {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
       {feitas.length} tarefa(s) já feita(s){feitas[0]?`, a última: ${feitas[feitas.length-1].titulo}`:""}
@@ -11584,6 +11688,37 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 
    Recarrega quando o lead muda: entre abrir uma ficha e outra, alguém pode ter
    recebido e a vez já é de outra pessoa. */
+/* O REPASSE DO CORRETOR (31/10/2026, permissão individual "repassar os
+   próprios leads"). Só lead DELE, só para outro corretor; a fila vem da
+   mesma rota da supervisão, que para ele só responde sobre o lead dele. */
+function RepasseDoCorretor({lead,acoes,session}){
+  const [d,setD]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{let vivo=true;setD(null);setErro("");
+    acoes.rodizio(lead.id).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[lead.id,lead.catracaId]);
+  const colegas=((d&&d.fila)||[]).filter(p=>p.disponivel&&p.id!==session.id);
+  const proximo=d&&d.proximo&&d.proximo.id!==session.id?d.proximo:null;
+  async function passar(id){
+    setOcupado(true);setErro("");
+    try{ await acoes.repassar(lead.id,id); }catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
+      <Icon n="transfer" size={13} color={C.greenMid}/> Repassar para outro corretor</div>
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
+    {d&&!colegas.length&&<div style={{color:C.sub,fontSize:11.5}}>Nenhum colega disponível agora.</div>}
+    {proximo&&<button onClick={()=>passar(null)} disabled={ocupado} style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6}}>
+      <Icon n="transfer" size={14}/> {ocupado?"Repassando…":`Passar para ${first(proximo.name)}`}</button>}
+    {colegas.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {colegas.filter(p=>!proximo||p.id!==proximo.id).map(p=><button key={p.id} onClick={()=>passar(p.id)} disabled={ocupado}
+        style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"4px 11px",cursor:"pointer",color:C.ink,fontSize:11.5,fontWeight:500}}>{first(p.name)}</button>)}
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function usarProximoDaVez(acoes,leadId,ativo=true,catracaId){
   const [p,setP]=useState(null);
   // Quem não repassa (o corretor) não pergunta: a rota é da supervisão e
@@ -12283,13 +12418,14 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
    neles — numa conta sem anúncio e sem triagem, seriam duas pastilhas
    prometendo uma coisa que não existe. O componente é UM para as duas caixas
    (corretor e supervisão): já divergiram antes, quando cada uma tinha o seu. */
-const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","finalizados"];
+const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","grupos","finalizados"];
 function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem,lista,campanha,setCampanha,seletor,filtrosAtivos,gaveta,setGaveta,contador,ordem,setOrdem,children}){
   const chips=[
     ["todos","Tudo"],
     ["aguardando","Aguardando",contagem.aguardando,true],
     (contagem.formulario||vista==="formulario")&&["formulario","Formulário",contagem.formulario],
     (contagem.novos||vista==="novos")&&["novos","Novos contatos",contagem.novos,true],
+    (contagem.grupos!=null||vista==="grupos")&&["grupos","Grupos",contagem.grupos||0],
     ["finalizados","Finalizados"],
   ].filter(Boolean);
   const chip=([v,rot,n,urgente])=>{
@@ -12438,6 +12574,8 @@ const contagemDaCaixa=(lista,triagem)=>({
   formulario:lista.filter(l=>!l.finalizado&&entradaDoLead(l)==="formulario").length,
   novos:triagem&&triagem.novos?triagem.novos.length:0,
 });
+// Os grupos ligados entram como pastilha própria (31/10/2026): null = a pessoa não vê grupo nenhum.
+const comGrupos=(contagem,g)=>({...contagem,grupos:g&&g.ligado?g.grupos.reduce((n,x)=>n+(x.nao_lidas?1:0),0):null});
 // A pastilha escolhida, aplicada a um lead (Novos contatos não mostra leads).
 const passaNaVista=(l,vista,campanha)=>{
   if(vista==="finalizados") return l.finalizado;
@@ -12452,6 +12590,114 @@ const passaNaVista=(l,vista,campanha)=>{
    Só nome, número e quantas mensagens — o texto não fica no CRM até alguém
    dizer que é lead. A lista é buscada de 20 em 20 segundos com a aba visível,
    e sempre que a pessoa volta para ela. */
+/* ===== GRUPOS DO WHATSAPP (31/10/2026, services/grupos.js) =====
+   Pastilha própria no Atender, só para quem tem uma linha com os grupos
+   ligados. Grupo não é lead: não vai para funil, catraca nem relatório. */
+function usarGrupos(acoes){
+  const [d,setD]=useState(null);
+  const ler=React.useCallback(()=>acoes.grupos().then(setD).catch(()=>{}),[]);
+  useEffect(()=>{
+    ler();
+    const t=setInterval(()=>{ if(document.visibilityState==="visible") ler(); },20000);
+    return()=>clearInterval(t);
+  },[]);
+  return [d,ler];
+}
+function GruposDoWhatsapp({dados,recarregar,acoes,isMobile}){
+  const [aberto,setAberto]=useState(null);
+  const lista=(dados&&dados.grupos)||[];
+  return <div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,padding:"8px 12px"}}>Os grupos dos números ligados. Não viram lead e não entram em relatório.</div>
+    {!lista.length&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:28}}>Nenhuma mensagem de grupo ainda.</div>}
+    {lista.map(g=><button key={g.id} onClick={()=>setAberto(g.id)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",
+      padding:"10px 12px",border:"none",borderBottom:`1px solid ${C.line}`,background:C.card,cursor:"pointer"}}>
+      <span style={{width:34,height:34,borderRadius:999,background:C.coolSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="users" size={16} color={C.sub}/></span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"flex",gap:6,alignItems:"baseline"}}>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.nome}</span>
+          {g.ultima_em&&<span style={{color:C.faint,fontSize:10.5,flexShrink:0}}>{fmtQuando(g.ultima_em)}</span>}
+        </span>
+        <span style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{color:C.sub,fontSize:11.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.ultima||" "}</span>
+          {g.nao_lidas>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{g.nao_lidas}</span>}
+        </span>
+        {g.linha&&<span style={{color:C.faint,fontSize:10}}>{g.linha}</span>}
+      </span>
+    </button>)}
+    {aberto&&<ConversaDoGrupo id={aberto} acoes={acoes} isMobile={isMobile} aoFechar={()=>{setAberto(null);recarregar();}}/>}
+  </div>;
+}
+function ConversaDoGrupo({id,acoes,isMobile,aoFechar}){
+  const [d,setD]=useState(null), [erro,setErro]=useState(""), [texto,setTexto]=useState(""), [enviando,setEnviando]=useState(false);
+  const fim=useRef(null);
+  useEffect(()=>{let vivo=true;
+    const ler=()=>acoes.grupo(id).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    ler(); const t=setInterval(()=>{ if(document.visibilityState==="visible") ler(); },8000);
+    return()=>{vivo=false;clearInterval(t);};},[id]);
+  useEffect(()=>{ if(fim.current) fim.current.scrollIntoView({block:"end"}); },[d&&d.mensagens.length]);
+  async function enviar(){
+    if(!texto.trim()) return;
+    setEnviando(true);setErro("");
+    try{ setD(await acoes.enviarAoGrupo(id,texto.trim())); setTexto(""); }catch(e){ setErro(e.message); }finally{ setEnviando(false); }
+  }
+  return <div className="tela-cheia" style={{position:"fixed",inset:0,zIndex:80,background:"rgba(10,20,15,.45)",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center"}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.surface,width:isMobile?"100%":560,height:isMobile?"100%":"80vh",borderRadius:isMobile?0:16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+        <Icon n="users" size={16} color={C.sub}/>
+        <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d?d.grupo.nome:"Grupo"}</span>
+        <button onClick={aoFechar} aria-label="Fechar" style={{background:"none",border:"none",cursor:"pointer",padding:4,color:C.sub}}><Icon n="x" size={18}/></button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:6}}>
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:12,margin:"auto"}}>Carregando…</div>}
+        {d&&d.mensagens.map(m=><div key={m.id} style={{alignSelf:m.direction==="out"?"flex-end":"flex-start",maxWidth:"82%",
+          background:m.direction==="out"?C.greenSoft:C.card,border:`1px solid ${C.line}`,borderRadius:11,padding:"6px 9px"}}>
+          {m.direction==="in"&&<div style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>{m.autor_nome||(m.autor_numero?fmtTel(m.autor_numero):"Participante")}</div>}
+          <div style={{color:C.ink,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word"}}><TextoDaMensagem texto={m.body||""}/></div>
+          <div style={{color:C.faint,fontSize:10,textAlign:"right"}}>{fmtQuando(m.created_at)}</div>
+        </div>)}
+        <div ref={fim}/>
+      </div>
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,padding:"6px 12px"}}>{erro}</div>}
+      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:10,display:"flex",gap:8,paddingRight:isMobile?60:10}}>
+        <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={2} placeholder="Escreva para o grupo…"
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
+          style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+        <button onClick={enviar} disabled={enviando||!texto.trim()} aria-label="Enviar" style={{width:44,height:44,borderRadius:12,border:"none",background:enviando||!texto.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+          <Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
+      </div>
+    </div>
+  </div>;
+}
+/* O interruptor dos grupos, por número: a da casa para o gestor, a pessoal
+   para o dono. Fica em Configurações → Conexão e em Minha conta → Meu WhatsApp. */
+function LigarGrupos({acoes,isMobile}){
+  const [d,setD]=useState(null), [ocupado,setOcupado]=useState(null), [erro,setErro]=useState(""), [aviso,setAviso]=useState("");
+  const ler=()=>acoes.linhasDeGrupos().then(setD).catch(()=>{});
+  useEffect(()=>{ler();},[]);
+  if(!d||!d.linhas.length) return null;
+  async function mudar(l){
+    setOcupado(l.id);setErro("");setAviso("");
+    try{ const r=await acoes.ligarGruposDaLinha(l.id,!l.grupos);
+      if(r.recebimento&&r.recebimento.estado!=="ok") setAviso(r.recebimento.detalhe||"");
+      await ler(); }
+    catch(e){ setErro(e.message); }finally{ setOcupado(null); }
+  }
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="users" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Grupos do WhatsApp</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Ligado, os grupos deste número aparecem no Atender, numa pastilha própria. Grupo não vira lead e não entra em relatório.
+      No WhatsApp pessoal, só você vê os seus grupos.</div>
+    {d.linhas.map(l=><label key={l.id} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 0",cursor:"pointer",color:C.ink,fontSize:12.5}}>
+      <input type="checkbox" checked={l.grupos} disabled={ocupado===l.id} onChange={()=>mudar(l)} style={{width:16,height:16}}/>
+      {l.nome}{ocupado===l.id&&<span style={{color:C.faint,fontSize:11}}> · salvando…</span>}</label>)}
+    {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:6}}>{aviso}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function usarTriagem(acoes){
   const [d,setD]=useState(null);
   const ler=React.useCallback(()=>acoes.triagem().then(setD).catch(()=>{}),[]);
@@ -13311,7 +13557,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     .filter(l=>passaNaSituacao(l,fSit)),[lista,vista,campanha,numero,fTag,fSit]);
   const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
   const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa),[peneirados,ordemCaixa]);
-  const contagem=contagemDaCaixa(lista,triagem);
+  const [grupos,lerGrupos]=usarGrupos(acoes);
+  const contagem=comGrupos(contagemDaCaixa(lista,triagem),grupos);
   const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
@@ -13364,7 +13611,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {vista==="novos"
+        {vista==="grupos"?<GruposDoWhatsapp dados={grupos} recarregar={lerGrupos} acoes={acoes} isMobile={isMobile}/>
+          :vista==="novos"
           ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");abrir(id);}} isMobile={isMobile} session={session}/>
           :<React.Fragment>
             {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
@@ -14473,6 +14721,70 @@ function usarAgendamento(lead,acoes){
   return {lista,setLista,aberto,setAberto,ler,leadId:id};
 }
 
+/* ===== A IA SUGERE A PRÓXIMA MENSAGEM (31/10/2026, pedido do Fernando) =====
+
+   Rascunho, nunca envio: a sugestão aparece numa faixa acima do campo, e só
+   vai para o campo no "Usar" — o que já estava digitado não é apagado sem a
+   pessoa pedir. Quem manda continua sendo a pessoa, no Enviar de sempre. */
+function usarSugestaoIA(lead){
+  const [aberto,setAberto]=useState(false);
+  const [pedido,setPedido]=useState("");
+  const [r,setR]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const id=lead&&lead.id;
+  useEffect(()=>{setAberto(false);setPedido("");setR(null);setErro("");},[id]);
+  const disponivel=!!(lead&&lead.resumo&&lead.resumo.disponivel);
+  return {aberto,setAberto,pedido,setPedido,r,setR,ocupado,setOcupado,erro,setErro,disponivel,id};
+}
+
+function BotaoSugestaoIA({sg}){
+  if(!sg.disponivel) return null;
+  return <button onClick={()=>sg.setAberto(v=>!v)} aria-pressed={sg.aberto}
+    style={{marginLeft:"auto",background:"none",border:"none",padding:"2px 0",cursor:"pointer",
+      color:sg.aberto?C.greenDeep:C.sub,fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+    <Icon n="spark" size={12}/>Sugerir mensagem</button>;
+}
+
+function FaixaSugestaoIA({sg,acoes,draft,setDraft,isMobile}){
+  if(!sg.disponivel||!sg.aberto) return null;
+  async function pedir(){
+    sg.setOcupado(true);sg.setErro("");
+    try{ sg.setR(await acoes.proximaMensagem(sg.id,sg.pedido.trim())); }
+    catch(e){ sg.setErro(e.message); }
+    finally{ sg.setOcupado(false); }
+  }
+  const usar=()=>{ setDraft(sg.r.mensagem); sg.setAberto(false); sg.setR(null); sg.setPedido(""); };
+  return <div style={{background:C.greenSoft,border:`1px solid ${C.green}55`,borderRadius:11,padding:"9px 11px",marginBottom:8,paddingRight:isMobile?54:11}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <Icon n="spark" size={13} color={C.greenDeep}/>
+      <span style={{color:C.greenDeep,fontSize:12,fontWeight:700,flex:1}}>A IA escreve, você decide se manda</span>
+      <button onClick={()=>sg.setAberto(false)} aria-label="Fechar" style={{background:"none",border:"none",cursor:"pointer",color:C.sub,padding:2}}><Icon n="x" size={14}/></button>
+    </div>
+    {!sg.r&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <input value={sg.pedido} onChange={e=>sg.setPedido(e.target.value)} maxLength={300}
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(!sg.ocupado)pedir();}}}
+        placeholder="O que você quer com a mensagem? (opcional)"
+        style={{flex:"1 1 180px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",background:C.card,color:C.ink,outline:"none"}}/>
+      <button onClick={pedir} disabled={sg.ocupado}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+        {sg.ocupado?"Escrevendo…":"Escrever"}</button>
+    </div>}
+    {sg.r&&<React.Fragment>
+      <div style={{background:C.card,borderRadius:9,padding:"8px 10px",color:C.ink,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{sg.r.mensagem}</div>
+      {sg.r.porque&&<div style={{color:C.sub,fontSize:11,marginTop:5}}>{sg.r.porque}</div>}
+      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
+        <button onClick={usar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+          {draft.trim()?"Trocar pelo que está no campo":"Usar no campo"}</button>
+        <button onClick={pedir} disabled={sg.ocupado} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>
+          {sg.ocupado?"Escrevendo…":"Outra sugestão"}</button>
+      </div>
+      <div style={{color:C.faint,fontSize:10.5,marginTop:6}}>Confira antes de enviar: o que estiver entre [colchetes] a IA não sabia.</div>
+    </React.Fragment>}
+    {sg.erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{sg.erro}</div>}
+  </div>;
+}
+
 function BotaoAgendar({ag,desligado,isMobile}){
   const pendentes=ag.lista.filter(a=>a.status==="pendente").length;
   return <button onClick={()=>ag.setAberto(v=>!v)} disabled={desligado} title="Agendar o envio desta mensagem"
@@ -14555,6 +14867,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(lead,acoes);
+  const sg=usarSugestaoIA(lead);
   const fx=usarFluxoConversa(lead,acoes);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
@@ -14626,6 +14939,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+    <FaixaSugestaoIA sg={sg} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
     <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
@@ -14652,6 +14966,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
       {lead.canal&&lead.canal.onde==="corretor"
         ?<React.Fragment>Sai pelo número pessoal, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
         :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+      <BotaoSugestaoIA sg={sg}/>
     </div>
   </div>
   </React.Fragment>;
@@ -15027,6 +15342,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
 
       {/* Conversa pessoal não entra no CRM: ligado por padrão no WhatsApp pessoal. */}
       <ConfigTriagem acoes={acoes} linha={meu.id} isMobile={isMobile}/>
+      {meu.provider!=="meta"&&<div style={{marginBottom:12}}><LigarGrupos acoes={acoes} isMobile={isMobile}/></div>}
 
       {!confirmando
         ?<button onClick={()=>setConfirmando(true)}
@@ -15142,6 +15458,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           acima das notificações porque é o que muda o dia dele. */}
       {podeGerir(session)&&!session.master&&!contaInterna()&&<CodigoDeAcesso acoes={acoes}/>}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
+      <GoogleAgenda acoes={acoes} session={session} isMobile={isMobile}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {/* O ambiente interno do ConHub não tem mensalidade. */}
       {podeGerir(session)&&!contaInterna()&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
@@ -18664,6 +18981,36 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
   </div>;
 }
 
+/* PERMISSÕES INDIVIDUAIS (31/10/2026): o gestor ACRESCENTA ao papel do
+   corretor. A lista vem do servidor, que é quem confere em cada pedido. */
+function PermissoesDoCorretor({u,acoes,aoSalvar,aoFechar}){
+  const [lista,setLista]=useState(null);
+  const [marcadas,setMarcadas]=useState(new Set(u.permissoes||[]));
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{acoes.permissoesDisponiveis().then(d=>setLista(d.permissoes)).catch(e=>setErro(e.message));},[]);
+  const alternar=(k)=>setMarcadas(m=>{const n=new Set(m);n.has(k)?n.delete(k):n.add(k);return n;});
+  async function salvar(){
+    setOcupado(true);setErro("");
+    try{ await acoes.definirPermissoes(u.id,[...marcadas]); await aoSalvar(); }
+    catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:3}}>O que {first(u.name)} pode a mais</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Soma ao que o papel de corretor já dá. Ninguém passa a ver a conversa de lead que não é dele.</div>
+    {!lista&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
+    {(lista||[]).map(p=><label key={p.chave} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",cursor:"pointer",color:C.ink,fontSize:12.5}}>
+      <input type="checkbox" checked={marcadas.has(p.chave)} onChange={()=>alternar(p.chave)} style={{width:16,height:16}}/>{p.nome}</label>)}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+    <div style={{display:"flex",gap:7,marginTop:9}}>
+      <button onClick={salvar} disabled={ocupado||!lista} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{ocupado?"Salvando…":"Salvar"}</button>
+      <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>Vale no próximo clique dele; para o menu mudar, ele recarrega a página.</div>
+  </div>;
+}
+
 function Equipe({acoes,session,org,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
@@ -18671,6 +19018,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
   const [removendo,setRemovendo]=useState(null); // id de quem está no painel de saída
   const [gerando,setGerando]=useState(null);     // id de quem está tendo o link gerado
   const [senha,setSenha]=useState(null);         // {id, nome, link, ...} do link recém-criado
+  const [permDe,setPermDe]=useState(null);       // id do corretor com o painel de permissões aberto
 
   useEffect(()=>{let vivo=true;
     acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
@@ -18748,6 +19096,10 @@ function Equipe({acoes,session,org,isMobile,versao}){
           <button onClick={()=>novaSenha(u)} disabled={gerando===u.id} title="Gerar link para a pessoa criar uma senha nova"
             style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n={gerando===u.id?"loader":"link"} size={12} spin={gerando===u.id}/>{gerando===u.id?"Gerando…":"Nova senha"}</button>}
+        {podeGerir(session)&&u.role==="corretor"&&u.status==="ativo"&&u.id!==session.id&&
+          <button onClick={()=>setPermDe(permDe===u.id?null:u.id)} title="Dar a este corretor uma permissão a mais"
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="key" size={12}/>Permissões{(u.permissoes||[]).length?` (${u.permissoes.length})`:""}</button>}
         {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
         {!comBotoes&&u.status==="removido"&&<React.Fragment>
           <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
@@ -18774,6 +19126,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
     {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}
       onConfirmar={(destino)=>remover(u.id,destino)} onCancelar={()=>setRemovendo(null)}/>}
     {senha&&senha.id===u.id&&<LinkNovaSenha dados={senha} isMobile={isMobile} aoFechar={()=>setSenha(null)}/>}
+    {permDe===u.id&&<PermissoesDoCorretor u={u} acoes={acoes} aoSalvar={async()=>{setPermDe(null);setUsers(await acoes.equipe());}} aoFechar={()=>setPermDe(null)}/>}
   </div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
@@ -19717,6 +20070,7 @@ function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
   const [fila,setFila]=useState(null);
   const [ensino,setEnsino]=useState(null);
+  const [limEnsino,setLimEnsino]=useState(100);
   const [novaLinha,setNovaLinha]=useState("");
   const [erro,setErro]=useState("");
   const [salvando,setSalvando]=useState(false);
@@ -19724,7 +20078,7 @@ function RoboConfig({acoes,session,isMobile}){
 
   const carregar=()=>{ acoes.robo().then(setCfg).catch(e=>setErro(e.message));
     acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{});
-    acoes.roboEnsino().then(d=>setEnsino(d.linhas)).catch(()=>{}); };
+    acoes.roboEnsino().then(d=>{setEnsino(d.linhas); if(d.limite) setLimEnsino(d.limite);}).catch(()=>{}); };
   useEffect(carregar,[]);
 
   async function salvar(mudanca){
@@ -19923,7 +20277,8 @@ function RoboConfig({acoes,session,isMobile}){
         <Icon n="msg" size={15} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
           {cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</span>
-        {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
+        {ensino&&<span title="Cada orientação ligada entra em toda resposta da IA — quanto mais texto, mais cara cada resposta."
+          style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/{limEnsino} · {fmtNum(ensino.filter(e=>e.ativo).reduce((n,e)=>n+e.texto.length,0))} letras por resposta</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
         Estas linhas são as regras do atendimento: o jeito de tratar o cliente, o que perguntar, o que
@@ -21994,6 +22349,7 @@ function ConexaoConfig({acoes,session,isMobile}){
         conexão porque é a outra metade dela: conectado quer dizer que envia;
         recebendo quer dizer que a mensagem do cliente chega aqui. */}
     {(d.ativo==="uazapi"||d.recebimento)&&<RecebimentoDasLinhas acoes={acoes} isMobile={isMobile} automatico={d.recebimento_automatico}/>}
+    {d.ativo==="uazapi"&&<LigarGrupos acoes={acoes} isMobile={isMobile}/>}
 
     {/* Número novo vira lead sozinho, ou espera alguém confirmar? No número da
         casa nasce desligado (quem escreve ali quase sempre é cliente). */}
@@ -22879,6 +23235,61 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
   </div>;
 }
 
+/* ===== INDICADORES DO SDR (31/10/2026, primeira versão para o Fernando) =====
+   O trabalho da atendente antes do corretor, por pessoa e por origem. Os
+   números saem de services/sdr.js; a tela só desenha. */
+function IndicadoresSdr({acoes,periodo,tick,isMobile}){
+  const [d,setD]=useState(null);
+  const chave=JSON.stringify(periodo);
+  useEffect(()=>{let vivo=true;
+    acoes.relatorioSdr(periodo).then(r=>vivo&&setD(r)).catch(()=>vivo&&setD(null));
+    return()=>{vivo=false;};},[chave,tick]);
+  if(!d||!d.por_pessoa||!d.por_pessoa.length) return null;
+  const tempo=(min)=>min==null?"—":fmtMin(min);
+  const caixa=(rot,v,dica)=><div title={dica||""} style={{background:C.surface,borderRadius:10,padding:"9px 11px",minWidth:0}}>
+    <div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.3}}>{rot}</div></div>;
+  const grade={display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(104px,1fr))",gap:8};
+  const th={textAlign:"left",color:C.faint,fontSize:10.5,fontWeight:700,padding:"6px 6px",textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap"};
+  const td={padding:"7px 6px",fontSize:12.5,color:C.ink,borderTop:`1px solid ${C.line}`,whiteSpace:"nowrap"};
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="target" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      O que as atendentes fizeram antes do corretor: receber, falar, qualificar e repassar.</div>
+    {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+      Nenhuma etapa conta como qualificação: marque o início do processo comercial em Configurações → Funis e etapas, ou use "qualific" no nome da etapa.</div>}
+    {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7}}>{a.nome}</div>
+      <div style={grade}>
+        {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
+        {caixa("contatados",a.contatados,"Leads para os quais ela escreveu no período")}
+        {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
+        {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois")}
+        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela moveu para uma etapa de qualificação, sobre os contatados")}
+        {caixa("repassados ao corretor",a.repassados_ao_corretor)}
+        {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
+      </div>
+    </div>)}
+    {d.por_origem.length>0&&<React.Fragment>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"6px 0 4px"}}>Por origem</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:420}}>
+          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th>{!isMobile&&<th style={th}>Ao corretor</th>}</tr></thead>
+          <tbody>{d.por_origem.map(o=><tr key={o.origem}>
+            <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{o.origem}</td>
+            <td style={td}>{o.recebidos}</td><td style={td}>{o.contatados}</td>
+            <td style={td}>{o.qualificados} <span style={{color:C.faint}}>· {pctBR(o.taxa_qualificacao)}</span></td>
+            {!isMobile&&<td style={td}>{o.repassados_ao_corretor}</td>}
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
 function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   // Nota aberta de alguém da equipe: {m, componentes}.
   const [nota,setNota]=useState(null);
@@ -22948,6 +23359,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         funil={rosca&&!rosca.erro&&rosca.chave===linha.id+funilDoRelatorio+chavePeriodo?rosca:null}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
+      {(pickable||session.role==="sdr")&&<IndicadoresSdr acoes={acoes} periodo={periodo} tick={tick} isMobile={isMobile}/>}
       {/* O ponto das atendentes desceu (28/10/2026): é registro de presença,
           e o que se abre esta tela para ver é o desempenho. */}
       <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>

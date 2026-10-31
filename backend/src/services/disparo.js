@@ -44,6 +44,8 @@ import { ErroMarketing, exigirPronto, linhaDeDisparo, marcarProximoEnvio, proxim
 import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmCurso } from "./marca-disparo.js";
 import { gatilhoLimpo, problemasDoGatilho, formulariosDaRef, gatilhosDoGrafo, sobreposicoes, chavesDoFluxo, MAX_GATILHOS, nomeDoTipoDeGatilho } from "./automacoes.js";
 import { temRecurso } from "./recursos.js";
+import { iaConfigurada, mensagemDoFluxo } from "./ia.js";
+import { registrar as registrarUsoIA } from "./iauso.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
 import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
@@ -58,7 +60,7 @@ const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "
 
 /* ===================== O FLUXO ===================== */
 
-export const TIPOS_DE_BLOCO = ["inicio", "mensagem", "espera", "resposta", "botoes",
+export const TIPOS_DE_BLOCO = ["inicio", "mensagem", "ia", "espera", "resposta", "botoes",
   "condicao", "add_tag", "remover_tag", "mover_etapa", "atribuir", "tarefa"];
 /* BLOCOS DE CRM (03/10/2026, a partir do exemplo do construtor que o Ali
    mandou): o fluxo deixa de só mandar mensagem e passa a mexer no lead —
@@ -88,7 +90,7 @@ export function grafoPadrao() {
 /* As saídas de cada bloco — é por elas que se liga um bloco a outro. */
 export function saidasDe(no) {
   switch (no.tipo) {
-    case "inicio": case "mensagem": case "espera":
+    case "inicio": case "mensagem": case "ia": case "espera":
     case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return ["proximo"];
     case "condicao": return ["sim", "nao"];
     case "resposta": return [...(no.dados.regras || []).map(r => r.id), "outra", "sem_resposta"];
@@ -175,6 +177,8 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
       const modelo = modeloLimpo(d.modelo);
       dados = modelo ? { texto: "", midia: null, modelo } : { texto: texto(d.texto, 4000), midia: midiaLimpa(d.midia) };
     }
+    // Chamar a IA (31/10/2026): a instrução diz o objetivo da mensagem.
+    if (n.tipo === "ia") dados = { instrucao: texto(String(d.instrucao || ""), 1000) };
     if (n.tipo === "espera") {
       const p = prazoLimpo({ quantidade: d.quantidade, unidade: d.unidade });
       dados = { quantidade: p.quantidade, unidade: p.unidade };
@@ -230,6 +234,10 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
         temEnvio = true;
         if (!n.dados.modelo && !n.dados.texto.trim() && !n.dados.midia) erros.push(`Um bloco "${nomeDe(n)}" está vazio: escreva o texto ou anexe um arquivo.`);
       }
+      if (n.tipo === "ia") {
+        temEnvio = true;
+        if (!n.dados.instrucao.trim()) erros.push("Um bloco \"Chamar a IA\" está sem a instrução do que a IA deve escrever.");
+      }
       if (n.tipo === "botoes") {
         temEnvio = true;
         if (!n.dados.texto.trim()) erros.push("Um bloco \"Botões\" está sem o texto da pergunta.");
@@ -255,7 +263,7 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
 
 const proximoDe = (grafo, noId, saida) => grafo.ligacoes.find(l => l.de === noId && l.saida === saida)?.para || null;
 
-const NOME_DO_BLOCO = { mensagem: "Mensagem", espera: "Espera", resposta: "Esperar resposta", botoes: "Botões",
+const NOME_DO_BLOCO = { mensagem: "Mensagem", ia: "Chamar a IA", espera: "Espera", resposta: "Esperar resposta", botoes: "Botões",
   condicao: "Condição", add_tag: "Adicionar etiqueta", remover_tag: "Remover etiqueta", mover_etapa: "Mover de etapa",
   atribuir: "Atribuir responsável", tarefa: "Criar tarefa" };
 /* Os gatilhos que ligam sozinhos (todos menos "Disparo em massa"). */
@@ -275,6 +283,12 @@ const gatilhoDoResumo = (grafo) => { const gs = gatilhosDoGrafo(grafo); return g
    não sabe de conta nenhuma; isto sabe. */
 export function conferirReferencias(orgId, grafo) {
   const erros = [];
+  /* O bloco "Chamar a IA" escreve para o cliente: é a IA do Autoatendimento,
+     e só vale onde ela vale (chave no servidor e a ferramenta na conta). */
+  if ((grafo.nos || []).some(n => n.tipo === "ia")) {
+    if (!iaConfigurada()) erros.push("O bloco \"Chamar a IA\" precisa da IA ligada nesta instalação.");
+    else if (!temRecurso(orgId, "autoatendimento")) erros.push("O bloco \"Chamar a IA\" faz parte do Autoatendimento, que esta conta não tem no plano.");
+  }
   for (const n of grafo.nos || []) {
     const d = n.dados || {};
     if ((n.tipo === "add_tag" || n.tipo === "remover_tag" || (n.tipo === "condicao" && d.regra === "tag")) && (d.tag_id || d.valor)
@@ -914,10 +928,22 @@ const naoTemWhatsapp = (m) => /não está no WhatsApp|not on whatsapp/i.test(Str
 /* O que um bloco manda, e como — uma função só para o disparo de verdade e
    para o "Enviar teste para mim" do construtor. Se fossem duas, o teste
    mostraria uma coisa e o disparo mandaria outra. */
-async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "" }) {
+async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "", leadId = null }) {
   const enviados = [];
   const e = { telefone, nome };
-  if (no.tipo === "mensagem" && no.dados.modelo) {
+  if (no.tipo === "ia") {
+    const msgs = leadId ? db.prepare(`SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL
+      ORDER BY created_at DESC LIMIT 60`).all(leadId).reverse() : [];
+    const orgRow = db.prepare("SELECT name FROM orgs WHERE id = ?").get(org) || {};
+    const ensino = db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ? AND ativo = 1 ORDER BY ordem, created_at").all(org).map(x => x.texto);
+    const r = await mensagemDoFluxo({ instrucao: no.dados.instrucao, nome: e.nome, orientacoes: ensino, imobiliaria: orgRow.name,
+      mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "empresa", texto: m.body })) });
+    if (!r.ok) throw new Error("A IA não escreveu a mensagem: " + r.erro);
+    registrarUsoIA({ orgId: org, userId: null, leadId, recurso: "fluxo_ia", uso: r.uso });
+    const t = (r.mensagem + rodape).trim();
+    const env = await sendText({ orgId: org, canalId, toPhone: e.telefone, text: t });
+    enviados.push({ texto: t, waId: env?.messageid });
+  } else if (no.tipo === "mensagem" && no.dados.modelo) {
     const m = no.dados.modelo;
     const variaveis = (m.variaveis || []).map(v => personalizar(v, e.nome));
     const escrito = textoDoModelo(m, e.nome);
@@ -984,7 +1010,7 @@ async function enviarBlocoAutomacao(e, no, camp, agora) {
   let enviados = [];
   marcarEnvio(org, e.telefone, rotuloDa(camp));
   try {
-    enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape: "" });
+    enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape: "", leadId: e.lead_id });
   } catch (err) {
     desmarcarEnvio(org, e.telefone);
     const erro = String(err.message || err).slice(0, 300);
@@ -1121,7 +1147,7 @@ async function enviarBloco(e, no, camp, agora, travadas) {
   // O eco pode chegar antes do registro (ver services/marca-disparo.js).
   marcarEnvio(org, e.telefone, rotuloDa(camp));
   try {
-    enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape });
+    enviados = await enviarConteudo({ org, canalId, telefone: e.telefone, nome: e.nome, no, rodape, leadId: e.lead_id });
   } catch (err) {
     desmarcarEnvio(org, e.telefone);
     const erro = String(err.message || err).slice(0, 300);
@@ -1359,8 +1385,10 @@ function mensagensDaPrevia(grafo, no0) {
     if (no.tipo === "resposta") { parou = "esperar a resposta do cliente"; break; }
     if (no.tipo === "condicao") { parou = "uma condição"; break; }
     const d = no.dados || {};
-    out.push({ texto: String(d.texto || d.modelo_texto || "").slice(0, 600), arquivo: d.midia_nome || (d.midia_url ? "arquivo" : null),
-      botoes: no.tipo === "botoes" ? (d.botoes || []).map(b => b.texto || b.titulo || "").filter(Boolean) : null });
+    // Os nomes são os de validarGrafo: midia{nome,url}, modelo{texto}, botoes[{rotulo}].
+    const texto = no.tipo === "ia" ? `(a IA escreve) ${d.instrucao || ""}` : (d.texto || d.modelo?.texto || "");
+    out.push({ texto: String(texto).slice(0, 600), arquivo: d.midia ? (d.midia.nome || "arquivo") : null, ia: no.tipo === "ia",
+      botoes: no.tipo === "botoes" ? (d.botoes || []).map(b => b.rotulo || "").filter(Boolean) : null });
     if (no.tipo === "botoes") { parou = "o cliente escolher um botão"; break; }
     no = porId.get(proximoDe(grafo, no.id, "proximo"));
   }

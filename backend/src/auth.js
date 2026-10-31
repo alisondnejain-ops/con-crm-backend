@@ -372,6 +372,34 @@ export function ehDonoAutonomo(user) {
 }
 
 // Restringe a rota a determinados papéis. Ex: roles("adm","sdr")
+/* ===== PERMISSÕES INDIVIDUAIS (31/10/2026, pedido do Fernando) =====
+
+   O papel continua decidindo quase tudo. O gestor só ACRESCENTA, a um
+   corretor, uma das três coisas abaixo — nunca tira nada de ninguém, e
+   nunca dá acesso a conversa de lead que não é dele (isso continua sendo do
+   papel). A lista é fechada aqui, no servidor: chave fora dela é descartada.
+
+   A conferência vai ao BANCO a cada pedido, como o papel: tirar a permissão
+   vale na hora, sem esperar o crachá de 30 dias vencer. */
+export const PERMISSOES = {
+  repassar_leads: "Repassar os próprios leads a outro corretor",
+  ver_relatorios_equipe: "Ver os relatórios e o ranking da equipe (só leitura)",
+  editar_mensagens: "Criar e editar as mensagens prontas",
+};
+export function permissoesDe(userId) {
+  const u = db.prepare("SELECT role, permissoes FROM users WHERE id = ?").get(userId);
+  if (!u || u.role !== "corretor") return [];
+  try { const l = JSON.parse(u.permissoes || "[]"); return Array.isArray(l) ? l.filter(k => PERMISSOES[k]) : []; } catch { return []; }
+}
+export const temPermissao = (user, chave) => !!user && permissoesDe(user.id).includes(chave);
+// Ver os números da equipe: a supervisão, ou o corretor com a permissão.
+export const veRelatoriosDaEquipe = (user) => supervisiona(user) || temPermissao(user, "ver_relatorios_equipe");
+// `roles(...)` que também deixa passar o corretor com a permissão.
+export function rolesOuPermissao(chave, ...allowed) {
+  const porPapel = roles(...allowed);
+  return (req, res, next) => temPermissao(req.user, chave) ? next() : porPapel(req, res, next);
+}
+
 export function roles(...allowed) {
   return (req, res, next) => {
     if (allowed.includes(req.user.role)) return next();

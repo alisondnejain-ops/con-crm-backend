@@ -664,7 +664,8 @@ addUserCol("avatar_url", "TEXT");
    computador da imobiliária e no notebook de casa. Guardar no navegador seria
    mais simples, mas aí a escolha se perderia a cada aparelho novo — e foi
    "por conta" o que o Ali pediu. */
-addUserCol("barra_recolhida", "INTEGER DEFAULT 0");                       // foto de perfil
+addUserCol("barra_recolhida", "INTEGER DEFAULT 0");
+addUserCol("permissoes", "TEXT");   // permissões a mais dadas pelo gestor a um corretor (31/10/2026), lista JSON                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 /* A ORDEM DO MENU de cada pessoa (05/10/2026, pedido do Ali): o corretor
    reorganiza o próprio menu pelo Claude. Lista JSON das telas na ordem
@@ -1111,6 +1112,7 @@ addLeadCol("sugestao_em", "INTEGER");
    - `robo_conferido_em`: a atendente já passou o olho no que ele colheu. É o
      que tira o lead da lista de segunda-feira. */
 addLeadCol("robo_json", "TEXT");
+addLeadCol("robo_fotos", "TEXT");     // fichas cujas fotos a IA já mandou (31/10/2026), uma vez por produto
 addLeadCol("robo_msgs", "INTEGER DEFAULT 0");
 addLeadCol("robo_em", "INTEGER");
 addLeadCol("robo_parado", "INTEGER DEFAULT 0");
@@ -1749,6 +1751,52 @@ addCanalCol("webhook_detalhe", "TEXT");
    `canais.triagem` NULO é "ninguém escolheu": ligada na linha pessoal,
    desligada no número da casa. Escolher grava 0/1 e vale mais que o tipo. */
 addCanalCol("triagem", "INTEGER");
+/* GRUPOS DO WHATSAPP (31/10/2026, pedido do Fernando, decisão do Ali: "numa
+   aba própria"). Ligado por linha (1 = mostra os grupos deste número no CRM;
+   nulo/0 = como sempre, grupo nunca entra). Grupo não é lead: mora em tabelas
+   próprias e fica fora de relatório, funil e catraca. */
+addCanalCol("grupos", "INTEGER");
+db.exec(`CREATE TABLE IF NOT EXISTS wa_grupos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  canal_id TEXT NOT NULL,
+  jid TEXT NOT NULL,
+  nome TEXT,
+  ultima_em INTEGER,
+  nao_lidas INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE (canal_id, jid)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS wa_grupo_mensagens (
+  id TEXT PRIMARY KEY,
+  grupo_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  autor_nome TEXT,
+  autor_numero TEXT,
+  from_user_id TEXT,
+  body TEXT,
+  wa_id TEXT,
+  created_at INTEGER NOT NULL
+)`);
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_grupo_msg_wa ON wa_grupo_mensagens(grupo_id, wa_id) WHERE wa_id IS NOT NULL");
+db.exec("CREATE INDEX IF NOT EXISTS idx_grupo_msg ON wa_grupo_mensagens(grupo_id, created_at)");
+/* GOOGLE AGENDA (31/10/2026): a conta Google de cada pessoa, ligada por ela
+   mesma. O refresh_token vai fechado pelo cofre (services/cofre.js) — com ele
+   se escreve na agenda da pessoa. A tarefa guarda o evento criado. */
+db.exec(`CREATE TABLE IF NOT EXISTS google_contas (
+  user_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  email TEXT,
+  conectado_em INTEGER NOT NULL
+)`);
+{
+  const cols = db.prepare("PRAGMA table_info(tarefas)").all().map(c => c.name);
+  if (!cols.includes("google_event_id")) db.exec("ALTER TABLE tarefas ADD COLUMN google_event_id TEXT");
+  if (!cols.includes("google_meet")) db.exec("ALTER TABLE tarefas ADD COLUMN google_meet TEXT");
+  if (!cols.includes("google_erro")) db.exec("ALTER TABLE tarefas ADD COLUMN google_erro TEXT");
+}
 db.exec(`
 /* Quem escreveu e ainda não foi decidido. Guarda o MÍNIMO — nome, número,
    quando e quantas mensagens —, nunca o texto: se for conversa pessoal, nada

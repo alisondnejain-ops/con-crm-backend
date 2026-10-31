@@ -11,7 +11,7 @@
    A exceção é `/funil/:pipelineId`, e o porquê está escrito lá embaixo. */
 
 import { Router } from "express";
-import { authRequired, supervisiona } from "../auth.js";
+import { authRequired, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo } from "../services/painel.js";
 import { conferenciaDoFunil } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
@@ -68,7 +68,8 @@ const pipelineDe = (req) => req.params.pipelineId === "comercial"
 
 r.get("/funil/:pipelineId", (req, res) => {
   const f = filtrosDe(req.query);
-  if (!supervisiona(req.user)) f.responsavel = req.user.id;
+  // O corretor com "ver os relatórios da equipe" lê o funil de um colega (só leitura).
+  if (!veRelatoriosDaEquipe(req.user)) f.responsavel = req.user.id;
   const pid = pipelineDe(req);
   if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
   const d = funil(req.user.org_id, pid, f);
@@ -82,7 +83,8 @@ r.get("/funil/:pipelineId", (req, res) => {
 r.get("/funil/:pipelineId/conferencia", (req, res) => {
   const f = filtrosDe(req.query);
   const sup = supervisiona(req.user);
-  if (!sup) f.responsavel = req.user.id;
+  // `supervisor` continua sendo só a supervisão: é ele que deixa abrir a conversa.
+  if (!veRelatoriosDaEquipe(req.user)) f.responsavel = req.user.id;
   const pid = pipelineDe(req);
   if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
   const d = conferenciaDoFunil(req.user.org_id, pid, f, {

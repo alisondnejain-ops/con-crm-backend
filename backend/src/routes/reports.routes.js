@@ -1,12 +1,13 @@
 import { Router } from "express";
 import db, { emLotes } from "../db.js";
-import { authRequired, supervisiona, semMaster } from "../auth.js";
+import { authRequired, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
 import { resolverPeriodo } from "../services/painel.js";
+import { indicadoresDoSdr } from "../services/sdr.js";
 
 const r = Router();
 r.use(authRequired);
@@ -54,7 +55,7 @@ r.get("/", (req, res) => {
      repasse, o trabalho que ela fez sumia da conta. Ela tem um bloco próprio,
      logo abaixo, medido pelo que ela de fato faz. */
   const eventos = eventosDeAtribuicao(req.user.org_id);
-  const equipe = supervisiona(req.user)
+  const equipe = veRelatoriosDaEquipe(req.user)
     ? equipeDeAtendimento(req.user.org_id, de, ate, eventos)
     : db.prepare("SELECT id,name,role FROM users WHERE id=? AND role='corretor'").all(req.user.id);
 
@@ -222,7 +223,7 @@ r.get("/", (req, res) => {
   // O total é da imobiliária inteira — quantos leads entraram, quanto foi
   // vendido. Isso é informação de gestão: o corretor via o faturamento da casa
   // dentro da própria tela de produtividade. Só supervisão recebe.
-  const total = supervisiona(req.user) ? {
+  const total = veRelatoriosDaEquipe(req.user) ? {
     leads: leads.length,
     na_fila: leads.filter(l => !l.assigned_to).length,
     vendas: vendasDoPeriodo.length,
@@ -238,7 +239,7 @@ r.get("/", (req, res) => {
 
      A primeira mensagem enviada de cada conversa diz quem fez esse contato e a
      que horas — que é exatamente o indicador dela. */
-  const sdrs = supervisiona(req.user)
+  const sdrs = veRelatoriosDaEquipe(req.user)
     ? db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.role='sdr' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
     : db.prepare("SELECT id,name FROM users WHERE id=? AND role='sdr'").all(req.user.id);
 
@@ -326,6 +327,14 @@ const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
    abriam em "este mês" — a mesma palavra "Vendas" dava dois números. Agora
    Relatórios manda o mesmo atalho e cai na MESMA função. ?de=&ate= continua
    valendo (o "Escolher datas" e quem já chamava assim). */
+/* Indicadores do SDR (31/10/2026, services/sdr.js). A mesma régua do Score:
+   quem supervisiona (gestão e atendente) vê a equipe; o corretor não. */
+r.get("/sdr", (req, res) => {
+  if (!veRelatoriosDaEquipe(req.user)) return res.status(403).json({ error: "Este relatório é da supervisão." });
+  const { de, ate } = intervaloDaQuery(req.query);
+  res.json(indicadoresDoSdr(req.user.org_id, de, ate));
+});
+
 function intervaloDaQuery(q) {
   if (q.periodo && q.periodo !== "custom") {
     const p = resolverPeriodo({ periodo: q.periodo });
@@ -339,7 +348,7 @@ function intervaloDaQuery(q) {
 // Score de performance da equipe. Só gestão: é material de decisão sobre
 // pessoas, não painel de auto-avaliação do corretor.
 r.get("/score", (req, res) => {
-  if (!supervisiona(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  if (!veRelatoriosDaEquipe(req.user)) return res.status(403).json({ error: "Sem permissão" });
 
   /* Aceita o MESMO intervalo da tela de Relatórios (?de=&ate=). É o que faz o
      score bater com a tabela logo acima dele: antes o score olhava "últimos 90

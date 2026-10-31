@@ -26,6 +26,8 @@ import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
+import gruposRoutes from "./routes/grupos.routes.js";
+import { gestao as googleRoutes, retorno as googleRetorno } from "./routes/google.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import redesRoutes from "./routes/redes.routes.js";
@@ -381,6 +383,8 @@ app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
 app.use("/triagem", cobrando, triagemRoutes); // números novos: é lead ou é pessoal?
+app.use("/grupos", cobrando, gruposRoutes);
+app.use("/google", cobrando, googleRoutes);   // Google Agenda de cada pessoa (31/10/2026)   // grupos do WhatsApp, quando a linha liga (31/10/2026)
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
 app.use("/anuncios-meta", cobrando, metaConexaoGestao); // "Conectar com Facebook" (só gestor)
 app.use("/site", cobrando, siteGestao);         // tela "Site" (só gestor)
@@ -433,6 +437,7 @@ app.use("/webhooks", portaisWebhook);           // POST /webhooks/portais/:token
 /* A janela do Facebook devolve a pessoa por uma navegação comum, SEM o crachá:
    esta rota confere o `state` assinado em vez do login. */
 app.use("/conectar-facebook", metaConexaoRetorno); // GET /conectar-facebook/retorno
+app.use("/conectar-google", googleRetorno);       // GET /conectar-google/retorno (31/10/2026)
 app.use("/feeds", portaisFeeds);                // GET /feeds/:token/zap.xml e /chavesnamao.xml
 app.use("/", pushRoutes);        // GET /push/chave, POST /push/inscrever
 app.use("/orgs", orgsRoutes);         // hub de contas (só o master)

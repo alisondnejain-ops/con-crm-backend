@@ -32,7 +32,8 @@ import db from "../db.js";
 import { randomUUID } from "crypto";
 import { atenderPrimeiroContato, iaConfigurada, camposDa } from "./ia.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
-import { sendText } from "./uazapi.js";
+import { sendText, sendMedia } from "./uazapi.js";
+import { bytesDoArquivo } from "./storage.js";
 import { canalDoLead } from "./canais.js";
 import { emFluxoDeDisparo } from "./disparo.js";
 import { semDisparo } from "./marca-disparo.js";
@@ -369,7 +370,15 @@ export async function atender(orgId, leadId, opcoes = {}) {
       AND key IN (${cfg.campos.map(() => "?").join(",")})`).all(orgId, ...cfg.campos).map(d => ({ chave: d.key, nome: d.name, tipo: d.type,
         opcoes: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() })) : [];
     let jaPreenchidos = {}; try { jaPreenchidos = JSON.parse(lead.custom_fields || "{}"); } catch {}
+    /* As fichas com fotos que a IA pode mandar (31/10/2026): imóvel do
+       catálogo PUBLICADO (status ativo), com foto, e ainda não mandado neste lead. */
+    let jaMandou = []; try { jaMandou = JSON.parse(lead.robo_fotos || "[]"); } catch {}
+    const comFotos = db.prepare(`SELECT f.id, f.nome, f.produto_id FROM ia_produtos f JOIN produtos p ON p.id = f.produto_id AND p.org_id = f.org_id
+      WHERE f.org_id = ? AND f.ativo = 1 AND p.status = 'ativo'
+        AND EXISTS (SELECT 1 FROM produto_midias m WHERE m.produto_id = p.id AND m.tipo = 'foto')`).all(orgId)
+      .filter(f => !jaMandou.includes(f.id));
     const r = await atenderPrimeiroContato({
+      comFotos: comFotos.map(f => f.nome),
       produto: ficha,
       outrosProdutos: outros,
       campos: defs.map(d => ({ ...d, valor: jaPreenchidos[d.chave] })),
@@ -427,6 +436,26 @@ export async function atender(orgId, leadId, opcoes = {}) {
       db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,wa_id,created_at,canal_id)
         VALUES (?,?,'out',NULL,?,?,?,?,?)`)
         .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, partes[i], envio?.messageid || null, lidoEm + i, canalId);
+    }
+
+    /* As fotos que a IA escolheu mandar, depois do texto. Falha numa foto não
+       derruba o atendimento: o texto já saiu. */
+    const fichaFotos = r.resposta.fotos && comFotos.find(f => f.nome.toLowerCase() === r.resposta.fotos.toLowerCase());
+    if (fichaFotos) {
+      const fotos = db.prepare("SELECT url, chave FROM produto_midias WHERE produto_id = ? AND tipo = 'foto' ORDER BY ordem, created_at LIMIT 4").all(fichaFotos.produto_id);
+      let mandadas = 0;
+      for (let i = 0; i < fotos.length; i++) {
+        try {
+          if (atraso == null) await esperar(900);
+          const envio = await sendMedia({ orgId, canalId, toPhone: lead.phone, type: "image", file: fotos[i].url, mime: "image/jpeg",
+            bytes: fotos[i].chave ? () => bytesDoArquivo(fotos[i].chave) : undefined });
+          db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,wa_id,created_at,canal_id)
+            VALUES (?,?,'out',NULL,?,?,?,?,?,?,?)`)
+            .run("m_" + randomUUID(), leadId, ASSINATURA_ROBO, "Foto", fotos[i].url, "image/jpeg", envio?.messageid || null, lidoEm + partes.length + i, canalId);
+          mandadas++;
+        } catch (e) { console.warn("[robo] foto não enviada:", e.message); break; }
+      }
+      if (mandadas) db.prepare("UPDATE leads SET robo_fotos = ? WHERE id = ?").run(JSON.stringify([...jaMandou, fichaFotos.id]), leadId);
     }
 
     /* `first_resp_at` NÃO é carimbado aqui. Ele é o relógio da equipe: se o

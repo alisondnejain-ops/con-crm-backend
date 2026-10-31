@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { normalizePhone } from "../services/stages.js";
 import { canalDoWhatsapp } from "../services/canais.js";
+import { gravarMensagemDeGrupo, linhaComGrupos } from "../services/grupos.js";
 import { processarMensagemRecebida, lembrar } from "../services/mensageria.js";
 import db from "../db.js";
 
@@ -89,9 +90,25 @@ function extrair(p) {
   const bruto = m.chatid || m.sender || m.from || p.phone || p.sender || "";
   const chat = String(bruto);
 
-  // Grupos e canais não são atendimento de lead — ignorar.
-  if (chat.includes("@g.us") || chat.includes("@newsletter") || chat.includes("@broadcast"))
+  // Canais e listas de transmissão não são atendimento de lead — ignorar.
+  if (chat.includes("@newsletter") || chat.includes("@broadcast"))
     return { ignorar: "grupo/canal" };
+  /* GRUPO (31/10/2026): também não é lead. Sai daqui separado, e só é gravado
+     se a linha tiver os grupos ligados (services/grupos.js); senão é ignorado
+     como sempre foi. */
+  if (chat.includes("@g.us")) {
+    const autor = String(m.sender || m.participant || m.key?.participant || "");
+    return { grupo: {
+      jid: chat,
+      nomeGrupo: m.groupName || m.chatName || p.chat?.name || p.chat?.wa_name || null,
+      autorNumero: autor.includes("@g.us") ? null : autor.replace(/@.*/, "").replace(/\D/g, "") || null,
+      autorNome: m.senderName || m.pushName || null,
+      fromMe: !!(m.fromMe ?? m.key?.fromMe),
+      texto: m.text || m.body || m.caption || m.content?.text || m.conversation || "",
+      tipo: m.messageType || m.type || "",
+      messageid: m.messageid || m.id || m.key?.id || null,
+    } };
+  }
   /* Mensagem que SAIU do número da Conecta.
 
      Antes era descartada aqui, para a mensagem enviada pelo próprio CRM não
@@ -179,8 +196,17 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou, editado, editou, textoEditado } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou, editado, editou, textoEditado, grupo } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
+    if (grupo) {
+      const linha = canalDoWhatsapp({
+        token: p.token || p.instance_token || p.instanceToken || p.apikey || p.instance?.token,
+        numero: p.owner || p.instance?.owner || p.instanceOwner || p.me || "",
+      });
+      if (!linhaComGrupos(linha)) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: grupo (grupos desligados nesta linha)" });
+      const r = gravarMensagemDeGrupo({ canal: linha, ...grupo });
+      return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: r.gravou ? "mensagem de grupo gravada" : "grupo: repetida ou eco" });
+    }
     if (!phone) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "sem número — payload não reconhecido", amostra: Object.keys(p) });
 
     /* A MENSAGEM PARECE RESPONDER OUTRA, MAS NENHUM NOME CONHECIDO BATEU.
