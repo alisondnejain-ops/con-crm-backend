@@ -139,6 +139,13 @@ r.get("/integracoes", async (_req, res) => {
       cole_este_webhook_no_app_da_meta: `${base}/webhooks/meta`,
       paginas_conectadas: master ? db.prepare("SELECT COUNT(*) n FROM meta_paginas").get().n : undefined,
     },
+    // Google Agenda e Meet (31/10/2026, services/google-agenda.js).
+    google_agenda: {
+      configurado: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      falta: process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? null : "GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET (cliente OAuth do Google Cloud, com a API do Calendar ligada)",
+      cole_este_redirect_no_google: `${base}/conectar-google/retorno`,
+      contas_ligadas: master ? db.prepare("SELECT COUNT(*) n FROM google_contas").get().n : undefined,
+    },
     /* E-MAIL: não basta dizer "configurado". A recusa do provedor não aparece
        em tela nenhuma — a tela do "esqueci minha senha" responde a mesma frase
        de propósito — então é aqui que se descobre por que o e-mail não chegou.

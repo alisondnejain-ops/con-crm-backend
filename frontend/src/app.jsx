@@ -1727,6 +1727,9 @@ function ConCRM(){
        recarrega a tela inteira; aqui a resposta já traz a lista nova, e o erro
        precisa chegar ao popup para dizer o que faltou preencher. */
     criarTarefa:(leadId,dados)=>api(`/leads/${leadId}/tarefas`,{method:"POST",body:dados}).then(r=>{recarregar();return r;}),
+    googleEstado:()=>api("/google/estado"),
+    googleConectar:()=>api("/google/conectar"),
+    googleDesconectar:()=>api("/google",{method:"DELETE"}),
     marcarTarefa:(id,feito)=>api(`/tarefas/${id}`,{method:"PATCH",body:{feito}}).then(r=>{recarregar();return r;}),
     apagarTarefa:(id)=>api(`/tarefas/${id}`,{method:"DELETE"}).then(r=>{recarregar();return r;}),
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
@@ -7831,6 +7834,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
   const [view,setView]=usarEscolha("view",role==="adm"?"dashboard":role==="sdr"?"catraca":"atendimento");
   // Voltando da janela do Facebook ("Conectar com Facebook"): abre onde a pessoa estava.
   useEffect(()=>{ if(RETORNO_META&&podeGerir(session)) setView("config"); },[]);
+  useEffect(()=>{ if(RETORNO_GOOGLE) setView("conta"); },[]);
   const [tick,setTick]=useState(0);
   const [draft,setDraft]=useState("");
   const [enviando,setEnviando]=useState(false);
@@ -10970,6 +10974,59 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar})
 /* Tarefas marcadas com este cliente. Pequeno de propósito: o que precisa ser
    feito, quando, e um risco para dizer que já foi. Tarefa vencida fica em
    coral — é a única que muda alguma coisa em quem está olhando. */
+/* ===== GOOGLE AGENDA (31/10/2026, services/google-agenda.js) =====
+   Cada pessoa liga a própria conta Google; a tarefa no nome dela vira evento
+   na agenda, com Meet opcional. Sem as chaves do Google no servidor, o
+   cartão aparece só para o gestor, dizendo o que falta. */
+const RETORNO_GOOGLE=(()=>{
+  try{
+    const q=new URLSearchParams(window.location.search); const g=q.get("google");
+    if(!g) return null;
+    window.history.replaceState(null,"",window.location.pathname);
+    return {estado:g,motivo:q.get("motivo")||""};
+  }catch(e){ return null; }
+})();
+let memoriaGoogle=null;
+function usarGoogleEstado(acoes){
+  const [d,setD]=useState(memoriaGoogle);
+  useEffect(()=>{ if(memoriaGoogle) return; acoes.googleEstado().then(r=>{memoriaGoogle=r;setD(r);}).catch(()=>{}); },[]);
+  return d;
+}
+function GoogleAgenda({acoes,session,isMobile}){
+  const [d,setD]=useState(null), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState("");
+  const [aviso]=useState(()=>RETORNO_GOOGLE);
+  const ler=()=>acoes.googleEstado().then(r=>{memoriaGoogle=r;setD(r);}).catch(()=>{});
+  useEffect(()=>{ler();},[]);
+  if(!d) return null;
+  if(!d.configurado&&!d.conectado&&!podeGerir(session)) return null;
+  async function conectar(){
+    setOcupado(true);setErro("");
+    try{ const r=await acoes.googleConectar(); window.location.href=r.url; }catch(e){ setErro(e.message); setOcupado(false); }
+  }
+  async function desconectar(){
+    setOcupado(true);setErro("");
+    try{ await acoes.googleDesconectar(); await ler(); }catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="calendar" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Google Agenda e Meet</span>
+      {d.conectado&&<span style={{color:C.greenDeep,background:C.greenSoft,fontSize:10.5,fontWeight:700,padding:"2px 8px",borderRadius:999}}>LIGADO</span>}
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Ligado, cada tarefa no seu nome vira um evento na sua agenda, e dá para criar o link do Meet junto.
+      Vai para o Google só o título da tarefa, a hora e o nome do cliente.</div>
+    {aviso&&aviso.estado==="ok"&&<div style={{color:C.greenDeep,background:C.greenSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Google Agenda ligado.</div>}
+    {aviso&&aviso.estado==="erro"&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Não deu para ligar: {aviso.motivo}</div>}
+    {!d.configurado&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"8px 10px"}}>
+      Ainda não está ligado nesta instalação: falta o projeto do ConHub no Google Cloud (e a verificação do Google). Fale com o ConHub.</div>}
+    {d.configurado&&(d.conectado
+      ?<button onClick={desconectar} disabled={ocupado} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado?"…":"Desligar o Google"}</button>
+      :<button onClick={conectar} disabled={ocupado} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"Abrindo o Google…":"Conectar com o Google"}</button>)}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function TarefasDoLead({lead,acoes,isMobile}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
@@ -10977,6 +11034,9 @@ function TarefasDoLead({lead,acoes,isMobile}){
   const [abrindo,setAbrindo]=useState(false);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
+  const [meet,setMeet]=useState(false);
+  const [avisoAgenda,setAvisoAgenda]=useState("");
+  const google=usarGoogleEstado(acoes);
 
   useEffect(()=>{ setLista(lead.listaTarefas||[]); },[lead.id,lead.listaTarefas]);
   useEffect(()=>{ setAbrindo(false); setTitulo(""); setQuando(""); setErro(""); },[lead.id]);
@@ -10988,8 +11048,11 @@ function TarefasDoLead({lead,acoes,isMobile}){
   async function criar(){
     if(!titulo.trim()) return setErro("Escreva o que precisa ser feito.");
     if(!quando) return setErro("Escolha o dia e a hora.");
-    await roda("nova",()=>acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString()}));
-    setTitulo(""); setQuando(""); setAbrindo(false);
+    setAvisoAgenda("");
+    await roda("nova",async()=>{ const r=await acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString(),meet});
+      if(r&&r.agenda&&r.agenda.erro) setAvisoAgenda("A tarefa foi marcada, mas não entrou no Google Agenda: "+r.agenda.erro);
+      return r; });
+    setTitulo(""); setQuando(""); setMeet(false); setAbrindo(false);
   }
 
   const abertas=lista.filter(t=>!t.feito_em), feitas=lista.filter(t=>t.feito_em);
@@ -11019,7 +11082,9 @@ function TarefasDoLead({lead,acoes,isMobile}){
             <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
               {atrasada?"venceu ":""}{fmtTarefa(t.quando)}
               {t.de_quem?` · ${first(t.de_quem)}`:""}
+              {t.na_agenda?" · na agenda":""}
             </div>
+            {t.meet&&<a href={t.meet} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>Entrar no Meet</a>}
           </div>
           <button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
             aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>
@@ -11039,7 +11104,11 @@ function TarefasDoLead({lead,acoes,isMobile}){
         <button onClick={()=>{setAbrindo(false);setErro("");}}
           style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",padding:4}}>cancelar</button>
       </div>
+      {google&&google.configurado&&<label style={{display:"flex",alignItems:"center",gap:7,color:C.sub,fontSize:11.5,cursor:"pointer"}}>
+        <input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/>
+        Criar link do Meet (vai para o Google Agenda de quem é a tarefa, se a pessoa ligou o Google)</label>}
     </div>}
+    {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
 
     {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
       {feitas.length} tarefa(s) já feita(s){feitas[0]?`, a última: ${feitas[feitas.length-1].titulo}`:""}
@@ -15388,6 +15457,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           acima das notificações porque é o que muda o dia dele. */}
       {podeGerir(session)&&!session.master&&!contaInterna()&&<CodigoDeAcesso acoes={acoes}/>}
       <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
+      <GoogleAgenda acoes={acoes} session={session} isMobile={isMobile}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {/* O ambiente interno do ConHub não tem mensalidade. */}
       {podeGerir(session)&&!contaInterna()&&<PainelAssinatura acoes={acoes} isMobile={isMobile}

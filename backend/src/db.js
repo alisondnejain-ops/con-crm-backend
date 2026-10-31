@@ -1781,6 +1781,22 @@ db.exec(`CREATE TABLE IF NOT EXISTS wa_grupo_mensagens (
 )`);
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_grupo_msg_wa ON wa_grupo_mensagens(grupo_id, wa_id) WHERE wa_id IS NOT NULL");
 db.exec("CREATE INDEX IF NOT EXISTS idx_grupo_msg ON wa_grupo_mensagens(grupo_id, created_at)");
+/* GOOGLE AGENDA (31/10/2026): a conta Google de cada pessoa, ligada por ela
+   mesma. O refresh_token vai fechado pelo cofre (services/cofre.js) — com ele
+   se escreve na agenda da pessoa. A tarefa guarda o evento criado. */
+db.exec(`CREATE TABLE IF NOT EXISTS google_contas (
+  user_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  email TEXT,
+  conectado_em INTEGER NOT NULL
+)`);
+{
+  const cols = db.prepare("PRAGMA table_info(tarefas)").all().map(c => c.name);
+  if (!cols.includes("google_event_id")) db.exec("ALTER TABLE tarefas ADD COLUMN google_event_id TEXT");
+  if (!cols.includes("google_meet")) db.exec("ALTER TABLE tarefas ADD COLUMN google_meet TEXT");
+  if (!cols.includes("google_erro")) db.exec("ALTER TABLE tarefas ADD COLUMN google_erro TEXT");
+}
 db.exec(`
 /* Quem escreveu e ainda não foi decidido. Guarda o MÍNIMO — nome, número,
    quando e quantas mensagens —, nunca o texto: se for conversa pessoal, nada

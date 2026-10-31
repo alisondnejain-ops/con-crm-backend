@@ -18,6 +18,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import db, { emLotes } from "../db.js";
 import { authRequired, podeVerLead } from "../auth.js";
+import { eventoDaTarefa, apagarEvento, moverEvento } from "../services/google-agenda.js";
 
 /* DOIS routers, com caminhos EXPLÍCITOS na hora de montar.
 
@@ -38,7 +39,8 @@ rt.use(authRequired);
 const doLead = (id) => db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 
 export const listar = (leadId) => db.prepare(`
-  SELECT t.id, t.titulo, t.quando, t.feito_em, t.user_id, u.name AS de_quem
+  SELECT t.id, t.titulo, t.quando, t.feito_em, t.user_id, u.name AS de_quem,
+    t.google_event_id IS NOT NULL AS na_agenda, t.google_meet AS meet, t.google_erro AS agenda_erro
   FROM tarefas t LEFT JOIN users u ON u.id = t.user_id
   WHERE t.lead_id = ? ORDER BY t.feito_em IS NOT NULL, t.quando ASC`).all(leadId);
 
@@ -48,7 +50,7 @@ r.get("/:id/tarefas", (req, res) => {
   res.json({ tarefas: listar(lead.id) });
 });
 
-r.post("/:id/tarefas", (req, res) => {
+r.post("/:id/tarefas", async (req, res) => {
   const lead = doLead(req.params.id);
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
 
@@ -67,7 +69,10 @@ r.post("/:id/tarefas", (req, res) => {
   const id = "tf_" + randomUUID();
   db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,created_at)
     VALUES (?,?,?,?,?,?,?,?)`).run(id, lead.org_id, lead.id, dono, req.user.id, titulo, quando, Date.now());
-  res.json({ ok: true, tarefas: listar(lead.id) });
+  /* Com o Google ligado por quem é a tarefa, ela vira evento na agenda dele
+     (e, se pedido, com link do Meet). Nunca impede a tarefa de existir. */
+  const agenda = await eventoDaTarefa(id, { meet: !!req.body?.meet });
+  res.json({ ok: true, tarefas: listar(lead.id), agenda });
 });
 
 // Marcar como feita, desmarcar, ou mudar o texto e a data.
@@ -92,6 +97,7 @@ rt.patch("/:id", (req, res) => {
   if (!campos.length) return res.status(400).json({ error: "Nada para mudar." });
 
   db.prepare(`UPDATE tarefas SET ${campos.join(", ")} WHERE id = ?`).run(...valores, t.id);
+  if (req.body?.quando !== undefined || req.body?.titulo !== undefined) moverEvento(t.id).catch(() => {});
   res.json({ ok: true, tarefas: listar(t.lead_id) });
 });
 
@@ -100,6 +106,7 @@ rt.delete("/:id", (req, res) => {
   if (!t) return res.status(404).json({ error: "Tarefa não encontrada." });
   const lead = doLead(t.lead_id);
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  apagarEvento(t).catch(() => {});
   db.prepare("DELETE FROM tarefas WHERE id = ?").run(t.id);
   res.json({ ok: true, tarefas: listar(t.lead_id) });
 });
