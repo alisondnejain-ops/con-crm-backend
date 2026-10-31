@@ -31,6 +31,10 @@ const CHAVE = process.env.ANTHROPIC_API_KEY || "";
 const modeloAtual = () => (process.env.ANTHROPIC_MODEL || "").trim() || "claude-haiku-4-5-20251001";
 
 export const iaConfigurada = () => !!CHAVE;
+/* Teto de orientações do Autoatendimento (31/10/2026, pedido do Fernando, de
+   30 para 100). Cada linha entra em TODA resposta da IA, então o custo cresce
+   junto — a tela mostra quantas letras vão em cada resposta. */
+export const LIMITE_ORIENTACOES = Math.max(1, Number(process.env.ROBO_ENSINO_MAX) || 100);
 // Qual modelo está atendendo. Só para o diagnóstico — a chave nunca sai daqui.
 export const modeloIA = () => modeloAtual();
 
@@ -63,7 +67,7 @@ async function perguntar({ content, max_tokens = 600, system }) {
   const pensa = PENSA_POR_PADRAO(MODELO);
   let res;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
+    res = await fetch((process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/$/, "") + "/v1/messages", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -250,6 +254,105 @@ export async function resumirConversa({ mensagens, nome }) {
       mensagens_lidas: Math.min(uteis.length, 120),
     },
   };
+}
+
+/* ===== A PRÓXIMA MENSAGEM, ESCRITA PELA IA PARA QUEM ATENDE =====
+
+   Pedido do Fernando (31/10/2026): a IA sugere o próximo follow-up ao corretor.
+   É RASCUNHO: o texto volta para o campo da conversa e só sai se a pessoa
+   apertar Enviar — pode mexer, apagar ou ignorar. Por isso não é "a IA falando
+   com o cliente": quem fala continua sendo a pessoa, com o nome dela na
+   assinatura.
+
+   As orientações do Autoatendimento entram aqui também: são o jeito de a casa
+   falar, escrito pela própria equipe. */
+const INSTRUCAO_PROXIMA = `Você ajuda uma pessoa que atende clientes pelo WhatsApp a escrever a
+PRÓXIMA mensagem para o cliente. Leia a conversa e escreva a mensagem que essa pessoa mandaria agora.
+
+Regras:
+- Escreva em português do Brasil, no tom de WhatsApp: curto, cordial, sem formalidade de e-mail
+- Uma mensagem só, de 1 a 4 frases. No máximo UMA pergunta, no fim
+- Se o cliente perguntou algo e ficou sem resposta, responda isso primeiro
+- Se a conversa parou, escreva um follow-up que retome o ponto em que ela parou — não uma saudação genérica
+- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa ou as orientações não digam.
+  Quando precisar de um dado que não está escrito, deixe o espaço entre colchetes: [valor], [dia e hora]
+- Não assine a mensagem (o sistema já põe o nome de quem envia)
+- Siga as orientações da casa quando existirem
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+{"mensagem":texto,"porque":texto}
+"porque": uma frase curta dizendo por que esta é a próxima mensagem (o que ficou em aberto na conversa).`;
+
+/* Devolve { ok, mensagem, porque, uso } ou { ok:false, erro }. Nunca lança. */
+export async function proximaMensagem({ mensagens, nome, orientacoes = [], quem = "", imobiliaria = "", pedido = "" }) {
+  if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
+  const uteis = (mensagens || []).filter(m => (m.texto || "").trim());
+  if (!uteis.length) return { ok: false, erro: "Ainda não há conversa para a IA ler." };
+  const linhas = uteis.slice(-80)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "EQUIPE"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+  const ensino = (orientacoes || []).map(t => String(t || "").trim()).filter(Boolean).slice(0, LIMITE_ORIENTACOES);
+  const partes = [INSTRUCAO_PROXIMA];
+  if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
+  if (quem) partes.push(`Quem vai enviar: ${String(quem).slice(0, 60)}`);
+  if (ensino.length) partes.push("ORIENTAÇÕES DA CASA:\n" + ensino.map(t => "- " + t).join("\n"));
+  if (String(pedido || "").trim()) partes.push("O QUE A PESSOA QUER COM ESTA MENSAGEM: " + String(pedido).trim().slice(0, 300));
+  partes.push(`Cliente: ${nome || "sem nome"}\n\nCONVERSA (da mais antiga para a mais recente):\n${linhas}`);
+  const r = await perguntar({ max_tokens: 500, content: [{ type: "text", text: partes.join("\n\n") }] });
+  if (!r.ok) return { ok: false, erro: r.erro };
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato. Tente de novo." }; }
+  const mensagem = typeof d.mensagem === "string" ? d.mensagem.trim().slice(0, 1500) : "";
+  if (!mensagem) return { ok: false, erro: "A IA não escreveu nenhuma mensagem. Tente de novo." };
+  return { ok: true, mensagem, porque: typeof d.porque === "string" ? d.porque.trim().slice(0, 240) : null, uso: r.uso };
+}
+
+/* ===== O BLOCO "CHAMAR A IA" DOS FLUXOS (31/10/2026, pedido do Fernando) =====
+
+   Aqui a IA escreve PARA O CLIENTE, e a mensagem sai sem ninguém conferir —
+   é o segundo lugar do CRM em que isso acontece, depois do Autoatendimento.
+   Por isso as mesmas travas de lá: as orientações da casa entram no pedido,
+   e o que não está escrito (valor, prazo, endereço) a IA não inventa. Sem
+   colchetes: não há ninguém para preencher antes de sair. */
+const INSTRUCAO_FLUXO = `Você escreve UMA mensagem de WhatsApp que uma empresa vai enviar agora a um cliente,
+dentro de uma automação. A mensagem sai sem revisão, então ela precisa estar pronta.
+
+Regras:
+- Português do Brasil, tom de WhatsApp: curto, cordial, natural. De 1 a 4 frases
+- No máximo UMA pergunta, no fim
+- Siga a INSTRUÇÃO DO BLOCO; ela diz o objetivo desta mensagem
+- Se houver conversa, continue a partir dela: não repita o que já foi dito e não cumprimente de novo
+  se a conversa estiver em andamento
+- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa ou as orientações não digam.
+  Se o objetivo precisar de um dado que você não tem, escreva a mensagem sem ele
+- Não use colchetes nem marcadores para preencher depois
+- Não assine
+- As orientações da casa valem sempre
+
+Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
+{"mensagem":texto}`;
+
+export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orientacoes = [], imobiliaria = "" }) {
+  if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
+  const linhas = (mensagens || []).filter(m => (m.texto || "").trim()).slice(-60)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "EMPRESA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
+    .join("\n");
+  const ensino = (orientacoes || []).map(t => String(t || "").trim()).filter(Boolean).slice(0, LIMITE_ORIENTACOES);
+  const partes = [INSTRUCAO_FLUXO];
+  if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
+  if (ensino.length) partes.push("ORIENTAÇÕES DA CASA:\n" + ensino.map(t => "- " + t).join("\n"));
+  partes.push("INSTRUÇÃO DO BLOCO: " + String(instrucao || "").trim().slice(0, 1000));
+  partes.push(`Cliente: ${nome || "sem nome"}`);
+  partes.push(linhas ? "CONVERSA (da mais antiga para a mais recente):\n" + linhas : "Ainda não há conversa com este cliente.");
+  const r = await perguntar({ max_tokens: 500, content: [{ type: "text", text: partes.join("\n\n") }] });
+  if (!r.ok) return { ok: false, erro: r.erro };
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato." }; }
+  const mensagem = typeof d.mensagem === "string" ? d.mensagem.trim().slice(0, 1500) : "";
+  if (!mensagem) return { ok: false, erro: "A IA não escreveu nenhuma mensagem." };
+  return { ok: true, mensagem, uso: r.uso };
 }
 
 /* ===== EM QUE ETAPA DO FUNIL ESTE LEAD ESTÁ =====
@@ -505,7 +608,7 @@ const FORMATO_EXTRA = `
 No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
 
 export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "",
-  produto = null, outrosProdutos = null, campos = [], resumo = false }) {
+  produto = null, outrosProdutos = null, campos = [], resumo = false, comFotos = [] }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -532,7 +635,7 @@ pergunte no máximo mais uma coisa, a mais importante que ainda falta, e prepare
      Desde 08/10/2026 são AS regras do atendimento: não existe mais lista de
      proibições fixa no código acima delas (pedido do Ali — cada cliente define
      as suas). Sem nenhuma orientação, vale o mínimo: acolher e passar adiante. */
-  const ensino = (orientacoes || []).filter(t => String(t || "").trim()).slice(0, 30);
+  const ensino = (orientacoes || []).filter(t => String(t || "").trim()).slice(0, LIMITE_ORIENTACOES);
   const bloco = ensino.length ? `
 
 ORIENTAÇÕES DA EQUIPE DESTA IMOBILIÁRIA — as regras deste atendimento. Siga-as no jeito de
@@ -590,6 +693,17 @@ No JSON, acrescente também "produto": o nome EXATO (como escrito acima) do prod
 demonstrou interesse nesta conversa — que ela citou, perguntou ou escolheu. Se ela ainda não
 falou de nenhum, ou falou de mais de um sem escolher, deixe "produto" de fora.` : "";
 
+  /* FOTOS DO IMÓVEL (31/10/2026, pedido do Fernando): a IA só ESCOLHE mandar;
+     quem manda é o código, e só as fotos do imóvel ligado à ficha, publicado
+     no catálogo — as mesmas que vão para o site. Uma vez por produto. */
+  const fotosOk = (comFotos || []).filter(n => nomesProdutos.some(x => x.toLowerCase() === String(n).toLowerCase()));
+  const blocoFotos = fotosOk.length ? `
+
+Estes produtos têm FOTOS que podem ir junto da sua resposta: ${fotosOk.join(", ")}. Quando a pessoa pedir
+foto, ou quando você apresentar um deles pela primeira vez, acrescente no JSON "fotos": o nome EXATO do
+produto. As fotos saem logo depois do seu texto — não escreva que vai mandar link, e não descreva foto
+que você não viu.` : "";
+
   const jaTem = Object.keys(coletado || {}).filter(k => coletado[k]);
   const contexto = jaTem.length
     ? `\n\nVOCÊ JÁ ANOTOU (não pergunte de novo): ${jaTem.map(k => `${k} = ${coletado[k]}`).join("; ")}`
@@ -598,7 +712,7 @@ falou de nenhum, ou falou de mais de um sem escolher, deixe "produto" de fora.` 
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}${blocoFotos}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
@@ -629,6 +743,7 @@ falou de nenhum, ou falou de mais de um sem escolher, deixe "produto" de fora.` 
     resumo: resumo && typeof d.resumo === "string" ? d.resumo.trim().slice(0, 2000) : "",
     interessado: d.interessado === true,
     produto: typeof d.produto === "string" && nomesProdutos.some(n => n.toLowerCase() === d.produto.trim().toLowerCase()) ? d.produto.trim() : "",
+    fotos: typeof d.fotos === "string" && fotosOk.some(n => n.toLowerCase() === d.fotos.trim().toLowerCase()) ? d.fotos.trim() : "",
     // Na última mensagem o encerramento não é opinião da IA: a conversa acabou
     // de qualquer jeito, e marcar isso mantém a tela dizendo a verdade.
     encerrar: d.encerrar === true || (restantes != null && restantes <= 1),

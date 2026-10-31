@@ -7,7 +7,7 @@ import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../servi
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { validarTelefone, paisPorIso } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
-import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, CAMPOS_SIMULACAO } from "../services/ia.js";
+import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, proximaMensagem, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
@@ -1274,6 +1274,34 @@ r.post("/:id/resumo", async (req, res) => {
   registrarUsoIA({ orgId: lead.org_id, userId: req.user.id, leadId: lead.id, recurso: "resumo", uso: r2.uso });
   if (r2.uso) console.log(`[ia] resumo de ${lead.name}: ${r2.uso.entrada} tokens de entrada, ${r2.uso.saida} de saída`);
   res.json({ ok: true, resumo: { ...r2.resumo, em: Date.now() }, novas: 0 });
+});
+
+/* A próxima mensagem, escrita pela IA como RASCUNHO para quem atende
+   (31/10/2026). Nada é enviado nem gravado na conversa: o texto volta para o
+   campo, e quem manda é a pessoa. Só quem pode abrir a conversa pede — é o
+   mesmo conteúdo. Freio de 30 por hora por pessoa: cada clique é uma chamada
+   paga, e um dedo nervoso não pode virar fatura. */
+const pedidosDeSugestao = new Map();
+r.post("/:id/proxima-mensagem", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  if (!iaConfigurada()) return res.status(503).json({ error: "A IA não está ligada nesta instalação." });
+  const agora = Date.now();
+  const meus = (pedidosDeSugestao.get(req.user.id) || []).filter(t => agora - t < 3600000);
+  if (meus.length >= 30) return res.status(429).json({ error: "São até 30 sugestões por hora. Tente de novo daqui a pouco." });
+  meus.push(agora); pedidosDeSugestao.set(req.user.id, meus);
+
+  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
+  const org = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id) || {};
+  const ensino = db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ? AND ativo = 1 ORDER BY ordem, created_at").all(lead.org_id).map(x => x.texto);
+  const r2 = await proximaMensagem({
+    nome: lead.name, quem: req.user.name, imobiliaria: org.name, orientacoes: ensino,
+    pedido: String(req.body?.pedido || "").slice(0, 300),
+    mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
+  });
+  if (!r2.ok) return res.status(422).json({ error: r2.erro });
+  registrarUsoIA({ orgId: lead.org_id, userId: req.user.id, leadId: lead.id, recurso: "proxima_mensagem", uso: r2.uso });
+  res.json({ ok: true, mensagem: r2.mensagem, porque: r2.porque });
 });
 
 /* ===== A IA LÊ A CONVERSA E DIZ EM QUE ETAPA O LEAD ESTÁ =====

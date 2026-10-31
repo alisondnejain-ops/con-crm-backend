@@ -57,7 +57,8 @@ export function registrar({ orgId, userId, leadId, recurso, uso, modelo: modeloU
 
 const ROTULOS = { resumo: "Resumo da conversa", print_simulacao: "Leitura do print da Caixa",
   etapa: "Leitura da etapa do funil", temperatura: "Leitura da temperatura do lead",
-  assistente: "Assistente de configuração", consulta: "Assistente (consulta da equipe)", suporte: "Suporte (triagem pela IA)" };
+  assistente: "Assistente de configuração", consulta: "Assistente (consulta da equipe)", suporte: "Suporte (triagem pela IA)",
+  proxima_mensagem: "Sugestão da próxima mensagem", fluxo_ia: "IA no fluxo" };
 
 /* O painel de consumo: total da imobiliária, por pessoa e por recurso.
 

@@ -18,7 +18,7 @@ import db from "../db.js";
 import { authRequired, roles, soMaster, supervisiona } from "../auth.js";
 import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
-import { iaConfigurada, modeloIA } from "../services/ia.js";
+import { iaConfigurada, modeloIA, LIMITE_ORIENTACOES } from "../services/ia.js";
 import { garantirWebhook, garantirWebhooksDaOrg, enderecoDoWebhook } from "../services/webhook-uazapi.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
@@ -556,7 +556,7 @@ r.delete("/robo/produtos/:id", roles("adm", "sdr"), trataFicha((req, res) => { a
    Ligar o robô continua sendo só do ADM. Ensinar o que dizer é do trabalho de
    quem atende; decidir que existe um robô falando, não. */
 r.get("/robo/ensino", roles("adm", "sdr"), (req, res) =>
-  res.json({ linhas: orientacoes(req.user.org_id, true) }));
+  res.json({ linhas: orientacoes(req.user.org_id, true), limite: LIMITE_ORIENTACOES }));
 
 r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
   const texto = String(req.body?.texto || "").trim();
@@ -565,19 +565,18 @@ r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
      o começo do que a equipe escreveu — produto descrito como orientação
      chegava pela metade, e ninguém sabia. */
   if (texto.length > 500) return res.status(400).json({ error: "Cada orientação tem até 500 letras (esta tem " + texto.length + "). Para descrever um produto ou empreendimento, use as Fichas de produto, na mesma tela, logo acima — lá cabem 4.000 e a IA usa quando o cliente fala dele." });
-  /* Teto de 30 linhas, e não é economia besta: cada uma entra no pedido de
-     TODA mensagem que o robô responde, então o texto acumulado vira dinheiro
-     em toda conversa. Trinta orientações curtas descrevem um jeito de falar;
-     duzentas descrevem um manual que ninguém leu. */
+  /* Teto de LIMITE_ORIENTACOES linhas (era 30; 100 desde 31/10/2026). Cada
+     uma entra no pedido de TODA mensagem que o robô responde, então o texto
+     acumulado vira dinheiro em toda conversa — a tela mostra o total. */
   const quantas = db.prepare("SELECT COUNT(*) n FROM robo_ensino WHERE org_id=?").get(req.user.org_id).n;
-  if (quantas >= 30) return res.status(400).json({ error: "São no máximo 30 orientações. Apague ou junte alguma antes de criar outra." });
+  if (quantas >= LIMITE_ORIENTACOES) return res.status(400).json({ error: `São no máximo ${LIMITE_ORIENTACOES} orientações. Apague ou junte alguma antes de criar outra.` });
 
   const ordem = (db.prepare("SELECT MAX(ordem) m FROM robo_ensino WHERE org_id=?").get(req.user.org_id).m || 0) + 1;
   const id = "en_" + randomUUID();
   db.prepare(`INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,criado_por,created_at)
     VALUES (?,?,?,?,1,?,?)`).run(id, req.user.org_id, texto.slice(0, 500), ordem, req.user.id, Date.now());
   console.log(`[robo] ${req.user.name} ensinou: "${texto.slice(0, 60)}"`);
-  res.json({ linhas: orientacoes(req.user.org_id, true) });
+  res.json({ linhas: orientacoes(req.user.org_id, true), limite: LIMITE_ORIENTACOES });
 });
 
 r.patch("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
@@ -588,12 +587,12 @@ r.patch("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
   if (req.body?.texto !== undefined && texto.length > 500) return res.status(400).json({ error: "Cada orientação tem até 500 letras (esta tem " + texto.length + "). Para descrever um produto ou empreendimento, use as Fichas de produto, na mesma tela, logo acima — lá cabem 4.000 e a IA usa quando o cliente fala dele." });
   const ativo = req.body?.ativo === undefined ? linha.ativo : (req.body.ativo ? 1 : 0);
   db.prepare("UPDATE robo_ensino SET texto=?, ativo=? WHERE id=?").run(texto, ativo, linha.id);
-  res.json({ linhas: orientacoes(req.user.org_id, true) });
+  res.json({ linhas: orientacoes(req.user.org_id, true), limite: LIMITE_ORIENTACOES });
 });
 
 r.delete("/robo/ensino/:id", roles("adm", "sdr"), (req, res) => {
   db.prepare("DELETE FROM robo_ensino WHERE id=? AND org_id=?").run(req.params.id, req.user.org_id);
-  res.json({ linhas: orientacoes(req.user.org_id, true) });
+  res.json({ linhas: orientacoes(req.user.org_id, true), limite: LIMITE_ORIENTACOES });
 });
 
 /* A lista de segunda-feira. É o par obrigatório do robô: a conversa que ele

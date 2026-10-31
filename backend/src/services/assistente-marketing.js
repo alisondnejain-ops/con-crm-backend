@@ -27,7 +27,9 @@ const GATILHO = {
   type: "object", additionalProperties: false,
   description: "Quando alguém entra sozinho no fluxo. manual = só por disparo em massa (não liga sozinho).",
   properties: {
-    tipo: { type: "string", enum: ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo"] },
+    tipo: { type: "string", enum: ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo", "palavra"] },
+    modo: { type: "string", enum: ["contem", "comeca", "codigo"], description: "palavra: contem = tem a palavra/frase; comeca = começa com; codigo = manda o código de um imóvel do catálogo" },
+    palavras: { type: "array", items: { type: "string" }, description: "palavra: as palavras ou frases (até 20)" },
     form_ids: { type: "array", items: { type: "string" }, description: "formulario: ids de ver_formularios — um ou vários (o fluxo vale para todos)" },
     origens: { type: "array", items: { type: "string", enum: ["whatsapp", "formulario", "portal", "manual"] }, description: "lead_novo: de onde (vazio = todas)" },
     etapa_id: { type: "string", description: "etapa: id de ver_funis" },
@@ -43,6 +45,7 @@ const GATILHO = {
 const GATILHO_COM_ID = { ...GATILHO, properties: { id: { type: "string", description: "id do gatilho (o primeiro é \"inicio\"; os outros, curtos, ex.: g2)" }, ...GATILHO.properties } };
 const DESCRICAO_BLOCOS = `Blocos (campo "tipo") e o que cada um leva em "dados":
 - mensagem: {texto, midia?} — {nome} vira o primeiro nome do cliente. Ou {modelo:{nome, idioma, texto, variaveis:[...]}} para modelo aprovado da Meta (de ver_modelos_meta). Saída: proximo.
+- ia (Chamar a IA): {instrucao} — a IA lê a conversa e as orientações do Autoatendimento e escreve a mensagem ao cliente, que sai sem revisão. Só com o Autoatendimento no plano. Saída: proximo.
 - espera: {quantidade, unidade: minutos|horas|dias}. Saída: proximo.
 - resposta (esperar a resposta e desviar): {regras:[{id, palavras:"sim, quero"}], prazo:{quantidade, unidade}}. Saídas: o id de cada regra, "outra", "sem_resposta".
 - botoes: {texto, botoes:[{id, rotulo (até 20 letras)}] (até 3), prazo}. Saídas: o id de cada botão, "outra", "sem_resposta".

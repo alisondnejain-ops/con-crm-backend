@@ -1111,6 +1111,7 @@ addLeadCol("sugestao_em", "INTEGER");
    - `robo_conferido_em`: a atendente já passou o olho no que ele colheu. É o
      que tira o lead da lista de segunda-feira. */
 addLeadCol("robo_json", "TEXT");
+addLeadCol("robo_fotos", "TEXT");     // fichas cujas fotos a IA já mandou (31/10/2026), uma vez por produto
 addLeadCol("robo_msgs", "INTEGER DEFAULT 0");
 addLeadCol("robo_em", "INTEGER");
 addLeadCol("robo_parado", "INTEGER DEFAULT 0");

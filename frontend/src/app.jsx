@@ -2212,6 +2212,7 @@ function ConCRM(){
     metasConfig:(mes)=>api("/painel/metas"+(mes?`?mes=${mes}`:"")),
     salvarMeta:(dados)=>api("/painel/metas",{method:"POST",body:dados}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
+    proximaMensagem:(id,pedido)=>api(`/leads/${id}/proxima-mensagem`,{method:"POST",body:{pedido:pedido||""}}),
     lerEtapaIA:(id)=>api(`/leads/${id}/etapa-ia`,{method:"POST"}),
     abrir,
   };
@@ -3614,6 +3615,7 @@ function WebhookDoDisparo({url}){
 const TIPO_BLOCO={
   inicio:{nome:"Gatilho",cor:C.greenDeep,icone:"zap"},
   mensagem:{nome:"Mensagem",cor:C.green,icone:"msg"},
+  ia:{nome:"Chamar a IA",cor:"#C2572F",icone:"spark"},
   espera:{nome:"Espera",cor:C.cool,icone:"clock"},
   resposta:{nome:"Esperar resposta",cor:"#2F80C4",icone:"reply"},
   botoes:{nome:"Botões",cor:"#7A5AD6",icone:"grid"},
@@ -3626,7 +3628,7 @@ const TIPO_BLOCO={
 };
 /* A PALETA, agrupada como no exemplo que o Ali mandou (03/10/2026): o que
    fala com o cliente, o que decide o caminho e o que mexe no lead. */
-const GRUPOS_DE_BLOCO=[["Mensagem",["mensagem","botoes","resposta","espera"]],["Fluxo",["condicao"]],
+const GRUPOS_DE_BLOCO=[["Mensagem",["mensagem","ia","botoes","resposta","espera"]],["Fluxo",["condicao"]],
   ["CRM",["add_tag","remover_tag","mover_etapa","atribuir","tarefa"]]];
 const TIPOS_NOVOS=GRUPOS_DE_BLOCO.flatMap(([,t])=>t);
 const BLOCOS_CRM=["add_tag","remover_tag","mover_etapa","atribuir","tarefa"];
@@ -3655,7 +3657,7 @@ function saidasDoBloco(no){
   const d=no.dados||{};
   switch(no.tipo){
     case "inicio": return [["proximo","Começa aqui"]];
-    case "mensagem": case "espera": case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return [["proximo","Depois"]];
+    case "mensagem": case "ia": case "espera": case "add_tag": case "remover_tag": case "mover_etapa": case "atribuir": case "tarefa": return [["proximo","Depois"]];
     case "condicao": return [["sim","Sim"],["nao","Não"]];
     case "resposta": return [...(d.regras||[]).map((r,i)=>[r.id,r.palavras?`Contém: ${r.palavras}`:`Caminho ${i+1} (sem palavras)`]),
       ["outra","Qualquer outra resposta"],["sem_resposta",`Não respondeu em ${fmtPrazo(d.prazo)}`]];
@@ -3696,6 +3698,7 @@ function resumoDoBloco(no,op){
   if(no.tipo==="inicio") return resumoDoGatilho(d.gatilho,op);
   if(no.tipo==="mensagem"&&d.modelo) return `Modelo da Meta: ${d.modelo.nome}`;
   if(no.tipo==="mensagem") return (d.midia?`[${d.midia.nome||"arquivo"}] `:"")+(d.texto||(d.midia?"":"Escreva a mensagem…"));
+  if(no.tipo==="ia") return d.instrucao?`A IA escreve: ${d.instrucao}`:"Diga o que a IA deve escrever…";
   if(no.tipo==="espera") return `Espera ${d.quantidade||1} ${(UNIDADES_FLUXO.find(u=>u[0]===d.unidade)||UNIDADES_FLUXO[1])[1]} e segue.`;
   if(no.tipo==="resposta") return "Espera a pessoa responder e segue pelo caminho que combinar.";
   if(no.tipo==="botoes") return d.texto||"Escreva a pergunta…";
@@ -3724,6 +3727,7 @@ const idNovoFluxo=(p)=>p+Math.random().toString(36).slice(2,8);
 function blocoNovo(tipo,x,y){
   const prazo={quantidade:24,unidade:"horas"};
   const dados=tipo==="mensagem"?{texto:"",midia:null}
+    :tipo==="ia"?{instrucao:""}
     :tipo==="espera"?{quantidade:1,unidade:"dias"}
     :tipo==="resposta"?{regras:[{id:idNovoFluxo("r"),palavras:""}],prazo}
     :tipo==="botoes"?{texto:"",botoes:[{id:idNovoFluxo("b"),rotulo:""},{id:idNovoFluxo("b"),rotulo:""}],escrever_opcoes:true,prazo}
@@ -4262,6 +4266,13 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         <select value={d.user_id||""} onChange={e=>dados({user_id:e.target.value})} style={campoMkt(isMobile)}>
           <option value="">Escolha…</option>{((op&&op.responsaveis)||[]).map(u=><option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>}
     </React.Fragment>}
+    {no.tipo==="ia"&&<div><div style={rot}>O que a IA deve escrever</div>
+      <textarea value={d.instrucao||""} onChange={e=>dados({instrucao:e.target.value})} maxLength={1000} rows={4}
+        placeholder="Ex.: pergunte se a pessoa ainda procura imóvel e se prefere casa ou apartamento"
+        style={{...campoMkt(isMobile),resize:"vertical",fontFamily:FONT}}/>
+      <div style={{color:C.faint,fontSize:11.5,marginTop:6,lineHeight:1.5}}>
+        A IA lê a conversa e as orientações do Autoatendimento e escreve a mensagem, que <b>sai sem ninguém conferir</b>.
+        Ela não inventa valor, prazo nem endereço. Faz parte do Autoatendimento: precisa estar no plano.</div></div>}
     {no.tipo==="tarefa"&&<React.Fragment>
       <div><div style={rot}>Tarefa</div>
         <input value={d.titulo||""} onChange={e=>dados({titulo:e.target.value})} maxLength={160} placeholder="Ligar para o cliente" style={campoMkt(isMobile)}/></div>
@@ -10029,6 +10040,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const gravado=usarAudioPendente({lead:sel,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(sel,acoes);
+  const sg=usarSugestaoIA(sel);
   const fx=usarFluxoConversa(sel,acoes);
   // Quem é a vez do rodízio, para o botão de repasse dizer o nome.
   const proximoDaVez=usarProximoDaVez(acoes,sel&&sel.id,!!canHandoff,sel&&sel.catracaId);
@@ -10272,6 +10284,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+        <FaixaSugestaoIA sg={sg} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
         <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
           <Anexar lead={sel} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
@@ -10297,7 +10310,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/>
           {sel.canal&&sel.canal.onde==="corretor"
             ?<React.Fragment>Sai pelo seu número, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
-            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}</div>
+            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+          <BotaoSugestaoIA sg={sg}/></div>
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
@@ -14473,6 +14487,70 @@ function usarAgendamento(lead,acoes){
   return {lista,setLista,aberto,setAberto,ler,leadId:id};
 }
 
+/* ===== A IA SUGERE A PRÓXIMA MENSAGEM (31/10/2026, pedido do Fernando) =====
+
+   Rascunho, nunca envio: a sugestão aparece numa faixa acima do campo, e só
+   vai para o campo no "Usar" — o que já estava digitado não é apagado sem a
+   pessoa pedir. Quem manda continua sendo a pessoa, no Enviar de sempre. */
+function usarSugestaoIA(lead){
+  const [aberto,setAberto]=useState(false);
+  const [pedido,setPedido]=useState("");
+  const [r,setR]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  const id=lead&&lead.id;
+  useEffect(()=>{setAberto(false);setPedido("");setR(null);setErro("");},[id]);
+  const disponivel=!!(lead&&lead.resumo&&lead.resumo.disponivel);
+  return {aberto,setAberto,pedido,setPedido,r,setR,ocupado,setOcupado,erro,setErro,disponivel,id};
+}
+
+function BotaoSugestaoIA({sg}){
+  if(!sg.disponivel) return null;
+  return <button onClick={()=>sg.setAberto(v=>!v)} aria-pressed={sg.aberto}
+    style={{marginLeft:"auto",background:"none",border:"none",padding:"2px 0",cursor:"pointer",
+      color:sg.aberto?C.greenDeep:C.sub,fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+    <Icon n="spark" size={12}/>Sugerir mensagem</button>;
+}
+
+function FaixaSugestaoIA({sg,acoes,draft,setDraft,isMobile}){
+  if(!sg.disponivel||!sg.aberto) return null;
+  async function pedir(){
+    sg.setOcupado(true);sg.setErro("");
+    try{ sg.setR(await acoes.proximaMensagem(sg.id,sg.pedido.trim())); }
+    catch(e){ sg.setErro(e.message); }
+    finally{ sg.setOcupado(false); }
+  }
+  const usar=()=>{ setDraft(sg.r.mensagem); sg.setAberto(false); sg.setR(null); sg.setPedido(""); };
+  return <div style={{background:C.greenSoft,border:`1px solid ${C.green}55`,borderRadius:11,padding:"9px 11px",marginBottom:8,paddingRight:isMobile?54:11}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <Icon n="spark" size={13} color={C.greenDeep}/>
+      <span style={{color:C.greenDeep,fontSize:12,fontWeight:700,flex:1}}>A IA escreve, você decide se manda</span>
+      <button onClick={()=>sg.setAberto(false)} aria-label="Fechar" style={{background:"none",border:"none",cursor:"pointer",color:C.sub,padding:2}}><Icon n="x" size={14}/></button>
+    </div>
+    {!sg.r&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <input value={sg.pedido} onChange={e=>sg.setPedido(e.target.value)} maxLength={300}
+        onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(!sg.ocupado)pedir();}}}
+        placeholder="O que você quer com a mensagem? (opcional)"
+        style={{flex:"1 1 180px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",background:C.card,color:C.ink,outline:"none"}}/>
+      <button onClick={pedir} disabled={sg.ocupado}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+        {sg.ocupado?"Escrevendo…":"Escrever"}</button>
+    </div>}
+    {sg.r&&<React.Fragment>
+      <div style={{background:C.card,borderRadius:9,padding:"8px 10px",color:C.ink,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{sg.r.mensagem}</div>
+      {sg.r.porque&&<div style={{color:C.sub,fontSize:11,marginTop:5}}>{sg.r.porque}</div>}
+      <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
+        <button onClick={usar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+          {draft.trim()?"Trocar pelo que está no campo":"Usar no campo"}</button>
+        <button onClick={pedir} disabled={sg.ocupado} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>
+          {sg.ocupado?"Escrevendo…":"Outra sugestão"}</button>
+      </div>
+      <div style={{color:C.faint,fontSize:10.5,marginTop:6}}>Confira antes de enviar: o que estiver entre [colchetes] a IA não sabia.</div>
+    </React.Fragment>}
+    {sg.erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{sg.erro}</div>}
+  </div>;
+}
+
 function BotaoAgendar({ag,desligado,isMobile}){
   const pendentes=ag.lista.filter(a=>a.status==="pendente").length;
   return <button onClick={()=>ag.setAberto(v=>!v)} disabled={desligado} title="Agendar o envio desta mensagem"
@@ -14555,6 +14633,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   const gravado=usarAudioPendente({lead:lead,acoes,aoAvisar:setErroAnexo});
   const gravarDeNovo=useRef(null);
   const ag=usarAgendamento(lead,acoes);
+  const sg=usarSugestaoIA(lead);
   const fx=usarFluxoConversa(lead,acoes);
   const [colando,setColando]=useState(false);
   const [colados,setColados]=useState([]);
@@ -14626,6 +14705,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
+    <FaixaSugestaoIA sg={sg} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
     <FaixaFluxo fx={fx} acoes={acoes} isMobile={isMobile}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
       <Anexar lead={lead} acoes={acoes} isMobile={isMobile} aoAvisar={setErroAnexo} aoGravarAudio={gravado.setAudio} refGravar={gravarDeNovo}
@@ -14652,6 +14732,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
       {lead.canal&&lead.canal.onde==="corretor"
         ?<React.Fragment>Sai pelo número pessoal, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
         :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+      <BotaoSugestaoIA sg={sg}/>
     </div>
   </div>
   </React.Fragment>;
@@ -19717,6 +19798,7 @@ function RoboConfig({acoes,session,isMobile}){
   const [cfg,setCfg]=useState(null);
   const [fila,setFila]=useState(null);
   const [ensino,setEnsino]=useState(null);
+  const [limEnsino,setLimEnsino]=useState(100);
   const [novaLinha,setNovaLinha]=useState("");
   const [erro,setErro]=useState("");
   const [salvando,setSalvando]=useState(false);
@@ -19724,7 +19806,7 @@ function RoboConfig({acoes,session,isMobile}){
 
   const carregar=()=>{ acoes.robo().then(setCfg).catch(e=>setErro(e.message));
     acoes.roboConferir().then(d=>setFila(d.leads)).catch(()=>{});
-    acoes.roboEnsino().then(d=>setEnsino(d.linhas)).catch(()=>{}); };
+    acoes.roboEnsino().then(d=>{setEnsino(d.linhas); if(d.limite) setLimEnsino(d.limite);}).catch(()=>{}); };
   useEffect(carregar,[]);
 
   async function salvar(mudanca){
@@ -19923,7 +20005,8 @@ function RoboConfig({acoes,session,isMobile}){
         <Icon n="msg" size={15} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
           {cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</span>
-        {ensino&&<span style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/30</span>}
+        {ensino&&<span title="Cada orientação ligada entra em toda resposta da IA — quanto mais texto, mais cara cada resposta."
+          style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/{limEnsino} · {fmtNum(ensino.filter(e=>e.ativo).reduce((n,e)=>n+e.texto.length,0))} letras por resposta</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
         Estas linhas são as regras do atendimento: o jeito de tratar o cliente, o que perguntar, o que

@@ -646,4 +646,45 @@ respostaDaIA = { texto: "Oi!", coletado: {}, encerrar: false, produto: "Edifíci
 await atender(org, inventou, { agora: NOITE, atraso: 0 });
 assert.equal(db.prepare("SELECT catraca_id FROM leads WHERE id = ?").get(inventou).catraca_id, null);
 
+console.log("37. A IA manda as fotos do imóvel da ficha, uma vez por produto (31/10/2026)");
+/* Pedido do Fernando. A IA só ESCOLHE: o código manda as fotos do imóvel
+   ligado à ficha, publicado no catálogo — e só desse. */
+db.prepare("INSERT INTO produtos (id,org_id,tipo,titulo,status,created_at) VALUES ('pr_hor',?,'casa','Casa no Horizon','ativo',?)").run(org, Date.now());
+for (let i = 0; i < 6; i++) db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,ordem,created_at) VALUES (?,?,?,?,?,?)")
+  .run("pm_" + i, "pr_hor", "foto", `https://arquivos.teste/hor-${i}.jpg`, i, Date.now());
+db.prepare("UPDATE ia_produtos SET produto_id = 'pr_hor' WHERE id = ?").run(fichaH);
+db.prepare("INSERT INTO produtos (id,org_id,tipo,titulo,status,created_at) VALUES ('pr_rasc',?,'casa','Rascunho','aguardando',?)").run(org, Date.now());
+db.prepare("INSERT INTO produto_midias (id,produto_id,tipo,url,ordem,created_at) VALUES ('pm_r','pr_rasc','foto','https://arquivos.teste/rasc.jpg',0,?)").run(Date.now());
+db.prepare("UPDATE ia_produtos SET produto_id = 'pr_rasc' WHERE org_id = ? AND nome = 'Jardins do Vale'").run(org);
+
+const querFoto = lead({ nome: "Quer foto", dono: vanessa });
+doClienteAgora(querFoto, "tem foto do horizon?");
+respostaDaIA = { texto: "Tenho sim! Olha só 👇", coletado: {}, encerrar: false, fotos: "Residencial Horizon" };
+const antes37 = enviadas.length;
+assert.equal((await atender(org, querFoto, { agora: NOITE, atraso: 0 })).atendeu, true);
+const p37 = pedido().messages[0].content[0].text;
+assert.ok(p37.includes("FOTOS") && p37.includes("Residencial Horizon"), "a IA sabe quais produtos têm foto");
+assert.ok(!/têm FOTOS[^\n]*Jardins do Vale/.test(p37), "imóvel não publicado não oferece foto");
+const saiu37 = enviadas.slice(antes37);
+const fotos37 = saiu37.filter(e => e.type === "image");
+console.log(`   ${saiu37.length} envio(s): ${fotos37.length} foto(s)`);
+assert.equal(fotos37.length, 4, "até 4 fotos, na ordem do anúncio");
+assert.equal(fotos37[0].file, "https://arquivos.teste/hor-0.jpg");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM messages WHERE lead_id = ? AND media_url IS NOT NULL").get(querFoto).n, 4, "as fotos ficam na conversa");
+
+// Pedir de novo não manda as mesmas fotos outra vez.
+doClienteAgora(querFoto, "manda mais foto");
+respostaDaIA = { texto: "Essas são as que eu tenho!", coletado: {}, encerrar: false, fotos: "Residencial Horizon" };
+const antes37b = enviadas.length;
+await atender(org, querFoto, { agora: NOITE, atraso: 0 });
+assert.equal(enviadas.slice(antes37b).filter(e => e.type === "image").length, 0, "uma vez por produto");
+
+// Imóvel não publicado: nem que a IA peça.
+const outro37 = lead({ nome: "Pede do rascunho", dono: vanessa });
+doClienteAgora(outro37, "foto do jardins do vale?");
+respostaDaIA = { texto: "O corretor te manda!", coletado: {}, encerrar: false, fotos: "Jardins do Vale" };
+const antes37c = enviadas.length;
+await atender(org, outro37, { agora: NOITE, atraso: 0 });
+assert.equal(enviadas.slice(antes37c).filter(e => e.type === "image").length, 0, "imóvel não publicado não sai");
+
 console.log("\nTudo certo ✅");
