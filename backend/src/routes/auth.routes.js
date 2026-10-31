@@ -3,7 +3,7 @@ import { TRIAL_DIAS } from "../services/assinatura.js";
 import bcrypt from "bcryptjs";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
-import { cadastroPodeReaproveitar, EMAIL_EM_USO } from "../auth.js";
+import { cadastroPodeReaproveitar, EMAIL_EM_USO, PERMISSOES, permissoesDe } from "../auth.js";
 import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo,
          resumoDeConvite, porConvite, encerrarSessoes } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
@@ -627,11 +627,28 @@ r.get("/users", authRequired, roles("adm", "sdr"), (req, res) => {
   // mesmo que ninguém tenha aberto a catraca desde ontem.
   try { aplicarCorte(req.user.org_id); } catch (e) {}
   const rows = db.prepare(`
-    SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,u.avatar_url,
+    SELECT u.id,u.name,u.email,u.phone,u.role,u.status,u.available,u.created_at,u.avatar_url,u.permissoes,
       (SELECT COUNT(*) FROM leads l WHERE l.assigned_to = u.id
         AND l.stage NOT IN ('Venda','Perdido')) AS leads_abertos
     FROM users u WHERE u.org_id = ?${semMaster("u")} ORDER BY u.created_at DESC`).all(req.user.org_id);
-  res.json(rows.map(u => ({ ...u, available: !!u.available, funcao: PAPEIS[u.role].rotulo })));
+  res.json(rows.map(u => ({ ...u, available: !!u.available, funcao: PAPEIS[u.role].rotulo,
+    permissoes: u.role === "corretor" ? permissoesDe(u.id) : [] })));
+});
+
+/* PERMISSÕES INDIVIDUAIS (31/10/2026). Só o GESTOR dá ou tira, e só a um
+   corretor desta conta: são acréscimos ao papel (auth.js → PERMISSOES). A
+   lista que chega é peneirada pela lista fechada — chave inventada some. */
+r.get("/permissoes", authRequired, roles("adm"), (_req, res) =>
+  res.json({ permissoes: Object.entries(PERMISSOES).map(([chave, nome]) => ({ chave, nome })) }));
+r.patch("/users/:id/permissoes", authRequired, roles("adm"), (req, res) => {
+  const u = db.prepare("SELECT id, role, status, name FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  if (!u) return res.status(404).json({ error: "Pessoa não encontrada nesta imobiliária." });
+  if (u.role !== "corretor") return res.status(400).json({ error: "As permissões individuais são para corretores. Gestão e atendente já têm o que o papel dá." });
+  const pedidas = Array.isArray(req.body?.permissoes) ? req.body.permissoes : [];
+  const lista = [...new Set(pedidas.map(String).filter(k => PERMISSOES[k]))];
+  db.prepare("UPDATE users SET permissoes = ? WHERE id = ?").run(lista.length ? JSON.stringify(lista) : null, u.id);
+  console.log(`[permissoes] ${req.user.name} definiu ${lista.length} permissão(ões) para ${u.name}`);
+  res.json({ ok: true, permissoes: lista });
 });
 
 // Só o gestor mexe em outro gestor — senão um atendente poderia desligar a
@@ -965,6 +982,8 @@ function publicUser(u) {
               quem a aplica, e uma segunda dedução no navegador seria uma
               segunda verdade sobre quem pode o quê. */
            gestor: u.role === "adm" || ehDonoAutonomo({ id: u.id, org_id: u.org_id }),
+           // Permissões a mais que o gestor deu a este corretor (31/10/2026).
+           permissoes: u.role === "corretor" ? permissoesDe(u.id) : [],
            // A própria pessoa sabe que é master; a equipe nunca a vê na lista.
            master: !!u.master };
 }

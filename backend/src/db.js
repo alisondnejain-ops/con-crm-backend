@@ -664,7 +664,8 @@ addUserCol("avatar_url", "TEXT");
    computador da imobiliária e no notebook de casa. Guardar no navegador seria
    mais simples, mas aí a escolha se perderia a cada aparelho novo — e foi
    "por conta" o que o Ali pediu. */
-addUserCol("barra_recolhida", "INTEGER DEFAULT 0");                       // foto de perfil
+addUserCol("barra_recolhida", "INTEGER DEFAULT 0");
+addUserCol("permissoes", "TEXT");   // permissões a mais dadas pelo gestor a um corretor (31/10/2026), lista JSON                       // foto de perfil
 addUserCol("avatar_key", "TEXT");                       // caminho no armazenamento
 /* A ORDEM DO MENU de cada pessoa (05/10/2026, pedido do Ali): o corretor
    reorganiza o próprio menu pelo Claude. Lista JSON das telas na ordem

@@ -15,7 +15,7 @@ import { listarFichas, criarFicha, editarFicha, apagarFicha, ErroFicha } from ".
 import { lerHorario } from "../services/expediente.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
-import { authRequired, roles, soMaster, supervisiona } from "../auth.js";
+import { authRequired, roles, soMaster, supervisiona, rolesOuPermissao, temPermissao } from "../auth.js";
 import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigured, salvarCredenciais, PROVEDORES, citacaoDiagnostico, envioSemIdDiagnostico } from "../services/uazapi.js";
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA, LIMITE_ORIENTACOES } from "../services/ia.js";
@@ -93,7 +93,7 @@ const listar = (orgId, todas) => db.prepare(
    as ativas, a mensagem que ele desligasse sumia da tela dele para sempre. */
 r.get("/mensagens", (req, res) => {
   semear(req.user.org_id);
-  const todas = req.query.todas === "1" && supervisiona(req.user);
+  const todas = req.query.todas === "1" && (supervisiona(req.user) || temPermissao(req.user, "editar_mensagens"));
   res.json({ mensagens: listar(req.user.org_id, todas) });
 });
 
@@ -103,7 +103,7 @@ const gravarEtapas = (orgId, bruto) => {
   return ids.length ? JSON.stringify(ids) : null;
 };
 
-r.post("/mensagens", roles("adm", "sdr"), (req, res) => {
+r.post("/mensagens", rolesOuPermissao("editar_mensagens", "adm", "sdr"), (req, res) => {
   const titulo = limpa(req.body?.titulo, 40), corpo = limpa(req.body?.corpo, 1200);
   if (!titulo || !corpo) return res.status(400).json({ error: "Preencha o nome do botão e o texto." });
   const ordem = (db.prepare("SELECT MAX(ordem) m FROM mensagens_rapidas WHERE org_id=?").get(req.user.org_id).m ?? -1) + 1;
@@ -113,7 +113,7 @@ r.post("/mensagens", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
-r.patch("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
+r.patch("/mensagens/:id", rolesOuPermissao("editar_mensagens", "adm", "sdr"), (req, res) => {
   const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!m) return res.status(404).json({ error: "Mensagem não encontrada." });
 
@@ -135,7 +135,7 @@ r.patch("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
 /* O ARQUIVO DA MENSAGEM PRONTA (30/10/2026, lista do Fernando). Um por
    mensagem: foto, vídeo, áudio ou documento, com o mesmo limite de tamanho do
    anexo da conversa. Trocar apaga o anterior do armazenamento. */
-r.post("/mensagens/:id/midia", roles("adm", "sdr"), async (req, res) => {
+r.post("/mensagens/:id/midia", rolesOuPermissao("editar_mensagens", "adm", "sdr"), async (req, res) => {
   const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!m) return res.status(404).json({ error: "Mensagem não encontrada." });
   const mime = String(req.body?.mime || "").toLowerCase();
@@ -151,7 +151,7 @@ r.post("/mensagens/:id/midia", roles("adm", "sdr"), async (req, res) => {
   db.prepare("UPDATE mensagens_rapidas SET midia_url=?, midia_mime=?, midia_nome=? WHERE id=?").run(url, mime, nome, m.id);
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
-r.delete("/mensagens/:id/midia", roles("adm", "sdr"), (req, res) => {
+r.delete("/mensagens/:id/midia", rolesOuPermissao("editar_mensagens", "adm", "sdr"), (req, res) => {
   const m = db.prepare("SELECT * FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!m) return res.status(404).json({ error: "Mensagem não encontrada." });
   if (m.midia_url) apagar(chaveDaUrl(m.midia_url)).catch(() => {});
@@ -159,7 +159,7 @@ r.delete("/mensagens/:id/midia", roles("adm", "sdr"), (req, res) => {
   res.json({ ok: true, mensagens: listar(req.user.org_id, true) });
 });
 
-r.delete("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
+r.delete("/mensagens/:id", rolesOuPermissao("editar_mensagens", "adm", "sdr"), (req, res) => {
   const antes = db.prepare("SELECT midia_url FROM mensagens_rapidas WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (antes && antes.midia_url) apagar(chaveDaUrl(antes.midia_url)).catch(() => {});
   const info = db.prepare("DELETE FROM mensagens_rapidas WHERE id=? AND org_id=?").run(req.params.id, req.user.org_id);
@@ -168,7 +168,7 @@ r.delete("/mensagens/:id", roles("adm", "sdr"), (req, res) => {
 });
 
 // Troca a posição de duas mensagens — é como a gestão pensa a ordem dos botões.
-r.post("/mensagens/:id/mover", roles("adm", "sdr"), (req, res) => {
+r.post("/mensagens/:id/mover", rolesOuPermissao("editar_mensagens", "adm", "sdr"), (req, res) => {
   const lista = listar(req.user.org_id, true);
   const i = lista.findIndex(m => m.id === req.params.id);
   if (i < 0) return res.status(404).json({ error: "Mensagem não encontrada." });

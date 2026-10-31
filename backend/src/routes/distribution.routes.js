@@ -6,7 +6,7 @@ import { filaDoLead, filaDaCatraca, pegarProximoDoLead, marcarQueRecebeuNoLead, 
 import { relatorioDasCatracas, relatorioDaCatraca } from "../services/relatorio-catracas.js";
 import db from "../db.js";
 import { vezDasAtendentes } from "../services/catraca.js";
-import { authRequired, roles, semMaster } from "../auth.js";
+import { authRequired, roles, semMaster, rolesOuPermissao } from "../auth.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { trocarResponsavel } from "../services/movimento.js";
 import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
@@ -176,7 +176,15 @@ r.post("/transfer", roles("sdr", "adm"), (req, res) => {
    (`services/rodizio.js`). Número na tela que não é o número usado pelo botão
    é pior do que número nenhum: a atendente combina com o corretor que ele é o
    próximo e o lead cai em outro. */
-r.get("/rodizio", roles("sdr", "adm"), (req, res) => {
+r.get("/rodizio", rolesOuPermissao("repassar_leads", "sdr", "adm"), (req, res) => {
+  /* O corretor com a permissão de repassar vê só a fila de um lead DELE —
+     é o que o botão da ficha dele precisa para escrever o nome. */
+  if (req.user.role === "corretor") {
+    const meu = req.query.lead_id && db.prepare("SELECT id, catraca_id FROM leads WHERE id = ? AND org_id = ? AND assigned_to = ?")
+      .get(String(req.query.lead_id), req.user.org_id, req.user.id);
+    if (!meu) return res.status(403).json({ error: "Sem permissão" });
+    return res.json(filaDoLead(req.user.org_id, meu));
+  }
   /* Com `lead_id`, a fila que vale para AQUELE lead — a da catraca do
      produto dele, ou a principal. É o que faz o botão da ficha escrever o
      nome de quem vai receber de verdade. Com `catraca`, a fila de uma
@@ -251,10 +259,16 @@ r.post("/next", roles("sdr", "adm"), (req, res) => {
 
 // Repasse da SDR: ela faz o 1º atendimento e passa o lead para o CORRETOR da vez
 // (rodízio entre corretores disponíveis) ou para um corretor específico. O lead deixa de ser dela.
-r.post("/handoff", roles("sdr", "adm"), (req, res) => {
+r.post("/handoff", rolesOuPermissao("repassar_leads", "sdr", "adm"), (req, res) => {
   const { lead_id, user_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(lead_id, req.user.org_id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  /* O corretor com a permissão (31/10/2026) só repassa o que é DELE, e
+     nunca para si mesmo. O resto da regra é a de sempre: só para corretor. */
+  if (req.user.role === "corretor" && lead.assigned_to !== req.user.id)
+    return res.status(403).json({ error: "Você só repassa os leads que estão com você." });
+  if (req.user.role === "corretor" && user_id === req.user.id)
+    return res.status(400).json({ error: "O lead já está com você." });
   let chosen = user_id, vez = { catraca: null, reserva: false };
   if (chosen) {
     const u = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ? AND role = 'corretor'").get(chosen, req.user.org_id);
@@ -265,6 +279,7 @@ r.post("/handoff", roles("sdr", "adm"), (req, res) => {
     vez = pegarProximoDoLead(req.user.org_id, lead);
     chosen = vez.userId;
     if (!chosen) return res.status(409).json({ error: "Nenhum corretor disponível" });
+    if (req.user.role === "corretor" && chosen === lead.assigned_to) return res.status(409).json({ error: "Você é o próximo da vez. Escolha um colega." });
   }
   const t = repassar(lead_id, req.user.org_id, chosen, req.user.id);
   if (t.erro) return res.status(404).json({ error: t.erro });

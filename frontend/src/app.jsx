@@ -1434,6 +1434,9 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 // de validar uma paleta nova para mais um gráfico de sete séries.
 const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2","#57534E"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
+/* As permissões individuais (31/10/2026): acréscimos que o gestor dá a um
+   corretor. Quem decide é o servidor; aqui só mostra ou esconde o botão. */
+const temPerm=(s,k)=>!!(s&&Array.isArray(s.permissoes)&&s.permissoes.includes(k));
 function toSession(u){
   const h=[...(u.id||u.email||"")].reduce((a,c)=>a+c.charCodeAt(0),0);
   return {id:u.id,name:u.name,email:u.email,phone:u.phone,role:u.role,funcao:u.funcao,
@@ -1454,6 +1457,8 @@ function toSession(u){
              silêncio, e o dono da conta abriria o CRM sem Configurações,
              Equipe, Conexão nem Assinatura, sem nenhum erro aparecer. */
           gestor:!!u.gestor,
+          // Permissões a mais que o gestor deu ao corretor (31/10/2026).
+          permissoes:Array.isArray(u.permissoes)?u.permissoes:[],
           avatar:u.avatar_url||null,ini:initials(u.name),
           color:u.role==="adm"?C.greenDeep:COLORS[h%COLORS.length]};
 }
@@ -1727,6 +1732,8 @@ function ConCRM(){
     registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
     transferir:atribuir((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:atribuir((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
+    permissoesDisponiveis:()=>api("/auth/permissoes"),
+    definirPermissoes:(id,permissoes)=>api(`/auth/users/${id}/permissoes`,{method:"PATCH",body:{permissoes}}),
     repassar:atribuir((leadId,userId)=>api("/distribution/handoff",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
     assumir:acao((leadId)=>api("/distribution/assumir",{method:"POST",body:{lead_id:leadId}})),
     devolver:acao((leadId,userId)=>api("/distribution/devolver",{method:"POST",body:{lead_id:leadId,...(userId?{user_id:userId}:{})}})),
@@ -8022,6 +8029,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     .concat(podeGerir(session)&&role==="corretor"
       ?[["produtividade","trend","Produção","Minha conta"]]
       :[])
+    .concat(role==="corretor"&&!podeGerir(session)&&temPerm(session,"editar_mensagens")?[["mensagens","msg","Mensagens prontas","Ferramentas"]]:[])
     .concat([["conta","user","Minha conta","Configurações"]])
     /* NA CONTA DE CORRETOR AUTÔNOMO A CATRACA E O PLANTÃO SOMEM.
 
@@ -8064,7 +8072,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:"Minha produtividade",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -8174,7 +8182,10 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
-        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}/>}
+        {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}
+          pickable={temPerm(session,"ver_relatorios_equipe")}/>}
+        {role==="corretor"&&temPerm(session,"editar_mensagens")&&view==="mensagens"&&<div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"22px 28px"}}>
+          <div style={{maxWidth:820,margin:"0 auto"}}><MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile}/></div></div>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
@@ -10347,6 +10358,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         })()}
         <DicaEtapa etapa={sel.status}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
+        {!canHandoff&&temPerm(session,"repassar_leads")&&sel.assignedTo===session.id&&<RepasseDoCorretor lead={sel} acoes={acoes} session={session}/>}
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Repassar para um corretor</div>
           <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
@@ -11599,6 +11611,37 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
 
    Recarrega quando o lead muda: entre abrir uma ficha e outra, alguém pode ter
    recebido e a vez já é de outra pessoa. */
+/* O REPASSE DO CORRETOR (31/10/2026, permissão individual "repassar os
+   próprios leads"). Só lead DELE, só para outro corretor; a fila vem da
+   mesma rota da supervisão, que para ele só responde sobre o lead dele. */
+function RepasseDoCorretor({lead,acoes,session}){
+  const [d,setD]=useState(null);
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{let vivo=true;setD(null);setErro("");
+    acoes.rodizio(lead.id).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    return()=>{vivo=false;};},[lead.id,lead.catracaId]);
+  const colegas=((d&&d.fila)||[]).filter(p=>p.disponivel&&p.id!==session.id);
+  const proximo=d&&d.proximo&&d.proximo.id!==session.id?d.proximo:null;
+  async function passar(id){
+    setOcupado(true);setErro("");
+    try{ await acoes.repassar(lead.id,id); }catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
+    <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
+      <Icon n="transfer" size={13} color={C.greenMid}/> Repassar para outro corretor</div>
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
+    {d&&!colegas.length&&<div style={{color:C.sub,fontSize:11.5}}>Nenhum colega disponível agora.</div>}
+    {proximo&&<button onClick={()=>passar(null)} disabled={ocupado} style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6}}>
+      <Icon n="transfer" size={14}/> {ocupado?"Repassando…":`Passar para ${first(proximo.name)}`}</button>}
+    {colegas.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {colegas.filter(p=>!proximo||p.id!==proximo.id).map(p=><button key={p.id} onClick={()=>passar(p.id)} disabled={ocupado}
+        style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"4px 11px",cursor:"pointer",color:C.ink,fontSize:11.5,fontWeight:500}}>{first(p.name)}</button>)}
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function usarProximoDaVez(acoes,leadId,ativo=true,catracaId){
   const [p,setP]=useState(null);
   // Quem não repassa (o corretor) não pergunta: a rota é da supervisão e
@@ -18746,6 +18789,36 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
   </div>;
 }
 
+/* PERMISSÕES INDIVIDUAIS (31/10/2026): o gestor ACRESCENTA ao papel do
+   corretor. A lista vem do servidor, que é quem confere em cada pedido. */
+function PermissoesDoCorretor({u,acoes,aoSalvar,aoFechar}){
+  const [lista,setLista]=useState(null);
+  const [marcadas,setMarcadas]=useState(new Set(u.permissoes||[]));
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{acoes.permissoesDisponiveis().then(d=>setLista(d.permissoes)).catch(e=>setErro(e.message));},[]);
+  const alternar=(k)=>setMarcadas(m=>{const n=new Set(m);n.has(k)?n.delete(k):n.add(k);return n;});
+  async function salvar(){
+    setOcupado(true);setErro("");
+    try{ await acoes.definirPermissoes(u.id,[...marcadas]); await aoSalvar(); }
+    catch(e){ setErro(e.message); }finally{ setOcupado(false); }
+  }
+  return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:3}}>O que {first(u.name)} pode a mais</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Soma ao que o papel de corretor já dá. Ninguém passa a ver a conversa de lead que não é dele.</div>
+    {!lista&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
+    {(lista||[]).map(p=><label key={p.chave} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",cursor:"pointer",color:C.ink,fontSize:12.5}}>
+      <input type="checkbox" checked={marcadas.has(p.chave)} onChange={()=>alternar(p.chave)} style={{width:16,height:16}}/>{p.nome}</label>)}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+    <div style={{display:"flex",gap:7,marginTop:9}}>
+      <button onClick={salvar} disabled={ocupado||!lista} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{ocupado?"Salvando…":"Salvar"}</button>
+      <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+    </div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>Vale no próximo clique dele; para o menu mudar, ele recarrega a página.</div>
+  </div>;
+}
+
 function Equipe({acoes,session,org,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
@@ -18753,6 +18826,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
   const [removendo,setRemovendo]=useState(null); // id de quem está no painel de saída
   const [gerando,setGerando]=useState(null);     // id de quem está tendo o link gerado
   const [senha,setSenha]=useState(null);         // {id, nome, link, ...} do link recém-criado
+  const [permDe,setPermDe]=useState(null);       // id do corretor com o painel de permissões aberto
 
   useEffect(()=>{let vivo=true;
     acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
@@ -18830,6 +18904,10 @@ function Equipe({acoes,session,org,isMobile,versao}){
           <button onClick={()=>novaSenha(u)} disabled={gerando===u.id} title="Gerar link para a pessoa criar uma senha nova"
             style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n={gerando===u.id?"loader":"link"} size={12} spin={gerando===u.id}/>{gerando===u.id?"Gerando…":"Nova senha"}</button>}
+        {podeGerir(session)&&u.role==="corretor"&&u.status==="ativo"&&u.id!==session.id&&
+          <button onClick={()=>setPermDe(permDe===u.id?null:u.id)} title="Dar a este corretor uma permissão a mais"
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="key" size={12}/>Permissões{(u.permissoes||[]).length?` (${u.permissoes.length})`:""}</button>}
         {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
         {!comBotoes&&u.status==="removido"&&<React.Fragment>
           <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
@@ -18856,6 +18934,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
     {removendo===u.id&&<PainelRemocao alvo={u} candidatos={candidatos(u)} isMobile={isMobile}
       onConfirmar={(destino)=>remover(u.id,destino)} onCancelar={()=>setRemovendo(null)}/>}
     {senha&&senha.id===u.id&&<LinkNovaSenha dados={senha} isMobile={isMobile} aoFechar={()=>setSenha(null)}/>}
+    {permDe===u.id&&<PermissoesDoCorretor u={u} acoes={acoes} aoSalvar={async()=>{setPermDe(null);setUsers(await acoes.equipe());}} aoFechar={()=>setPermDe(null)}/>}
   </div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
