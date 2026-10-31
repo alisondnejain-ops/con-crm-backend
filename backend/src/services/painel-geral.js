@@ -168,7 +168,7 @@ function faladas(orgId, filtros, de, ate) {
    funil de conversão) e toda etapa com "qualific" no nome (a "Lead qualificado"
    do funil de SDR). Pela id da etapa; as linhas antigas do histórico, só com o
    nome, casam pelo nome. */
-function etapasDeQualificacao(orgId) {
+export function etapasDeQualificacao(orgId) {
   const ids = new Set(), nomes = new Set();
   for (const pl of listarPipelines(orgId)) {
     const cfg = configDoFunil(orgId, pl.id);

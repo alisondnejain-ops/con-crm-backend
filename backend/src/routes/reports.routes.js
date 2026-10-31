@@ -7,6 +7,7 @@ import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
 import { resolverPeriodo } from "../services/painel.js";
+import { indicadoresDoSdr } from "../services/sdr.js";
 
 const r = Router();
 r.use(authRequired);
@@ -326,6 +327,14 @@ const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
    abriam em "este mês" — a mesma palavra "Vendas" dava dois números. Agora
    Relatórios manda o mesmo atalho e cai na MESMA função. ?de=&ate= continua
    valendo (o "Escolher datas" e quem já chamava assim). */
+/* Indicadores do SDR (31/10/2026, services/sdr.js). A mesma régua do Score:
+   quem supervisiona (gestão e atendente) vê a equipe; o corretor não. */
+r.get("/sdr", (req, res) => {
+  if (!supervisiona(req.user)) return res.status(403).json({ error: "Este relatório é da supervisão." });
+  const { de, ate } = intervaloDaQuery(req.query);
+  res.json(indicadoresDoSdr(req.user.org_id, de, ate));
+});
+
 function intervaloDaQuery(q) {
   if (q.periodo && q.periodo !== "custom") {
     const p = resolverPeriodo({ periodo: q.periodo });

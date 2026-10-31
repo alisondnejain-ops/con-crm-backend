@@ -2000,6 +2000,7 @@ function ConCRM(){
       setOrg(o=>o&&{...o,cor:d.cor,logo:d.logo}); return d; },
     apagarCadastro:acao((userId)=>api(`/auth/users/${userId}`,{method:"DELETE"})),
     relatorio:(params)=>api("/reports?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
+    relatorioSdr:(params)=>api("/reports/sdr?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
     expediente:()=>api("/distribution/expediente"),
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
@@ -22962,6 +22963,61 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
   </div>;
 }
 
+/* ===== INDICADORES DO SDR (31/10/2026, primeira versão para o Fernando) =====
+   O trabalho da atendente antes do corretor, por pessoa e por origem. Os
+   números saem de services/sdr.js; a tela só desenha. */
+function IndicadoresSdr({acoes,periodo,tick,isMobile}){
+  const [d,setD]=useState(null);
+  const chave=JSON.stringify(periodo);
+  useEffect(()=>{let vivo=true;
+    acoes.relatorioSdr(periodo).then(r=>vivo&&setD(r)).catch(()=>vivo&&setD(null));
+    return()=>{vivo=false;};},[chave,tick]);
+  if(!d||!d.por_pessoa||!d.por_pessoa.length) return null;
+  const tempo=(min)=>min==null?"—":fmtMin(min);
+  const caixa=(rot,v,dica)=><div title={dica||""} style={{background:C.surface,borderRadius:10,padding:"9px 11px",minWidth:0}}>
+    <div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
+    <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.3}}>{rot}</div></div>;
+  const grade={display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(104px,1fr))",gap:8};
+  const th={textAlign:"left",color:C.faint,fontSize:10.5,fontWeight:700,padding:"6px 6px",textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap"};
+  const td={padding:"7px 6px",fontSize:12.5,color:C.ink,borderTop:`1px solid ${C.line}`,whiteSpace:"nowrap"};
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <Icon n="target" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
+      O que as atendentes fizeram antes do corretor: receber, falar, qualificar e repassar.</div>
+    {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+      Nenhuma etapa conta como qualificação: marque o início do processo comercial em Configurações → Funis e etapas, ou use "qualific" no nome da etapa.</div>}
+    {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7}}>{a.nome}</div>
+      <div style={grade}>
+        {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
+        {caixa("contatados",a.contatados,"Leads para os quais ela escreveu no período")}
+        {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
+        {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois")}
+        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela moveu para uma etapa de qualificação, sobre os contatados")}
+        {caixa("repassados ao corretor",a.repassados_ao_corretor)}
+        {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
+      </div>
+    </div>)}
+    {d.por_origem.length>0&&<React.Fragment>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"6px 0 4px"}}>Por origem</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:420}}>
+          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th>{!isMobile&&<th style={th}>Ao corretor</th>}</tr></thead>
+          <tbody>{d.por_origem.map(o=><tr key={o.origem}>
+            <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{o.origem}</td>
+            <td style={td}>{o.recebidos}</td><td style={td}>{o.contatados}</td>
+            <td style={td}>{o.qualificados} <span style={{color:C.faint}}>· {pctBR(o.taxa_qualificacao)}</span></td>
+            {!isMobile&&<td style={td}>{o.repassados_ao_corretor}</td>}
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
 function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
   // Nota aberta de alguém da equipe: {m, componentes}.
   const [nota,setNota]=useState(null);
@@ -23031,6 +23087,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         funil={rosca&&!rosca.erro&&rosca.chave===linha.id+funilDoRelatorio+chavePeriodo?rosca:null}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
+      {(pickable||session.role==="sdr")&&<IndicadoresSdr acoes={acoes} periodo={periodo} tick={tick} isMobile={isMobile}/>}
       {/* O ponto das atendentes desceu (28/10/2026): é registro de presença,
           e o que se abre esta tela para ver é o desempenho. */}
       <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
