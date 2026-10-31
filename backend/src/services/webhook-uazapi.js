@@ -132,7 +132,11 @@ export async function garantirWebhook(orgId, canalId = null, { corrigir = true }
   }
   try {
     let atuais = lista(await pedir(a.host, a.token, "GET"));
-    const certo = atuais.find(w => NOSSO.test(String(w.url || "")) && recebeMensagens(w));
+    /* GRUPOS LIGADOS NA LINHA (31/10/2026): o webhook do CRM não pode filtrar
+       grupo. Linha com os grupos desligados continua exatamente como antes. */
+    const queroGrupos = !!(a.canal && a.canal.grupos === 1);
+    const excluiGrupos = (w) => Array.isArray(w.excludeMessages) && w.excludeMessages.includes("isGroupYes");
+    const certo = atuais.find(w => NOSSO.test(String(w.url || "")) && recebeMensagens(w) && !(queroGrupos && excluiGrupos(w)));
     if (certo) {
       gravar(a.canal, "ok", null);
       return { estado: "ok", acao: "ja_estava", url: certo.url };
@@ -143,7 +147,8 @@ export async function garantirWebhook(orgId, canalId = null, { corrigir = true }
        próprio está sendo atendido por ele — ligar mais um faria cada
        mensagem chegar duas vezes, que foi o que aconteceu no primeiro dia
        desta função. Aí não se mexe em nada. */
-    if (recebeuRecentemente(orgId || a.canal?.org_id, a.canal)) {
+    const nossoSemGrupos = queroGrupos && atuais.some(w => NOSSO.test(String(w.url || "")) && excluiGrupos(w));
+    if (!nossoSemGrupos && recebeuRecentemente(orgId || a.canal?.org_id, a.canal)) {
       gravar(a.canal, "ok", null);
       return { estado: "ok", acao: "outro_caminho" };
     }
@@ -152,7 +157,7 @@ export async function garantirWebhook(orgId, canalId = null, { corrigir = true }
       gravar(a.canal, "erro", detalhe);
       return { estado: "erro", detalhe };
     }
-    const base = { enabled: true, url, events: ["messages"], excludeMessages: ["isGroupYes"] };
+    const base = { enabled: true, url, events: ["messages"], excludeMessages: queroGrupos ? [] : ["isGroupYes"] };
     // Um webhook do CRM desligado ou sem o evento de mensagens: conserta ELE,
     // em vez de criar um segundo (dois apontando para cá duplicariam cada
     // mensagem que chega).
@@ -164,7 +169,7 @@ export async function garantirWebhook(orgId, canalId = null, { corrigir = true }
     await pedir(a.host, a.token, "POST", corpo);
     // Confere de novo: "respondeu 200" não é "ficou configurado".
     atuais = lista(await pedir(a.host, a.token, "GET"));
-    if (atuais.some(w => NOSSO.test(String(w.url || "")) && recebeMensagens(w))) {
+    if (atuais.some(w => NOSSO.test(String(w.url || "")) && recebeMensagens(w) && !(queroGrupos && excluiGrupos(w)))) {
       gravar(a.canal, "ok", null);
       console.log(`[webhook] recebimento LIGADO na ${a.canal && a.canal.tipo !== "imobiliaria" ? "linha de " + (a.canal.nome || a.canal.id) : "linha da imobiliária"} (org ${orgId || a.canal?.org_id})`);
       return { estado: "ok", acao: "configurado", url };

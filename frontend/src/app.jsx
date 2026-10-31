@@ -2017,6 +2017,11 @@ function ConCRM(){
     canais:()=>api("/canais"),
     // Triagem de números novos (services/triagem.js): quem escreveu e ainda não é lead.
     triagem:()=>api("/triagem"),
+    grupos:()=>api("/grupos"),
+    grupo:(id)=>api("/grupos/"+id),
+    enviarAoGrupo:(id,texto)=>api(`/grupos/${id}/mensagens`,{method:"POST",body:{texto}}),
+    linhasDeGrupos:()=>api("/grupos/linhas"),
+    ligarGruposDaLinha:(id,ligado)=>api(`/grupos/linhas/${id}`,{method:"POST",body:{ligado}}),
     decidirContato:(id,decisao)=>api(`/triagem/novos/${id}`,{method:"POST",body:{decisao}}).then(r=>{recarregar();return r;}),
     definirTriagem:(linha,ligada)=>api("/triagem/linhas",{method:"POST",body:{linha,ligada}}),
     voltarAReceber:(linha,phone)=>api("/triagem/pessoais/voltar",{method:"POST",body:{linha,phone}}),
@@ -10120,7 +10125,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const soNumeros=(t)=>String(t||"").replace(/\D/g,"");
   // A linha, antes de tudo: os outros filtros valem dentro do número escolhido.
   const daLinha=myLeads.filter(l=>!minhaLinha||linha==="todas"?true:linha==="minha"?l.canalId===minhaLinha.id:l.canalId!==minhaLinha.id);
-  const contagem=contagemDaCaixa(daLinha,triagem);
+  const [grupos,lerGrupos]=usarGrupos(acoes);
+  const contagem=comGrupos(contagemDaCaixa(daLinha,triagem),grupos);
   const list=daLinha
     .filter(l=>passaNaVista(l,vista,campanha))
     /* A BUSCA DO CORRETOR. Cuidado com a armadilha que ela já teve.
@@ -10210,7 +10216,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {vista==="novos"
+        {vista==="grupos"?<GruposDoWhatsapp dados={grupos} recarregar={lerGrupos} acoes={acoes} isMobile={isMobile}/>
+          :vista==="novos"
           ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");openChat(id);}} isMobile={isMobile} session={session}/>
           :<React.Fragment>
             {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
@@ -12341,13 +12348,14 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
    neles — numa conta sem anúncio e sem triagem, seriam duas pastilhas
    prometendo uma coisa que não existe. O componente é UM para as duas caixas
    (corretor e supervisão): já divergiram antes, quando cada uma tinha o seu. */
-const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","finalizados"];
+const VISTAS_DA_CAIXA=["todos","aguardando","formulario","novos","grupos","finalizados"];
 function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem,lista,campanha,setCampanha,seletor,filtrosAtivos,gaveta,setGaveta,contador,ordem,setOrdem,children}){
   const chips=[
     ["todos","Tudo"],
     ["aguardando","Aguardando",contagem.aguardando,true],
     (contagem.formulario||vista==="formulario")&&["formulario","Formulário",contagem.formulario],
     (contagem.novos||vista==="novos")&&["novos","Novos contatos",contagem.novos,true],
+    (contagem.grupos!=null||vista==="grupos")&&["grupos","Grupos",contagem.grupos||0],
     ["finalizados","Finalizados"],
   ].filter(Boolean);
   const chip=([v,rot,n,urgente])=>{
@@ -12496,6 +12504,8 @@ const contagemDaCaixa=(lista,triagem)=>({
   formulario:lista.filter(l=>!l.finalizado&&entradaDoLead(l)==="formulario").length,
   novos:triagem&&triagem.novos?triagem.novos.length:0,
 });
+// Os grupos ligados entram como pastilha própria (31/10/2026): null = a pessoa não vê grupo nenhum.
+const comGrupos=(contagem,g)=>({...contagem,grupos:g&&g.ligado?g.grupos.reduce((n,x)=>n+(x.nao_lidas?1:0),0):null});
 // A pastilha escolhida, aplicada a um lead (Novos contatos não mostra leads).
 const passaNaVista=(l,vista,campanha)=>{
   if(vista==="finalizados") return l.finalizado;
@@ -12510,6 +12520,114 @@ const passaNaVista=(l,vista,campanha)=>{
    Só nome, número e quantas mensagens — o texto não fica no CRM até alguém
    dizer que é lead. A lista é buscada de 20 em 20 segundos com a aba visível,
    e sempre que a pessoa volta para ela. */
+/* ===== GRUPOS DO WHATSAPP (31/10/2026, services/grupos.js) =====
+   Pastilha própria no Atender, só para quem tem uma linha com os grupos
+   ligados. Grupo não é lead: não vai para funil, catraca nem relatório. */
+function usarGrupos(acoes){
+  const [d,setD]=useState(null);
+  const ler=React.useCallback(()=>acoes.grupos().then(setD).catch(()=>{}),[]);
+  useEffect(()=>{
+    ler();
+    const t=setInterval(()=>{ if(document.visibilityState==="visible") ler(); },20000);
+    return()=>clearInterval(t);
+  },[]);
+  return [d,ler];
+}
+function GruposDoWhatsapp({dados,recarregar,acoes,isMobile}){
+  const [aberto,setAberto]=useState(null);
+  const lista=(dados&&dados.grupos)||[];
+  return <div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.5,padding:"8px 12px"}}>Os grupos dos números ligados. Não viram lead e não entram em relatório.</div>
+    {!lista.length&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:28}}>Nenhuma mensagem de grupo ainda.</div>}
+    {lista.map(g=><button key={g.id} onClick={()=>setAberto(g.id)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",
+      padding:"10px 12px",border:"none",borderBottom:`1px solid ${C.line}`,background:C.card,cursor:"pointer"}}>
+      <span style={{width:34,height:34,borderRadius:999,background:C.coolSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="users" size={16} color={C.sub}/></span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{display:"flex",gap:6,alignItems:"baseline"}}>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.nome}</span>
+          {g.ultima_em&&<span style={{color:C.faint,fontSize:10.5,flexShrink:0}}>{fmtQuando(g.ultima_em)}</span>}
+        </span>
+        <span style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{color:C.sub,fontSize:11.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.ultima||" "}</span>
+          {g.nao_lidas>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{g.nao_lidas}</span>}
+        </span>
+        {g.linha&&<span style={{color:C.faint,fontSize:10}}>{g.linha}</span>}
+      </span>
+    </button>)}
+    {aberto&&<ConversaDoGrupo id={aberto} acoes={acoes} isMobile={isMobile} aoFechar={()=>{setAberto(null);recarregar();}}/>}
+  </div>;
+}
+function ConversaDoGrupo({id,acoes,isMobile,aoFechar}){
+  const [d,setD]=useState(null), [erro,setErro]=useState(""), [texto,setTexto]=useState(""), [enviando,setEnviando]=useState(false);
+  const fim=useRef(null);
+  useEffect(()=>{let vivo=true;
+    const ler=()=>acoes.grupo(id).then(r=>vivo&&setD(r)).catch(e=>vivo&&setErro(e.message));
+    ler(); const t=setInterval(()=>{ if(document.visibilityState==="visible") ler(); },8000);
+    return()=>{vivo=false;clearInterval(t);};},[id]);
+  useEffect(()=>{ if(fim.current) fim.current.scrollIntoView({block:"end"}); },[d&&d.mensagens.length]);
+  async function enviar(){
+    if(!texto.trim()) return;
+    setEnviando(true);setErro("");
+    try{ setD(await acoes.enviarAoGrupo(id,texto.trim())); setTexto(""); }catch(e){ setErro(e.message); }finally{ setEnviando(false); }
+  }
+  return <div className="tela-cheia" style={{position:"fixed",inset:0,zIndex:80,background:"rgba(10,20,15,.45)",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center"}} onClick={aoFechar}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.surface,width:isMobile?"100%":560,height:isMobile?"100%":"80vh",borderRadius:isMobile?0:16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+        <Icon n="users" size={16} color={C.sub}/>
+        <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d?d.grupo.nome:"Grupo"}</span>
+        <button onClick={aoFechar} aria-label="Fechar" style={{background:"none",border:"none",cursor:"pointer",padding:4,color:C.sub}}><Icon n="x" size={18}/></button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:6}}>
+        {!d&&!erro&&<div style={{color:C.faint,fontSize:12,margin:"auto"}}>Carregando…</div>}
+        {d&&d.mensagens.map(m=><div key={m.id} style={{alignSelf:m.direction==="out"?"flex-end":"flex-start",maxWidth:"82%",
+          background:m.direction==="out"?C.greenSoft:C.card,border:`1px solid ${C.line}`,borderRadius:11,padding:"6px 9px"}}>
+          {m.direction==="in"&&<div style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>{m.autor_nome||(m.autor_numero?fmtTel(m.autor_numero):"Participante")}</div>}
+          <div style={{color:C.ink,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word"}}><TextoDaMensagem texto={m.body||""}/></div>
+          <div style={{color:C.faint,fontSize:10,textAlign:"right"}}>{fmtQuando(m.created_at)}</div>
+        </div>)}
+        <div ref={fim}/>
+      </div>
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,padding:"6px 12px"}}>{erro}</div>}
+      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:10,display:"flex",gap:8,paddingRight:isMobile?60:10}}>
+        <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={2} placeholder="Escreva para o grupo…"
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();enviar();}}}
+          style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+        <button onClick={enviar} disabled={enviando||!texto.trim()} aria-label="Enviar" style={{width:44,height:44,borderRadius:12,border:"none",background:enviando||!texto.trim()?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+          <Icon n={enviando?"loader":"send"} size={18} spin={enviando}/></button>
+      </div>
+    </div>
+  </div>;
+}
+/* O interruptor dos grupos, por número: a da casa para o gestor, a pessoal
+   para o dono. Fica em Configurações → Conexão e em Minha conta → Meu WhatsApp. */
+function LigarGrupos({acoes,isMobile}){
+  const [d,setD]=useState(null), [ocupado,setOcupado]=useState(null), [erro,setErro]=useState(""), [aviso,setAviso]=useState("");
+  const ler=()=>acoes.linhasDeGrupos().then(setD).catch(()=>{});
+  useEffect(()=>{ler();},[]);
+  if(!d||!d.linhas.length) return null;
+  async function mudar(l){
+    setOcupado(l.id);setErro("");setAviso("");
+    try{ const r=await acoes.ligarGruposDaLinha(l.id,!l.grupos);
+      if(r.recebimento&&r.recebimento.estado!=="ok") setAviso(r.recebimento.detalhe||"");
+      await ler(); }
+    catch(e){ setErro(e.message); }finally{ setOcupado(null); }
+  }
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <Icon n="users" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Grupos do WhatsApp</span>
+    </div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+      Ligado, os grupos deste número aparecem no Atender, numa pastilha própria. Grupo não vira lead e não entra em relatório.
+      No WhatsApp pessoal, só você vê os seus grupos.</div>
+    {d.linhas.map(l=><label key={l.id} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 0",cursor:"pointer",color:C.ink,fontSize:12.5}}>
+      <input type="checkbox" checked={l.grupos} disabled={ocupado===l.id} onChange={()=>mudar(l)} style={{width:16,height:16}}/>
+      {l.nome}{ocupado===l.id&&<span style={{color:C.faint,fontSize:11}}> · salvando…</span>}</label>)}
+    {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:6}}>{aviso}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
 function usarTriagem(acoes){
   const [d,setD]=useState(null);
   const ler=React.useCallback(()=>acoes.triagem().then(setD).catch(()=>{}),[]);
@@ -13369,7 +13487,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     .filter(l=>passaNaSituacao(l,fSit)),[lista,vista,campanha,numero,fTag,fSit]);
   const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
   const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa),[peneirados,ordemCaixa]);
-  const contagem=contagemDaCaixa(lista,triagem);
+  const [grupos,lerGrupos]=usarGrupos(acoes);
+  const contagem=comGrupos(contagemDaCaixa(lista,triagem),grupos);
   const linhas=usarLinhas(acoes,session,lista);
 
   const abrir=(id)=>{acoes.abrir(id);setPane("chat");setCitando(null);setEditando(null);};
@@ -13422,7 +13541,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
-        {vista==="novos"
+        {vista==="grupos"?<GruposDoWhatsapp dados={grupos} recarregar={lerGrupos} acoes={acoes} isMobile={isMobile}/>
+          :vista==="novos"
           ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");abrir(id);}} isMobile={isMobile} session={session}/>
           :<React.Fragment>
             {!carregando&&visiveis.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nada encontrado com esses filtros.</div>}
@@ -15152,6 +15272,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
 
       {/* Conversa pessoal não entra no CRM: ligado por padrão no WhatsApp pessoal. */}
       <ConfigTriagem acoes={acoes} linha={meu.id} isMobile={isMobile}/>
+      {meu.provider!=="meta"&&<div style={{marginBottom:12}}><LigarGrupos acoes={acoes} isMobile={isMobile}/></div>}
 
       {!confirmando
         ?<button onClick={()=>setConfirmando(true)}
@@ -22157,6 +22278,7 @@ function ConexaoConfig({acoes,session,isMobile}){
         conexão porque é a outra metade dela: conectado quer dizer que envia;
         recebendo quer dizer que a mensagem do cliente chega aqui. */}
     {(d.ativo==="uazapi"||d.recebimento)&&<RecebimentoDasLinhas acoes={acoes} isMobile={isMobile} automatico={d.recebimento_automatico}/>}
+    {d.ativo==="uazapi"&&<LigarGrupos acoes={acoes} isMobile={isMobile}/>}
 
     {/* Número novo vira lead sozinho, ou espera alguém confirmar? No número da
         casa nasce desligado (quem escreve ali quase sempre é cliente). */}
