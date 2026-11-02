@@ -28,6 +28,7 @@ import { entradaDoFormulario } from "./formularios.js";
 import { catracaNoNascimento, etapaDeEntrada } from "./catracas.js";
 import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
+import { leadPorTelefone } from "./telefone.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
 import { mascararTelefone } from "../seguranca.js";
@@ -460,7 +461,7 @@ export function receberLead(orgId, dados) {
   ].filter(Boolean).join("\n");
 
   // Mesmo telefone = mesma pessoa: um lead só, com a história inteira.
-  let lead = telefone ? db.prepare("SELECT * FROM leads WHERE org_id = ? AND phone = ?").get(orgId, telefone) : null;
+  let lead = telefone ? leadPorTelefone(db, orgId, telefone) : null;
   if (!lead && email) lead = db.prepare("SELECT * FROM leads WHERE org_id = ? AND LOWER(email) = LOWER(?)").get(orgId, email);
   const agora = Date.now();
   let novo = false;

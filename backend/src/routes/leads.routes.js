@@ -5,7 +5,7 @@ import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../au
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
-import { validarTelefone, paisPorIso } from "../services/telefone.js";
+import { validarTelefone, paisPorIso, leadPorTelefone, formasDoTelefone } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, proximaMensagem, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
@@ -248,9 +248,7 @@ r.post("/", (req, res) => {
      Sem isso o caminho fácil seria cadastrar de novo, e um cliente com duas
      fichas quebra tudo que este CRM faz: o histórico se parte, o funil conta
      duas vezes e o relatório do corretor mede metade do atendimento. */
-  const jaExiste = db.prepare(
-    "SELECT id, name, assigned_to FROM leads WHERE org_id = ? AND phone = ? ORDER BY created_at DESC LIMIT 1")
-    .get(req.user.org_id, phone);
+  const jaExiste = leadPorTelefone(db, req.user.org_id, phone, "id, name, assigned_to");
   if (jaExiste) {
     const dono = jaExiste.assigned_to
       ? db.prepare("SELECT name FROM users WHERE id = ?").get(jaExiste.assigned_to)?.name : null;
@@ -536,7 +534,7 @@ r.post("/import", roles("adm"), (req, res) => {
          cadastro na mão (`validarTelefone`), para o país de cada número. */
       if (!phone || validarTelefone(phone)) { anota("sem telefone válido", l); continue; }
       if (escolhida.get(phone) !== i) { anota("telefone repetido na planilha", l); continue; }
-      if (db.prepare("SELECT 1 FROM leads WHERE org_id=? AND phone=?").get(req.user.org_id, phone)) {
+      if (leadPorTelefone(db, req.user.org_id, phone, "1")) {
         anota("telefone já cadastrado", l); continue;
       }
       /* Sem temperatura na planilha, o lead entra SEM temperatura — a regra
@@ -1713,8 +1711,9 @@ r.patch("/:id/telefone", (req, res) => {
   const problema = validarTelefone(phone);
   if (problema) return res.status(400).json({ error: problema });
   if (phone === lead.phone) return res.json({ ok: true, telefone: phone });
-  const outro = db.prepare("SELECT id, name FROM leads WHERE org_id = ? AND phone = ? AND id <> ? LIMIT 1")
-    .get(lead.org_id, phone, lead.id);
+  const f = formasDoTelefone(phone);
+  const outro = db.prepare(`SELECT id, name FROM leads WHERE org_id = ? AND phone IN (${f.map(() => "?").join(",")}) AND id <> ? LIMIT 1`)
+    .get(lead.org_id, ...f, lead.id);
   if (outro) return res.status(409).json({ error: `Esse número já é do lead ${outro.name}.`, lead_id: outro.id, lead_nome: outro.name });
   db.prepare("UPDATE leads SET phone = ? WHERE id = ?").run(phone, lead.id);
   console.log(`[lead] ${req.user.name} corrigiu o telefone de "${lead.name}"`);

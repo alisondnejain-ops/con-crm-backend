@@ -26,6 +26,7 @@
 import db from "../db.js";
 import { canalPorId, canalDaCasa, canalDoWhatsapp } from "./canais.js";
 import * as oficial from "./whatsapp_oficial.js";
+import { numeroAlternativo } from "./telefone.js";
 import { inicioDeEnvioDoCrm, fimDeEnvioDoCrm } from "./marca-disparo.js";
 
 /* ===== DESPACHO PARA A API OFICIAL DA META (03/09/2026) =====
@@ -227,19 +228,7 @@ const TIMEOUT_MS = 20000;
    erro diz isso em português e manda conferir o número com o cliente. */
 const formaQueFunciona = new Map();
 const naoTemWhatsapp = (msg) => /not on whatsapp|n[aã]o (est[aá]|possui|tem)[^.]{0,20}whatsapp|not registered|invalid (whatsapp )?number/i.test(String(msg || ""));
-export function numeroAlternativo(numero) {
-  const d = String(numero || "").replace(/\D/g, "");
-  if (/^55\d{2}9\d{8}$/.test(d)) return d.slice(0, 4) + d.slice(5);   // tira o 9
-  if (/^55\d{2}[6-9]\d{7}$/.test(d)) return d.slice(0, 4) + "9" + d.slice(4); // põe o 9
-  /* Argentina e México têm o mesmo tipo de dígito a mais no celular (03/10/2026):
-     54 9 … e 52 1 …. O WhatsApp registra uns com e outros sem, conforme a
-     época da conta — mesma régua do nono dígito brasileiro. */
-  if (/^549\d{10}$/.test(d)) return "54" + d.slice(3);
-  if (/^54\d{10}$/.test(d)) return "549" + d.slice(2);
-  if (/^521\d{10}$/.test(d)) return "52" + d.slice(3);
-  if (/^52\d{10}$/.test(d)) return "521" + d.slice(2);
-  return null;
-}
+export { numeroAlternativo };
 const telLegivel = (d) => {
   d = String(d || "").replace(/\D/g, "");
   if (!d.startsWith("55")) return "+" + d;   // estrangeiro: com o código, como se disca de fora
