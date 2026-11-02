@@ -32,6 +32,10 @@
   label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
   input{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
         border:1px solid #E6E9E7;border-radius:12px;padding:13px 14px;outline:none}
+  .tel-linha{display:flex;gap:8px}
+  .tel-linha select{flex:0 0 112px;width:112px;min-width:0;font-family:inherit;font-size:14px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 6px;outline:none}
+  .tel-linha input{flex:1;min-width:0}
   input:focus{border-color:#0E8F6E;background:#fff}
   .field{margin-bottom:15px}
   .hint{font-size:11.5px;color:#8A93A0;margin-top:5px;line-height:1.45}
@@ -66,6 +70,7 @@
     .form{padding:26px 22px 40px}
   }
 </style>
+<script src="/telefone-pais.js"></script>
 <script>
   // Mesmo motivo da página de cadastro: estas páginas são servidas do backend e
   // do domínio próprio, então o endereço da API não pode ser relativo.
@@ -113,8 +118,8 @@
         <div class="hint">É por ele que você entra no sistema e recebe o link para criar a senha.</div>
       </div>
       <div class="field">
-        <label for="phone">Seu WhatsApp (com DDD)</label>
-        <input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999"/>
+        <label for="phone">Seu WhatsApp</label>
+        <div class="tel-linha"><select id="pais" aria-label="País do número"></select><input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999" maxlength="20"/></div>
       </div>
       <button id="go">Criar minha imobiliária</button>
       <div class="rodape">
@@ -170,15 +175,11 @@
   var msg = document.getElementById("msg"), btn = document.getElementById("go");
   function erro(texto){ msg.className = "msg err"; msg.textContent = texto; msg.scrollIntoView({block:"nearest"}); }
 
+  /* WhatsApp com o país ao lado (02/11/2026): a máscara brasileira cortava o
+     número de quem é de fora do país. Ver /telefone-pais.js. */
   var phone = document.getElementById("phone");
-  phone.addEventListener("input", function(){
-    var d = phone.value.replace(/\D/g, "").slice(0, 11);
-    var out = d;
-    if (d.length > 2) out = "(" + d.slice(0,2) + ") " + d.slice(2);
-    if (d.length > 7) out = "(" + d.slice(0,2) + ") " + d.slice(2,3) + " " + d.slice(3,7) + "-" + d.slice(7);
-    else if (d.length > 6) out = "(" + d.slice(0,2) + ") " + d.slice(2,7);
-    phone.value = out;
-  });
+  var tel = window.ligarTelefone ? ligarTelefone(phone, document.getElementById("pais"), API)
+    : { pais: function(){ return "BR"; }, conferir: function(){ return phone.value.replace(/\D/g,"").length < 10 ? "Confira o WhatsApp: informe DDD + número." : ""; } };
 
   // Copiar sem depender da permissão de área de transferência: se o navegador
   // recusar, o texto continua na tela para selecionar na mão.
@@ -196,12 +197,12 @@
       imobiliaria: document.getElementById("imob").value.trim(),
       name: document.getElementById("name").value.trim(),
       email: document.getElementById("email").value.trim(),
-      phone: phone.value.trim()
+      phone: phone.value.trim(),
+      pais: tel.pais()
     };
     if (!body.imobiliaria || !body.name || !body.email || !body.phone)
       return erro("Preencha todos os campos para continuar.");
-    if (body.phone.replace(/\D/g,"").length < 10)
-      return erro("Confira o WhatsApp: informe DDD + número.");
+    if (tel.conferir()) return erro(tel.conferir());
 
     btn.disabled = true; btn.textContent = "Criando…";
     try {

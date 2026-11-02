@@ -92,6 +92,11 @@ export const centavos = (reais) => Math.round(Number(reais) * 100);
    mesmo jeito, e um telefone mal formado recusaria a criação inteira. */
 function telefoneDoCliente(bruto) {
   let d = String(bruto || "").replace(/\D/g, "");
+  /* Número de outro país (02/11/2026: o titular pode ter WhatsApp de fora) não
+     vai ao Pagar.me — o telefone é opcional no cliente, e um número estrangeiro
+     cortado como se fosse DDD + número seria um contato errado. Com 10 ou 11
+     dígitos sem código continua valendo como brasileiro, como sempre. */
+  if (d.length >= 12 && !d.startsWith("55")) return undefined;
   if (d.startsWith("55") && d.length >= 12) d = d.slice(2);
   if (d.length < 10 || d.length > 11) return undefined;
   return { mobile_phone: { country_code: "55", area_code: d.slice(0, 2), number: d.slice(2) } };
