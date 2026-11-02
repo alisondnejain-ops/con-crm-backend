@@ -1487,6 +1487,14 @@ const INTERVALO_ATUALIZACAO=10000; // busca novidades a cada 10s
    tela de Conexão. Eram duas, e as duas liam `ok` — que só diz que a Uazapi
    RESPONDEU. Desconectado de verdade, o topo continuava verde (24/09/2026). */
 const whatsConectado=(w)=>!!(w&&w.configurado!==false&&w.ok&&w.conectado!==false);
+/* TEXTO DE ESTADO QUE O TRADUTOR NÃO CONGELA (02/11/2026, vídeo do Fernando:
+   a corretora argentina, com o Chrome traduzindo para o espanhol, via o selo
+   do topo VERDE, com o ícone de conectado, escrito "WhatsApp desconectado").
+   O tradutor troca cada texto por um <font> dele; quando o estado muda, o
+   React atualiza o texto ORIGINAL, que já não está na tela, e a tradução
+   velha fica. A cor e o ícone mudavam, as palavras não. Com a chave, o React
+   troca o ELEMENTO inteiro quando o texto muda, e o tradutor traduz o novo. */
+function TextoQueMuda({children}){ return <span key={String(children)}>{children}</span>; }
 
 function ConCRM(){
   const [session,setSession]=useState(null);
@@ -8139,7 +8147,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org.nome}</span>
           </button>}
           {!isMobile&&<span style={{color:conecta.connected?C.greenMid:C.hot,background:conecta.connected?C.greenSoft:C.hotSoft,fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:999,whiteSpace:"nowrap",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
-            <Icon n={conecta.connected?"wifi":"wifioff"} size={11}/>{conecta.connected?"WhatsApp conectado":"WhatsApp desconectado"}
+            <Icon n={conecta.connected?"wifi":"wifioff"} size={11}/><TextoQueMuda>{conecta.connected?"WhatsApp conectado":"WhatsApp desconectado"}</TextoQueMuda>
           </span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:10,flexShrink:0}}>
@@ -15306,7 +15314,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
       <Icon n="whatsapp" size={17} color={ligado?C.greenDeep:C.faint}/>
       <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Meu WhatsApp</span>
-      {estado&&<span style={{background:estado.bg,color:estado.c,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}>{estado.t}</span>}
+      {estado&&<span style={{background:estado.bg,color:estado.c,fontSize:10.5,fontWeight:700,padding:"3px 9px",borderRadius:999}}><TextoQueMuda>{estado.t}</TextoQueMuda></span>}
     </div>
 
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6,marginBottom:11}}>
@@ -22481,7 +22489,7 @@ function ConexaoConfig({acoes,session,isMobile}){
           <Icon n={ligado?"wifi":"wifioff"} size={20}/></div>
         <div style={{flex:"1 1 180px",minWidth:0}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>
-            {ligado?"WhatsApp conectado":w.configurado?"WhatsApp desconectado":"Nenhum WhatsApp conectado"}</div>
+            <TextoQueMuda>{ligado?"WhatsApp conectado":w.configurado?"WhatsApp desconectado":"Nenhum WhatsApp conectado"}</TextoQueMuda></div>
           <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
             {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via {provedorAtivo?provedorAtivo.nome:"—"}</React.Fragment>
               :w.configurado?(w.erro||({disconnected:"o número não está pareado — conecte com o QR Code abaixo",connecting:"conectando… leia o QR Code"}[String(w.status||"").toLowerCase()])||w.status||"a instância não respondeu")
