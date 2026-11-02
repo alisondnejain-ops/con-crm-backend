@@ -107,3 +107,40 @@ export function validarTelefone(numero) {
 }
 
 export const telefoneValido = (numero) => !validarTelefone(numero);
+
+/* As formas do MESMO celular (02/11/2026). O WhatsApp registra uns números com
+   o dígito a mais do celular e outros sem: o nono dígito brasileiro, o 9 da
+   Argentina (54 9 …) e o 1 do México (52 1 …). O envio já tentava a outra
+   forma quando o WhatsApp recusava — mas a CHEGADA procurava o lead só pela
+   forma exata. O cliente argentino recebia a mensagem pela forma alternativa,
+   respondia por ela, e o CRM criava um SEGUNDO lead para a mesma pessoa
+   (caso do Fabian, VJ). Toda busca de "este número já é lead?" usa estas
+   funções, para envio e chegada seguirem a mesma regra. */
+export function numeroAlternativo(numero) {
+  const d = String(numero || "").replace(/\D/g, "");
+  if (/^55\d{2}9\d{8}$/.test(d)) return d.slice(0, 4) + d.slice(5);   // tira o 9
+  if (/^55\d{2}[6-9]\d{7}$/.test(d)) return d.slice(0, 4) + "9" + d.slice(4); // põe o 9
+  /* Argentina e México têm o mesmo tipo de dígito a mais no celular (03/10/2026):
+     54 9 … e 52 1 …. O WhatsApp registra uns com e outros sem, conforme a
+     época da conta — mesma régua do nono dígito brasileiro. */
+  if (/^549\d{10}$/.test(d)) return "54" + d.slice(3);
+  if (/^54\d{10}$/.test(d)) return "549" + d.slice(2);
+  if (/^521\d{10}$/.test(d)) return "52" + d.slice(3);
+  if (/^52\d{10}$/.test(d)) return "521" + d.slice(2);
+  return null;
+}
+
+export const formasDoTelefone = (numero) => {
+  const d = String(numero || "").replace(/\D/g, "");
+  return d ? [d, numeroAlternativo(d)].filter(Boolean) : [];
+};
+
+/* Busca o lead pelo telefone em qualquer das formas. Havendo uma cópia em
+   cada forma (duplicado de antes da correção), vale a forma EXATA — senão a
+   conversa pularia de um lead para o outro. */
+export function leadPorTelefone(db, orgId, numero, colunas = "*") {
+  const f = formasDoTelefone(numero);
+  if (!f.length) return null;
+  return db.prepare(`SELECT ${colunas} FROM leads WHERE org_id = ? AND phone IN (${f.map(() => "?").join(",")})
+    ORDER BY (phone = ?) DESC, created_at DESC LIMIT 1`).get(orgId, ...f, f[0]) || null;
+}

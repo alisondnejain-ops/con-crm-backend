@@ -21,6 +21,7 @@ import { registrarPedidoDeSaida } from "./marketing.js";
 import { mensagemRecebida as respostaAoDisparo, ecoDeDisparo } from "./disparo.js";
 import { ROTULO_DISPARO, ecoDoCrm } from "./marca-disparo.js";
 import { randomUUID } from "crypto";
+import { leadPorTelefone } from "./telefone.js";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
 import { triarNumeroNovo } from "./triagem.js";
@@ -121,7 +122,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   async function processar() {
 
-  let lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId);
+  let lead = leadPorTelefone(db, orgId, phone);
   const ehNovo = !lead;
 
   /* Saiu do celular para um número que ainda não é lead: não cria lead.
@@ -173,7 +174,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      SEM TEMPERATURA: quem sabe a temperatura é quem conversou. O lead pode já
      ter nascido enquanto a mídia baixava (a mesma pessoa mandou duas fotos
      seguidas): procura de novo antes de criar. */
-  if (!lead) lead = db.prepare("SELECT * FROM leads WHERE phone = ? AND org_id = ? ORDER BY created_at DESC LIMIT 1").get(phone, orgId)
+  if (!lead) lead = leadPorTelefone(db, orgId, phone)
     || nascerLeadDoWhatsapp({ canal, phone, nome, texto });
 
   /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
