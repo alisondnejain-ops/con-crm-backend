@@ -28,7 +28,8 @@ import { entradaDoFormulario } from "./formularios.js";
 import { catracaNoNascimento, etapaDeEntrada } from "./catracas.js";
 import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
-import { leadPorTelefone } from "./telefone.js";
+import { leadPorTelefone, normalizarPeloPadrao } from "./telefone.js";
+import { paisDaOrg } from "./pais-da-org.js";
 import { avisar } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
 import { mascararTelefone } from "../seguranca.js";
@@ -339,6 +340,8 @@ export function lerLead(b, portalDoEndereco) {
     nome: pegar("name", "nome", "cliente.nome", "lead.name").slice(0, 120),
     email: pegar("email", "cliente.email", "lead.email").slice(0, 160),
     telefone: tel ? normalizePhone(tel) : "",
+    // O que veio escrito: `receberLead` relê pelo país padrão da conta.
+    telefone_bruto: tel || "",
     mensagem: pegar("message", "mensagem", "comentario", "observacao", "lead.message").slice(0, 2000),
     codigo: pegar("clientListingId", "codigo_cliente", "referencia", "codigo", "listingId", "imovel.codigo"),
   };
@@ -415,6 +418,7 @@ function lerLeadDoFormulario(b) {
     nome: String(nome || (teste ? "Lead de teste da Meta" : "")).slice(0, 120),
     email: String(email).slice(0, 160),
     telefone,
+    telefone_bruto: telefone ? tel : "",
     mensagem: um("message", "mensagem", "comentario").slice(0, 2000),
     codigo: "",
     respostas,
@@ -430,7 +434,13 @@ function lerLeadDoFormulario(b) {
 }
 
 export function receberLead(orgId, dados) {
-  const { portal, externo, nome, email, telefone, mensagem, codigo, formulario, respostas, qual, anuncio } = dados;
+  /* O número escrito sem o código do país vale pelo país padrão da conta
+     (services/pais-da-org.js). Com o código, ou na conta brasileira, sai o
+     mesmo número de antes. */
+  const telefone = dados.telefone_bruto
+    ? normalizarPeloPadrao(String(dados.telefone_bruto), paisDaOrg(orgId))
+    : dados.telefone;
+  const { portal, externo, nome, email, mensagem, codigo, formulario, respostas, qual, anuncio } = dados;
   /* O lead de TESTE da Meta não tem telefone de verdade, e mesmo assim tem
      que entrar: é ele que mostra a quem está ligando a integração que ela
      funciona. Ele entra com o nome "Lead de teste da Meta" e é casado só

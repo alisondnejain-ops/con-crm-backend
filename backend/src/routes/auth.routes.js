@@ -39,7 +39,7 @@ const norm = (e) => String(e || "").trim().toLowerCase();
    depois, em todo login — o piscar diria à equipe que a marca dela é um
    enfeite que o sistema aplica com atraso. */
 function orgDoUsuario(user) {
-  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo FROM orgs WHERE id = ?").get(user.org_id);
+  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo,pais_padrao FROM orgs WHERE id = ?").get(user.org_id);
   /* `tipo` vem junto porque decide o MENU: a conta de corretor autônomo não
      mostra catraca — fila de distribuição com uma pessoa não é fila. */
   /* As ferramentas (`recursos`) decidem o menu: Marketing só aparece com a
@@ -49,7 +49,7 @@ function orgDoUsuario(user) {
   if (!o) return null;
   const recursos = mapaDeRecursos(o.id);
   return { id: o.id, nome: o.name, codigo: o.adm_code, tipo: o.tipo || "imobiliaria",
-    recursos, marketing_liberado: recursos.marketing, ...marcaDaOrg(o) };
+    recursos, marketing_liberado: recursos.marketing, pais_padrao: o.pais_padrao || "BR", ...marcaDaOrg(o) };
 }
 // O link que o gestor manda para os corretores dele.
 function linkDaEquipe(req, user) {

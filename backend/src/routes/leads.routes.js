@@ -4,8 +4,10 @@ import db, { versaoDosLeads } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
+import { paisDaOrg } from "../services/pais-da-org.js";
+import { possiveisDuplicados, marcarNaoDuplicado } from "../services/duplicados.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
-import { validarTelefone, paisPorIso, leadPorTelefone, formasDoTelefone } from "../services/telefone.js";
+import { validarTelefone, paisPorIso, leadPorTelefone, formasDoTelefone, normalizarPeloPadrao } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, proximaMensagem, CAMPOS_SIMULACAO } from "../services/ia.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
@@ -232,7 +234,7 @@ r.post("/", (req, res) => {
   /* `pais` é o país escolhido no cadastro (padrão: Brasil). Número escrito com
      "+" na frente vale como veio, seja qual for o país escolhido. */
   if (pais && !paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
-  const phone = normalizePhone(String(telefone || "").trim(), { pais: pais || "BR" });
+  const phone = (pais ? normalizePhone(String(telefone || "").trim(), { pais }) : normalizarPeloPadrao(String(telefone || "").trim(), paisDaOrg(req.user.org_id)));
   /* `normalizePhone` é PERMISSIVA de propósito — no webhook, devolver os
      dígitos que vieram é melhor do que perder um lead por causa de um formato
      estranho. Aqui é o contrário: quem digita está criando o registro do zero,
@@ -520,7 +522,8 @@ r.post("/import", roles("adm"), (req, res) => {
      VENDA, se alguma tiver (02/10/2026: na planilha da Veronica a venda estava
      na segunda linha de um telefone repetido, e ficar com a primeira apagava
      a venda do relatório). Sem venda, fica a primeira. */
-  const telDaLinha = linhas.map(l => normalizePhone(String(l.telefone || "").trim(), { pais: pais || "BR" }));
+  const paisDaPlanilha = pais || paisDaOrg(req.user.org_id);
+  const telDaLinha = linhas.map(l => normalizarPeloPadrao(String(l.telefone || "").trim(), paisDaPlanilha));
   const escolhida = new Map();
   linhas.forEach((l, i) => {
     const t = telDaLinha[i]; if (!t) return;
@@ -1032,6 +1035,21 @@ r.post("/reanalise", roles("adm"), (req, res) => res.json(reanalisar(req.user.or
 // nas rotas de mensagem — duas cópias da mesma regra é como uma delas fica para
 // trás. Antes desta checagem, qualquer usuário logado lia qualquer lead pelo id.
 const podeVer = podeVerLead;
+
+/* Possível lead duplicado (02/11/2026) — ver services/duplicados.js. É só um
+   aviso na ficha; nada é juntado nem apagado. */
+r.get("/:id/duplicados", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  res.json(possiveisDuplicados(req.user, lead));
+});
+r.post("/:id/duplicados/:outroId/nao-e", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const r2 = marcarNaoDuplicado(req.user, lead, req.params.outroId);
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json({ ok: true, ...possiveisDuplicados(req.user, lead) });
+});
 
 /* As observações, da mais nova para a mais antiga: o recado de agora é o que
    interessa quando o corretor abre a conversa com o cliente esperando. */
@@ -1705,9 +1723,10 @@ r.post("/:id/sugestao-etapa", (req, res) => {
 r.patch("/:id/telefone", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const pais = req.body?.pais || "BR";
-  if (!paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
-  const phone = normalizePhone(String(req.body?.telefone || "").trim(), { pais });
+  const pais = req.body?.pais || null;
+  if (pais && !paisPorIso(pais)) return res.status(400).json({ error: "País desconhecido." });
+  const phone = pais ? normalizePhone(String(req.body?.telefone || "").trim(), { pais })
+    : normalizarPeloPadrao(String(req.body?.telefone || "").trim(), paisDaOrg(lead?.org_id));
   const problema = validarTelefone(phone);
   if (problema) return res.status(400).json({ error: problema });
   if (phone === lead.phone) return res.json({ ok: true, telefone: phone });

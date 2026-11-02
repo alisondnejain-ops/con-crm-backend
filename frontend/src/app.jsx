@@ -84,6 +84,12 @@ let TOKEN=null;
    fio que alguém esquece. Vale a mesma solução do TOKEN: o ConCRM escreve,
    qualquer tela lê. */
 let TIPO_CONTA=null;
+/* O país padrão da conta (02/11/2026): é o que vem marcado de saída no
+   seletor de país do cadastro de lead, da planilha e das listas do Marketing.
+   O ConCRM escreve ao trocar de conta; Configurações → Atendimento escreve ao
+   salvar. Quem lê no servidor é services/pais-da-org.js. */
+let PAIS_CONTA="BR";
+let PAIS_CONTA_DE=null;
 const contaInterna=()=>TIPO_CONTA==="interna";
 try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
 function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
@@ -1488,6 +1494,7 @@ function ConCRM(){
   // sempre a própria; para o master é a que ele escolheu no hub.
   const [org,setOrg]=useState(null);
   TIPO_CONTA=(org&&org.tipo)||null;
+  if(org&&org.id!==PAIS_CONTA_DE){ PAIS_CONTA_DE=org.id; PAIS_CONTA=org.pais_padrao||"BR"; }
   const isMobileRaiz=useIsMobile();
   const [carregando,setCarregando]=useState(!!TOKEN);
   const [leads,setLeads]=useState([]);
@@ -2014,6 +2021,10 @@ function ConCRM(){
     relatorioSdr:(params)=>api("/reports/sdr?"+new URLSearchParams(Object.entries(params||{}).filter(([,v])=>v))),
     expediente:()=>api("/distribution/expediente"),
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
+    paisDaConta:()=>api("/distribution/pais"),
+    duplicados:(id)=>api(`/leads/${id}/duplicados`),
+    naoEDuplicado:(id,outro)=>api(`/leads/${id}/duplicados/${outro}/nao-e`,{method:"POST"}),
+    definirPaisDaConta:(pais)=>api("/distribution/pais",{method:"PATCH",body:{pais}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
     ponto:(params)=>api("/reports/ponto?"+new URLSearchParams(params||{})),
     plantoes:(params)=>api("/plantoes?"+new URLSearchParams(params||{})),
@@ -3132,11 +3143,11 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
   </div>;
 }
 
-const LISTA_VAZIA={nome:"",origem:"",origem_detalhe:"",coletado_em:"",declaracao:false,arquivo:null,pais:"BR"};
+const listaVazia=()=>({nome:"",origem:"",origem_detalhe:"",coletado_em:"",declaracao:false,arquivo:null,pais:PAIS_CONTA});
 function ListasDeContatos({d,acoes,aoMudar,isMobile}){
   const [listas,setListas]=useState(null);
   const [abrindo,setAbrindo]=useState(false);
-  const [f,setF]=useState(LISTA_VAZIA);
+  const [f,setF]=useState(listaVazia);
   const [ocupado,setOcupado]=useState("");
   const [erro,setErro]=useState("");
   const [feito,setFeito]=useState(null);
@@ -3157,7 +3168,7 @@ function ListasDeContatos({d,acoes,aoMudar,isMobile}){
     setErro("");setOcupado("enviar");
     try{
       const r=await acoes.criarListaMarketing(f);
-      setFeito(r.lista); setF(LISTA_VAZIA); setAbrindo(false); await rever(); await aoMudar();
+      setFeito(r.lista); setF(listaVazia()); setAbrindo(false); await rever(); await aoMudar();
     }catch(e){ setErro(e.message); } finally{ setOcupado(""); }
   }
   async function baixar(l){
@@ -3216,7 +3227,7 @@ function ListasDeContatos({d,acoes,aoMudar,isMobile}){
         </label>
         <div style={{display:"flex",gap:8}}>
           <button onClick={enviar} disabled={!pronto||!!ocupado} style={botaoMkt(!!pronto&&!ocupado)}>{ocupado==="enviar"?"Enviando…":"Enviar lista"}</button>
-          <button onClick={()=>{setAbrindo(false);setErro("");setF(LISTA_VAZIA);}} style={botaoLeveMkt}>Cancelar</button>
+          <button onClick={()=>{setAbrindo(false);setErro("");setF(listaVazia());}} style={botaoLeveMkt}>Cancelar</button>
         </div>
       </div>
       :<button onClick={()=>{setAbrindo(true);setFeito(null);setErro("");}} style={{...botaoMkt(),marginBottom:12,display:"inline-flex",alignItems:"center",gap:7}}>
@@ -8872,6 +8883,50 @@ function TemperaturaDoLead({lead,acoes}){
   </div>;
 }
 const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagram:"Instagram",an:"Audience Network",msgr:"Messenger",disparo:"Disparo em massa"};
+/* ===== POSSÍVEL LEAD DUPLICADO (02/11/2026) =====
+
+   Um aviso âmbar logo abaixo da origem quando outro lead da conta parece ser a
+   mesma pessoa: a outra forma do mesmo celular, o mesmo número com outro
+   código, o mesmo e-mail ou o mesmo nome completo (services/duplicados.js).
+   Só avisa — o CRM não junta leads. "Abrir" leva ao outro; "Não é a mesma
+   pessoa" cala o aviso daquele par para sempre. Lead de colega aparece só
+   como contagem para quem não supervisiona. */
+function PossivelDuplicado({lead,acoes}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const id=lead&&lead.id;
+  useEffect(()=>{
+    let vivo=true; setD(null); setErro("");
+    if(!id) return;
+    acoes.duplicados(id).then(x=>{ if(vivo) setD(x); }).catch(()=>{});
+    return ()=>{ vivo=false; };
+  },[id,lead&&lead.tel,lead&&lead.nome,lead&&lead.email]);
+  if(!d||(!d.itens.length&&!d.outros)) return null;
+  async function naoE(outro){
+    setErro("");
+    try{ setD(await acoes.naoEDuplicado(id,outro)); }catch(e){ setErro(e.message); }
+  }
+  return <div style={{background:"#FFF6E0",border:"1px solid #F0D58A",borderRadius:11,padding:"10px 11px",margin:"2px 0 12px"}}>
+    <div style={{color:"#7a5a12",fontSize:12,fontWeight:700,marginBottom:6}}>Pode ser o mesmo cliente de outro lead</div>
+    {d.itens.map(x=><div key={x.id} style={{borderTop:"1px solid #F3E2B0",padding:"7px 0 2px"}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,overflowWrap:"anywhere"}}>{x.nome||"Sem nome"}</div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,overflowWrap:"anywhere"}}>
+        {x.telefone?fmtTel(x.telefone)+" · ":""}{x.dono?`com ${x.dono}`:"na fila"} · entrou {fmtData(x.entrou_em)}
+      </div>
+      <div style={{color:"#8a6d1f",fontSize:11,marginTop:1}}>{x.porque}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+        <button onClick={()=>acoes.abrir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",fontFamily:FONT}}>Abrir este lead</button>
+        <button onClick={()=>naoE(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Não é a mesma pessoa</button>
+      </div>
+    </div>)}
+    {d.outros>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginTop:d.itens.length?6:0}}>
+      {d.itens.length?"E mais ":""}{d.outros} {d.outros===1?"lead parecido está":"leads parecidos estão"} com outra pessoa da equipe — fale com a gestão.
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+    <div style={{color:C.faint,fontSize:10.5,marginTop:6}}>O CRM não junta leads: siga a conversa no lead certo.</div>
+  </div>;
+}
+
 function OrigemDoLead({lead}){
   if(!lead) return null;
   const doAnuncio=lead.fonte==="meta";
@@ -9896,7 +9951,7 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
   const supervisor=podeSupervisionar(session);
-  const [f,setF]=useState({nome:"",telefone:"",pais:"BR",stage_id:"",assigned_to:"",observacao:""});
+  const [f,setF]=useState({nome:"",telefone:"",pais:PAIS_CONTA,stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   const [equipe,setEquipe]=useState([]);
   const [erro,setErro]=useState(null);   // {texto, leadId}
@@ -10350,6 +10405,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <TelefoneDoLead lead={sel} acoes={acoes}/>
         <TemperaturaDoLead lead={sel} acoes={acoes}/>
         <OrigemDoLead lead={sel}/>
+        <PossivelDuplicado lead={sel} acoes={acoes}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
@@ -14453,6 +14509,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <TelefoneDoLead lead={lead} acoes={acoes}/>
       <TemperaturaDoLead lead={lead} acoes={acoes}/>
       <OrigemDoLead lead={lead}/>
+      <PossivelDuplicado lead={lead} acoes={acoes}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
@@ -16831,8 +16888,9 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
   const [mapa,setMapa]=useState(arquivo.mapa);
   const [rotulo,setRotulo]=useState(arquivo.rotulo);
   const [origem,setOrigem]=useState("");
-  // País dos números SEM código (03/10/2026). Muda a prévia na hora.
-  const [pais,setPais]=useState("BR");
+  // País dos números SEM código (03/10/2026). Muda a prévia na hora. Abre no
+  // país padrão da conta (02/11/2026).
+  const [pais,setPais]=useState(PAIS_CONTA);
   const [casar,setCasar]=useState({});
   const [previa,setPrevia]=useState(null);
   const [lendo,setLendo]=useState(true);
@@ -19278,11 +19336,13 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const autonomo=!!(org&&org.tipo==="autonomo");
   const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
   const [fim,setFim]=useState(""); const [fimSalvo,setFimSalvo]=useState(null);
+  const [pais,setPais]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState("");
   useEffect(()=>{
     if(!autonomo) acoes.prazoVencido().then(setPrazo).catch(e=>setErro(e.message));
     acoes.semResposta().then(x=>{setEspera(String(x.minutos));setEsperaSalva(x.minutos);}).catch(()=>{});
     acoes.expediente().then(x=>{setFim(x.fim||"");setFimSalvo(x.fim||"");}).catch(()=>{});
+    acoes.paisDaConta().then(x=>setPais(x.pais)).catch(()=>{});
   },[]);
   const aviso=(t)=>{setOk(t);setErro("");setTimeout(()=>setOk(""),2500);};
   async function mudarPrazo(dados){
@@ -19291,6 +19351,10 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   }
   async function salvarEspera(){
     try{ const r=await acoes.definirEspera(espera); setEsperaSalva(r.minutos); setEspera(String(r.minutos)); aviso("Salvo."); }catch(e){ setErro(e.message); }
+  }
+  async function mudarPais(v){
+    setErro("");
+    try{ const r=await acoes.definirPaisDaConta(v); setPais(r.pais); PAIS_CONTA=r.pais; aviso("Salvo."); }catch(e){ setErro(e.message); }
   }
   async function salvarFim(){
     try{ const r=await acoes.definirExpediente(fim.trim()); setFimSalvo(r.fim||""); setFim(r.fim||""); aviso("Salvo."); }catch(e){ setErro(e.message); }
@@ -19364,6 +19428,21 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
         <input value={fim} onChange={e=>setFim(e.target.value)} placeholder="18:00" style={campo} aria-label="Horário"/>
         <button onClick={salvarFim} disabled={fimSalvo===fim.trim()} style={botao(fimSalvo!==fim.trim())}>Salvar</button>
       </div>
+    </div>}
+
+    {pais&&<div style={cartao}>
+      <div style={titulo}>País dos números sem código</div>
+      <div style={sub}>
+        Como ler o número que chega sem o código do país — no formulário do anúncio, nos portais, no cadastro, na planilha e nas listas.
+        {" "}Número com o código continua valendo como veio, e quem escreve pelo WhatsApp sempre chega com ele.
+      </div>
+      <select value={pais} onChange={e=>mudarPais(e.target.value)} aria-label="País dos números sem código"
+        style={{...campo,width:isMobile?"100%":"auto",maxWidth:320,cursor:"pointer"}}>
+        {PAISES.map(x=><option key={x.iso} value={x.iso}>{bandeira(x.iso)} {x.nome} (+{x.ddi})</option>)}
+      </select>
+      {pais!=="BR"&&<div style={{color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,marginTop:8}}>
+        Um número brasileiro sem o +55 só é lido como brasileiro se vier inteiro, com o 55 e o DDD. Os leads que já entraram não mudam.
+      </div>}
     </div>}
 
     <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 2px"}}>Outras telas do atendimento</div>

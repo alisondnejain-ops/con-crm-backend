@@ -2535,6 +2535,14 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("boleto_liberado_por")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_por TEXT");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
 }
+/* PAÍS PADRÃO DA CONTA (02/11/2026) — como ler o número que chega SEM o código
+   do país (formulário, portal, cadastro, planilha). Nulo = Brasil, que é o que
+   sempre valeu: nenhuma conta muda sem o gestor escolher. Ver
+   services/pais-da-org.js. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("pais_padrao")) db.exec("ALTER TABLE orgs ADD COLUMN pais_padrao TEXT");
+}
 /* ENTRADA DO MASTER SEM CÓDIGO, conta por conta (15/10/2026) — ver
    services/acesso-master.js → ACESSO_LIVRE_HORAS. */
 {

@@ -68,6 +68,9 @@ function resumo(req, org) {
     nome: org.name,
     codigo: org.adm_code,
     link_cadastro: linkCadastro(req, org.adm_code),
+    // O país padrão vem junto ao ENTRAR, como a marca: é ele que o seletor de
+    // país do cadastro de lead e da planilha usa de saída.
+    pais_padrao: org.pais_padrao || "BR",
     // O master não conta como gente da imobiliária em lugar nenhum — nem aqui.
     equipe: n(`SELECT COUNT(*) n FROM users u WHERE u.org_id = ? AND u.status = 'ativo'${semMaster("u")}`, org.id),
     pendentes: n(`SELECT COUNT(*) n FROM users u WHERE u.org_id = ? AND u.status IN ('pendente','aguardando_aprovacao')${semMaster("u")}`, org.id),
