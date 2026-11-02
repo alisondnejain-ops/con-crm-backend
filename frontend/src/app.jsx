@@ -8894,13 +8894,23 @@ const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagra
 function PossivelDuplicado({lead,acoes}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
+  /* A busca que falha não pode sumir calada (02/11/2026, pedido do Ali):
+     sem esta linha, "deu erro" e "não tem duplicado" ficavam iguais na tela.
+     É discreta de propósito — é um aviso, e a falha dele não pode competir
+     com o atendimento. */
+  const [falhou,setFalhou]=useState(false);
+  const [tentativa,setTentativa]=useState(0);
   const id=lead&&lead.id;
   useEffect(()=>{
-    let vivo=true; setD(null); setErro("");
+    let vivo=true; setD(null); setErro(""); setFalhou(false);
     if(!id) return;
-    acoes.duplicados(id).then(x=>{ if(vivo) setD(x); }).catch(()=>{});
+    acoes.duplicados(id).then(x=>{ if(vivo) setD(x); }).catch(()=>{ if(vivo) setFalhou(true); });
     return ()=>{ vivo=false; };
-  },[id,lead&&lead.tel,lead&&lead.nome,lead&&lead.email]);
+  },[id,lead&&lead.tel,lead&&lead.nome,lead&&lead.email,tentativa]);
+  if(falhou) return <div style={{color:C.faint,fontSize:11,margin:"0 0 10px",lineHeight:1.45}}>
+    Não deu para conferir agora se este lead tem duplicado. <button onClick={()=>setTentativa(t=>t+1)}
+      style={{background:"none",border:"none",padding:0,color:C.sub,textDecoration:"underline",cursor:"pointer",fontSize:11,fontFamily:FONT}}>Tentar de novo</button>
+  </div>;
   if(!d||(!d.itens.length&&!d.outros)) return null;
   async function naoE(outro){
     setErro("");
