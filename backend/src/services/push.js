@@ -58,10 +58,11 @@ export const inscricoesDe = (userId) => db.prepare("SELECT COUNT(*) n FROM push_
 export async function avisar(userId, { titulo, corpo, leadId }) {
   if (!configurado() || !userId) return { enviados: 0 };
   const subs = db.prepare("SELECT * FROM push_subs WHERE user_id = ?").all(userId);
-  if (!subs.length) return { enviados: 0 };
+  if (!subs.length) return { enviados: 0, aparelhos: 0, removidos: 0, falhas: [] };
 
   const carga = JSON.stringify({ titulo, corpo, leadId: leadId || null });
-  let enviados = 0;
+  let enviados = 0, removidos = 0;
+  const falhas = [];
   await Promise.all(subs.map(async (s) => {
     try {
       await webpush.sendNotification(
@@ -74,11 +75,16 @@ export async function avisar(userId, { titulo, corpo, leadId }) {
       // inscrição morreu; guardá-la só geraria erro em toda notificação futura.
       if (e.statusCode === 404 || e.statusCode === 410) {
         cancelar(s.endpoint);
+        removidos++;
         console.log("[push] inscrição expirada, removida");
       } else {
+        falhas.push(e.statusCode || 0);
         console.warn("[push] falhou:", e.statusCode || "", e.message);
       }
     }
   }));
-  return { enviados };
+  // `aparelhos`, `removidos` e `falhas` existem para o "Enviar teste" dizer
+  // POR QUE não chegou — "nenhum aparelho" e "o serviço recusou" pedem
+  // remédios diferentes. Quem só quer avisar continua lendo `enviados`.
+  return { enviados, aparelhos: subs.length, removidos, falhas };
 }
