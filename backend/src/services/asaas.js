@@ -64,8 +64,11 @@ async function chamar(caminho, { metodo = "GET", corpo } = {}) {
   return dados;
 }
 
+/* O Asaas só entende celular brasileiro: o WhatsApp de outro país do titular
+   (02/11/2026) não vai, para o cadastro do cliente não ser recusado por ele. */
+const celularBR = (t) => { const d = String(t || "").replace(/\D/g, ""); return d.length >= 12 && !d.startsWith("55") ? undefined : t; };
 export const criarCliente = ({ nome, cpfCnpj, email, telefone }) =>
-  chamar("/customers", { metodo: "POST", corpo: { name: nome, cpfCnpj, email, mobilePhone: telefone } });
+  chamar("/customers", { metodo: "POST", corpo: { name: nome, cpfCnpj, email, mobilePhone: celularBR(telefone) } });
 
 /* Assinatura recorrente. `billingType: CREDIT_CARD` — era `UNDEFINED`, que
    deixava a pessoa escolher entre Pix, boleto e cartão na hora de pagar.

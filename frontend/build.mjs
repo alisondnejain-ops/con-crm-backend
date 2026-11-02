@@ -135,7 +135,8 @@ console.log("CRM copiado para o backend (rota /app)");
 
    Em vez de manter duas cópias que vão divergir, o build copia daqui. A fonte
    continua sendo backend/public — mexer lá é o certo. */
-const publicas = ["cadastro.html", "definir-senha.html", "criar-imobiliaria.html"];
+// telefone-pais.js: o campo de WhatsApp com o país, usado pelas páginas de cadastro.
+const publicas = ["cadastro.html", "definir-senha.html", "criar-imobiliaria.html", "telefone-pais.js"];
 for (const nome of publicas) {
   await copyFile(path.join(dir, "..", "backend", "public", nome), path.join(dir, nome));
   console.log(`${nome} copiado do backend`);

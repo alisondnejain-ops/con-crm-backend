@@ -144,3 +144,20 @@ export function leadPorTelefone(db, orgId, numero, colunas = "*") {
   return db.prepare(`SELECT ${colunas} FROM leads WHERE org_id = ? AND phone IN (${f.map(() => "?").join(",")})
     ORDER BY (phone = ?) DESC, created_at DESC LIMIT 1`).get(orgId, ...f, f[0]) || null;
 }
+
+/* O telefone de quem SE CADASTRA (corretor, atendente, gestor) — 02/11/2026,
+   pedido do Ali: uma corretora argentina da VJ não conseguia cadastrar o
+   próprio WhatsApp. As páginas de cadastro tinham a máscara brasileira e o
+   servidor só aceitava número começando com 55. Agora vale a mesma regra do
+   lead: o país escolhido ao lado do campo (padrão Brasil), ou o número com +.
+   Devolve { phone } ou { erro } com a frase para a tela. */
+export function telefoneDeCadastro(bruto, pais = "BR") {
+  const iso = String(pais || "BR").trim().toUpperCase() || "BR";
+  if (!paisPorIso(iso)) return { erro: "País desconhecido. Escolha o país na lista." };
+  const phone = normalizePhone(String(bruto || "").trim(), { pais: iso });
+  if (!phone) return { erro: "Informe o seu WhatsApp." };
+  const problema = validarTelefone(phone);
+  if (problema) return { erro: iso === "BR" && !String(bruto || "").trim().startsWith("+")
+    ? "Informe um WhatsApp válido, com DDD." : problema };
+  return { phone };
+}

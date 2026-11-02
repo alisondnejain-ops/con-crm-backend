@@ -7,6 +7,7 @@ import { cadastroPodeReaproveitar, EMAIL_EM_USO, PERMISSOES, permissoesDe } from
 import { sign, authRequired, roles, supervisiona, PAPEIS, papelDoFormulario, semMaster, ehDonoAutonomo,
          resumoDeConvite, porConvite, encerrarSessoes } from "../auth.js";
 import { normalizePhone } from "../services/stages.js";
+import { telefoneDeCadastro } from "../services/telefone.js";
 import { sendMail, mailConfigured, inviteEmail, senhaEmail } from "../services/mail.js";
 import { salvar, apagar, tipoPermitido, ehVideo } from "../services/storage.js";
 import { aplicarCorte } from "../services/expediente.js";
@@ -99,6 +100,8 @@ r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
   if (nomeOrg.length < 2) return res.status(400).json({ error: "Informe o nome da imobiliária." });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(norm(email)))
     return res.status(400).json({ error: "E-mail inválido." });
+  const tel = telefoneDeCadastro(phone, req.body?.pais);
+  if (tel.erro) return res.status(400).json({ error: tel.erro });
 
   const mail = norm(email);
   const existente = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
@@ -123,7 +126,7 @@ r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
     if (org) {
       db.prepare("UPDATE orgs SET name = ?, exige_cartao = 1 WHERE id = ?").run(nomeOrg, org.id);
       db.prepare(`UPDATE users SET name=?, phone=?, role='adm', invite_hash=?, invite_expires=?,
-        invite_tipo='fundador' WHERE id=?`).run(cleanName, normalizePhone(phone), resumoDeConvite(token), expires, existente.id);
+        invite_tipo='fundador' WHERE id=?`).run(cleanName, tel.phone, resumoDeConvite(token), expires, existente.id);
       org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id);
       return;
     }
@@ -143,11 +146,11 @@ r.post("/criar-imobiliaria", freioDeCadastro, async (req, res) => {
     if (existente) {
       db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', status='pendente',
         invite_hash=?, invite_expires=?, invite_tipo='fundador' WHERE id=?`)
-        .run(orgId, cleanName, normalizePhone(phone), resumoDeConvite(token), expires, userId);
+        .run(orgId, cleanName, tel.phone, resumoDeConvite(token), expires, userId);
     } else {
       db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_hash,invite_expires,invite_tipo)
         VALUES (?,?,?,?,'','adm',0,?,?,'pendente',?,?,'fundador')`)
-        .run(userId, orgId, cleanName, mail, Date.now(), normalizePhone(phone), resumoDeConvite(token), expires);
+        .run(userId, orgId, cleanName, mail, Date.now(), tel.phone, resumoDeConvite(token), expires);
     }
     // Dono da conta: é quem responde pela mensalidade e quem vê a cobrança.
     db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
@@ -180,6 +183,8 @@ r.post("/register", freioDeCadastro, async (req, res) => {
     return res.status(400).json({ error: "Preencha nome, e-mail, telefone e o código da imobiliária." });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(norm(email)))
     return res.status(400).json({ error: "E-mail inválido." });
+  const tel = telefoneDeCadastro(phone, req.body?.pais);
+  if (tel.erro) return res.status(400).json({ error: tel.erro });
 
   // Sem função informada, assume corretor — é o caso da grande maioria.
   const role = papelDoFormulario(funcao || "corretor");
@@ -230,11 +235,11 @@ r.post("/register", freioDeCadastro, async (req, res) => {
 
   if (existing) {
     db.prepare("UPDATE users SET name=?, phone=?, role=?, invite_hash=?, invite_expires=?, invite_tipo='convite' WHERE id=?")
-      .run(cleanName, normalizePhone(phone), role, resumoDeConvite(token), expires, existing.id);
+      .run(cleanName, tel.phone, role, resumoDeConvite(token), expires, existing.id);
   } else {
     db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status,invite_hash,invite_expires,invite_tipo)
       VALUES (?,?,?,?,'',?,0,?,?,'pendente',?,?,'convite')`)
-      .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), normalizePhone(phone), resumoDeConvite(token), expires);
+      .run("u_" + randomUUID(), org.id, cleanName, mail, role, Date.now(), tel.phone, resumoDeConvite(token), expires);
   }
 
   const link = `${siteUrl(req)}/definir-senha?token=${token}`;
@@ -485,7 +490,20 @@ r.patch("/me", authRequired, (req, res) => {
   if (mail !== eu.email && db.prepare("SELECT 1 FROM users WHERE email = ? AND id <> ?").get(mail, eu.id))
     return res.status(409).json({ error: "Já existe outra conta com esse e-mail." });
 
-  const fone = phone === undefined ? eu.phone : normalizePhone(phone);
+  /* O telefone segue a regra do cadastro (país escolhido, padrão Brasil). Só é
+     conferido quando MUDA: quem só trocou o nome não pode ser barrado por um
+     número antigo gravado antes desta conferência existir. */
+  let fone = eu.phone;
+  if (phone !== undefined) {
+    const bruto = String(phone).trim();
+    const mesmo = (x) => String(x || "").replace(/\D/g, "") === String(eu.phone || "").replace(/\D/g, "");
+    if (!bruto) fone = "";
+    else if (!mesmo(bruto) && !mesmo(normalizePhone(bruto, { pais: req.body?.pais || "BR" }))) {
+      const tel = telefoneDeCadastro(bruto, req.body?.pais);
+      if (tel.erro) return res.status(400).json({ error: tel.erro });
+      fone = tel.phone;
+    }
+  }
 
   db.prepare("UPDATE users SET name=?, email=?, phone=? WHERE id=?").run(nome, mail, fone, eu.id);
   const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);

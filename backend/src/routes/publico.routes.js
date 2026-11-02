@@ -39,7 +39,8 @@ import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
 import { codigoLivre } from "../services/codigo.js";
-import { normalizePhone } from "../services/stages.js";
+import { telefoneDeCadastro } from "../services/telefone.js";
+import { PAISES } from "../services/paises.js";
 import { sendMail, inviteEmail, mailConfigured } from "../services/mail.js";
 import { planosDe, planoDaFamilia, PLANOS_COMPLETOS, PLANO_BASICO } from "../services/planos.js";
 import { resumoDeConvite, sign, cadastroPodeReaproveitar, EMAIL_EM_USO } from "../auth.js";
@@ -98,6 +99,15 @@ const paraVitrine = (p) => ({
    gatilho para a página de venda do Cetrolab — os preços vêm do hub, como os
    do ConHub vêm da tabela do servidor: preço copiado na página divergiria no
    primeiro reajuste. A contratação em si é a etapa seguinte. */
+/* A lista de países do telefone (02/11/2026), para as páginas de cadastro —
+   que são HTML puro e não passam pelo build do app. É a MESMA lista do
+   servidor (services/paises.js): uma cópia na página divergiria no primeiro
+   país acrescentado. Sem dado nenhum de conta. */
+r.get("/publico/paises", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=3600");
+  res.json({ paises: PAISES.map(({ iso, nome, ddi, min, max }) => ({ iso, nome, ddi, min, max })) });
+});
+
 r.get("/publico/cetrolab/planos", (_req, res) => {
   res.set("Cache-Control", "public, max-age=300");
   res.json({ planos: planosCetrolab({ soAtivos: true, para: "fora" })
@@ -152,14 +162,14 @@ r.post("/publico/comecar", async (req, res) => {
 
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase();
-  const telefone = normalizePhone(String(req.body?.telefone || "").trim());
+  const tel = telefoneDeCadastro(req.body?.telefone, req.body?.pais);
+  const telefone = tel.phone || "";
   const marca = String(req.body?.marca || "").trim().slice(0, 80) || nome;
 
   if (nome.length < 2) return res.status(400).json({ error: "Escreva o seu nome." });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return res.status(400).json({ error: "Confira o e-mail: parece que falta alguma coisa." });
-  if (!/^55\d{10,11}$/.test(telefone))
-    return res.status(400).json({ error: "Informe um WhatsApp válido, com DDD." });
+  if (tel.erro) return res.status(400).json({ error: tel.erro });
 
   /* QUEM É E O QUE ESCOLHEU, vindo do popup do site. (02/09/2026)
 
@@ -322,7 +332,8 @@ r.post("/publico/assinar", async (req, res) => {
 
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   const email = String(req.body?.email || "").trim().toLowerCase();
-  const telefone = normalizePhone(String(req.body?.telefone || "").trim());
+  const tel = telefoneDeCadastro(req.body?.telefone, req.body?.pais);
+  const telefone = tel.phone || "";
   const marca = String(req.body?.marca || "").trim().slice(0, 80) || nome;
   const senha = String(req.body?.senha || "");
   const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
@@ -333,8 +344,7 @@ r.post("/publico/assinar", async (req, res) => {
   if (nome.length < 2) return res.status(400).json({ error: "Escreva o seu nome." });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
     return res.status(400).json({ error: "Confira o e-mail: parece que falta alguma coisa." });
-  if (!/^55\d{10,11}$/.test(telefone))
-    return res.status(400).json({ error: "Informe um WhatsApp válido, com DDD." });
+  if (tel.erro) return res.status(400).json({ error: tel.erro });
   if (senha.length < 6) return res.status(400).json({ error: "A senha precisa ter pelo menos 6 caracteres." });
   if (!plano) return res.status(400).json({ error: "Escolha um dos planos." });
   if (doc.length !== 11 && doc.length !== 14)

@@ -15368,7 +15368,11 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
 }
 
 function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais}){
-  const [f,setF]=useState({name:session.name,email:session.email,phone:session.phone||""});
+  /* O WhatsApp de quem usa o CRM pode ser de fora do país (02/11/2026: uma
+     corretora argentina da VJ). Mesmo seletor e mesma regra do telefone do
+     lead: o país ao lado, e só a parte nacional no campo. */
+  const telInicial=separarTel(session.phone||"");
+  const [f,setF]=useState({name:session.name,email:session.email,phone:session.phone?telInicial.nacional:"",pais:telInicial.pais||"BR"});
   const [senha,setSenha]=useState({atual:"",nova:"",repetir:""});
   const [avisoDados,setAviso]=useState(null);
   const [avisoSenha,setAvisoSenha]=useState(null);
@@ -15378,11 +15382,18 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
 
   const set=(k)=>(e)=>setF({...f,[k]:e.target.value});
   const setS=(k)=>(e)=>setSenha({...senha,[k]:e.target.value});
-  const mudou=f.name!==session.name||f.email!==session.email||f.phone!==(session.phone||"");
+  const telOriginal=session.phone?telInicial.nacional:"";
+  const mudou=f.name!==session.name||f.email!==session.email||f.phone!==telOriginal||(f.pais!==(telInicial.pais||"BR")&&!!f.phone);
 
   async function salvarDados(){
     setAviso(null); setSalvando(true);
-    try{ await acoes.salvarPerfil(f); setAviso({ok:true,txt:"Dados atualizados."}); }
+    try{
+      const tel=String(f.phone||"").trim();
+      if(tel&&f.pais==="BR"&&!tel.startsWith("+")&&tel.replace(/\D/g,"").length<10) throw new Error("Informe o WhatsApp com DDD.");
+      // Sem mudar o número, ele não vai: o servidor mantém o gravado.
+      const dados={name:f.name,email:f.email};
+      if(tel!==telOriginal||(f.pais!==(telInicial.pais||"BR")&&tel)){ dados.phone=tel; dados.pais=f.pais; }
+      await acoes.salvarPerfil(dados); setAviso({ok:true,txt:"Dados atualizados."}); }
     catch(e){ setAviso({ok:false,txt:e.message}); }
     finally{ setSalvando(false); }
   }
@@ -15434,7 +15445,13 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           <input value={f.email} onChange={set("email")} type="email" inputMode="email" style={entrada}/>
           <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no ConHub.</div>
         </div>
-        <div>{rotulo("WhatsApp")}<input value={f.phone} onChange={set("phone")} type="tel" inputMode="tel" placeholder="(87) 9 9999-9999" style={entrada}/></div>
+        <div>{rotulo("WhatsApp")}
+          <div style={{display:"flex",gap:6}}>
+            <SeletorDePais valor={f.pais} aoMudar={pais=>setF({...f,pais})} altura={42}/>
+            <input value={f.phone} onChange={set("phone")} type="tel" inputMode="tel" maxLength={20} placeholder={dicaDoNumero(f.pais)} style={{...entrada,flex:1,minWidth:0}}/>
+          </div>
+          {f.pais!=="BR"&&<div style={{color:C.faint,fontSize:11,marginTop:5}}>Número sem o código do país — o +{paisPorIso(f.pais).ddi} já vai junto.</div>}
+        </div>
         {recado(avisoDados)}
         <button onClick={salvarDados} disabled={salvando||!mudou}
           style={{background:salvando||!mudou?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:600,cursor:salvando||!mudou?"default":"pointer"}}>
