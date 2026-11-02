@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { paisDaOrg, definirPaisDaOrg } from "../services/pais-da-org.js";
 import { filaDaVez } from "../services/rodizio.js";
 import { filaDoLead, filaDaCatraca, pegarProximoDoLead, marcarQueRecebeuNoLead, listar as listarCatracas,
   criar as criarCatraca, editar as editarCatraca, apagar as apagarCatraca, definirCatracaDoLead,
@@ -133,6 +134,15 @@ r.patch("/prazo", roles("adm"), (req, res) => {
   const r2 = definirConfigDoPrazo(req.user.org_id, req.body || {});
   if (r2.erro) return res.status(400).json({ error: r2.erro });
   res.json({ ...r2, etapas_com_prazo: etapasComPrazo(req.user.org_id), etapas_proprias: etapasComAcaoPropria(req.user.org_id) });
+});
+
+/* País padrão da conta (02/11/2026): como ler número sem o código do país.
+   Ver services/pais-da-org.js. Só o gestor muda. */
+r.get("/pais", roles("adm"), (req, res) => res.json({ pais: paisDaOrg(req.user.org_id) }));
+r.patch("/pais", roles("adm"), (req, res) => {
+  const r2 = definirPaisDaOrg(req.user.org_id, req.body?.pais);
+  if (r2.erro) return res.status(400).json({ error: r2.erro });
+  res.json(r2);
 });
 
 r.patch("/expediente", roles("adm"), (req, res) => {

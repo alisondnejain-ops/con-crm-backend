@@ -22,6 +22,7 @@
    5. número de disparo SEPARADO, que não pode ser o número que recebe leads. */
 
 import db from "../db.js";
+import { paisDaOrg } from "./pais-da-org.js";
 import { createHash, randomUUID } from "crypto";
 import { gzipSync, gunzipSync } from "zlib";
 import { normalizePhone } from "./stages.js";
@@ -141,7 +142,7 @@ export const historicoDeAceites = (orgId) => db.prepare(
 // ===== TELEFONES =====
 /* Vale para qualquer país (03/10/2026): a régua é a mesma do cadastro do
    lead. Era só o brasileiro, e o estrangeiro ficava de fora como "inválido". */
-import { telefoneValido, paisPorIso } from "./telefone.js";
+import { telefoneValido, paisPorIso, normalizarPeloPadrao } from "./telefone.js";
 /* As duas formas do mesmo celular (com e sem o nono dígito) — o bloqueio e a
    comparação com o número da casa têm que valer para as duas, senão quem
    pediu para sair voltaria a receber por uma diferença de um dígito. */
@@ -212,7 +213,7 @@ export function criarLista(orgId, user, { nome, origem, origem_detalhe, coletado
   const validos = [];
   let invalidos = 0, repetidos = 0, bloqueados = 0;
   for (const c of contatos) {
-    const tel = normalizePhone(String(c.bruto || "").trim(), { pais: pais || "BR" });
+    const tel = normalizarPeloPadrao(String(c.bruto || "").trim(), pais || paisDaOrg(orgId));
     if (!telefoneValido(tel)) { invalidos++; continue; }
     if (vistos.has(tel) || vistos.has(numeroAlternativo(tel))) { repetidos++; continue; }
     vistos.add(tel);
@@ -290,7 +291,7 @@ export function pedidoDeSaida(texto) {
 }
 
 export function bloquear(orgId, telefone, { motivo = "manual", texto = null, por = null } = {}) {
-  const tel = normalizePhone(String(telefone || "").trim());
+  const tel = normalizarPeloPadrao(String(telefone || "").trim(), paisDaOrg(orgId));
   if (!telefoneValido(tel)) throw new ErroMarketing(400, "Número inválido. Use DDD + número (ou + código do país, se for de fora).");
   db.prepare(`INSERT OR IGNORE INTO marketing_bloqueio (org_id,telefone,motivo,texto,criado_por,criado_em)
     VALUES (?,?,?,?,?,?)`).run(orgId, tel, motivo, texto ? String(texto).slice(0, 200) : null, por, Date.now());

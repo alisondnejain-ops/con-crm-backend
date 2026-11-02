@@ -80,6 +80,34 @@ export function normalizePhone(raw, { pais = "BR", comCodigo = false } = {}) {
   return p.ddi + n;
 }
 
+/* O NÚMERO LIDO PELO PAÍS PADRÃO DA CONTA (02/11/2026; ver
+   services/pais-da-org.js). Diferente do país escolhido por uma pessoa no
+   seletor, o padrão vale para números que NINGUÉM conferiu — formulário,
+   portal, planilha, lista — e numa conta argentina chega também o brasileiro
+   escrito inteiro sem o "+" ("5587991112222"). Com `normalizePhone` puro ele
+   viraria 54 5587…, um número que não existe.
+
+   Então: número mais comprido que um número nacional do país padrão, e que
+   já começa por um código conhecido com o tamanho certo depois dele, é lido
+   como já tendo o código. O resto segue o país padrão. No Brasil (o padrão de
+   quase toda conta) não muda nada: é a regra de sempre. */
+export function normalizarPeloPadrao(raw, pais = "BR") {
+  const p = paisPorIso(pais) || PAIS_BR;
+  if (p.iso === "BR") return normalizePhone(raw);
+  const txt = String(raw || "").trim();
+  const d = txt.replace(/\D/g, "");
+  if (!d || txt.startsWith("+") || d.startsWith("00")) return normalizePhone(raw, { pais: p.iso });
+  if (d.length > p.max) {
+    if (/^55\d{10,11}$/.test(d)) return normalizePhone(d, { comCodigo: true });
+    const q = paisDoNumero(d);
+    if (q) {
+      const n = d.length - q.ddi.length;
+      if (n >= q.min && n <= q.max) return d;
+    }
+  }
+  return normalizePhone(raw, { pais: p.iso });
+}
+
 /* Confere o número de quem está CRIANDO o registro (cadastro na mão, correção
    na ficha, planilha). Devolve a frase do problema, ou null quando está bom.
 

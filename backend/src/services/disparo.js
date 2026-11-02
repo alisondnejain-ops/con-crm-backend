@@ -36,6 +36,7 @@
    - o disparo foi cancelado. */
 
 import db from "../db.js";
+import { paisDaOrg } from "./pais-da-org.js";
 import { randomUUID } from "crypto";
 import { normalizePhone } from "./stages.js";
 import { sendText, sendMedia, sendMenu, sendTemplate, numeroAlternativo } from "./uazapi.js";
@@ -54,7 +55,7 @@ import { avisar } from "./push.js";
 
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
-import { telefoneValido } from "./telefone.js";
+import { telefoneValido, normalizarPeloPadrao } from "./telefone.js";
 const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
   .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -1332,7 +1333,7 @@ export async function enviarTeste(orgId, fluxoId, { telefone, nome } = {}) {
   exigirPronto(orgId);
   const f = fluxoDaOrg(orgId, fluxoId);
   if (!f) throw new ErroMarketing(404, "Fluxo não encontrado.");
-  const tel = normalizePhone(String(telefone || "").trim());
+  const tel = normalizarPeloPadrao(String(telefone || "").trim(), paisDaOrg(orgId));
   if (!telefoneValido(tel)) throw new ErroMarketing(400, "Digite o número com DDD, ex.: (87) 99999-0000 — de fora do Brasil, com + e o código do país.");
   const { grafo, erros } = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
   if (erros.length) throw new ErroMarketing(422, "Antes do teste: " + erros[0]);
