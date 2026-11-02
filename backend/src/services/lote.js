@@ -21,6 +21,8 @@ import db from "../db.js";
 import { pipelinePorId, etapasDoPipeline } from "./pipelines.js";
 import { LINEAR } from "./stages.js";
 import { moverEtapa } from "./etapas.js";
+import { trocarResponsavel } from "./movimento.js";
+import { avisar } from "./push.js";
 import { etapaDaConversa, temperaturaDaConversa, iaConfigurada } from "./ia.js";
 import { registrar as registrarUsoIA, custoEstimado } from "./iauso.js";
 
@@ -374,4 +376,81 @@ export function moverParaFunil(orgId, { userId, pipelineId, stageId = null, mant
   rodar();
   console.log(`[lote] ${movidos} lead(s) de ${previa.pessoa} movidos para o funil "${previa.destino}"`);
   return { movidos, ...previa };
+}
+
+/* ============================================================================
+   PASSAR OS LEADS DE UMA PESSOA PARA OUTRA (02/11/2026, pedido do Fernando
+   pelo Ali: "mandar os leads que estão com ele pra um corretor específico, e
+   permitir que os gestores façam isso se assim quiserem também").
+
+   É o repasse da ficha, em lote: o mesmo `trocarResponsavel` de sempre, lead
+   a lead — é ele que grava o histórico de transferência, carimba o
+   `assigned_at` (o selo "novo com você" na caixa de quem recebe) e leva o
+   lead para o funil de quem recebe. Um UPDATE em massa faria o repasse
+   acontecer sem deixar rastro.
+
+   O QUE NÃO VAI, e por quê:
+   - lead com VENDA registrada, ou numa etapa de ganho/perda: a venda é contada
+     pelo dono do lead, então passar um lead vendido mudaria de mãos o VGV de
+     um negócio que já fechou — o relatório de dinheiro mudaria sozinho;
+   - lead anonimizado (LGPD);
+   - atendimento FINALIZADO, a menos que se peça: costuma ser muito lead
+     antigo, e despejar centenas deles na caixa de alguém enterra o que
+     importa. Se o cliente voltar a escrever, ele reabre com quem está.
+
+   MOTIVO "lote": o histórico diz que foi a gestão, em lote, e a penalidade
+   de "leads perdidos para outro corretor" (que conta só `mao`) não pega —
+   reorganizar a carteira é decisão da gestão, não desempenho de quem perdeu. */
+const FECHADO = `(l.sale_date IS NOT NULL
+  OR (l.stage_id IS NOT NULL AND l.stage_id IN (SELECT id FROM pipeline_stages WHERE status_type IN ('ganho','perdido')))
+  OR (l.stage_id IS NULL AND COALESCE(l.stage, '') IN ('Venda','Perdido')))`;
+/* Cada parte devolve verdadeiro ou falso, nunca "desconhecido": com stage_id
+   nulo, `IN` dá NULL, e `NOT NULL` também é NULL — o lead sumia das DUAS contas. */
+
+function quemRecebe(orgId, paraId) {
+  return db.prepare(`SELECT id, name, role FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'
+    AND COALESCE(master, 0) = 0`).get(paraId, orgId);
+}
+
+export function previaPassarLeads(orgId, { deId, paraId, incluirFinalizados = false }) {
+  const de = db.prepare("SELECT id, name FROM users WHERE id = ? AND org_id = ?").get(deId, orgId);
+  if (!de) return { erro: "Pessoa de origem não encontrada nesta imobiliária." };
+  const para = quemRecebe(orgId, paraId);
+  if (!para) return { erro: "Escolha uma pessoa ativa da equipe para receber os leads." };
+  if (para.id === de.id) return { erro: "Escolha outra pessoa para receber — é a mesma de origem." };
+
+  const base = `FROM leads l WHERE l.org_id = ? AND l.assigned_to = ? AND l.anonimizado_em IS NULL`;
+  const n = (extra) => db.prepare(`SELECT COUNT(*) n ${base} ${extra}`).get(orgId, de.id).n;
+  const fechados = n(`AND ${FECHADO}`);
+  const finalizados = n(`AND NOT ${FECHADO} AND l.closed_at IS NOT NULL`);
+  const abertos = n(`AND NOT ${FECHADO} AND l.closed_at IS NULL`);
+  return {
+    de: de.name, para: para.name,
+    vao: abertos + (incluirFinalizados ? finalizados : 0),
+    abertos, finalizados, fechados,
+    incluir_finalizados: !!incluirFinalizados,
+  };
+}
+
+export function passarLeads(orgId, { deId, paraId, incluirFinalizados = false, quemMandou = null }) {
+  const previa = previaPassarLeads(orgId, { deId, paraId, incluirFinalizados });
+  if (previa.erro) return previa;
+  const ids = db.prepare(`SELECT l.id FROM leads l WHERE l.org_id = ? AND l.assigned_to = ?
+    AND l.anonimizado_em IS NULL AND NOT ${FECHADO}
+    ${incluirFinalizados ? "" : "AND l.closed_at IS NULL"}`).all(orgId, deId).map(r => r.id);
+
+  let passados = 0;
+  db.transaction(() => {
+    for (const id of ids) if (trocarResponsavel(id, paraId, quemMandou, "lote")) passados++;
+  })();
+
+  /* UM aviso, com o total — e não um por lead: trezentos avisos seguidos no
+     celular de alguém fariam a pessoa desligar a notificação, e aí o próximo
+     lead de verdade passaria sem ninguém saber. */
+  if (passados) {
+    avisar(paraId, { titulo: `${passados} lead(s) passados para você`,
+      corpo: `Vieram de ${previa.de}. Estão na sua caixa de atendimento.` }).catch(() => {});
+  }
+  console.log(`[lote] ${passados} lead(s) passados de ${previa.de} para ${previa.para}`);
+  return { ...previa, passados };
 }

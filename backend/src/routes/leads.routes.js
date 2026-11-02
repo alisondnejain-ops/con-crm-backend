@@ -26,7 +26,7 @@ import { moverEtapa, etapaDesdePorLead, historicoDoLead } from "../services/etap
 import { estadoNoLead, ligarNoLead, ASSINATURA_ROBO } from "../services/robo.js";
 import { semDisparo } from "../services/marca-disparo.js";
 import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
-  corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil } from "../services/lote.js";
+  corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil, previaPassarLeads, passarLeads } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 import { canalDoUsuario, canalPorId } from "../services/canais.js";
@@ -872,6 +872,22 @@ r.post("/lote/mover-funil", roles("adm"), (req, res) => {
     userId: req.body?.user_id, pipelineId: req.body?.pipeline_id,
     stageId: req.body?.stage_id || null,
     manterEtapa: !!req.body?.manter_etapa, quemMandou: req.user.id });
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
+
+/* Passar os leads de uma pessoa para outra (02/11/2026, pedido do Fernando).
+   Só gestor, como o resto de "Arrumar a base". Detalhes em services/lote.js. */
+r.get("/lote/passar", roles("adm"), (req, res) => {
+  const r1 = previaPassarLeads(req.user.org_id, { deId: req.query.de, paraId: req.query.para,
+    incluirFinalizados: req.query.finalizados === "1" });
+  if (r1.erro) return res.status(400).json({ error: r1.erro });
+  res.json(r1);
+});
+
+r.post("/lote/passar", roles("adm"), (req, res) => {
+  const r1 = passarLeads(req.user.org_id, { deId: req.body?.de, paraId: req.body?.para,
+    incluirFinalizados: !!req.body?.incluir_finalizados, quemMandou: req.user.id });
   if (r1.erro) return res.status(400).json({ error: r1.erro });
   res.json(r1);
 });

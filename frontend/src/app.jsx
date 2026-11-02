@@ -1889,6 +1889,8 @@ function ConCRM(){
     // separada da aplicação: mexer em centenas de leads não se desfaz na mão.
     previaMoverFunil:(f)=>api(`/leads/lote/mover-funil?user_id=${encodeURIComponent(f.user_id)}&pipeline_id=${encodeURIComponent(f.pipeline_id)}&stage_id=${encodeURIComponent(f.stage_id||"")}&manter=${f.manter?1:0}`),
     moverParaFunil:(dados)=>api("/leads/lote/mover-funil",{method:"POST",body:dados}),
+    previaPassarLeads:(f)=>api(`/leads/lote/passar?de=${encodeURIComponent(f.de)}&para=${encodeURIComponent(f.para)}&finalizados=${f.finalizados?1:0}`),
+    passarLeads:(dados)=>api("/leads/lote/passar",{method:"POST",body:dados}),
     decidirCadastro:acao((userId,decisao)=>api(`/auth/users/${userId}/${decisao}`,{method:"POST"})),
     removerDaEquipe:acao((userId,destinoLeads)=>api(`/auth/users/${userId}/remover`,{method:"POST",body:{destino_leads:destinoLeads||null}})),
     mudarFuncao:acao((userId,funcao)=>api(`/auth/users/${userId}/funcao`,{method:"POST",body:{funcao}})),
@@ -16453,6 +16455,93 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
   </React.Fragment>);
 }
 
+/* PASSAR OS LEADS DE UMA PESSOA PARA OUTRA (02/11/2026, pedido do Fernando:
+   "mandar os leads que estão com ele pra um corretor específico"). É o repasse
+   da ficha em lote, com a prévia antes do botão — como os outros quadros
+   daqui. Venda e etapa de ganho/perda ficam com quem está (senão o VGV de um
+   negócio fechado mudaria de dono); finalizados só se marcar. */
+function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
+  const [pessoas,setPessoas]=useState([]);
+  const [f,setF]=useState({de:"",para:"",finalizados:false});
+  const [previa,setPrevia]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [feito,setFeito]=useState("");
+
+  useEffect(()=>{
+    acoes.equipe().then(r=>setPessoas((r.users||r||[]).filter(u=>u.status==="ativo"))).catch(()=>{});
+  },[]);
+
+  useEffect(()=>{
+    if(!f.de||!f.para){setPrevia(null);setErro("");return;}
+    let vivo=true;
+    acoes.previaPassarLeads(f).then(r=>vivo&&(setPrevia(r),setErro("")))
+      .catch(e=>vivo&&(setPrevia(null),setErro(e.message)));
+    return()=>{vivo=false;};
+  },[f.de,f.para,f.finalizados]);
+
+  const sel={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,
+    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px",minWidth:0};
+
+  return cartao(<React.Fragment>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Passar os leads de uma pessoa para outra</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Todos os leads em aberto vão para quem você escolher, como o repasse da ficha. Os que têm venda registrada continuam com quem está.
+    </div>
+
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+      <select value={f.de} onChange={e=>{setFeito("");setF({...f,de:e.target.value});}} style={sel} aria-label="Leads de quem">
+        <option value="">Leads de quem?</option>
+        {pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <select value={f.para} onChange={e=>{setFeito("");setF({...f,para:e.target.value});}} style={sel} aria-label="Para quem">
+        <option value="">Para quem?</option>
+        {pessoas.filter(p=>p.id!==f.de).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+
+    {previa&&<React.Fragment>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+        {[["vão passar",previa.vao],["finalizados",previa.finalizados],["com venda ou fechados (ficam)",previa.fechados]].map(([t,v])=>
+          <div key={t} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
+            padding:"9px 12px",flex:"1 1 110px"}}>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{color:C.faint,fontSize:10,marginTop:3}}>{t}</div></div>)}
+      </div>
+
+      {previa.finalizados>0&&<label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",marginBottom:10}}>
+        <input type="checkbox" checked={f.finalizados} onChange={e=>setF({...f,finalizados:e.target.checked})}
+          style={{marginTop:2,width:16,height:16,accentColor:C.green,cursor:"pointer"}}/>
+        <span style={{fontSize:11.5,color:C.sub,lineHeight:1.5}}>
+          Passar também os {previa.finalizados} atendimento(s) finalizado(s). Sem marcar, eles ficam com {previa.de} e,
+          se o cliente voltar a escrever, reabrem com ele(a).
+        </span>
+      </label>}
+
+      {previa.vao>0
+        ? <button disabled={ocupado} onClick={async()=>{
+              setErro("");setOcupado(true);
+              try{
+                const r=await acoes.passarLeads({de:f.de,para:f.para,incluir_finalizados:f.finalizados});
+                setFeito(`${r.passados} lead(s) de ${r.de} passados para ${r.para}.`);
+                setPrevia(null);setF({de:"",para:"",finalizados:false});
+                if(aoAplicar) aoAplicar();
+              }catch(e){ setErro(e.message); }
+              finally{ setOcupado(false); }
+            }}
+            style={{width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,
+              padding:"12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            {ocupado?"Passando…":`Passar ${previa.vao} lead(s) para ${previa.para}`}</button>
+        : <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
+            Nada para passar — {previa.de} não tem lead em aberto{previa.finalizados?" (só finalizados)":""}.
+          </div>}
+    </React.Fragment>}
+  </React.Fragment>);
+}
+
 function ArrumarBase({acoes,isMobile,aoAplicar}){
   const [t,setT]=useState(null);          // prévia da temperatura
   const [ia,setIa]=useState(null);        // prévia da IA
@@ -16554,7 +16643,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Arrumar a base</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-      Quatro correções para a base. Todas mostram o tamanho — e o custo, quando gasta — antes de aplicar.
+      Correções para a base. Todas mostram o tamanho — e o custo, quando gasta — antes de aplicar.
     </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
@@ -16566,6 +16655,9 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
         existirem de verdade: criar o funil do SDR não muda nada enquanto os
         leads que deveriam estar nele continuam no comercial. */}
     <MoverFunil acoes={acoes} isMobile={isMobile} cartao={cartao} aoAplicar={aoAplicar}/>
+
+    {/* ===== 0b. PASSAR OS LEADS DE UMA PESSOA PARA OUTRA ===== */}
+    <PassarLeads acoes={acoes} isMobile={isMobile} cartao={cartao} aoAplicar={aoAplicar}/>
 
     {/* ===== 1. TEMPERATURA ===== */}
     {cartao(<React.Fragment>
