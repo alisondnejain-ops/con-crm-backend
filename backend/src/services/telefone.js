@@ -53,6 +53,29 @@ function brasil(d) {
   return d;
 }
 
+/* O NÚMERO ARGENTINO ESCRITO DO JEITO LOCAL (03/11/2026, leads da VJ em
+   dobro). Na Argentina o celular se escreve com o "0" do código de área e o
+   "15" depois dele — "0381 15 477-9714" —, e no WhatsApp ele é 54 9 381
+   4779714. Gravado como veio, o lead do formulário ficava com um número que
+   não existe, e quando a pessoa escrevia pelo WhatsApp nascia outro lead.
+   Recebe os dígitos DEPOIS do 54 e devolve os 11 do WhatsApp (9 + área +
+   número), ou nulo quando não dá para ter certeza (aí vale o que veio).
+   O código de área tem 2 a 4 dígitos e área + número somam 10; o "15" fica
+   logo depois da área, e "11" (Buenos Aires) é o único de 2 dígitos. */
+export function argentinaNacional(n) {
+  let r = String(n || "").replace(/\D/g, "");
+  if (r.length === 11 && r.startsWith("9")) return r;
+  if (r.startsWith("9") && r.length > 11) r = r.slice(1);
+  r = r.replace(/^0+/, "");
+  if (r.length === 12) {
+    const ordem = r.startsWith("11") ? [2] : [3, 4];
+    const L = ordem.find(l => r.slice(l, l + 2) === "15");
+    if (L == null) return null;
+    r = r.slice(0, L) + r.slice(L + 2);
+  }
+  return r.length === 10 ? "9" + r : null;
+}
+
 export function normalizePhone(raw, { pais = "BR", comCodigo = false } = {}) {
   const txt = String(raw || "").trim();
   let d = txt.replace(/\D/g, "");
@@ -61,7 +84,22 @@ export function normalizePhone(raw, { pais = "BR", comCodigo = false } = {}) {
   // 1. Já tem o código do país.
   let internacional = comCodigo || txt.startsWith("+");
   if (!internacional && d.startsWith("00")) { d = d.replace(/^00/, ""); internacional = true; }
-  if (internacional) return d.length === 12 && d.startsWith("55") ? brasil(d) : d;
+  if (internacional) {
+    if (d.length === 12 && d.startsWith("55")) return brasil(d);
+    /* Argentino escrito por uma pessoa com +54 e o 0/15 locais. O que chega do
+       WhatsApp (`comCodigo`) é o número de verdade e não é mexido. 54 + 10
+       dígitos (sem o 9) fica como veio: é a outra forma do mesmo celular, e
+       a busca do lead já casa as duas (`formasDoTelefone`). */
+    if (!comCodigo && d.startsWith("54") && d.length > 13) {
+      const ar = argentinaNacional(d.slice(2));
+      if (ar) return "54" + ar;
+    }
+    if (!comCodigo && /^540/.test(d)) {
+      const ar = argentinaNacional(d.slice(2));
+      if (ar) return "54" + ar;
+    }
+    return d;
+  }
 
   // 2. Sem código: o país escolhido.
   const p = paisPorIso(pais) || PAIS_BR;
@@ -76,7 +114,10 @@ export function normalizePhone(raw, { pais = "BR", comCodigo = false } = {}) {
      número como ele é discado no país (área + número, 10 dígitos) chegaria a
      um número que o WhatsApp não conhece. Fixo argentino com WhatsApp é raro,
      e se for o caso o envio tenta a forma sem o 9 (`numeroAlternativo`). */
-  if (p.iso === "AR" && n.length === 10) n = "9" + n;
+  if (p.iso === "AR") {
+    const ar = argentinaNacional(d.startsWith("54") && d.length > 13 ? d.slice(2) : d);
+    if (ar) return "54" + ar;
+  }
   return p.ddi + n;
 }
 
