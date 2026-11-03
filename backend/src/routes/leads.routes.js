@@ -6,6 +6,7 @@ import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { paisDaOrg } from "../services/pais-da-org.js";
 import { possiveisDuplicados, marcarNaoDuplicado } from "../services/duplicados.js";
+import { gruposDuplicados, unirGrupos, unirGrupo, chave as chaveDoCelular } from "../services/unir-leads.js";
 import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConversa } from "../services/stages.js";
 import { validarTelefone, paisPorIso, leadPorTelefone, formasDoTelefone, normalizarPeloPadrao } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
@@ -892,6 +893,18 @@ r.post("/lote/passar", roles("adm"), (req, res) => {
   res.json(r1);
 });
 
+/* Unir leads duplicados (03/11/2026) — ver services/unir-leads.js. Em lote só
+   o gestor, com a prévia antes; o par da ficha também a atendente. */
+r.get("/lote/duplicados", roles("adm"), (req, res) => {
+  const dias = Number(req.query.dias) || null;
+  res.json(gruposDuplicados(req.user.org_id, { desdeDias: dias && dias > 0 ? dias : null }));
+});
+r.post("/lote/duplicados/unir", roles("adm"), (req, res) => {
+  const grupos = req.body?.grupos;
+  if (!Array.isArray(grupos) || !grupos.length) return res.status(400).json({ error: "Escolha os leads para unir." });
+  res.json(unirGrupos(req.user.org_id, req.user.id, grupos));
+});
+
 r.get("/lote/temperatura", roles("adm"), (req, res) =>
   res.json(previaTemperatura(req.user.org_id, String(req.query.t || "MORNO").toUpperCase())));
 
@@ -1058,6 +1071,22 @@ r.get("/:id/duplicados", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   res.json(possiveisDuplicados(req.user, lead));
+});
+/* Unir este lead com um que o aviso apontou. Só quem supervisiona, e só
+   quando os dois são o mesmo celular — por nome ou e-mail a junção é decisão
+   grande demais para um toque; aí vale o "abrir este lead" e conferir. */
+r.post("/:id/duplicados/:outroId/unir", (req, res) => {
+  if (!supervisiona(req.user)) return res.status(403).json({ error: "Só a gestão e a atendente unem leads." });
+  const a = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(req.params.id, req.user.org_id);
+  const b = db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(req.params.outroId, req.user.org_id);
+  if (!a || !b) return res.status(404).json({ error: "Lead não encontrado." });
+  const ka = chaveDoCelular(a.phone), kb = chaveDoCelular(b.phone);
+  if (!ka || ka !== kb) return res.status(409).json({ error: "Os dois não têm o mesmo celular. Confira abrindo o outro lead e, se for a mesma pessoa, corrija o telefone de um deles primeiro." });
+  const g = gruposDuplicados(req.user.org_id).grupos.find(x => x.leads.some(l => l.id === a.id) && x.leads.some(l => l.id === b.id));
+  const principal = g ? g.principal_id : a.id;
+  const r2 = unirGrupo(req.user.org_id, req.user.id, principal, [a.id, b.id].filter(id => id !== principal));
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json(r2);
 });
 r.post("/:id/duplicados/:outroId/nao-e", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);

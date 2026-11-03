@@ -25,6 +25,7 @@
    ("e mais 1 com outra pessoa da equipe"), sem nome nem número. */
 import db from "../db.js";
 import { formasDoTelefone } from "./telefone.js";
+import { chave as chaveDoCelular } from "./unir-leads.js";
 import { podeVerLead } from "../auth.js";
 
 db.exec(`CREATE TABLE IF NOT EXISTS leads_nao_duplicados (
@@ -59,6 +60,11 @@ export function possiveisDuplicados(user, lead) {
 
   const conds = [], args = [lead.org_id, lead.id];
   if (final) { conds.push("substr(l.phone, -8) = ?"); args.push(final); }
+  /* O mesmo celular escrito de outro jeito (03/11/2026): o argentino com o
+     "15" no meio não tem os mesmos 8 finais, mas tem os mesmos 6. A conferência
+     de verdade é a do celular lido do jeito certo, logo abaixo. */
+  const k = chaveDoCelular(lead.phone);
+  if (k) { conds.push("substr(l.phone, -6) = ?"); args.push(k.slice(-6)); }
   if (email) { conds.push("(l.email IS NOT NULL AND LOWER(TRIM(l.email)) = ?)"); args.push(email); }
   if (nome) { conds.push("LOWER(TRIM(l.name)) = LOWER(TRIM(?))"); args.push(lead.name); }
   const candidatos = db.prepare(`SELECT l.id, l.org_id, l.name, l.phone, l.email, l.assigned_to, l.created_at,
@@ -76,7 +82,7 @@ export function possiveisDuplicados(user, lead) {
     if (ignorados.has(c.id)) continue;
     const d = String(c.phone || "").replace(/\D/g, "");
     let motivo = null;
-    if (d && formas.includes(d)) motivo = "forma";
+    if (d && (formas.includes(d) || (k && d !== digitos && chaveDoCelular(d) === k))) motivo = "forma";
     else if (final && d && d !== digitos && d.slice(-8) === final) motivo = "final";
     else if (email && String(c.email || "").trim().toLowerCase() === email) motivo = "email";
     else if (nome && chaveDoNome(c.name) === nome) motivo = "nome";

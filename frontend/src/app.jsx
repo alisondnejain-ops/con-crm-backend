@@ -2033,6 +2033,9 @@ function ConCRM(){
     definirExpediente:(fim)=>api("/distribution/expediente",{method:"PATCH",body:{fim}}),
     paisDaConta:()=>api("/distribution/pais"),
     duplicados:(id)=>api(`/leads/${id}/duplicados`),
+    unirDuplicado:(id,outro)=>api(`/leads/${id}/duplicados/${outro}/unir`,{method:"POST"}),
+    leadsEmDobro:(dias)=>api(`/leads/lote/duplicados${dias?`?dias=${dias}`:""}`),
+    unirLeadsEmDobro:(grupos)=>api("/leads/lote/duplicados/unir",{method:"POST",body:{grupos}}),
     naoEDuplicado:(id,outro)=>api(`/leads/${id}/duplicados/${outro}/nao-e`,{method:"POST"}),
     definirPaisDaConta:(pais)=>api("/distribution/pais",{method:"PATCH",body:{pais}}),
     historicoDisponibilidade:(params)=>api("/distribution/disponibilidade/historico?"+new URLSearchParams(params||{})),
@@ -8901,7 +8904,7 @@ const NOME_PLATAFORMA={fb:"Facebook",facebook:"Facebook",ig:"Instagram",instagra
    Só avisa — o CRM não junta leads. "Abrir" leva ao outro; "Não é a mesma
    pessoa" cala o aviso daquele par para sempre. Lead de colega aparece só
    como contagem para quem não supervisiona. */
-function PossivelDuplicado({lead,acoes}){
+function PossivelDuplicado({lead,acoes,podeUnir}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   /* A busca que falha não pode sumir calada (02/11/2026, pedido do Ali):
@@ -8910,9 +8913,11 @@ function PossivelDuplicado({lead,acoes}){
      com o atendimento. */
   const [falhou,setFalhou]=useState(false);
   const [tentativa,setTentativa]=useState(0);
+  // Antes de qualquer return: hook depois de return quebra a tela (erro #310).
+  const [unindo,setUnindo]=useState(null);
   const id=lead&&lead.id;
   useEffect(()=>{
-    let vivo=true; setD(null); setErro(""); setFalhou(false);
+    let vivo=true; setD(null); setErro(""); setFalhou(false); setUnindo(null);
     if(!id) return;
     acoes.duplicados(id).then(x=>{ if(vivo) setD(x); }).catch(()=>{ if(vivo) setFalhou(true); });
     return ()=>{ vivo=false; };
@@ -8926,6 +8931,18 @@ function PossivelDuplicado({lead,acoes}){
     setErro("");
     try{ setD(await acoes.naoEDuplicado(id,outro)); }catch(e){ setErro(e.message); }
   }
+  /* Unir (03/11/2026): só quando os dois são o mesmo celular — o servidor
+     confere e escolhe qual fica (o que o cliente usa no WhatsApp). Pede
+     confirmação: a cópia sai da lista, e não há botão de desfazer. */
+  async function unir(outro){
+    setErro("");setUnindo({...unindo,indo:true});
+    try{
+      const r=await acoes.unirDuplicado(id,outro);
+      setUnindo(null);
+      if(r.principal_id&&r.principal_id!==id) acoes.abrir(r.principal_id);
+      else setTentativa(t=>t+1);
+    }catch(e){ setErro(e.message); setUnindo(null); }
+  }
   return <div style={{background:"#FFF6E0",border:"1px solid #F0D58A",borderRadius:11,padding:"10px 11px",margin:"2px 0 12px"}}>
     <div style={{color:"#7a5a12",fontSize:12,fontWeight:700,marginBottom:6}}>Pode ser o mesmo cliente de outro lead</div>
     {d.itens.map(x=><div key={x.id} style={{borderTop:"1px solid #F3E2B0",padding:"7px 0 2px"}}>
@@ -8936,14 +8953,22 @@ function PossivelDuplicado({lead,acoes}){
       <div style={{color:"#8a6d1f",fontSize:11,marginTop:1}}>{x.porque}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
         <button onClick={()=>acoes.abrir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",fontFamily:FONT}}>Abrir este lead</button>
+        {podeUnir&&(x.motivo==="forma"||x.motivo==="final")&&<button onClick={()=>setUnindo({id:x.id,nome:x.nome})} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.greenDeep}`,background:C.card,color:C.greenDeep,cursor:"pointer",fontFamily:FONT}}>Unir os dois</button>}
         <button onClick={()=>naoE(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Não é a mesma pessoa</button>
       </div>
+      {unindo&&unindo.id===x.id&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",marginTop:7}}>
+        <div style={{color:C.ink,fontSize:12,lineHeight:1.5}}>Juntar os dois num lead só? A conversa, as tarefas, as observações e o histórico ficam juntos, e a cópia sai da lista. Não tem desfazer.</div>
+        <div style={{display:"flex",gap:8,marginTop:7,flexWrap:"wrap"}}>
+          <button disabled={unindo.indo} onClick={()=>unir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontFamily:FONT}}>{unindo.indo?"Unindo…":"Sim, unir"}</button>
+          <button disabled={unindo.indo} onClick={()=>setUnindo(null)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Cancelar</button>
+        </div>
+      </div>}
     </div>)}
     {d.outros>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.45,marginTop:d.itens.length?6:0}}>
       {d.itens.length?"E mais ":""}{d.outros} {d.outros===1?"lead parecido está":"leads parecidos estão"} com outra pessoa da equipe — fale com a gestão.
     </div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
-    <div style={{color:C.faint,fontSize:10.5,marginTop:6}}>O CRM não junta leads: siga a conversa no lead certo.</div>
+    {!podeUnir&&<div style={{color:C.faint,fontSize:10.5,marginTop:6}}>Para juntar os dois, fale com a gestão.</div>}
   </div>;
 }
 
@@ -10425,7 +10450,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <TelefoneDoLead lead={sel} acoes={acoes}/>
         <TemperaturaDoLead lead={sel} acoes={acoes}/>
         <OrigemDoLead lead={sel}/>
-        <PossivelDuplicado lead={sel} acoes={acoes}/>
+        <PossivelDuplicado lead={sel} acoes={acoes} podeUnir={podeSupervisionar(session)}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
@@ -14529,7 +14554,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       <TelefoneDoLead lead={lead} acoes={acoes}/>
       <TemperaturaDoLead lead={lead} acoes={acoes}/>
       <OrigemDoLead lead={lead}/>
-      <PossivelDuplicado lead={lead} acoes={acoes}/>
+      <PossivelDuplicado lead={lead} acoes={acoes} podeUnir={podeSupervisionar(session)}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
@@ -16495,6 +16520,65 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
    da ficha em lote, com a prévia antes do botão — como os outros quadros
    daqui. Venda e etapa de ganho/perda ficam com quem está (senão o VGV de um
    negócio fechado mudaria de dono); finalizados só se marcar. */
+/* LEADS EM DOBRO (03/11/2026, leads da VJ duplicados). A lista vem do
+   servidor (services/unir-leads.js): grupos com o MESMO celular, o lead que
+   fica primeiro. Tudo marcado; o gestor desmarca o que não for para unir. */
+function UnirDuplicados({acoes,isMobile,cartao,aoAplicar}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [fora,setFora]=useState({});
+  const [ocupado,setOcupado]=useState(false);
+  const [feito,setFeito]=useState("");
+  const [aberto,setAberto]=useState(false);
+  const carregar=()=>acoes.leadsEmDobro().then(r=>{setD(r);setErro("");}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const marcados=d?d.grupos.filter(g=>!fora[g.principal_id]):[];
+  const quantos=marcados.reduce((s,g)=>s+g.leads.length-1,0);
+  const quando=(t)=>t?new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+  return cartao(<React.Fragment>
+    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Leads em dobro</div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Leads com o mesmo celular, escrito de jeitos diferentes. Unir junta a conversa, as tarefas, as observações e o histórico no lead que fica, e a cópia sai da lista.
+    </div>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+    {!d&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Procurando…</div>}
+    {d&&!d.grupos.length&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead em dobro.</div>}
+    {d&&d.grupos.length>0&&<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        <div style={{color:C.ink,fontSize:12.5}}><b style={{fontFamily:MONO}}>{d.leads_em_dobro}</b> lead(s) em dobro em <b style={{fontFamily:MONO}}>{d.grupos.length}</b> cliente(s)</div>
+        <button onClick={()=>setAberto(!aberto)} style={{background:"none",border:"none",color:C.greenDeep,fontSize:12,fontWeight:600,cursor:"pointer",padding:0,fontFamily:FONT}}>{aberto?"Esconder a lista":"Conferir a lista"}</button>
+      </div>
+      {aberto&&<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:isMobile?420:520,overflowY:"auto",marginBottom:10}}>
+        {d.grupos.map(g=><label key={g.principal_id} style={{display:"flex",gap:9,alignItems:"flex-start",border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",background:fora[g.principal_id]?C.surface:C.card,cursor:"pointer"}}>
+          <input type="checkbox" checked={!fora[g.principal_id]} onChange={e=>setFora({...fora,[g.principal_id]:!e.target.checked})}
+            style={{marginTop:3,width:16,height:16,accentColor:C.green,cursor:"pointer",flexShrink:0}}/>
+          <div style={{minWidth:0,flex:1}}>
+            {g.leads.map((l,i)=><div key={l.id} style={{fontSize:11.5,lineHeight:1.45,color:C.sub,overflowWrap:"anywhere",marginTop:i?4:0}}>
+              <span style={{fontSize:10,fontWeight:700,color:i?C.faint:C.greenDeep,marginRight:5}}>{i?"JUNTA":"FICA"}</span>
+              <b style={{color:C.ink}}>{l.nome||"Sem nome"}</b> · {fmtTel(l.telefone)} · {l.dono?`com ${l.dono}`:"na fila"} · entrou {quando(l.entrou_em)} · {l.mensagens} msg{l.venda?" · venda":""}
+            </div>)}
+            <div style={{fontSize:10.5,color:C.faint,marginTop:3}}>Fica: {g.nome_final||"sem nome"} · {fmtTel(g.telefone_final)}</div>
+          </div>
+        </label>)}
+      </div>}
+      <button disabled={ocupado||!quantos} onClick={async()=>{
+          setErro("");setFeito("");setOcupado(true);
+          try{
+            const r=await acoes.unirLeadsEmDobro(marcados.map(g=>({principal:g.principal_id,outros:g.leads.slice(1).map(l=>l.id)})));
+            setFeito(`${r.unidos} lead(s) em dobro unidos em ${r.grupos} cliente(s).${r.falhas.length?` ${r.falhas.length} não deram: ${r.falhas[0].motivo}`:""}`);
+            setFora({});await carregar();
+            if(aoAplicar) aoAplicar();
+          }catch(e){ setErro(e.message); }
+          finally{ setOcupado(false); }
+        }}
+        style={{width:"100%",background:quantos?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13,fontWeight:600,cursor:quantos?"pointer":"default"}}>
+        {ocupado?"Unindo…":`Unir ${quantos} lead(s) em dobro`}</button>
+      <div style={{color:C.faint,fontSize:10.5,marginTop:6,lineHeight:1.45}}>Não tem desfazer na tela; a cópia de cada lead apagado fica guardada no servidor.</div>
+    </React.Fragment>}
+  </React.Fragment>);
+}
+
 function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
   const [pessoas,setPessoas]=useState([]);
   const [f,setF]=useState({de:"",para:"",finalizados:false});
@@ -16683,6 +16767,9 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
     {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"10px 12px",marginTop:10}}>{feito}</div>}
+
+    {/* ===== LEADS EM DOBRO (03/11/2026) ===== */}
+    <UnirDuplicados acoes={acoes} isMobile={isMobile} cartao={cartao} aoAplicar={aoAplicar}/>
 
     {/* ===== 0. MOVER PARA OUTRO FUNIL =====
 
