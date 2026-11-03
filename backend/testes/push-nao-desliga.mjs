@@ -98,4 +98,34 @@ cancelar(assinatura(2).endpoint);
 console.log(`   aparelhos da Marina: ${inscricoesDe(marina)}`);
 assert.equal(inscricoesDe(marina), 0);
 
+console.log("8. O teste diz POR QUE não chegou: expirada x recusada x nenhum aparelho");
+/* (02/11/2026) O "Enviar teste" respondia "nenhum aparelho ativo" em três
+   situações diferentes. Um serviço de push de mentira responde 410 para um
+   endereço e 403 (chave errada) para o outro. */
+{
+  const { avisar } = await import("../src/services/push.js");
+  /* O serviço de push de verdade fica fora do alcance do teste: a função de
+     envio da biblioteca é trocada por uma que responde 410 para um endereço e
+     403 (chave errada) para o outro — os dois códigos que os serviços usam. */
+  const webpush = (await import("web-push")).default;
+  const original = webpush.sendNotification;
+  webpush.sendNotification = async (sub) => {
+    const e = new Error("recusado"); e.statusCode = sub.endpoint.includes("expirou") ? 410 : 403; throw e; };
+  const base = "https://push.exemplo";
+  const chaves = () => ({ p256dh: "k", auth: "a" });
+  const ana = user("Ana", "corretor");
+  let r = await avisar(ana, { titulo: "t", corpo: "c" });
+  assert.deepEqual([r.enviados, r.aparelhos], [0, 0], "sem aparelho");
+  inscrever(ana, { endpoint: base + "/expirou", keys: chaves() });
+  inscrever(ana, { endpoint: base + "/recusou", keys: chaves() });
+  r = await avisar(ana, { titulo: "t", corpo: "c" });
+  console.log(`   ${JSON.stringify(r)}`);
+  assert.equal(r.enviados, 0);
+  assert.equal(r.aparelhos, 2);
+  assert.equal(r.removidos, 1, "a expirada não foi contada");
+  assert.deepEqual(r.falhas, [403], "a recusa não foi contada");
+  assert.equal(inscricoesDe(ana), 1, "a expirada continua no banco");
+  webpush.sendNotification = original;
+}
+
 console.log("\nTudo certo ✅");

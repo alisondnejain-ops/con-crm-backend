@@ -15683,13 +15683,31 @@ async function curarInscricaoPush(acoes){
     const situacao=await acoes.pushSituacao();
     const reg=await navigator.serviceWorker.ready;
     let sub=await reg.pushManager.getSubscription();
-    if(!sub&&situacao.configurado&&Notification.permission==="granted"){
+    /* (02/11/2026) A inscrição do APARELHO existir não quer dizer que o
+       SERVIDOR a tenha, e a tela dizia "Ativado neste aparelho" olhando só o
+       aparelho. Três jeitos de os dois discordarem: o servidor apagou o
+       endereço (o serviço de push respondeu 410 uma vez); outra pessoa entrou
+       no mesmo celular e a inscrição passou para ela; ou a chave do servidor
+       mudou e a inscrição antiga ficou presa à chave velha (o serviço recusa
+       todo aviso). Em todos, o "Enviar teste" dizia "nenhum aparelho ativo"
+       logo abaixo de "Ativado neste aparelho". Agora, com a permissão dada,
+       a inscrição é refeita se a chave mudou e é SEMPRE reapresentada ao
+       servidor (gravar a mesma de novo não muda nada). */
+    if(situacao.configurado&&Notification.permission==="granted"){
       try{
         const {chave}=await acoes.pushChave();
-        sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64ParaBytes(chave)});
+        const atual=base64ParaBytes(chave);
+        if(sub&&sub.options&&sub.options.applicationServerKey){
+          const velha=new Uint8Array(sub.options.applicationServerKey);
+          const igual=velha.length===atual.length&&velha.every((b,i)=>b===atual[i]);
+          if(!igual){ await sub.unsubscribe().catch(()=>{}); sub=null; console.log("[push] chave do servidor mudou — refazendo a inscrição"); }
+        }
+        if(!sub){
+          sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:atual});
+          console.log("[push] inscrição refeita sozinha neste aparelho");
+        }
         const r=await acoes.pushInscrever(sub.toJSON());
         situacao.aparelhos=r.aparelhos;
-        console.log("[push] inscrição refeita sozinha neste aparelho");
       }catch(e){ console.warn("[push] não consegui refazer a inscrição:",e.message); }
     }
     return {suportado,sub,situacao};
@@ -15749,10 +15767,19 @@ function Notificacoes({acoes,isMobile}){
   async function testar(){
     setOcupado("teste"); setRecado(null);
     try{
+      /* Antes do teste, este aparelho se reapresenta ao servidor (e refaz a
+         inscrição se a chave mudou): o teste é justamente o que a pessoa usa
+         quando desconfia, e ele deve consertar o que dá para consertar. */
+      const cura=await curarInscricaoPush(acoes);
+      if(cura.sub) setAtivoAqui(true);
       const r=await acoes.pushTeste();
-      setRecado(r.enviados
-        ? {ok:true,txt:"Enviei uma notificação de teste. Deve aparecer em instantes."}
-        : {ok:false,txt:"Nenhum aparelho ativo para receber. Ative aqui primeiro."});
+      if(r.enviados) setRecado({ok:true,txt:"Enviei uma notificação de teste. Deve aparecer em instantes."});
+      else if(r.falhas&&r.falhas.length&&!r.falhas[0]) setRecado({ok:false,txt:"O servidor não conseguiu falar com o serviço de notificações agora. Tente de novo em alguns minutos."});
+      else if(r.falhas&&r.falhas.length) setRecado({ok:false,txt:`O serviço de notificações do celular recusou o aviso (código ${r.falhas[0]||"desconhecido"}). Toque em "desativar aqui", depois em "Ativar neste aparelho", e teste de novo.`});
+      else if(r.removidos) setRecado({ok:false,txt:"O celular informou que a notificação deste aparelho tinha expirado, e ela foi removida. Toque em \"Ativar neste aparelho\" e teste de novo."});
+      else setRecado({ok:false,txt:Notification.permission==="granted"
+        ? "O servidor não tem nenhum aparelho seu registrado. Toque em \"desativar aqui\" e depois em \"Ativar neste aparelho\"."
+        : "As notificações estão bloqueadas neste navegador. Libere no cadeado ao lado do endereço do site e ative de novo."});
     }catch(e){ setRecado({ok:false,txt:e.message}); }
     finally{ setOcupado(""); }
   }

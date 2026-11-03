@@ -73,10 +73,11 @@ r.get("/push/situacao", authRequired, (req, res) =>
 // Manda uma notificação de teste para o próprio usuário. Sem isto, a única
 // forma de saber se funcionou seria esperar um lead chegar de verdade.
 r.post("/push/teste", authRequired, async (req, res) => {
-  const { enviados } = await avisar(req.user.id, {
+  if (!configurado()) return res.status(503).json({ error: "Notificações não configuradas no servidor." });
+  const r = await avisar(req.user.id, {
     titulo: "ConHub", corpo: "Notificação de teste — está funcionando! 🎉",
   });
-  res.json({ ok: true, enviados });
+  res.json({ ok: true, ...r });
 });
 
 export default r;
