@@ -1028,7 +1028,13 @@ r.delete("/:id/observacoes/:obsId", (req, res) => {
   res.json({ observacoes: observacoesDoLead(lead.id) });
 });
 
-r.post("/:id/robo", roles("adm", "sdr"), (req, res) => {
+/* Ligar/desligar a IA num lead: quem pode abrir a conversa (dono e
+   supervisão). Até 05/11/2026 era só da supervisão, e o corretor não tinha
+   como tirar a IA de um atendimento dele. */
+r.post("/:id/robo", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   const out = ligarNoLead(req.user.org_id, req.params.id, req.body?.ativo !== false);
   if (out.erro) return res.status(404).json({ error: out.erro });
   res.json(out);
@@ -1198,9 +1204,9 @@ r.get("/:id", (req, res) => {
     // Por onde passou: funil e dono. Outra pergunta que o histórico de etapas
     // não responde.
     transferencias: transferenciasDoLead(lead.id),
-    // O robô do fora-do-expediente, neste lead. Só a supervisão liga e desliga,
-    // então só ela recebe o cartão.
-    robo: supervisiona(req.user) ? estadoNoLead(lead.org_id, lead.id) : null,
+    /* A IA neste lead. Quem pode abrir a conversa liga e desliga (05/11/2026,
+       pedido do Ali: o corretor também precisa desligar a IA no lead dele). */
+    robo: estadoNoLead(lead.org_id, lead.id),
     // Junto com o lead: a faixa de observações precisa aparecer no mesmo
     // instante em que a conversa abre, e não uma requisição depois.
     observacoes: observacoesDoLead(lead.id),

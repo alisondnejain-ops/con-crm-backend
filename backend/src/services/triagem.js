@@ -258,8 +258,11 @@ export async function marcarLeadComoPessoal(orgId, user, leadId) {
   if (!lead) throw new ErroTriagem(404, "Lead não encontrado.");
   const canal = lead.canal_id ? canalPorId(lead.canal_id) : null;
   const linha = canal && canal.tipo === "corretor" ? canal.id : canal && canal.tipo === "disparo" ? canal.id : "";
-  const pode = supervisiona(user) || (canal && canal.tipo === "corretor" && canal.user_id === user.id);
-  if (!pode) throw new ErroTriagem(403, "No número da imobiliária, só a gestão e a atendente marcam uma conversa como pessoal.");
+  /* Quem pode: a supervisão, o dono da linha pessoal e — desde 05/11/2026,
+     pedido do Ali — o corretor que está com o lead, em qualquer linha. */
+  const pode = supervisiona(user) || lead.assigned_to === user.id
+    || (canal && canal.tipo === "corretor" && canal.user_id === user.id);
+  if (!pode) throw new ErroTriagem(403, "Só quem está com este lead (ou a gestão) pode marcá-lo como conversa pessoal.");
   if (lead.sale_value || lead.sale_date) throw new ErroTriagem(409, "Este lead tem venda registrada — não dá para tratá-lo como conversa pessoal.");
 
   const arquivos = db.prepare("SELECT media_url FROM messages WHERE lead_id = ? AND media_url IS NOT NULL").all(lead.id).map(m => m.media_url);

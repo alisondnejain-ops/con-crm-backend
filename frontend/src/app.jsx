@@ -9779,8 +9779,27 @@ function Midia({m,mine,isMobile,leadId}){
    e o lead continua nos relatórios. Se o cliente responder, reabre sozinho.
    "Marcar como lida" vira "não lida" quando já está lida: abrir a conversa já
    marca sozinho, então sem o caminho de volta o botão não faria nada. */
-function ControleConversa({lead,acoes,isMobile}){
+function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
   const [ocupado,setOcupado]=useState("");
+  const [robo,setRobo]=usarRoboDoLead(lead);
+  const [pessoal,setPessoal]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ setPessoal(false); setErro(""); },[lead.id]);
+  // A IA só ganha botão quando a conta usa o Autoatendimento: botão de algo
+  // que não está ligado em lugar nenhum não faz nada.
+  const comIA=!!(robo&&robo.org_ativo);
+  const comPessoal=podeTirarComoPessoal(lead,session,minhaLinha);
+  async function alternarIA(){
+    setOcupado("ia"); setErro("");
+    try{ const out=await acoes.roboNoLead(lead.id,!robo.ligado); setRobo(out.estado); }
+    catch(ex){ setErro(ex.message); } finally{ setOcupado(""); }
+  }
+  async function tirarDoCrm(){
+    setOcupado("pessoal"); setErro("");
+    try{ await acoes.marcarPessoal(lead.id); }
+    catch(ex){ setErro(ex.message); setOcupado(""); }
+  }
+  if(soDoLead&&!comIA&&!comPessoal) return null;
   const roda=(nome,fn)=>async()=>{ setOcupado(nome); try{ await fn(lead.id); } finally{ setOcupado(""); } };
   const pill=(chave,icone,texto,onClick,cor)=><button key={chave} onClick={onClick} disabled={!!ocupado}
     style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${cor?cor+"55":C.line}`,background:cor?cor+"12":C.card,
@@ -9789,14 +9808,31 @@ function ControleConversa({lead,acoes,isMobile}){
     <Icon n={ocupado===chave?"loader":icone} size={12} spin={ocupado===chave}/>{texto}</button>;
 
   return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:isMobile?"8px 10px":"7px 16px",
-    display:"flex",alignItems:"center",gap:7,flexShrink:0,overflowX:"auto"}}>
-    {lead.unread>0
+    flexShrink:0}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,overflowX:"auto"}}>
+    {!soDoLead&&(lead.unread>0
       ?pill("lida","check","Marcar como lida",roda("lida",acoes.marcarLida))
-      :pill("naolida","msg","Marcar como não lida",roda("naolida",acoes.marcarNaoLida))}
-    {lead.finalizado
+      :pill("naolida","msg","Marcar como não lida",roda("naolida",acoes.marcarNaoLida)))}
+    {!soDoLead&&(lead.finalizado
       ?pill("reabrir","spark","Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
-      :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep)}
-    {lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
+      :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep))}
+    {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?"Desligar a IA":"Ativar a IA",alternarIA,robo.ligado?null:C.green)}
+    {comPessoal&&pill("pessoal","user","Conversa pessoal",()=>setPessoal(true))}
+    {!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+    {pessoal&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:10,marginTop:8}}>
+      <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:3}}>Tirar esta conversa do CRM?</div>
+      <div style={{color:C.ink,fontSize:12,lineHeight:1.5,marginBottom:8}}>
+        O lead, as mensagens e os arquivos saem do CRM, e este número deixa de entrar. No WhatsApp nada muda.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={tirarDoCrm} disabled={!!ocupado}
+          style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+          {ocupado==="pessoal"?"Tirando…":"Tirar do CRM"}</button>
+        <button onClick={()=>setPessoal(false)} disabled={!!ocupado}
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      </div>
+    </div>}
   </div>;
 }
 
@@ -10350,7 +10386,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               {sel&&sel.canal&&sel.canal.onde==="corretor"?"Seu número":"Número da imobiliária"}</div>}
         </div>
       </div>
-      <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
+      <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile} session={session} minhaLinha={minhaLinha}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
         {sel.msgs.map((m,i)=>{
@@ -13740,7 +13776,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
           de corretor para apagar, e alguém precisa poder encerrar. */}
-      {(sel.assignedTo===session.id||!sel.assignedTo)&&<ControleConversa lead={sel} acoes={acoes} isMobile={isMobile}/>}
+      {/* No lead de outra pessoa, só os dois botões do lead (IA e conversa
+          pessoal): lida e finalizar continuam sendo de quem está com ele. */}
+      <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile} session={session} minhaLinha={minhaLinha}
+        soDoLead={!(sel.assignedTo===session.id||!sel.assignedTo)}/>
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
@@ -14165,14 +14204,33 @@ const MOTIVO_ROBO={
   robo_encerrado:"A IA já saiu desta conversa.",
   lead_nao_encontrado:"Lead não encontrado.",
 };
+/* O estado da IA de um lead, o mesmo para o cartão da ficha e o botão do topo
+   da conversa (05/11/2026): desligar num lugar tem que aparecer no outro. Vale
+   o que foi trocado aqui só enquanto o servidor não manda o lead de novo —
+   quando manda, `base` muda e a leitura do servidor volta a valer. */
+const ROBO_LOCAL=new Map(); const OUVINTES_ROBO=new Set();
+function usarRoboDoLead(lead){
+  const [,tique]=useState(0);
+  useEffect(()=>{ const f=()=>tique(x=>x+1); OUVINTES_ROBO.add(f); return()=>{OUVINTES_ROBO.delete(f);}; },[]);
+  const base=lead&&lead.robo||null;
+  const local=lead&&ROBO_LOCAL.get(lead.id);
+  const estado=local&&local.base===base?local.estado:base;
+  const trocar=(novo)=>{ if(!lead) return; ROBO_LOCAL.set(lead.id,{base,estado:novo}); OUVINTES_ROBO.forEach(f=>f()); };
+  return [estado,trocar];
+}
+// Quem pode tirar uma conversa do CRM como pessoal: a supervisão, quem está com
+// o lead e o dono da linha pessoal. Com venda registrada, ninguém.
+function podeTirarComoPessoal(lead,session,minhaLinha){
+  if(!lead||!session||lead.venda) return false;
+  return podeSupervisionar(session)||lead.assignedTo===session.id||!!(minhaLinha&&lead.canalId===minhaLinha.id);
+}
+
 function RoboNoLead({lead,acoes,isMobile}){
-  const r=lead.robo;
+  const [e,setEstado]=usarRoboDoLead(lead);
   const [salvando,setSalvando]=useState(false);
   const [erro,setErro]=useState("");
-  const [estado,setEstado]=useState(null);
-  useEffect(()=>{setEstado(null);setErro("");},[lead.id]);
-  if(!r) return null;
-  const e=estado||r;
+  useEffect(()=>{setErro("");},[lead.id]);
+  if(!e) return null;
 
   async function alternar(ativo){
     setErro(""); setSalvando(true);
@@ -14415,8 +14473,8 @@ function EtapaIA({lead,acoes,isMobile}){
 function ConversaPessoal({lead,acoes,session,minhaLinha,isMobile}){
   const [confirmando,setConfirmando]=useState(false), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState("");
   useEffect(()=>{ setConfirmando(false); setErro(""); },[lead.id]);
-  const pode=podeSupervisionar(session)||(minhaLinha&&lead.canalId===minhaLinha.id);
-  if(!pode||lead.venda) return null;
+  const pode=podeTirarComoPessoal(lead,session,minhaLinha);
+  if(!pode) return null;
   async function apagar(){
     setOcupado(true); setErro("");
     try{ await acoes.marcarPessoal(lead.id); }
