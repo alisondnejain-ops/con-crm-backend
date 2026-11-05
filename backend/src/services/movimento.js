@@ -35,6 +35,7 @@ import { etapaPorId, etapaPorNome, pipelinePadrao, primeiraEtapa, entradaDe, pip
 import { pegarProximoDoLead, marcarQueRecebeuNoLead, catracaDaEtapa } from "./catracas.js";
 import { avisar } from "./push.js";
 import { marcarTag, desmarcarTag, tagComNome } from "./tags.js";
+import { soltarLinhaDoAntigo } from "./linha-solta.js";
 
 /* Resolve o destino aceitando nome OU id.
 
@@ -274,6 +275,11 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao", 
       atual.assigned_to, novoUserId, quemMandou, motivo, quando);
   });
   aplicar();
+
+  /* O WhatsApp pessoal do antigo dono sai do lead (05/11/2026, services/
+     linha-solta.js): a conversa volta para o número da imobiliária, e o que
+     ele conversar com o cliente pelo celular daqui em diante não entra mais. */
+  soltarLinhaDoAntigo(atual, novoUserId);
 
   /* O FUNIL SEGUE QUEM ESTÁ COM O LEAD — quando essa pessoa tem um funil
      escolhido.

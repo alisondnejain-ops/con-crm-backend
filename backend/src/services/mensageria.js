@@ -30,6 +30,7 @@ import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { atender, pararPorGente } from "./robo.js";
 import { avisarDoLead } from "./push.js";
+import { linhaSoltaDoLead, podeAvisarLinhaSolta } from "./linha-solta.js";
 import { advanceStage } from "../routes/messages.routes.js";
 
 // Guarda os últimos webhooks recebidos, dos DOIS provedores, só em memória,
@@ -124,6 +125,27 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   let lead = leadPorTelefone(db, orgId, phone);
   const ehNovo = !lead;
+
+  /* O WHATSAPP PESSOAL DE QUEM JÁ NÃO ESTÁ COM O LEAD (05/11/2026,
+     services/linha-solta.js). Antes de baixar qualquer arquivo: nada desta
+     conversa é gravado — é a conversa do antigo dono, não do atendimento.
+     Se é o CLIENTE escrevendo, quem está com o lead é avisado, sem o texto,
+     para chamá-lo pelo número da imobiliária. */
+  const solta = linhaSoltaDoLead(lead, canal);
+  if (solta) {
+    if (!fromMe && podeAvisarLinhaSolta(solta)) {
+      const dono = solta.user_id ? db.prepare("SELECT name FROM users WHERE id = ?").get(solta.user_id)?.name : null;
+      const de = dono ? `no WhatsApp de ${dono.split(" ")[0]}` : "num WhatsApp que já não está com este lead";
+      avisarDoLead(orgId, lead.assigned_to, {
+        titulo: `${lead.name} escreveu ${de}`,
+        corpo: "A mensagem não entra no CRM. Chame o cliente pelo número da imobiliária.",
+        leadId: lead.id,
+      });
+    }
+    return lembrar({ em: Date.now(), evento, provider, resultado: fromMe
+      ? "ignorado: o antigo dono do lead escreveu pelo WhatsApp pessoal (a linha dele saiu deste lead no repasse)"
+      : "não gravado: o cliente escreveu no WhatsApp pessoal de quem já não está com o lead — quem está com ele foi avisado" });
+  }
 
   /* Saiu do celular para um número que ainda não é lead: não cria lead.
      O número da imobiliária também fala com colega, fornecedor e parente —
