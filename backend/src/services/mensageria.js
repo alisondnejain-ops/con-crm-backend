@@ -29,7 +29,7 @@ import { dispararGatilho } from "./automacoes.js";
 import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { atender, pararPorGente } from "./robo.js";
-import { avisar } from "./push.js";
+import { avisarDoLead } from "./push.js";
 import { advanceStage } from "../routes/messages.routes.js";
 
 // Guarda os últimos webhooks recebidos, dos DOIS provedores, só em memória,
@@ -294,12 +294,18 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   // Mensagem que saiu do celular é gente atendendo: o robô sai da conversa.
   if (fromMe && !doDisparo) pararPorGente(lead.id);
 
-  // Aviso no celular de quem está com o lead.
-  if (lead.assigned_to && !fromMe) {
+  // Aviso no celular de quem está com o lead — e, sem dono, de quem cuida
+  // da fila (as atendentes ativas; sem nenhuma, atendentes e gestores).
+  // Na fila com a IA já conversando, a resposta seguinte não chama ninguém:
+  // ela está atendendo, e cada mensagem da madrugada acordaria a gestão. A
+  // chegada do lead continua avisando, e o lead com dono avisa sempre.
+  const iaCuidando = !lead.assigned_to && !ehNovo && roboFalando;
+  if (!fromMe && !iaCuidando) {
     const resumo = corpo.length > 90 ? corpo.slice(0, 90) + "…" : corpo;
-    avisar(lead.assigned_to, ehNovo
-      ? { titulo: "Novo lead no WhatsApp", corpo: `${lead.name} acabou de chamar. Responda agora — os primeiros minutos decidem.`, leadId: lead.id }
-      : { titulo: `${lead.name} respondeu`, corpo: resumo, leadId: lead.id });
+    const naFila = lead.assigned_to ? "" : " (na fila, sem dono)";
+    avisarDoLead(orgId, lead.assigned_to, ehNovo
+      ? { titulo: "Novo lead no WhatsApp" + naFila, corpo: `${lead.name} acabou de chamar. Responda agora — os primeiros minutos decidem.`, leadId: lead.id }
+      : { titulo: `${lead.name} respondeu${naFila}`, corpo: resumo, leadId: lead.id });
   }
 
   lembrar({ em: Date.now(), evento, provider, resultado: fromMe ? "ok (enviada pelo celular)" : "ok", lead: lead.name, tipo });

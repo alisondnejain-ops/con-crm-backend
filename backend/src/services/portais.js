@@ -30,7 +30,7 @@ import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
 import { leadPorTelefone, normalizarPeloPadrao } from "./telefone.js";
 import { paisDaOrg } from "./pais-da-org.js";
-import { avisar } from "./push.js";
+import { avisarDoLead } from "./push.js";
 import { qualDasRespostas } from "./meta.js";
 import { mascararTelefone } from "../seguranca.js";
 
@@ -536,14 +536,14 @@ export function receberLead(orgId, dados) {
   if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: formulario ? "formulario" : "portal" });
   if (formulario && anuncio.form_id) dispararGatilho(orgId, "formulario", { leadId: lead.id, ref: String(anuncio.form_id) });
 
-  if (lead.assigned_to)
-    avisar(lead.assigned_to, {
-      titulo: novo ? `Lead novo do ${portal}` : `${lead.name} voltou pelo ${portal}`,
+  // Sem dono, avisa quem cuida da fila (services/push.js → quemCuidaDaFila).
+  avisarDoLead(orgId, lead.assigned_to, {
+      titulo: (novo ? `Lead novo do ${portal}` : `${lead.name} voltou pelo ${portal}`) + (lead.assigned_to ? "" : " (na fila)"),
       corpo: produto ? produto.titulo
         : formulario ? (anuncio.campaign_name ? `Anúncio: ${anuncio.campaign_name}` : "Preencheu o formulário do anúncio.")
         : (mensagem || "Abra o CRM para atender."),
       leadId: lead.id,
-    }).catch(() => {});
+    });
   console.log(`[portais] lead ${novo ? "NOVO" : "existente"} do ${portal} (${mascararTelefone(telefone || "")})${
     novo ? (!lead.assigned_to ? " — sem atendente, foi para a fila"
       : lead.catraca_id && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor"

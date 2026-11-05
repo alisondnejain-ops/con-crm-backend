@@ -22,6 +22,31 @@ const PRIVADA = process.env.VAPID_PRIVATE_KEY || "";
 const CONTATO = process.env.VAPID_SUBJECT || "mailto:contato@conhubcrm.com.br";
 
 export const configurado = () => !!(PUBLICA && PRIVADA);
+
+/* QUEM É AVISADO DE UM LEAD SEM DONO (05/11/2026, relato do Ali: "a galera da
+   VJ não tá recebendo notificação"). O aviso só ia para `assigned_to` — e o
+   lead que chega com nenhuma atendente ativa fica na fila, sem dono, e
+   ninguém era chamado. É justamente o lead que mais precisa de alguém.
+
+   Primeiro as atendentes ATIVAS (são elas que pegam a fila); sem nenhuma,
+   todas as atendentes e gestores ativos da conta. O master fica de fora, como
+   em toda lista de equipe. */
+export function quemCuidaDaFila(orgId) {
+  const base = `SELECT id FROM users WHERE org_id = ? AND status = 'ativo' AND COALESCE(master, 0) = 0`;
+  const ativas = db.prepare(`${base} AND role = 'sdr' AND available = 1`).all(orgId).map(u => u.id);
+  if (ativas.length) return ativas;
+  return db.prepare(`${base} AND role IN ('sdr', 'adm')`).all(orgId).map(u => u.id);
+}
+
+/* Avisa quem está com o lead; sem dono, quem cuida da fila. Nunca lança. */
+export function avisarDoLead(orgId, assignedTo, aviso) {
+  const ids = assignedTo ? [assignedTo] : quemCuidaDaFila(orgId);
+  // Só nos testes: o servidor roda em outro processo, e esta linha é como o
+  // teste sabe quem foi chamado sem depender de um serviço de push de verdade.
+  if (process.env.PUSH_REGISTRAR === "1") for (const id of ids) console.log(`[push-teste] ${id} | ${aviso.titulo}`);
+  for (const id of ids) avisar(id, aviso).catch(() => {});
+  return ids.length;
+}
 export const chavePublica = () => PUBLICA;
 
 if (configurado()) webpush.setVapidDetails(CONTATO, PUBLICA, PRIVADA);
