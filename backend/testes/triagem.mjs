@@ -171,13 +171,26 @@ caso("Quem JÁ é lead continua entrando com a triagem ligada");
 await mandar("token-da-casa", "5587999990003", "e o valor? [t10]", "Diego"); await esperar();
 assert.equal(comTexto("[t10]"), 1);
 
-caso("\"Isto é conversa pessoal\" num lead: corretor não marca no número da casa, e sem a confirmação escrita não vai");
+caso("\"Isto é conversa pessoal\" num lead da casa: o corretor que NÃO está com ele não marca, e sem a confirmação escrita não vai");
 const diego = leads("5587999990003")[0];
 db.prepare("UPDATE leads SET assigned_to='u_bruno' WHERE id=?").run(diego.id);
-r = await api("u_bruno", "POST", `/triagem/leads/${diego.id}/pessoal`, { confirmar: "PESSOAL" });
+r = await api("u_marina", "POST", `/triagem/leads/${diego.id}/pessoal`, { confirmar: "PESSOAL" });
 assert.equal(r.status, 403);
+r = await api("u_bruno", "POST", `/triagem/leads/${diego.id}/pessoal`, {});
+assert.equal(r.status, 400, "o dono do lead chega até a confirmação (05/11/2026)");
 r = await api("u_vanessa", "POST", `/triagem/leads/${diego.id}/pessoal`, {});
 assert.equal(r.status, 400);
+
+caso("Desligar a IA no lead: o corretor que está com ele desliga; o que não está, não (05/11/2026)");
+r = await api("u_bruno", "POST", `/leads/${diego.id}/robo`, { ativo: false });
+assert.equal(r.status, 200);
+assert.equal(r.body.estado.ligado, false);
+assert.equal(db.prepare("SELECT robo_parado FROM leads WHERE id=?").get(diego.id).robo_parado, 1);
+r = await api("u_marina", "POST", `/leads/${diego.id}/robo`, { ativo: true });
+assert.equal(r.status, 403);
+r = await api("u_bruno", "GET", `/leads/${diego.id}`);
+assert.equal(r.status, 200);
+assert.ok(r.body.robo && r.body.robo.ligado === false, "o corretor recebe o cartão da IA");
 
 caso("Confirmado: o lead e a conversa saem do CRM, e o número passa a ser ignorado");
 r = await api("u_vanessa", "POST", `/triagem/leads/${diego.id}/pessoal`, { confirmar: "PESSOAL" });
