@@ -120,6 +120,15 @@ export const criarBoleto = ({ clienteId, valor, vencimento, descricao, referenci
     dueDate: vencimento, description: descricao, externalReference: referencia,
   }});
 
+/* CRÉDITO DE IA (07/11/2026): uma cobrança só, sem assinatura, e o cliente
+   escolhe na fatura do Asaas como pagar (Pix, cartão ou boleto) — crédito é
+   compra de quem quer usar agora, e o Pix cai na hora. */
+export const criarCobrancaAvulsa = ({ clienteId, valor, vencimento, descricao, referencia }) =>
+  chamar("/payments", { metodo: "POST", corpo: {
+    customer: clienteId, billingType: "UNDEFINED", value: valor,
+    dueDate: vencimento, description: descricao, externalReference: referencia,
+  }});
+
 /* A linha digitável não vem na criação: é outra chamada. */
 export const linhaDoBoleto = (pagamentoId) => chamar(`/payments/${pagamentoId}/identificationField`);
 export const lerPagamento = (pagamentoId) => chamar(`/payments/${pagamentoId}`);

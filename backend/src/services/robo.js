@@ -44,8 +44,19 @@ import { fichaDoLead, outrasFichas, catracaDoProduto } from "./ia-produtos.js";
 import { definirCatracaDoLead } from "./catracas.js";
 import { gravarCampos } from "./campos-lead.js";
 import { moverLead } from "./movimento.js";
+import { temCredito } from "./ia-creditos.js";
+import { aprenderDoAtendimento, aprendeLigado } from "./aprendizado.js";
 
 export const TETO_PADRAO = 12;
+
+/* SEM LIMITE DE MENSAGENS (07/11/2026, pedido do Ali: "prefiro que não tenha
+   limite nesse momento"). O teto por conta (`orgs.robo_teto`, 2 a 30) deixou
+   de valer e saiu da tela; o que resta é uma TRAVA CONTRA LOOP: a IA para
+   depois de 200 mensagens no mesmo lead. Conversa de gente não chega lá — só
+   chega um robô conversando com outro robô do lado do cliente, que gastaria
+   o crédito da conta sozinho. `ROBO_TRAVA_LOOP` troca o número (os testes
+   usam um pequeno). A coluna antiga fica no banco, sem uso. */
+export const travaLoop = () => Math.max(2, Number(process.env.ROBO_TRAVA_LOOP) || 200);
 
 /* Como as mensagens do robô ficam assinadas na conversa.
 
@@ -98,8 +109,9 @@ export const lerDias = (txt) => {
    uma orientação num fim de semana, não gosta, desliga — e não perde o texto
    para voltar a ligar depois. */
 export function orientacoes(orgId, todas = false) {
-  return db.prepare(`SELECT id, texto, ativo, ordem, created_at FROM robo_ensino
-    WHERE org_id = ?${todas ? "" : " AND ativo = 1"} ORDER BY ordem, created_at`).all(orgId);
+  // As da equipe primeiro; as aprendidas pela IA (origem 'ia', 07/11/2026) depois.
+  return db.prepare(`SELECT id, texto, ativo, ordem, created_at, origem FROM robo_ensino
+    WHERE org_id = ?${todas ? "" : " AND ativo = 1"} ORDER BY (COALESCE(origem,'') = 'ia'), ordem, created_at`).all(orgId);
 }
 
 export function configDoRobo(orgId) {
@@ -139,7 +151,7 @@ export function configDoRobo(orgId) {
     autonomo,
     inicio: o.robo_inicio || "18:00",
     fim: o.robo_fim || "09:00",
-    teto: Number(o.robo_teto) > 0 ? Number(o.robo_teto) : TETO_PADRAO,
+    teto: travaLoop(),
     dias: lerDias(o.robo_dias),
     configurada: iaConfigurada(),
     /* ONDE E O QUE A IA FAZ (08/10/2026). `escopo` vazio = em todo lugar. */
@@ -147,6 +159,7 @@ export function configDoRobo(orgId) {
     campos: json(o.robo_campos, []).filter(k => typeof k === "string"),
     observacao: !!o.robo_observacao,
     etapa_final: o.robo_etapa_final || null,
+    aprender: aprendeLigado(orgId),
   };
 }
 
@@ -277,6 +290,8 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   if (!pessoal && !casaDele && lead.dono_papel === "corretor")
     return { pode: false, motivo: "ja_com_corretor" };
   if ((lead.robo_msgs || 0) >= cfg.teto) return { pode: false, motivo: "teto_de_mensagens" };
+  // O crédito de IA da conta acabou (services/ia-creditos.js): a conversa fica para a equipe.
+  if (!temCredito(orgId)) return { pode: false, motivo: "sem_credito" };
 
   // Sem retorno = a última mensagem da conversa é do cliente. Uma linha de SQL
   // que substitui três regras: não fala sozinho, não fala por cima de gente e
@@ -391,7 +406,9 @@ export async function atender(orgId, leadId, opcoes = {}) {
       // despedida em vez de um silêncio no meio de uma pergunta.
       restantes: cfg.teto - (lead.robo_msgs || 0),
       // O jeito de falar que a atendente ensinou.
-      orientacoes: orientacoes(orgId).map(o => o.texto),
+      orientacoes: orientacoes(orgId).filter(o => o.origem !== "ia").map(o => o.texto),
+      // O que ela aprendeu nos atendimentos anteriores (services/aprendizado.js).
+      aprendidas: orientacoes(orgId).filter(o => o.origem === "ia").map(o => o.texto),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
     });
     if (!r.ok) {
@@ -462,7 +479,11 @@ export async function atender(orgId, leadId, opcoes = {}) {
        robô o marcasse, um lead atendido só por robô apareceria no relatório
        como respondido, e a Conecta acharia que atendeu quem ninguém atendeu. */
 
-    if (r.resposta.encerrar) db.prepare("UPDATE leads SET robo_parado = 1 WHERE id = ?").run(leadId);
+    if (r.resposta.encerrar) {
+      db.prepare("UPDATE leads SET robo_parado = 1 WHERE id = ?").run(leadId);
+      // Encerrou: relê a conversa e aprende (sem esperar — o atendimento já terminou).
+      aprenderDoAtendimento(orgId, leadId);
+    }
 
     /* O QUE A IA FAZ NO LEAD (08/10/2026, pedido do Ali: "isso fecha o ciclo
        sem depender de uma pessoa"). Depois do envio, e nunca derruba o

@@ -72,7 +72,11 @@ const { atender, podeAtender, dentroDaJanela, pararPorGente, paraConferir, confe
 
 const org = "org_" + randomUUID().slice(0, 8);
 db.prepare("INSERT INTO orgs (id,name,adm_code,created_at) VALUES (?,?,?,?)").run(org, "Imobiliária Aurora", "A-1", Date.now());
-db.prepare("UPDATE orgs SET robo_ativo=1, robo_inicio='18:00', robo_fim='09:00', robo_teto=12, uazapi_host=?, uazapi_token=? WHERE id=?")
+process.env.ROBO_TRAVA_LOOP = "12";   // a trava contra loop (sem limite por conta desde 07/11/2026)
+/* O aprendizado depois de cada atendimento (07/11/2026) faz outra chamada à
+   IA ao encerrar, e este teste lê o ÚLTIMO pedido feito à IA. Ele tem teste
+   próprio (npm run teste:ia-creditos); aqui fica desligado. */
+db.prepare("UPDATE orgs SET robo_aprender=0, robo_ativo=1, robo_inicio='18:00', robo_fim='09:00', robo_teto=12, uazapi_host=?, uazapi_token=? WHERE id=?")
   .run(process.env.UAZAPI_HOST, process.env.UAZAPI_TOKEN, org);
 
 const user = (nome, role) => { const id = "u_" + randomUUID();
@@ -396,7 +400,8 @@ console.log("25. Chegando no teto, ele avisa a IA e a última vira despedida");
 /* Antes ele simplesmente emudecia no teto — o cliente ficava falando sozinho
    depois de "e qual a sua renda?". Uma conversa que acaba sem despedida é
    pior do que uma que nunca começou. */
-db.prepare("UPDATE orgs SET robo_ativo=1, robo_teto=4 WHERE id=?").run(org);
+process.env.ROBO_TRAVA_LOOP = "4";
+db.prepare("UPDATE orgs SET robo_ativo=1 WHERE id=?").run(org);
 const ateOFim = lead({ nome: "Conversou até o teto", dono: vanessa });
 respostaDaIA = { texto: "Legal! E pra quando você precisa?", coletado: {}, encerrar: false };
 
@@ -421,7 +426,7 @@ console.log("26. E a ficha explica o teto em vez de culpar o relógio");
 const eTeto = estadoNoLead(org, ateOFim, MANHA);
 console.log(`   às 10h da manhã, o motivo mostrado é: ${eTeto.motivo}`);
 assert.equal(eTeto.motivo, "teto_de_mensagens", "o motivo é o teto, não o relógio nem uma pessoa");
-db.prepare("UPDATE orgs SET robo_teto=12 WHERE id=?").run(org);
+process.env.ROBO_TRAVA_LOOP = "12";
 
 console.log("27. O que a equipe ensina entra no pedido à IA");
 db.prepare("UPDATE orgs SET robo_ativo=1, robo_teto=12 WHERE id=?").run(org);

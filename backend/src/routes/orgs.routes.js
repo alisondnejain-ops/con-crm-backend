@@ -30,6 +30,7 @@ import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.rout
 import { codigoLivre } from "../services/codigo.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
+import { situacaoDosCreditos, ajustarPeloMaster, configDosCreditos, salvarConfigDosCreditos } from "../services/ia-creditos.js";
 import { contaPedeCodigo, codigoConfere, abrirAcesso, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre, saldoLivreHoje } from "../services/acesso-master.js";
 import { avisar as avisarPush } from "../services/push.js";
 import { podeTentar, faltamSegundos, zerarTentativas } from "../seguranca.js";
@@ -548,6 +549,31 @@ r.post("/:id/acesso-livre", (req, res) => {
    master liga. Desligar não cancela boleto já gerado: ele continua pagável, e
    pago, dá baixa — cancelar no provedor um boleto que o cliente talvez já
    tenha pago no banco seria pior. */
+/* CRÉDITO DE IA (07/11/2026, services/ia-creditos.js). O preço (câmbio,
+   margem, pacotes) vale para todas as contas; ligar a cobrança por crédito e
+   lançar crédito são conta a conta. */
+r.get("/ia-creditos/config", (_req, res) => res.json(configDosCreditos()));
+r.post("/ia-creditos/config", (req, res) => {
+  try { res.json(salvarConfigDosCreditos(req.body || {})); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+r.get("/:id/ia-creditos", (req, res) => {
+  const s = situacaoDosCreditos(req.params.id);
+  if (!s) return res.status(404).json({ error: "Conta não encontrada." });
+  res.json(s);
+});
+r.post("/:id/ia-creditos", (req, res) => {
+  const org = db.prepare("SELECT id, name FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  try {
+    const b = req.body || {};
+    const s = ajustarPeloMaster(org.id, { ligado: typeof b.ligado === "boolean" ? b.ligado : undefined,
+      reais: b.reais, motivo: b.motivo, quem: req.user.id });
+    console.log(`[master] ${req.user.name} mexeu no crédito de IA de ${org.name}${typeof b.ligado === "boolean" ? ` (cobrança por crédito ${b.ligado ? "ligada" : "desligada"})` : ""}${b.reais ? ` · ${b.reais}` : ""}`);
+    res.json(s);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 r.post("/:id/boleto", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });

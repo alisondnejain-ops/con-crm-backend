@@ -2134,6 +2134,12 @@ function ConCRM(){
     anotar:(leadId,texto)=>api(`/leads/${leadId}/observacoes`,{method:"POST",body:{texto}}),
     apagarObs:(leadId,obsId)=>api(`/leads/${leadId}/observacoes/${obsId}`,{method:"DELETE"}),
     roboEnsino:()=>api("/config/robo/ensino"),
+    iaCreditos:()=>api("/assinatura/ia-creditos"),
+    iaCreditosComprar:(valor,cpfCnpj)=>api("/assinatura/ia-creditos/comprar",{method:"POST",body:{valor,cpfCnpj}}),
+    iaCreditosDaConta:(id)=>api(`/orgs/${id}/ia-creditos`),
+    iaCreditosAjustar:(id,dados)=>api(`/orgs/${id}/ia-creditos`,{method:"POST",body:dados}),
+    iaCreditosConfig:()=>api("/orgs/ia-creditos/config"),
+    iaCreditosSalvarConfig:(dados)=>api("/orgs/ia-creditos/config",{method:"POST",body:dados}),
     roboEnsinar:(texto)=>api("/config/robo/ensino",{method:"POST",body:{texto}}),
     roboEnsinoEditar:(id,dados)=>api("/config/robo/ensino/"+id,{method:"PATCH",body:dados}),
     roboEnsinoApagar:(id)=>api("/config/robo/ensino/"+id,{method:"DELETE"}),
@@ -4948,6 +4954,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 {ocupado==="livre"+v?"…":t}</button>;})}
           </div>
         </div>}
+        <CreditoNoHub conta={conta} acoes={acoes}/>
         {conta.mensalidade&&<MensalidadeNoHub conta={conta} acoes={acoes} aoMudar={aoMudar}/>}
         {/* POR QUAL PROVEDOR ESTA CONTA É COBRADA (04/10/2026). Trocar não
             cancela nada no provedor antigo: a cobrança de lá só sai quando o
@@ -5019,6 +5026,78 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
    frase embaixo diz em que dia trava — é a conta que o master quer conferir. */
 const paraCampoData=(ms)=>{ if(!ms) return ""; const d=new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+/* CRÉDITO DE IA NO HUB (07/11/2026, services/ia-creditos.js): o master liga a
+   cobrança por crédito nesta conta e lança crédito (cortesia ou correção).
+   Desligado, o ConHub paga a IA da conta, como sempre foi. */
+function CreditoNoHub({conta,acoes}){
+  const [d,setD]=useState(null);
+  const [valor,setValor]=useState("");
+  const [motivo,setMotivo]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ acoes.iaCreditosDaConta(conta.id).then(setD).catch(e=>setErro(e.message)); },[conta.id]);
+  async function mandar(dados){
+    setErro(""); setOcupado(true);
+    try{ setD(await acoes.iaCreditosAjustar(conta.id,dados)); setValor(""); setMotivo(""); }
+    catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Crédito de IA</span>
+      {d&&<span style={{fontFamily:MONO,fontWeight:700,fontSize:13,color:d.ligado?(d.saldo>0?C.greenDeep:C.hot):C.faint}}>{fmtReais2(d.saldo)}</span>}
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
+      {!d?"Carregando…":d.ligado
+        ?"Ligado: a IA desta conta gasta do saldo, e para quando ele acaba. O gestor compra mais em Configurações → Autoatendimento."
+        :"Desligado: a IA desta conta não gasta crédito (o ConHub paga, como sempre foi). Ligue com saldo, senão a IA para na hora."}
+      {d&&<span> Últimos 30 dias: {fmtReais2(d.gasto_30d)}.</span>}
+    </div>
+    {d&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+      <button disabled={ocupado} onClick={()=>{ if(!d.ligado&&d.saldo<=0&&!window.confirm("A conta está sem saldo: a IA vai parar até alguém comprar crédito ou você lançar um. Ligar mesmo assim?")) return; mandar({ligado:!d.ligado}); }}
+        style={{background:d.ligado?C.surface:C.greenDeep,color:d.ligado?C.sub:"#fff",border:`1px solid ${d.ligado?C.line:C.greenDeep}`,borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+        {d.ligado?"Desligar a cobrança por crédito":"Ligar a cobrança por crédito"}</button>
+      <input value={valor} onChange={e=>setValor(e.target.value)} placeholder="R$ (ex.: 50 ou -10)" inputMode="decimal"
+        style={{width:130,fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+      <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Motivo (opcional)"
+        style={{flex:"1 1 140px",fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+      <button disabled={ocupado||!valor.trim()} onClick={()=>mandar({reais:valor,motivo})}
+        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:valor.trim()?"pointer":"default"}}>Lançar</button>
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
+  </div>;
+}
+
+/* O PREÇO DO CRÉDITO DE IA (07/11/2026): vale para todas as contas. O débito
+   de cada resposta = custo em dólar × câmbio × margem. */
+function PrecoDoCreditoIA({acoes,isMobile}){
+  const [c,setC]=useState(null);
+  const [f,setF]=useState(null);
+  const [msg,setMsg]=useState("");
+  useEffect(()=>{ acoes.iaCreditosConfig().then(x=>{setC(x);setF({cambio:String(x.cambio),margem:String(x.margem),pacotes:x.pacotes.join(", "),aviso_baixo:String(x.aviso_baixo)});}).catch(()=>{}); },[]);
+  if(!c||!f) return null;
+  const campo=(rot,k,larg)=><label style={{display:"flex",flexDirection:"column",gap:3,fontSize:10.5,color:C.faint,fontWeight:600}}>{rot}
+    <input value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} style={{width:larg,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/></label>;
+  async function salvar(){
+    setMsg("");
+    try{ const x=await acoes.iaCreditosSalvarConfig(f); setC(x); setMsg("Salvo."); }catch(e){ setMsg(e.message); }
+  }
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>Crédito de IA</div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:12,lineHeight:1.55}}>
+      Nas contas em que você ligar a cobrança por crédito (em Ferramentas de cada conta), cada resposta do agente desconta do saldo:
+      o custo da IA em dólar × câmbio × margem. Com estes números, uma resposta típica custa por volta de <b>{fmtReais2(0.003*Number(c.cambio)*Number(c.margem))}</b>.
+    </div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+      {campo("CÂMBIO (R$ POR US$)","cambio",100)}
+      {campo("MARGEM (×)","margem",80)}
+      {campo("PACOTES (R$, SEPARADOS POR VÍRGULA)","pacotes",isMobile?"100%":220)}
+      {campo("AVISO DE SALDO BAIXO (R$)","aviso_baixo",110)}
+      <button onClick={salvar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar</button>
+    </div>
+    {msg&&<div style={{color:msg==="Salvo."?C.greenDeep:C.hot,fontSize:12,marginTop:7}}>{msg}</div>}
+  </div>;
+}
+
 function MensalidadeNoHub({conta,acoes,aoMudar}){
   const m=conta.mensalidade;
   const [data,setData]=useState(paraCampoData(m.vence_em));
@@ -5353,6 +5432,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         </div>
         <SuporteNoHub isMobile={isMobile}/>
       </div>
+      <PrecoDoCreditoIA acoes={acoes} isMobile={isMobile}/>
       <PlanosCetrolab acoes={acoes} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
       <DominiosDosSites acoes={acoes} isMobile={isMobile}/>
@@ -14218,7 +14298,8 @@ const MOTIVO_ROBO={
   gente_assumiu:"Alguém já respondeu neste lead, então o robô saiu da conversa.",
   ja_conferido:"Este atendimento já foi conferido pela equipe — o robô saiu da conversa.",
   ele_se_despediu:"A IA já se despediu neste atendimento.",
-  teto_de_mensagens:"Ele já mandou o máximo de mensagens combinado para um lead, e se despediu.",
+  sem_credito:"O crédito de IA desta conta acabou. A gestão compra mais em Configurações → Autoatendimento.",
+  teto_de_mensagens:"Ele parou depois de muitas mensagens neste lead — a trava contra conversa sem fim (robô falando com robô). Religue se a conversa for de verdade.",
   nao_esta_esperando:"A última mensagem da conversa não é do cliente — não há o que responder agora.",
   robo_encerrado:"A IA já saiu desta conversa.",
   lead_nao_encontrado:"Lead não encontrado.",
@@ -14282,7 +14363,7 @@ function RoboNoLead({lead,acoes,isMobile}){
     {e.ultima_falha&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
       A última tentativa da IA neste lead falhou ({fmtClock(e.ultima_falha.em)}): {e.ultima_falha.erro} A conversa ficou sem resposta.</div>}
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
-      Já respondeu {e.mensagens} vez(es) neste lead, de no máximo {e.teto}.</div>}
+      Já respondeu {e.mensagens} vez(es) neste lead.</div>}
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8}}>{erro}</div>}
 
@@ -20454,6 +20535,89 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
 // que é como quem trabalha lê a semana.
 /* As proibições que eram fixas no texto da IA até 08/10/2026 — agora cada conta
    escolhe se quer cada uma (cartão de orientações do Autoatendimento). */
+/* CRÉDITO DE IA (07/11/2026, services/ia-creditos.js). Só aparece na conta em
+   que o ConHub ligou a cobrança por crédito: ali o agente (Autoatendimento,
+   "Chamar a IA" nos fluxos e o aprendizado) gasta do saldo, e quando ele
+   acaba a IA para e a gestão é avisada. Quem compra é o titular. */
+const fmtReais2=(v)=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
+const ROTULO_GASTO={atendimento:"Respostas aos clientes",fluxo_ia:"\"Chamar a IA\" nos fluxos",aprendizado:"Aprendizado depois dos atendimentos"};
+function CreditoDeIA({acoes,isMobile,cartao}){
+  const [d,setD]=useState(null);
+  const [erro,setErro]=useState("");
+  const [ok,setOk]=useState("");
+  const [comprando,setComprando]=useState(null);
+  const [confirmar,setConfirmar]=useState(null);
+  const [doc,setDoc]=useState("");
+  const ler=()=>acoes.iaCreditos().then(setD).catch(()=>setD(null));
+  useEffect(()=>{ler();},[]);
+  if(!d||!d.ligado) return null;
+  async function comprar(valor){
+    setErro(""); setOk(""); setComprando(valor);
+    try{
+      const r=await acoes.iaCreditosComprar(valor,doc||undefined);
+      setD(x=>({...x,...r})); setConfirmar(null);
+      if(r.url){ const w=window.open(r.url,"_blank","noopener"); if(!w) window.location.href=r.url;
+        setOk("A fatura abriu em outra aba. O crédito entra assim que o pagamento for confirmado."); }
+      else setOk(r.pago?`Pronto: ${fmtReais2(valor)} de crédito entraram.`:"Cobrança feita. O crédito entra quando o pagamento for confirmado.");
+    }catch(e){ setErro(e.message); } finally{ setComprando(null); }
+  }
+  const cor=d.acabou?C.hot:d.baixo?"#8a6d1f":C.greenDeep;
+  return cartao(<React.Fragment>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+      <Icon n="spark" size={15} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Crédito de IA</span>
+      <span style={{color:cor,fontSize:18,fontWeight:700,fontFamily:MONO}}>{fmtReais2(d.saldo)}</span>
+    </div>
+    {d.acabou&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
+      O crédito acabou: a IA parou de responder os clientes. Compre um pacote para ela voltar.</div>}
+    {d.baixo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,borderRadius:9,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
+      O crédito está acabando. Quando chegar a zero, a IA para de responder.</div>}
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:10}}>
+      Cada resposta da IA aos clientes gasta um pouco do saldo. Nos últimos 30 dias: <b>{fmtReais2(d.gasto_30d)}</b> em {fmtNum(d.respostas_30d)} uso(s) da IA
+      {d.por_recurso&&d.por_recurso.length>0&&<span> ({d.por_recurso.map(r=>`${ROTULO_GASTO[r.recurso]||r.recurso}: ${fmtReais2(r.reais)}`).join(" · ")})</span>}.
+    </div>
+    {d.titular?<React.Fragment>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>COMPRAR CRÉDITO</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(auto-fill,minmax(110px,1fr))",gap:8}}>
+        {d.pacotes.map(v=><button key={v} onClick={()=>setConfirmar(v)} disabled={!!comprando}
+          style={{border:`1px solid ${confirmar===v?C.greenMid:C.line}`,background:confirmar===v?C.greenSoft:C.card,color:C.ink,
+            borderRadius:10,padding:isMobile?"13px 8px":"10px 8px",fontSize:13.5,fontWeight:700,cursor:"pointer",fontFamily:MONO}}>
+          {fmtPreco(v)}</button>)}
+      </div>
+      {confirmar&&<div style={{background:C.surface,borderRadius:10,padding:"10px 11px",marginTop:9}}>
+        <div style={{color:C.ink,fontSize:12,lineHeight:1.5,marginBottom:8}}>
+          {d.provedor==="pagarme"
+            ?(d.cartao?<span>Cobrar <b>{fmtReais2(confirmar)}</b> no cartão {d.cartao.bandeira||""} final {d.cartao.final||"…"}?</span>
+              :<span>Para comprar num clique, cadastre o cartão em <b>Minha conta → Cartão de cobrança</b>.</span>)
+            :<span>Gerar a fatura de <b>{fmtReais2(confirmar)}</b>? Você paga por Pix, cartão ou boleto na página do Asaas.</span>}
+        </div>
+        {d.provedor!=="pagarme"&&d.pede_cpf&&<input value={doc} onChange={e=>setDoc(e.target.value)} placeholder="CPF ou CNPJ de quem paga"
+          inputMode="numeric" style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
+            background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",marginBottom:8}}/>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {(d.provedor!=="pagarme"||d.cartao)&&<button onClick={()=>comprar(confirmar)} disabled={!!comprando}
+            style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {comprando?"Cobrando…":d.provedor==="pagarme"?"Confirmar e cobrar":"Gerar a fatura"}</button>}
+          <button onClick={()=>setConfirmar(null)} disabled={!!comprando}
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        </div>
+      </div>}
+    </React.Fragment>
+    :<div style={{color:C.faint,fontSize:11.5}}>Quem compra crédito é o titular da conta.</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:9}}>{erro}</div>}
+    {ok&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:9}}>{ok}</div>}
+    {d.movimentos&&d.movimentos.length>0&&<div style={{marginTop:11}}>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:4}}>ÚLTIMAS ENTRADAS</div>
+      {d.movimentos.map(m=><div key={m.id} style={{display:"flex",gap:8,fontSize:11.5,color:C.sub,padding:"4px 0",borderTop:`1px solid ${C.line}`}}>
+        <span style={{flex:1}}>{m.descricao} · {fmtData(m.criado_em)}</span>
+        <span style={{fontWeight:700,color:m.status==="pago"||m.status==="feito"?C.greenDeep:m.status==="pendente"?"#8a6d1f":C.faint}}>
+          {{pago:"pago",feito:"lançado",pendente:"aguardando",cancelado:"cancelado",estornado:"estornado"}[m.status]||m.status}</span>
+        {m.status==="pendente"&&m.url&&<a href={m.url} target="_blank" rel="noopener" style={{color:C.greenDeep,fontWeight:700}}>pagar</a>}
+      </div>)}
+    </div>}
+  </React.Fragment>,d.acabou?{borderColor:C.hot}:null);
+}
+
 const SUGESTOES_ENSINO=[
   "Nunca diga valor de parcela, entrada mínima, juros ou preço de imóvel — diga que o corretor passa os valores.",
   "Nunca diga que a pessoa foi aprovada ou que consegue financiar — quem confirma é o corretor com a simulação.",
@@ -20610,11 +20774,6 @@ function RoboConfig({acoes,session,isMobile}){
               placeholder="09:00" style={campo}/>
           </div>
         </React.Fragment>}
-        <div>
-          <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>MÁX. DE MENSAGENS</div>
-          <input value={cfg.teto} disabled={!ehAdm} onChange={e=>setCfg({...cfg,teto:e.target.value})}
-            style={{...campo,width:70}}/>
-        </div>
       </div>
       {/* Dias em que a EQUIPE trabalha — não os dias do robô. É a inversão
           que evita a pergunta "marco sábado se quero que ele atenda no
@@ -20661,6 +20820,7 @@ function RoboConfig({acoes,session,isMobile}){
         Só o gestor liga e desliga — é um robô falando com cliente no WhatsApp da imobiliária.</div>}
     </React.Fragment>,cfg.ativo?{borderColor:C.greenMid}:null)}
 
+    {ehAdm&&<CreditoDeIA acoes={acoes} isMobile={isMobile} cartao={cartao}/>}
     {ehAdm&&<AcoesDaIA cfg={cfg} aoSalvar={setCfg} acoes={acoes} isMobile={isMobile} cartao={cartao}/>}
     <FichasDeProduto acoes={acoes} isMobile={isMobile} cartao={cartao}/>
 
@@ -20675,7 +20835,7 @@ function RoboConfig({acoes,session,isMobile}){
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>
           {cfg.autonomo?"Ensinar a IA a falar como você":"Ensinar a IA a falar como a sua equipe"}</span>
         {ensino&&<span title="Cada orientação ligada entra em toda resposta da IA — quanto mais texto, mais cara cada resposta."
-          style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo).length}/{limEnsino} · {fmtNum(ensino.filter(e=>e.ativo).reduce((n,e)=>n+e.texto.length,0))} letras por resposta</span>}
+          style={{color:C.faint,fontSize:10.5,fontFamily:MONO}}>{ensino.filter(e=>e.ativo&&e.origem!=="ia").length}/{limEnsino} · {fmtNum(ensino.filter(e=>e.ativo).reduce((n,e)=>n+e.texto.length,0))} letras por resposta</span>}
       </div>
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
         Estas linhas são as regras do atendimento: o jeito de tratar o cliente, o que perguntar, o que
@@ -20720,7 +20880,7 @@ function RoboConfig({acoes,session,isMobile}){
       </div>
 
       {!ensino&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
-      {ensino&&ensino.map(e=><div key={e.id} style={{background:C.card,borderRadius:10,padding:"9px 11px",
+      {ensino&&ensino.filter(e=>e.origem!=="ia").map(e=><div key={e.id} style={{background:C.card,borderRadius:10,padding:"9px 11px",
         marginBottom:6,display:"flex",gap:9,alignItems:"flex-start",opacity:e.ativo?1:.55}}>
         <div style={{flex:1,color:C.ink,fontSize:12,lineHeight:1.5}}>
           {e.texto}
@@ -20728,6 +20888,40 @@ function RoboConfig({acoes,session,isMobile}){
         </div>
         {/* Desligar guarda o texto. A atendente testa uma orientação num fim de
             semana, não gosta, desliga — e não perde o que escreveu. */}
+        <button onClick={()=>editarEnsino(e.id,{ativo:!e.ativo})} title={e.ativo?"Desligar":"Ligar"}
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,
+            padding:isMobile?"8px 11px":"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+          {e.ativo?"desligar":"ligar"}</button>
+        <button onClick={()=>apagarEnsino(e.id)} title="Apagar"
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,
+            padding:isMobile?"8px 11px":"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>×</button>
+      </div>)}
+    </React.Fragment>)}
+
+    {/* ===== O QUE A IA APRENDEU SOZINHA (07/11/2026, services/aprendizado.js) =====
+        A cada atendimento que encerra, ela grava o que aprendeu. Tudo à vista:
+        a equipe apaga ou desliga uma a uma, e o gestor desliga o aprendizado. */}
+    {ensino&&cartao(<React.Fragment>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+        <Icon n="sparkles" size={15} color={C.greenMid}/>
+        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Aprendido pela IA</span>
+        {ehAdm&&<button onClick={()=>salvar({aprender:!cfg.aprender})} disabled={salvando}
+          style={{border:`1px solid ${C.line}`,background:cfg.aprender?C.greenSoft:C.surface,color:cfg.aprender?C.greenDeep:C.sub,
+            borderRadius:999,padding:isMobile?"8px 12px":"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          {cfg.aprender?"Aprendendo · desligar":"Desligado · ligar"}</button>}
+      </div>
+      <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
+        Cada vez que a IA encerra um atendimento, ela relê a conversa e anota o que aprendeu para atender melhor os próximos.
+        Ela usa estas anotações abaixo das regras da equipe — <b>as da equipe valem mais</b>. Apague o que não servir.
+      </div>
+      {!ensino.some(e=>e.origem==="ia")&&<div style={{color:C.faint,fontSize:12}}>
+        {cfg.aprender?"Nada ainda — aparece aqui depois dos próximos atendimentos.":"O aprendizado está desligado."}</div>}
+      {ensino.filter(e=>e.origem==="ia").map(e=><div key={e.id} style={{background:C.card,border:`1px dashed ${C.line}`,borderRadius:10,padding:"9px 11px",
+        marginBottom:6,display:"flex",gap:9,alignItems:"flex-start",opacity:e.ativo?1:.55}}>
+        <div style={{flex:1,color:C.ink,fontSize:12,lineHeight:1.5}}>
+          {e.texto}
+          <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>aprendida em {fmtData(e.created_at)}{!e.ativo?" · desligada":""}</div>
+        </div>
         <button onClick={()=>editarEnsino(e.id,{ativo:!e.ativo})} title={e.ativo?"Desligar":"Ligar"}
           style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,
             padding:isMobile?"8px 11px":"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>

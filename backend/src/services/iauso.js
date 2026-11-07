@@ -15,6 +15,7 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { modeloIA } from "./ia.js";
+import { debitarAgente } from "./ia-creditos.js";
 
 /* Preço por MILHÃO de tokens, em dólar. Fonte: tabela pública da Anthropic.
    O modelo padrão é o Haiku, que é o barato; se alguém trocar o modelo por
@@ -45,11 +46,14 @@ export function registrar({ orgId, userId, leadId, recurso, uso, modelo: modeloU
   try {
     if (!orgId || !uso) return;
     const modelo = modeloUsado || modeloIA();
+    const usd = custo ?? custoDe(uso, modelo);
+    // O agente gasta o crédito da conta, quando ela usa crédito (services/ia-creditos.js).
+    const debito = debitarAgente(orgId, recurso, usd);
     db.prepare(`INSERT INTO ia_uso
-      (id,org_id,user_id,lead_id,recurso,modelo,tokens_entrada,tokens_saida,custo_usd,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      (id,org_id,user_id,lead_id,recurso,modelo,tokens_entrada,tokens_saida,custo_usd,created_at,debito_micro)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
       .run("iu_" + randomUUID(), orgId, userId || null, leadId || null, recurso, modelo,
-        uso.entrada || 0, uso.saida || 0, custo ?? custoDe(uso, modelo), Date.now());
+        uso.entrada || 0, uso.saida || 0, usd, Date.now(), debito || null);
   } catch (e) {
     console.warn("[ia] não consegui registrar o consumo:", e.message);
   }
