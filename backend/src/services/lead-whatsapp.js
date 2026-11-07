@@ -38,9 +38,15 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, texto = "", quando = 
      catraca — "site" quando a primeira mensagem é a que o botão do site
      escreve, "whatsapp" no resto. Linha pessoal e disparo ficam de fora. */
   const doSite = !ehPessoal && !veioDoDisparo && veioDoSite(texto);
-  const vez = ehPessoal || veioDoDisparo ? { catraca: null, dono: null }
+  /* UM NÚMERO ESPECÍFICO NUMA CATRACA (07/11/2026): se o gestor escolheu esta
+     linha (pessoal ou de contingência) numa catraca, quem decide é a catraca,
+     e não o dono da linha. Sem catraca nela, tudo como antes. */
+  const daLinha = canal.tipo !== "imobiliaria" ? catracaNoNascimento(orgId, { canal: "linha", ref: canal.id }) : { catraca: null, dono: null };
+  const pelaLinha = !!daLinha.catraca;
+  const vez = pelaLinha ? daLinha
+    : ehPessoal || veioDoDisparo ? { catraca: null, dono: null }
     : catracaNoNascimento(orgId, { canal: doSite ? "site" : "whatsapp", ref: "" });
-  const dono = ehPessoal ? canal.user_id : (vez.dono || proximoAtendente(orgId));
+  const dono = ehPessoal && !pelaLinha ? canal.user_id : (vez.dono || proximoAtendente(orgId));
   /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa. Os
      leads que caem na atendente pertencem ao funil de pré-atendimento;
      os do corretor, ao comercial. A catraca "direto ao corretor" com etapa
@@ -58,6 +64,6 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, texto = "", quando = 
     vez.dono ? `direto ao corretor pela catraca ${vez.catraca.nome}` :
     dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
   // Quem nasce respondendo a um disparo já está num fluxo: não entra no "lead novo".
-  if (!veioDoDisparo) dispararGatilho(orgId, "lead_novo", { leadId: id, origem: "whatsapp" });
+  if (!veioDoDisparo) dispararGatilho(orgId, "lead_novo", { leadId: id, origem: "whatsapp", linha: canal.tipo === "imobiliaria" ? "casa" : canal.id });
   return db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 }

@@ -74,6 +74,10 @@ function extrairEnvelopes(value) {
       // isso `fromMe` é sempre falso aqui, e não uma leitura do payload.
       fromMe: false,
       citada: m.context?.id || "",
+      // Anúncio de clique-para-WhatsApp (07/11/2026): a Cloud API manda `referral`.
+      anuncio: m.referral && (m.referral.source_id || m.referral.source_type === "ad")
+        ? { ad_id: m.referral.source_id || null, titulo: m.referral.headline || null, url: m.referral.source_url || null, ctwa: m.referral.ctwa_clid || null }
+        : null,
       messageid: m.id || "",
       nome: contato?.profile?.name || "",
     };

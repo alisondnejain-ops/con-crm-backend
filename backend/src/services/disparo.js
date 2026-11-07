@@ -52,7 +52,7 @@ import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
 import { moverLead, trocarResponsavel } from "./movimento.js";
 import { catracaAtiva, pegarProximoDoLead, marcarQueRecebeuNoLead, catracasDoFormulario } from "./catracas.js";
 import { marcarTag, desmarcarTag } from "./tags.js";
-import { avisar } from "./push.js";
+import { avisar, avisarDoLead } from "./push.js";
 
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
@@ -173,7 +173,14 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
       user_id: idLimpo(d.user_id), catraca_id: idLimpo(d.catraca_id) };
     if (n.tipo === "tarefa") {
       const h = Math.round(Number(d.em_horas));
-      dados = { titulo: texto(String(d.titulo || "").trim(), 160), em_horas: h >= 0 && h <= 720 ? h : 24 };
+      /* ATIVIDADE COM AVISO (07/11/2026, pedido do Fernando: "criar atividades
+         e notificações depois da resposta do lead"). `avisar` manda uma
+         notificação no celular de quem está com o lead (sem dono, a quem cuida
+         da fila); `avisar_gestao` também aos gestores. Sem título, o bloco
+         pode só avisar — a tarefa é criada quando há texto. */
+      dados = { titulo: texto(String(d.titulo || "").trim(), 160), em_horas: h >= 0 && h <= 720 ? h : 24,
+        criar_tarefa: d.criar_tarefa !== false, avisar: !!d.avisar, avisar_gestao: !!d.avisar_gestao,
+        aviso: texto(String(d.aviso || "").trim(), 200) };
     }
     if (n.tipo === "mensagem") {
       const modelo = modeloLimpo(d.modelo);
@@ -253,7 +260,7 @@ export function validarGrafo(bruto, { paraDisparar = false } = {}) {
         if ((n.tipo === "add_tag" || n.tipo === "remover_tag") && !n.dados.tag_id) erros.push(`Um bloco "${nomeDe(n)}" está sem a etiqueta escolhida.`);
         if (n.tipo === "mover_etapa" && !n.dados.etapa_id) erros.push("Um bloco \"Mover de etapa\" está sem a etapa escolhida.");
         if (n.tipo === "atribuir" && n.dados.modo === "pessoa" && !n.dados.user_id) erros.push("Um bloco \"Atribuir responsável\" está sem a pessoa escolhida.");
-        if (n.tipo === "tarefa" && !n.dados.titulo) erros.push("Um bloco \"Criar tarefa\" está sem o texto da tarefa.");
+        if (n.tipo === "tarefa" && !n.dados.titulo && !(n.dados.avisar || n.dados.avisar_gestao)) erros.push("Um bloco \"Criar atividade\" está sem o texto da tarefa e sem aviso.");
       }
       if (n.tipo === "condicao" && n.dados.regra === "campo" && !n.dados.campo) erros.push("Um bloco \"Condição\" está sem o campo escolhido.");
       if (n.tipo === "condicao" && !["campo", "respondeu"].includes(n.dados.regra) && !n.dados.valor) erros.push("Um bloco \"Condição\" está sem a regra completa.");
@@ -1092,6 +1099,12 @@ function executarAcao(e, no) {
       novo = u.id; como = `entregue a ${u.name}`;
       marcarQueRecebeuNoLead(org, lead, u.id);
     } else {
+      /* LEAD QUE JÁ TEM CORRETOR NÃO VOLTA À ROLETA (07/11/2026, pedido do
+         Fernando): quem volta por outra campanha ou outro canal continua com o
+         corretor que já o atende. */
+      const dono = lead.assigned_to ? db.prepare("SELECT role, status FROM users WHERE id = ?").get(lead.assigned_to) : null;
+      if (dono && dono.role === "corretor" && dono.status === "ativo")
+        return { ok: "o lead já tem corretor — fica com ele, sem passar pela catraca" };
       /* Pela catraca: a escolhida no bloco (que passa a ser a do lead) ou,
          sem escolha, a catraca do próprio lead — a principal, se ele não
          tiver nenhuma. Ninguém disponível na de produto cai na principal. */
@@ -1112,10 +1125,22 @@ function executarAcao(e, no) {
     return { ok: como };
   }
   if (no.tipo === "tarefa") {
+    const feito = [];
     // Nasce no nome de quem está com o lead (a mesma regra das tarefas da ficha).
-    db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,created_at) VALUES (?,?,?,?,NULL,?,?,?)`)
-      .run("t_" + randomUUID(), org, lead.id, lead.assigned_to || null, d.titulo, agoraFn() + d.em_horas * 3600000, agoraFn());
-    return { ok: `tarefa criada: ${d.titulo}` };
+    if (d.titulo && d.criar_tarefa !== false) {
+      db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,created_at) VALUES (?,?,?,?,NULL,?,?,?)`)
+        .run("t_" + randomUUID(), org, lead.id, lead.assigned_to || null, d.titulo, agoraFn() + d.em_horas * 3600000, agoraFn());
+      feito.push(`tarefa criada: ${d.titulo}`);
+    }
+    const msgAviso = { titulo: d.aviso || d.titulo || `${lead.name || "Um lead"} respondeu`,
+      corpo: `${lead.name || "Lead"} · pela automação`, leadId: lead.id };
+    if (d.avisar) { avisarDoLead(org, lead.assigned_to || null, msgAviso); feito.push("aviso a quem está com o lead"); }
+    if (d.avisar_gestao) {
+      for (const g of db.prepare("SELECT id FROM users WHERE org_id = ? AND role = 'adm' AND status = 'ativo'").all(org))
+        if (g.id !== lead.assigned_to || !d.avisar) avisar(g.id, msgAviso).catch(() => {});
+      feito.push("aviso à gestão");
+    }
+    return { ok: feito.join(" · ") || "nada a fazer" };
   }
   return { erro: "ação desconhecida" };
 }

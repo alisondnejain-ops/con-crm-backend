@@ -299,6 +299,16 @@ export function validarAutomacao(orgId, pipelineId, cfg) {
   if (config.adicionar_tags && config.remover_tags && config.adicionar_tags.some(t => config.remover_tags.includes(t)))
     return { erro: "A mesma etiqueta não pode ser colocada e tirada na mesma etapa." };
   if (cfg.tag_do_corretor) config.tag_do_corretor = true;
+  /* AO PEGAR O LEAD, MOVER (07/11/2026, pedido do Fernando: "quando o corretor
+     coletar o lead na etapa de roleta, mover para LEAD"). Na primeira mensagem
+     ou ligação de quem está com o lead nesta etapa, ele vai para a etapa
+     escolhida — do MESMO funil. */
+  if (cfg.ao_pegar_mover_para) {
+    const alvo = db.prepare("SELECT id FROM pipeline_stages WHERE id = ? AND org_id = ? AND pipeline_id = ? AND COALESCE(is_active,1) = 1")
+      .get(String(cfg.ao_pegar_mover_para), orgId, pipelineId);
+    if (!alvo) return { erro: "Escolha uma etapa ativa deste funil para onde o lead vai quando for pego." };
+    config.ao_pegar_mover_para = alvo.id;
+  }
   return { config };
 }
 

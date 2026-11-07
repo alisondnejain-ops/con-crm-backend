@@ -89,6 +89,13 @@ export function gatilhoLimpo(g) {
     const brutas = Array.isArray(g.palavras) ? g.palavras : String(g.palavras || "").split(/[,;\n]/);
     out.palavras = out.modo === "codigo" ? [] : [...new Set(brutas.map(p => String(p || "").replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean))].slice(0, 20);
   }
+  /* QUAL WHATSAPP LIGA O FLUXO (07/11/2026, pedido do Fernando): no lead
+     novo e na mensagem do cliente, "" = qualquer número; "casa" = o número da
+     imobiliária; ou o id de uma linha da conta. */
+  if (tipo === "lead_novo" || tipo === "palavra") {
+    const l = String(g?.linha || "");
+    out.linha = l === "casa" ? "casa" : /^[\w-]{1,80}$/.test(l) ? l : "";
+  }
   out.parar_ao_responder = !!g?.parar_ao_responder;
   return out;
 }
@@ -146,12 +153,13 @@ export function sobreposicoes(lista) {
     if (a.tipo === b.tipo && a.tipo === "campo" && a.campo && a.campo === b.campo
       && (!a.valor || !b.valor || semAcento(a.valor) === semAcento(b.valor)))
       motivo = a.valor && b.valor ? "os dois são o mesmo campo com o mesmo valor" : "os dois são o mesmo campo, e um deles vale para qualquer valor";
-    if (a.tipo === b.tipo && a.tipo === "palavra") {
+    const linhasDiferentes = a.linha && b.linha && a.linha !== b.linha;
+    if (a.tipo === b.tipo && a.tipo === "palavra" && !linhasDiferentes) {
       if (a.modo === "codigo" && b.modo === "codigo") motivo = "os dois pegam o código do imóvel";
       const comum = a.palavras.find(x => b.palavras.some(y => semAcento(y) === semAcento(x)));
       if (comum) motivo = `a palavra “${comum}” está nos dois`;
     }
-    if (a.tipo === b.tipo && a.tipo === "lead_novo") {
+    if (a.tipo === b.tipo && a.tipo === "lead_novo" && !linhasDiferentes) {
       const oa = a.origens.length ? a.origens : ORIGENS_DE_LEAD, ob = b.origens.length ? b.origens : ORIGENS_DE_LEAD;
       if (oa.some(o => ob.includes(o))) motivo = "os dois pegam lead novo da mesma origem";
     }
@@ -228,7 +236,7 @@ const formas = (t) => {
 
 /* O evento aconteceu. Coloca o lead em toda automação ativa que casa com
    ele. Devolve quantas execuções nasceram (para o teste e para o log). */
-export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem = null, valor, agora = Date.now() } = {}) {
+export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem = null, valor, linha = null, agora = Date.now() } = {}) {
   try {
     if (!orgId || !leadId || !TIPOS_DE_GATILHO.includes(tipo) || tipo === "manual") return 0;
     const fluxos = db.prepare(`SELECT id, nome, grafo, automacao_id FROM marketing_fluxos
@@ -257,6 +265,9 @@ export function dispararGatilho(orgId, tipo, { leadId, ref: chave = null, origem
       try { gatilhos = gatilhosDoGrafo(JSON.parse(camp.grafo)); } catch { continue; }
       const casa = (g) => {
         if (g.tipo !== tipo) return false;
+        // O número que recebeu: nulo = não veio do WhatsApp (formulário, portal…).
+        // Com um número escolhido, só vale o que chegou por ele.
+        if (g.linha && (tipo === "palavra" || tipo === "lead_novo") && g.linha !== linha) return false;
         if (tipo === "lead_novo") return !g.origens.length || g.origens.includes(origem);
         if (tipo === "formulario") return g.formularios.some(x => x.id === String(chave || ""));
         if (tipo === "campo") return g.campo === String(chave || "") && campoCasa(valor, g.valor);

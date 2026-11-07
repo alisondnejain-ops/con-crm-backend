@@ -17,7 +17,12 @@
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { podeVerLead, supervisiona } from "../auth.js";
-import { enviarTextoDoCrm } from "../routes/messages.routes.js";
+import { enviarTextoDoCrm, enviarArquivoDoCrm } from "../routes/messages.routes.js";
+
+// O arquivo da agendada (07/11/2026): foto, áudio, vídeo ou documento.
+const colsAg = db.prepare("PRAGMA table_info(mensagens_agendadas)").all().map(c => c.name);
+for (const [c, t] of [["midia_url", "TEXT"], ["midia_mime", "TEXT"], ["midia_nome", "TEXT"]])
+  if (!colsAg.includes(c)) db.exec(`ALTER TABLE mensagens_agendadas ADD COLUMN ${c} ${t}`);
 
 export const TETO_TEXTO = 4000;
 export const TETO_POR_LEAD = 20;
@@ -29,6 +34,7 @@ const lerLinha = (id) => db.prepare("SELECT * FROM mensagens_agendadas WHERE id 
 function formatar(a) {
   const u = db.prepare("SELECT name FROM users WHERE id = ?").get(a.user_id);
   return { id: a.id, texto: a.texto, quando: a.quando, status: a.status, motivo: a.motivo || null,
+    midia_url: a.midia_url || null, midia_mime: a.midia_mime || null, midia_nome: a.midia_nome || null,
     enviada_em: a.enviada_em || null, user_id: a.user_id, de_quem: u ? u.name : null, created_at: a.created_at };
 }
 
@@ -40,9 +46,9 @@ export function listarDoLead(leadId, agora = Date.now()) {
     ORDER BY quando ASC`).all(leadId, agora - 7 * 86400000).map(formatar);
 }
 
-export function agendar({ user, lead, texto, quando, agora = Date.now() }) {
+export function agendar({ user, lead, texto, quando, arquivo = null, so_conferir = false, agora = Date.now() }) {
   const t = String(texto || "").trim();
-  if (!t) return { erro: "Escreva a mensagem.", status: 400 };
+  if (!t && !arquivo) return { erro: "Escreva a mensagem ou escolha um arquivo.", status: 400 };
   if (t.length > TETO_TEXTO) return { erro: `A mensagem passa de ${TETO_TEXTO} letras.`, status: 400 };
   const q = Number(quando);
   if (!Number.isFinite(q)) return { erro: "Escolha a data e a hora.", status: 400 };
@@ -50,9 +56,11 @@ export function agendar({ user, lead, texto, quando, agora = Date.now() }) {
   if (q > agora + MAX_ANTECEDENCIA) return { erro: "Dá para agendar até 90 dias à frente.", status: 400 };
   const pendentes = db.prepare("SELECT COUNT(*) n FROM mensagens_agendadas WHERE lead_id = ? AND status = 'pendente'").get(lead.id).n;
   if (pendentes >= TETO_POR_LEAD) return { erro: `Este lead já tem ${TETO_POR_LEAD} mensagens agendadas.`, status: 409 };
+  if (so_conferir) return { ok: true };
   const id = "ag_" + randomUUID();
-  db.prepare(`INSERT INTO mensagens_agendadas (id,org_id,lead_id,user_id,texto,quando,status,created_at)
-    VALUES (?,?,?,?,?,?,'pendente',?)`).run(id, lead.org_id, lead.id, user.id, t, q, agora);
+  db.prepare(`INSERT INTO mensagens_agendadas (id,org_id,lead_id,user_id,texto,quando,status,created_at,midia_url,midia_mime,midia_nome)
+    VALUES (?,?,?,?,?,?,'pendente',?,?,?,?)`).run(id, lead.org_id, lead.id, user.id, t, q, agora,
+      arquivo ? arquivo.url : null, arquivo ? arquivo.mime : null, arquivo ? arquivo.nome || null : null);
   return { ok: true, agendada: formatar(lerLinha(id)) };
 }
 
@@ -110,7 +118,8 @@ async function ciclo(agora, limite) {
       encerrar(id, "cancelada", "O lead não está mais com quem agendou."); continue;
     }
     try {
-      await enviarTextoDoCrm({ user, lead, text: a.texto });
+      if (a.midia_url) await enviarArquivoDoCrm({ user, lead, url: a.midia_url, mime: a.midia_mime, nome: a.midia_nome, legenda: a.texto });
+      else await enviarTextoDoCrm({ user, lead, text: a.texto });
       encerrar(id, "enviada", null, { enviada_em: Date.now() });
       enviadas++;
     } catch (e) {

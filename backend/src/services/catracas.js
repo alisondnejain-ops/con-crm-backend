@@ -130,7 +130,13 @@ export function pegarDaCatraca(orgId, catracaId) {
    Um canal pode estar em várias catracas (decisão do Ali): quando mais de uma
    disputa o mesmo lead, elas se revezam (`ultima_entrega_em`), e cada uma
    entrega pela vez dela. */
-export const CANAIS = ["whatsapp", "portal", "site", "formulario"];
+/* "linha" (07/11/2026, pedido do Fernando: "definir qual número de WhatsApp
+   recebe o contato para direcionar à catraca"): um número ESPECÍFICO da conta
+   — a linha pessoal de um corretor usada em anúncio, ou o número de
+   contingência —, com o id da linha em `ref`. "whatsapp" continua sendo o
+   número da imobiliária. Uma linha escolhida numa catraca passa a mandar o lead
+   que nasce nela para a catraca, e não para o dono da linha. */
+export const CANAIS = ["whatsapp", "portal", "site", "formulario", "linha"];
 
 /* De que canal o lead veio. Nulo = nenhum que uma catraca escolha: a linha
    pessoal de um corretor (o cliente escolheu a pessoa), o disparo (já é
@@ -139,7 +145,8 @@ export function canalDoLead(lead) {
   if (!lead) return null;
   if (lead.source === "meta") return lead.form_id ? { canal: "formulario", ref: String(lead.form_id) } : null;
   if (lead.source === "portal") return { canal: "portal", ref: "" };
-  if (lead.canal_id || lead.platform === "disparo" || lead.origem === "Disparo") return null;
+  if (lead.canal_id) return { canal: "linha", ref: String(lead.canal_id) };
+  if (lead.platform === "disparo" || lead.origem === "Disparo") return null;
   if (lead.origem === "Site") return { canal: "site", ref: "" };
   if (lead.source === "whatsapp" || (!lead.source && !lead.import_id && /whatsapp/i.test(lead.origem || "")))
     return { canal: "whatsapp", ref: "" };
@@ -301,7 +308,8 @@ function canaisDe(catracaId) {
   const linhas = db.prepare("SELECT canal, ref FROM catraca_canais WHERE catraca_id = ?").all(catracaId);
   const tem = (k) => linhas.some(l => l.canal === k);
   const formularios = linhas.filter(l => l.canal === "formulario").map(l => l.ref);
-  return { canais: { whatsapp: tem("whatsapp"), portal: tem("portal"), site: tem("site"), formularios }, formularios: formularios.length };
+  const numeros = linhas.filter(l => l.canal === "linha").map(l => l.ref);
+  return { canais: { whatsapp: tem("whatsapp"), portal: tem("portal"), site: tem("site"), formularios, linhas: numeros }, formularios: formularios.length };
 }
 function canaisValidos(c) {
   if (c == null) return null;
@@ -309,13 +317,21 @@ function canaisValidos(c) {
   const forms = Array.isArray(c.formularios) ? c.formularios : [];
   const ids = [...new Set(forms.map(f => String(f || "").trim()).filter(Boolean))];
   if (ids.some(id => !/^[\w-]{1,64}$/.test(id))) throw new ErroCatraca(400, "Formulário inválido.");
-  return { whatsapp: !!c.whatsapp, portal: !!c.portal, site: !!c.site, formularios: ids };
+  const linhas = [...new Set((Array.isArray(c.linhas) ? c.linhas : []).map(x => String(x || "").trim()).filter(Boolean))];
+  if (linhas.some(id => !/^[\w-]{1,80}$/.test(id))) throw new ErroCatraca(400, "Número de WhatsApp inválido.");
+  return { whatsapp: !!c.whatsapp, portal: !!c.portal, site: !!c.site, formularios: ids, linhas };
 }
 function gravarCanais(orgId, catracaId, c) {
   db.prepare("DELETE FROM catraca_canais WHERE catraca_id = ?").run(catracaId);
   const ins = db.prepare("INSERT OR IGNORE INTO catraca_canais (catraca_id, org_id, canal, ref) VALUES (?,?,?,?)");
   for (const k of ["whatsapp", "portal", "site"]) if (c[k]) ins.run(catracaId, orgId, k, "");
   for (const f of c.formularios) ins.run(catracaId, orgId, "formulario", f);
+  for (const id of c.linhas || []) {
+    // Só linha desta conta, que não seja a da casa (essa é o "whatsapp").
+    const ok = db.prepare("SELECT 1 FROM canais WHERE id = ? AND org_id = ? AND tipo <> 'imobiliaria'").get(id, orgId);
+    if (!ok) throw new ErroCatraca(400, "Um dos números escolhidos não é desta conta.");
+    ins.run(catracaId, orgId, "linha", id);
+  }
 }
 /* Tempo para pegar o lead: vazio desliga; de 1 minuto a 24 horas. */
 function tempoValido(v) {

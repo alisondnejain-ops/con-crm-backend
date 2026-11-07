@@ -1419,6 +1419,20 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   Testes: `npm run teste:ia-creditos` (17 casos, com o servidor, a IA, o Pagar.me e o Asaas de mentira); o `teste:robo` passou a usar `ROBO_TRAVA_LOOP` e desliga o aprendizado (ele lê o último pedido à IA). Conferido no navegador (gestor e master, computador e celular).
 
+- **A segunda lista do Fernando, 12 itens** (07/11/2026; publicados antes dos números do Fernando, a pedido do Ali). Teste: `npm run teste:lista-fernando-2`.
+  1. **Mensagem agendada com arquivo**: uma foto, áudio, vídeo ou documento por agendada (mesmos tipos e limites do anexo), guardado na hora de agendar (`mensagens_agendadas.midia_*`), sai por `enviarArquivoDoCrm` (o mesmo envio do anexo) com o texto de legenda — no áudio, o texto sai logo depois.
+  2. **Anúncio de clique-para-WhatsApp no lead**: a primeira mensagem traz `externalAdReply`/`referral` (Uazapi e API oficial); o lead sem campanha grava `ad_id`/`ad_name`, origem "Anúncio (WhatsApp)", e `completarAnuncioDoLead` busca campanha e conjunto na Meta com o token de anúncios (`ads_read`). **Não conferido contra a Meta e a Uazapi de verdade** (o nome do campo vem da forma do WhatsApp).
+  3. **Mudar de funil escolhendo a etapa** (`MoverParaOutroFunil`).
+  4. **Resposta de botão e de lista entra na conversa**: o texto vinha em `selectedDisplayText`/`title`, fora do `text`, e a mensagem entrava vazia ("[ButtonsResponseMessage]"); o fluxo que espera o botão também passa a reconhecer a escolha.
+  5. **Bloco "Criar atividade"** nos fluxos (era "Criar tarefa"): tarefa e/ou **aviso no celular** de quem está com o lead (sem dono, quem cuida da fila) e, opcional, da gestão.
+  6. **Fila do primeiro atendimento**: o "tempo para pegar o lead" da catraca só vale com o lead numa etapa de entrada do comercial (`etapasDoComercial` em `services/marcos.js`; a parte da 1ª resposta do relatório vai junto dos números do Fernando, publicados à parte).
+  7. **Lead que já tem corretor não volta à roleta**: o bloco "Atribuir" pela catraca deixa o lead com o corretor ativo que já o atende (formulário e WhatsApp já não redistribuíam).
+  8. **Desvincular o WhatsApp no repasse**: já existia desde 05/11 (linha solta, em todo repasse — manual, prazo vencido, tempo da catraca, lote).
+  9. **"Ao pegar, mover para"**: opção na etapa (`automation_config.ao_pegar_mover_para`, mesma etapa do funil) — a primeira mensagem ou ligação do RESPONSÁVEL com o lead nessa etapa o move (`aoFalarComOCliente` em `movimento.js`, chamado em todo envio de gente e no registro de ligação). Use na etapa da roleta → "Lead". A mensagem já encerra o tempo da catraca.
+  10. **Google Agenda**: pronto desde 31/10; liga com `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` e a verificação do app no Google.
+  11. **Número de WhatsApp na catraca e no gatilho**: a catraca pode receber quem escreve num número específico da conta (canal `linha`, `ref` = id da linha) — o lead que nasce nele vai pela catraca e não para o dono da linha, e a triagem de números novos não segura essa linha. O gatilho "Lead novo" e "Mensagem do cliente" ganhou "Por qual WhatsApp" (qualquer · da imobiliária · uma linha); dois gatilhos em números diferentes não se sobrepõem.
+  12. **Ficha do cliente** na ficha do lead (`FichaDoCliente`): dados pessoais, interesse, motivação, imóvel desejado, capacidade de investimento e prazo, em seções que abrem e fecham. Renda, entrada, situação, CPF e prazo são os MESMOS campos da simulação; os novos vão no `qual_json` por lista fechada (`FICHA_CAMPOS`).
+
 ## Pedidos em aberto: a lista do Fernando (28/10/2026)
 
 O Fernando (que opera o ConHub como "Cetro") mandou ~50 pedidos num documento. A análise feita com o Ali, item a item contra o código, está aqui para não se perder. **Status atualizado conforme cada um for feito.**

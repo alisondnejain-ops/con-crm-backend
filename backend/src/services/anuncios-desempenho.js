@@ -227,3 +227,29 @@ function montar(orgId, linha, periodo, dados) {
     campanhas: linhas,
   };
 }
+
+/* ===== DE QUAL ANÚNCIO VEIO O LEAD DO WHATSAPP (07/11/2026, pedido do
+   Fernando: "trazer para o cadastro do lead a campanha, o conjunto e o
+   criativo") =====
+   O lead do formulário já vem com tudo. O que faltava era o anúncio de
+   CLIQUE PARA O WHATSAPP: a primeira mensagem traz junto o anúncio
+   (`externalAdReply`/`referral`, com o id do anúncio), e isso se perdia.
+   Agora o lead grava o id e o título do anúncio na hora, e o nome da campanha
+   e do conjunto são buscados na Meta com o token da conta de anúncios
+   (`ads_read`). Sem token, fica o que veio na mensagem. Nunca lança. */
+export async function completarAnuncioDoLead(orgId, leadId, adId) {
+  try {
+    if (!adId) return false;
+    const l = linhaDa(orgId);
+    const token = l && abrir(l.user_token);
+    if (!token) return false;
+    const r = await graph(String(adId), { token, params: { fields: "id,name,adset{id,name},campaign{id,name}" } });
+    db.prepare(`UPDATE leads SET ad_name = COALESCE(?, ad_name), adset_id = COALESCE(?, adset_id), adset_name = COALESCE(?, adset_name),
+      campaign_id = COALESCE(?, campaign_id), campaign_name = COALESCE(?, campaign_name) WHERE id = ? AND org_id = ?`)
+      .run(r.name || null, r.adset?.id || null, r.adset?.name || null, r.campaign?.id || null, r.campaign?.name || null, leadId, orgId);
+    return true;
+  } catch (e) {
+    console.warn("[anuncio-whatsapp] não consegui ler o anúncio na Meta:", e.message);
+    return false;
+  }
+}

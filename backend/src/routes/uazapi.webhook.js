@@ -85,6 +85,29 @@ function trechoCitado(m) {
 
 // Extrai número e texto de um payload da Uazapi. O formato varia entre versões
 // e tipos de mensagem, então tentamos os caminhos conhecidos em ordem.
+/* O ANÚNCIO DE CLIQUE-PARA-WHATSAPP (07/11/2026). A mensagem que nasce de um
+   anúncio traz `externalAdReply` (no contextInfo) ou `referral`, com o id do
+   anúncio e o título. O lugar muda com a versão, então a busca é por nome de
+   campo, até 6 níveis. Devolve só id, título e tipo — nunca o resto. */
+function anuncioDaMensagem(m) {
+  let achado = null;
+  const visitar = (o, nivel) => {
+    if (achado || !o || typeof o !== "object" || nivel > 6) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (achado) return;
+      if ((k === "externalAdReply" || k === "referral" || k === "adReply") && v && typeof v === "object") {
+        const id = v.sourceId || v.sourceID || v.source_id || v.adId || v.ad_id || null;
+        const tipo = String(v.sourceType || v.source_type || "").toLowerCase();
+        if (id || tipo === "ad") { achado = { ad_id: id ? String(id) : null, titulo: v.title || v.headline || null,
+          url: v.sourceUrl || v.source_url || null, ctwa: v.ctwaClid || v.ctwa_clid || null }; return; }
+      }
+      if (v && typeof v === "object") visitar(v, nivel + 1);
+    }
+  };
+  visitar(m, 0);
+  return achado;
+}
+
 function extrair(p) {
   const m = p.message || p.data?.message || p.data || p;
   const bruto = m.chatid || m.sender || m.from || p.phone || p.sender || "";
@@ -120,8 +143,24 @@ function extrair(p) {
      CRM mandou, já está gravada e é descartada lá na frente. */
   const fromMe = !!(m.fromMe ?? m.key?.fromMe);
 
-  const texto = m.text || m.body || m.caption || m.content?.text || m.conversation || "";
   const tipo = m.messageType || m.type || "";
+  /* RESPOSTA DE BOTÃO E DE LISTA (07/11/2026, pedido do Fernando: "a resposta
+     que o cliente escolhe no botão não aparece na conversa"). O clique no
+     botão chega como ButtonsResponseMessage / TemplateButtonReplyMessage /
+     ListResponseMessage, e o texto do botão NÃO vem em `text` — vem em
+     `selectedDisplayText` (ou `title`, na lista), em lugares que mudam conforme
+     a versão. Sem ele a mensagem entrava vazia, sumia da conversa, e o fluxo
+     de Marketing que espera o botão não reconhecia a escolha. */
+  const botao = (o) => !o || typeof o !== "object" ? ""
+    : (o.selectedDisplayText || o.SelectedDisplayText || o.Response?.SelectedDisplayText
+       || o.response?.selectedDisplayText || o.selectedButtonText || o.displayText
+       || o.buttonsResponseMessage?.selectedDisplayText || o.templateButtonReplyMessage?.selectedDisplayText
+       || o.listResponseMessage?.title || o.listResponseMessage?.singleSelectReply?.selectedRowId
+       || o.interactiveResponseMessage?.body?.text || "");
+  const ehBotao = /button|list|template.*reply|interactive/i.test(String(tipo));
+  const textoDoBotao = botao(m) || botao(m.content) || botao(m.message)
+    || (ehBotao ? (m.content && typeof m.content === "object" ? (m.content.title || m.content.text || "") : "") || m.buttonOrListid || "" : "");
+  const texto = m.text || m.body || m.caption || m.content?.text || m.conversation || textoDoBotao || "";
   // Em mensagem de mídia, `content` é um objeto com URL, mimetype e o nome do
   // arquivo. Em mensagem de texto ele é uma string — daí a checagem de tipo.
   const content = m.content && typeof m.content === "object" ? m.content : null;
@@ -153,6 +192,7 @@ function extrair(p) {
     ? (pm?.key?.id || content?.key?.id || m.key?.revokedId || null)
     : null;
   return {
+    anuncio: anuncioDaMensagem(m),
     protocolo, apagou, editado, editou, textoEditado,
     // O número do remetente sempre traz o país — não é lido como brasileiro.
     phone: normalizePhone(chat.split("@")[0], { comCodigo: true }),
@@ -196,7 +236,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
       // conversas — é o bastante para descobrir se um evento traz mensagem dentro.
       return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado (não é mensagem nova)", campos: Object.keys(p), campos_internos: Object.keys(p.message || p.data || {}).slice(0, 25) });
 
-    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou, editado, editou, textoEditado, grupo } = extrair(p);
+    const { phone, texto, tipo, content, messageid, nome, fromMe, citada, citadaTrecho, pistasReply, ignorar, enviadaPelaApi, protocolo, apagou, editado, editou, textoEditado, grupo, anuncio } = extrair(p);
     if (ignorar) return lembrar({ em: Date.now(), evento, provider: "uazapi", resultado: "ignorado: " + ignorar });
     if (grupo) {
       const linha = canalDoWhatsapp({
@@ -298,7 +338,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
     // dentro de services/mensageria.js (que não sabe o formato da Uazapi).
     const temMidia = !!(content && (content.URL || content.url));
 
-    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho, messageid, nome, enviadaPelaApi });
+    await processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho, messageid, nome, enviadaPelaApi, anuncio });
   } catch (e) {
     lembrar({ em: Date.now(), resultado: "erro: " + e.message });
     console.error("[uazapi] webhook erro:", e.message);

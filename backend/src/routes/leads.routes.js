@@ -16,7 +16,7 @@ import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
 import { advanceStage } from "./messages.routes.js";
 import { cutucar, limparCutucada } from "../services/alerta.js";
-import { moverLead, transferenciasDoLead } from "../services/movimento.js";
+import { moverLead, transferenciasDoLead, aoFalarComOCliente } from "../services/movimento.js";
 import { linhaDoTempo } from "../services/linha-do-tempo.js";
 import { tagsDoLead, tagsDeLeads, marcarTag, desmarcarTag } from "../services/tags.js";
 import { dispararGatilho } from "../services/automacoes.js";
@@ -1474,6 +1474,7 @@ r.post("/:id/ligacao", (req, res) => {
   const id = "lig_" + randomUUID();
   db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
     .run(id, lead.id, req.user.id, Date.now());
+  aoFalarComOCliente(lead.id, req.user.id);   // a etapa "ao pegar, mover para" (07/11/2026)
   // Devolve o id: é com ele que a tela grava, logo depois, o que aconteceu.
   res.json({ ok: true, ligacao_id: id });
 });
@@ -1636,14 +1637,21 @@ r.delete("/:id/simulacao/:simId", (req, res) => {
 /* Qualificação do lead editável na mão. Os campos existiam na ficha mas eram
    só leitura: vinham do formulário da Meta e, se o cliente contasse a renda na
    conversa, não havia onde anotar. */
+const FICHA_CAMPOS = ["estado_civil", "profissao", "filhos", "cidade_atual", "objetivo", "finalidade", "tipo_imovel",
+  "motivacao", "quartos", "vagas", "bairros", "area", "caracteristicas", "parcela", "fgts", "financiamento", "valor_max"];
 r.patch("/:id/qualificacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
-  const permitidos = CAMPOS_SIMULACAO;
+  /* A FICHA DO CLIENTE (07/11/2026, pedido do Fernando): além dos cinco campos
+     da simulação, o que organiza o atendimento — dados pessoais, interesse,
+     motivação, o imóvel desejado, a capacidade de investimento e o prazo.
+     Moram no mesmo `qual_json` (renda, entrada e prazo são os MESMOS campos da
+     simulação, não uma cópia). Lista fechada: chave fora dela é ignorada. */
+  const permitidos = [...CAMPOS_SIMULACAO, ...FICHA_CAMPOS];
   const qual = JSON.parse(lead.qual_json || "{}");
   for (const campo of permitidos) {
     if (!(campo in (req.body || {}))) continue;
-    const v = String(req.body[campo] ?? "").trim().slice(0, 80);
+    const v = String(req.body[campo] ?? "").trim().slice(0, CAMPOS_SIMULACAO.includes(campo) ? 80 : 400);
     if (v) qual[campo] = v; else delete qual[campo];
   }
   db.prepare("UPDATE leads SET qual_json = ? WHERE id = ?").run(JSON.stringify(qual), lead.id);
