@@ -727,10 +727,26 @@ const esperandoContato=(l)=>l.unread>0||!!l.aguardaContato;
    4. o resto.
    Dentro dos grupos 2 a 4 vale a escolha "Mais recentes / Mais antigos
    primeiro" da própria pessoa (`usarOrdemDaCaixa`): o mais antigo primeiro é
-   o jeito de zerar as conversas sem descer a lista. */
+   o jeito de zerar as conversas sem descer a lista.
+
+   NA PASTILHA "TUDO" É A ORDEM DO WHATSAPP (07/11/2026, pedido do Ali: "fique
+   em cima só as conversas que estão tendo interação"). Sem grupo fixo: a
+   conversa com a interação mais recente — mensagem do cliente, de alguém da
+   equipe, da IA respondendo, ou ligação — fica no topo. Disparo, automação e
+   follow-up de fluxo NÃO sobem a conversa (o servidor já os deixa fora de
+   `ultimaInteracao`), então quem não respondeu a cadência vai descendo. Lead
+   sem interação nenhuma (formulário que ninguém contatou) entra pela hora de
+   chegada. As prioridades de antes continuam nas pastilhas Aguardando e
+   Formulário. */
 const chegadaNaCaixa=(l)=>l.assignedAt||l.createdAt||0;
 const prazoEstourado=(l)=>{ const s=l&&l.sla; return !!(s&&!s.segura&&!l.finalizado&&s.limite&&s.desde&&Date.now()>=s.desde+s.limite*60000); };
-function ordenarCaixa(lista,ordem,{repasseNoTopo=false}={}){
+// Sem `lastAt` de propósito: a última mensagem pode ser a do disparo.
+const horaDaInteracao=(l)=>l.ultimaInteracao||l.createdAt||0;
+function ordenarCaixa(lista,ordem,{repasseNoTopo=false,vista=""}={}){
+  if(vista==="todos") return [...lista].sort((a,b)=>{
+    const d=horaDaInteracao(a)-horaDaInteracao(b);
+    return ordem==="antigos"?d:-d;
+  });
   const grupo=(l)=>l.aguardaContato?0:(repasseNoTopo&&chegouAgora(l))?1:(esperandoContato(l)||prazoEstourado(l))?2:3;
   /* A hora que ordena é a da última INTERAÇÃO (mensagem de gente, ligação),
      não a da última mensagem: o follow-up automático de um fluxo ou disparo
@@ -10310,6 +10326,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       if(ate&&q>new Date(ate+"T23:59:59.999").getTime()) return false;
       return true;
     });
+  // No "Tudo", a ordem do WhatsApp (ver ordenarCaixa); nas outras pastilhas,
+  // a ordem por grupos que `myLeads` já trouxe.
+  const listaEmOrdem=vista==="todos"?ordenarCaixa(list,ordemCaixa,{vista}):list;
   const openChat=(id)=>{abrir(id);setPane("chat");};
   // Se o lead sai da conta (repasse da SDR), volta sozinho para a lista.
   useEffect(()=>{if(!sel&&pane!=="lista")setPane("lista");},[sel,pane]);
@@ -10362,7 +10381,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           ?<NovosContatos triagem={triagem} recarregar={lerTriagem} acoes={acoes} abrir={(id)=>{setVista("todos");openChat(id);}} isMobile={isMobile} session={session}/>
           :<React.Fragment>
             {list.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:32}}>Nenhum lead aqui 🎉</div>}
-            {list.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
+            {listaEmOrdem.slice(0,limiteLista).map(l=><ItemLead key={l.id} l={l} ativo={!isMobile&&sel&&sel.id===l.id} onClick={()=>openChat(l.id)} isMobile={isMobile}/>)}
             <MostrarMais total={list.length} mostrando={limiteLista} aoClicar={maisLista} passo={150}/>
           </React.Fragment>}
       </div>
@@ -13693,7 +13712,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     .filter(l=>!fTag||(l.tags||[]).some(t=>t.id===fTag))
     .filter(l=>passaNaSituacao(l,fSit)),[lista,vista,campanha,numero,fTag,fSit]);
   const [ordemCaixa,setOrdemCaixa]=usarOrdemDaCaixa();
-  const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa),[peneirados,ordemCaixa]);
+  const visiveis=useMemo(()=>ordenarCaixa(peneirados,ordemCaixa,{vista}),[peneirados,ordemCaixa,vista]);
   const [grupos,lerGrupos]=usarGrupos(acoes);
   const contagem=comGrupos(contagemDaCaixa(lista,triagem),grupos);
   const linhas=usarLinhas(acoes,session,lista);
