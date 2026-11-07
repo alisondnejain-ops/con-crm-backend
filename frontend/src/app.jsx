@@ -23622,7 +23622,15 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
   useEffect(()=>{let vivo=true;
     acoes.relatorioSdr(periodo).then(r=>vivo&&setD(r)).catch(()=>vivo&&setD(null));
     return()=>{vivo=false;};},[chave,tick]);
-  if(!d||!d.por_pessoa||!d.por_pessoa.length) return null;
+  if(!d) return null;
+  /* Sem atendente e sem a IA atendendo no período, o quadro não tem o que
+     medir. Antes ele sumia calado, e quem procurava achava que a função não
+     existia (07/11/2026, VJ). Agora diz por quê, numa linha. */
+  if(!d.por_pessoa||!d.por_pessoa.length) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?"12px 14px":"12px 18px",marginBottom:16,color:C.faint,fontSize:12,lineHeight:1.5}}>
+    <span style={{color:C.ink,fontWeight:700}}>Indicadores do SDR:</span> {d.tem_atendente
+      ?"nada no período escolhido."
+      :"esta conta não tem atendente, e o Autoatendimento não atendeu ninguém no período. Os números aparecem quando alguém da equipe tiver o papel de atendente ou quando a IA atender."}
+  </div>;
   const tempo=(min)=>min==null?"—":fmtMin(min);
   const caixa=(rot,v,dica)=><div title={dica||""} style={{background:C.surface,borderRadius:10,padding:"9px 11px",minWidth:0}}>
     <div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
@@ -23636,12 +23644,19 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O que as atendentes fizeram antes do corretor: receber, falar, qualificar e repassar.</div>
+      O que as atendentes e o Autoatendimento fizeram antes do corretor: receber, falar, qualificar e repassar.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
       Nenhuma etapa conta como qualificação: marque o início do processo comercial em Configurações → Funis e etapas, ou use "qualific" no nome da etapa.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7}}>{a.nome}</div>
-      <div style={grade}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7,display:"flex",alignItems:"center",gap:6}}>{a.ia&&<Icon n="sparkles" size={14} color={C.greenMid}/>}{a.nome}</div>
+      {a.ia?<div style={grade}>
+        {caixa("atendidos",a.recebidos,"Leads em que a IA mandou a primeira mensagem dela no período")}
+        {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
+        {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
+        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Atendidos pela IA que o sistema moveu para uma etapa de qualificação depois (etapa final do Autoatendimento ou regra da etapa). Movidos por uma pessoa contam para a pessoa")}
+        {caixa("foram ao corretor",a.repassados_ao_corretor,"Atendidos pela IA que chegaram a um corretor depois, por qualquer caminho")}
+        {caixa("perdidos",a.perdidos,"Movidos pelo sistema para uma etapa de perda depois da IA")}
+      </div>:<div style={grade}>
         {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
         {caixa("contatados",a.contatados,"Leads para os quais ela escreveu no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
@@ -23649,7 +23664,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
         {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela moveu para uma etapa de qualificação, sobre os contatados")}
         {caixa("repassados ao corretor",a.repassados_ao_corretor)}
         {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
-      </div>
+      </div>}
     </div>)}
     {d.por_origem.length>0&&<React.Fragment>
       <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"6px 0 4px"}}>Por origem</div>
