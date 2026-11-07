@@ -23863,7 +23863,8 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7,display:"flex",alignItems:"center",gap:6}}>{a.ia&&<Icon n="sparkles" size={14} color={C.greenMid}/>}{a.nome}</div>
       {a.ia?<div style={grade}>
-        {caixa("atendidos",a.recebidos,"Leads em que a IA mandou a primeira mensagem dela no período")}
+        {caixa("chegaram na fila",a.recebidos,"Leads que chegaram sem dono no período (a caixa da IA), mais os que ela atendeu. Lead de formulário que não escreveu no WhatsApp entra aqui e não em atendidos: a IA só responde, não puxa a conversa")}
+        {caixa("atendidos",a.contatados,"Leads em que a IA mandou a primeira mensagem dela no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
         {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Atendidos pela IA que o sistema moveu para uma etapa de qualificação depois (etapa final do Autoatendimento ou regra da etapa). Movidos por uma pessoa contam para a pessoa")}

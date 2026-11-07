@@ -154,11 +154,29 @@ function linhaDaIA(orgId, de, ate, { ehQualificacao, etapasPerda, corretores, ma
     GROUP BY m.lead_id HAVING MIN(m.created_at) BETWEEN ? AND ?`).all(orgId, AUTOR_IA, de, ate);
   if (!primeiras.length) return null;
 
+  /* QUEM CHEGOU NA FILA (07/11/2026, relato do Ali: "chegaram 7 e só
+     registrou 6"). A linha da IA só contava quem ELA atendeu — e o lead de
+     formulário que nunca escreveu no WhatsApp fica na fila sem a IA falar com
+     ele (ela só responde, não puxa a conversa), então sumia do relatório.
+     Agora "recebidos" é quem NASCEU SEM DONO no período (a fila, que é a caixa
+     da IA) mais quem ela atendeu; "contatados" continua sendo quem ela
+     atendeu. A diferença entre os dois é o lead que chegou e ninguém chamou.
+     Nascer sem dono: sem troca de dono e sem dono hoje, ou a primeira troca
+     saindo de "ninguém". */
+  const naFila = db.prepare(`SELECT l.id FROM leads l WHERE l.org_id = ? AND l.created_at BETWEEN ? AND ?
+    AND (
+      (NOT EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id) AND l.assigned_to IS NULL)
+      OR (SELECT t.from_user_id FROM lead_transfers t WHERE t.lead_id = l.id ORDER BY t.created_at ASC LIMIT 1) IS NULL
+         AND EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
+    )`).all(orgId, de, ate).map(x => x.id);
+  const recebidos = new Set([...naFila, ...primeiras.map(p => p.lead)]);
+  for (const id of recebidos) marca(id, "recebido");
+
   const esperas = [];
   let responderam = 0;
   const qualificados = new Set(), perdidos = new Set(), aoCorretor = new Set();
   for (const { lead, primeira } of primeiras) {
-    marca(lead, "recebido"); marca(lead, "contatado");
+    marca(lead, "contatado");
     const antes = db.prepare("SELECT MAX(created_at) t FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at <= ?").get(lead, primeira);
     if (antes && antes.t) esperas.push((primeira - antes.t) / 60000);
     if (db.prepare("SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at > ? AND created_at <= ? LIMIT 1").get(lead, primeira, ate))
@@ -176,7 +194,7 @@ function linhaDaIA(orgId, de, ate, { ehQualificacao, etapasPerda, corretores, ma
   const n = primeiras.length;
   return {
     id: "ia", nome: "Autoatendimento (IA)", ia: true,
-    recebidos: n, contatados: n,
+    recebidos: recebidos.size, contatados: n,
     primeira_resposta_mediana_min: mediana(esperas),
     responderam,
     qualificados: qualificados.size,
