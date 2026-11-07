@@ -460,3 +460,26 @@ export const transferenciasDoLead = (leadId) => db.prepare(`
   LEFT JOIN pipelines pde ON pde.id = t.from_pipeline_id
   LEFT JOIN pipelines ppara ON ppara.id = t.to_pipeline_id
   WHERE t.lead_id = ? ORDER BY t.created_at DESC`).all(leadId);
+
+/* QUEM ESTÁ COM O LEAD FALOU COM O CLIENTE (07/11/2026, pedido do Fernando:
+   "quando o corretor coletar o lead na etapa de roleta, mover para LEAD").
+   Chamado em todo envio de gente pelo CRM (texto, arquivo, imóvel,
+   localização) e no registro de ligação. Se a etapa em que o lead está tem
+   "ao pegar, mover para", e quem falou é o dono, o lead vai para lá — pela
+   porta de sempre (`moverLead`). Nunca lança: falar com o cliente não pode
+   falhar por causa disto. */
+export function aoFalarComOCliente(leadId, userId) {
+  try {
+    if (!userId) return null;
+    const lead = db.prepare("SELECT id, org_id, stage_id, assigned_to FROM leads WHERE id = ?").get(leadId);
+    if (!lead || !lead.stage_id || lead.assigned_to !== userId) return null;
+    const etapa = db.prepare("SELECT automation_config FROM pipeline_stages WHERE id = ?").get(lead.stage_id);
+    let cfg = {};
+    try { cfg = JSON.parse(etapa?.automation_config || "{}") || {}; } catch (e) { cfg = {}; }
+    if (!cfg.ao_pegar_mover_para || cfg.ao_pegar_mover_para === lead.stage_id) return null;
+    return moverLead({ leadId, paraEtapaId: cfg.ao_pegar_mover_para, motivo: "automatica", userId, forcar: true });
+  } catch (e) {
+    console.error("[ao-pegar] não movi o lead:", e.message);
+    return null;
+  }
+}

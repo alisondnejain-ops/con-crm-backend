@@ -408,13 +408,17 @@ function MoverParaOutroFunil({lead,acoes,session}){
   const [aberto,setAberto]=useState(false);
   const [alvo,setAlvo]=useState("");
   const [ocupado,setOcupado]=useState(false);
-  useEffect(()=>{setAberto(false);setAlvo("");},[lead.id]);
+  // A etapa de destino (07/11/2026, pedido do Fernando): vazia = a primeira.
+  const [etapaAlvo,setEtapaAlvo]=useState("");
+  useEffect(()=>{setAberto(false);setAlvo("");setEtapaAlvo("");},[lead.id]);
+  useEffect(()=>{setEtapaAlvo("");},[alvo]);
 
   const outros=pipelines.filter(p=>p.id!==lead.pipelineId&&(p.stages||[]).length>0);
   if(outros.length<1) return null;
   const atual=pipelines.find(p=>p.id===lead.pipelineId);
   const destino=pipelines.find(p=>p.id===alvo);
-  const primeiraEtapa=destino&&destino.stages&&destino.stages[0];
+  const etapasDestino=(destino&&destino.stages)||[];
+  const primeiraEtapa=etapasDestino.find(e=>e.id===etapaAlvo)||etapasDestino[0];
 
   if(!aberto) return <button onClick={()=>setAberto(true)}
     style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:C.sub,fontSize:11.5,cursor:"pointer",padding:"2px 0 10px",width:"100%",textAlign:"left"}}>
@@ -428,8 +432,14 @@ function MoverParaOutroFunil({lead,acoes,session}){
       <option value="">Escolher…</option>
       {outros.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
     </select>
-    {primeiraEtapa&&<div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>
-      Entra em "{primeiraEtapa.name}" — o responsável não muda.</div>}
+    {etapasDestino.length>0&&<React.Fragment>
+      <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"2px 0 4px"}}>Etapa</div>
+      <select value={primeiraEtapa?primeiraEtapa.id:""} onChange={e=>setEtapaAlvo(e.target.value)}
+        style={{width:"100%",fontSize:13,borderRadius:8,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
+        {etapasDestino.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+      </select>
+      <div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>O responsável não muda.</div>
+    </React.Fragment>}
     <div style={{display:"flex",gap:6}}>
       <button onClick={()=>setAberto(false)}
         style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
@@ -1708,7 +1718,7 @@ function ConCRM(){
     // Mensagens agendadas: sem o `acao()`, porque a recusa (horário no passado,
     // lead que não é mais seu) é o que a tela precisa mostrar.
     agendadas:(leadId)=>api(`/leads/${leadId}/agendadas`),
-    agendar:(leadId,texto,quando)=>api(`/leads/${leadId}/agendadas`,{method:"POST",body:{texto,quando}}),
+    agendar:(leadId,texto,quando,arquivo)=>api(`/leads/${leadId}/agendadas`,{method:"POST",body:{texto,quando,...(arquivo?{arquivo}:{})}}),
     cancelarAgendada:(leadId,id)=>api(`/leads/${leadId}/agendadas/${id}`,{method:"DELETE"}),
     /* Editar NÃO passa pelo `acao()`: aquele envelope engole o erro e recarrega
        como se tivesse dado certo. Aqui o erro é a informação mais importante —
@@ -3687,7 +3697,7 @@ const TIPO_BLOCO={
   remover_tag:{nome:"Remover etiqueta",cor:"#9E3D63",icone:"tagx"},
   mover_etapa:{nome:"Mover de etapa",cor:"#4C5BD4",icone:"arrow"},
   atribuir:{nome:"Atribuir responsável",cor:"#0E8FB0",icone:"userplus"},
-  tarefa:{nome:"Criar tarefa",cor:"#B7791F",icone:"tarefa"},
+  tarefa:{nome:"Criar atividade",cor:"#B7791F",icone:"tarefa"},
 };
 /* A PALETA, agrupada como no exemplo que o Ali mandou (03/10/2026): o que
    fala com o cliente, o que decide o caminho e o que mexe no lead. */
@@ -3783,7 +3793,10 @@ function resumoDoBloco(no,op){
     if(d.modo==="pessoa") return d.user_id?`Para ${nomeEm(op&&op.responsaveis,d.user_id)||"a pessoa escolhida"}`:"Escolha a pessoa…";
     return d.catraca_id?`Próximo da catraca ${nomeEm(op&&op.catracas,d.catraca_id)||"…"}`:"Próximo da catraca do lead";
   }
-  if(no.tipo==="tarefa") return d.titulo?`${d.titulo} · em ${d.em_horas||0}h`:"Escreva a tarefa…";
+  if(no.tipo==="tarefa"){
+    const av=[d.avisar&&"avisa o responsável",d.avisar_gestao&&"avisa a gestão"].filter(Boolean).join(" · ");
+    return d.titulo&&d.criar_tarefa!==false?`${d.titulo} · em ${d.em_horas||0}h${av?" · "+av:""}`:(av||"Escreva a tarefa…");
+  }
   return "";
 }
 const idNovoFluxo=(p)=>p+Math.random().toString(36).slice(2,8);
@@ -4194,7 +4207,23 @@ function FunilDoFormularioNoGatilho({m,varios,aoMudar,ativosP,catracas,rot,isMob
    (services/automacoes.js). O funil do formulário e as catracas que o
    recebem vão para o formulário quando o fluxo é salvo — as catracas são a
    MESMA marcação da tela Catraca (um formulário pode estar em várias). */
-function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
+/* QUAL WHATSAPP LIGA O FLUXO (07/11/2026, pedido do Fernando). Os números
+   vêm de /canais (a lista da gestão); "casa" é o da imobiliária. */
+function NumeroDoGatilho({valor,aoMudar,acoes,isMobile,rot}){
+  const [linhas,setLinhas]=useState(null);
+  useEffect(()=>{ if(!acoes||!acoes.canais) return; let vivo=true;
+    acoes.canais().then(r=>vivo&&setLinhas((r.equipe||[]).filter(x=>x.ativo))).catch(()=>vivo&&setLinhas([]));
+    return()=>{vivo=false;}; },[]);
+  return <div><div style={rot}>Por qual WhatsApp</div>
+    <select value={valor||""} onChange={e=>aoMudar(e.target.value)} aria-label="Por qual WhatsApp"
+      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}>
+      <option value="">Qualquer número da conta</option>
+      <option value="casa">WhatsApp da imobiliária</option>
+      {(linhas||[]).filter(l=>l.tipo!=="imobiliaria").map(l=><option key={l.id} value={l.id}>WhatsApp {l.pessoa||l.nome||"da linha"}{l.wa_number?` · ${fmtTel(l.wa_number)}`:""}</option>)}
+    </select></div>;
+}
+
+function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile,acoes}){
   const rot=ROTULO_MKT;
   const muda=(patch)=>aoMudar({...g,...patch});
   const ativosP=(pipelines||[]).filter(p=>p.is_active!==false&&p.is_active!==0);
@@ -4244,6 +4273,7 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile}){
         return <label key={id} style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,padding:"3px 0",cursor:"pointer"}}>
           <input type="checkbox" checked={on} onChange={()=>muda({origens:on?g.origens.filter(x=>x!==id):[...(g.origens||[]),id]})}/>{t}</label>;})}
       <div style={{color:C.faint,fontSize:11,marginTop:3,lineHeight:1.45}}>Nenhuma marcada vale para todas. Planilha importada nunca dispara.</div></div>}
+    {(g.tipo==="lead_novo"||g.tipo==="palavra")&&<NumeroDoGatilho valor={g.linha} aoMudar={v=>muda({linha:v})} acoes={acoes} isMobile={isMobile} rot={rot}/>}
     {g.tipo==="etapa"&&<div><div style={rot}>Etapa</div><SeletorDeEtapaFluxo valor={g.etapa_id} aoMudar={v=>muda({etapa_id:v})} etapas={op&&op.etapas} isMobile={isMobile}/>
       <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Mover a base inteira de funil (em Base de leads) não dispara.</div></div>}
     {g.tipo==="etiqueta"&&<div><div style={rot}>Etiqueta</div><SeletorDeEtiquetaFluxo valor={g.tag_id} aoMudar={v=>muda({tag_id:v})} tags={op&&op.tags} isMobile={isMobile}/></div>}
@@ -4291,7 +4321,7 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
       {totalGatilhos>1&&<div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.5}}>
         Este fluxo tem <b>{totalGatilhos} gatilhos</b>. Cada um segue pela própria seta, então cada ação do lead tem o seu caminho.
         Um lead anda por um caminho de cada vez: enquanto está num, outro gatilho deste fluxo não o coloca de novo.</div>}
-      <EditorDoGatilho g={d.gatilho||{tipo:"manual"}} aoMudar={g=>dados({gatilho:g})} op={op} pipelines={pipelines} isMobile={isMobile}/>
+      <EditorDoGatilho g={d.gatilho||{tipo:"manual"}} aoMudar={g=>dados({gatilho:g})} op={op} pipelines={pipelines} isMobile={isMobile} acoes={acoes}/>
     </React.Fragment>}
     {no.tipo==="condicao"&&<React.Fragment>
       <div><div style={rot}>Se o lead…</div>
@@ -4341,7 +4371,16 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
         <input value={d.titulo||""} onChange={e=>dados({titulo:e.target.value})} maxLength={160} placeholder="Ligar para o cliente" style={campoMkt(isMobile)}/></div>
       <div><div style={rot}>Para daqui a (horas)</div>
         <input inputMode="numeric" value={d.em_horas??24} onChange={e=>dados({em_horas:Number(e.target.value.replace(/\D/g,""))||0})} style={{...campoMkt(isMobile),width:90}}/>
-        <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Fica no nome de quem está com o lead.</div></div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Fica no nome de quem está com o lead. 0 = para agora.</div></div>
+      {/* Aviso no celular (07/11/2026, pedido do Fernando). */}
+      <div><div style={rot}>Notificação</div>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:C.ink,marginBottom:6,cursor:"pointer"}}>
+          <input type="checkbox" checked={!!d.avisar} onChange={e=>dados({avisar:e.target.checked})}/> Avisar no celular quem está com o lead</label>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12.5,color:C.ink,marginBottom:6,cursor:"pointer"}}>
+          <input type="checkbox" checked={!!d.avisar_gestao} onChange={e=>dados({avisar_gestao:e.target.checked})}/> Avisar também a gestão</label>
+        {(d.avisar||d.avisar_gestao)&&<input value={d.aviso||""} onChange={e=>dados({aviso:e.target.value})} maxLength={200}
+          placeholder="Texto do aviso (vazio = o texto da tarefa)" style={campoMkt(isMobile)}/>}
+        <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Sem ninguém com o lead, o aviso vai para quem cuida da fila.</div></div>
     </React.Fragment>}
     {no.tipo==="mensagem"&&<React.Fragment>
       <ModeloDaMeta d={d} aoMudar={dados} acoes={acoes} isMobile={isMobile}/>
@@ -12293,6 +12332,14 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const can0=inicial.canais||{};
   const [canais,setCanais]=useState({whatsapp:!!can0.whatsapp,portal:!!can0.portal,site:!!can0.site});
   const [ligados,setLigados]=useState(()=>new Set(can0.formularios||[]));
+  /* OS NÚMEROS DA CONTA (07/11/2026, pedido do Fernando): além do número da
+     imobiliária, a catraca pode receber quem escreve num número específico —
+     a linha de um corretor usada em anúncio. */
+  const [numeros,setNumeros]=useState(()=>new Set(can0.linhas||[]));
+  const [linhasConta,setLinhasConta]=useState([]);
+  useEffect(()=>{ if(!acoes||!acoes.canais) return; let vivo=true;
+    acoes.canais().then(r=>vivo&&setLinhasConta((r.equipe||[]).filter(x=>x.tipo!=="imobiliaria"&&x.ativo))).catch(()=>{});
+    return()=>{vivo=false;}; },[]);
   const [pipe,setPipe]=useState(inicial.pipeline_id||"");
   const [etapa,setEtapa]=useState(inicial.stage_id||"");
   const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
@@ -12321,7 +12368,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     if(pipe&&!etapa){ setErro("Escolha a etapa do funil que aciona a catraca — ou deixe o funil em branco."); return; }
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
-      canais:{...canais,formularios:[...ligados]},pipeline_id:pipe||null,stage_id:etapa||null,
+      canais:{...canais,formularios:[...ligados],linhas:[...numeros]},pipeline_id:pipe||null,stage_id:etapa||null,
       tempo_resposta_min:tempo.trim()===""?null:Number(tempo),max_voltas:Number(voltas),
       ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
@@ -12352,7 +12399,10 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
 
     <div style={rotulo}>De onde vêm os leads</div>
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
-      {marca(canais.whatsapp,()=>setCanais(c=>({...c,whatsapp:!c.whatsapp})),"WhatsApp","Quem escreve no número da imobiliária.","w")}
+      {marca(canais.whatsapp,()=>setCanais(c=>({...c,whatsapp:!c.whatsapp})),"WhatsApp da imobiliária","Quem escreve no número da imobiliária.","w")}
+      {linhasConta.map(l=>marca(numeros.has(l.id),()=>setNumeros(s=>{const n=new Set(s);n.has(l.id)?n.delete(l.id):n.add(l.id);return n;}),
+        `WhatsApp ${l.pessoa||l.nome||"da linha"}${l.wa_number?` · ${fmtTel(l.wa_number)}`:""}`,
+        "Quem escreve pela primeira vez neste número vai para esta catraca, e não para o dono da linha.","n"+l.id))}
       {marca(canais.portal,()=>setCanais(c=>({...c,portal:!c.portal})),"Portais","ZAP, VivaReal, OLX, Chaves na Mão e os outros ligados em Imóveis → Portais.","p")}
       {marca(canais.site,()=>setCanais(c=>({...c,site:!c.site})),"Site","Quem chega pelo botão de WhatsApp do site da imobiliária.","s")}
     </div>
@@ -14771,12 +14821,47 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
 
 /* Qualificação em duas colunas: cinco campos vazios, um embaixo do outro,
    eram a parte mais comprida da ficha para dizer "—" cinco vezes. */
+/* A FICHA DO CLIENTE (07/11/2026, pedido do Fernando): o que se sabe do
+   cliente, organizado — dados pessoais, o que ele quer, por quê, o imóvel
+   desejado, quanto pode investir e quando. Renda, entrada, situação, CPF e
+   prazo são os MESMOS campos da simulação (não uma cópia). Cada seção abre
+   e fecha; fechada, diz quantos campos já estão preenchidos. */
+const FICHA_SECOES=[
+  ["Dados pessoais","user",[["Estado civil","estado_civil"],["Profissão","profissao"],["Filhos","filhos"],["Cidade onde mora","cidade_atual"]]],
+  ["Interesse","target",[["Comprar ou alugar","objetivo"],["Para morar ou investir","finalidade"],["Tipo de imóvel","tipo_imovel"]]],
+  ["Motivação","spark",[["Por que está procurando","motivacao"]]],
+  ["Imóvel desejado","pin",[["Quartos","quartos"],["Vagas","vagas"],["Bairros","bairros"],["Área","area"],["O que não pode faltar","caracteristicas"]]],
+  ["Capacidade de investimento","trend",[["Renda familiar","renda"],["Entrada disponível","entrada"],["Parcela pretendida","parcela"],["Valor máximo","valor_max"],["FGTS","fgts"],["Financiamento","financiamento"],["Situação","situacao"],["Restrição CPF","cpf"]]],
+  ["Prazo","calendar",[["Prazo para comprar","prazo"]]],
+];
+function FichaDoCliente({lead,acoes}){
+  const [aberta,setAberta]=useState(()=>new Set(["Capacidade de investimento"]));
+  const q=lead.qual||{};
+  const vazio=(v)=>!v||v==="—";
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,overflow:"hidden"}}>
+    <div style={{padding:"9px 11px",background:C.surface,color:C.ink,fontSize:12.5,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+      <Icon n="lista" size={13} color={C.greenMid}/> Ficha do cliente</div>
+    {FICHA_SECOES.map(([titulo,ic,campos])=>{const on=aberta.has(titulo);
+      const cheios=campos.filter(([,k])=>!vazio(q[k])).length;
+      return <div key={titulo} style={{borderTop:`1px solid ${C.line}`}}>
+        <button onClick={()=>setAberta(a=>{const n=new Set(a);n.has(titulo)?n.delete(titulo):n.add(titulo);return n;})}
+          style={{width:"100%",display:"flex",alignItems:"center",gap:7,background:"none",border:"none",padding:"8px 11px",cursor:"pointer",textAlign:"left"}}>
+          <Icon n={ic} size={12} color={C.faint}/>
+          <span style={{flex:1,color:C.ink,fontSize:12,fontWeight:600}}>{titulo}</span>
+          <span style={{color:cheios?C.greenMid:C.faint,fontSize:10.5}}>{cheios}/{campos.length}</span>
+          <span style={{display:"inline-flex",transform:on?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={11} color={C.faint}/></span>
+        </button>
+        {on&&<div style={{display:"grid",gridTemplateColumns:campos.length>1?"1fr 1fr":"1fr",gap:"10px 12px",padding:"2px 11px 11px"}}>
+          {campos.map(([rot,k])=><div key={k} style={{minWidth:0,gridColumn:["motivacao","caracteristicas","bairros"].includes(k)?"1 / -1":"auto"}}>
+            <CampoQual rotulo={rot} valor={q[k]} icone={ic} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[k]:novo})}/></div>)}
+        </div>}
+      </div>;})}
+  </div>;
+}
+
 function QualificacaoDoLead({lead,acoes,session}){
   return <div style={{marginTop:6}}>
-    {!contaInterna()&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 12px"}}>
-      {CAMPOS_QUAL.map(([k,n,campo])=><div key={k} style={{minWidth:0}}>
-        <CampoQual rotulo={k} valor={lead.qual[campo]} icone={n} onSalvar={(novo)=>acoes.salvarQualificacao(lead.id,{[campo]:novo})}/></div>)}
-    </div>}
+    {!contaInterna()&&<FichaDoCliente lead={lead} acoes={acoes}/>}
     {/* O valor do negócio que está sendo conversado (30/10/2026). Soma no
         cabeçalho das colunas do Funil; venda continua sendo "Registrar venda". */}
     {!lead.venda&&<div style={{marginTop:10}}>
@@ -15064,7 +15149,21 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
   const [quando,setQuando]=useState("");
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
-  useEffect(()=>{setQuando("");setErro("");},[ag.leadId]);
+  /* UM ARQUIVO NA AGENDADA (07/11/2026, pedido do Fernando): foto, áudio,
+     vídeo ou documento. O texto do campo vira a legenda (no áudio, sai logo
+     depois). Lido no navegador como base64, como o anexo da conversa. */
+  const [arquivo,setArquivo]=useState(null);
+  const entradaArq=useRef(null);
+  useEffect(()=>{setQuando("");setErro("");setArquivo(null);},[ag.leadId]);
+  function escolher(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!f) return;
+    const mb=/^video\//.test(f.type)||!/^(image|audio)\//.test(f.type)?30:8;
+    if(f.size>mb*1048576){setErro(`"${f.name}" passa de ${mb} MB.`);return;}
+    const r=new FileReader();
+    r.onload=()=>{setArquivo({base64:String(r.result),mime:f.type||"application/octet-stream",nome:f.name,tam:f.size});setErro("");};
+    r.readAsDataURL(f);
+  }
   const pendentes=ag.lista.filter(a=>a.status==="pendente"||a.status==="enviando");
   /* O que deu errado nos últimos 2 dias. Cancelada pela própria pessoa não
      aparece: ela sabe que cancelou. */
@@ -15074,11 +15173,12 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
   const ts=quando?new Date(quando).getTime():null;
   const texto=draft.trim();
   async function agendar(){
-    if(!texto){setErro("Escreva a mensagem no campo abaixo.");return;}
+    if(!texto&&!arquivo){setErro("Escreva a mensagem no campo abaixo ou escolha um arquivo.");return;}
     if(!ts){setErro("Escolha o dia e a hora.");return;}
     setOcupado(true);setErro("");
-    try{ const r=await acoes.agendar(lead.id,draft.replace("{nome}",first(lead.nome)).trim(),ts);
-      ag.setLista(r.agendadas||[]); setDraft(""); setQuando(""); ag.setAberto(false); }
+    try{ const r=await acoes.agendar(lead.id,draft.replace("{nome}",first(lead.nome)).trim(),ts,
+        arquivo?{base64:arquivo.base64,mime:arquivo.mime,nome:arquivo.nome}:null);
+      ag.setLista(r.agendadas||[]); setDraft(""); setQuando(""); setArquivo(null); ag.setAberto(false); }
     catch(e){ setErro(e.message); }
     finally{ setOcupado(false); }
   }
@@ -15094,7 +15194,8 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
     {pendentes.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:12}}>
       <Icon n="clock" size={13} color={C.greenMid}/>
       <span style={{color:C.greenDeep,fontWeight:700,flexShrink:0}}>{a.status==="enviando"?"saindo agora":fmtTarefa(a.quando)}</span>
-      <span style={{color:C.sub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={a.texto}>{a.texto}</span>
+      {a.midia_mime&&<Icon n="clip" size={12} color={C.faint}/>}
+      <span style={{color:C.sub,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={a.texto||a.midia_nome||""}>{a.texto||a.midia_nome||(a.midia_mime?"arquivo":"")}</span>
       {a.status==="pendente"&&<button onClick={()=>cancelar(a.id)} style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer",padding:isMobile?"6px 2px":0,flexShrink:0}}>cancelar</button>}
     </div>)}
     {problemas.map(a=><div key={a.id} style={{fontSize:11.5,color:C.hot,lineHeight:1.4}}>
@@ -15103,6 +15204,18 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
     </div>)}
     {ag.aberto&&<div style={{display:"flex",flexDirection:"column",gap:6,borderTop:(pendentes.length||problemas.length)?`1px solid ${C.line}`:"none",paddingTop:(pendentes.length||problemas.length)?6:0}}>
       <div style={{color:C.ink,fontSize:12,fontWeight:700}}>Agendar o envio do texto do campo</div>
+      <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+        <input ref={entradaArq} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" onChange={escolher} style={{display:"none"}}/>
+        {arquivo
+          ?<span style={{display:"flex",alignItems:"center",gap:6,fontSize:11.5,color:C.ink,background:C.card,border:`1px solid ${C.line}`,borderRadius:999,padding:"4px 10px",minWidth:0,maxWidth:"100%"}}>
+            <Icon n="clip" size={12} color={C.greenMid}/>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{arquivo.nome}</span>
+            <button onClick={()=>setArquivo(null)} aria-label="Tirar o arquivo" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:0,fontSize:14,lineHeight:1}}>×</button></span>
+          :<button onClick={()=>entradaArq.current&&entradaArq.current.click()}
+            style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:999,padding:isMobile?"7px 11px":"4px 10px",fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            <Icon n="clip" size={12}/> Anexar foto, áudio ou arquivo</button>}
+        {arquivo&&/^audio\//.test(arquivo.mime)&&<span style={{color:C.faint,fontSize:10.5}}>o texto sai logo depois do áudio</span>}
+      </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
         {atalho("Em 1 hora",Date.now()+3600000)}{atalho("Amanhã 9h",amanhaAs(9))}{atalho("Amanhã 14h",amanhaAs(14))}
       </div>
@@ -22359,6 +22472,17 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
             {cfg.distribuir==="rodizio"&&" Na roleta só entra quem marcou disponibilidade; se ninguém estiver, o lead fica sem dono e quem moveu recebe o aviso."}
             {indice===0&&" Lead novo que nasce nesta etapa não passa por aqui: o dono dele é decidido pela roleta das atendentes."}
           </div>
+          {/* AO PEGAR O LEAD (07/11/2026, pedido do Fernando: "quando o
+              corretor coletar o lead na roleta, mover para LEAD"). */}
+          {(()=>{const etapasDoFunil=((funis||[]).find(x=>x.id===pipelineId)||{}).stages||[];
+            const outras=etapasDoFunil.filter(e=>e.id!==f.id);
+            if(!outras.length) return null;
+            return <div style={{borderTop:`1px solid ${C.line}`,paddingTop:8}}>
+              {rot("Quando quem está com o lead falar com o cliente pela primeira vez aqui","Primeira mensagem ou ligação do responsável. Use na etapa da roleta: o lead pego vai para \"Lead\".")}
+              <select value={cfg.ao_pegar_mover_para||""} onChange={e=>{const n={...cfg};delete n.ao_pegar_mover_para;if(e.target.value) n.ao_pegar_mover_para=e.target.value;salvarCfg(n);}} style={entrada}>
+                <option value="">Não mexer</option>
+                {outras.map(e=><option key={e.id} value={e.id}>Mover para {e.name}</option>)}
+              </select></div>;})()}
         </div>;})()}
 
       {<div>

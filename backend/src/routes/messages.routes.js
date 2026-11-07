@@ -7,6 +7,7 @@ import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, ehDocume
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
+import { aoFalarComOCliente } from "../services/movimento.js";
 import { agendar, cancelar, listarDoLead } from "../services/agendadas.js";
 import { fluxosParaConversa, mandarFluxoNaConversa, pararFluxoNaConversa } from "../services/disparo.js";
 
@@ -111,7 +112,7 @@ export async function enviarTextoDoCrm({ user, lead, text, citada = null }) {
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id);   // gente atendeu: o robô sai desta conversa
 
   advanceStage(lead.id);
 }
@@ -126,14 +127,32 @@ r.get("/:id/agendadas", (req, res) => {
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   res.json({ agendadas: listarDoLead(lead.id) });
 });
-r.post("/:id/agendadas", (req, res) => {
+r.post("/:id/agendadas", async (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   const casa = db.prepare("SELECT org_id FROM users WHERE id = ?").get(req.user.id);
   if (!casa || casa.org_id !== lead.org_id)
     return res.status(403).json({ error: "Agendar mensagem é de quem atende nesta conta." });
-  const r2 = agendar({ user: req.user, lead, texto: req.body?.texto, quando: req.body?.quando });
+  /* COM ARQUIVO (07/11/2026, pedido do Fernando): uma foto, áudio, vídeo ou
+     documento por mensagem agendada, nos mesmos tipos e limites do anexo da
+     conversa. O arquivo é guardado agora (é dele que o envio vai sair) e o
+     texto vira a legenda — no áudio, sai logo depois, como mensagem. */
+  let arquivo = null;
+  const a = req.body?.arquivo;
+  if (a && a.base64) {
+    const mime = String(a.mime || "");
+    if (!familia(mime)) return res.status(400).json({ error: `Este tipo de arquivo não pode ser enviado (${a.nome || mime || "desconhecido"}).` });
+    const buffer = Buffer.from(String(a.base64).replace(/^data:[^;]+;base64,/, ""), "base64");
+    if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+    if (buffer.length > limiteBytes(mime))
+      return res.status(413).json({ error: `"${a.nome || "arquivo"}" passa do limite de ${Math.round(limiteBytes(mime) / 1048576)} MB.` });
+    const pre = agendar({ user: req.user, lead, texto: req.body?.texto || "arquivo", quando: req.body?.quando, so_conferir: true });
+    if (pre.erro) return res.status(pre.status || 400).json({ error: pre.erro });
+    const { url } = await salvar({ buffer, mime, prefixo: "conversas" });
+    arquivo = { url, mime, nome: String(a.nome || "").slice(0, 160) };
+  }
+  const r2 = agendar({ user: req.user, lead, texto: req.body?.texto, quando: req.body?.quando, arquivo });
   if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
   res.json({ ok: true, agendada: r2.agendada, agendadas: listarDoLead(lead.id) });
 });
@@ -309,7 +328,7 @@ r.post("/:id/anexo", async (req, res) => {
 
   for (const m of enviados) gravarSaida(lead, req.user, firstName, m);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
 });
@@ -365,7 +384,7 @@ r.post("/:id/pronta/:mid", async (req, res) => {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id);
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);
   res.json({ ok: true });
 });
 
@@ -456,7 +475,7 @@ r.post("/:id/anexo/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type
 
   gravarSaida(lead, req.user, firstName, resultado);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: 1, convertido });
 });
@@ -529,7 +548,7 @@ r.post("/:id/localizacao", async (req, res) => {
     VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
       `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
   res.json({ ok: true });
 });
 
@@ -543,6 +562,28 @@ function gravarOuAssumirEco(waId, { user, firstName, body, replyTo = null }, ins
     db.prepare(`UPDATE messages SET from_user_id = ?, from_name = ?, body = ?, reply_to = COALESCE(?, reply_to)
       WHERE direction = 'out' AND wa_id = ?`).run(user.id, firstName, body, replyTo, waId);
   }
+}
+
+/* ARQUIVO MANDADO PELO CRM SEM UMA REQUISIÇÃO NA MÃO (07/11/2026): a
+   mensagem agendada com foto ou áudio. É o mesmo envio do anexo da conversa
+   (sendMedia + gravar na conversa + primeira resposta + robô sai), num lugar
+   que o batimento das agendadas consegue chamar. O arquivo já está guardado:
+   os bytes vão junto, para a Uazapi não depender de baixar a URL. */
+export async function enviarArquivoDoCrm({ user, lead, url, mime, nome = "", legenda = "" }) {
+  const firstName = (user.name || "").split(" ")[0];
+  const f = familia(mime || "");
+  if (!f) throw new Error("Tipo de arquivo que não pode ser enviado.");
+  let bytes = null;
+  try { const b = await bytesParaBaixar(url); bytes = Buffer.isBuffer(b) ? b : (b && Buffer.isBuffer(b.buffer) ? b.buffer : null); } catch (e) { bytes = null; }
+  // Áudio não tem legenda no WhatsApp: o texto sai depois, como mensagem.
+  const leg = f === "audio" ? "" : String(legenda || "").trim();
+  const docName = f === "document" ? String(nome || "documento").replace(/[\r\n\/\\]/g, " ").slice(0, 120) : undefined;
+  const envio = await sendMedia({ orgId: lead.org_id, canalId: linhaDo(lead), toPhone: lead.phone, type: f === "audio" ? "ptt" : f,
+    file: url, bytes: bytes || undefined, mime, caption: leg || undefined, signedBy: leg ? firstName : undefined, docName });
+  gravarSaida(lead, user, firstName, { url, mime, nome, legenda: leg, wa_id: envio?.messageid || null });
+  if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id);
+  if (f === "audio" && String(legenda || "").trim()) await enviarTextoDoCrm({ user, lead, text: String(legenda).trim() });
 }
 
 function gravarSaida(lead, user, firstName, m) {
@@ -653,7 +694,7 @@ r.post("/:id/produto", async (req, res) => {
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at,canal_id)
     VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
   // Guarda como imóvel de interesse, se ainda não houver outro marcado.
   if (!lead.produto_id) db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(p.id, lead.id);
 

@@ -22,6 +22,7 @@ import { mensagemRecebida as respostaAoDisparo, ecoDeDisparo } from "./disparo.j
 import { ROTULO_DISPARO, ecoDoCrm } from "./marca-disparo.js";
 import { randomUUID } from "crypto";
 import { leadPorTelefone } from "./telefone.js";
+import { completarAnuncioDoLead } from "./anuncios-desempenho.js";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
 import { triarNumeroNovo } from "./triagem.js";
@@ -69,7 +70,7 @@ function jaGravada(orgId, messageid, direcao) {
 }
 const emAndamento = new Set();
 
-export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome, enviadaPelaApi }) {
+export async function processarMensagemRecebida({ canal, evento, phone, texto, tipo, content, temMidia, fromMe, citada, citadaTrecho = "", messageid, nome, enviadaPelaApi, anuncio = null }) {
   const orgId = canal.org_id;
   /* O WHATSAPP DO SUPORTE DO CONHUB, na linha que o empresta (05/10/2026,
      services/suporte.js). Antes de tudo: a resposta do suporte vai para a
@@ -199,6 +200,16 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   if (!lead) lead = leadPorTelefone(db, orgId, phone)
     || nascerLeadDoWhatsapp({ canal, phone, nome, texto });
 
+  /* VEIO DE UM ANÚNCIO DE CLIQUE-PARA-WHATSAPP (07/11/2026): grava o anúncio
+     no lead que ainda não tem campanha (o lead de formulário já vem com a
+     dele) e busca na Meta a campanha e o conjunto, sem esperar. */
+  if (!fromMe && anuncio && (anuncio.ad_id || anuncio.titulo) && !lead.campaign_id && !lead.ad_id) {
+    db.prepare(`UPDATE leads SET ad_id = ?, ad_name = COALESCE(ad_name, ?), platform = COALESCE(platform, 'facebook'),
+      origem = CASE WHEN COALESCE(origem,'') IN ('', 'WhatsApp') THEN 'Anúncio (WhatsApp)' ELSE origem END WHERE id = ?`)
+      .run(anuncio.ad_id || null, anuncio.titulo || null, lead.id);
+    if (anuncio.ad_id) completarAnuncioDoLead(orgId, lead.id, anuncio.ad_id);
+  }
+
   /* `from_name` fica vazio numa mensagem enviada pelo celular: o número é
      único e o WhatsApp não diz qual corretor digitou. A tela mostra
      "enviada pelo WhatsApp" — melhor um autor honesto em branco do que
@@ -278,7 +289,7 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   /* Gatilho "Mensagem do cliente" dos fluxos (30/10/2026): palavra, frase
      inicial ou código de imóvel. Nunca lança (services/automacoes.js). */
-  if (!fromMe && texto) dispararGatilho(orgId, "palavra", { leadId: lead.id, valor: texto });
+  if (!fromMe && texto) dispararGatilho(orgId, "palavra", { leadId: lead.id, valor: texto, linha: canal.tipo === "imobiliaria" ? "casa" : canal.id });
 
   /* A CONVERSA PASSA A ACONTECER NA LINHA QUE O CLIENTE USOU.
 

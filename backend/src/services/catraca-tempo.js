@@ -27,6 +27,7 @@ import db from "../db.js";
 import { trocarResponsavel } from "./movimento.js";
 import { filaDaCatraca, marcarQueRecebeuNoLead } from "./catracas.js";
 import { avisar } from "./push.js";
+import { etapasDoComercial } from "./marcos.js";
 
 const PADRAO_VOLTAS = 2;
 
@@ -46,7 +47,12 @@ export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
       AND NOT EXISTS (SELECT 1 FROM ligacoes g WHERE g.lead_id = l.id
         AND g.user_id = l.assigned_to AND g.created_at >= l.assigned_at)
     LIMIT ?`).all(orgId, agora, limite);
-  return linhas;
+  /* SÓ A FILA DO PRIMEIRO ATENDIMENTO (07/11/2026, pedido do Fernando): o
+     tempo para pegar vale para o lead numa etapa de ENTRADA do comercial
+     ("Novo", "Lead" — antes do primeiro marco). O que já está em outra etapa
+     não está esperando o primeiro atendimento. */
+  const { entrada } = etapasDoComercial(orgId);
+  return linhas.filter(l => !l.stage_id || entrada.has(l.stage_id));
 }
 
 export async function agirSemResposta(orgId, agora = Date.now()) {

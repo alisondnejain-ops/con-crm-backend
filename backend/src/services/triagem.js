@@ -81,6 +81,10 @@ export function triarNumeroNovo({ canal, phone, nome }) {
     if (!triagemLigada(canal)) return null;
     // Quem recebeu uma campanha da imobiliária e respondeu é lead — não pessoal.
     if (campanhaQueAlcancou(orgId, phone)) return null;
+    /* Linha escolhida numa catraca ativa (07/11/2026) é número de captação:
+       quem escreve nela é lead, e a triagem seguraria todos. */
+    if (canal.id && db.prepare(`SELECT 1 FROM catraca_canais x JOIN catracas k ON k.id = x.catraca_id
+        WHERE x.canal = 'linha' AND x.ref = ? AND k.ativa = 1 LIMIT 1`).get(canal.id)) return null;
 
     const f = formas(phone);
     const ja = db.prepare(`SELECT id FROM contatos_novos WHERE org_id = ? AND linha = ?
