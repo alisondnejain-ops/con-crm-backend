@@ -85,7 +85,8 @@ await caso("1. Os números da atendente", async () => {
   assert.equal(v.contatados, 2);
   assert.equal(v.primeira_resposta_mediana_min, 20, "mediana de 10 e 30 minutos");
   assert.equal(v.responderam, 1); assert.equal(v.taxa_resposta, 50);
-  assert.equal(v.qualificados, 1); assert.equal(v.taxa_qualificacao, 50);
+  // Taxa sobre os RECEBIDOS desde 07/11/2026 (1 de 3).
+  assert.equal(v.qualificados, 1); assert.equal(v.taxa_qualificacao, 33);
   assert.equal(v.repassados_ao_corretor, 1);
   assert.equal(v.perdidos, 1);
   const b = r.d.por_pessoa.find(p => p.id === bia);
@@ -157,11 +158,13 @@ await caso("4. Sem atendente, a IA entra como SDR", async () => {
   assert.equal(ia.contatados, 3, "a IA atendeu 3");
   assert.equal(ia.primeira_resposta_mediana_min, 2, "mediana de 2, 4 e 1 minuto");
   assert.equal(ia.responderam, 1);
-  assert.equal(ia.qualificados, 1, "a qualificação feita pela gestão não conta para a IA");
+  // Desde 07/11/2026 a linha da fila conta o que foi qualificado nos leads
+  // dela por quem for (menos uma atendente) — o sistema em I1 e a gestão em I3.
+  assert.equal(ia.qualificados, 2, "I1 e I3 saíram da fila qualificados");
   assert.equal(ia.repassados_ao_corretor, 1);
   assert.equal(ia.perdidos, 0);
   const wpp = r.d.por_origem.find(o => o.origem === "WhatsApp");
-  assert.equal(wpp.recebidos, 3); assert.equal(wpp.qualificados, 1);
+  assert.equal(wpp.recebidos, 3); assert.equal(wpp.qualificados, 2);
   const meta = r.d.por_origem.find(o => o.origem === "Anúncio (Meta)");
   assert.ok(meta, "o lead do formulário aparece na origem");
   assert.equal(meta.recebidos, 1); assert.equal(meta.contatados, 0);

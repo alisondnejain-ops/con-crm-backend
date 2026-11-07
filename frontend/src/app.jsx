@@ -8375,7 +8375,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             operacional, equipe e campanha. Fica ao lado de Relatórios e não
             dentro dele porque responde outra pergunta — Relatórios é a
             produtividade de cada pessoa, isto é o estado da operação agora. */}
-        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} irPara={setView}/>}
+        {supervisor&&view==="gestao"&&<PainelGestao acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} irPara={setView} org={org}/>}
         {podeGerir(session)&&view==="formularios"&&<Formularios acoes={acoes} isMobile={isMobile} irPara={setView} semCatraca={!!(org&&org.tipo==="autonomo")}/>}
         {podeGerir(session)&&view==="marketing"&&<Marketing acoes={acoes} org={org} isMobile={isMobile} irParaFluxos={()=>setView("fluxos")}/>}
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
@@ -17953,8 +17953,8 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
             {[["Conversão",pctBR(m.conversao)],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
               ["Atendimento",m.atendimento_min==null?"—":fmtMin(m.atendimento_min)],
-              ["Respondeu",`${m.respondidos||0}/${m.recebidos}`],
-              ["Visitas",`${m.visitas_confirmadas||0}/${m.visitas}`],["Perdas",m.perdidos],["Vendas",m.vendas],
+              ["Atendeu",`${m.atendidos??m.respondidos??0}/${m.recebidos}`],
+              ["Agendou",m.visitas_agendadas??0],["Compareceram",m.visitas_realizadas??0],["Perdas",m.perdidos],["Vendas",m.vendas],
               ["Ligações",m.ligacoes]].map(([r,v])=>
               <div key={r}>
                 <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700,lineHeight:1.1}}>{v}</div>
@@ -17969,7 +17969,7 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
     {d&&!isMobile&&<div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
         <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Visitas conf.","Perdas","Vendas","Ligações"].map((h,i)=>
+          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Agendou","Compareceram","Perdas","Vendas","Ligações"].map((h,i)=>
             <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
         </tr></thead>
         <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
@@ -17988,8 +17988,10 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
           <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
           {/* Espera média a cada pergunta do cliente, não só a primeira. */}
           <td style={{...celula,textAlign:"right"}}>{m.atendimento_min==null?"—":fmtMin(m.atendimento_min)}</td>
-          <td style={{...celula,textAlign:"right"}} title="confirmadas por uma pessoa / total no funil">
-            {m.sem_dados?"—":<React.Fragment><b>{m.visitas_confirmadas||0}</b><span style={{color:C.faint}}>/{m.visitas}</span></React.Fragment>}</td>
+          <td style={{...celula,textAlign:"right"}} title="leads que ele levou ao agendamento no período (pular direto para visita ou proposta também conta)">
+            {m.sem_dados?"—":(m.visitas_agendadas??0)}</td>
+          <td style={{...celula,textAlign:"right"}} title="leads que chegaram à visita no período, pelas mãos dele">
+            {m.sem_dados?"—":(m.visitas_realizadas??0)}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.perdidos}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.vendas}</td>
           <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.ligacoes}</td>
@@ -21395,14 +21397,24 @@ function fatiasDoFunil(operacional){
    segura o lead, quantos estouraram o prazo e em que fase do funil ela está.
    As taxas de conversão NÃO entram aqui: são da coorte do período, e a fatia
    é a foto de agora — juntar as duas era misturar perguntas. */
-function DetalheDaFatia({fatia,isMobile,children}){
+/* `leadsDa(stageId)` desenha a lista de leads de uma etapa. Na fatia
+   "Outras N etapas" (07/11/2026, pedido do Fernando: "não me permite ver
+   quais são os leads") cada etapa agrupada vira um botão que abre a dela. */
+function DetalheDaFatia({fatia,isMobile,children,leadsDa}){
+  const [sub,setSub]=useState(null);
+  useEffect(()=>{setSub(null);},[fatia&&fatia.id]);
   if(!fatia) return null;
   if(fatia.agrupadas) return <div style={{background:C.surface,borderRadius:12,padding:"11px 13px",marginTop:12}}>
     <div style={{color:C.ink,fontSize:12,fontWeight:700,marginBottom:6}}>{fatia.nome}</div>
-    <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
-      {fatia.agrupadas.map(a=><span key={a.id} style={{color:C.sub,fontSize:11.5}}>
-        {a.nome} <b style={{fontFamily:MONO,color:C.ink}}>{a.valor}</b></span>)}
+    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+      {fatia.agrupadas.map(a=><button key={a.id} onClick={()=>leadsDa&&setSub(x=>x===a.id?null:a.id)}
+        style={{display:"flex",alignItems:"center",gap:6,fontSize:11.5,color:C.sub,cursor:leadsDa?"pointer":"default",
+          background:sub===a.id?C.card:"transparent",border:`1px solid ${sub===a.id?C.greenMid:C.line}`,borderRadius:999,padding:"5px 10px"}}>
+        <span style={{width:8,height:8,borderRadius:3,background:a.cor,flexShrink:0}}/>
+        {a.nome} <b style={{fontFamily:MONO,color:C.ink}}>{a.valor}</b></button>)}
     </div>
+    {leadsDa&&!sub&&<div style={{color:C.faint,fontSize:11,marginTop:7}}>Toque numa etapa para ver os leads dela.</div>}
+    {leadsDa&&sub&&leadsDa(sub)}
   </div>;
 
   const o=fatia.fonte||{};
@@ -21526,28 +21538,45 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
   const degrau=(l,max)=>l.desde_entrada===null?null:<div style={{maxWidth:max,margin:"0 auto"}}>
     <div style={{width:Math.max(l.desde_entrada,l.chegaram?3:0)+"%",height:impressao?10:16,margin:"0 auto",borderRadius:4,
       background:corDaEtapa(l,l.name),opacity:.9,transition:"width .4s"}}/></div>;
+  /* "Da etapa anterior" (07/11/2026, pedido do Fernando: é a primeira
+     coluna). No funil comercial a etapa pulada conta como passada, então o
+     "X de Y" não diz nada a mais que a taxa — fica só a taxa, clicável. No
+     funil de SDR as tentativas são independentes e o "5 de 8" continua. */
+  const anteriorDe=(l,larga)=>{
+    if(!l.anterior) return <span style={{color:C.faint}}>—</span>;
+    const taxa=<span style={{fontFamily:MONO,color:C.ink,fontWeight:700}}>{fmtTaxa(l.anterior.taxa)}</span>;
+    if(c.etapa_pulada_conta) return <React.Fragment>
+      {impressao?taxa:<button onClick={()=>pedir(l.id,"vieram",`Vieram de ${l.anterior.name} para ${l.name}`)}
+        style={{background:"none",border:"none",padding:0,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}}>{taxa}</button>}
+      {larga&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>de {l.anterior.name}</div>}</React.Fragment>;
+    return <React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/>
+      <span style={{color:C.sub}}> de </span>
+      <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/>
+      <span style={{color:C.sub}}> · </span>{taxa}
+      {larga&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>vindos de {l.anterior.name}</div>}</React.Fragment>;
+  };
   const tabela=isMobile&&!impressao
     ?<div style={{display:"flex",flexDirection:"column",gap:7}}>
       {linhas.map(l=><div key={l.id} style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
         <div style={{display:"flex",alignItems:"center",gap:7}}>
           <span style={{width:9,height:9,borderRadius:3,background:corDaEtapa(l,l.name),flexShrink:0}}/>
           <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{l.name}{l.papel==="entrada"&&<span style={{color:C.faint,fontWeight:500}}> · início</span>}</span>
-          <span style={{fontSize:15}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></span>
         </div>
         <div style={{marginTop:8}}>{degrau(l,"100%")}</div>
         <div style={{display:"flex",gap:14,marginTop:7,flexWrap:"wrap"}}>
+          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Da etapa anterior</div>
+            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{anteriorDe(l)}</div></div>
           <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Desde a entrada</div>
             <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</div></div>
-          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Da etapa anterior</div>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{l.anterior
-              ?<React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/> de <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/> · {fmtTaxa(l.anterior.taxa)}</React.Fragment>:"—"}</div></div>
+          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Chegaram</div>
+            <div style={{fontSize:13}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></div></div>
         </div>
         {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:6,display:"flex",flexDirection:"column",gap:2}}>{detalhes(l)}</div>}
       </div>)}
     </div>
     :<table style={{width:"100%",borderCollapse:"collapse"}}>
       <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-        {["Etapa","","Chegaram","Desde a entrada","Da etapa anterior"].map((h,i)=>
+        {["Etapa","","Da etapa anterior","Desde a entrada","Chegaram"].map((h,i)=>
           <th key={i} style={{padding:"6px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
             letterSpacing:.4,textAlign:i>1?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
       </tr></thead>
@@ -21560,16 +21589,10 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
           {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:4,paddingLeft:16,display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
         </td>
         <td style={{padding:"9px 8px",width:"28%",minWidth:120}}>{degrau(l,"100%")}</td>
+        <td style={{padding:"8px 8px",fontSize:12.5,textAlign:"right",whiteSpace:"nowrap"}}>{anteriorDe(l,true)}</td>
+        <td style={{padding:"8px 8px",fontSize:12.5,fontFamily:MONO,color:C.ink,textAlign:"right",fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</td>
         <td style={{padding:"8px 8px",fontSize:13,textAlign:"right"}}>
           <NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></td>
-        <td style={{padding:"8px 8px",fontSize:12.5,fontFamily:MONO,color:C.ink,textAlign:"right",fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</td>
-        <td style={{padding:"8px 8px",fontSize:12.5,textAlign:"right",whiteSpace:"nowrap"}}>{l.anterior
-          ?<React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/>
-            <span style={{color:C.sub}}> de </span>
-            <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/>
-            <span style={{fontFamily:MONO,color:C.ink,fontWeight:700}}> · {fmtTaxa(l.anterior.taxa)}</span>
-            <div style={{color:C.faint,fontSize:10,marginTop:1}}>vindos de {l.anterior.name}</div></React.Fragment>
-          :<span style={{color:C.faint}}>—</span>}</td>
       </tr>)}</tbody>
     </table>;
 
@@ -21660,7 +21683,7 @@ function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConvers
   </div>;
 }
 
-function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
+function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   const [f,setF]=usarFiltrosComPeriodo("painel.filtros");
   const tick=usarAtualizacao();
   const [d,setD]=useState(null);
@@ -21676,7 +21699,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
      Equipe e Campanhas logo abaixo. "visao" era a aba antiga que continha os
      números; quem a tinha guardada cai no Funil. */
   const [abaGuardada,setAba]=usarEscolha("painel.aba","funil");
-  const aba=["funil","equipe","campanhas"].includes(abaGuardada)?abaGuardada:"funil";
+  const aba=["funil","equipe","campanhas","relatorios"].includes(abaGuardada)?abaGuardada:"funil";
   // Fatia aberta na rosca. Zera quando o filtro muda: a etapa escolhida pode
   // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
   const [fatia,setFatia]=useState(null);
@@ -21752,6 +21775,8 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
           <Metric rot="Tempo da 1ª resposta" v={tempo(d.atendimento.primeira_resposta_mediana_min)} sub="mediana"/>
           <Metric rot="Responderam à 1ª mensagem" v={num(d.atendimento.taxa_resposta_cliente,"%")}
             sub={d.atendimento.clientes_contatados?`${d.atendimento.clientes_responderam} de ${d.atendimento.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>
+          <Metric rot="Qualificados" v={d.atendimento.qualificados??"—"}
+            sub={f.responsavel&&f.responsavel!=="fila"?"que esta pessoa qualificou no período":"pelo SDR ou no comercial, no período"}/>
         </div>
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
@@ -21782,7 +21807,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
         </div>}
 
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {[["funil","Funil"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
+          {[["funil","Funil"],["relatorios","Relatórios"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
             <button key={k} onClick={()=>setAba(k)}
               style={{fontSize:12,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
                 background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
@@ -21812,10 +21837,22 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara}){
                 <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
                   escolhida={fatia} aoEscolher={setFatia}
                   vazioTexto="Nenhum contato em aberto neste funil — nada para desenhar ainda."/>
-                <DetalheDaFatia fatia={fatias.find(x=>x.id===fatia)} isMobile={isMobile}/>
+                {(()=>{const aberta=fatias.find(x=>x.id===fatia);
+                  const quem=f.responsavel&&f.responsavel!=="fila"?f.responsavel:undefined;
+                  return <DetalheDaFatia fatia={aberta} isMobile={isMobile}
+                    leadsDa={(sid)=><LeadsDaFatia acoes={acoes} stageId={sid} atendente={quem} abrirConversa={abrirConversa}/>}>
+                    {aberta&&!aberta.agrupadas&&<LeadsDaFatia acoes={acoes} stageId={aberta.id} atendente={quem} abrirConversa={abrirConversa}/>}
+                  </DetalheDaFatia>;})()}
               </React.Fragment>;})()}
           </div>
         </React.Fragment>}
+
+        {/* ===== RELATÓRIOS, DENTRO DA VISÃO GERAL (07/11/2026, pedido do
+            Fernando: "o empresário quer ver tudo numa tela"). É a MESMA tela de
+            Operação → Relatórios — SDR, cada corretor, score —, com o período
+            da Visão geral (é um só para as duas). */}
+        {aba==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile}
+          abrirConversa={abrirConversa} org={org} embutido/>}
 
         {/* ===== EQUIPE ===== */}
         {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
@@ -23663,8 +23700,9 @@ function BlocoAtendimento({linhas,isMobile}){
    funil antigo. Para o corretor o servidor já devolve só os leads dele. */
 function LeadsDaFatia({acoes,stageId,atendente,abrirConversa}){
   const [lista,setLista]=useState(null);
+  const [ver,setVer]=useState(80);
   useEffect(()=>{let vivo=true; setLista(null);
-    acoes.buscar({atendente,finalizados:"1"})
+    acoes.buscar(atendente?{atendente,finalizados:"1"}:{finalizados:"1"})
       .then(r=>vivo&&setLista(r.filter(l=>l.stageId===stageId))).catch(()=>vivo&&setLista([]));
     return()=>{vivo=false;};},[stageId,atendente]);
   return <div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.line}`}}>
@@ -23673,13 +23711,15 @@ function LeadsDaFatia({acoes,stageId,atendente,abrirConversa}){
       :lista.length===0
       ?<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead nesta etapa.</div>
       :<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-        {lista.map(l=><button key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
+        {lista.slice(0,ver).map(l=><button key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
           title="Abrir a conversa"
           style={{display:"flex",alignItems:"center",gap:5,background:C.card,border:`1px solid ${C.line}`,
             borderRadius:999,padding:"5px 11px",cursor:abrirConversa?"pointer":"default",fontSize:11.5,color:C.ink}}>
           <span style={{width:6,height:6,borderRadius:99,background:prioDe(l.prio).c,flexShrink:0}}/>
           {first(l.nome)}
         </button>)}
+        {lista.length>ver&&<button onClick={()=>setVer(v=>v+80)} style={{background:"none",border:"none",color:C.greenMid,
+          fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"5px 6px"}}>mostrar mais {Math.min(80,lista.length-ver)} de {lista.length-ver}</button>}
       </div>}
   </div>;
 }
@@ -23773,9 +23813,12 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         {numero("Leads recebidos",linha.recebidos,"entraram no período")}
         {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
-        {numero("Agendados / visitas",linha.agendamentos,`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`)}
+        {numero("Qualificados",linha.qualificados??0,"no período")}
+        {numero("Agendamentos",linha.agendados??0,"levou ao agendamento")}
+        {numero("Visitas",linha.visitas??0,"compareceram")}
         {numero("Vendas",linha.vendas,"fechadas no período")}
         {numero("Valor vendido",fmtMoeda(linha.valor_vendido),null)}
+        {numero("Perdidos",linha.perdidos??0,"moveu para perda no período")}
         {numero("Perdidos p/ outro corretor",linha.leads_perdidos_para_outro,"repasse manual no período")}
       </div>
 
@@ -23981,25 +24024,25 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O que as atendentes e o Autoatendimento fizeram antes do corretor: receber, falar, qualificar e repassar.</div>
+      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido, qualificado e repassado.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
-      Nenhuma etapa conta como qualificação: marque o início do processo comercial em Configurações → Funis e etapas, ou use "qualific" no nome da etapa.</div>}
+      Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7,display:"flex",alignItems:"center",gap:6}}>{a.ia&&<Icon n="sparkles" size={14} color={C.greenMid}/>}{a.nome}</div>
       {a.ia?<div style={grade}>
-        {caixa("chegaram na fila",a.recebidos,"Leads que chegaram sem dono no período (a caixa da IA), mais os que ela atendeu. Lead de formulário que não escreveu no WhatsApp entra aqui e não em atendidos: a IA só responde, não puxa a conversa")}
+        {caixa("chegaram ao pré-atendimento",a.recebidos,"Leads que entraram no funil de SDR no período (sem funil de SDR, os que nasceram sem dono) e não foram para uma atendente, mais os que a IA atendeu")}
         {caixa("atendidos",a.contatados,"Leads em que a IA mandou a primeira mensagem dela no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
-        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Atendidos pela IA que o sistema moveu para uma etapa de qualificação depois (etapa final do Autoatendimento ou regra da etapa). Movidos por uma pessoa contam para a pessoa")}
-        {caixa("foram ao corretor",a.repassados_ao_corretor,"Atendidos pela IA que chegaram a um corretor depois, por qualquer caminho")}
+        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Destes leads, os que passaram do funil de SDR para o comercial ou ganharam a etiqueta de qualificado no período, sobre os que chegaram")}
+        {caixa("foram ao corretor",a.repassados_ao_corretor,"Destes leads, os que foram entregues a um corretor no período, por qualquer caminho")}
         {caixa("perdidos",a.perdidos,"Movidos pelo sistema para uma etapa de perda depois da IA")}
       </div>:<div style={grade}>
         {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
         {caixa("contatados",a.contatados,"Leads para os quais ela escreveu no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois")}
-        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela moveu para uma etapa de qualificação, sobre os contatados")}
+        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela qualificou — moveu para a etapa de qualificação, passou do funil de SDR para o comercial ou etiquetou como qualificado —, sobre os recebidos")}
         {caixa("repassados ao corretor",a.repassados_ao_corretor)}
         {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
       </div>}
@@ -24021,7 +24064,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile}){
   </div>;
 }
 
-function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
+function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}){
   // Nota aberta de alguém da equipe: {m, componentes}.
   const [nota,setNota]=useState(null);
   // Relatório de reunião do corretor selecionado, aberto em tela cheia.
@@ -24076,24 +24119,22 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
 
   const linha=dados.atendentes.find(a=>a.id===sel)||dados.atendentes[0];
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:920,margin:"0 auto"}}>
-      {/* O período no alto, no mesmo lugar do Painel e da Operação. */}
-      <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+  /* A ORDEM (07/11/2026, pedido do Fernando): primeiro o que o SDR fez,
+     depois cada corretor (com "onde estão os leads dele"), e por último o
+     score, que compara os corretores. `embutido` é a aba Relatórios dentro da
+     Visão geral: sem a rolagem própria e sem o seletor de período (o da
+     Visão geral, que é o mesmo, fica no alto). */
+  return <div style={embutido?{}:{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+    <div style={{maxWidth:embutido?"none":920,margin:"0 auto"}}>
+      {!embutido&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
         <SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>
-      </div>
-      {/* Os totais da casa (leads, vendas, valor) moram no Painel. Aqui é
-          cada pessoa — repetir os totais dava a mesma palavra em dois lugares. */}
-      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
+      </div>}
       {nota&&<DetalheDaNota m={nota.m} componentes={nota.componentes} periodo={dados.periodo} isMobile={isMobile} aoFechar={()=>setNota(null)}/>}
       {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
         funil={rosca&&!rosca.erro&&rosca.chave===linha.id+funilDoRelatorio+chavePeriodo?rosca:null}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
       {(pickable||session.role==="sdr")&&<IndicadoresSdr acoes={acoes} periodo={periodo} tick={tick} isMobile={isMobile}/>}
-      {/* O ponto das atendentes desceu (28/10/2026): é registro de presença,
-          e o que se abre esta tela para ver é o desempenho. */}
-      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
       {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
         ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
@@ -24136,21 +24177,19 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
           <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>
           <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
-          <Metric n="calendar" label="Em agendamento ou visita" value={linha.agendamentos}
-            sub={`${linha.agendamentos_confirmados||0} confirmado(s) por pessoa`} accent="#3B7BC4"/>
+          <Metric n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>
+          {/* Agendamento e visita SEPARADOS (07/11/2026, pedido do Fernando):
+              os que ele levou a cada etapa no período — pular direto para
+              mais adiante também conta. */}
+          <Metric n="calendar" label="Agendamentos" value={linha.agendados??0} sub="levou ao agendamento" accent="#3B7BC4"/>
+          <Metric n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>
           <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
+          <Metric n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>
           {/* Leads que saíram da mão dele por repasse manual — ao lado de
               "Recebidos" porque é a mesma pergunta, olhada do outro lado. */}
           <Metric n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro}
             sub="repasse manual no período" accent={C.hot}/>
         </div>
-        {/* A diferença entre o que está no funil e o que alguém confirmou É a
-            informação: a nota conta só os confirmados. */}
-        {linha.agendamentos>(linha.agendamentos_confirmados||0)&&
-          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,
-            padding:"9px 11px",marginTop:-8,marginBottom:16}}>
-            {linha.agendamentos-(linha.agendamentos_confirmados||0)} de {linha.agendamentos} foram movidos pela palavra-chave, não por uma pessoa — a nota conta só os confirmados.
-          </div>}
 
         {/* ONDE ESTÃO OS LEADS DELE AGORA, no funil de verdade. As barras que
             ficavam aqui embaixo usavam a lista fixa das 11 etapas antigas —
@@ -24179,12 +24218,19 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org}){
               <RoscaDoFunil etapas={fatias} total={total} isMobile={isMobile}
                 escolhida={fatia} aoEscolher={setFatia}
                 vazioTexto={`${first(linha.nome)} não tem lead em aberto neste funil.`}/>
-              <DetalheDaFatia fatia={aberta} isMobile={isMobile}>
+              <DetalheDaFatia fatia={aberta} isMobile={isMobile}
+                leadsDa={(sid)=><LeadsDaFatia acoes={acoes} stageId={sid} atendente={linha.id} abrirConversa={abrirConversa}/>}>
                 {aberta&&!aberta.agrupadas&&<LeadsDaFatia acoes={acoes} stageId={aberta.id} atendente={linha.id} abrirConversa={abrirConversa}/>}
               </DetalheDaFatia>
             </React.Fragment>;})()}
         </div>}
       </React.Fragment>}
+      {/* O score por último: é a comparação entre os corretores, lida depois
+          de ver o que cada um fez. */}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
+      {/* O ponto das atendentes (28/10/2026): é registro de presença, e o que
+          se abre esta tela para ver é o desempenho. */}
+      <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
     </div>
   </div>;
 }

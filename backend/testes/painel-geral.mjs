@@ -133,7 +133,9 @@ console.log(`   ${r.status} · leads=${d.kpis.leads.atual} vendas=${d.kpis.venda
 assert.equal(r.status, 200);
 assert.equal(d.kpis.leads.atual, 3, "a Marina tem 3 leads");
 assert.equal(d.kpis.vendas.atual, 1, "a Marina fechou 1 venda");
-assert.equal(d.kpis.visitas.atual, 1, "a Marina teve 1 visita realizada");
+// Desde 07/11/2026 a etapa pulada conta: m1 foi à Visita, m2 pulou para
+// Proposta e m3 para Venda — os três passaram pela visita.
+assert.equal(d.kpis.visitas.atual, 3, "a Marina levou 3 leads à visita (ou além)");
 
 console.log("5. E não vê o do colega mesmo pedindo pelo endereço");
 r = await chamar(tMarina, `/painel/geral?periodo=hoje&responsavel=${rafael}`);
@@ -154,31 +156,34 @@ d = await r.json();
 const passos = d.funil_atividade.map(p => `${p.id}=${p.valor}`).join(" · ");
 console.log(`   ${passos}`);
 assert.deepEqual(d.funil_atividade.map(p => p.nome),
-  ["Leads trabalhados", "Ligações", "Pessoas faladas", "Qualificadas", "Agendados", "Visitas", "Propostas", "Vendas"]);
+  ["Leads trabalhados", "Ligações", "Pessoas faladas", "Qualificados", "Agendados", "Visitas", "Propostas", "Vendas"]);
 assert.equal(d.funil_atividade[0].taxa_sequencial, null, "o primeiro degrau não tem taxa");
 const valor = (id) => d.funil_atividade.find(p => p.id === id).valor;
-// Todos os cinco leads tiveram alguém agindo: ligação (m1, m2, r1), venda (m3), mensagem (m3, r2).
-assert.equal(valor("trabalhados"), 5, "leads distintos, não ações");
+// Os cinco leads foram abordados hoje: ligação (m1, m2, r1) ou mensagem (m3, r2).
+assert.equal(valor("trabalhados"), 5, "um por lead por dia, não ações");
 assert.equal(valor("ligacoes"), 4, "3 da Marina + 1 do Rafael");
-// m1 e r1 falaram por ligação; r2 conversou nos dois sentidos; m3 só recebeu.
-assert.equal(valor("faladas"), 3);
-assert.equal(valor("qualificadas"), 1, "só r2 chegou ao início do processo comercial");
-assert.equal(valor("visita_agendada"), 1);
-assert.equal(valor("visita_realizada"), 1);
-assert.equal(valor("proposta"), 1);
+// m1 e r1 falaram por ligação. Em r2 o cliente escreveu ANTES da mensagem do
+// Rafael — não é resposta a ninguém (07/11/2026); m3 só recebeu.
+assert.equal(valor("faladas"), 2);
+// Os marcos, com a etapa pulada contando (07/11/2026): m1 foi a Agendamento e
+// Visita; m2 pulou para Proposta; m3 e r1 para Venda. "Atendimento" (r2) não é marco.
+assert.equal(valor("qualificadas"), 4);
+assert.equal(valor("visita_agendada"), 4);
+assert.equal(valor("visita_realizada"), 4);
+assert.equal(valor("proposta"), 3);
 assert.equal(valor("venda"), 2);
 const hoje = d.serie[d.serie.length - 1];
 assert.equal(hoje.trabalhados, 5, "a série de hoje bate com o período");
-assert.equal(hoje.faladas, 3);
+assert.equal(hoje.faladas, 2);
 
 console.log("7b. O corretor vê os degraus dele");
 r = await chamar(tRafael, "/painel/geral?periodo=hoje");
 d = await r.json();
 console.log(`   ${d.funil_atividade.map(p => `${p.id}=${p.valor}`).join(" · ")}`);
 const vR = (id) => d.funil_atividade.find(p => p.id === id).valor;
-assert.equal(vR("trabalhados"), 2, "r1 (ligação e venda) e r2 (mensagem e etapa)");
-assert.equal(vR("faladas"), 2);
-assert.equal(vR("qualificadas"), 1);
+assert.equal(vR("trabalhados"), 2, "r1 (ligação) e r2 (mensagem)");
+assert.equal(vR("faladas"), 1, "r1 atendeu a ligação");
+assert.equal(vR("qualificadas"), 1, "r1, que ele levou à venda");
 
 console.log("8. VGC soma só quem tem comissão — e diz a cobertura");
 r = await chamar(tAli, "/painel/geral?periodo=hoje");

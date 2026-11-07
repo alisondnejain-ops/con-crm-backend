@@ -393,23 +393,54 @@ function mudarParaOFunilDe(lead, userId, quemMandou) {
    atribuição direta, sem passar pelo caminho que grava histórico) ficaria
    invisível — o evento voltaria para a data de criação do lead, e não para a
    data em que ele de fato ficou com essa pessoa. */
+/* O QUE NÃO É "RECEBER UM LEAD" (07/11/2026, relato do Fernando na VJ: "a
+   Blanca recebeu 16 leads hoje se só entraram 10?"). Quatro furos, todos
+   inflando o número:
+
+   1. O DONO DE NASCENÇA ERA INVENTADO. Lead que nasce na FILA (sem dono — o
+      caso normal quando a IA faz o pré-atendimento) e depois é repassado tem a
+      primeira transferência saindo de "ninguém". O COALESCE caía no dono de
+      HOJE e criava um segundo "recebido" para ele, na data de criação. Agora:
+      com transferência, o dono de nascença é o `from_user_id` dela — nulo é
+      "nasceu na fila", e não há evento.
+   2. LEAD DA LINHA PESSOAL do corretor nasce dele (ver lead-whatsapp.js): é o
+      cliente que já era dele escrevendo no número dele, não lead que a casa
+      entregou. Fica fora do nascimento (a primeira mensagem do lead ter
+      chegado por uma linha `tipo='corretor'`).
+   3. PLANILHA IMPORTADA (`import_id`) é base antiga carregada, não lead que
+      chegou hoje.
+   4. CARTEIRA REPASSADA EM BLOCO (`lote`, "Passar os leads de uma pessoa para
+      outra") e redistribuída porque alguém saiu da equipe (`saida_equipe`):
+      é reorganização da gestão — trezentos leads herdados num clique não são
+      trezentos leads recebidos.
+
+   E só leads que ainda existem: transferência de lead apagado (conversa
+   pessoal) não conta. A contagem por pessoa TIRA OS REPETIDOS
+   (`recebidosEm`): o lead que vai e volta para a mesma pessoa no mesmo
+   período é UM lead recebido. */
+const MOTIVOS_QUE_NAO_SAO_RECEBER = ["lote", "saida_equipe"];
 export function eventosDeAtribuicao(orgId) {
+  const fora = MOTIVOS_QUE_NAO_SAO_RECEBER.map(() => "?").join(",");
   const recebidos = db.prepare(`
     SELECT l.id AS lead_id,
       CASE WHEN EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
         THEN l.created_at
         ELSE COALESCE(l.assigned_at, l.created_at)
       END AS quando,
-      COALESCE(
-        (SELECT t.from_user_id FROM lead_transfers t
-         WHERE t.lead_id = l.id ORDER BY t.created_at ASC LIMIT 1),
-        l.assigned_to
-      ) AS user_id
-    FROM leads l WHERE l.org_id = ?
+      CASE WHEN EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
+        THEN (SELECT t.from_user_id FROM lead_transfers t WHERE t.lead_id = l.id ORDER BY t.created_at ASC, t.rowid ASC LIMIT 1)
+        ELSE l.assigned_to
+      END AS user_id,
+      'nascimento' AS como
+    FROM leads l WHERE l.org_id = ? AND l.import_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM canais c WHERE c.org_id = l.org_id AND c.tipo = 'corretor'
+        AND c.id = (SELECT m.canal_id FROM messages m WHERE m.lead_id = l.id ORDER BY m.created_at ASC LIMIT 1))
     UNION ALL
-    SELECT lead_id, created_at AS quando, to_user_id AS user_id
-    FROM lead_transfers WHERE org_id = ? AND to_user_id IS NOT NULL
-  `).all(orgId, orgId).filter(e => e.user_id);
+    SELECT t.lead_id, t.created_at AS quando, t.to_user_id AS user_id, COALESCE(t.trigger_reason, '') AS como
+    FROM lead_transfers t JOIN leads l ON l.id = t.lead_id AND l.org_id = t.org_id
+    WHERE t.org_id = ? AND t.to_user_id IS NOT NULL AND COALESCE(t.trigger_reason, '') NOT IN (${fora})
+  `).all(orgId, orgId, ...MOTIVOS_QUE_NAO_SAO_RECEBER).filter(e => e.user_id)
+    .sort((a, b) => a.quando - b.quando);
 
   /* "Perdido" aqui é ownership saindo da mão de alguém — nada a ver com a
      etapa "Perdido" do funil (aquilo é negócio que não fechou; isto é lead
@@ -419,11 +450,23 @@ export function eventosDeAtribuicao(orgId) {
      `saida_equipe` (a pessoa saiu da imobiliária e os leads dela foram
      redistribuídos) — quem lê decide o que entra em cada pergunta. */
   const perdidos = db.prepare(`
-    SELECT lead_id, created_at AS quando, from_user_id AS user_id, trigger_reason AS motivo
-    FROM lead_transfers WHERE org_id = ? AND from_user_id IS NOT NULL
+    SELECT t.lead_id, t.created_at AS quando, t.from_user_id AS user_id, t.trigger_reason AS motivo
+    FROM lead_transfers t JOIN leads l ON l.id = t.lead_id AND l.org_id = t.org_id
+    WHERE t.org_id = ? AND t.from_user_id IS NOT NULL
   `).all(orgId);
 
   return { recebidos, perdidos };
+}
+
+/* Os leads que CHEGARAM na mão de uma pessoa no período — um por lead (o
+   primeiro momento em que chegou). É a conta única de "recebidos": Relatórios,
+   Painel, Operação (Equipe), Score e Indicadores do SDR leem daqui. */
+export function recebidosEm(eventos, userId, de, ate) {
+  const vistos = new Set();
+  return noPeriodo(eventos.recebidos, userId, de, ate).filter(e => {
+    if (vistos.has(e.lead_id)) return false;
+    vistos.add(e.lead_id); return true;
+  });
 }
 
 // Conta os eventos de uma lista (recebidos OU perdidos) para uma pessoa, num

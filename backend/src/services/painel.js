@@ -28,10 +28,12 @@ import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
 import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js";
 import { slaDoLead, leadsComTarefaFutura } from "./etapas.js";
-import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { resumoDeDisparos } from "./disparo.js";
 import { configDoFunil, funilDeConversao } from "./conversao.js";
+import { qualificadosNoPeriodo } from "./sdr-funil.js";
+import { alcancesNoPeriodo, candidatosDoPeriodo } from "./marcos.js";
 
 const DIA = 86400000;
 
@@ -103,7 +105,7 @@ export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = nul
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
   const ids = new Set(db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql}`).all(...p.args).map(r => r.id));
-  return noPeriodo((eventos || eventosDeAtribuicao(orgId)).recebidos, userId, de, ate)
+  return recebidosEm(eventos || eventosDeAtribuicao(orgId), userId, de, ate)
     .filter(e => ids.has(e.lead_id));
 }
 
@@ -190,8 +192,7 @@ export function painel(orgId, filtros = {}) {
   const quem = pessoaDoFiltro(filtros);
   const eventos = quem ? eventosDeAtribuicao(orgId) : null;
   const recebidos = coorte(orgId, periodo, filtros, eventos);
-  // O número mostrado é o de chegadas, igual ao de Relatórios: um lead que
-  // voltou duas vezes para a mesma pessoa conta duas.
+  // O número mostrado é o de Relatórios: um por lead que chegou na mão dela.
   const totalRecebidos = quem
     ? recebidosDaPessoa(orgId, quem, filtros, periodo.de, periodo.ate, eventos).length
     : recebidos.length;
@@ -216,6 +217,25 @@ export function painel(orgId, filtros = {}) {
   const tempos = temposDeResposta(recebidos);
   const comDono = recebidos.filter(l => l.assigned_to).length;
 
+  /* QUALIFICADOS NO PERÍODO (07/11/2026, pedido do Fernando, ao lado de
+     recebidos / 1ª resposta / responderam). Com uma pessoa no filtro, os leads
+     que ELA qualificou — chegaram ao "Atendimento qualificado", ou ela pulou
+     direto para mais adiante (services/marcos.js). Para a casa, a régua de
+     Campanhas e do SDR (`qualificadosNoPeriodo`): qualificado pelo SDR ou
+     no comercial. Um por lead. */
+  const { responsavel: _r, ...semDono } = filtros || {};
+  const pq = peneira(orgId, semDono);
+  const qualificados = quem
+    ? alcancesNoPeriodo(orgId, candidatosDoPeriodo(orgId, pq.sql, pq.args, periodo.de, periodo.ate),
+        "qualificado", periodo.de, periodo.ate, { quem }).length
+    : (() => {
+        const q = qualificadosNoPeriodo(orgId, periodo.de, periodo.ate);
+        if (!q.size) return 0;
+        const dentro = new Set(emLotes([...q.keys()], (m, lote) => db.prepare(
+          `SELECT l.id FROM leads l WHERE ${p.sql} AND l.id IN (${m})`).all(...p.args, ...lote)).map(r => r.id));
+        return [...q.keys()].filter(id => dentro.has(id)).length;
+      })();
+
   /* VENDA CONTA PELA DATA DA VENDA, não pela entrada do lead. Foi o furo
      corrigido em 10/08/2026: venda fechada hoje de um lead de junho não
      aparecia em "esta semana". */
@@ -228,6 +248,7 @@ export function painel(orgId, filtros = {}) {
     filtros,
     atendimento: {
       recebidos: totalRecebidos,
+      qualificados,
       com_responsavel: comDono,
       na_fila: recebidos.filter(l => !l.assigned_to).length,
       // `null` e não zero: sem ninguém respondido, não há tempo para medir.
@@ -307,7 +328,7 @@ export function atividades(orgId, periodo, filtros = {}) {
     // A mesma conta de Relatórios e do Painel (ver recebidosDaPessoa).
     // A mesma conta de `recebidosDaPessoa` (Relatórios e Painel), com a lista
     // de leads do filtro já lida acima em vez de reler a casa por pessoa.
-    const recebidosNoPeriodo = noPeriodo(eventos.recebidos, u.id, periodo.de, periodo.ate)
+    const recebidosNoPeriodo = recebidosEm(eventos, u.id, periodo.de, periodo.ate)
       .filter(e => noFiltro.has(e.lead_id)).length;
 
     return {
@@ -387,11 +408,16 @@ export function campanhas(orgId, filtros = {}) {
   const leads = db.prepare(`SELECT l.* FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
     .all(...p.args, periodo.de, periodo.ate);
 
+  /* AGRUPADO PELO ID DA CAMPANHA, quando existe (07/11/2026). Agrupar pelo
+     nome partia uma campanha em duas linhas quando o nome mudava no meio — e
+     o quadro "Desempenho dos anúncios", logo acima, junta pelo id: a mesma
+     campanha aparecia com 7 leads em cima e 3 embaixo. O nome mostrado é o
+     do lead mais recente. */
   const grupos = new Map();
-  for (const l of leads) {
-    const chave = l.campaign_name || l.origem || "(sem origem registrada)";
+  for (const l of [...leads].sort((a, b) => b.created_at - a.created_at)) {
+    const chave = l.campaign_id ? "id:" + l.campaign_id : (l.campaign_name || l.origem || "(sem origem registrada)");
     if (!grupos.has(chave)) grupos.set(chave, {
-      campanha: chave, campaign_id: l.campaign_id || null, platform: l.platform || null,
+      campanha: l.campaign_name || l.origem || "(sem origem registrada)", campaign_id: l.campaign_id || null, platform: l.platform || null,
       leads: [], anuncios: new Set(),
     });
     const g = grupos.get(chave);
@@ -399,15 +425,15 @@ export function campanhas(orgId, filtros = {}) {
     if (l.ad_name) g.anuncios.add(l.ad_name);
   }
 
-  const etapas = new Map(db.prepare("SELECT * FROM pipeline_stages WHERE org_id = ?").all(orgId)
-    .map(e => [e.id, formatarEtapa(e)]));
+  /* QUALIFICADO: a mesma régua da Visão geral e do SDR — qualificado pelo
+     SDR ou no comercial, entre a chegada e o fim do período. Antes era "a
+     etapa de HOJE conta como conversão", e o mesmo lead deixava de contar ao
+     ser perdido depois. */
+  const qualificadosDaCasa = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
 
   const linhas = [...grupos.values()].map(g => {
     const tempos = temposDeResposta(g.leads);
-    const qualificados = g.leads.filter(l => {
-      const e = l.stage_id ? etapas.get(l.stage_id) : null;
-      return e && e.counts_as_conversion;
-    }).length;
+    const qualificados = g.leads.filter(l => qualificadosDaCasa.has(l.id)).length;
     const vendidos = g.leads.filter(l => l.sale_value != null);
     return {
       campanha: g.campanha, campaign_id: g.campaign_id, platform: g.platform,
