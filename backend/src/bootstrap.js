@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import db from "./db.js";
 import { garantirPipelinePadrao } from "./services/pipelines.js";
 import { migrarCanais } from "./services/canais.js";
+import { hashToken, paraGravar } from "./services/segredo-whatsapp.js";
 
 // Roda a cada start do servidor. Garante que a organização existe e que o código
 // da imobiliária é o do .env — assim, ao hospedar, o link de cadastro já funciona
@@ -51,10 +52,11 @@ export function bootstrap() {
   const uToken = String(process.env.UAZAPI_TOKEN || "").trim();
   if (uHost && uToken) {
     const atual = db.prepare("SELECT uazapi_token FROM orgs WHERE id = ?").get(org.id);
-    const jaUsado = db.prepare("SELECT id FROM orgs WHERE uazapi_token = ?").get(uToken);
+    const jaUsado = db.prepare("SELECT id FROM orgs WHERE uazapi_token_hash = ? OR uazapi_token = ?").get(hashToken(uToken), uToken);
     if (!atual?.uazapi_token && !jaUsado) {
-      db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ? WHERE id = ?")
-        .run(uHost.replace(/\/$/, ""), uToken, org.id);
+      const g = paraGravar(uToken);
+      db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ?, uazapi_token_hash = ? WHERE id = ?")
+        .run(uHost.replace(/\/$/, ""), g.valor, g.hash, org.id);
       console.log(`WhatsApp de ${org.name} migrado das variáveis do servidor para a conta da imobiliária.`);
     }
   }

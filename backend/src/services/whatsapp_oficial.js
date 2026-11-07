@@ -29,6 +29,7 @@
       corretor entender por que a mensagem não saiu. */
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { lerSegredo } from "./segredo-whatsapp.js";
 
 const VERSAO = process.env.META_GRAPH_VERSION || "v21.0";
 // META_GRAPH_URL troca o endereço só nos testes (uma Meta de mentira).
@@ -57,7 +58,7 @@ function assinar(text, signedBy, canal) {
 
 async function chamar(canal, caminho, { method = "GET", json, form } = {}) {
   if (!canal || !canal.token) throw new Error("Esta linha não tem a API oficial da Meta conectada.");
-  const headers = { Authorization: `Bearer ${canal.token}` };
+  const headers = { Authorization: `Bearer ${lerSegredo(canal.token)}` };
   let body;
   if (json) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
   else if (form) { body = form; } // FormData define o próprio Content-Type (com boundary)
@@ -198,7 +199,7 @@ export async function instanceStatus(canal) {
     return {
       configurado: false,
       endereco: canal?.phone_number_id ? `definido (${canal.phone_number_id})` : "FALTANDO (Phone Number ID)",
-      token: canal?.token ? `definido (${canal.token.length} caracteres)` : "FALTANDO (token de acesso)",
+      token: canal?.token ? `definido (${String(lerSegredo(canal.token) || "").length} caracteres)` : "FALTANDO (token de acesso)",
       dica: "Conecte a API oficial da Meta em Configurações → Conexão, com o Phone Number ID e o token permanente do seu aplicativo.",
     };
   }
@@ -229,7 +230,7 @@ export async function baixarMidiaOficial(mediaId, canal) {
   if (!canal?.token || !mediaId) throw new Error("linha oficial sem token, ou mensagem sem id de mídia");
   const meta = await chamar(canal, mediaId);
   if (!meta.url) throw new Error("a Meta não devolveu o endereço do arquivo");
-  const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${canal.token}` } });
+  const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${lerSegredo(canal.token)}` } });
   if (!res.ok) throw new Error(`HTTP ${res.status} ao baixar o arquivo da Meta`);
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.byteLength > LIMITE_MIDIA) throw new Error("arquivo grande demais");

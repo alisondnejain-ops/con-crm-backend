@@ -43,6 +43,7 @@
 
 import db from "../db.js";
 import { randomUUID } from "crypto";
+import { hashToken, lerSegredo, paraGravar } from "./segredo-whatsapp.js";
 
 export const TIPOS = ["imobiliaria", "corretor", "disparo"];
 
@@ -127,17 +128,18 @@ export function salvarConexao(canalId, { host, token, waNumber = null, quem = nu
   const c = canalPorId(canalId);
   if (!c) throw new Error("Canal não encontrado.");
   const h = limpaHost(host) || null;
-  const t = String(token || "").trim() || null;
+  const t = String(lerSegredo(token) || "").trim() || null;
+  const g = paraGravar(t);
 
   const gravar = db.transaction(() => {
-    db.prepare(`UPDATE canais SET host = ?, token = ?, wa_number = COALESCE(?, wa_number),
+    db.prepare(`UPDATE canais SET host = ?, token = ?, token_hash = ?, wa_number = COALESCE(?, wa_number),
       conectado_em = CASE WHEN ? IS NULL THEN NULL ELSE ? END WHERE id = ?`)
-      .run(h, t, waNumber, t, Date.now(), canalId);
+      .run(h, g.valor, g.hash, waNumber, t, Date.now(), canalId);
     // O PAR. A linha da casa é lida por `orgs.uazapi_*` em dezenas de lugares
     // que ainda não sabem que canais existem — e é aqui, e só aqui, que os dois
     // andam juntos.
     if (c.tipo === "imobiliaria")
-      db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ? WHERE id = ?").run(h, t, c.org_id);
+      db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ?, uazapi_token_hash = ? WHERE id = ?").run(h, g.valor, g.hash, c.org_id);
   });
   gravar();
   console.log(`[canais] ${c.tipo === "imobiliaria" ? "linha da casa" : "linha de " + (c.nome || c.user_id)} ${t ? "conectada" : "desconectada"}`);
@@ -191,7 +193,7 @@ export function desligarCanal(canalId) {
        "ocupado" para sempre, e reconectar o mesmo número (ou religar a linha)
        esbarraria numa constraint que ninguém entenderia olhando a tela. */
     if (c.provider === "meta")
-      db.prepare("UPDATE canais SET token = NULL, phone_number_id = NULL, conectado_em = NULL WHERE id = ?").run(canalId);
+      db.prepare("UPDATE canais SET token = NULL, token_hash = NULL, phone_number_id = NULL, conectado_em = NULL WHERE id = ?").run(canalId);
     else
       salvarConexao(canalId, { host: c.host, token: null });
     db.prepare("UPDATE canais SET ativo = 0 WHERE id = ?").run(canalId);
@@ -218,7 +220,7 @@ export function desligarCanal(canalId) {
 export function canalDoWhatsapp({ token, numero }) {
   const t = String(token || "").trim();
   if (t) {
-    const por = db.prepare("SELECT * FROM canais WHERE token = ? AND ativo = 1").get(t);
+    const por = db.prepare("SELECT * FROM canais WHERE (token_hash = ? OR token = ?) AND ativo = 1").get(hashToken(t), t);
     if (por) return por;
   }
   /* A REDE DE SEGURANÇA DA LINHA DA CASA.
@@ -234,7 +236,7 @@ export function canalDoWhatsapp({ token, numero }) {
 
      Aqui a cura é barata e o estrago é caro, então ela fica. */
   if (t) {
-    const org = db.prepare("SELECT id, name FROM orgs WHERE uazapi_token = ?").get(t);
+    const org = db.prepare("SELECT id, name FROM orgs WHERE uazapi_token_hash = ? OR uazapi_token = ?").get(hashToken(t), t);
     if (org) return garantirCasa(org.id);
   }
 
@@ -328,16 +330,19 @@ export function salvarConexaoOficial(canalId, { phoneNumberId, wabaId, token, ap
   }
 
   const pnid = String(phoneNumberId || "").trim() || null;
+  // Guardados fechados (services/segredo-whatsapp.js); o que veio da casa
+  // já pode estar fechado, e `paraGravar` abre antes de fechar de novo.
+  const gt = paraGravar(tok), gs = paraGravar(secret);
 
   const gravar = db.transaction(() => {
-    db.prepare(`UPDATE canais SET provider = 'meta', phone_number_id = ?, waba_id = ?, token = ?,
+    db.prepare(`UPDATE canais SET provider = 'meta', phone_number_id = ?, waba_id = ?, token = ?, token_hash = ?,
       app_secret = ?, verify_token = ?, host = NULL, wa_number = COALESCE(?, wa_number),
       conectado_em = CASE WHEN ? IS NULL THEN NULL ELSE ? END WHERE id = ?`)
-      .run(pnid, waba, tok, secret, verify, waNumber, pnid, Date.now(), canalId);
+      .run(pnid, waba, gt.valor, gt.hash, gs.valor, verify, waNumber, pnid, Date.now(), canalId);
 
     if (c.tipo === "imobiliaria")
-      db.prepare(`UPDATE canais SET waba_id = ?, token = ?, app_secret = ?, verify_token = ?
-        WHERE org_id = ? AND tipo = 'corretor' AND provider = 'meta'`).run(waba, tok, secret, verify, c.org_id);
+      db.prepare(`UPDATE canais SET waba_id = ?, token = ?, token_hash = ?, app_secret = ?, verify_token = ?
+        WHERE org_id = ? AND tipo = 'corretor' AND provider = 'meta'`).run(waba, gt.valor, gt.hash, gs.valor, verify, c.org_id);
   });
   gravar();
   console.log(`[canais] ${c.tipo === "imobiliaria" ? "linha da casa" : "linha de " + (c.nome || c.user_id)} conectada à API oficial da Meta`);
@@ -395,17 +400,23 @@ export function garantirCasa(orgId) {
        apareceu ao testar isto: conectar a Meta funcionava, e a PRÓXIMA
        leitura de status (que passa por aqui) devolvia a linha desconectada,
        sem erro nenhum aparecer. */
+    /* A comparação é do token ABERTO: fechados, os dois valores nunca são
+       iguais (cada um tem o próprio número aleatório), e comparar o texto
+       fechado reescreveria a linha a cada leitura. */
     if (casa.provider !== "meta" &&
-        ((casa.token || null) !== (o.uazapi_token || null) || (casa.host || null) !== (o.uazapi_host || null)))
-      db.prepare("UPDATE canais SET host = ?, token = ? WHERE id = ?").run(o.uazapi_host || null, o.uazapi_token || null, casa.id);
+        ((lerSegredo(casa.token) || null) !== (lerSegredo(o.uazapi_token) || null) || (casa.host || null) !== (o.uazapi_host || null))) {
+      const g = paraGravar(o.uazapi_token || null);
+      db.prepare("UPDATE canais SET host = ?, token = ?, token_hash = ? WHERE id = ?").run(o.uazapi_host || null, g.valor, g.hash, casa.id);
+    }
     if (!casa.wa_number && o.wa_number)
       db.prepare("UPDATE canais SET wa_number = ? WHERE id = ?").run(o.wa_number, casa.id);
     return canalPorId(casa.id);
   }
   const id = "cn_" + randomUUID();
-  db.prepare(`INSERT INTO canais (id,org_id,tipo,user_id,nome,host,token,wa_number,ativo,created_at,conectado_em)
-    VALUES (?,?,'imobiliaria',NULL,?,?,?,?,1,?,?)`)
-    .run(id, orgId, `WhatsApp de ${o.name}`, o.uazapi_host || null, o.uazapi_token || null, o.wa_number || null,
+  const gc = paraGravar(o.uazapi_token || null);
+  db.prepare(`INSERT INTO canais (id,org_id,tipo,user_id,nome,host,token,token_hash,wa_number,ativo,created_at,conectado_em)
+    VALUES (?,?,'imobiliaria',NULL,?,?,?,?,?,1,?,?)`)
+    .run(id, orgId, `WhatsApp de ${o.name}`, o.uazapi_host || null, gc.valor, gc.hash, o.wa_number || null,
          Date.now(), o.uazapi_token ? Date.now() : null);
   console.log(`[canais] linha da casa de ${o.name} criada na hora, a partir da conexão que já existia`);
   return canalPorId(id);

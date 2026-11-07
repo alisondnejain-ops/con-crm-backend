@@ -28,6 +28,7 @@ import { canalPorId, canalDaCasa, canalDoWhatsapp } from "./canais.js";
 import * as oficial from "./whatsapp_oficial.js";
 import { numeroAlternativo } from "./telefone.js";
 import { inicioDeEnvioDoCrm, fimDeEnvioDoCrm } from "./marca-disparo.js";
+import { lerSegredo, paraGravar } from "./segredo-whatsapp.js";
 
 /* ===== DESPACHO PARA A API OFICIAL DA META (03/09/2026) =====
 
@@ -63,13 +64,13 @@ export function credenciais(orgId, canalId = null) {
   if (!orgId && !canalId) return { host: "", token: "" };
   const canal = canalId ? canalPorId(canalId) : null;
   if (canal && canal.ativo && canal.token)
-    return { host: limpar(canal.host), token: String(canal.token || ""), canal };
+    return { host: limpar(canal.host), token: String(lerSegredo(canal.token) || ""), canal };
 
   /* Cai para a casa lendo `orgs`, e não o canal da casa, de propósito: é a
      coluna que o resto do sistema escreve, e numa divergência é ela que está
      certa. `migrarCanais` realinha o canal no start seguinte. */
   const o = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id = ?").get(orgId || (canal && canal.org_id)) || {};
-  return { host: limpar(o.uazapi_host), token: String(o.uazapi_token || ""), canal: canalDaCasa(orgId) };
+  return { host: limpar(o.uazapi_host), token: String(lerSegredo(o.uazapi_token) || ""), canal: canalDaCasa(orgId) };
 }
 
 const limpar = (h) => String(h || "").replace(/\/$/, "");
@@ -81,8 +82,9 @@ export function uazapiConfigured(orgId, canalId = null) {
 
 /* Guarda (ou apaga) a conexão de uma imobiliária. Token vazio desliga. */
 export function salvarCredenciais(orgId, { host, token }) {
-  db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ? WHERE id = ?")
-    .run(String(host || "").trim().replace(/\/$/, "") || null, String(token || "").trim() || null, orgId);
+  const g = paraGravar(String(token || "").trim() || null);
+  db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = ?, uazapi_token_hash = ? WHERE id = ?")
+    .run(String(host || "").trim().replace(/\/$/, "") || null, g.valor, g.hash, orgId);
 }
 
 /* De quem é este WhatsApp? Quem responde isso agora é `canalDoWhatsapp`, em

@@ -144,6 +144,15 @@ ele responde as três de uma vez, em português.
    clientes num arquivo só, guardado fora do nosso servidor.
    **Guarde uma cópia desta chave fora do Railway.** Perdê-la é perder o
    acesso a todas as cópias antigas.
+   **Desde 07/11/2026 ela também fecha os tokens do WhatsApp** guardados no
+   banco. Isso muda o peso dela: **trocar ou apagar a `CRYPTO_KEY` desliga o
+   WhatsApp de todas as contas** até a chave certa voltar (nada se perde —
+   recolocando a mesma chave, tudo volta). O painel `/integracoes` →
+   `seguranca.tokens_do_whatsapp` avisa quando a chave não é a que fechou.
+   **Antes de voltar a publicar uma versão anterior a 07/11/2026**, ponha
+   `WHATSAPP_TOKENS_EM_CLARO=1` no Railway, espere reiniciar (os tokens voltam
+   a ficar em claro) e só então publique a versão antiga — ela não sabe abrir
+   token fechado e mandaria o texto fechado para a Uazapi.
 3. **`ASAAS_WEBHOOK_TOKEN`** — sem ele o aviso de pagamento é **recusado** e a
    conta do cliente não desbloqueia sozinha. (Antes, sem ele a conferência era
    pulada e qualquer pessoa podia avisar "paguei" por qualquer conta.)
