@@ -41,6 +41,7 @@
 
 import db from "../db.js";
 import { canalPorId, canalDaCasa } from "./canais.js";
+import { lerSegredo } from "./segredo-whatsapp.js";
 
 const TIMEOUT_MS = 20000;
 const NOSSO = /\/webhooks\/uazapi\/?$/i;
@@ -64,9 +65,9 @@ function alvo(orgId, canalId) {
   const canal = canalId ? canalPorId(canalId) : canalDaCasa(orgId);
   if (canal && canal.provider === "meta") return { canal, meta: true };
   if (canal && canal.tipo !== "imobiliaria")
-    return { canal, host: canal.ativo ? limpar(canal.host) : "", token: canal.ativo ? String(canal.token || "") : "" };
+    return { canal, host: canal.ativo ? limpar(canal.host) : "", token: canal.ativo ? String(lerSegredo(canal.token) || "") : "" };
   const o = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id = ?").get(orgId || (canal && canal.org_id)) || {};
-  return { canal, host: limpar(o.uazapi_host), token: String(o.uazapi_token || "") };
+  return { canal, host: limpar(o.uazapi_host), token: String(lerSegredo(o.uazapi_token) || "") };
 }
 
 async function pedir(host, token, metodo, corpo) {

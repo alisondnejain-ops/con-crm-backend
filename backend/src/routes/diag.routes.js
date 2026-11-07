@@ -13,6 +13,7 @@ import { modoArmazenamento, usandoR2, salvar, apagar, conferirR2, falhaR2, falha
    tela feita para diagnóstico é entregar o problema sem a pista. */
 import { emPortugues } from "../services/backup.js";
 import { cofreLigado } from "../services/cofre.js";
+import { situacaoDosTokens } from "../services/segredo-whatsapp.js";
 import { ffmpegConfigurado } from "../services/video.js";
 import { fotosPendentes } from "../services/fotos-imovel.js";
 
@@ -216,6 +217,10 @@ r.get("/integracoes", async (_req, res) => {
        falha real que a auditoria de 02/09/2026 encontrou aberta. */
     seguranca: {
       criptografia_do_backup: cofreLigado() ? "ligada" : "DESLIGADA — a cópia de segurança sobe em claro para o R2 (falta CRYPTO_KEY)",
+      /* Os tokens do WhatsApp (07/11/2026): quantos estão fechados e quantos
+         em claro — números, nunca valores. */
+      tokens_do_whatsapp: (() => { const t = situacaoDosTokens();
+        return { fechando: t.fecha, fechados: t.fechados, em_claro: t.em_claro, aviso: t.motivo || null }; })(),
       webhook_do_asaas: process.env.ASAAS_WEBHOOK_TOKEN
         ? "protegido" : "SEM TOKEN — o webhook está recusando tudo (falta ASAAS_WEBHOOK_TOKEN)",
       /* Pagar.me (04/10/2026): sem valor de chave, só se está ligado, em que

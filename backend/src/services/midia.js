@@ -1,5 +1,6 @@
 import { salvar } from "./storage.js";
 import { baixarMidiaOficial } from "./whatsapp_oficial.js";
+import { lerSegredo } from "./segredo-whatsapp.js";
 
 /* Mídia que o CLIENTE manda pelo WhatsApp (foto, áudio, documento).
 
@@ -50,7 +51,7 @@ async function baixarDe(url, headers) {
 // caminhos aparecem conforme a versão, então tratamos ambos.
 async function viaUazapi(messageid, canal) {
   const host = String(canal?.host || "").replace(/\/$/, "");
-  const token = String(canal?.token || "");
+  const token = String(lerSegredo(canal?.token) || "");
   if (!host || !token || !messageid) throw new Error("a linha que recebeu não tem conexão configurada");
   const res = await fetch(`${host}/message/download`, {
     method: "POST",

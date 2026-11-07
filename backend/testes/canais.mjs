@@ -24,6 +24,8 @@ for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH 
 const { default: db } = await import("../src/db.js");
 const { randomUUID } = await import("crypto");
 const C = await import("../src/services/canais.js");
+// Com CRYPTO_KEY o valor guardado é fechado; o que se confere é o token aberto.
+const { lerSegredo: L } = await import("../src/services/segredo-whatsapp.js");
 
 const org = "org_conecta", org2 = "org_place";
 const novaOrg = (id, nome, token) =>
@@ -49,7 +51,7 @@ C.migrarCanais();
 let casa = C.canalDaCasa(org);
 console.log(`   ${casa.nome} · conectada: ${!!casa.token}`);
 assert.equal(casa.tipo, "imobiliaria");
-assert.equal(casa.token, "token-da-casa");
+assert.equal(L(casa.token), "token-da-casa");
 
 console.log("2. Rodar de novo não cria uma segunda");
 C.migrarCanais(); C.migrarCanais();
@@ -106,10 +108,10 @@ console.log("9. Conectar a linha da casa NÃO desencontra o par com `orgs`");
    separar — e separado o CRM enviaria por um número e receberia por outro. */
 C.salvarConexao(casa.id, { host: "https://novo.uazapi.com", token: "token-novo-da-casa" });
 const o9 = db.prepare("SELECT uazapi_host, uazapi_token FROM orgs WHERE id=?").get(org);
-console.log(`   orgs: ${o9.uazapi_token} · canal: ${C.canalDaCasa(org).token}`);
-assert.equal(o9.uazapi_token, "token-novo-da-casa");
+console.log(`   orgs: ${L(o9.uazapi_token)} · canal: ${L(C.canalDaCasa(org).token)}`);
+assert.equal(L(o9.uazapi_token), "token-novo-da-casa");
 assert.equal(o9.uazapi_host, "https://novo.uazapi.com");
-assert.equal(C.canalDaCasa(org).token, o9.uazapi_token);
+assert.equal(L(C.canalDaCasa(org).token), L(o9.uazapi_token));
 
 console.log("\n===== O TETO DO PLANO =====");
 

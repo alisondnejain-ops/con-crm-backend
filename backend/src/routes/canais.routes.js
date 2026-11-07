@@ -18,6 +18,7 @@ import {
 } from "../services/canais.js";
 import { instanceStatus, conectarInstancia, PROVEDORES } from "../services/uazapi.js";
 import { garantirWebhook } from "../services/webhook-uazapi.js";
+import { hashToken } from "../services/segredo-whatsapp.js";
 
 const r = Router();
 r.use(authRequired);
@@ -155,7 +156,7 @@ r.post("/meu/credenciais", async (req, res) => {
      linhas apontariam para o mesmo WhatsApp, o webhook entregaria a mensagem à
      primeira que casasse e o corretor acharia que estava falando pelo número
      dele. O índice do banco já barra; a mensagem é que precisa dizer o quê. */
-  const jaUsado = db.prepare("SELECT id, org_id, tipo, nome FROM canais WHERE token = ? AND id <> ?").get(token, meu.id);
+  const jaUsado = db.prepare("SELECT id, org_id, tipo, nome FROM canais WHERE (token_hash = ? OR token = ?) AND id <> ?").get(hashToken(token), token, meu.id);
   if (jaUsado) return res.status(409).json({
     error: jaUsado.tipo === "imobiliaria" && jaUsado.org_id === req.user.org_id
       ? "Esse é o token do WhatsApp da imobiliária. Você precisa de uma instância só sua na Uazapi — com o seu número."

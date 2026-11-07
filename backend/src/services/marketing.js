@@ -26,6 +26,7 @@ import { paisDaOrg } from "./pais-da-org.js";
 import { createHash, randomUUID } from "crypto";
 import { gzipSync, gunzipSync } from "zlib";
 import { normalizePhone } from "./stages.js";
+import { hashToken, lerSegredo, paraGravar } from "./segredo-whatsapp.js";
 import { lerXlsx, lerCSV } from "./xlsx.js";
 import { numeroAlternativo } from "./uazapi.js";
 import { desligarCanal, canalDaCasa, garantirCasa, canalPorId } from "./canais.js";
@@ -332,7 +333,7 @@ export const listaDeBloqueio = (orgId, limite = 200) => ({
 
 // ===== NÚMERO DE DISPARO =====
 
-const mascararToken = (t) => t ? `${t.slice(0, 4)}…${t.slice(-4)} (${t.length} caracteres)` : null;
+const mascararToken = (v) => { const t = lerSegredo(v); return t ? `${t.slice(0, 4)}…${t.slice(-4)} (${t.length} caracteres)` : null; };
 const soDigitos = (v) => String(v || "").replace(/\D/g, "");
 
 // Consulta a instância na Uazapi. Nunca lança; teto de 15s.
@@ -380,9 +381,10 @@ export async function salvarNumero(orgId, user, { host, token }) {
   /* A trava principal desta tela: o token não pode ser de nenhuma linha que
      já existe no ConHub — nem desta conta (seria o número que recebe leads),
      nem de outra (seria o número de outra imobiliária). */
-  const emUso = db.prepare("SELECT 1 FROM canais WHERE token = ? AND NOT (org_id = ? AND tipo = 'disparo') LIMIT 1").get(tk, orgId)
-    || db.prepare("SELECT 1 FROM orgs WHERE uazapi_token = ? LIMIT 1").get(tk)
-    || db.prepare("SELECT 1 FROM marketing_numero WHERE token = ? AND org_id <> ? LIMIT 1").get(tk, orgId);
+  const hk = hashToken(tk);
+  const emUso = db.prepare("SELECT 1 FROM canais WHERE (token_hash = ? OR token = ?) AND NOT (org_id = ? AND tipo = 'disparo') LIMIT 1").get(hk, tk, orgId)
+    || db.prepare("SELECT 1 FROM orgs WHERE uazapi_token_hash = ? OR uazapi_token = ? LIMIT 1").get(hk, tk)
+    || db.prepare("SELECT 1 FROM marketing_numero WHERE (token_hash = ? OR token = ?) AND org_id <> ? LIMIT 1").get(hk, tk, orgId);
   if (emUso)
     throw new ErroMarketing(409, "Este token já é de uma linha de atendimento no ConHub. Sem cadastrar nada, o disparo já sai pelo número de atendimento — o número de contingência precisa ser uma instância SEPARADA, com outro número.");
 
@@ -391,11 +393,12 @@ export async function salvarNumero(orgId, user, { host, token }) {
     throw new ErroMarketing(409, "Esta instância está conectada ao mesmo número que recebe os leads — o disparo já sai por ele sem cadastrar nada. O número de contingência precisa ser outro.");
 
   const hostFinal = url.origin + url.pathname.replace(/\/+$/, "");
+  const g = paraGravar(tk);
   db.transaction(() => {
-    db.prepare(`INSERT INTO marketing_numero (org_id,host,token,numero,conectado,atualizado_em,atualizado_por)
-      VALUES (?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET host=excluded.host, token=excluded.token,
+    db.prepare(`INSERT INTO marketing_numero (org_id,host,token,token_hash,numero,conectado,atualizado_em,atualizado_por)
+      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(org_id) DO UPDATE SET host=excluded.host, token=excluded.token, token_hash=excluded.token_hash,
       numero=excluded.numero, conectado=excluded.conectado, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por`)
-      .run(orgId, hostFinal, tk, inst.numero || null,
+      .run(orgId, hostFinal, g.valor, g.hash, inst.numero || null,
         inst.conectado == null ? null : (inst.conectado ? 1 : 0), Date.now(), user.id);
     /* A LINHA DE DISPARO VIRA UM CANAL (27/09/2026). É por ela que a
        resposta do cliente chega: o webhook reconhece o token, a mensagem
@@ -404,13 +407,13 @@ export async function salvarNumero(orgId, user, { host, token }) {
     const existente = db.prepare("SELECT id FROM canais WHERE org_id = ? AND tipo = 'disparo'").get(orgId);
     let canalId = existente?.id;
     if (existente)
-      db.prepare(`UPDATE canais SET host = ?, token = ?, wa_number = ?, ativo = 1, provider = 'uazapi', conectado_em = ? WHERE id = ?`)
-        .run(hostFinal, tk, inst.numero || null, Date.now(), canalId);
+      db.prepare(`UPDATE canais SET host = ?, token = ?, token_hash = ?, wa_number = ?, ativo = 1, provider = 'uazapi', conectado_em = ? WHERE id = ?`)
+        .run(hostFinal, g.valor, g.hash, inst.numero || null, Date.now(), canalId);
     else {
       canalId = "cn_" + randomUUID();
-      db.prepare(`INSERT INTO canais (id,org_id,tipo,nome,host,token,wa_number,ativo,criado_por,created_at,conectado_em,provider)
-        VALUES (?,?,'disparo','Disparo',?,?,?,1,?,?,?,'uazapi')`)
-        .run(canalId, orgId, hostFinal, tk, inst.numero || null, user.id, Date.now(), Date.now());
+      db.prepare(`INSERT INTO canais (id,org_id,tipo,nome,host,token,token_hash,wa_number,ativo,criado_por,created_at,conectado_em,provider)
+        VALUES (?,?,'disparo','Disparo',?,?,?,?,1,?,?,?,'uazapi')`)
+        .run(canalId, orgId, hostFinal, g.valor, g.hash, inst.numero || null, user.id, Date.now(), Date.now());
     }
     db.prepare("UPDATE marketing_numero SET canal_id = ? WHERE org_id = ?").run(canalId, orgId);
   })();

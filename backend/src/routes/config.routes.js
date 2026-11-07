@@ -20,6 +20,7 @@ import { instanceStatus, desconectarInstancia, conectarInstancia, uazapiConfigur
 import { canalDaCasa, salvarConexao, salvarConexaoOficial, verificadorDaCasa, garantirCasa } from "../services/canais.js";
 import { iaConfigurada, modeloIA, LIMITE_ORIENTACOES } from "../services/ia.js";
 import { garantirWebhook, garantirWebhooksDaOrg, enderecoDoWebhook } from "../services/webhook-uazapi.js";
+import { hashToken } from "../services/segredo-whatsapp.js";
 import { resumoDeUso } from "../services/iauso.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
 import { salvar, apagar, tipoPermitido, ehVideo, ehDocumento, limiteBytes, chaveDaUrl } from "../services/storage.js";
@@ -367,8 +368,8 @@ r.post("/conexao/credenciais", roles("adm"), async (req, res) => {
      à primeira que casasse, sem erro nenhum aparecer. */
   const casa = canalDaCasa(req.user.org_id);
   const jaUsado = db.prepare(`SELECT c.tipo, c.nome, o.name AS imobiliaria FROM canais c
-    JOIN orgs o ON o.id = c.org_id WHERE c.token = ? AND c.id <> COALESCE(?, '')`)
-    .get(token, casa ? casa.id : null);
+    JOIN orgs o ON o.id = c.org_id WHERE (c.token_hash = ? OR c.token = ?) AND c.id <> COALESCE(?, '')`)
+    .get(hashToken(token), token, casa ? casa.id : null);
   if (jaUsado)
     return res.status(409).json({ error: jaUsado.tipo === "corretor"
       ? `Esse token já é o da linha pessoal de ${jaUsado.nome}. O número da imobiliária precisa da própria instância na Uazapi.`

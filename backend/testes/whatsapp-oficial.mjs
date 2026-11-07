@@ -55,6 +55,7 @@ console.log("Servidor no ar, igual à produção.\n");
 
 const { default: db } = await import("../src/db.js");
 const C = await import("../src/services/canais.js");
+const { lerSegredo: L } = await import("../src/services/segredo-whatsapp.js");
 const bcrypt = (await import("bcryptjs")).default;
 
 // A org que o bootstrap já criou (Conecta) é a "casa" deste teste.
@@ -243,10 +244,10 @@ const canalRafael = C.canalDoUsuario(org, "u_rafael");
    Este teste confere a ROTA do lead que nasce ali — então ela fica desligada
    aqui; a triagem tem teste próprio (npm run teste:triagem). */
 db.prepare("UPDATE canais SET triagem = 0 WHERE id = ?").run(canalRafael.id);
-console.log(`   provider: ${canalRafael.provider} · app_secret: ${canalRafael.app_secret === "segredo-conecta" ? "herdado" : "ERRADO"}`);
+console.log(`   provider: ${canalRafael.provider} · app_secret: ${L(canalRafael.app_secret) === "segredo-conecta" ? "herdado" : "ERRADO"}`);
 assert.equal(canalRafael.provider, "meta");
-assert.equal(canalRafael.app_secret, "segredo-conecta");
-assert.equal(canalRafael.token, "token-conecta");
+assert.equal(L(canalRafael.app_secret), "segredo-conecta");
+assert.equal(L(canalRafael.token), "token-conecta");
 
 console.log("17. Mensagem para o Phone Number ID do Rafael cai na conta DELE, sem catraca");
 const p17 = payloadTexto("PN_RAFAEL", "5587955556666", "vim pelo anúncio do Rafael");

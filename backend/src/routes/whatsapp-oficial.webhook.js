@@ -16,6 +16,7 @@ import { Router } from "express";
 import db from "../db.js";
 import { canalPorPhoneNumberId } from "../services/canais.js";
 import { assinaturaValida } from "../services/whatsapp_oficial.js";
+import { lerSegredo } from "../services/segredo-whatsapp.js";
 import { normalizePhone } from "../services/stages.js";
 import { processarMensagemRecebida, lembrar } from "../services/mensageria.js";
 
@@ -110,7 +111,7 @@ r.post("/whatsapp-oficial", async (req, res) => {
     return;
   }
 
-  if (!assinaturaValida(raw, req.get("x-hub-signature-256"), canal.app_secret)) {
+  if (!assinaturaValida(raw, req.get("x-hub-signature-256"), lerSegredo(canal.app_secret))) {
     console.warn("[whatsapp-oficial] webhook recusado: assinatura não confere (confira o App Secret da conexão)");
     lembrar({ em: Date.now(), evento: "messages", provider: "meta", resultado: "RECUSADO: assinatura não confere" });
     return res.sendStatus(401);
