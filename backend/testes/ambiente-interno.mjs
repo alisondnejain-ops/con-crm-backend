@@ -264,10 +264,12 @@ caso("o Painel conta a demonstração feita (onde a imobiliária conta a visita)
   assert.equal(m.status, 200, JSON.stringify(m.body));
   const p = await api("u_bia", "GET", "/painel/geral?periodo=este_mes");
   assert.equal(p.status, 200);
-  assert.equal(p.body.kpis.visitas.atual, 1);
+  // 2: este, e o do caso anterior, que foi a "Cliente" (ganho) — desde
+  // 07/11/2026 a etapa pulada conta, e quem fechou passou pela demonstração.
+  assert.equal(p.body.kpis.visitas.atual, 2);
   const passo = p.body.funil_atividade.find(x => x.id === "visita_realizada");
   assert.equal(passo.nome, "Demonstrações feitas");
-  assert.equal(passo.valor, 1);
+  assert.equal(passo.valor, 2);
   console.log("   ok");
 }
 

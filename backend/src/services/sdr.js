@@ -20,9 +20,10 @@
    a mesma conta sobre os leads que as atendentes receberam no período. */
 import db from "../db.js";
 import { semMaster } from "../auth.js";
-import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { etapasDeQualificacao } from "./painel-geral.js";
 import { mediana, pct } from "./score.js";
+import { preAtendimento, qualificadosNoPeriodo } from "./sdr-funil.js";
 
 /* A IA COMO ATENDENTE (07/11/2026, pedido do Ali: "o SDR deles é nossa IA").
    Numa conta em que o Autoatendimento faz o pré-atendimento (a VJ), não existe
@@ -59,15 +60,17 @@ export function indicadoresDoSdr(orgId, de, ate, { soUserId = null } = {}) {
   const etapasPerda = new Set(db.prepare("SELECT id FROM pipeline_stages WHERE org_id = ? AND status_type = 'perdido'").all(orgId).map(x => x.id));
   const corretores = new Set(db.prepare("SELECT id FROM users WHERE org_id = ? AND role = 'corretor'").all(orgId).map(x => x.id));
 
+  const pre = preAtendimento(orgId, de, ate);
   const porPessoa = [];
+  const dasAtendentes = new Set();
   const porLeadSdr = new Map();   // lead → {recebido, contatado, qualificado, repassado}
   const marca = (lead, campo) => { const x = porLeadSdr.get(lead) || {}; x[campo] = true; porLeadSdr.set(lead, x); };
 
   for (const u of sdrs) {
-    const recebidos = noPeriodo(eventos.recebidos, u.id, de, ate);
+    const recebidos = recebidosEm(eventos, u.id, de, ate);
     const chegou = new Map();
     for (const e of recebidos) if (!chegou.has(e.lead_id)) chegou.set(e.lead_id, e.quando);
-    for (const l of chegou.keys()) marca(l, "recebido");
+    for (const l of chegou.keys()) { marca(l, "recebido"); dasAtendentes.add(l); }
 
     // As mensagens DELA no período (de gente: o autor é ela).
     const minhas = db.prepare(`SELECT m.lead_id lead, MIN(m.created_at) primeira FROM messages m JOIN leads l ON l.id = m.lead_id
@@ -91,6 +94,8 @@ export function indicadoresDoSdr(orgId, de, ate, { soUserId = null } = {}) {
     const movidas = db.prepare(`SELECT lead_id lead, para_stage_id sid, para nome FROM lead_etapas
       WHERE org_id = ? AND user_id = ? AND created_at BETWEEN ? AND ?`).all(orgId, u.id, de, ate);
     const qualificados = new Set(movidas.filter(ehQualificacao).map(r => r.lead));
+    // E o que ela tirou do funil de SDR para o comercial, ou etiquetou como qualificado.
+    for (const [lead, x] of pre.qualificados) if (x.user_id === u.id) qualificados.add(lead);
     for (const l of qualificados) marca(l, "qualificado");
     const perdidos = new Set(movidas.filter(r => r.sid && etapasPerda.has(r.sid)).map(r => r.lead));
 
@@ -109,14 +114,19 @@ export function indicadoresDoSdr(orgId, de, ate, { soUserId = null } = {}) {
       repassados_ao_corretor: aoCorretor.size,
       perdidos: perdidos.size,
       taxa_resposta: minhas.length ? pct(responderam, minhas.length) : null,
-      taxa_qualificacao: minhas.length ? pct(qualificados.size, minhas.length) : null,
+      taxa_qualificacao: chegou.size ? pct(qualificados.size, chegou.size) : null,
     });
   }
 
-  const ia = linhaDaIA(orgId, de, ate, { ehQualificacao, etapasPerda, corretores, marca });
+  const ia = linhaDaIA(orgId, de, ate, { etapasPerda, marca, pre, dasAtendentes, sdrs: new Set(sdrs.map(x => x.id)) });
   if (ia && !soUserId) porPessoa.push(ia);
 
-  // Por origem: os leads que passaram pelas atendentes (e pela IA) no período.
+  /* Por origem: os leads que passaram pelas atendentes (e pela IA) no período.
+     "Qualificado" aqui é a régua da casa (a mesma de Campanhas e da Visão
+     geral): qualificado pelo SDR OU no comercial, no período, por quem for —
+     é a pergunta "deste canal, quantos viraram lead bom", e não "quem fez". */
+  const daCasa = qualificadosNoPeriodo(orgId, de, ate, pre);
+  for (const [lead, x] of porLeadSdr) if (daCasa.has(lead)) x.qualificado = true;
   const grupos = new Map();
   const ids = [...porLeadSdr.keys()];
   for (let i = 0; i < ids.length; i += 500) {
@@ -133,13 +143,13 @@ export function indicadoresDoSdr(orgId, de, ate, { soUserId = null } = {}) {
     }
   }
   const porOrigem = [...grupos.values()]
-    .map(g => ({ ...g, taxa_qualificacao: g.contatados ? pct(g.qualificados, g.contatados) : null }))
+    .map(g => ({ ...g, taxa_qualificacao: g.recebidos ? pct(g.qualificados, g.recebidos) : null }))
     .sort((a, b) => b.recebidos - a.recebidos || b.contatados - a.contatados);
 
   const soma = (k) => porPessoa.reduce((n, p) => n + (p[k] || 0), 0);
   return {
     periodo: { de, ate },
-    sem_etapa_de_qualificacao: !q.ids.size && !q.nomes.size,
+    sem_etapa_de_qualificacao: !q.ids.size && !q.nomes.size && !pre.tem_funil_sdr,
     total: { recebidos: soma("recebidos"), contatados: soma("contatados"), responderam: soma("responderam"),
       qualificados: soma("qualificados"), repassados_ao_corretor: soma("repassados_ao_corretor"), perdidos: soma("perdidos") },
     por_pessoa: porPessoa,
@@ -148,59 +158,51 @@ export function indicadoresDoSdr(orgId, de, ate, { soUserId = null } = {}) {
   };
 }
 
-function linhaDaIA(orgId, de, ate, { ehQualificacao, etapasPerda, corretores, marca }) {
+/* A FILA E A IA (revista em 07/11/2026). Os leads do pré-atendimento que
+   nenhuma atendente recebeu são desta linha — é a fila, onde a IA atende.
+   Recebidos: os que entraram no funil de SDR (ou na fila, sem funil de SDR)
+   no período e não foram para uma atendente, mais os que a IA atendeu.
+   Qualificados e repassados: os desses leads que saíram do SDR para o
+   comercial (ou ganharam a etiqueta) e os que foram a um corretor — feitos
+   por quem for, menos uma atendente (aí contam na linha dela). Contatados,
+   1ª resposta e "responderam" continuam sendo só da IA: são as mensagens dela. */
+function linhaDaIA(orgId, de, ate, { etapasPerda, marca, pre, dasAtendentes, sdrs }) {
   const primeiras = db.prepare(`SELECT m.lead_id lead, MIN(m.created_at) primeira FROM messages m JOIN leads l ON l.id = m.lead_id
     WHERE l.org_id = ? AND m.direction = 'out' AND m.from_user_id IS NULL AND m.from_name = ?
     GROUP BY m.lead_id HAVING MIN(m.created_at) BETWEEN ? AND ?`).all(orgId, AUTOR_IA, de, ate);
-  if (!primeiras.length) return null;
-
-  /* QUEM CHEGOU NA FILA (07/11/2026, relato do Ali: "chegaram 7 e só
-     registrou 6"). A linha da IA só contava quem ELA atendeu — e o lead de
-     formulário que nunca escreveu no WhatsApp fica na fila sem a IA falar com
-     ele (ela só responde, não puxa a conversa), então sumia do relatório.
-     Agora "recebidos" é quem NASCEU SEM DONO no período (a fila, que é a caixa
-     da IA) mais quem ela atendeu; "contatados" continua sendo quem ela
-     atendeu. A diferença entre os dois é o lead que chegou e ninguém chamou.
-     Nascer sem dono: sem troca de dono e sem dono hoje, ou a primeira troca
-     saindo de "ninguém". */
-  const naFila = db.prepare(`SELECT l.id FROM leads l WHERE l.org_id = ? AND l.created_at BETWEEN ? AND ?
-    AND (
-      (NOT EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id) AND l.assigned_to IS NULL)
-      OR (SELECT t.from_user_id FROM lead_transfers t WHERE t.lead_id = l.id ORDER BY t.created_at ASC LIMIT 1) IS NULL
-         AND EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
-    )`).all(orgId, de, ate).map(x => x.id);
-  const recebidos = new Set([...naFila, ...primeiras.map(p => p.lead)]);
+  const recebidos = new Set(primeiras.map(p => p.lead));
+  for (const id of pre.entraram.keys()) if (!dasAtendentes.has(id)) recebidos.add(id);
+  if (!recebidos.size) return null;
   for (const id of recebidos) marca(id, "recebido");
 
   const esperas = [];
   let responderam = 0;
-  const qualificados = new Set(), perdidos = new Set(), aoCorretor = new Set();
+  const perdidos = new Set();
   for (const { lead, primeira } of primeiras) {
     marca(lead, "contatado");
     const antes = db.prepare("SELECT MAX(created_at) t FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at <= ?").get(lead, primeira);
     if (antes && antes.t) esperas.push((primeira - antes.t) / 60000);
     if (db.prepare("SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at > ? AND created_at <= ? LIMIT 1").get(lead, primeira, ate))
       responderam++;
-    for (const r of db.prepare(`SELECT para_stage_id sid, para nome FROM lead_etapas
-        WHERE lead_id = ? AND user_id IS NULL AND created_at >= ? AND created_at <= ?`).all(lead, primeira, ate)) {
-      if (ehQualificacao(r)) qualificados.add(lead);
+    for (const r of db.prepare(`SELECT para_stage_id sid FROM lead_etapas
+        WHERE lead_id = ? AND user_id IS NULL AND created_at >= ? AND created_at <= ?`).all(lead, primeira, ate))
       if (r.sid && etapasPerda.has(r.sid)) perdidos.add(lead);
-    }
-    if (db.prepare(`SELECT to_user_id para FROM lead_transfers WHERE lead_id = ? AND created_at >= ? AND created_at <= ?`)
-        .all(lead, primeira, ate).some(t => corretores.has(t.para))) aoCorretor.add(lead);
   }
+  const daLinha = (mapa) => new Set([...mapa].filter(([lead, x]) => recebidos.has(lead) && !sdrs.has(x.user_id)).map(([lead]) => lead));
+  const qualificados = daLinha(pre.qualificados);
+  const aoCorretor = daLinha(pre.repassados);
   for (const l of qualificados) marca(l, "qualificado");
   for (const l of aoCorretor) marca(l, "repassado");
   const n = primeiras.length;
   return {
-    id: "ia", nome: "Autoatendimento (IA)", ia: true,
+    id: "ia", nome: n ? "Fila e Autoatendimento (IA)" : "Fila (sem atendente)", ia: true,
     recebidos: recebidos.size, contatados: n,
     primeira_resposta_mediana_min: mediana(esperas),
     responderam,
     qualificados: qualificados.size,
     repassados_ao_corretor: aoCorretor.size,
     perdidos: perdidos.size,
-    taxa_resposta: pct(responderam, n),
-    taxa_qualificacao: pct(qualificados.size, n),
+    taxa_resposta: n ? pct(responderam, n) : null,
+    taxa_qualificacao: pct(qualificados.size, recebidos.size),
   };
 }
