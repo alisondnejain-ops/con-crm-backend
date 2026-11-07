@@ -308,7 +308,7 @@ await caso("5b. Claude configura o Autoatendimento: escopo, campos, resumo, etap
   assert.equal(v.dados.ligado, true); assert.deepEqual(v.dados.escopo.etapas, [etapas[0].id]);
   assert.deepEqual(v.dados.campos, [chaveProduto]); assert.equal(v.dados.etapa_final_id, etapaFinal.id);
   // Só mudar o horário não desliga a IA.
-  assert.ok(!(await usar("configurar_autoatendimento", { max_mensagens: 8 })).erro);
+  assert.ok(!(await usar("configurar_autoatendimento", { inicio: "19:00" })).erro);   // o máximo de mensagens saiu em 07/11/2026
   assert.equal((await usar("ver_autoatendimento", {})).dados.ligado, true);
   await usar("adicionar_orientacao_da_ia", { texto: "Chame de você." });
   const o = (await usar("ver_orientacoes_da_ia", {})).dados.orientacoes[0];

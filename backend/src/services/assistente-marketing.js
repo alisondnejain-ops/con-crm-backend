@@ -90,12 +90,11 @@ export const FERRAMENTAS_MARKETING = [
     { form_id: { type: "string" }, funil_id: { type: ["string", "null"] }, etapa_id: { type: ["string", "null"] },
       catraca_ids: { type: "array", items: { type: "string" } }, ficha_id: { type: ["string", "null"] } }, ["form_id"]),
   // Autoatendimento
-  T("ver_autoatendimento", "Como está o Autoatendimento (a IA que atende o cliente): ligado, horário, dias, máximo de mensagens, onde atua (funis/etapas), campos que preenche, se escreve o resumo e a etapa para onde move ao terminar."),
+  T("ver_autoatendimento", "Como está o Autoatendimento (a IA que atende o cliente): ligado, horário, dias, onde atua (funis/etapas), campos que preenche, se escreve o resumo e a etapa para onde move ao terminar."),
   T("configurar_autoatendimento", "Muda o Autoatendimento. Mande só o que muda. Ligar exige a ferramenta no plano. escopo vazio = atua em todo lugar.",
     { ativo: { type: "boolean" }, a_qualquer_hora: { type: "boolean" },
       inicio: { type: "string", description: "HH:MM — a IA assume (com horário)" }, fim: { type: "string", description: "HH:MM — a equipe assume" },
       dias_da_equipe: { type: "array", items: { type: "integer" }, description: "dias em que a EQUIPE trabalha: 0=domingo … 6=sábado" },
-      max_mensagens: { type: "integer" },
       escopo: { type: "object", additionalProperties: false, properties: {
         funis: { type: "array", items: { type: "string" } }, etapas: { type: "array", items: { type: "string" } } } },
       campos: { type: "array", items: { type: "string" }, description: "chaves de ver_campos que a IA pode preencher" },
@@ -237,12 +236,12 @@ export function executorDeMarketing({ chamarRota, autorizacao, registrarAcao }) 
       }
 
       case "ver_autoatendimento": return ler("/config/robo", (d) => sem({ incluido_no_plano: d.incluido, ligado: d.ativo, ia_no_servidor: d.configurada,
-        a_qualquer_hora: d.sempre, inicio: d.inicio, fim: d.fim, dias_da_equipe: d.dias, max_mensagens: d.teto, atendendo_agora: d.agora_atenderia,
+        a_qualquer_hora: d.sempre, inicio: d.inicio, fim: d.fim, dias_da_equipe: d.dias, atendendo_agora: d.agora_atenderia,
         escopo: { funis: d.escopo?.pipelines || [], etapas: d.escopo?.etapas || [] }, campos: d.campos, escrever_resumo: d.observacao,
         etapa_final_id: d.etapa_final }));
       case "configurar_autoatendimento": {
         const feito = [];
-        const geral = sem({ ativo: e.ativo, sempre: e.a_qualquer_hora, inicio: e.inicio, fim: e.fim, dias: e.dias_da_equipe, teto: e.max_mensagens });
+        const geral = sem({ ativo: e.ativo, sempre: e.a_qualquer_hora, inicio: e.inicio, fim: e.fim, dias: e.dias_da_equipe });
         if (Object.keys(geral).length) {
           const r = await chamarRota(autorizacao, "POST", "/config/robo", geral);
           registrarAcao(nome, e, r); if (r.erro) return { erro: r.erro, mostrar: `Não deu: ${r.erro}` }; feito.push("geral");

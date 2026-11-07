@@ -469,7 +469,8 @@ r.post("/robo", roles("adm"), (req, res) => {
   // exatamente o estado que ninguém consegue diagnosticar olhando a tela.
   if (!sempre && inicio === fim) return res.status(400).json({ error: "O início e o fim da janela não podem ser o mesmo horário." });
 
-  const teto = Math.min(Math.max(Number(b.teto) || atual.teto, 2), 30);
+  // O teto por conta saiu (07/11/2026): vale a trava contra loop (robo.js → travaLoop).
+  const teto = atual.teto;
   /* Dias de expediente. Lista vazia é escolha válida ("não temos expediente
      fixo"), e aí o robô atende o dia inteiro, todo dia — por isso a string
      vazia é gravada de propósito em vez de virar nulo, que cairia no padrão. */
@@ -484,6 +485,9 @@ r.post("/robo", roles("adm"), (req, res) => {
   db.prepare("UPDATE orgs SET robo_ativo=?, robo_inicio=?, robo_fim=?, robo_teto=?, robo_dias=?, robo_sempre=? WHERE id=?")
     // `ativo` ausente mantém o que estava: mudar só o horário não desliga a IA.
     .run((b.ativo === undefined ? atual.ativo : b.ativo) ? 1 : 0, inicio, fim, teto, dias.join(","), sempre ? 1 : 0, req.user.org_id);
+  // Aprender com cada atendimento (07/11/2026, services/aprendizado.js): ligado por padrão.
+  if (typeof b.aprender === "boolean")
+    db.prepare("UPDATE orgs SET robo_aprender = ? WHERE id = ?").run(b.aprender ? 1 : 0, req.user.org_id);
 
   const cfg = configDoRobo(req.user.org_id);
   console.log(`[robo] ${cfg.ativo ? "LIGADO" : "desligado"} por ${req.user.name} — ${cfg.sempre ? "a QUALQUER hora" : `janela ${cfg.inicio}→${cfg.fim} nos dias [${cfg.dias}]`}, teto ${cfg.teto}`);
@@ -569,7 +573,8 @@ r.post("/robo/ensino", roles("adm", "sdr"), (req, res) => {
   /* Teto de LIMITE_ORIENTACOES linhas (era 30; 100 desde 31/10/2026). Cada
      uma entra no pedido de TODA mensagem que o robô responde, então o texto
      acumulado vira dinheiro em toda conversa — a tela mostra o total. */
-  const quantas = db.prepare("SELECT COUNT(*) n FROM robo_ensino WHERE org_id=?").get(req.user.org_id).n;
+  // O teto é das orientações da EQUIPE; as aprendidas pela IA têm o próprio (services/aprendizado.js).
+  const quantas = db.prepare("SELECT COUNT(*) n FROM robo_ensino WHERE org_id=? AND COALESCE(origem,'') <> 'ia'").get(req.user.org_id).n;
   if (quantas >= LIMITE_ORIENTACOES) return res.status(400).json({ error: `São no máximo ${LIMITE_ORIENTACOES} orientações. Apague ou junte alguma antes de criar outra.` });
 
   const ordem = (db.prepare("SELECT MAX(ordem) m FROM robo_ensino WHERE org_id=?").get(req.user.org_id).m || 0) + 1;

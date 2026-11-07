@@ -19,6 +19,9 @@ import { RECURSOS, ehRecurso, recursosDaOrg, situacaoDoRecurso, registrarContrat
 import { cobrancasDaAssinatura } from "../services/asaas.js";
 import * as pagarme from "../services/pagarme.js";
 import { provedorDe } from "../services/cobranca.js";
+import { situacaoDosCreditos, novaCompra, marcarCobranca, compraPorCobranca, compraPorPedido, confirmarCompra,
+  estornarCompra, cancelarCompra, configDosCreditos, fmtReais } from "../services/ia-creditos.js";
+import { criarCobrancaAvulsa } from "../services/asaas.js";
 
 const r = Router();
 
@@ -66,6 +69,18 @@ r.post("/webhooks/asaas", async (req, res) => {
 
   try {
     const { acao, link, assinatura, pagamento } = interpretarEvento(req.body || {});
+
+    /* CRÉDITO DE IA (07/11/2026): cobrança avulsa, achada pelo id gravado na
+       compra — antes de tudo, pelo mesmo motivo do boleto. */
+    const compra = compraPorCobranca("asaas", pagamento);
+    if (compra) {
+      if (acao === "pago") confirmarCompra(compra);
+      else if (acao === "cancelado") {
+        if (["PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED"].includes(req.body?.event)) estornarCompra(compra);
+        else cancelarCompra(compra);
+      }
+      return;
+    }
 
     /* FERRAMENTA AVULSA (29/09/2026). A assinatura da ferramenta é OUTRA,
        separada da mensalidade — e tem que ser separada aqui também, ANTES da
@@ -1100,6 +1115,70 @@ function enderecoSalvo(org) {
   try { return org.boleto_endereco_json ? JSON.parse(org.boleto_endereco_json) : null; } catch { return null; }
 }
 
+/* ===== CRÉDITO DE IA (07/11/2026) — ver services/ia-creditos.js =====
+
+   O gestor vê o saldo; quem COMPRA é o titular (é dinheiro, a mesma régua da
+   mensalidade). O valor é um dos pacotes que o master definiu — o corpo só
+   escolhe qual. No Pagar.me sai no cartão já guardado, num clique; no Asaas,
+   numa fatura em que o cliente escolhe Pix, cartão ou boleto. */
+const veCreditos = (req, res, next) => {
+  if (!["adm"].includes(req.user.role) && !ehDono(req.user.org_id, req.user.id))
+    return res.status(403).json({ error: "O crédito de IA é da gestão da conta." });
+  next();
+};
+r.get("/assinatura/ia-creditos", authRequired, veCreditos, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  // Fatura do Asaas que ainda espera: confere ao abrir (segunda chance além do webhook).
+  for (const m of db.prepare("SELECT * FROM ia_creditos_mov WHERE org_id = ? AND tipo='compra' AND status='pendente' AND provedor='asaas' AND cobranca_id IS NOT NULL").all(org.id)) {
+    try { const p = await lerPagamento(m.cobranca_id); if (["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(p.status)) confirmarCompra(m); }
+    catch (e) { /* o webhook ainda resolve */ }
+  }
+  const provedor = provedorDe(org);
+  res.json({ ...situacaoDosCreditos(org.id), provedor, titular: ehDono(org.id, req.user.id),
+    // `pagarme_card_json` já é o resumo (bandeira, final, validade) gravado ao guardar o cartão.
+    cartao: provedor === "pagarme" && org.pagarme_card_id ? (() => { try { return JSON.parse(org.pagarme_card_json || "null"); } catch { return null; } })() : null,
+    pede_cpf: provedor === "pagarme" ? !org.pagarme_customer_id : !org.asaas_customer_id });
+});
+
+r.post("/assinatura/ia-creditos/comprar", authRequired, soDono, async (req, res) => {
+  const org = orgCompleta(req.user.org_id);
+  const valor = Number(req.body?.valor);
+  if (!configDosCreditos().pacotes.some(p => Math.abs(p - valor) < 0.005))
+    return res.status(400).json({ error: "Escolha um dos pacotes da lista." });
+  const provedor = provedorDe(org);
+  if (provedor === "pagarme" ? !pagarme.pagarmeConfigurado() : !asaasConfigurado())
+    return res.status(503).json({ error: `O ${provedor === "pagarme" ? "Pagar.me" : "Asaas"} não está configurado no servidor.` });
+  const descricao = `ConHub — Crédito de IA ${fmtReais(valor)}`;
+  const id = novaCompra({ orgId: org.id, valor, provedor, quem: req.user.id });
+  try {
+    if (provedor === "pagarme") {
+      if (!org.pagarme_card_id) { cancelarCompra({ id, status: "pendente" });
+        return res.status(400).json({ error: "Cadastre o cartão de crédito em Minha conta → Cartão de cobrança para comprar crédito num clique." }); }
+      const p = await pagarme.criarPedido({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
+        valor, parcelas: 1, descricao, codigo: "credito_ia", metadata: { org_id: org.id, compra_ia: id } });
+      const cobranca = (p.charges || [])[0];
+      marcarCobranca(id, { cobrancaId: cobranca?.id || null, pedidoId: p.id });
+      const mov = db.prepare("SELECT * FROM ia_creditos_mov WHERE id = ?").get(id);
+      if (p.status === "failed" || cobranca?.status === "failed") {
+        cancelarCompra(mov);
+        return res.status(402).json({ error: "O cartão recusou a cobrança. Confira o limite ou troque o cartão em Minha conta." });
+      }
+      if (cobranca && pagarme.PAGA.has(cobranca.status)) confirmarCompra(mov);
+      return res.json({ ok: true, pago: cobranca ? pagarme.PAGA.has(cobranca.status) : false, ...situacaoDosCreditos(org.id) });
+    }
+    const recusa = conferirDadosDoCliente(org, req.user.id, req.body?.cpfCnpj);
+    if (recusa) { cancelarCompra({ id, status: "pendente" }); return res.status(400).json({ error: recusa }); }
+    const clienteId = await clienteDoAsaas(org, req.user.id, req.body?.cpfCnpj);
+    const p = await criarCobrancaAvulsa({ clienteId, valor, vencimento: dataISO(Date.now() + 86400000), descricao, referencia: id });
+    marcarCobranca(id, { cobrancaId: p.id, url: p.invoiceUrl || null });
+    res.json({ ok: true, pago: false, url: p.invoiceUrl || null, ...situacaoDosCreditos(org.id) });
+  } catch (e) {
+    cancelarCompra(db.prepare("SELECT * FROM ia_creditos_mov WHERE id = ?").get(id));
+    console.error("[ia-creditos] compra falhou:", e.message);
+    res.status(502).json({ error: `Não consegui gerar a cobrança: ${e.message}` });
+  }
+});
+
 r.get("/assinatura/boleto", authRequired, soDono, async (req, res) => {
   let org = orgCompleta(req.user.org_id);
   if (!boletoLiberado(org)) return res.json({ liberado: false });
@@ -1264,6 +1343,14 @@ export async function processarAvisoPagarme(corpo) {
 
   const subId = pagarme.assinaturaDaCobranca(c);
   const pedidoId = pagarme.pedidoDaCobranca(c);
+  /* Crédito de IA (07/11/2026): um pedido próprio, como o boleto. */
+  const compra = compraPorPedido(pedidoId) || compraPorCobranca("pagarme", c.id);
+  if (compra && compra.org_id === org.id) {
+    if (pagarme.PAGA.has(c.status)) confirmarCompra(compra);
+    else if (pagarme.ESTORNADA.has(c.status)) estornarCompra(compra);
+    else if (["canceled", "failed"].includes(c.status)) cancelarCompra(compra);
+    return;
+  }
   /* O boleto liberado pelo master (15/10/2026) é um pedido próprio. */
   const boleto = boletoPorPedido(pedidoId) || boletoPorCobranca("pagarme", c.id);
   if (boleto && boleto.org_id === org.id) {

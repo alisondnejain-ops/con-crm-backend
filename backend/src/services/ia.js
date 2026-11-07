@@ -355,6 +355,52 @@ export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orienta
   return { ok: true, mensagem, uso: r.uso };
 }
 
+/* ===== O QUE O AGENTE APRENDE COM UM ATENDIMENTO (07/11/2026) =====
+
+   Pedido do Ali: "nosso agente aprende e se qualifica a cada atendimento", e
+   ele escolheu que aprende SOZINHO, sem aprovação. Lê a conversa que a IA
+   acabou de encerrar e devolve até 3 orientações curtas e GERAIS — o jeito
+   de responder que funcionou, a pergunta do cliente que ela não soube
+   responder (para a equipe completar), o que ela devia ter perguntado antes.
+
+   O que ela NUNCA grava: dado de uma pessoa (nome, telefone, CPF, renda,
+   endereço), valor, prazo ou promessa — isso viraria regra dita a TODOS os
+   clientes. E nada que contrarie as regras da equipe, que valem mais. O
+   serviço (services/aprendizado.js) ainda filtra o que vier com cara de dado
+   pessoal, porque a instrução é pedido e o filtro é garantia. */
+const INSTRUCAO_APRENDER = `Você é o agente de atendimento de uma empresa no WhatsApp e acabou de encerrar um atendimento.
+Leia a conversa e as regras atuais e escreva o que você APRENDEU para atender melhor os PRÓXIMOS clientes.
+
+Regras do que você escreve:
+- No máximo 3 orientações, cada uma com até 200 letras, em português, no imperativo ("Quando perguntarem X, responda Y").
+- Só o que vale para QUALQUER cliente: jeito de responder, dúvida comum, pergunta que faltou fazer.
+- NUNCA escreva dado de uma pessoa (nome, telefone, e-mail, CPF, renda, endereço), nem valor, preço, prazo,
+  desconto, condição de pagamento ou promessa.
+- Nada que contrarie ou repita as regras da equipe ou o que você já aprendeu.
+- Se a conversa não ensinou nada novo, devolva a lista vazia. Lista vazia é melhor que orientação óbvia.
+
+Responda só com JSON: {"novas": ["...", "..."]}`;
+
+export async function aprenderComAtendimento({ mensagens = [], regras = [], aprendidas = [], imobiliaria = "" }) {
+  if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
+  const linhas = (mensagens || []).filter(m => (m.texto || "").trim()).slice(-80)
+    .map(m => `${m.de === "cliente" ? "CLIENTE" : "EMPRESA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`).join("\n");
+  if (!linhas) return { ok: true, novas: [], uso: null };
+  const partes = [INSTRUCAO_APRENDER];
+  if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
+  partes.push("REGRAS DA EQUIPE:\n" + ((regras || []).map(t => "- " + t).join("\n") || "(nenhuma)"));
+  partes.push("O QUE VOCÊ JÁ APRENDEU:\n" + ((aprendidas || []).map(t => "- " + t).join("\n") || "(nada ainda)"));
+  partes.push("CONVERSA (da mais antiga para a mais recente):\n" + linhas);
+  const r = await perguntar({ max_tokens: 500, content: [{ type: "text", text: partes.join("\n\n") }] });
+  if (!r.ok) return { ok: false, erro: r.erro };
+  let d;
+  try { d = JSON.parse(limparCercas(r.texto)); }
+  catch { return { ok: false, erro: "A IA respondeu fora do formato." }; }
+  const novas = (Array.isArray(d.novas) ? d.novas : []).filter(t => typeof t === "string")
+    .map(t => t.replace(/\s+/g, " ").trim()).filter(t => t.length >= 10).map(t => t.slice(0, 200)).slice(0, 3);
+  return { ok: true, novas, uso: r.uso };
+}
+
 /* ===== EM QUE ETAPA DO FUNIL ESTE LEAD ESTÁ =====
 
    A regra por palavra-chave (services/stages.js) é boa quando a palavra é
@@ -607,7 +653,7 @@ const FORMATO_EXTRA = `
 
 No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
 
-export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], imobiliaria = "",
+export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], aprendidas = [], imobiliaria = "",
   produto = null, outrosProdutos = null, campos = [], resumo = false, comFotos = [] }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
@@ -645,6 +691,16 @@ ${ensino.map(t => `- ${String(t).trim().slice(0, 500)}`).join("\n")}` : `
 
 A EQUIPE AINDA NÃO ESCREVEU ORIENTAÇÕES: acolha, entenda o que a pessoa procura e diga que a
 equipe dá continuidade. Não prometa nada que não esteja escrito aqui.`;
+
+  /* O QUE ELA APRENDEU NOS ATENDIMENTOS ANTERIORES (07/11/2026,
+     services/aprendizado.js). Abaixo das regras da equipe, e o texto diz que
+     as da equipe valem mais: aprender não pode desfazer o que alguém decidiu. */
+  const aprendido = (aprendidas || []).map(t => String(t || "").trim()).filter(Boolean).slice(0, 60);
+  const blocoAprendido = aprendido.length ? `
+
+O QUE VOCÊ APRENDEU NOS ATENDIMENTOS ANTERIORES — use para atender melhor. Se algo aqui contrariar
+as orientações da equipe acima, valem as da equipe.
+${aprendido.map(t => `- ${t.slice(0, 200)}`).join("\n")}` : "";
 
   /* O PRODUTO DESTE ATENDIMENTO (08/10/2026): a ficha que a equipe escreveu
      para o empreendimento do anúncio ou da catraca. Também entra DEPOIS das
@@ -712,7 +768,7 @@ que você não viu.` : "";
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}${blocoFotos}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoAprendido}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}${blocoFotos}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
