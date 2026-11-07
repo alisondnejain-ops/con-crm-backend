@@ -139,6 +139,12 @@ const gerente = db.prepare("SELECT id FROM users WHERE org_id = ? AND role = 'ad
 db.prepare(`INSERT INTO lead_etapas (id,org_id,lead_id,de,para,motivo,user_id,created_at,para_stage_id)
   VALUES (?,?,?,?,?,?,?,?,?)`).run("le_" + randomUUID(), org2, i3, "Lead", "Lead qualificado", "mao", gerente, agora - 10 * MIN, qual2.id);
 
+// I4: lead de formulário que chegou na fila e nunca escreveu — a IA não puxa
+// conversa, então ela não o atendeu; mas ele CHEGOU (07/11/2026: "chegaram 7 e só registrou 6").
+const i4 = "l_" + randomUUID();
+db.prepare(`INSERT INTO leads (id,org_id,name,phone,qual_json,stage,created_at,source,pipeline_id)
+  VALUES (?,?,?,?,'{}','Lead',?,'meta',?)`).run(i4, org2, "Gabi Form", "55879913" + String(ordem++).padStart(5, "0"), agora - 5 * MIN, pl2.id);
+
 await caso("4. Sem atendente, a IA entra como SDR", async () => {
   const t = await entrar2("Gerente");
   const r = await chamar(t, "/reports/sdr?periodo=hoje");
@@ -147,7 +153,8 @@ await caso("4. Sem atendente, a IA entra como SDR", async () => {
   assert.equal(r.d.por_pessoa.length, 1, JSON.stringify(r.d.por_pessoa));
   const ia = r.d.por_pessoa[0];
   assert.equal(ia.ia, true);
-  assert.equal(ia.recebidos, 3);
+  assert.equal(ia.recebidos, 4, "chegaram 4 na fila, contando o formulário que não escreveu");
+  assert.equal(ia.contatados, 3, "a IA atendeu 3");
   assert.equal(ia.primeira_resposta_mediana_min, 2, "mediana de 2, 4 e 1 minuto");
   assert.equal(ia.responderam, 1);
   assert.equal(ia.qualificados, 1, "a qualificação feita pela gestão não conta para a IA");
@@ -155,6 +162,9 @@ await caso("4. Sem atendente, a IA entra como SDR", async () => {
   assert.equal(ia.perdidos, 0);
   const wpp = r.d.por_origem.find(o => o.origem === "WhatsApp");
   assert.equal(wpp.recebidos, 3); assert.equal(wpp.qualificados, 1);
+  const meta = r.d.por_origem.find(o => o.origem === "Anúncio (Meta)");
+  assert.ok(meta, "o lead do formulário aparece na origem");
+  assert.equal(meta.recebidos, 1); assert.equal(meta.contatados, 0);
 });
 await caso("5. Conta sem atendente e sem IA: lista vazia e o motivo", async () => {
   const org3 = "org_sdr3";
