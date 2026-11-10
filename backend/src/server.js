@@ -36,6 +36,7 @@ import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./ro
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
+import propostaRoutes from "./routes/proposta.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
 import plantaoRoutes from "./routes/plantao.routes.js";
@@ -305,6 +306,10 @@ app.get("/nova-imobiliaria", paginaImobiliaria);
 const paginaComecar = (req, res) => servirPagina("comecar.html", req, res, "Pagina de cadastro nao encontrada.");
 app.get("/comecar", paginaComecar);
 app.get("/teste-gratis", paginaComecar);
+app.get("/proposta/:codigo", (req, res) => {
+  res.set("X-Robots-Tag", "noindex, nofollow");
+  servirPagina("proposta.html", req, res, "Pagina da proposta nao encontrada.");
+});
 app.get("/sou-corretor", paginaComecar);
 
 /* A FOTO DA TELA DE ENTRADA, sem exigir login.
@@ -354,6 +359,9 @@ app.get("/", (req, res) => servirApp(req, res));
 app.use("/imoveis", sitePaginas);
 
 app.use("/", publicoRoutes);
+/* A proposta personalizada (10/11/2026): pública, antes do porteiro — quem
+   paga ainda não tem conta. */
+app.use("/", propostaRoutes);
 
 app.use("/", assinaturaRoutes);
 

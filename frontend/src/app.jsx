@@ -5471,6 +5471,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         </div>
         <SuporteNoHub isMobile={isMobile}/>
       </div>
+      <PropostasNoHub isMobile={isMobile} contas={[...(contas||[]),...(autonomos||[])]}/>
       <PrecoDoCreditoIA acoes={acoes} isMobile={isMobile}/>
       <PlanosCetrolab acoes={acoes} isMobile={isMobile}/>
       <FundoDoLogin acoes={acoes} isMobile={isMobile}/>
@@ -7896,6 +7897,132 @@ function PlanosCetrolab({acoes,isMobile}){
     </React.Fragment>}
   </div>;
 }
+/* ===== PROPOSTAS PERSONALIZADAS (10/11/2026) =====
+   O checkout de um cliente só: o master escreve o que foi vendido (valor,
+   parcelas, meses, acessos, o que está incluído) e copia o link
+   /proposta/<código>. O cliente paga na página com a cara do ConHub e a conta
+   é liberada sozinha. O valor mora no servidor — a página só mostra. */
+const FERRAMENTAS_PROPOSTA=[["autoatendimento","Autoatendimento com IA"],["marketing","Marketing"],["cetrolab","Cetrolab (site)"]];
+const ESTADO_PROPOSTA={aberta:["Aguardando pagamento",C.amber],pagando:["Pagando agora",C.amber],processando:["Em análise no Pagar.me",C.amber],
+  paga:["Paga",C.greenDeep],vencida:["Vencida",C.faint],cancelada:["Cancelada",C.faint],estornada:["Estornada",C.hot]};
+function valorDigitado(v){ let t=String(v||"").replace(/[^\d.,]/g,""); if(!t) return NaN;
+  if(t.includes(",")) t=t.replace(/\./g,"").replace(",","."); else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t=t.replace(/\./g,""); return Number(t); }
+function PropostasNoHub({isMobile,contas}){
+  const vazio={cliente:"",titulo:"",total:"",parcelas:12,meses:12,acessos:"",itens:"",recursos:[],validade_dias:7,org_id:"",contato_nome:"",contato_email:"",mensagem:""};
+  const [d,setD]=useState(null);
+  const [f,setF]=useState(vazio);
+  const [abrir,setAbrir]=useState(false);
+  const [erro,setErro]=useState("");
+  const [ocupado,setOcupado]=useState(false);
+  const [copiado,setCopiado]=useState("");
+  const [nova,setNova]=useState(null);
+  const carregar=()=>api("/orgs/propostas").then(setD).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const muda=(k,v)=>setF(x=>({...x,[k]:v}));
+  const total=valorDigitado(f.total), parcelas=Number(f.parcelas)||1;
+  const parcela=Number.isFinite(total)&&total>0?Math.round(total*100/parcelas)/100:null;
+  const quebrada=parcela!=null&&Math.abs(parcela*parcelas-total)>0.009;
+  async function criar(){
+    setErro(""); setOcupado(true);
+    try{
+      const r=await api("/orgs/propostas",{method:"POST",body:{...f,total:f.total,itens:f.itens.split("\n"),org_id:f.org_id||null}});
+      setNova(r.proposta); setF(vazio); setAbrir(false); carregar();
+    }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
+  }
+  async function cancelar(id){ if(!window.confirm("Cancelar esta proposta? O link deixa de aceitar pagamento.")) return;
+    try{ await api(`/orgs/propostas/${id}/cancelar`,{method:"POST"}); carregar(); }catch(e){ setErro(e.message); } }
+  function copiar(link,id){ const ok=()=>{setCopiado(id);setTimeout(()=>setCopiado(""),2200);};
+    if(navigator.clipboard) navigator.clipboard.writeText(link).then(ok).catch(()=>window.prompt("Copie o link:",link)); else window.prompt("Copie o link:",link); }
+  const entrada={boxSizing:"border-box",width:"100%",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",fontFamily:"inherit"};
+  const rot={color:C.faint,fontSize:11,fontWeight:600};
+  const campo=(r,el,flex="1 1 150px")=><label style={{display:"flex",flexDirection:"column",gap:4,flex,minWidth:0}}><span style={rot}>{r}</span>{el}</label>;
+  const botaoVerde={border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"10px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"};
+  return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap",marginBottom:6}}>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700}}>Propostas personalizadas</div>
+      {!abrir&&<button onClick={()=>{setAbrir(true);setNova(null);}} style={botaoVerde}>+ Nova proposta</button>}
+    </div>
+    <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
+      Para a venda negociada: um link de pagamento com a cara do ConHub, montado para um cliente, com o preço parcelado em destaque.
+      Pagou no cartão, a conta é liberada sozinha pelo período da proposta.
+    </div>
+    {d&&!d.pode_cobrar&&<div style={{background:"#FBF1DE",color:"#8A5A12",borderRadius:11,padding:"10px 12px",fontSize:12.5,marginBottom:12,lineHeight:1.5}}>
+      {d.ambiente==="teste"?"O Pagar.me deste servidor está com chaves de TESTE: o link abre, mas não cobra. Troque para as chaves de produção no Railway antes de mandar ao cliente."
+        :"O Pagar.me não está configurado neste servidor: o link abre, mas não cobra."}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:10}}>{erro}</div>}
+    {nova&&<div style={{border:`1px solid ${C.greenMid}`,background:"#F0FAF6",borderRadius:12,padding:12,marginBottom:12}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.greenDeep,marginBottom:6}}>Proposta criada. Mande este link para {nova.cliente}:</div>
+      <div style={{fontSize:12,wordBreak:"break-all",color:C.ink,marginBottom:8}}>{nova.link}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>copiar(nova.link,"nova")} style={botaoVerde}>{copiado==="nova"?"Copiado!":"Copiar o link"}</button>
+        <a href={nova.link} target="_blank" rel="noopener" style={{...botaoVerde,background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,textDecoration:"none"}}>Abrir a página</a>
+      </div>
+    </div>}
+    {abrir&&<div style={{border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?12:16,display:"flex",flexDirection:"column",gap:12,marginBottom:14,background:C.card}}>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {campo("Cliente (nome da imobiliária)",<input value={f.cliente} onChange={e=>muda("cliente",e.target.value)} placeholder="Ex.: Imobiliária Horizonte" style={entrada}/>,"2 1 220px")}
+        {campo("Título do plano",<input value={f.titulo} onChange={e=>muda("titulo",e.target.value)} placeholder="Plano ConHub · anual" style={entrada}/>,"2 1 200px")}
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {campo("Valor total (R$)",<input value={f.total} onChange={e=>muda("total",e.target.value)} inputMode="decimal" placeholder="14.400" style={entrada}/>)}
+        {campo("Parcelas no cartão",<select value={f.parcelas} onChange={e=>muda("parcelas",Number(e.target.value))} style={entrada}>
+          {Array.from({length:12},(_,i)=>i+1).map(n=><option key={n} value={n}>{n===1?"À vista":n+"x"}</option>)}</select>)}
+        {campo("Meses de acesso",<input value={f.meses} onChange={e=>muda("meses",e.target.value.replace(/\D/g,""))} inputMode="numeric" style={entrada}/>)}
+        {campo("Acessos",<input value={f.acessos} onChange={e=>muda("acessos",e.target.value.replace(/\D/g,""))} inputMode="numeric" placeholder="42" style={entrada}/>)}
+      </div>
+      {parcela!=null&&<div style={{fontSize:13,color:quebrada?"#8A5A12":C.greenDeep,background:quebrada?"#FBF1DE":"#F0FAF6",borderRadius:10,padding:"9px 12px",lineHeight:1.5}}>
+        O cliente vê <b>{parcelas>1?`${parcelas}x de ${fmtPreco(parcela)}`:fmtPreco(total)}</b> em destaque · total {fmtPreco(total)} · {f.meses||"?"} meses.
+        {quebrada&&<React.Fragment><br/>A conta não fecha exato: {parcelas} × {fmtPreco(parcela)} = {fmtPreco(parcela*parcelas)}. O Pagar.me cobra o total de {fmtPreco(total)}, e a última parcela pode variar centavos.</React.Fragment>}
+      </div>}
+      {campo("O que está incluído (uma linha por item; os acessos já entram sozinhos)",
+        <textarea value={f.itens} onChange={e=>muda("itens",e.target.value)} rows={3} placeholder={"Funil, catraca e relatórios de toda a equipe\nImplantação e treinamento"} style={{...entrada,resize:"vertical"}}/>,"1 1 100%")}
+      <div>
+        <div style={{...rot,marginBottom:6}}>Ferramentas liberadas quando pagar</div>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+          {FERRAMENTAS_PROPOSTA.map(([k,n])=><label key={k} style={{display:"flex",alignItems:"center",gap:6,fontSize:12.5,color:C.ink,cursor:"pointer"}}>
+            <input type="checkbox" checked={f.recursos.includes(k)} onChange={e=>muda("recursos",e.target.checked?[...f.recursos,k]:f.recursos.filter(x=>x!==k))}/>{n}</label>)}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {campo("Conta",<select value={f.org_id} onChange={e=>muda("org_id",e.target.value)} style={entrada}>
+          <option value="">Conta nova (o cliente cria o acesso na página)</option>
+          {(contas||[]).map(o=><option key={o.id} value={o.id}>Já existe: {o.nome}</option>)}</select>,"2 1 240px")}
+        {campo("Link vale por (dias)",<input value={f.validade_dias} onChange={e=>muda("validade_dias",e.target.value.replace(/\D/g,""))} inputMode="numeric" style={entrada}/>)}
+      </div>
+      {!f.org_id&&<div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {campo("Responsável (opcional, já vem preenchido)",<input value={f.contato_nome} onChange={e=>muda("contato_nome",e.target.value)} style={entrada}/>)}
+        {campo("E-mail do responsável (opcional)",<input value={f.contato_email} onChange={e=>muda("contato_email",e.target.value)} inputMode="email" style={entrada}/>)}
+      </div>}
+      {campo("Recado no alto da página (opcional)",<input value={f.mensagem} onChange={e=>muda("mensagem",e.target.value)} placeholder="Conforme combinado na reunião de hoje." style={entrada}/>,"1 1 100%")}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button disabled={ocupado} onClick={criar} style={{...botaoVerde,opacity:ocupado?.6:1}}>{ocupado?"Criando…":"Criar e gerar o link"}</button>
+        <button onClick={()=>{setAbrir(false);setErro("");}} style={{...botaoVerde,background:C.card,color:C.ink,border:`1px solid ${C.line}`}}>Cancelar</button>
+      </div>
+    </div>}
+    {d&&d.propostas.length>0&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      {d.propostas.map(p=>{const [rotulo,cor]=ESTADO_PROPOSTA[p.estado]||[p.estado,C.faint];
+        return <div key={p.id} style={{border:`1px solid ${C.line}`,borderRadius:12,padding:"10px 12px",background:C.card,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 220px",minWidth:0}}>
+            <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{p.cliente} <span style={{fontWeight:500,color:C.sub}}>· {p.titulo}</span></div>
+            <div style={{fontSize:12,color:C.sub,marginTop:2}}>
+              {p.parcelas>1?`${p.parcelas}x de ${fmtPreco(p.parcela)}`:fmtPreco(p.total)} · total {fmtPreco(p.total)} · {p.meses} meses{p.acessos?` · ${p.acessos} acessos`:""}
+              {p.conta_nome?` · conta ${p.conta_nome}`:p.org_criada_nome?` · criou a conta ${p.org_criada_nome}`:""}
+            </div>
+            <div style={{fontSize:11.5,color:cor,fontWeight:700,marginTop:3}}>● {rotulo}
+              <span style={{color:C.faint,fontWeight:500}}>{p.estado==="paga"&&p.paga_em?` em ${new Date(p.paga_em).toLocaleDateString("pt-BR")}`:p.estado==="aberta"?` · vale até ${new Date(p.valida_ate).toLocaleDateString("pt-BR")}`:""}</span></div>
+            {p.erro&&p.estado!=="paga"&&<div style={{fontSize:11.5,color:C.hot,marginTop:3}}>Última tentativa: {p.erro}</div>}
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {["aberta","pagando","processando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
+            <a href={p.link} target="_blank" rel="noopener" style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,textDecoration:"none"}}>Abrir</a>
+            {p.estado==="aberta"&&<button onClick={()=>cancelar(p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
+          </div>
+        </div>;})}
+    </div>}
+    {d&&!d.propostas.length&&!abrir&&<div style={{color:C.faint,fontSize:12.5}}>Nenhuma proposta ainda.</div>}
+  </div>;
+}
+
 function SuporteNoHub({isMobile,equipe}){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");

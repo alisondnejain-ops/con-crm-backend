@@ -1,3 +1,4 @@
+import { propostaPorPedido, confirmarProposta, estornarProposta, recusarProposta, lerProposta, cancelarRecorrentes } from "../services/propostas.js";
 import { ehInterna } from "../services/interno.js";
 import { Router } from "express";
 import db from "../db.js";
@@ -1349,6 +1350,19 @@ export async function processarAvisoPagarme(corpo) {
     if (pagarme.PAGA.has(c.status)) confirmarCompra(compra);
     else if (pagarme.ESTORNADA.has(c.status)) estornarCompra(compra);
     else if (["canceled", "failed"].includes(c.status)) cancelarCompra(compra);
+    return;
+  }
+  /* A proposta personalizada (10/11/2026) é um pedido próprio: pagou, credita
+     os meses DELA (não os de um plano da tabela). */
+  const proposta = propostaPorPedido(pedidoId);
+  if (proposta && [proposta.org_id, proposta.org_criada_id].includes(org.id)) {
+    if (pagarme.PAGA.has(c.status)) {
+      if (confirmarProposta(proposta, { orgId: org.id, cobrancaId: c.id, valor: Number(c.paid_amount || c.amount || 0) / 100 || null })) {
+        if (proposta.org_id) await cancelarRecorrentes(org);
+        console.log(`[pagarme] proposta paga (${org.name})`);
+      }
+    } else if (pagarme.ESTORNADA.has(c.status)) estornarProposta(lerProposta(proposta.id));
+    else if (["canceled", "failed"].includes(c.status)) recusarProposta(lerProposta(proposta.id), "O cartão recusou a cobrança na análise.");
     return;
   }
   /* O boleto liberado pelo master (15/10/2026) é um pedido próprio. */
