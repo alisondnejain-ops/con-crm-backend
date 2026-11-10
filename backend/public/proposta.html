@@ -152,6 +152,7 @@
         <div class="field"><label for="senha">Crie uma senha</label><input id="senha" type="password" autocomplete="new-password" placeholder="Pelo menos 6 caracteres"/></div>
       </div>
 
+      <div id="blocoCartao">
       <div class="secao">Cartão de crédito</div>
       <div class="field"><label for="cartao">Número do cartão</label><input id="cartao" inputmode="numeric" autocomplete="cc-number" name="cardnumber" placeholder="0000 0000 0000 0000"/></div>
       <div class="field"><label for="titular">Nome impresso no cartão</label><input id="titular" autocomplete="cc-name" name="ccname" placeholder="COMO ESTÁ NO CARTÃO"/></div>
@@ -159,12 +160,13 @@
         <div class="field"><label for="validade">Validade</label><input id="validade" inputmode="numeric" autocomplete="cc-exp" name="cc-exp" placeholder="MM/AA"/></div>
         <div class="field"><label for="cvv">Código (CVV)</label><input id="cvv" inputmode="numeric" autocomplete="cc-csc" name="cvc" placeholder="123"/></div>
       </div>
-      <div class="field"><label for="doc">CPF ou CNPJ do titular do cartão</label><input id="doc" inputmode="numeric" placeholder="só números"/></div>
+      </div>
+      <div class="field"><label for="doc" id="docLabel">CPF ou CNPJ do titular do cartão</label><input id="doc" inputmode="numeric" placeholder="só números"/></div>
       <div class="nota" id="notaLimite"></div>
       <button id="go">Pagar</button>
       <div class="cadeado">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
-        <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.</span>
+        <span id="cadeadoTexto">Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.</span>
       </div>
       <div class="rodape">Dúvidas sobre a proposta? Fale com quem enviou este link.</div>
     </div>
@@ -173,6 +175,7 @@
       <div class="ico" id="estadoIco"></div>
       <h2 id="estadoTitulo"></h2>
       <p class="lead" id="estadoTexto"></p>
+      <a id="faturaBotao" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:none;margin-bottom:10px"><button>Abrir a fatura e pagar</button></a>
       <a id="estadoBotao" href="/app" style="text-decoration:none;display:none"><button>Entrar no ConHub</button></a>
     </div>
   </div>
@@ -193,7 +196,7 @@
   var CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7FD8BC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
   var OK_ICO = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E8F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
   var ALERTA_ICO = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#B7791F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>';
-  var P = null, CHECKOUT = null;
+  var P = null, CHECKOUT = null, P_fatura = null;
 
   function estado(titulo, texto, ok, botao){
     $("formView").style.display = "none";
@@ -203,6 +206,24 @@
     $("estadoTitulo").textContent = titulo;
     $("estadoTexto").textContent = texto;
     $("estadoBotao").style.display = botao ? "inline" : "none";
+    $("faturaBotao").style.display = "none";
+  }
+  var ASAAS = false, espera = null;
+  /* Asaas: a pessoa paga na fatura, em outra aba. Esta página pergunta a cada
+     6 segundos se já foi pago, e mostra quando foi. */
+  function aguardando(fatura){
+    estado("Falta só pagar a fatura", "A fatura segura do Asaas abriu em outra aba. Coloque o cartão lá e pague " + parcelaTexto() + ". Esta página avisa sozinha quando o pagamento for aprovado.", false, false);
+    var fb = $("faturaBotao"); fb.href = fatura; fb.style.display = "block";
+    if (espera) return;
+    espera = setInterval(function(){
+      fetch(API + "/publico/proposta/" + encodeURIComponent(CODIGO)).then(function(r){ return r.json(); }).then(function(d){
+        if (d.estado === "paga") { clearInterval(espera); espera = null;
+          estado("Pagamento aprovado!", P.conta_existente ? "A conta está liberada. Obrigado!" : "A conta da " + P.cliente + " está liberada. Entre no ConHub com o e-mail e a senha que você criou.", true, true); }
+        else if (d.estado === "processando") { clearInterval(espera); espera = null;
+          estado("Pagamento recebido", "O pagamento entrou. A liberação da conta está sendo concluída pelo ConHub — não pague de novo.", false, false); }
+        else if (d.estado === "aberta") { clearInterval(espera); espera = null; location.reload(); }
+      }).catch(function(){});
+    }, 6000);
   }
   function parcelaTexto(){ return P.parcelas > 1 ? P.parcelas + "x de " + reais(P.parcela) : reais(P.total) + " à vista"; }
   function prazo(m){ return m === 12 ? "plano anual" : m === 1 ? "1 mês de acesso" : m + " meses de acesso"; }
@@ -221,7 +242,8 @@
     if (P.valida_ate) $("valido").textContent = "Proposta válida até " + new Date(P.valida_ate).toLocaleDateString("pt-BR") + ".";
 
     if (P.estado === "paga") return estado("Proposta paga", "Esta proposta já foi paga. Entre no ConHub com o seu e-mail e senha.", true, true);
-    if (P.estado === "processando") return estado("Pagamento em análise", "O Pagar.me está analisando o pagamento. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", false, true);
+    if (P.estado === "aguardando" && P_fatura) return aguardando(P_fatura);
+    if (P.estado === "processando") return estado("Pagamento em análise", "O pagamento está sendo analisado. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", false, true);
     if (P.estado === "vencida") return estado("Este link venceu", "A validade desta proposta acabou. Fale com o ConHub para receber um link novo.", false, false);
     if (P.estado === "cancelada" || P.estado === "estornada") return estado("Proposta cancelada", "Esta proposta não está mais disponível. Fale com o ConHub.", false, false);
     if (!CHECKOUT) return estado("Pagamento indisponível agora", "O pagamento por cartão não está disponível neste momento. Fale com o ConHub — a proposta continua valendo.", false, false);
@@ -231,6 +253,7 @@
     var lead = P.mensagem ? P.mensagem + " " : "";
     $("formLead").textContent = lead + (P.conta_existente
       ? "O pagamento é feito no cartão e a conta " + (P.conta_nome || "") + " é liberada na hora."
+      : ASAAS ? "Crie o acesso do responsável e pague no cartão, na fatura segura do Asaas: aprovado o pagamento, a conta é liberada e você entra com o e-mail e a senha criados aqui."
       : "Crie o acesso do responsável e pague no cartão: a conta é liberada na hora, e você já entra no sistema.");
     $("resumoTexto").textContent = P.titulo + " · " + prazo(P.meses) + (P.acessos ? " · " + P.acessos + " acessos" : "");
     $("resumoParcela").textContent = parcelaTexto();
@@ -238,6 +261,12 @@
       ? "Cobrança de <b>" + reais(P.total) + " em " + P.parcelas + "x de " + reais(P.parcela) + "</b> no cartão, sem renovação automática. Mesmo parcelado, o banco reserva o valor total no limite do cartão."
       : "Cobrança única de <b>" + reais(P.total) + "</b> no cartão, sem renovação automática.";
     btn.textContent = "Pagar " + parcelaTexto();
+    if (ASAAS) {
+      $("blocoCartao").style.display = "none";
+      $("docLabel").textContent = "CPF ou CNPJ de quem vai pagar";
+      btn.textContent = "Ir para o pagamento · " + parcelaTexto();
+      $("cadeadoTexto").textContent = "O cartão é digitado na página segura do Asaas, que abre ao clicar. O ConHub não recebe os dados do cartão.";
+    }
     if (P.conta_existente) $("conta").style.display = "none";
     else {
       $("marca").value = P.cliente;
@@ -288,6 +317,7 @@
       if (tel.conferir()) return erro(tel.conferir());
       if (body.senha.length < 6) return erro("A senha precisa ter pelo menos 6 caracteres.");
     }
+    if (ASAAS) return pagarAsaas(body);
     var mes = Number(validadeEl.value.slice(0, 2));
     if (dig(cartaoEl.value).length < 13 || titularEl.value.trim().length < 3 || !/^\d{2}\/\d{2}$/.test(validadeEl.value) || mes < 1 || mes > 12 || dig(cvvEl.value).length < 3)
       return erro("Confira os dados do cartão: número, nome, validade (MM/AA) e código.");
@@ -319,12 +349,37 @@
       if ($("formView").style.display !== "none") { btn.disabled = false; btn.textContent = "Pagar " + parcelaTexto(); }
     }
   }
+  /* Asaas: abre a aba ANTES da resposta (navegador bloqueia aba aberta
+     depois de esperar a rede) e aponta para a fatura quando ela chega. */
+  async function pagarAsaas(body){
+    if ([11, 14].indexOf(dig(body.cpfCnpj).length) < 0) return erro("Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) de quem vai pagar.");
+    enviando = true; btn.disabled = true; btn.textContent = "Gerando a fatura…";
+    var aba = null; try { aba = window.open("", "_blank"); } catch (e) {}
+    try {
+      var res = await fetch(API + "/publico/proposta/" + encodeURIComponent(CODIGO) + "/asaas", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if (data.ja_paga) { if (aba) aba.close(); return estado("Proposta paga", data.error, true, true); }
+      if (data.vencida || data.cancelada) { if (aba) aba.close(); return estado("Proposta indisponível", data.error, false, false); }
+      if (!res.ok || !data.fatura) { if (aba) aba.close(); return erro(data.error || "Não foi possível gerar a fatura agora."); }
+      if (aba && !aba.closed) aba.location.href = data.fatura;
+      aguardando(data.fatura);
+    } catch (e) {
+      if (aba) aba.close();
+      erro("Sem conexão com o servidor. Tente de novo em instantes.");
+    } finally {
+      enviando = false;
+      if ($("formView").style.display !== "none") { btn.disabled = false; btn.textContent = "Ir para o pagamento · " + parcelaTexto(); }
+    }
+  }
   btn.addEventListener("click", pagar);
 
   fetch(API + "/publico/proposta/" + encodeURIComponent(CODIGO)).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
     .then(function(x){
       if (!x.ok) { $("titulo").textContent = "Proposta não encontrada"; return estado("Proposta não encontrada", x.d.error || "Confira o link que você recebeu.", false, false); }
-      P = x.d; CHECKOUT = x.d.checkout; montar();
+      P = x.d; CHECKOUT = x.d.checkout; P_fatura = x.d.fatura || null;
+      ASAAS = x.d.provedor === "asaas"; montar();
     }).catch(function(){ estado("Sem conexão", "Não consegui carregar a proposta. Confira a internet e recarregue a página.", false, false); });
 })();
 </script>

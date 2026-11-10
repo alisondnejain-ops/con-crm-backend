@@ -53,11 +53,14 @@
    NÃO CONFERIDO CONTRA O PAGAR.ME DE VERDADE (a mesma ressalva de
    services/pagarme.js): o pedido é o mesmo do anual da tabela. */
 import { randomUUID, randomBytes } from "crypto";
+export const PROVEDORES_DA_PROPOSTA = ["pagarme", "asaas"];
 import db from "../db.js";
 import { registrarPagamento, apagarPagamento } from "./assinatura.js";
 import { definirPeloMaster, ehRecurso } from "./recursos.js";
 import * as pagarme from "./pagarme.js";
-import { cancelarAssinatura as cancelarAsaas } from "./asaas.js";
+import * as asaas from "./asaas.js";
+import { codigoLivre } from "./codigo.js";
+const cancelarAsaas = asaas.cancelarAssinatura;
 
 export const RECURSOS_DA_PROPOSTA = ["autoatendimento", "marketing", "cetrolab"];
 const DIA = 86400000;
@@ -102,11 +105,13 @@ export function lerEntrada(corpo = {}) {
     .map(x => texto(x, 140)).filter(Boolean).slice(0, 12);
   const recursos = [...new Set((Array.isArray(corpo.recursos) ? corpo.recursos : []).map(String))]
     .filter(r => RECURSOS_DA_PROPOSTA.includes(r) && ehRecurso(r));
+  const provedor = corpo.provedor == null || corpo.provedor === "" ? "pagarme" : String(corpo.provedor);
+  if (!PROVEDORES_DA_PROPOSTA.includes(provedor)) throw new ErroProposta(400, "Escolha por onde cobrar: Pagar.me ou Asaas.");
   let orgId = texto(corpo.org_id, 60) || null;
   if (orgId && !db.prepare("SELECT 1 FROM orgs WHERE id = ?").get(orgId))
     throw new ErroProposta(400, "A conta escolhida não existe.");
   return {
-    cliente, total, parcelas, meses, acessos, dias, itens, recursos, orgId,
+    cliente, total, parcelas, meses, acessos, dias, itens, recursos, orgId, provedor,
     titulo: texto(corpo.titulo, 80) || `Plano ConHub · ${meses === 12 ? "anual" : meses + " meses"}`,
     contato_nome: texto(corpo.contato_nome, 80) || null,
     contato_email: texto(corpo.contato_email, 120).toLowerCase() || null,
@@ -122,16 +127,20 @@ export function criarProposta(corpo, porUserId) {
   const codigo = randomBytes(18).toString("base64url");   // 24 caracteres
   const agora = Date.now();
   db.prepare(`INSERT INTO propostas (id,codigo,org_id,cliente,titulo,contato_nome,contato_email,mensagem,total,parcelas,meses,
-      acessos,itens_json,recursos_json,valida_ate,status,criado_por,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'aberta',?,?)`)
+      acessos,itens_json,recursos_json,valida_ate,status,criado_por,created_at,provedor)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'aberta',?,?,?)`)
     .run(id, codigo, e.orgId, e.cliente, e.titulo, e.contato_nome, e.contato_email, e.mensagem, e.total, e.parcelas, e.meses,
-      e.acessos, JSON.stringify(e.itens), JSON.stringify(e.recursos), agora + e.dias * DIA, porUserId || null, agora);
+      e.acessos, JSON.stringify(e.itens), JSON.stringify(e.recursos), agora + e.dias * DIA, porUserId || null, agora, e.provedor);
   return lerProposta(id);
 }
 
 export const lerProposta = (id) => db.prepare("SELECT * FROM propostas WHERE id = ?").get(id) || null;
 export const propostaPorCodigo = (codigo) =>
   /^[A-Za-z0-9_-]{16,64}$/.test(String(codigo || "")) ? (db.prepare("SELECT * FROM propostas WHERE codigo = ?").get(codigo) || null) : null;
+export const propostaPorAsaas = (pagamentoId, parcelamentoId) =>
+  (parcelamentoId && db.prepare("SELECT * FROM propostas WHERE asaas_parcelamento_id = ?").get(String(parcelamentoId)))
+  || (pagamentoId && db.prepare("SELECT * FROM propostas WHERE asaas_pagamento_id = ?").get(String(pagamentoId)))
+  || null;
 export const propostaPorPedido = (pedidoId) =>
   pedidoId ? (db.prepare("SELECT * FROM propostas WHERE pedido_id = ?").get(String(pedidoId)) || null) : null;
 
@@ -154,6 +163,7 @@ export function paraPagina(p) {
     contato_email: p.contato_email, total: p.total, parcelas: p.parcelas, parcela: parcelaDe(p.total, p.parcelas),
     meses: p.meses, acessos: p.acessos, itens: json(p.itens_json, []), recursos: json(p.recursos_json, []),
     valida_ate: p.valida_ate, estado: estadoDe(p), conta_existente: !!p.org_id, conta_nome: org ? org.name : null,
+    provedor: p.provedor || "pagarme",
   };
 }
 
@@ -217,9 +227,10 @@ export function confirmarProposta(p, { orgId, cobrancaId, valor = null, quando =
     db.prepare("UPDATE orgs SET vence_base = ?, vence_em = ? WHERE id = ?").run(base, base, org.id);
   }
   const porMes = Math.round((atual.total / atual.meses) * 100) / 100;
-  db.prepare(`UPDATE orgs SET cobranca = 'pagarme', plano_id = NULL, plano = ?, valor_mensal = ?, cancelado_em = NULL,
-      assinatura_status = NULL WHERE id = ?`).run(`ConHub · ${atual.titulo}`, porMes, org.id);
-  registrarPagamento(org.id, { quando, valor: valor != null ? Number(valor) : atual.total, origem: "pagarme",
+  const provedor = atual.provedor === "asaas" ? "asaas" : "pagarme";
+  db.prepare(`UPDATE orgs SET cobranca = ?, plano_id = NULL, plano = ?, valor_mensal = ?, cancelado_em = NULL,
+      assinatura_status = NULL WHERE id = ?`).run(provedor, `ConHub · ${atual.titulo}`, porMes, org.id);
+  registrarPagamento(org.id, { quando, valor: valor != null ? Number(valor) : atual.total, origem: provedor,
     asaasId: cobrancaId || atual.id, meses: atual.meses, obs: `Proposta: ${atual.titulo}` });
   for (const r of json(atual.recursos_json, [])) {
     try { definirPeloMaster(org.id, r, "liberado", porUserId || atual.criado_por); }
@@ -266,4 +277,117 @@ export async function cancelarRecorrentes(org) {
     }
     db.prepare("UPDATE orgs SET pagarme_subscription_id = NULL, pagarme_order_id = NULL, asaas_subscription_id = NULL WHERE id = ?").run(atual.id);
   } catch (e) { console.warn(`[proposta] cancelar as recorrentes: ${e.message}`); }
+}
+
+/* A CONTA NOVA DA PROPOSTA. Uma função só para os dois provedores: no
+   Pagar.me ela nasce logo depois de o cartão passar; no Asaas, quando o aviso
+   de pago chega (o cliente pagou na fatura do Asaas, fora daqui). O e-mail
+   que ficou preso por outra pessoa no meio do caminho é recusado aqui —
+   quem chama trata como "pago sem conta" e o master resolve no hub. */
+export function nascerConta({ orgId, nome, email, telefone, marca, passHash, cobranca, colunas = {}, venceEm = null }) {
+  const ja = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (ja && ja.status === "ativo") throw new Error(`o e-mail ${email} já tem conta ativa`);
+  const agora = Date.now();
+  const userId = ja ? ja.id : "u_" + randomUUID();
+  const extras = Object.keys(colunas);
+  db.transaction(() => {
+    db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,cobranca,vence_em
+        ${extras.map(c => "," + c).join("")})
+      VALUES (?,?,?,'',0,0,?,'imobiliaria',?,?${extras.map(() => ",?").join("")})`)
+      .run(orgId, marca, codigoLivre(marca), agora, cobranca, venceEm, ...extras.map(c => colunas[c]));
+    if (ja) {
+      db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', available=0, status='ativo', pass_hash=?,
+        invite_token=NULL, invite_hash=NULL, invite_expires=NULL, invite_tipo=NULL WHERE id=?`)
+        .run(orgId, nome, telefone || "", passHash, userId);
+    } else {
+      db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status)
+        VALUES (?,?,?,?,?,?,'adm',0,?,'ativo')`).run(userId, orgId, nome, email, telefone || "", passHash, agora);
+    }
+    db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
+  })();
+  return userId;
+}
+
+/* ===== PELO ASAAS (10/11/2026, pedido do Ali: "a taxa dele é melhor") =====
+
+   O cartão é digitado na FATURA HOSPEDADA do Asaas — a mesma regra do resto do
+   ConHub com o Asaas: número de cartão nunca passa por aqui. A página da
+   proposta continua sendo a nossa (o preço em destaque, o que está incluído);
+   o botão cria o parcelamento e abre a fatura.
+
+   Como o pagamento acontece fora, a conta nova NÃO nasce no clique: o cadastro
+   do responsável fica guardado na proposta (a senha só como hash) e a conta
+   nasce quando o Asaas avisa que foi pago — pelo webhook, ou pela conferência
+   que a própria página faz enquanto a pessoa paga. Os dois caminhos passam por
+   `confirmarAsaas`, que é idempotente pelo status. */
+export function marcarAguardandoAsaas(p, { pagamentoId, parcelamentoId, fatura, cadastro, orgId, pagador }) {
+  db.prepare(`UPDATE propostas SET status = 'aguardando', asaas_pagamento_id = ?, asaas_parcelamento_id = ?, asaas_fatura = ?,
+      cadastro_json = ?, org_criada_id = COALESCE(org_criada_id, ?), pagador_nome = ?, pagador_email = ?, ultimo_erro = NULL WHERE id = ?`)
+    .run(pagamentoId || null, parcelamentoId || null, fatura || null, cadastro ? JSON.stringify(cadastro) : null,
+      orgId || null, pagador?.nome || null, pagador?.email || null, p.id);
+}
+
+/* Fatura apagada no Asaas antes de ser paga: a proposta volta a aceitar. */
+export function faturaAsaasCaiu(p, motivo) {
+  db.prepare(`UPDATE propostas SET status = 'aberta', asaas_pagamento_id = NULL, asaas_parcelamento_id = NULL, asaas_fatura = NULL,
+      ultimo_erro = ? WHERE id = ? AND status = 'aguardando'`).run(motivo || "A fatura do Asaas foi cancelada.", p.id);
+}
+
+const PAGO_ASAAS = new Set(["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"]);
+
+export async function confirmarAsaas(p, { valor = null, quando = Date.now() } = {}) {
+  const atual = lerProposta(p.id);
+  if (!atual || atual.status !== "aguardando") return false;
+  let orgId = atual.org_id;
+  if (!orgId) {
+    const c = json(atual.cadastro_json, null);
+    orgId = atual.org_criada_id || ("org_" + randomUUID().slice(0, 8));
+    if (!db.prepare("SELECT 1 FROM orgs WHERE id = ?").get(orgId)) {
+      try {
+        if (!c) throw new Error("o cadastro do responsável não ficou guardado");
+        nascerConta({ orgId, nome: c.nome, email: c.email, telefone: c.telefone, marca: c.marca || atual.cliente,
+          passHash: c.pass_hash, cobranca: "asaas", colunas: { asaas_customer_id: c.cliente_asaas || null } });
+      } catch (e) {
+        db.prepare("UPDATE propostas SET status = 'processando', ultimo_erro = ? WHERE id = ?")
+          .run("Pagamento feito no Asaas, mas a conta não foi criada: " + e.message, atual.id);
+        console.error(`[proposta] PAGO SEM CONTA (${atual.cliente}, Asaas ${atual.asaas_parcelamento_id || atual.asaas_pagamento_id}): ${e.message}`);
+        return false;
+      }
+    }
+  } else {
+    const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+    if (!org) return false;
+    const c = json(atual.cadastro_json, {});
+    if (c.cliente_asaas) db.prepare("UPDATE orgs SET asaas_customer_id = COALESCE(asaas_customer_id, ?) WHERE id = ?").run(c.cliente_asaas, orgId);
+  }
+  const ok = confirmarProposta(atual, { orgId, cobrancaId: atual.asaas_parcelamento_id || atual.asaas_pagamento_id,
+    valor: valor != null ? valor : atual.total, quando });
+  if (ok) {
+    db.prepare("UPDATE propostas SET cadastro_json = NULL WHERE id = ?").run(atual.id);   // a senha não fica guardada à toa
+    if (atual.org_id) await cancelarRecorrentesExceto(atual.org_id);
+  }
+  return ok;
+}
+
+/* Conta existente que paga a proposta pelo Asaas: a assinatura recorrente
+   antiga sai, como no Pagar.me. */
+async function cancelarRecorrentesExceto(orgId) {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
+  if (org) await cancelarRecorrentes(org);
+}
+
+/* A segunda chance além do webhook: a página pergunta ao Asaas enquanto a
+   pessoa paga na outra aba. Uma pergunta a cada 5s por proposta. */
+const ultimaConferencia = new Map();
+export async function conferirAsaas(p) {
+  if (!p || p.status !== "aguardando" || !p.asaas_pagamento_id) return false;
+  const agora = Date.now();
+  if (agora - (ultimaConferencia.get(p.id) || 0) < 5000) return false;
+  ultimaConferencia.set(p.id, agora);
+  try {
+    const pg = await asaas.lerPagamento(p.asaas_pagamento_id);
+    if (pg && PAGO_ASAAS.has(pg.status)) return await confirmarAsaas(p);
+    if (pg && pg.deleted) faturaAsaasCaiu(p);
+  } catch (e) { console.warn(`[proposta] conferir no Asaas: ${e.message}`); }
+  return false;
 }

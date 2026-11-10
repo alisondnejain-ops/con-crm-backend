@@ -17,7 +17,7 @@ import db from "../db.js";
 import { authRequired, soMaster, sign, semMaster, resumoDeConvite, encerrarSessoes } from "../auth.js";
 import { situacaoDoBackup, rodarBackup } from "../services/backup.js";
 import { situacao, TRIAL_DIAS, definirVencimento, dataDoFormulario } from "../services/assinatura.js";
-import { cancelarAssinatura } from "../services/asaas.js";
+import { cancelarAssinatura, asaasConfigurado, ambienteAsaas } from "../services/asaas.js";
 import { definirLiberacao } from "../services/marketing.js";
 import { recursosDaOrg, definirPeloMaster, ehRecurso, RECURSOS } from "../services/recursos.js";
 import { apagar as apagarArquivo, salvar, tipoPermitido, ehVideo } from "../services/storage.js";
@@ -130,7 +130,8 @@ function resumo(req, org) {
 const baseDoCrm = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 r.get("/propostas", (req, res) => {
   res.json({ propostas: listarPropostas().map(p => paraHub(p, baseDoCrm(req))),
-    pode_cobrar: pagarmeConfigurado() && ambientePagarme() === "produção", ambiente: pagarmeConfigurado() ? ambientePagarme() : null });
+    pode_cobrar: pagarmeConfigurado() && ambientePagarme() === "produção", ambiente: pagarmeConfigurado() ? ambientePagarme() : null,
+    asaas: { pode_cobrar: asaasConfigurado() && ambienteAsaas() === "produção", ambiente: asaasConfigurado() ? ambienteAsaas() : null } });
 });
 r.post("/propostas", (req, res) => {
   try { res.status(201).json({ proposta: paraHub(criarProposta(req.body || {}, req.user.id), baseDoCrm(req)) }); }

@@ -2616,6 +2616,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS propostas (
   cancelada_em INTEGER
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS idx_propostas_pedido ON propostas(pedido_id)");
+/* Proposta pelo Asaas (10/11/2026): a fatura hospedada do Asaas, e o cadastro
+   do responsável guardado até o pagamento entrar (a senha só como hash). */
+{
+  const propCols = db.prepare("PRAGMA table_info(propostas)").all().map(c => c.name);
+  const addPropCol = (n, ddl) => { if (!propCols.includes(n)) db.exec(`ALTER TABLE propostas ADD COLUMN ${n} ${ddl}`); };
+  addPropCol("provedor", "TEXT NOT NULL DEFAULT 'pagarme'");
+  addPropCol("asaas_pagamento_id", "TEXT");
+  addPropCol("asaas_parcelamento_id", "TEXT");
+  addPropCol("asaas_fatura", "TEXT");
+  addPropCol("cadastro_json", "TEXT");
+}
+db.exec("CREATE INDEX IF NOT EXISTS idx_propostas_asaas ON propostas(asaas_parcelamento_id)");
 
 /* PRAZO DA ETAPA VENCIDO COM CONSEQUÊNCIA (28/10/2026, services/prazo-vencido.js).
    - orgs.prazo_acao: o que acontece quando o prazo da etapa vence num lead

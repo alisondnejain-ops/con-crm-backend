@@ -108,6 +108,16 @@ export const criarParcelado = ({ clienteId, parcelas, valorParcela, vencimento, 
     dueDate: vencimento, description: descricao,
   }});
 
+/* PARCELADO PELO VALOR TOTAL (10/11/2026, proposta personalizada): o Asaas
+   divide `totalValue` nas parcelas — 14.000 em 12x não fecha em centavos, e
+   pelo total ele acerta a diferença numa parcela, em vez de cobrar a mais. */
+export const criarParcelamento = ({ clienteId, parcelas, total, vencimento, descricao, referencia }) =>
+  chamar("/payments", { metodo: "POST", corpo: {
+    customer: clienteId, billingType: "CREDIT_CARD",
+    ...(parcelas > 1 ? { installmentCount: parcelas, totalValue: total } : { value: total }),
+    dueDate: vencimento, description: descricao, externalReference: referencia,
+  }});
+
 /* BOLETO AVULSO (15/10/2026) — só nas contas em que o master liberou.
 
    Uma cobrança só, `billingType: BOLETO`, sem assinatura: boleto não fica
