@@ -7903,12 +7903,12 @@ function PlanosCetrolab({acoes,isMobile}){
    /proposta/<código>. O cliente paga na página com a cara do ConHub e a conta
    é liberada sozinha. O valor mora no servidor — a página só mostra. */
 const FERRAMENTAS_PROPOSTA=[["autoatendimento","Autoatendimento com IA"],["marketing","Marketing"],["cetrolab","Cetrolab (site)"]];
-const ESTADO_PROPOSTA={aberta:["Aguardando pagamento",C.amber],pagando:["Pagando agora",C.amber],processando:["Em análise no Pagar.me",C.amber],
+const ESTADO_PROPOSTA={aberta:["Aguardando pagamento",C.amber],pagando:["Pagando agora",C.amber],processando:["Em análise / liberando",C.amber],aguardando:["Fatura do Asaas aberta, aguardando pagamento",C.amber],
   paga:["Paga",C.greenDeep],vencida:["Vencida",C.faint],cancelada:["Cancelada",C.faint],estornada:["Estornada",C.hot]};
 function valorDigitado(v){ let t=String(v||"").replace(/[^\d.,]/g,""); if(!t) return NaN;
   if(t.includes(",")) t=t.replace(/\./g,"").replace(",","."); else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t=t.replace(/\./g,""); return Number(t); }
 function PropostasNoHub({isMobile,contas}){
-  const vazio={cliente:"",titulo:"",total:"",parcelas:12,meses:12,acessos:"",itens:"",recursos:[],validade_dias:7,org_id:"",contato_nome:"",contato_email:"",mensagem:""};
+  const vazio={cliente:"",titulo:"",total:"",parcelas:12,meses:12,acessos:"",itens:"",recursos:[],validade_dias:7,org_id:"",contato_nome:"",contato_email:"",mensagem:"",provedor:""};
   const [d,setD]=useState(null);
   const [f,setF]=useState(vazio);
   const [abrir,setAbrir]=useState(false);
@@ -7919,13 +7919,18 @@ function PropostasNoHub({isMobile,contas}){
   const carregar=()=>api("/orgs/propostas").then(setD).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const muda=(k,v)=>setF(x=>({...x,[k]:v}));
+  /* Por onde cobrar: o Asaas quando ele cobra de verdade neste servidor
+     (pedido do Ali, 10/11/2026: a taxa dele é melhor); senão o Pagar.me. */
+  const provedorPadrao=d&&d.asaas&&d.asaas.pode_cobrar?"asaas":"pagarme";
+  const provedor=f.provedor||provedorPadrao;
+  const podeNoProvedor=d?(provedor==="asaas"?!!(d.asaas&&d.asaas.pode_cobrar):!!d.pode_cobrar):true;
   const total=valorDigitado(f.total), parcelas=Number(f.parcelas)||1;
   const parcela=Number.isFinite(total)&&total>0?Math.round(total*100/parcelas)/100:null;
   const quebrada=parcela!=null&&Math.abs(parcela*parcelas-total)>0.009;
   async function criar(){
     setErro(""); setOcupado(true);
     try{
-      const r=await api("/orgs/propostas",{method:"POST",body:{...f,total:f.total,itens:f.itens.split("\n"),org_id:f.org_id||null}});
+      const r=await api("/orgs/propostas",{method:"POST",body:{...f,provedor,total:f.total,itens:f.itens.split("\n"),org_id:f.org_id||null}});
       setNova(r.proposta); setF(vazio); setAbrir(false); carregar();
     }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
@@ -7946,9 +7951,8 @@ function PropostasNoHub({isMobile,contas}){
       Para a venda negociada: um link de pagamento com a cara do ConHub, montado para um cliente, com o preço parcelado em destaque.
       Pagou no cartão, a conta é liberada sozinha pelo período da proposta.
     </div>
-    {d&&!d.pode_cobrar&&<div style={{background:"#FBF1DE",color:"#8A5A12",borderRadius:11,padding:"10px 12px",fontSize:12.5,marginBottom:12,lineHeight:1.5}}>
-      {d.ambiente==="teste"?"O Pagar.me deste servidor está com chaves de TESTE: o link abre, mas não cobra. Troque para as chaves de produção no Railway antes de mandar ao cliente."
-        :"O Pagar.me não está configurado neste servidor: o link abre, mas não cobra."}</div>}
+    {d&&!d.pode_cobrar&&!(d.asaas&&d.asaas.pode_cobrar)&&<div style={{background:"#FBF1DE",color:"#8A5A12",borderRadius:11,padding:"10px 12px",fontSize:12.5,marginBottom:12,lineHeight:1.5}}>
+      Nem o Pagar.me nem o Asaas estão cobrando de verdade neste servidor (chaves de teste ou ausentes): o link abre, mas não cobra.</div>}
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:10}}>{erro}</div>}
     {nova&&<div style={{border:`1px solid ${C.greenMid}`,background:"#F0FAF6",borderRadius:12,padding:12,marginBottom:12}}>
       <div style={{fontSize:13,fontWeight:700,color:C.greenDeep,marginBottom:6}}>Proposta criada. Mande este link para {nova.cliente}:</div>
@@ -7972,8 +7976,19 @@ function PropostasNoHub({isMobile,contas}){
       </div>
       {parcela!=null&&<div style={{fontSize:13,color:quebrada?"#8A5A12":C.greenDeep,background:quebrada?"#FBF1DE":"#F0FAF6",borderRadius:10,padding:"9px 12px",lineHeight:1.5}}>
         O cliente vê <b>{parcelas>1?`${parcelas}x de ${fmtPreco(parcela)}`:fmtPreco(total)}</b> em destaque · total {fmtPreco(total)} · {f.meses||"?"} meses.
-        {quebrada&&<React.Fragment><br/>A conta não fecha exato: {parcelas} × {fmtPreco(parcela)} = {fmtPreco(parcela*parcelas)}. O Pagar.me cobra o total de {fmtPreco(total)}, e a última parcela pode variar centavos.</React.Fragment>}
+        {quebrada&&<React.Fragment><br/>A conta não fecha exato: {parcelas} × {fmtPreco(parcela)} = {fmtPreco(parcela*parcelas)}. O {provedor==="asaas"?"Asaas":"Pagar.me"} cobra o total de {fmtPreco(total)}, e uma parcela pode variar centavos.</React.Fragment>}
       </div>}
+      <div>
+        <div style={{...rot,marginBottom:6}}>Cobrar pelo</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[["asaas","Asaas","o cliente põe o cartão na fatura do Asaas"],["pagarme","Pagar.me","o cliente põe o cartão na própria página"]].map(([k,n,dica])=>
+            <button key={k} type="button" onClick={()=>muda("provedor",k)} style={{border:`1.5px solid ${provedor===k?C.green:C.line}`,background:provedor===k?"#F0FAF6":C.card,
+              color:C.ink,borderRadius:10,padding:"8px 12px",fontSize:12.5,cursor:"pointer",textAlign:"left",flex:"1 1 180px"}}>
+              <b>{n}</b><div style={{color:C.sub,fontSize:11.5,marginTop:2}}>{dica}</div></button>)}
+        </div>
+        {!podeNoProvedor&&<div style={{color:"#8A5A12",fontSize:12,marginTop:6}}>
+          {provedor==="asaas"?"O Asaas deste servidor não está em produção (ou não está configurado): o link abre, mas não cobra.":"O Pagar.me deste servidor está com chaves de teste (ou não está configurado): o link abre, mas não cobra."}</div>}
+      </div>
       {campo("O que está incluído (uma linha por item; os acessos já entram sozinhos)",
         <textarea value={f.itens} onChange={e=>muda("itens",e.target.value)} rows={3} placeholder={"Funil, catraca e relatórios de toda a equipe\nImplantação e treinamento"} style={{...entrada,resize:"vertical"}}/>,"1 1 100%")}
       <div>
@@ -8006,14 +8021,14 @@ function PropostasNoHub({isMobile,contas}){
             <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{p.cliente} <span style={{fontWeight:500,color:C.sub}}>· {p.titulo}</span></div>
             <div style={{fontSize:12,color:C.sub,marginTop:2}}>
               {p.parcelas>1?`${p.parcelas}x de ${fmtPreco(p.parcela)}`:fmtPreco(p.total)} · total {fmtPreco(p.total)} · {p.meses} meses{p.acessos?` · ${p.acessos} acessos`:""}
-              {p.conta_nome?` · conta ${p.conta_nome}`:p.org_criada_nome?` · criou a conta ${p.org_criada_nome}`:""}
+              {p.conta_nome?` · conta ${p.conta_nome}`:p.org_criada_nome?` · criou a conta ${p.org_criada_nome}`:""} · {p.provedor==="asaas"?"Asaas":"Pagar.me"}
             </div>
             <div style={{fontSize:11.5,color:cor,fontWeight:700,marginTop:3}}>● {rotulo}
               <span style={{color:C.faint,fontWeight:500}}>{p.estado==="paga"&&p.paga_em?` em ${new Date(p.paga_em).toLocaleDateString("pt-BR")}`:p.estado==="aberta"?` · vale até ${new Date(p.valida_ate).toLocaleDateString("pt-BR")}`:""}</span></div>
             {p.erro&&p.estado!=="paga"&&<div style={{fontSize:11.5,color:C.hot,marginTop:3}}>Última tentativa: {p.erro}</div>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {["aberta","pagando","processando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
+            {["aberta","pagando","processando","aguardando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
             <a href={p.link} target="_blank" rel="noopener" style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,textDecoration:"none"}}>Abrir</a>
             {p.estado==="aberta"&&<button onClick={()=>cancelar(p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
           </div>

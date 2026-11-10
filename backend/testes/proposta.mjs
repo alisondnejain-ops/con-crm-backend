@@ -30,6 +30,9 @@ process.env.PAGARME_SECRET_KEY = "sk_chave_de_producao";
 process.env.PAGARME_PUBLIC_KEY = "pk_chave_publica";
 process.env.PAGARME_API_URL = "http://127.0.0.1:4816";
 process.env.APP_URL = "http://localhost:4815";
+process.env.ASAAS_API_KEY = "$aact_prod_teste";
+process.env.ASAAS_API_URL = "http://127.0.0.1:4816/asaas";
+process.env.ASAAS_WEBHOOK_TOKEN = "tok-asaas";
 for (const k of ["AGENDADAS_AGENDADOR", "MARKETING_AGENDADOR", "PRAZO_AGENDADOR", "CATRACA_TEMPO_AGENDADOR", "REDES_AGENDADOR", "FOTOS_AGENDADOR"]) process.env[k] = "0";
 for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH + s); } catch (e) {} }
 
@@ -38,12 +41,26 @@ for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH 
 let modo = "paid";
 const pedidos = [], cancelados = [];
 const cobrancas = new Map();
+const asaasClientes = [], asaasPagamentos = [], asaasPorId = new Map();
 let n = 0;
 const mock = http.createServer((req, res) => {
   let corpo = ""; req.on("data", c => (corpo += c));
   req.on("end", () => {
     const j = corpo ? JSON.parse(corpo) : {};
     const ok = (x) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(x)); };
+    /* O Asaas de mentira. */
+    if (req.url.startsWith("/asaas/")) {
+      const u = req.url.slice(6);
+      if (req.method === "POST" && u === "/customers") { asaasClientes.push(j); return ok({ id: "cus_as_" + (++n) }); }
+      if (req.method === "POST" && u === "/payments") {
+        asaasPagamentos.push(j);
+        const pg = { id: "pay_" + (++n), installment: j.installmentCount ? "ins_" + n : null, status: "PENDING",
+          invoiceUrl: "https://asaas.test/i/" + n, value: j.totalValue || j.value };
+        asaasPorId.set(pg.id, pg); return ok(pg);
+      }
+      if (req.method === "GET" && u.startsWith("/payments/")) return ok(asaasPorId.get(u.split("/")[2]) || {});
+      res.writeHead(404); return res.end("{}");
+    }
     if (req.method === "POST" && req.url === "/customers") return ok({ id: "cus_" + (++n), ...j });
     if (req.method === "POST" && /\/customers\/[^/]+\/cards$/.test(req.url)) return ok({ id: "card_" + (++n), brand: "visa", last_four_digits: "4242", exp_month: 12, exp_year: 2030 });
     if (req.method === "POST" && req.url === "/orders") {
@@ -219,6 +236,86 @@ await caso("10. A página abre sem login e fica fora do Google", async () => {
   assert.match(r.headers.get("x-robots-tag") || "", /noindex/);
   const html = await r.text();
   assert.match(html, /Pagar\.me/);
+});
+
+const avisoAsaas = (event, payment) => fetch(BASE + "/webhooks/asaas", { method: "POST",
+  headers: { "content-type": "application/json", "asaas-access-token": "tok-asaas" }, body: JSON.stringify({ event, payment }) });
+const espera = (ms) => new Promise(r => setTimeout(r, ms));
+
+let PA;
+await caso("11. Asaas: a fatura sai com o total, em 12x, no cartão; nenhuma conta nasce antes de pagar", async () => {
+  const r = await api("u_master", "POST", "/orgs/propostas", { cliente: "Imobiliária Asaas", total: "14.400", parcelas: 12, meses: 12,
+    acessos: 42, recursos: ["marketing"], provedor: "asaas" });
+  assert.equal(r.status, 201); PA = r.body.proposta; assert.equal(PA.provedor, "asaas");
+  const pag = await api(null, "GET", `/publico/proposta/${codigoDe(PA.link)}`);
+  assert.equal(pag.body.checkout.provedor, "asaas"); assert.equal(pag.body.checkout.chave_publica, undefined);
+  const cartaoAqui = await pagar(codigoDe(PA.link), novoCliente("asaas@x.com"));
+  assert.equal(cartaoAqui.status, 409, "proposta do Asaas não aceita cartão na página");
+  const g = await api(null, "POST", `/publico/proposta/${codigoDe(PA.link)}/asaas`, { ...novoCliente("asaas@x.com"), cpfCnpj: "12345678000190", total: 1 });
+  assert.equal(g.status, 201, JSON.stringify(g.body));
+  assert.match(g.body.fatura, /^https:\/\/asaas\.test\/i\//);
+  const ped = asaasPagamentos.at(-1);
+  assert.equal(ped.billingType, "CREDIT_CARD"); assert.equal(ped.installmentCount, 12); assert.equal(ped.totalValue, 14400);
+  assert.equal(asaasClientes.at(-1).cpfCnpj, "12345678000190");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE email = 'asaas@x.com'").get().n, 0);
+  const row = db.prepare("SELECT * FROM propostas WHERE id = ?").get(PA.id);
+  assert.equal(row.status, "aguardando");
+  assert.ok(!row.cadastro_json.includes("segredo1"), "a senha não fica em texto");
+  const de_novo = await api(null, "POST", `/publico/proposta/${codigoDe(PA.link)}/asaas`, { ...novoCliente("asaas@x.com"), cpfCnpj: "12345678000190" });
+  assert.equal(de_novo.body.fatura, g.body.fatura, "o mesmo link devolve a mesma fatura");
+  assert.equal(asaasPagamentos.length, 1);
+});
+
+await caso("12. Asaas pago: a conta nasce, 12 meses, ferramentas; as outras parcelas não creditam de novo", async () => {
+  const row = db.prepare("SELECT * FROM propostas WHERE id = ?").get(PA.id);
+  assert.equal((await avisoAsaas("PAYMENT_CONFIRMED", { id: row.asaas_pagamento_id, installment: row.asaas_parcelamento_id, value: 1200 })).status, 200);
+  await espera(400);
+  const u = db.prepare("SELECT * FROM users WHERE email = 'asaas@x.com'").get();
+  assert.ok(u && u.status === "ativo" && u.role === "adm");
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(u.org_id);
+  assert.equal(org.cobranca, "asaas"); assert.ok(org.asaas_customer_id);
+  const dias = (org.vence_em - Date.now()) / 86400000;
+  assert.ok(dias > 360 && dias < 368, "12 meses: " + dias);
+  assert.equal(temRecurso(org.id, "marketing"), true);
+  for (let i = 0; i < 3; i++) await avisoAsaas("PAYMENT_CONFIRMED", { id: "pay_outra_" + i, installment: row.asaas_parcelamento_id, value: 1200 });
+  await espera(300);
+  assert.equal(db.prepare("SELECT vence_em FROM orgs WHERE id = ?").get(org.id).vence_em, org.vence_em);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(org.id).n, 1);
+  const pr = db.prepare("SELECT * FROM propostas WHERE id = ?").get(PA.id);
+  assert.equal(pr.status, "paga"); assert.equal(pr.cadastro_json, null);
+  const login = await fetch(BASE + "/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "asaas@x.com", password: "segredo1" }) });
+  assert.equal(login.status, 200, "entra com a senha que criou na página");
+});
+
+await caso("13. Asaas: a própria página confere o pagamento (sem webhook)", async () => {
+  const r = await api("u_master", "POST", "/orgs/propostas", { cliente: "Casa Antiga", total: "6000", parcelas: 6, meses: 12, org_id: orgCli, provedor: "asaas" });
+  const codigo = codigoDe(r.body.proposta.link);
+  const g = await api(null, "POST", `/publico/proposta/${codigo}/asaas`, { cpfCnpj: "12345678909" });
+  assert.equal(g.status, 201, JSON.stringify(g.body));
+  const row = db.prepare("SELECT * FROM propostas WHERE id = ?").get(r.body.proposta.id);
+  asaasPorId.get(row.asaas_pagamento_id).status = "CONFIRMED";
+  const antes = db.prepare("SELECT vence_em FROM orgs WHERE id = ?").get(orgCli).vence_em;
+  const p = await api(null, "GET", `/publico/proposta/${codigo}`);
+  assert.equal(p.body.estado, "paga");
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgCli);
+  assert.equal(org.cobranca, "asaas");
+  assert.ok(org.vence_em > antes + 300 * 86400000);
+});
+
+await caso("14. Asaas: fatura apagada volta a aceitar; estorno tira os meses", async () => {
+  const r = await api("u_master", "POST", "/orgs/propostas", { cliente: "Apaga", total: "1200", parcelas: 1, meses: 1, provedor: "asaas" });
+  const codigo = codigoDe(r.body.proposta.link);
+  await api(null, "POST", `/publico/proposta/${codigo}/asaas`, { ...novoCliente("apaga@x.com"), cpfCnpj: "12345678909" });
+  const row = db.prepare("SELECT * FROM propostas WHERE id = ?").get(r.body.proposta.id);
+  assert.equal(asaasPagamentos.at(-1).value, 1200, "à vista vai como value");
+  await avisoAsaas("PAYMENT_DELETED", { id: row.asaas_pagamento_id });
+  await espera(300);
+  assert.equal(db.prepare("SELECT status FROM propostas WHERE id = ?").get(row.id).status, "aberta");
+  const pa = db.prepare("SELECT * FROM propostas WHERE id = ?").get(PA.id);
+  await avisoAsaas("PAYMENT_REFUNDED", { id: pa.asaas_pagamento_id, installment: pa.asaas_parcelamento_id });
+  await espera(300);
+  assert.equal(db.prepare("SELECT status FROM propostas WHERE id = ?").get(PA.id).status, "estornada");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(pa.org_criada_id).n, 0);
 });
 
 console.log(falhas ? `\n${falhas} caso(s) falharam.` : "\nOK — a proposta personalizada.");

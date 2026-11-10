@@ -9,13 +9,14 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import db from "../db.js";
 import * as pagarme from "../services/pagarme.js";
-import { codigoLivre } from "../services/codigo.js";
+import * as asaas from "../services/asaas.js";
 import { telefoneDeCadastro } from "../services/telefone.js";
 import { sign, cadastroPodeReaproveitar, EMAIL_EM_USO } from "../auth.js";
 import { ipDe } from "../seguranca.js";
 import {
   propostaPorCodigo, paraPagina, estadoDe, parcelaDe, travarParaPagar, destravar,
-  marcarProcessando, confirmarProposta, lerProposta, cancelarRecorrentes,
+  marcarProcessando, confirmarProposta, lerProposta, cancelarRecorrentes, nascerConta,
+  marcarAguardandoAsaas, conferirAsaas,
 } from "../services/propostas.js";
 
 const r = Router();
@@ -38,27 +39,117 @@ function passou(ip) {
 /* Cobrar de verdade só com a chave de produção. Com `sk_test_` o cartão do
    cliente seria recusado (ou, pior, "aprovado" num ambiente que não move
    dinheiro) e a conta destravaria sem ninguém ter pago. */
-const podeCobrar = () => pagarme.pagarmeConfigurado()
+export const podeCobrar = () => pagarme.pagarmeConfigurado()
   && (pagarme.ambientePagarme() === "produção" || process.env.PROPOSTA_ACEITA_TESTE === "1");
+/* O mesmo para o Asaas: sandbox não move dinheiro. */
+export const podeCobrarAsaas = () => asaas.asaasConfigurado()
+  && (asaas.ambienteAsaas() === "produção" || process.env.PROPOSTA_ACEITA_TESTE === "1");
 
 const reais = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const ESTADOS = {
   paga: { status: 409, error: "Esta proposta já foi paga. Obrigado! Entre no ConHub com o seu e-mail e senha.", ja_paga: true },
-  processando: { status: 409, error: "O pagamento desta proposta está em análise no Pagar.me. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", processando: true },
+  aguardando: { status: 409, error: "A fatura desta proposta já foi gerada no Asaas. Use o botão para abrir a fatura e pagar.", aguardando: true },
+  processando: { status: 409, error: "O pagamento desta proposta está em análise. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", processando: true },
   vencida: { status: 410, error: "Este link de pagamento venceu. Fale com o ConHub para receber um novo.", vencida: true },
   cancelada: { status: 410, error: "Esta proposta foi cancelada. Fale com o ConHub.", cancelada: true },
   estornada: { status: 410, error: "Esta proposta foi estornada. Fale com o ConHub.", cancelada: true },
   pagando: { status: 409, error: "Já há um pagamento desta proposta em andamento. Aguarde alguns segundos e recarregue a página.", pagando: true },
 };
 
-r.get("/publico/proposta/:codigo", (req, res) => {
-  const p = propostaPorCodigo(req.params.codigo);
+r.get("/publico/proposta/:codigo", async (req, res) => {
+  let p = propostaPorCodigo(req.params.codigo);
   if (!p) return res.status(404).json({ error: "Proposta não encontrada. Confira o link que você recebeu." });
+  /* Aguardando a fatura do Asaas: confere se já foi paga (a página pergunta
+     enquanto a pessoa paga na outra aba). */
+  if (p.status === "aguardando") { await conferirAsaas(p); p = lerProposta(p.id); }
   res.set("Cache-Control", "no-store");
+  const asaasProp = (p.provedor || "pagarme") === "asaas";
   res.json({
     ...paraPagina(p),
-    checkout: podeCobrar() ? { chave_publica: pagarme.CHAVE_PUBLICA(), ambiente: pagarme.ambientePagarme() } : null,
+    checkout: asaasProp
+      ? (podeCobrarAsaas() ? { provedor: "asaas" } : null)
+      : (podeCobrar() ? { provedor: "pagarme", chave_publica: pagarme.CHAVE_PUBLICA(), ambiente: pagarme.ambientePagarme() } : null),
+    fatura: p.status === "aguardando" ? p.asaas_fatura : null,
   });
+});
+
+/* ===== QUEM PAGA, CONFERIDO =====
+   Conta existente: os dados são os do dono da conta. Conta nova: nome,
+   e-mail, WhatsApp e senha do responsável — a mesma conferência do cadastro
+   do site. Devolve {erro} ou os dados. */
+function lerResponsavel(p, corpo) {
+  if (p.org_id) {
+    const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(p.org_id);
+    if (!org) return { status: 410, erro: "A conta desta proposta não existe mais. Fale com o ConHub." };
+    const pagador = db.prepare("SELECT name nome, email, phone telefone FROM users WHERE id = ?").get(org.dono_user_id)
+      || db.prepare("SELECT name nome, email, phone telefone FROM users WHERE org_id = ? AND role = 'adm' AND status = 'ativo' ORDER BY created_at LIMIT 1").get(org.id)
+      || { nome: p.contato_nome || p.cliente, email: p.contato_email || null, telefone: "" };
+    return { org, pagador };
+  }
+  const nome = String(corpo?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  const email = String(corpo?.email || "").trim().toLowerCase();
+  const tel = telefoneDeCadastro(corpo?.telefone, corpo?.pais);
+  const senha = String(corpo?.senha || "");
+  const marca = String(corpo?.marca || "").replace(/\s+/g, " ").trim().slice(0, 80) || p.cliente;
+  if (nome.length < 2) return { status: 400, erro: "Escreva o nome do responsável pela conta." };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { status: 400, erro: "Confira o e-mail: parece que falta alguma coisa." };
+  if (tel.erro) return { status: 400, erro: tel.erro };
+  if (senha.length < 6) return { status: 400, erro: "A senha precisa ter pelo menos 6 caracteres." };
+  const ja = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  if (ja && ja.status === "ativo")
+    return { status: 409, ja_tem_conta: true, erro: "Esse e-mail já tem conta no ConHub. Use outro e-mail para a conta nova, ou fale com o ConHub para ligar esta proposta à conta que já existe." };
+  if (!cadastroPodeReaproveitar(ja)) return { status: 409, ja_tem_conta: true, erro: EMAIL_EM_USO };
+  const novo = { nome, email, telefone: tel.phone || "", senha, marca, ja };
+  return { novo, pagador: { nome, email, telefone: novo.telefone } };
+}
+
+/* ===== PAGAR PELO ASAAS: cria o parcelamento e devolve a fatura ===== */
+const hojeBrasilia = () => new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+r.post("/publico/proposta/:codigo/asaas", async (req, res) => {
+  const p = propostaPorCodigo(req.params.codigo);
+  if (!p) return res.status(404).json({ error: "Proposta não encontrada. Confira o link que você recebeu." });
+  if ((p.provedor || "pagarme") !== "asaas") return res.status(409).json({ error: "Esta proposta é paga com cartão nesta página." });
+  const estado = estadoDe(p);
+  if (estado === "aguardando" && p.asaas_fatura) return res.json({ ok: true, fatura: p.asaas_fatura, aguardando: true });
+  if (estado !== "aberta") { const e = ESTADOS[estado] || ESTADOS.cancelada; return res.status(e.status).json(e); }
+  if (!passou(ipDe(req)))
+    return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o ConHub." });
+  if (!podeCobrarAsaas())
+    return res.status(503).json({ error: "O pagamento não está disponível agora. Fale com o ConHub." });
+  const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
+  if (doc.length !== 11 && doc.length !== 14) return res.status(400).json({ error: "Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) de quem vai pagar." });
+  const quem = lerResponsavel(p, req.body);
+  if (quem.erro) return res.status(quem.status).json({ error: quem.erro, ja_tem_conta: quem.ja_tem_conta || undefined });
+
+  if (!travarParaPagar(p)) {
+    const e = ESTADOS[estadoDe(lerProposta(p.id))] || ESTADOS.pagando;
+    return res.status(e.status).json(e);
+  }
+  let cliente, cobranca;
+  try {
+    cliente = quem.org && quem.org.asaas_customer_id
+      ? { id: quem.org.asaas_customer_id }
+      : await asaas.criarCliente({ nome: quem.pagador.nome, cpfCnpj: doc, email: quem.pagador.email, telefone: quem.pagador.telefone });
+    const descricao = `ConHub — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
+    cobranca = await asaas.criarParcelamento({ clienteId: cliente.id, parcelas: p.parcelas, total: p.total,
+      vencimento: hojeBrasilia(), descricao, referencia: "proposta:" + p.id });
+  } catch (e) {
+    destravar(p, e.message);
+    console.warn(`[proposta] Asaas recusou (${p.cliente}): ${e.message}`);
+    return res.status(502).json({ error: "Não consegui gerar a fatura no Asaas: " + String(e.message || "").replace(/^Asaas: /, "") });
+  }
+  const fatura = cobranca.invoiceUrl || null;
+  if (!fatura) {
+    destravar(p, "o Asaas não devolveu o endereço da fatura");
+    return res.status(502).json({ error: "O Asaas não devolveu o endereço da fatura. Tente de novo em instantes." });
+  }
+  const cadastro = quem.novo ? {
+    nome: quem.novo.nome, email: quem.novo.email, telefone: quem.novo.telefone, marca: quem.novo.marca,
+    pass_hash: bcrypt.hashSync(quem.novo.senha, 10), cliente_asaas: cliente.id,
+  } : { cliente_asaas: cliente.id };
+  marcarAguardandoAsaas(p, { pagamentoId: cobranca.id, parcelamentoId: cobranca.installment || null, fatura, cadastro, pagador: quem.pagador });
+  console.log(`[proposta] fatura do Asaas gerada: ${p.cliente} — ${reais(p.total)} em ${p.parcelas}x`);
+  res.status(201).json({ ok: true, fatura });
 });
 
 r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
@@ -76,30 +167,10 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
   if (!/^token_[A-Za-z0-9]+$/.test(token)) return res.status(400).json({ error: "Os dados do cartão não chegaram. Digite de novo." });
   if (doc.length !== 11 && doc.length !== 14) return res.status(400).json({ error: "Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) do titular do cartão." });
 
-  /* ===== QUEM PAGA =====
-     Conta existente: os dados são os do dono da conta (a página não pede
-     cadastro). Conta nova: nome, e-mail, WhatsApp e senha do responsável —
-     a mesma conferência do cadastro do site. */
-  let orgExistente = null, novo = null;
-  if (p.org_id) {
-    orgExistente = db.prepare("SELECT * FROM orgs WHERE id = ?").get(p.org_id);
-    if (!orgExistente) return res.status(410).json({ error: "A conta desta proposta não existe mais. Fale com o ConHub." });
-  } else {
-    const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
-    const email = String(req.body?.email || "").trim().toLowerCase();
-    const tel = telefoneDeCadastro(req.body?.telefone, req.body?.pais);
-    const senha = String(req.body?.senha || "");
-    const marca = String(req.body?.marca || "").replace(/\s+/g, " ").trim().slice(0, 80) || p.cliente;
-    if (nome.length < 2) return res.status(400).json({ error: "Escreva o nome do responsável pela conta." });
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "Confira o e-mail: parece que falta alguma coisa." });
-    if (tel.erro) return res.status(400).json({ error: tel.erro });
-    if (senha.length < 6) return res.status(400).json({ error: "A senha precisa ter pelo menos 6 caracteres." });
-    const ja = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    if (ja && ja.status === "ativo")
-      return res.status(409).json({ error: "Esse e-mail já tem conta no ConHub. Use outro e-mail para a conta nova, ou fale com o ConHub para ligar esta proposta à conta que já existe.", ja_tem_conta: true });
-    if (!cadastroPodeReaproveitar(ja)) return res.status(409).json({ error: EMAIL_EM_USO, ja_tem_conta: true });
-    novo = { nome, email, telefone: tel.phone || "", senha, marca, ja };
-  }
+  if ((p.provedor || "pagarme") !== "pagarme") return res.status(409).json({ error: "Esta proposta é paga pela fatura do Asaas." });
+  const quem = lerResponsavel(p, req.body);
+  if (quem.erro) return res.status(quem.status).json({ error: quem.erro, ja_tem_conta: quem.ja_tem_conta || undefined });
+  const orgExistente = quem.org || null, novo = quem.novo || null;
 
   if (!travarParaPagar(p)) {
     const e = ESTADOS[estadoDe(lerProposta(p.id))] || ESTADOS.pagando;
@@ -107,11 +178,7 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
   }
 
   const orgId = orgExistente ? orgExistente.id : "org_" + randomUUID().slice(0, 8);
-  const pagador = orgExistente
-    ? (db.prepare("SELECT name nome, email, phone telefone FROM users WHERE id = ?").get(orgExistente.dono_user_id)
-      || db.prepare("SELECT name nome, email, phone telefone FROM users WHERE org_id = ? AND role = 'adm' AND status = 'ativo' ORDER BY created_at LIMIT 1").get(orgExistente.id)
-      || { nome: p.contato_nome || p.cliente, email: p.contato_email || null, telefone: "" })
-    : { nome: novo.nome, email: novo.email, telefone: novo.telefone };
+  const pagador = quem.pagador;
 
   /* ===== O CARTÃO E A COBRANÇA, ANTES DE QUALQUER CONTA ===== */
   let cliente, cartao, pedido, cobranca;
@@ -147,27 +214,12 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
           pagarme_card_id = ?, pagarme_card_json = ? WHERE id = ?`)
         .run(cliente.id, cartao.id, JSON.stringify(pagarme.resumoDoCartao(cartao)), orgExistente.id);
     } else {
-      userId = novo.ja ? novo.ja.id : "u_" + randomUUID();
-      const hash = bcrypt.hashSync(novo.senha, 10);
-      db.transaction(() => {
-        /* Em análise, a conta nasce com 3 dias para usar enquanto o Pagar.me
-           decide. Aprovado, os meses contam do dia do pagamento; recusado, ela
-           trava no fim dos 3 dias (o cliente paga de novo no mesmo link). */
-        db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo,
-            cobranca,pagarme_customer_id,pagarme_card_id,pagarme_card_json,vence_em)
-          VALUES (?,?,?,'',0,0,?,'imobiliaria','pagarme',?,?,?,?)`)
-          .run(orgId, novo.marca, codigoLivre(novo.marca), agora, cliente.id, cartao.id,
-            JSON.stringify(pagarme.resumoDoCartao(cartao)), paga ? null : agora + 3 * 86400000);
-        if (novo.ja) {
-          db.prepare(`UPDATE users SET org_id=?, name=?, phone=?, role='adm', available=0, status='ativo', pass_hash=?,
-            invite_token=NULL, invite_hash=NULL, invite_expires=NULL, invite_tipo=NULL WHERE id=?`)
-            .run(orgId, novo.nome, novo.telefone, hash, userId);
-        } else {
-          db.prepare(`INSERT INTO users (id,org_id,name,email,phone,pass_hash,role,available,created_at,status)
-            VALUES (?,?,?,?,?,?,'adm',0,?,'ativo')`).run(userId, orgId, novo.nome, novo.email, novo.telefone, hash, agora);
-        }
-        db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(userId, orgId);
-      })();
+      /* Em análise, a conta nasce com 3 dias para usar enquanto o Pagar.me
+         decide. Aprovado, os meses contam do dia do pagamento; recusado, ela
+         trava no fim dos 3 dias (o cliente paga de novo no mesmo link). */
+      userId = nascerConta({ orgId, nome: novo.nome, email: novo.email, telefone: novo.telefone, marca: novo.marca,
+        passHash: bcrypt.hashSync(novo.senha, 10), cobranca: "pagarme", venceEm: paga ? null : agora + 3 * 86400000,
+        colunas: { pagarme_customer_id: cliente.id, pagarme_card_id: cartao.id, pagarme_card_json: JSON.stringify(pagarme.resumoDoCartao(cartao)) } });
     }
   } catch (e) {
     /* O dinheiro já saiu e a conta não nasceu. Não devolve "erro de cartão":

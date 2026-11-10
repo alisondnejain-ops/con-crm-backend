@@ -1,4 +1,4 @@
-import { propostaPorPedido, confirmarProposta, estornarProposta, recusarProposta, lerProposta, cancelarRecorrentes } from "../services/propostas.js";
+import { propostaPorPedido, confirmarProposta, estornarProposta, recusarProposta, lerProposta, cancelarRecorrentes, propostaPorAsaas, confirmarAsaas, faturaAsaasCaiu } from "../services/propostas.js";
 import { ehInterna } from "../services/interno.js";
 import { Router } from "express";
 import db from "../db.js";
@@ -70,6 +70,20 @@ r.post("/webhooks/asaas", async (req, res) => {
 
   try {
     const { acao, link, assinatura, pagamento } = interpretarEvento(req.body || {});
+
+    /* PROPOSTA PERSONALIZADA PELO ASAAS (10/11/2026): o parcelamento é
+       achado pelo id gravado na proposta — antes de tudo, senão as 12
+       parcelas cairiam no consolo de "imobiliária única". Cada parcela manda
+       o seu aviso de pago; a primeira confirma, as outras encontram a
+       proposta já paga e não creditam de novo. */
+    const prop = propostaPorAsaas(pagamento, req.body?.payment?.installment);
+    if (prop) {
+      const ev = req.body?.event;
+      if (acao === "pago") { if (await confirmarAsaas(prop, { quando: Date.now() })) console.log(`[asaas] proposta paga (${prop.cliente})`); }
+      else if (["PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED"].includes(ev)) { if (prop.status === "paga") estornarProposta(prop); }
+      else if (ev === "PAYMENT_DELETED") faturaAsaasCaiu(prop);
+      return;
+    }
 
     /* CRÉDITO DE IA (07/11/2026): cobrança avulsa, achada pelo id gravado na
        compra — antes de tudo, pelo mesmo motivo do boleto. */
