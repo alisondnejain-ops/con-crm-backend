@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#0B2E24"/>
+<title>Proposta ConHub</title>
+<meta name="robots" content="noindex, nofollow"/>
+<meta name="description" content="Proposta personalizada do ConHub."/>
+<link rel="icon" href="/favicon.ico" sizes="48x48"/>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect width='200' height='200' rx='46' fill='%2310906E'/><g transform='translate(28 28) scale(.72)'><path d='M173.13 60.74A83 83 0 1 1 139.26 26.87A28.5 28.5 0 0 0 116.98 58.33A45 45 0 1 0 141.67 83.02A28.5 28.5 0 0 0 173.13 60.74Z' fill='%23FFFFFF'/><circle cx='145.25' cy='54.75' r='19.5' fill='%23E0563A'/></g></svg>"/>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#F4F6F5;font-family:'Inter',sans-serif;color:#14181F;
+       display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:900px;background:#fff;border:1px solid #E6E9E7;border-radius:24px;overflow:hidden;overflow:clip;
+        box-shadow:0 20px 60px rgba(0,0,0,.10);display:grid;grid-template-columns:1fr 1fr}
+  .side{background:#0A3D30;color:#fff;padding:36px}
+  /* TUDO NO ALTO, COMO NO CHECKOUT DO STRIPE (04/10/2026, pedido do Ali): a
+     marca, a promessa e os passos ficam na primeira dobra, e acompanham a
+     rolagem enquanto a pessoa preenche o cartão. Antes a coluna jogava o texto
+     para o pé, e com o formulário do cartão ele só aparecia no fim da página. */
+  /* overflow:clip no cartão (e não só hidden): hidden cria uma área de rolagem
+     própria, e aí o sticky se prende ao cartão, que não rola — a coluna ficava
+     vazia ao descer. Navegador antigo fica com o hidden e só não acompanha. */
+  .side-fixo{position:sticky;top:36px;display:flex;flex-direction:column;gap:30px}
+  .logo{display:flex;align-items:center;gap:10px}
+  .assinatura{display:block;height:30px;width:auto}
+  .tag{font-size:10px;letter-spacing:.6px;color:rgba(255,255,255,.55);margin-top:6px}
+  .side h1{font-family:'Sora',sans-serif;font-size:25px;line-height:1.15;margin:0 0 12px}
+  .side p{color:rgba(255,255,255,.72);font-size:13.5px;line-height:1.65;margin:0}
+  .steps{list-style:none;padding:0;margin:16px 0 0;display:flex;flex-direction:column;gap:9px}
+  .steps li{color:rgba(255,255,255,.72);font-size:12.5px;display:flex;gap:9px;align-items:flex-start}
+  .steps b{color:#7FD8BC;font-weight:600;flex-shrink:0}
+  .selo{display:inline-flex;align-items:center;gap:7px;background:rgba(127,216,188,.14);
+        border:1px solid rgba(127,216,188,.3);color:#7FD8BC;border-radius:999px;
+        padding:6px 12px;font-size:11.5px;font-weight:600;margin-bottom:16px}
+  .form{padding:36px}
+  .form h2{font-family:'Sora',sans-serif;font-size:20px;margin:0 0 4px}
+  .form .lead{color:#5A6472;font-size:13px;margin:0 0 22px;line-height:1.55}
+  label{display:block;font-size:12px;font-weight:600;color:#5A6472;margin:0 0 5px}
+  input{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 14px;outline:none}
+  .tel-linha{display:flex;gap:8px}
+  .tel-linha select{flex:0 0 112px;width:112px;min-width:0;font-family:inherit;font-size:14px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 6px;outline:none}
+  .tel-linha input{flex:1;min-width:0}
+  input:focus{border-color:#0E8F6E;background:#fff}
+  .field{margin-bottom:15px}
+  .hint{font-size:11.5px;color:#8A93A0;margin-top:5px;line-height:1.45}
+  button{width:100%;font-family:inherit;font-size:15px;font-weight:600;color:#fff;background:#0E8F6E;
+         border:none;border-radius:12px;padding:14px;cursor:pointer;margin-top:6px}
+  button:disabled{background:#A9BDB6;cursor:default}
+  button.ghost{background:#fff;color:#0C6B52;border:1px solid #CFE3DA;margin-top:9px}
+  .msg{font-size:13px;border-radius:12px;padding:12px 14px;margin-bottom:16px;line-height:1.5;display:none}
+  .msg.err{display:block;color:#B0463A;background:#FBE7E1}
+  .msg.err a{color:#B0463A;font-weight:600}
+  .rodape{margin-top:20px;padding-top:16px;border-top:1px solid #E6E9E7;font-size:12px;color:#8A93A0;line-height:1.6}
+  .rodape a{color:#0C6B52;font-weight:600;text-decoration:none}
+  /* ----- tela do fim ----- */
+  .done .ico{width:66px;height:66px;border-radius:20px;background:#E5F2EC;display:flex;align-items:center;
+             justify-content:center;margin:0 auto 18px}
+  .done h2{text-align:center;margin-bottom:8px}
+  .done .lead{text-align:center}
+  .linkbox{background:#F4F6F5;border:1px dashed #0E8F6E;border-radius:12px;padding:12px;
+           font-size:12px;word-break:break-all;color:#0C6B52;text-align:left;margin-bottom:8px}
+  .passos{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:11px}
+  .passos li{display:flex;gap:10px;font-size:13px;color:#5A6472;line-height:1.5;align-items:flex-start}
+  .passos .n{flex-shrink:0;width:21px;height:21px;border-radius:50%;background:#E5F2EC;color:#0C6B52;
+             font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  select{width:100%;font-family:inherit;font-size:15px;color:#14181F;background:#F4F6F5;
+        border:1px solid #E6E9E7;border-radius:12px;padding:13px 12px;outline:none}
+  .linha{display:flex;gap:10px}
+  .linha .field{flex:1}
+  .secao{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#0C6B52;font-weight:700;margin:20px 0 10px}
+  .nota{font-size:12.5px;color:#4A5A55;background:#F0FAF6;border:1px solid #BFE3D8;border-radius:12px;padding:11px 13px;line-height:1.5;margin:-4px 0 15px}
+  .cadeado{display:flex;gap:7px;font-size:11.5px;color:#8A93A0;line-height:1.5;margin-top:10px}
+  @media (max-width:760px){
+    .card{grid-template-columns:1fr}
+    .side{padding:26px}
+    .side-fixo{position:static;gap:18px}
+    .side h1{font-size:21px}
+    .form{padding:26px}
+  }
+
+  .preco{margin:18px 0 6px}
+  .preco .de{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.6);font-weight:600}
+  .preco .val{font-family:'IBM Plex Mono',monospace;font-size:44px;font-weight:600;line-height:1.05;color:#fff;margin-top:6px;white-space:nowrap}
+  .preco .val small{font-family:'Inter',sans-serif;font-size:17px;color:rgba(255,255,255,.75);font-weight:600}
+  .preco .tot{color:rgba(255,255,255,.72);font-size:13.5px;margin-top:8px}
+  .inclui{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:9px}
+  .inclui li{color:rgba(255,255,255,.85);font-size:13px;display:flex;gap:9px;align-items:flex-start;line-height:1.45}
+  .inclui svg{flex-shrink:0;margin-top:2px}
+  .valido{font-size:11.5px;color:rgba(255,255,255,.55);margin-top:16px}
+  .resumo{display:flex;flex-direction:column;gap:3px;border:1px solid #BFE3D8;background:#F0FAF6;border-radius:12px;padding:12px 14px;margin:0 0 16px}
+  .resumo b{font-family:'IBM Plex Mono',monospace;font-size:19px;color:#0C6B52}
+  .resumo span{font-size:12.5px;color:#4A5A55;line-height:1.45}
+  .estado{text-align:center;padding:30px 6px}
+  .estado h2{text-align:center}
+  .card{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .side,.form{min-width:0}
+  @media (max-width:760px){ .card{grid-template-columns:minmax(0,1fr)} .preco .val{font-size:30px;white-space:normal} }
+  @media (max-width:360px){ .preco .val{font-size:26px} }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="side">
+   <div class="side-fixo">
+    <div>
+      <div class="logo"><div>
+        <svg class="assinatura" role="img" aria-label="ConHub" width="153" height="30" xmlns="http://www.w3.org/2000/svg" viewBox="0 -790 4803 940"><g transform="translate(-132.56 -922.56) scale(6.0256)"><path d="M166.33 58.97A78 78 0 1 1 141.03 33.67A21.5 21.5 0 0 0 123.79 56.02A50 50 0 1 0 143.98 76.21A21.5 21.5 0 0 0 166.33 58.97Z" fill="#FFFFFF"/><circle cx="145.25" cy="54.75" r="14.5" fill="#E0563A"/></g><path transform="translate(1171.5 0)" d="M318.75 19.5Q247.5 19.5 195.125 -4.125Q142.75 -27.75 107.875 -67.875Q73 -108 55.75 -158.5Q38.5 -209.0 38.5 -262.5V-282.0Q38.5 -338.25 56.5 -389.5Q74.5 -440.75 109.875 -480.625Q145.25 -520.5 197.5 -543.75Q249.75 -567.0 318.25 -567.0Q392 -567 448.875 -538.25Q505.75 -509.5 539.75 -458.75Q573.75 -408.0 577.75 -341.5H421.25Q417.25 -378.75 391.375 -404.375Q365.5 -430.0 318.25 -430.0Q277.75 -430.0 251.375 -410.0Q225 -390 212.0 -354.75Q199.0 -319.5 199.0 -272.25Q199.0 -227.75 210.875 -192.375Q222.75 -157.0 249.25 -137.25Q275.75 -117.5 318.75 -117.5Q351.0 -117.5 373.5 -129.0Q396.0 -140.5 409.25 -161.125Q422.5 -181.75 425.75 -209.0H582.25Q578.5 -140.75 543.5 -89.5Q508.5 -38.25 450.625 -9.375Q392.75 19.5 318.75 19.5ZM896.25 19.5Q824.0 19.5 768.0 -3.0Q712.0 -25.5 673.25 -64.625Q634.5 -103.75 614.5 -154.25Q594.5 -204.75 594.5 -261.0V-283.5Q594.5 -341.25 615.375 -392.625Q636.25 -444.0 675.5 -483.125Q714.75 -522.25 770.75 -544.625Q826.75 -567.0 896.25 -567.0Q966.5 -567.0 1022.125 -544.625Q1077.75 -522.25 1117.0 -483.125Q1156.25 -444.0 1177.125 -392.625Q1198.0 -341.25 1198.0 -283.5V-261Q1198.0 -204.75 1178.0 -154.25Q1158.0 -103.75 1119.25 -64.625Q1080.5 -25.5 1024.5 -3.0Q968.5 19.5 896.25 19.5ZM896.25 -116.0Q942.75 -116.0 974.0 -136.125Q1005.25 -156.25 1021.375 -191.875Q1037.5 -227.5 1037.5 -272.25Q1037.5 -318.75 1020.875 -354.375Q1004.25 -390.0 972.625 -410.75Q941.0 -431.5 896.25 -431.5Q851.75 -431.5 820.0 -410.75Q788.25 -390.0 771.625 -354.375Q755.0 -318.75 755.0 -272.25Q755.0 -227.5 771.125 -191.875Q787.25 -156.25 818.875 -136.125Q850.5 -116.0 896.25 -116.0ZM1254.5 0.0V-547.5H1381.5V-312.5H1372.5Q1372.5 -396.75 1394.375 -452.75Q1416.25 -508.75 1459.875 -536.875Q1503.5 -565.0 1566.75 -565.0H1573.75Q1669.5 -565.0 1720.25 -502.375Q1771.0 -439.75 1771.0 -313.25V0H1610.5V-322.0Q1610.5 -366.0 1584.875 -393.75Q1559.25 -421.5 1514.75 -421.5Q1469.75 -421.5 1442.375 -393.375Q1415.0 -365.25 1415.0 -319V0ZM1851.5 0.0V-730.0H2012.0V-309H1988.0Q1988.0 -391.75 2008.875 -448.875Q2029.75 -506.0 2070.875 -535.5Q2112.0 -565 2173.75 -565.0H2180.75Q2272.25 -565.0 2320.125 -500.375Q2368.0 -435.75 2368.0 -311.75V0H2207.5V-322.0Q2207.5 -366.75 2181.125 -394.125Q2154.75 -421.5 2111.75 -421.5Q2067.25 -421.5 2039.625 -392.5Q2012.0 -363.5 2012.0 -316.25V0ZM2633.5 17.5Q2539.25 17.5 2487.875 -44.125Q2436.5 -105.75 2436.5 -230.25V-547.75H2597.0V-221.75Q2597.0 -178.25 2622.0 -152.125Q2647.0 -126 2689.25 -126.0Q2732.0 -126 2758.75 -152.875Q2785.5 -179.75 2785.5 -225.75V-547.75H2946.0V0H2819.0V-231.25H2829.5Q2829.5 -147.75 2808.125 -92.5Q2786.75 -37.25 2744.875 -9.875Q2703.0 17.5 2640.5 17.5ZM3376.0 18Q3308.5 18.0 3257.75 -10.25Q3207.0 -38.5 3178.125 -92.875Q3149.25 -147.25 3147.0 -225.25H3165.5V0.0H3038.5V-730.0H3199.0V-359.25L3160.5 -311.0Q3163.75 -393.5 3192.5 -450.0Q3221.25 -506.5 3271.0 -535.25Q3320.75 -564.0 3384.75 -564.0Q3441.0 -564 3486.5 -543.25Q3532.0 -522.5 3564.125 -485.0Q3596.25 -447.5 3613.5 -396.875Q3630.75 -346.25 3630.75 -286.25V-263.75Q3630.75 -203.75 3613.375 -152.625Q3596.0 -101.5 3562.5 -63.0Q3529.0 -24.5 3482.0 -3.25Q3435.0 18 3376.0 18ZM3334.25 -115.5Q3374.75 -115.5 3405.375 -135.875Q3436.0 -156.25 3453.125 -192.375Q3470.25 -228.5 3470.25 -275.0Q3470.25 -322.25 3453.0 -357.125Q3435.75 -392.0 3405.5 -411.25Q3375.25 -430.5 3334.25 -430.5Q3297.5 -430.5 3265.875 -413.875Q3234.25 -397.25 3214.625 -365.375Q3195.0 -333.5 3195.0 -288.5V-251.5Q3195.0 -208.5 3215.5 -178.125Q3236.0 -147.75 3268.0 -131.625Q3300.0 -115.5 3334.25 -115.5Z" fill="#FFFFFF"/></svg>
+        <div class="tag">GESTÃO COMERCIAL IMOBILIÁRIA</div>
+      </div></div>
+    </div>
+    <div>
+      <div class="selo" id="selo">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        <span id="seloTexto">Proposta exclusiva</span>
+      </div>
+      <h1 id="titulo">Carregando a proposta…</h1>
+      <div class="preco" id="precoLado" style="display:none">
+        <div class="de">no cartão de crédito</div>
+        <div class="val" id="parcelaLado"></div>
+        <div class="tot" id="totalLado"></div>
+      </div>
+      <ul class="inclui" id="inclui"></ul>
+      <div class="valido" id="valido"></div>
+    </div>
+   </div>
+  </div>
+
+  <div class="form">
+    <div id="formView" style="display:none">
+      <h2 id="formTitulo">Ativar o ConHub</h2>
+      <p class="lead" id="formLead"></p>
+      <div class="resumo"><b id="resumoParcela"></b><span id="resumoTexto"></span></div>
+      <div class="msg" id="msg"></div>
+
+      <div id="conta">
+        <div class="secao">Responsável pela conta</div>
+        <div class="field"><label for="name">Nome completo</label><input id="name" autocomplete="name" placeholder="Quem vai administrar a conta"/></div>
+        <div class="field"><label for="email">E-mail</label><input id="email" type="email" autocomplete="email" inputmode="email" placeholder="voce@imobiliaria.com.br"/>
+          <div class="hint">É por ele que você entra no sistema.</div></div>
+        <div class="field"><label for="phone">WhatsApp</label>
+          <div class="tel-linha"><select id="pais" aria-label="País do número"></select><input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(87) 9 9999-9999" maxlength="20"/></div></div>
+        <div class="field"><label for="marca">Nome da imobiliária</label><input id="marca" autocomplete="organization"/></div>
+        <div class="field"><label for="senha">Crie uma senha</label><input id="senha" type="password" autocomplete="new-password" placeholder="Pelo menos 6 caracteres"/></div>
+      </div>
+
+      <div class="secao">Cartão de crédito</div>
+      <div class="field"><label for="cartao">Número do cartão</label><input id="cartao" inputmode="numeric" autocomplete="cc-number" name="cardnumber" placeholder="0000 0000 0000 0000"/></div>
+      <div class="field"><label for="titular">Nome impresso no cartão</label><input id="titular" autocomplete="cc-name" name="ccname" placeholder="COMO ESTÁ NO CARTÃO"/></div>
+      <div class="linha">
+        <div class="field"><label for="validade">Validade</label><input id="validade" inputmode="numeric" autocomplete="cc-exp" name="cc-exp" placeholder="MM/AA"/></div>
+        <div class="field"><label for="cvv">Código (CVV)</label><input id="cvv" inputmode="numeric" autocomplete="cc-csc" name="cvc" placeholder="123"/></div>
+      </div>
+      <div class="field"><label for="doc">CPF ou CNPJ do titular do cartão</label><input id="doc" inputmode="numeric" placeholder="só números"/></div>
+      <div class="nota" id="notaLimite"></div>
+      <button id="go">Pagar</button>
+      <div class="cadeado">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+        <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.</span>
+      </div>
+      <div class="rodape">Dúvidas sobre a proposta? Fale com quem enviou este link.</div>
+    </div>
+
+    <div id="estadoView" class="estado done" style="display:none">
+      <div class="ico" id="estadoIco"></div>
+      <h2 id="estadoTitulo"></h2>
+      <p class="lead" id="estadoTexto"></p>
+      <a id="estadoBotao" href="/app" style="text-decoration:none;display:none"><button>Entrar no ConHub</button></a>
+    </div>
+  </div>
+</div>
+
+<script src="/telefone-pais.js"></script>
+<script>
+(function(){
+  var API = (window.CON_CRM_API || location.origin).replace(/\/$/, "");
+  var CODIGO = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+  var $ = function(id){ return document.getElementById(id); };
+  var msg = $("msg"), btn = $("go");
+  function erro(t){ msg.className = "msg err"; msg.textContent = t; msg.scrollIntoView({block:"nearest"}); }
+  function limpar(){ msg.className = "msg"; msg.textContent = ""; }
+  var reais = function(v){ return Number(v).toLocaleString("pt-BR", {style:"currency", currency:"BRL"}); };
+  var dig = function(v){ return String(v || "").replace(/\D/g, ""); };
+  var NOMES = { autoatendimento: "Autoatendimento com IA no WhatsApp", marketing: "Marketing: disparos, fluxos e redes sociais", cetrolab: "Cetrolab: o site da imobiliária" };
+  var CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7FD8BC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  var OK_ICO = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E8F6E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  var ALERTA_ICO = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#B7791F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>';
+  var P = null, CHECKOUT = null;
+
+  function estado(titulo, texto, ok, botao){
+    $("formView").style.display = "none";
+    $("estadoView").style.display = "block";
+    $("estadoIco").innerHTML = ok ? OK_ICO : ALERTA_ICO;
+    $("estadoIco").style.background = ok ? "#E5F2EC" : "#FBF1DE";
+    $("estadoTitulo").textContent = titulo;
+    $("estadoTexto").textContent = texto;
+    $("estadoBotao").style.display = botao ? "inline" : "none";
+  }
+  function parcelaTexto(){ return P.parcelas > 1 ? P.parcelas + "x de " + reais(P.parcela) : reais(P.total) + " à vista"; }
+  function prazo(m){ return m === 12 ? "plano anual" : m === 1 ? "1 mês de acesso" : m + " meses de acesso"; }
+
+  function montar(){
+    document.title = "Proposta ConHub · " + P.cliente;
+    $("seloTexto").textContent = "Proposta exclusiva · " + P.cliente;
+    $("titulo").textContent = P.titulo;
+    $("precoLado").style.display = "block";
+    $("parcelaLado").innerHTML = P.parcelas > 1 ? P.parcelas + "x <small>de</small> " + reais(P.parcela) : reais(P.total);
+    $("totalLado").textContent = (P.parcelas > 1 ? "Total de " + reais(P.total) + " · " : "") + prazo(P.meses);
+    var itens = [];
+    if (P.acessos) itens.push(P.acessos + " acessos para toda a equipe");
+    itens = itens.concat(P.itens || []).concat((P.recursos || []).map(function(r){ return NOMES[r] || r; }));
+    $("inclui").innerHTML = itens.map(function(t){ var li = document.createElement("li"); li.innerHTML = CHECK; var s = document.createElement("span"); s.textContent = t; li.appendChild(s); return li.outerHTML; }).join("");
+    if (P.valida_ate) $("valido").textContent = "Proposta válida até " + new Date(P.valida_ate).toLocaleDateString("pt-BR") + ".";
+
+    if (P.estado === "paga") return estado("Proposta paga", "Esta proposta já foi paga. Entre no ConHub com o seu e-mail e senha.", true, true);
+    if (P.estado === "processando") return estado("Pagamento em análise", "O Pagar.me está analisando o pagamento. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", false, true);
+    if (P.estado === "vencida") return estado("Este link venceu", "A validade desta proposta acabou. Fale com o ConHub para receber um link novo.", false, false);
+    if (P.estado === "cancelada" || P.estado === "estornada") return estado("Proposta cancelada", "Esta proposta não está mais disponível. Fale com o ConHub.", false, false);
+    if (!CHECKOUT) return estado("Pagamento indisponível agora", "O pagamento por cartão não está disponível neste momento. Fale com o ConHub — a proposta continua valendo.", false, false);
+
+    $("formView").style.display = "block";
+    $("formTitulo").textContent = "Ativar o ConHub da " + P.cliente;
+    var lead = P.mensagem ? P.mensagem + " " : "";
+    $("formLead").textContent = lead + (P.conta_existente
+      ? "O pagamento é feito no cartão e a conta " + (P.conta_nome || "") + " é liberada na hora."
+      : "Crie o acesso do responsável e pague no cartão: a conta é liberada na hora, e você já entra no sistema.");
+    $("resumoTexto").textContent = P.titulo + " · " + prazo(P.meses) + (P.acessos ? " · " + P.acessos + " acessos" : "");
+    $("resumoParcela").textContent = parcelaTexto();
+    $("notaLimite").innerHTML = P.parcelas > 1
+      ? "Cobrança de <b>" + reais(P.total) + " em " + P.parcelas + "x de " + reais(P.parcela) + "</b> no cartão, sem renovação automática. Mesmo parcelado, o banco reserva o valor total no limite do cartão."
+      : "Cobrança única de <b>" + reais(P.total) + "</b> no cartão, sem renovação automática.";
+    btn.textContent = "Pagar " + parcelaTexto();
+    if (P.conta_existente) $("conta").style.display = "none";
+    else {
+      $("marca").value = P.cliente;
+      if (P.contato_nome) $("name").value = P.contato_nome;
+      if (P.contato_email) $("email").value = P.contato_email;
+    }
+  }
+
+  var phone = $("phone");
+  var tel = window.ligarTelefone ? ligarTelefone(phone, $("pais"), API)
+    : { pais: function(){ return "BR"; }, conferir: function(){ return dig(phone.value).length < 10 ? "Confira o WhatsApp: informe DDD + número." : ""; } };
+  var cartaoEl = $("cartao"), validadeEl = $("validade"), cvvEl = $("cvv"), titularEl = $("titular");
+  cartaoEl.addEventListener("input", function(){ cartaoEl.value = dig(cartaoEl.value).slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 "); });
+  validadeEl.addEventListener("input", function(){ var d = dig(validadeEl.value).slice(0, 4); validadeEl.value = d.length > 2 ? d.slice(0, 2) + "/" + d.slice(2) : d; });
+  cvvEl.addEventListener("input", function(){ cvvEl.value = dig(cvvEl.value).slice(0, 4); });
+  titularEl.addEventListener("input", function(){ titularEl.value = titularEl.value.toUpperCase(); });
+
+  /* O cartão vira token no navegador, direto no Pagar.me, com a chave
+     PÚBLICA. O número nunca chega ao servidor do ConHub. */
+  async function tokenizar(){
+    var partes = validadeEl.value.split("/"), mes = Number(partes[0]), ano = String(partes[1] || "");
+    var r;
+    try {
+      r = await fetch("https://api.pagar.me/core/v5/tokens?appId=" + encodeURIComponent(CHECKOUT.chave_publica), {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ type: "card", card: { number: dig(cartaoEl.value), holder_name: titularEl.value.trim(),
+          exp_month: mes, exp_year: Number(ano.length === 2 ? "20" + ano : ano), cvv: dig(cvvEl.value) } })
+      });
+    } catch (e) { throw new Error("Não consegui falar com o Pagar.me. Confira a internet e tente de novo."); }
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !d.id) {
+      var lista = d && d.errors && typeof d.errors === "object" ? [].concat.apply([], Object.values(d.errors)) : [];
+      throw new Error(lista[0] || d.message || "O Pagar.me recusou os dados do cartão. Confira e tente de novo.");
+    }
+    return d.id;
+  }
+
+  var enviando = false;
+  async function pagar(){
+    if (enviando || !P) return;
+    limpar();
+    var body = { cpfCnpj: $("doc").value };
+    if (!P.conta_existente) {
+      body.nome = $("name").value.trim(); body.email = $("email").value.trim();
+      body.telefone = phone.value.trim(); body.pais = tel.pais();
+      body.marca = $("marca").value.trim(); body.senha = $("senha").value;
+      if (!body.nome || !body.email || !body.telefone) return erro("Preencha nome, e-mail e WhatsApp do responsável.");
+      if (tel.conferir()) return erro(tel.conferir());
+      if (body.senha.length < 6) return erro("A senha precisa ter pelo menos 6 caracteres.");
+    }
+    var mes = Number(validadeEl.value.slice(0, 2));
+    if (dig(cartaoEl.value).length < 13 || titularEl.value.trim().length < 3 || !/^\d{2}\/\d{2}$/.test(validadeEl.value) || mes < 1 || mes > 12 || dig(cvvEl.value).length < 3)
+      return erro("Confira os dados do cartão: número, nome, validade (MM/AA) e código.");
+    if ([11, 14].indexOf(dig(body.cpfCnpj).length) < 0) return erro("Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) do titular do cartão.");
+    enviando = true; btn.disabled = true; btn.textContent = "Processando o pagamento…";
+    try {
+      body.token = await tokenizar();
+      var res = await fetch(API + "/publico/proposta/" + encodeURIComponent(CODIGO) + "/pagar", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if (data.ja_paga) return estado("Proposta paga", data.error, true, true);
+      if (data.processando) return estado("Pagamento em análise", data.error, false, true);
+      if (data.vencida || data.cancelada) return estado("Proposta indisponível", data.error, false, false);
+      if (data.pago_sem_conta) return estado("Pagamento recebido", data.error, false, false);
+      if (!res.ok || !data.ok) return erro(data.error || "Não foi possível concluir o pagamento agora.");
+      cartaoEl.value = ""; cvvEl.value = "";
+      if (data.token) { try { localStorage.setItem("concrm_token", data.token); } catch (e) {} }
+      if (data.pago) {
+        estado("Pagamento aprovado!", data.conta_nova ? "A conta da " + P.cliente + " está liberada. Entrando no ConHub…" : "A conta está liberada. Obrigado!", true, true);
+        if (data.token) setTimeout(function(){ location.href = "/app"; }, 1800);
+      } else {
+        estado("Pagamento em análise", "O Pagar.me está analisando o pagamento — costuma levar poucos minutos. Você já pode entrar; assim que for aprovado, a conta fica liberada pelo período contratado.", false, true);
+      }
+    } catch (e) {
+      erro(e.message || "Sem conexão com o servidor. Tente de novo em instantes.");
+    } finally {
+      enviando = false;
+      if ($("formView").style.display !== "none") { btn.disabled = false; btn.textContent = "Pagar " + parcelaTexto(); }
+    }
+  }
+  btn.addEventListener("click", pagar);
+
+  fetch(API + "/publico/proposta/" + encodeURIComponent(CODIGO)).then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(x){
+      if (!x.ok) { $("titulo").textContent = "Proposta não encontrada"; return estado("Proposta não encontrada", x.d.error || "Confira o link que você recebeu.", false, false); }
+      P = x.d; CHECKOUT = x.d.checkout; montar();
+    }).catch(function(){ estado("Sem conexão", "Não consegui carregar a proposta. Confira a internet e recarregue a página.", false, false); });
+})();
+</script>
+</body>
+</html>

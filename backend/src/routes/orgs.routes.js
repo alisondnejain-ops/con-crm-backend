@@ -28,6 +28,7 @@ import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../se
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
+import { criarProposta, listarPropostas, paraHub, cancelarProposta, ErroProposta } from "../services/propostas.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
 import { situacaoDosCreditos, ajustarPeloMaster, configDosCreditos, salvarConfigDosCreditos } from "../services/ia-creditos.js";
@@ -121,6 +122,24 @@ function resumo(req, org) {
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
   };
 }
+
+/* PROPOSTAS PERSONALIZADAS (10/11/2026): o checkout de um cliente só.
+   Ver services/propostas.js. O link sai do APP_URL (o servidor do CRM, onde a
+   página mora), não do SITE_URL — esse pode ser o site de vendas, que não
+   tem a rota /proposta. */
+const baseDoCrm = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+r.get("/propostas", (req, res) => {
+  res.json({ propostas: listarPropostas().map(p => paraHub(p, baseDoCrm(req))),
+    pode_cobrar: pagarmeConfigurado() && ambientePagarme() === "produção", ambiente: pagarmeConfigurado() ? ambientePagarme() : null });
+});
+r.post("/propostas", (req, res) => {
+  try { res.status(201).json({ proposta: paraHub(criarProposta(req.body || {}, req.user.id), baseDoCrm(req)) }); }
+  catch (e) { if (e instanceof ErroProposta) return res.status(e.status).json({ error: e.message }); throw e; }
+});
+r.post("/propostas/:id/cancelar", (req, res) => {
+  try { res.json({ proposta: paraHub(cancelarProposta(req.params.id), baseDoCrm(req)) }); }
+  catch (e) { if (e instanceof ErroProposta) return res.status(e.status).json({ error: e.message }); throw e; }
+});
 
 // As imobiliárias que existem. É a tela que abre quando o master entra.
 r.get("/", (req, res) => {

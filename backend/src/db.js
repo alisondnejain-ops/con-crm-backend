@@ -2585,6 +2585,38 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_org ON boletos(org_id, criado_em
 db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_cobranca ON boletos(cobranca_id)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_boletos_pedido ON boletos(pedido_id)");
 
+/* PROPOSTA PERSONALIZADA (10/11/2026): o checkout de um cliente só, criado
+   pelo master no hub. Ver services/propostas.js. */
+db.exec(`CREATE TABLE IF NOT EXISTS propostas (
+  id TEXT PRIMARY KEY,
+  codigo TEXT NOT NULL UNIQUE,
+  org_id TEXT,
+  cliente TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  contato_nome TEXT,
+  contato_email TEXT,
+  mensagem TEXT,
+  total REAL NOT NULL,
+  parcelas INTEGER NOT NULL,
+  meses INTEGER NOT NULL,
+  acessos INTEGER,
+  itens_json TEXT,
+  recursos_json TEXT,
+  valida_ate INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'aberta',
+  pedido_id TEXT,
+  cobranca_id TEXT,
+  org_criada_id TEXT,
+  pagador_nome TEXT,
+  pagador_email TEXT,
+  ultimo_erro TEXT,
+  criado_por TEXT,
+  created_at INTEGER NOT NULL,
+  paga_em INTEGER,
+  cancelada_em INTEGER
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_propostas_pedido ON propostas(pedido_id)");
+
 /* PRAZO DA ETAPA VENCIDO COM CONSEQUÊNCIA (28/10/2026, services/prazo-vencido.js).
    - orgs.prazo_acao: o que acontece quando o prazo da etapa vence num lead
      de corretor — nulo/'marcar' (só fica em coral, como sempre foi),
