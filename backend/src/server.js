@@ -27,7 +27,8 @@ import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
 import lotesRoutes from "./routes/lotes.routes.js";
-import { expirarVencidas as expirarReservasDeLote } from "./services/lotes.js";
+import { expirarVencidas as expirarReservasDeLote, ligarModo as ligarModoEmpreendimento } from "./services/lotes.js";
+import db from "./db.js";
 import gruposRoutes from "./routes/grupos.routes.js";
 import { gestao as googleRoutes, retorno as googleRetorno } from "./routes/google.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
@@ -525,6 +526,14 @@ app.listen(PORT, () => {
      relógio) — ver services/demo.js. */
   garantirContaDemo();
   reseedDemoSePassouDaHora();
+  /* Conta no modo empreendimento: só o número da casa. Confere no start (vale
+     para a conta que ligou o modo antes desta regra existir). */
+  try {
+    for (const o of db.prepare("SELECT id FROM orgs WHERE empreendimento = 1").all()) {
+      const r = ligarModoEmpreendimento(o.id, true);
+      if (r.linhas_desligadas) console.log(`[lotes] ${r.linhas_desligadas} linha(s) pessoal(is) desligada(s) numa conta de empreendimento`);
+    }
+  } catch (e) { console.error("[lotes] linhas pessoais:", e.message); }
   setInterval(() => {
     avisarPlantaoEmTodas(); avisarSemRespostaEmTodas();
     // Reserva de lote vencida volta a ficar disponível (services/lotes.js).

@@ -31,6 +31,7 @@ import db from "../db.js";
 import { randomUUID } from "crypto";
 import { supervisiona, podeVerLead, semMaster } from "../auth.js";
 import { avisar } from "./push.js";
+import { desligarCanal } from "./canais.js";
 
 export class ErroLote extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
@@ -77,9 +78,23 @@ export function salvarConfig(orgId, dados = {}) {
   return configDoEmpreendimento(orgId);
 }
 
+/* No empreendimento TODO atendimento sai pelo número da casa (pedido do Ali,
+   11/11/2026): ligar o modo desliga as linhas pessoais dos corretores — as
+   conversas delas voltam para o número da casa, nada é apagado — e tira a
+   liberação de número de cada um. As rotas de ligar linha pessoal recusam
+   enquanto o modo estiver ligado (canais.routes.js, leads/:id/canal). */
 export function ligarModo(orgId, ligado) {
   db.prepare("UPDATE orgs SET empreendimento = ? WHERE id = ?").run(ligado ? 1 : null, orgId);
+  if (!ligado) return { linhas_desligadas: 0, conversas_devolvidas: 0 };
+  let linhas = 0, conversas = 0;
+  for (const c of db.prepare("SELECT id FROM canais WHERE org_id = ? AND tipo = 'corretor' AND ativo = 1").all(orgId)) {
+    const r = desligarCanal(c.id); if (!r.erro) { linhas++; conversas += r.devolvidos || 0; }
+  }
+  db.prepare("UPDATE users SET canal_liberado = 0 WHERE org_id = ?").run(orgId);
+  return { linhas_desligadas: linhas, conversas_devolvidas: conversas };
 }
+
+export const SO_NUMERO_DA_CASA = "Nesta conta todo atendimento é feito pelo número da imobiliária. Não é possível usar WhatsApp pessoal.";
 
 const registrar = (orgId, lote, acao, para, user, extra = {}) => db.prepare(`INSERT INTO lotes_historico
   (id,org_id,lote_id,acao,de_status,para_status,user_id,lead_id,cliente,obs,em) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
