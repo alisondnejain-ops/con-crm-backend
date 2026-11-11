@@ -82,7 +82,8 @@ export function registrarUso(acessoId, agora = Date.now()) {
    de demonstração — nenhuma das duas tem dado de cliente de verdade. */
 export function contaPedeCodigo(org) {
   if (!org) return false;
-  return org.tipo !== "interna" && !org.demo;
+  // A conta parceira é coordenada pelo próprio ConHub (11/11/2026): o master entra sem código.
+  return org.tipo !== "interna" && !org.demo && !org.parceira;
 }
 
 function semente(orgId) {

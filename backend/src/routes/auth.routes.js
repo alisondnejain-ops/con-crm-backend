@@ -563,7 +563,7 @@ const soGestaoDaConta = (req, res, next) =>
   req.user.master ? res.status(403).json({ error: "O código de acesso é da gestão da conta." }) : next();
 
 r.get("/conta/acesso", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
-  const org = db.prepare("SELECT id, tipo, demo, acesso_livre, acesso_livre_em FROM orgs WHERE id = ?").get(req.user.org_id);
+  const org = db.prepare("SELECT id, tipo, demo, parceira, acesso_livre, acesso_livre_em FROM orgs WHERE id = ?").get(req.user.org_id);
   res.json({ pede_codigo: contaPedeCodigo(org), ...(codigoAtual(req.user.org_id) || {}),
     horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now(),
     /* A exceção ligada pelo ConHub fica à vista de quem é dono dos dados. */

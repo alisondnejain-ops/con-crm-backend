@@ -196,6 +196,8 @@ const soDono = (req, res, next) => {
      seria o ConHub cobrando a si mesmo no cartão de alguém da equipe. */
   if (req.method !== "GET" && ehInterna(req.user.org_id))
     return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  if (req.method !== "GET" && db.prepare("SELECT parceira FROM orgs WHERE id = ?").get(req.user.org_id)?.parceira)
+    return res.status(409).json({ error: "Esta conta é parceira do ConHub e não tem mensalidade." });
   next();
 };
 
