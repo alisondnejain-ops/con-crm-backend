@@ -119,9 +119,9 @@ moverEtapa({ leadId: porGente, para: "Agendamento", motivo: "mao", userId: marin
 
 const { ranking } = await import("../src/services/score.js");
 const m = ranking(org, 365).find(x => x.id === marina);
-console.log(`   no funil: ${m.visitas} · confirmadas por pessoa: ${m.visitas_confirmadas} · da regra automática: ${m.visitas_automaticas}`);
-assert.equal(m.visitas, 2, "o funil mostra as duas");
-assert.equal(m.visitas_confirmadas, 1, "só uma foi decisão de gente");
-assert.equal(m.visitas_automaticas, 1);
+// Desde 07/11/2026: agendados são os marcos que ELA alcançou — a palavra-chave
+// (sem autor) não conta para ninguém.
+console.log(`   agendados por ela: ${m.visitas_agendadas}`);
+assert.equal(m.visitas_agendadas, 1, "só a que uma pessoa (ela) moveu");
 
 console.log("\nTudo certo ✅");

@@ -156,7 +156,11 @@ export function canalDoLead(lead) {
 /* A primeira mensagem de quem chega pelo site traz o texto que o próprio site
    escreve no botão do WhatsApp (services/site.js): "Vim pelo site da…",
    "…que vi no site: https://…/imoveis/…", "Tentei acessar o site da…". */
-export const veioDoSite = (texto) => /\b(pelo|no|o) site\b|\/imoveis\/[\w-]+/i.test(String(texto || ""));
+/* Só as frases que o PRÓPRIO botão do site escreve ("Vim pelo site da…",
+   "…que vi no site: https://…/imoveis/…"). Até 07/11/2026 valia qualquer
+   "o site" na primeira mensagem — "qual o site de vocês?" virava lead do site,
+   e a VJ viu seis "Site" num dia em que o site não trouxe ninguém. */
+export const veioDoSite = (texto) => /\bvim pelo site\b|\bvi no site\b|\/imoveis\/[\w-]+/i.test(String(texto || ""));
 
 /* As catracas ATIVAS que recebem leads deste canal, na ordem do revezamento
    (quem entregou há mais tempo primeiro). */

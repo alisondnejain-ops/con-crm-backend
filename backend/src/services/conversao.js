@@ -35,8 +35,9 @@
         chegaram a este DEPOIS ÷ quantos chegaram ao anterior.
       Sem denominador a taxa é `null` ("sem base"); denominador com ninguém
       avançando é 0. As taxas saem sem arredondar — quem arredonda é a tela.
-      Quem chega a uma etapa sem ter passado pela anterior NÃO vira passagem
-      inventada: entra no detalhe como "chegou sem passar pela anterior".
+      No funil COMERCIAL a etapa pulada conta como passada (07/11/2026): quem
+      chega a um marco alcança também os de antes. No funil de SDR, quem
+      chega sem passar pela anterior aparece no detalhe como tal.
 
    5. ETAPA PELO ID. O histórico guarda o id das etapas desde 01/10/2026. As
       linhas antigas só ganham id quando o nome não deixa dúvida (ver
@@ -54,7 +55,7 @@
       e com aviso — nunca como zero. */
 
 import db, { emLotes } from "../db.js";
-import { etapasDoPipeline, pipelinePorId } from "./pipelines.js";
+import { etapasDoPipeline, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
 import { peneira, resolverPeriodo, recebidosDaPessoa } from "./painel.js";
 
 /* Desde quando o histórico é completo. Um dia depois de cada recurso entrar,
@@ -221,6 +222,7 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   }
 
   const filtroDono = filtros.responsavel || null;
+  const inferir = !ehFunilDeSdr(orgId, pipelineId);
   for (const l of leads) {
     const evs = eventos.get(l.id) || [];
     /* Onde o lead começou: a etapa de origem da primeira mudança, ou a etapa
@@ -271,6 +273,28 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
     // A entrada conta como chegada ao início do processo comercial.
     const marcoEntrada = cfg.marcos[0].id;
     if (!chegadas.has(marcoEntrada)) chegadas.set(marcoEntrada, [{ stage: marcoEntrada, t: entrada.t, motivo: entrada.motivo, pela_entrada: true }]);
+
+    /* A ETAPA PULADA CONTA COMO PASSADA (07/11/2026, pedido do Fernando) —
+       no funil comercial, não no de SDR. O lead que saiu de "Novo" direto
+       para "Agendamento" foi qualificado: chegar a um marco conta também os
+       marcos de antes que ele ainda não tinha alcançado, na mesma hora e com
+       o mesmo motivo do salto. Assim "da etapa anterior" nunca passa de 100%
+       e o "chegou sem passar pela anterior" deixa de existir aqui. No funil de
+       SDR as tentativas são independentes (quem respondeu na 2ª tentativa
+       não passou pela 3ª) e a conta continua a de antes. */
+    if (inferir) {
+      let menor = Infinity, origem = null;
+      for (let i = cfg.marcos.length - 1; i >= 0; i--) {
+        const id = cfg.marcos[i].id;
+        const lista = chegadas.get(id) || [];
+        const real = lista.length ? lista.reduce((a, b) => (b.t < a.t ? b : a)) : null;
+        if (real && real.t < menor) { menor = real.t; origem = real; }
+        if (origem && (!real || real.t > menor)) {
+          if (!chegadas.has(id)) chegadas.set(id, []);
+          chegadas.get(id).push({ stage: id, t: menor, motivo: origem.motivo, inferida: true });
+        }
+      }
+    }
 
     base.unidades.push({
       lead: l, entrada: entrada.t, entrada_motivo: entrada.motivo, dono, chegadas,
@@ -418,6 +442,8 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     corte_no_fim_do_periodo: corte === periodo.ate,
     entrada: cfg.entrada ? { id: cfg.entrada.id, name: cfg.entrada.name, configurada: cfg.configurada } : null,
     sem_marcos: cfg.sem_marcos,
+    // Funil comercial: a etapa pulada conta como passada (ver `calcular`).
+    etapa_pulada_conta: !ehFunilDeSdr(orgId, pipelineId),
     base: n,
     topo: topoDoFunil(orgId, cfg, filtros, periodo, corte),
     linhas,

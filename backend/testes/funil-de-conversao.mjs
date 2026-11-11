@@ -117,7 +117,7 @@ console.log(`   total ${criados} − Inbox ${noInbox} = ${criados - noInbox}, ba
 assert.equal(r.base, 1);
 assert.notEqual(criados - noInbox, r.base);
 
-console.log("4. Entrada direta numa etapa adiantada conta, sem inventar passagem");
+console.log("4. Entrada direta numa etapa adiantada conta — e, no comercial, a etapa pulada conta como passada (07/11/2026)");
 const F4 = novoFunil("Direta");
 for (let i = 0; i < 3; i++) { const id = lead(F4, "Inbox", SET(11)); caminho(F4, id, ["Qualificado", "Agendamento", "Visita"], SET(12)); }
 const d4 = lead(F4, "Inbox", SET(11)); mover(F4, d4, "Visita", SET(12));          // pulou direto
@@ -127,9 +127,10 @@ const v4 = linha(r, "Visita");
 console.log(`   base ${r.base} · Visita ${v4.chegaram} · da anterior ${v4.anterior.vieram} de ${v4.anterior.chegaram} · ${v4.sem_passar_pela_anterior} sem passar pela anterior`);
 assert.equal(r.base, 5);
 assert.equal(v4.chegaram, 5);
-assert.equal(v4.anterior.chegaram, 3);
-assert.equal(v4.anterior.vieram, 3);
-assert.equal(v4.sem_passar_pela_anterior, 2);
+assert.equal(v4.anterior.chegaram, 5);
+assert.equal(v4.anterior.vieram, 5);
+assert.equal(v4.sem_passar_pela_anterior, 0);
+assert.equal(r.etapa_pulada_conta, true);
 
 console.log("5. Sair e voltar à faixa não conta duas vezes");
 const F5 = novoFunil("Volta");
@@ -326,9 +327,10 @@ assert.equal(k.total, 6);
 k = C.conferenciaDoFunil(org, F1.id, PERIODO, { conjunto: "base", porPagina: 7, pagina: 3 }, AGORA);
 assert.equal(k.total, 20); assert.equal(k.itens.length, 6);
 k = C.conferenciaDoFunil(org, F4.id, PERIODO, { etapa: F4.e["Visita"], conjunto: "sem_anterior" }, AGORA);
-assert.deepEqual(k.itens.map(i => i.id).sort(), [d4, n4].sort());
+// No comercial a etapa pulada conta como passada: ninguém "chegou sem passar".
+assert.deepEqual(k.itens.map(i => i.id), []);
 assert.ok(C.conferenciaDoFunil(org, F1.id, PERIODO, { conjunto: "tudo" }).erro);
-console.log("   8 no Agendamento · 6 vieram · paginação 20 em 7 · 2 diretas");
+console.log("   8 no Agendamento · 6 vieram · paginação 20 em 7 · nenhuma 'sem passar'");
 
 console.log("22b. O topo: dos que CHEGARAM no período, quantos já entraram — a mesma turma");
 const FT = novoFunil("Topo", { o: orgTopo });

@@ -2,10 +2,10 @@ import { Router } from "express";
 import db, { emLotes } from "../db.js";
 import { authRequired, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
-import { eventosDeAtribuicao, noPeriodo } from "../services/movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "../services/movimento.js";
 import { resolverPeriodo } from "../services/painel.js";
 import { indicadoresDoSdr } from "../services/sdr.js";
 
@@ -113,6 +113,7 @@ r.get("/", (req, res) => {
      already serem calculados fora do loop: evitar N consultas onde uma
      resolve para todo mundo. `eventos` é lido lá em cima, junto da equipe. */
 
+  const ctxTempos = { eventos }, ctxMarcos = {};
   const linhas = equipe.map(u => {
     const meus = leads.filter(l => l.assigned_to === u.id);
     /* "RECEBIDOS" É O EVENTO — o instante em que o lead ficou com ele —, não
@@ -128,7 +129,7 @@ r.get("/", (req, res) => {
        filtrar `leads.assigned_to` — que é o dono de AGORA e muda sozinho
        quando o lead é repassado de novo, apagando do relatório de um dia já
        fechado um atendimento que de fato aconteceu naquele dia. */
-    const recebidosEventos = noPeriodo(eventos.recebidos, u.id, de, ate);
+    const recebidosEventos = recebidosEm(eventos, u.id, de, ate);
     /* "PERDIDOS PARA OUTRO CORRETOR" — pedido novo do Ali (19/09/2026):
        "acrescentar a quantidade de leads que foram perdidos pelo corretor
        anterior... isso gera uma penalidade, uma diminuição no score dele".
@@ -160,8 +161,18 @@ r.get("/", (req, res) => {
        repassa: o corretor aparecia com o tempo dela, e a própria agilidade não
        entrava em lugar nenhum. Agora conta da hora em que o lead ficou com ele
        até a primeira mensagem que ELE escreveu. */
-    const temposResposta = primeirasRespostas(meus, u.id);
-    const atendidos = { length: temposResposta.length };
+    const tempos = temposDoCorretor(req.user.org_id, u.id, recebidosEventos, de, ate, ctxTempos);
+    ctxTempos.etapas = ctxTempos.etapas || tempos.etapas;
+    const temposResposta = tempos.primeiras;
+    const atendidos = { length: tempos.atendidos };
+    /* AGENDADOS e VISITAS SEPARADOS (07/11/2026, pedido do Fernando: "em
+       agendamento ou visita não faz sentido"). São os marcos que ELE fez o lead
+       alcançar no período, com a etapa pulada contando (services/marcos.js) —
+       a mesma conta do Painel e do score. PERDIDOS: leads que ele moveu para
+       uma etapa de perda no período. */
+    const mk = marcosDaPessoa(req.user.org_id, u.id, de, ate, ctxMarcos);
+    const perdeu = db.prepare(`SELECT COUNT(DISTINCT le.lead_id) n FROM lead_etapas le JOIN pipeline_stages ps ON ps.id = le.para_stage_id
+      WHERE le.org_id = ? AND le.user_id = ? AND ps.status_type = 'perdido' AND le.created_at BETWEEN ? AND ?`).get(req.user.org_id, u.id, de, ate).n;
     // Tempo de ATENDIMENTO: quanto o cliente espera a cada pergunta ao longo da
     // conversa, não só na primeira. É o que ele sente do começo ao fim — o
     // primeiro contato pode ser rápido e o resto do atendimento arrastado.
@@ -181,21 +192,17 @@ r.get("/", (req, res) => {
          "Perdido") — este é sobre DONO, não sobre negócio. */
       leads_perdidos_para_outro: perdidosEventos.length,
       atendidos: atendidos.length,
-      taxa_atendimento: pct(atendidos.length, meus.length),
+      taxa_atendimento: pct(atendidos.length, recebidosEventos.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
       // distorce a média e faz o corretor parecer pior do que é.
       primeira_resposta_mediana_min: mediana(temposResposta) ?? 0,
-      atendimento_mediana_min: mediana(temposDeResposta(meus.map(l => l.id), u.id, desdeDe(meus))),
-      // Onde os leads DO PERÍODO estão hoje no funil. É uma foto do momento,
-      // não "quantos avançaram nesta semana" — o sistema não guarda a data de
-      // cada mudança de etapa, então prometer isso seria inventar número.
-      /* Onde os leads DO PERÍODO estão hoje. `agendamentos` é a foto do funil
-         (inclui o que a palavra-chave moveu sozinha); `agendamentos_confirmados`
-         é só o que uma pessoa colocou ali. A tela mostra os dois, porque a
-         diferença entre eles É a informação: ela diz o quanto o funil está
-         descrevendo o atendimento de verdade. */
-      agendamentos: porEtapa["Agendamento"] + porEtapa["Visita"],
-      agendamentos_confirmados: confirmadosPorPessoa(meus),
+      atendimento_mediana_min: mediana(tempos.atendimento),
+      qualificados: mk.qualificados,
+      agendados: mk.agendados,
+      visitas: mk.visitas,
+      propostas: mk.propostas,
+      pulados: mk.pulados,
+      perdidos: perdeu,
       vendas: vendas.length,
       // Conversão é de COORTE: dos leads que entraram no período, quantos já
       // viraram venda. Dividir as vendas do período pelos leads do período
@@ -281,7 +288,7 @@ r.get("/", (req, res) => {
        que o relatório foi aberto — um lead devolvido à fila (sem dono agora)
        ou repassado de novo por engano desaparecia da conta, mesmo o repasse
        original tendo acontecido dentro do período pedido. */
-    const recebidosEventos = noPeriodo(eventos.recebidos, u.id, de, ate);
+    const recebidosEventos = recebidosEm(eventos, u.id, de, ate);
     const repassadosEventos = noPeriodo(eventos.perdidos, u.id, de, ate);
     const naFila = leads.filter(l => !l.assigned_to);
     return {
@@ -303,20 +310,6 @@ r.get("/", (req, res) => {
 
   res.json({ periodo: { de, ate }, total, atendentes: linhas, atendimento });
 });
-
-/* Quantos destes leads estão em Agendamento/Visita porque uma PESSOA decidiu.
-   Mesma regra do score — se as duas contas divergirem, o relatório volta a
-   discordar de si mesmo, que é o problema que a função `pct` já resolveu. */
-function confirmadosPorPessoa(leads) {
-  const ids = leads.map(l => l.id);
-  if (!ids.length) return 0;
-  return emLotes(ids, (marcas, lote) => db.prepare(`SELECT COUNT(*) n FROM leads l
-    WHERE l.id IN (${marcas})
-      AND l.stage IN ('Agendamento','Visita')
-      AND EXISTS (SELECT 1 FROM lead_etapas e
-                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`).all(...lote))
-    .reduce((s, r) => s + r.n, 0);
-}
 
 const inicioDoDia = (s) => new Date(`${s}T00:00:00`).getTime();
 const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();

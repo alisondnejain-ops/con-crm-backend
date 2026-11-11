@@ -43,7 +43,7 @@ import { eventosDeAtribuicao } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { ASSINATURA_ROBO } from "./robo.js";
 import { listarPipelines, etapasDoPipeline } from "./pipelines.js";
-import { configDoFunil } from "./conversao.js";
+import { alcancesNoPeriodo, candidatosDoPeriodo, classificador, marcosDosLeads } from "./marcos.js";
 
 const DIA = 86400000;
 
@@ -78,25 +78,6 @@ function momentosDeLigacao(orgId, filtros, de, ate, apenasContato = false) {
 }
 const contarLigacoes = (...a) => momentosDeLigacao(...a).length;
 
-// paraEtapa é o texto gravado em lead_etapas.para — para Agendamento/Visita/
-// Proposta isso é o NOME da etapa (mesma régua de `funil()`, que também casa
-// por nome); para Venda é sempre literal, porque a rota de registrar venda
-// grava "Venda" fixo, não o nome configurável de etapa alguma.
-function momentosDeEtapa(orgId, paraEtapa, filtros, de, ate) {
-  const { responsavel, ...resto } = filtros || {};
-  const p = peneira(orgId, resto);
-  /* `le.org_id` primeiro: é o que deixa o banco usar o índice (org, data) do
-     histórico em vez de varrê-lo inteiro — meio segundo por Painel aberto
-     numa imobiliária grande (teste de carga, 28/09/2026). */
-  const where = ["le.org_id = ?", p.sql, "le.para = ?", "le.created_at BETWEEN ? AND ?"];
-  const args = [orgId, ...p.args, paraEtapa, de, ate];
-  const quem = condPessoa(filtros);
-  if (quem) { where.push("le.user_id = ?"); args.push(quem); }
-  return db.prepare(`SELECT le.created_at t FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
-    WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
-}
-const contarEtapa = (...a) => momentosDeEtapa(...a).length;
-
 /* ===== OS DEGRAUS DE "QUANTAS PESSOAS" (28/10/2026, pedido do Fernando) =====
 
    Três degraus do funil de atividades contam LEADS DISTINTOS, não ações:
@@ -130,69 +111,79 @@ function ligacoesComLead(orgId, filtros, de, ate, apenasContato = false) {
   return db.prepare(`SELECT lg.lead_id lead, lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
     WHERE ${where.join(" AND ")}`).all(...args);
 }
-/* Mudança de etapa feita por uma PESSOA (tem autor). A regra automática da
-   palavra-chave e a reanálise não têm, e não são trabalho de ninguém. */
-function etapasMovidasPorGente(orgId, filtros, de, ate) {
-  const { responsavel, ...resto } = filtros || {};
-  const p = peneira(orgId, resto);
-  const where = ["le.org_id = ?", p.sql, "le.user_id IS NOT NULL", "le.created_at BETWEEN ? AND ?"];
-  const args = [orgId, ...p.args, de, ate];
-  const quem = condPessoa(filtros);
-  if (quem) { where.push("le.user_id = ?"); args.push(quem); }
-  return db.prepare(`SELECT le.lead_id lead, le.created_at t FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
-    WHERE ${where.join(" AND ")}`).all(...args);
-}
+/* "UM POR LEAD POR DIA" (07/11/2026, pedido do Fernando). O lead trabalhado
+   e a pessoa falada contam UMA VEZ POR DIA: falei com o João três vezes hoje
+   é um lead trabalhado hoje; amanhã, se eu falar de novo, conta outro. A
+   chave é lead + dia (no fuso do servidor), e o total do período é a soma dos
+   dias — o mesmo número que o gráfico de 14 dias empilha. */
+const diaDe = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const porLeadDia = (pares) => {
+  const vistos = new Map();
+  for (const x of pares) { const k = x.lead + "|" + diaDe(x.t); if (!vistos.has(k)) vistos.set(k, x); }
+  return [...vistos.values()];
+};
 
-/* LEADS TRABALHADOS: leads em que alguém agiu no período — mandou mensagem,
-   ligou ou mudou a etapa. */
+/* LEADS TRABALHADOS: quem a pessoa abordou — mandou mensagem ou ligou (o
+   clique no Ligar do CRM). Mudar a etapa sem falar com o cliente não é
+   abordar. Ligação feita fora do CRM, direto no celular, o sistema não vê. */
 function trabalhados(orgId, filtros, de, ate) {
-  return [...msgsDeGente(orgId, filtros, de, ate), ...ligacoesComLead(orgId, filtros, de, ate),
-    ...etapasMovidasPorGente(orgId, filtros, de, ate)];
+  return porLeadDia([...msgsDeGente(orgId, filtros, de, ate), ...ligacoesComLead(orgId, filtros, de, ate)]);
 }
 
-/* PESSOAS FALADAS: a conversa aconteceu nos dois sentidos. Uma ligação em que
-   se falou com o cliente, ou — no WhatsApp — o cliente escreveu no período E
-   alguém da equipe (ou a pessoa do filtro) escreveu para ele no período. Mensagem
-   mandada sem resposta é lead trabalhado, não pessoa falada. */
+/* PESSOAS FALADAS: quem ATENDEU a ligação ou RESPONDEU a mensagem. Na
+   mensagem, é o cliente escrevendo depois de uma mensagem da equipe (com uma
+   pessoa no filtro, depois de uma mensagem DELA) — o "oi" de quem chega
+   sozinho não é resposta a ninguém. Uma por lead por dia. */
 function faladas(orgId, filtros, de, ate) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
-  const doCliente = new Set(db.prepare(`SELECT DISTINCT m.lead_id lead FROM messages m JOIN leads l ON l.id = m.lead_id
-    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ?`).all(...p.args, de, ate).map(r => r.lead));
-  return [...ligacoesComLead(orgId, filtros, de, ate, true),
-    ...msgsDeGente(orgId, filtros, de, ate).filter(m => doCliente.has(m.lead))];
+  const quem = condPessoa(filtros);
+  const anterior = `(SELECT o.from_user_id FROM messages o WHERE o.lead_id = m.lead_id AND o.direction = 'out'
+      AND o.created_at < m.created_at AND ${semDisparo("o.")}
+      AND NOT (o.from_user_id IS NULL AND COALESCE(o.from_name, '') = '${ASSINATURA_ROBO}')
+      ORDER BY o.created_at DESC LIMIT 1)`;
+  const temAnterior = `EXISTS (SELECT 1 FROM messages o WHERE o.lead_id = m.lead_id AND o.direction = 'out'
+      AND o.created_at < m.created_at AND ${semDisparo("o.")}
+      AND NOT (o.from_user_id IS NULL AND COALESCE(o.from_name, '') = '${ASSINATURA_ROBO}'))`;
+  const responderam = db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ? AND ${quem ? `${anterior} = ?` : temAnterior}`)
+    .all(...p.args, de, ate, ...(quem ? [quem] : []));
+  return porLeadDia([...ligacoesComLead(orgId, filtros, de, ate, true), ...responderam]);
 }
 
-/* QUALIFICADAS: o lead chegou à etapa que diz que ele está qualificado — a
-   etapa marcada como início do processo comercial em cada funil (a mesma do
-   funil de conversão) e toda etapa com "qualific" no nome (a "Lead qualificado"
-   do funil de SDR). Pela id da etapa; as linhas antigas do histórico, só com o
-   nome, casam pelo nome. */
+/* QUALIFICADOS, AGENDADOS, VISITAS E PROPOSTAS: os MARCOS (services/marcos.js),
+   uma vez por lead, com a etapa pulada contando como passada. Qualificado é
+   quem chegou ao "Atendimento qualificado" (ou pulou direto para mais adiante)
+   num funil que não é de SDR — não a etiqueta do SDR, não a resposta à IA. */
+function alcances(orgId, filtros, de, ate, marco, ctx = {}) {
+  const { responsavel, ...resto } = filtros || {};
+  const p = peneira(orgId, resto);
+  const ids = candidatosDoPeriodo(orgId, p.sql, p.args, de, ate);
+  const cls = ctx.cls || classificador(orgId);
+  const chave = ids.join(",") ;
+  if (!ctx.mapas) ctx.mapas = new Map();
+  if (!ctx.mapas.has(chave)) ctx.mapas.set(chave, marcosDosLeads(orgId, ids, cls));
+  return alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem: condPessoa(filtros), mapa: ctx.mapas.get(chave) });
+}
+
+/* A etapa que diz que o lead está qualificado, PARA O SDR: a "Lead
+   qualificado" do funil de SDR e toda etapa com "qualific" no nome. É a régua
+   dos Indicadores do SDR — o Painel usa os marcos acima. */
 export function etapasDeQualificacao(orgId) {
   const ids = new Set(), nomes = new Set();
   for (const pl of listarPipelines(orgId)) {
-    const cfg = configDoFunil(orgId, pl.id);
-    if (cfg.entrada) { ids.add(cfg.entrada.id); nomes.add(cfg.entrada.name); }
     for (const e of etapasDoPipeline(orgId, pl.id))
       if (/qualific/i.test(semAcentoTexto(e.name))) { ids.add(e.id); nomes.add(e.name); }
   }
   return { ids, nomes };
 }
 const semAcentoTexto = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
-function qualificadas(orgId, filtros, de, ate, etapas = null) {
-  const q = etapas || etapasDeQualificacao(orgId);
-  if (!q.ids.size && !q.nomes.size) return [];
-  const { responsavel, ...resto } = filtros || {};
-  const p = peneira(orgId, resto);
-  const where = ["le.org_id = ?", p.sql, "le.created_at BETWEEN ? AND ?"];
-  const args = [orgId, ...p.args, de, ate];
-  const quem = condPessoa(filtros);
-  if (quem) { where.push("le.user_id = ?"); args.push(quem); }
-  return db.prepare(`SELECT le.lead_id lead, le.created_at t, le.para_stage_id sid, le.para nome
-    FROM lead_etapas le JOIN leads l ON l.id = le.lead_id WHERE ${where.join(" AND ")}`).all(...args)
-    .filter(r => r.sid ? q.ids.has(r.sid) : q.nomes.has(r.nome));
-}
 const distintos = (pares) => new Set(pares.map(x => x.lead)).size;
+/* Quantos destes leads foram contados porque PULARAM a etapa (o marco foi
+   deduzido do salto, não visto). Vai escrito ao lado do número, numa linha
+   discreta (decisão do Ali, 11/11/2026): sem isso, "10 agendados" com 3
+   deduzidos parece 10 agendamentos que alguém fez. */
+const inferidos = (pares) => new Set(pares.filter(x => x.inferido).map(x => x.lead)).size;
 
 /* LEADS: para a casa, os que ENTRARAM no período. Para UMA pessoa, os que
    CHEGARAM NA MÃO DELA — a mesma conta de Relatórios e da Operação
@@ -259,14 +250,14 @@ function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
     }
     return n.map(s => s.size);
   };
+  const ctx = {};
   const trab = porDiaDistintos(trabalhados(orgId, filtros, de, ate));
   const ligacoes = porDia(momentosDeLigacao(orgId, filtros, de, ate));
   const fal = porDiaDistintos(faladas(orgId, filtros, de, ate));
-  const qual = porDiaDistintos(qualificadas(orgId, filtros, de, ate));
-  const nomes = etapasDeContagem(orgId);
-  const agendada = porDia(momentosDeEtapa(orgId, nomes.agendada, filtros, de, ate));
-  const realizada = porDia(momentosDeEtapa(orgId, nomes.realizada, filtros, de, ate));
-  const proposta = porDia(momentosDeEtapa(orgId, nomes.proposta, filtros, de, ate));
+  const qual = porDiaDistintos(alcances(orgId, filtros, de, ate, "qualificado", ctx));
+  const agendada = porDiaDistintos(alcances(orgId, filtros, de, ate, "agendado", ctx));
+  const realizada = porDiaDistintos(alcances(orgId, filtros, de, ate, "visita", ctx));
+  const proposta = porDiaDistintos(alcances(orgId, filtros, de, ate, "proposta", ctx));
   const venda = porDia(vendasDoPeriodo(orgId, filtros, de, ate).map(v => v.sale_date));
   return janelas.map((j, i) => ({
     rotulo: j.rotulo,
@@ -304,8 +295,9 @@ export function visaoGeral(orgId, filtros = {}) {
   /* Imobiliária conta a visita ao imóvel; o ambiente interno do ConHub, a
      demonstração do sistema. Mesma conta, outro nome de etapa. */
   const nomes = etapasDeContagem(orgId);
-  const visitasAtual = contarEtapa(orgId, nomes.realizada, filtros, periodo.de, periodo.ate);
-  const visitasAnterior = contarEtapa(orgId, nomes.realizada, filtros, anterior.de, anterior.ate);
+  const ctx = {};
+  const visitasAtual = distintos(alcances(orgId, filtros, periodo.de, periodo.ate, "visita", ctx));
+  const visitasAnterior = distintos(alcances(orgId, filtros, anterior.de, anterior.ate, "visita", ctx));
 
   const ticketAtual = vAtual.quantidade ? Math.round(vAtual.vgv / vAtual.quantidade) : null;
   const ticketAnterior = vAnterior.quantidade ? Math.round(vAnterior.vgv / vAnterior.quantidade) : null;
@@ -328,21 +320,25 @@ export function visaoGeral(orgId, filtros = {}) {
   };
 
   const ligacoes = contarLigacoes(orgId, filtros, periodo.de, periodo.ate);
-  const agendadas = contarEtapa(orgId, nomes.agendada, filtros, periodo.de, periodo.ate);
-  const propostas = contarEtapa(orgId, nomes.proposta, filtros, periodo.de, periodo.ate);
+  const aQual = alcances(orgId, filtros, periodo.de, periodo.ate, "qualificado", ctx);
+  const aAgend = alcances(orgId, filtros, periodo.de, periodo.ate, "agendado", ctx);
+  const aVisita = alcances(orgId, filtros, periodo.de, periodo.ate, "visita", ctx);
+  const aProp = alcances(orgId, filtros, periodo.de, periodo.ate, "proposta", ctx);
+  const agendadas = distintos(aAgend);
+  const propostas = distintos(aProp);
 
-  /* Os oito degraus do Fernando (28/10/2026). Três contam PESSOAS (leads
-     distintos): trabalhados, faladas e qualificadas. Os outros contam AÇÕES
-     (ligações, mudanças de etapa, vendas) — por isso um degrau pode ser maior
-     que o de cima, e a tela diz que isto é atividade, não conversão. */
+  /* Os oito degraus do Fernando (28/10/2026, revistos em 07/11/2026).
+     Trabalhados e faladas contam LEAD POR DIA; qualificados, agendados,
+     visitas e propostas contam LEAD UMA VEZ (o marco, com a etapa pulada
+     contando); ligações contam cliques; vendas, as vendas registradas. */
   const passos = [
-    { id: "trabalhados", nome: "Leads trabalhados", valor: distintos(trabalhados(orgId, filtros, periodo.de, periodo.ate)) },
+    { id: "trabalhados", nome: "Leads trabalhados", valor: trabalhados(orgId, filtros, periodo.de, periodo.ate).length },
     { id: "ligacoes", nome: "Ligações", valor: ligacoes },
-    { id: "faladas", nome: "Pessoas faladas", valor: distintos(faladas(orgId, filtros, periodo.de, periodo.ate)) },
-    { id: "qualificadas", nome: "Qualificadas", valor: distintos(qualificadas(orgId, filtros, periodo.de, periodo.ate)) },
-    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Agendados" : "Demonstrações agendadas", valor: agendadas },
-    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas" : "Demonstrações feitas", valor: visitasAtual },
-    { id: "proposta", nome: "Propostas", valor: propostas },
+    { id: "faladas", nome: "Pessoas faladas", valor: faladas(orgId, filtros, periodo.de, periodo.ate).length },
+    { id: "qualificadas", nome: "Qualificados", valor: distintos(aQual), pulados: inferidos(aQual) },
+    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Agendados" : "Demonstrações agendadas", valor: agendadas, pulados: inferidos(aAgend) },
+    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas" : "Demonstrações feitas", valor: visitasAtual, pulados: inferidos(aVisita) },
+    { id: "proposta", nome: "Propostas", valor: propostas, pulados: inferidos(aProp) },
     { id: "venda", nome: "Vendas", valor: vAtual.quantidade },
   ];
   /* Duas colunas de porcentagem: SEQUENCIAL (sobre o degrau anterior — mostra
@@ -428,13 +424,17 @@ export function salvarMeta(orgId, userId, mes, dados = {}) {
 function realizadoDoMes(orgId, userId, mes) {
   const { de, ate } = limitesDoMes(mes);
   const filtros = userId ? { responsavel: userId } : {};
-  const nomes = etapasDeContagem(orgId);
+  /* As metas leem os MESMOS degraus do funil de atividades (07/11/2026):
+     "Contatos" são as pessoas faladas (lead por dia) e as visitas e
+     propostas são os marcos. Meta com outra conta mostraria uma barra que
+     não bate com o número logo abaixo dela. */
+  const ctx = {};
   return {
     ligacoes: contarLigacoes(orgId, filtros, de, ate),
-    contatos: contarLigacoes(orgId, filtros, de, ate, true),
-    visitas_agendadas: contarEtapa(orgId, nomes.agendada, filtros, de, ate),
-    visitas_realizadas: contarEtapa(orgId, nomes.realizada, filtros, de, ate),
-    propostas: contarEtapa(orgId, nomes.proposta, filtros, de, ate),
+    contatos: faladas(orgId, filtros, de, ate).length,
+    visitas_agendadas: distintos(alcances(orgId, filtros, de, ate, "agendado", ctx)),
+    visitas_realizadas: distintos(alcances(orgId, filtros, de, ate, "visita", ctx)),
+    propostas: distintos(alcances(orgId, filtros, de, ate, "proposta", ctx)),
     vgv: somaVendas(orgId, filtros, de, ate).vgv,
   };
 }

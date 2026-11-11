@@ -1,7 +1,8 @@
 import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
-import { eventosDeAtribuicao, noPeriodo } from "./movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
+import { etapaNoInstante, etapasDoComercial, marcosDosLeads, alcancesNoPeriodo, candidatosDoPeriodo } from "./marcos.js";
 
 /* Score de performance e recomendação de direcionamento.
 
@@ -96,7 +97,7 @@ const nota = (valor, bom, ruim) => {
    mão dela (28/10/2026, pedido do Fernando). Sem isso, a pergunta feita
    enquanto o lead estava com a atendente entrava inteira na conta do corretor
    que o recebeu horas depois. */
-export function temposDeResposta(leadIds, userId = null, desde = null) {
+export function temposDeResposta(leadIds, userId = null, desde = null, contar = null) {
   if (!leadIds.length) return [];
   const msgs = emLotes(leadIds, (marcas, lote) => db.prepare(
     `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} ORDER BY lead_id, created_at`
@@ -108,7 +109,7 @@ export function temposDeResposta(leadIds, userId = null, desde = null) {
     if (m.lead_id !== leadAtual) { leadAtual = m.lead_id; perguntaEm = null; }
     if (m.direction === "in") { if (perguntaEm == null) perguntaEm = m.created_at; }
     else if (perguntaEm != null) {
-      if (!userId || m.from_user_id === userId) {
+      if ((!userId || m.from_user_id === userId) && (!contar || contar(m.lead_id, m.created_at))) {
         const inicio = Math.max(perguntaEm, (desde && desde.get(m.lead_id)) || 0);
         esperas.push(Math.max(0, m.created_at - inicio) / 60000);
       }
@@ -141,6 +142,57 @@ export function primeirasRespostas(leads, userId) {
   return esperas;
 }
 
+/* ===== OS DOIS TEMPOS DO CORRETOR, PELA ETAPA (07/11/2026, pedido do
+   Fernando) =====
+   - 1ª RESPOSTA: só o lead que chegou na mão dele numa etapa de ENTRADA do
+     funil comercial ("Novo", "Lead", "Atendimento" — as que vêm antes do
+     primeiro marco; `etapasDoComercial`). O lead que ele pegou no Inbox ou no
+     funil de SDR é trabalho de SDR e conta para o SDR. Conta da chegada à
+     primeira mensagem dele depois dela.
+   - ATENDIMENTO: a espera a cada pergunta, só nas respostas dele dadas no
+     período com o lead num funil comercial (todas as etapas, menos Inbox).
+   `atendidos` é quantos dos leads recebidos no período ele escreveu,
+   em qualquer etapa. */
+export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
+  const etapas = ctx.etapas || (ctx.etapas = etapasDoComercial(orgId));
+  const ids = recebidos.map(e => e.lead_id);
+  const minhas = db.prepare(`SELECT DISTINCT m.lead_id id FROM messages m JOIN leads l ON l.id = m.lead_id
+    WHERE l.org_id = ? AND m.direction = 'out' AND m.from_user_id = ? AND m.created_at BETWEEN ? AND ?`).all(orgId, userId, de, ate).map(r => r.id);
+  const todos = [...new Set([...ids, ...minhas])];
+  const etapaEm = etapaNoInstante(orgId, todos);
+  const primeira = new Map(emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id = ?
+     ORDER BY created_at`).all(...lote, userId)).reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
+  const esperas = [];
+  let atendidos = 0;
+  for (const e of recebidos) {
+    const q = (primeira.get(e.lead_id) || []).find(t => t >= e.quando);
+    if (q != null) atendidos++;
+    if (q == null || !etapas.entrada.has(etapaEm(e.lead_id, e.quando))) continue;
+    esperas.push((q - e.quando) / 60000);
+  }
+  // A chegada mais recente de cada lead na mão dele, para a espera começar dali.
+  const desde = new Map();
+  const chegadas = ctx.eventos ? ctx.eventos.recebidos.filter(e => e.user_id === userId && e.quando <= ate) : recebidos;
+  for (const e of chegadas) desde.set(e.lead_id, Math.max(desde.get(e.lead_id) || 0, e.quando));
+  const atendimento = temposDeResposta(minhas, userId, desde,
+    (lead, t) => t >= de && t <= ate && etapas.comerciais.has(etapaEm(lead, t)));
+  return { primeiras: esperas, atendidos, atendimento, etapas };
+}
+
+/* AGENDADOS E VISITAS DE UMA PESSOA NO PERÍODO: os marcos que ELA fez o lead
+   alcançar (com a etapa pulada contando — services/marcos.js). É o que
+   substitui o "visitas confirmadas 0/0", que ninguém entendia. */
+export function marcosDaPessoa(orgId, userId, de, ate, ctx = {}) {
+  const ids = ctx.idsDoPeriodo || (ctx.idsDoPeriodo = candidatosDoPeriodo(orgId, "l.org_id = ?", [orgId], de, ate));
+  const mapa = ctx.mapa || (ctx.mapa = marcosDosLeads(orgId, ids));
+  const a = (k) => alcancesNoPeriodo(orgId, ids, k, de, ate, { quem: userId, mapa });
+  const q = a("qualificado"), g = a("agendado"), v = a("visita"), p = a("proposta");
+  const pul = (x) => x.filter(y => y.inferido).length;
+  return { qualificados: q.length, agendados: g.length, visitas: v.length, propostas: p.length,
+    pulados: { qualificados: pul(q), agendados: pul(g), visitas: pul(v), propostas: pul(p) } };
+}
+
 // Quantos destes leads esta pessoa de fato respondeu.
 // Quando cada lead ficou com quem está com ele — o começo da conta da pessoa.
 export const desdeDe = (leads) => new Map(leads.map(l => [l.id, l.assigned_at || l.created_at || 0]));
@@ -165,7 +217,7 @@ export const quantosRespondeu = (leads, userId) => primeirasRespostas(leads, use
      quem tem poucos casos encerrados. Agora as duas dividem pelos recebidos.
    - PERÍODO. A tela usa o intervalo que o gestor escolheu; o score usava
      "últimos 90 dias" fixos. Agora o score recebe o mesmo intervalo. */
-function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate) {
+function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate, ctx = {}) {
   const meus = leads.filter(l => l.assigned_to === u.id);
   const ids = meus.map(l => l.id);
   /* "RECEBIDOS" É O EVENTO — o instante em que o lead ficou com ele —, não a
@@ -180,7 +232,7 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
      muda mais depois que o lead é repassado adiante. `meus` continua certo
      para o resto desta função (conversão, visitas, temperatura — tudo de
      COORTE, de propósito), só o "recebidos" muda de pergunta. */
-  const recebidosEventos = eventos ? noPeriodo(eventos.recebidos, u.id, de, ate) : meus;
+  const recebidosEventos = eventos ? recebidosEm(eventos, u.id, de, ate) : meus;
   /* "LEADS PERDIDOS PARA OUTRO CORRETOR" (19/09/2026, pedido do Ali): quantos
      leads SAÍRAM da mão dele no período, por decisão de gente (`motivo ===
      "mao"` — não a redistribuição automática de uma etapa nem a saída de um
@@ -192,35 +244,11 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
   const vendas = vendasDoPeriodo.filter(l => l.assigned_to === u.id);
   const vendasDaCoorte = meus.filter(l => l.stage === VENDIDO);
   const perdidos = meus.filter(perdido);
-  const visitas = meus.filter(l => l.stage === "Agendamento" || l.stage === "Visita");
-  /* VISITA CONFIRMADA POR GENTE.
-
-     "Agendamento" e "Visita" são etapas que o funil move sozinho, pela palavra
-     na conversa. Enquanto a equipe não usa as palavras, esse número descreve o
-     palpite da regra, não o trabalho feito — e foi exatamente a queixa do Ali:
-     corretor aparecendo com três visitas que não existiram.
-
-     `confirmadas` conta só os leads cuja etapa atual foi posta ali por uma
-     DECISÃO DE GENTE: mudança na mão, sugestão da IA confirmada no botão, ou a
-     reanálise em lote que o gestor mandou rodar (`lead_etapas.motivo` em
-     'mao'/'ia'/'ia_lote'). O que fica de fora é a palavra-chave, que é chute.
-
-     O lote entra porque alguém autorizou aquela leitura sabendo o que ela
-     faria — é decisão humana no atacado, não regra correndo sozinha.
-
-     O histórico começou em 13/08/2026: antes disso não há linha para nenhum
-     lead, e o número nasce zero para todo mundo. Zero honesto é melhor que um
-     número que ninguém reconhece. */
-  const confirmadas = emLotes(ids, (marcas, lote) => db.prepare(`
-    SELECT COUNT(*) n FROM leads l
-    WHERE l.id IN (${marcas})
-      AND l.stage IN ('Agendamento','Visita')
-      AND EXISTS (SELECT 1 FROM lead_etapas e
-                  WHERE e.lead_id = l.id AND e.para = l.stage AND e.motivo IN ('mao','ia','ia_lote'))`)
-    .all(...lote)).reduce((s, r) => s + r.n, 0);
-
-  // Os dois tempos, medidos por pessoa (ver o bloco lá em cima).
-  const primeiras = primeirasRespostas(meus, u.id);
+  // Os dois tempos, medidos por pessoa e pela etapa (ver temposDoCorretor).
+  const tempos = temposDoCorretor(orgId, u.id, eventos ? recebidosEventos : [], de, ate, { eventos, etapas: ctx.etapas });
+  ctx.etapas = ctx.etapas || tempos.etapas;
+  const primeiras = tempos.primeiras;
+  const mk = marcosDaPessoa(orgId, u.id, de, ate, ctx);
 
   // Conversão por temperatura: a base da recomendação.
   const porTemperatura = {};
@@ -248,7 +276,8 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
     // Quantos leads ele de fato respondeu — sem isso, "mediana de 4 min" com
     // dois leads respondidos parece o mesmo que com trinta.
     respondidos: primeiras.length,
-    atendimento_min: mediana(temposDeResposta(ids, u.id, desdeDe(meus))),
+    atendimento_min: mediana(tempos.atendimento),
+    atendidos: tempos.atendidos,
     // Nome idêntico ao da tela, e conta idêntica: dos leads que entraram no
     // período, quantos já viraram venda.
     conversao: pct(vendasDaCoorte.length, meus.length),
@@ -258,12 +287,18 @@ function metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, at
     valor_vendido: vendas.reduce((s, l) => s + (l.sale_value || 0), 0),
     perdidos: perdidos.length,
     perda: pct(perdidos.length, fechados.length),
-    visitas: visitas.length,
-    // Só as que uma pessoa colocou ali. É esta que entra na nota.
-    visitas_confirmadas: confirmadas,
-    visitas_pct: pct(confirmadas, meus.length),
-    // Quantas vieram da regra automática, para a tela poder dizer isso.
-    visitas_automaticas: visitas.length - confirmadas,
+    /* AGENDADOS E VISITAS (07/11/2026): os que ELE fez chegar ao agendamento e
+       à visita no período, com a etapa pulada contando. Era "visitas
+       confirmadas 0/0" — leads da coorte cuja etapa ATUAL foi posta por gente
+       —, que ninguém conseguia ler. `visitas_pct` (o que entra na nota) é
+       agendados ÷ recebidos, a mesma régua de 40% de antes. */
+    qualificados: mk.qualificados,
+    visitas_agendadas: mk.agendados,
+    visitas_realizadas: mk.visitas,
+    propostas: mk.propostas,
+    visitas: mk.agendados,
+    visitas_confirmadas: mk.agendados,
+    visitas_pct: pct(mk.agendados, recebidosEventos.length),
     ligacoes: ligacoesPorUsuario[u.id] || 0,
     por_temperatura: porTemperatura,
   };
@@ -290,11 +325,11 @@ const COMPONENTES = [
     como: "Dos leads que entraram no período, quantos já viraram venda. Mesma conta da tela de Relatórios.",
     regua: "8% ou mais = 100. 0% = 0." },
   { chave: "resposta", rotulo: "Tempo da 1ª resposta", peso: 25, unidade: "min", bom: 5, ruim: 60,
-    como: "Mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não pode definir o mês inteiro.",
+    como: "Mediana do tempo entre o lead chegar na mão dele numa etapa de entrada do funil comercial (Novo, Lead, Atendimento — antes do primeiro marco) e a primeira mensagem dele. O lead pego no Inbox ou no funil de SDR conta para o SDR. Mediana, não média: um lead esquecido no fim de semana não pode definir o mês inteiro.",
     regua: "Até 5 min = 100. 60 min ou mais = 0." },
-  { chave: "visitas", rotulo: "Leads que chegaram à visita", peso: 15, unidade: "%", bom: 40, ruim: 0,
-    como: "Quantos dos leads recebidos estão em Agendamento ou Visita POR DECISÃO DE UMA PESSOA — mudança na mão, ou sugestão da IA confirmada no botão. O que a regra da palavra-chave moveu sozinha não conta aqui: enquanto a equipe não usa as palavras, esse número descreveria o palpite do sistema e não o atendimento.",
-    regua: "40% ou mais = 100. 0% = 0. O histórico de etapas começou em 13/08/2026 — antes disso não há confirmação registrada de ninguém." },
+  { chave: "visitas", rotulo: "Leads que ele agendou", peso: 15, unidade: "%", bom: 40, ruim: 0,
+    como: "Dos leads recebidos no período, quantos ele levou ao agendamento no período — chegou à etapa de agendamento, ou pulou direto para visita, proposta ou venda. Ao lado aparecem quantos compareceram (chegaram à visita).",
+    regua: "40% ou mais = 100. 0% = 0." },
   { chave: "perda", rotulo: "Perda", peso: 15, unidade: "%", bom: 0, ruim: 60,
     como: "Dos atendimentos já encerrados (venda ou perdido), quantos foram perdidos.",
     regua: "0% = 100. 60% ou mais = 0." },
@@ -421,7 +456,7 @@ export function equipeDeAtendimento(orgId, de, ate, eventos = null) {
     const vendeu = db.prepare("SELECT 1 FROM leads WHERE org_id=? AND assigned_to=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ? LIMIT 1");
     const ligou = db.prepare("SELECT 1 FROM ligacoes WHERE user_id=? AND created_at BETWEEN ? AND ? LIMIT 1");
     for (const g of gestores)
-      if (noPeriodo(ev.recebidos, g.id, de, ate).length || vendeu.get(orgId, g.id, de, ate) || ligou.get(g.id, de, ate))
+      if (recebidosEm(ev, g.id, de, ate).length || vendeu.get(orgId, g.id, de, ate) || ligou.get(g.id, de, ate))
         corretores.push(g);
   }
   return corretores.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
@@ -457,7 +492,8 @@ export function ranking(orgId, periodo = 90) {
       WHERE u.org_id = ? AND g.created_at BETWEEN ? AND ? GROUP BY g.user_id`).all(orgId, de, ate))
     ligacoesPorUsuario[r.user_id] = r.n;
 
-  const brutas = equipe.map(u => metricas(u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate));
+  const ctx = {};
+  const brutas = equipe.map(u => metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos, de, ate, ctx));
   const teto = {
     vendas: Math.max(0, ...brutas.map(m => m.vendas)),
     ligacoes: Math.max(0, ...brutas.map(m => m.ligacoes)),
