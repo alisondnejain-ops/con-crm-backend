@@ -29,6 +29,7 @@ import { aprenderComAtendimento, iaConfigurada } from "./ia.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { temCredito } from "./ia-creditos.js";
 import { temRecurso } from "./recursos.js";
+import { corpoParaIA } from "./leitura-midia.js";
 
 const colsEnsino = db.prepare("PRAGMA table_info(robo_ensino)").all().map(c => c.name);
 if (!colsEnsino.includes("origem")) db.exec("ALTER TABLE robo_ensino ADD COLUMN origem TEXT");
@@ -62,7 +63,7 @@ export async function aprenderDoAtendimento(orgId, leadId) {
     if (!lead || lead.robo_aprendido_em) return { aprendeu: 0 };
     db.prepare("UPDATE leads SET robo_aprendido_em = ? WHERE id = ?").run(Date.now(), leadId);
 
-    const msgs = db.prepare(`SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL
+    const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL
       AND body IS NOT NULL AND body <> '' ORDER BY created_at`).all(leadId);
     if (msgs.filter(m => m.direction === "in").length < 2) return { aprendeu: 0 };   // conversa curta não ensina
 

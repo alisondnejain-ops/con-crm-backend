@@ -17,6 +17,7 @@ import { trocarResponsavel } from "../services/movimento.js";
 import { podeTentar, zerarTentativas, faltamSegundos, ipDe, semSegredo, mascararEmail } from "../seguranca.js";
 import { mapaDeRecursos } from "../services/recursos.js";
 import { codigoAtual, acessosDaConta, encerrarAcessos, contaPedeCodigo, ACESSO_HORAS, ACESSO_LIVRE_HORAS, acessoLivre, usadoHoje } from "../services/acesso-master.js";
+import { transcricaoConfigurada, leituraDeImagemConfigurada } from "../services/leitura-midia.js";
 
 const r = Router();
 const INVITE_DAYS = 7;
@@ -51,7 +52,9 @@ function orgDoUsuario(user) {
   return { id: o.id, nome: o.name, codigo: o.adm_code, tipo: o.tipo || "imobiliaria",
     recursos, marketing_liberado: recursos.marketing, pais_padrao: o.pais_padrao || "BR",
     // A fila pela primeira etapa (services/fila-etapa.js): muda o texto da Catraca.
-    fila_por_etapa: !!o.fila_por_etapa, ...marcaDaOrg(o) };
+    fila_por_etapa: !!o.fila_por_etapa,
+    // Transcrição de áudio e leitura de foto disponíveis (services/leitura-midia.js): decide se a conversa mostra os botões.
+    leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() }, ...marcaDaOrg(o) };
 }
 // O link que o gestor manda para os corretores dele.
 function linkDaEquipe(req, user) {

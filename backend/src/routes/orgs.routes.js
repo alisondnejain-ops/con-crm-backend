@@ -61,6 +61,7 @@ const codigoSugerido = (nome) =>
 
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { chavesDaMidia } from "../services/fotos-imovel.js";
+import { transcricaoConfigurada, leituraDeImagemConfigurada } from "../services/leitura-midia.js";
 
 function resumo(req, org) {
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
@@ -119,6 +120,7 @@ function resumo(req, org) {
       saldo_hoje_ms: acessoLivre(org) ? saldoLivreHoje(org.id) : null,
       livre_em: org.acesso_livre_em || null },
     fila_por_etapa: !!org.fila_por_etapa,
+    leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() },
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
   };

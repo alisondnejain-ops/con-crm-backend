@@ -11,13 +11,15 @@
      que vai — ela vê as cenas, não ouve o som nem acompanha o movimento. A
      tela diz isso antes de enviar, senão "mandei o vídeo" vira a expectativa
      de que ela ouviu o que o cliente falou nele.
-   - áudio: não. A recusa diz o que fazer (escrever ou colar a transcrição).
+   - áudio: é transcrito (11/11/2026, services/leitura-midia.js) e vai como
+     texto; sem o serviço de transcrição ligado, a recusa diz o que fazer.
 
    Nada disto fica guardado no armazenamento de arquivos do CRM: vai na
    pergunta e fica só no histórico da conversa, que é resumido quando os
    arquivos pesam (`compactar`, em assistente.js). */
 
 import { lerXlsx, lerCSV } from "./xlsx.js";
+import { transcreverAudio, transcricaoConfigurada } from "./leitura-midia.js";
 
 const MB = 1024 * 1024;
 export const LIMITES_ANEXO = {
@@ -26,6 +28,7 @@ export const LIMITES_ANEXO = {
   quadrosPorVideo: 8,
   imagem: 4 * MB,               // a API recusa imagem acima de 5 MB
   pdf: 12 * MB,
+  audio: 12 * MB,                // vira texto antes de ir à IA
   texto: 400 * 1024,            // planilha e texto, depois de virar texto
   total: 16 * MB,               // somando tudo (a API aceita até 32 MB por pedido, em base64)
 };
@@ -42,7 +45,7 @@ const mb = (n) => (n / MB).toFixed(1).replace(".", ",") + " MB";
    ou { erro } com a frase para a pessoa. Cada arquivo vem precedido de uma
    linha com o nome: é por ela que a IA se refere a "o print 2", e é ela que
    fica no lugar do arquivo quando o histórico é aliviado. */
-export function montarAnexos(lista) {
+export async function montarAnexos(lista) {
   if (!Array.isArray(lista) || !lista.length) return { blocos: [], resumo: [] };
   if (lista.length > LIMITES_ANEXO.porMensagem) return { erro: `Mande até ${LIMITES_ANEXO.porMensagem} arquivos por vez.` };
   const blocos = [], resumo = [];
@@ -69,8 +72,23 @@ export function montarAnexos(lista) {
       resumo.push({ nome, tipo: "video", quadros: quadros.length });
       continue;
     }
-    if (tipo.startsWith("audio/"))
-      return { erro: `Ainda não consigo ouvir áudio (“${nome}”). Escreva o que ele diz, ou cole a transcrição.` };
+    /* ÁUDIO (11/11/2026): vira texto pelo serviço de transcrição
+       (services/leitura-midia.js) e vai como a transcrição, marcada como tal
+       — a IA lê o que foi dito, não ouve o tom. Sem o serviço ligado, a
+       recusa de antes. */
+    if (tipo.startsWith("audio/")) {
+      if (!transcricaoConfigurada())
+        return { erro: `A transcrição de áudio não está ligada nesta instalação (“${nome}”). Escreva o que ele diz, ou cole a transcrição.` };
+      if (!base64Valido(a?.dados)) return { erro: `O áudio “${nome}” chegou incompleto. Tente de novo.` };
+      if (tamanho(a.dados) > LIMITES_ANEXO.audio) return { erro: `O áudio “${nome}” tem ${mb(tamanho(a.dados))}; o máximo é ${mb(LIMITES_ANEXO.audio)}.` };
+      const tr = await transcreverAudio(Buffer.from(a.dados, "base64"));
+      if (!tr.ok) return { erro: `Não consegui transcrever “${nome}”: ${tr.erro}` };
+      total += Buffer.byteLength(tr.texto);
+      blocos.push(cabeca(` — áudio${tr.segundos ? ` (${Math.round(tr.segundos)} s)` : ""}, transcrito. Você não ouve o áudio: abaixo vai o que foi dito, escrito por um serviço de transcrição (pode ter erro de palavra).`),
+        { type: "text", text: tr.texto });
+      resumo.push({ nome, tipo: "audio", segundos: tr.segundos || null });
+      continue;
+    }
     if (!base64Valido(a?.dados)) return { erro: `O arquivo “${nome}” chegou incompleto. Tente de novo.` };
     const t = tamanho(a.dados);
 

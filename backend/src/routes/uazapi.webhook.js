@@ -160,7 +160,7 @@ function extrair(p) {
   const ehBotao = /button|list|template.*reply|interactive/i.test(String(tipo));
   const textoDoBotao = botao(m) || botao(m.content) || botao(m.message)
     || (ehBotao ? (m.content && typeof m.content === "object" ? (m.content.title || m.content.text || "") : "") || m.buttonOrListid || "" : "");
-  const texto = m.text || m.body || m.caption || m.content?.text || m.conversation || textoDoBotao || "";
+  const texto = m.text || m.body || m.caption || m.content?.text || m.content?.caption || m.conversation || textoDoBotao || "";
   // Em mensagem de mídia, `content` é um objeto com URL, mimetype e o nome do
   // arquivo. Em mensagem de texto ele é uma string — daí a checagem de tipo.
   const content = m.content && typeof m.content === "object" ? m.content : null;

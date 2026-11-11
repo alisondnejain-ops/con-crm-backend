@@ -2,6 +2,7 @@ import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, supervisiona, podeVerLead, emitirTokenAnexo } from "../auth.js";
+import { lerMensagem } from "../services/leitura-midia.js";
 import { sendText, sendMedia, sendLocation, editMessage, deleteMessage } from "../services/uazapi.js";
 import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, ehDocumento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
@@ -234,6 +235,21 @@ r.patch("/:id/messages/:msgId", async (req, res) => {
    ter o botão. E no banco ela não some: fica marcada, e a supervisão
    continua podendo ver o que era. */
 export const JANELA_APAGAR = 60 * 3600000;
+/* LER UM ÁUDIO OU UMA FOTO DA CONVERSA (11/11/2026, services/leitura-midia.js):
+   o botão "Transcrever" / "Ler a imagem". Quem pode abrir a conversa pede;
+   a leitura fica guardada na mensagem e vale para todo mundo. Pedir de novo
+   o que falhou tenta outra vez. */
+r.post("/:id/messages/:msgId/ler", async (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const msg = db.prepare("SELECT id FROM messages WHERE id = ? AND lead_id = ?").get(req.params.msgId, lead.id);
+  if (!msg) return res.status(404).json({ error: "Mensagem não encontrada." });
+  const r2 = await lerMensagem(msg.id, { userId: req.user.id, forcar: true });
+  if (r2.erro) return res.status(422).json({ error: r2.erro });
+  res.json({ ok: true, leitura: r2.leitura });
+});
+
 r.delete("/:id/messages/:msgId", async (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });

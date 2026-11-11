@@ -29,6 +29,7 @@ import { triarNumeroNovo } from "./triagem.js";
 import { dispararGatilho } from "./automacoes.js";
 import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
+import { lerAoChegar } from "./leitura-midia.js";
 import { atender, pararPorGente } from "./robo.js";
 import { avisarDoLead } from "./push.js";
 import { linhaSoltaDoLead, podeAvisarLinhaSolta } from "./linha-solta.js";
@@ -259,9 +260,10 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      O índice único em `wa_id` (db.js) é essa trava. Se ele recusar,
      perdemos a corrida — não é erro, é a prova de que o eco de verdade
      já está gravado por um webhook irmão que chegou primeiro. */
+  const idDaMensagem = "m_" + randomUUID();
   try {
     db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,reply_trecho,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, fromMe ? "out" : "in", null,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(idDaMensagem, lead.id, fromMe ? "out" : "in", null,
         // Saiu do número de disparo sem passar pelo CRM: é o eco de um envio
         // do próprio disparo que chegou antes do registro dele.
         doDisparo ? (campanhaDoEco || ROTULO_DISPARO) : null, corpo,
@@ -276,6 +278,10 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
     }
     throw e;
   }
+
+  /* Áudio ou foto do cliente começa a ser lido agora, sem esperar
+     (services/leitura-midia.js): transcrição e descrição. Nunca lança. */
+  if (!fromMe && midia?.url) lerAoChegar({ messageId: idDaMensagem, orgId, mime: midia.mime });
 
   /* "SAIR" de quem está numa lista de marketing entra na lista de bloqueio da
      imobiliária (services/marketing.js). A conversa segue normal — isto só

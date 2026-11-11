@@ -15,6 +15,7 @@ import { aplicarCorte, registrar, historico, resumoDoDia, expedienteDa,
 import { doDia as plantaoDoDia, TURNOS as TURNOS_PLANTAO } from "../services/plantao.js";
 import { esperando, minutosDaOrg, definirMinutos } from "../services/alerta.js";
 import { configDoPrazo, definirConfigDoPrazo, etapasComPrazo, etapasComAcaoPropria } from "../services/prazo-vencido.js";
+import { estadoDaLeitura } from "../services/leitura-midia.js";
 
 const r = Router();
 r.use(authRequired);
@@ -143,6 +144,16 @@ r.patch("/pais", roles("adm"), (req, res) => {
   const r2 = definirPaisDaOrg(req.user.org_id, req.body?.pais);
   if (r2.erro) return res.status(400).json({ error: r2.erro });
   res.json(r2);
+});
+
+/* Ler áudios e fotos do cliente automaticamente (services/leitura-midia.js).
+   Ligado por padrão; o gestor desliga. O estado diz também se a transcrição
+   e a leitura de imagem estão disponíveis nesta instalação. */
+r.get("/leitura", roles("adm"), (req, res) => res.json(estadoDaLeitura(req.user.org_id)));
+r.patch("/leitura", roles("adm"), (req, res) => {
+  if (typeof req.body?.automatico !== "boolean") return res.status(400).json({ error: "Diga se a leitura automática fica ligada ou não." });
+  db.prepare("UPDATE orgs SET ler_midia = ? WHERE id = ?").run(req.body.automatico ? 1 : 0, req.user.org_id);
+  res.json(estadoDaLeitura(req.user.org_id));
 });
 
 r.patch("/expediente", roles("adm"), (req, res) => {

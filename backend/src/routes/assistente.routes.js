@@ -12,7 +12,9 @@
    `/suporte/hub` — a configuração do suporte e a lista de chamados, no hub do
    master. */
 
-import { Router } from "express";
+import express, { Router } from "express";
+import { registrar } from "../services/iauso.js";
+import { transcreverAudio, transcricaoConfigurada } from "../services/leitura-midia.js";
 import db from "../db.js";
 import { authRequired, soMaster, ehDonoAutonomo } from "../auth.js";
 import { daEquipeConHub } from "../services/interno.js";
@@ -75,6 +77,29 @@ function parametrosDoModo(modo, user, conversa, autorizacao, menu) {
     executar: executorDeConsulta({ autorizacao, user, conversaId: conversa.id, menu }),
   };
 }
+/* FALAR COM O CLAUDE POR ÁUDIO (11/11/2026, services/leitura-midia.js): o
+   microfone do painel grava, o servidor transcreve e devolve o TEXTO, que
+   vai para o campo — a pessoa confere e manda. Não manda sozinho: a
+   transcrição pode errar um nome, e um pedido de configuração errado é
+   trabalho desfeito. O corpo é o áudio cru (o tipo vem no cabeçalho), lido
+   só por esta rota. Até 30 por hora por pessoa. */
+const pedidosDeVoz = new Map();
+assistente.post("/transcrever", express.raw({ type: () => true, limit: "15mb" }), async (req, res) => {
+  if (!transcricaoConfigurada()) return res.status(503).json({ error: "A transcrição de áudio não está ligada nesta instalação." });
+  const buf = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!buf || buf.length < 500) return res.status(400).json({ error: "O áudio chegou vazio. Grave de novo." });
+  const agora = Date.now();
+  const meus = (pedidosDeVoz.get(req.user.id) || []).filter(t => agora - t < 3600000);
+  if (meus.length >= 30) return res.status(429).json({ error: "São até 30 áudios por hora. Escreva o pedido, ou tente daqui a pouco." });
+  meus.push(agora); pedidosDeVoz.set(req.user.id, meus);
+  const r2 = await transcreverAudio(buf);
+  if (!r2.ok) return res.status(422).json({ error: r2.erro });
+  registrar({ orgId: req.user.org_id, userId: req.user.id, recurso: "transcricao", uso: { entrada: 0, saida: 0 },
+    modelo: process.env.TRANSCRICAO_MODELO || "gpt-4o-transcribe",
+    custo: r2.segundos ? Math.round(r2.segundos / 60 * Number(process.env.TRANSCRICAO_CUSTO_MIN || 0.006) * 1e6) / 1e6 : 0 });
+  res.json({ ok: true, texto: r2.texto });
+});
+
 assistente.post("/mensagem", async (req, res) => {
   const modo = modoDe(req.user);
   /* CONTINUAÇÃO AUTOMÁTICA (08/10/2026): o trabalho da pergunta anterior
@@ -94,7 +119,7 @@ assistente.post("/mensagem", async (req, res) => {
   if (bruto.length > teto) return res.status(400).json({ error: `O texto tem ${bruto.length.toLocaleString("pt-BR")} caracteres; o máximo é ${teto.toLocaleString("pt-BR")}.` });
   const temAnexos = Array.isArray(req.body?.anexos) && req.body.anexos.length > 0;
   if (temAnexos && modo !== "config") return res.status(403).json({ error: "Mandar arquivos para o Claude é só da gestão." });
-  const anexos = temAnexos ? montarAnexos(req.body.anexos) : null;
+  const anexos = temAnexos ? await montarAnexos(req.body.anexos) : null;
   if (anexos?.erro) return res.status(400).json({ error: anexos.erro });
   const texto = bruto || (temAnexos ? "(sem texto — veja o que mandei)" : "");
   if (!texto) return res.status(400).json({ error: modo === "config" ? "Escreva o que você quer configurar." : "Escreva a sua pergunta." });

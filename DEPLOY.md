@@ -274,6 +274,25 @@ Não use "Gerenciar IPs" na Stone: o Railway não tem IP fixo.
 
 ---
 
+## Transcrição de áudio e leitura de fotos (11/11/2026)
+
+O CRM transcreve os áudios que o cliente manda e descreve as fotos. A leitura
+de fotos usa a mesma `ANTHROPIC_API_KEY` que já existe — não precisa de nada.
+
+A transcrição usa outro serviço (a Anthropic não transcreve áudio). Para ligar:
+
+1. Crie uma chave de API na OpenAI (platform.openai.com → API keys) e ponha
+   crédito na conta.
+2. No Railway → serviço do backend → Variables, crie `TRANSCRICAO_API_KEY`
+   com a chave. **Nunca cole a chave no chat nem no código.**
+3. O serviço reinicia sozinho. Em Configurações → Atendimento, o quadro "Ler
+   áudios e fotos do cliente" passa a dizer "Transcrição de áudio disponível".
+
+Opcionais: `TRANSCRICAO_MODELO` (padrão `gpt-4o-transcribe`; `whisper-1` é
+mais barato), `TRANSCRICAO_URL` (outro serviço com o mesmo formato, como o
+Groq) e `TRANSCRICAO_CUSTO_MIN` (dólares por minuto, só para o "Uso da IA").
+Custo de referência: cerca de US$ 0,006 por minuto de áudio.
+
 ## Passo 5 — Ligar o e-mail automático (Resend)
 
 Enquanto isso não estiver feito, o link de confirmação aparece na tela e no log.
