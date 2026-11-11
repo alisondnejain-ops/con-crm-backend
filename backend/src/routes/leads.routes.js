@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import db, { versaoDosLeads } from "../db.js";
+import db, { versaoDosLeads, emLotes } from "../db.js";
+import { filaPorEtapaLigada, filaAgora } from "../services/fila-etapa.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
@@ -705,6 +706,16 @@ r.delete("/importacoes/:id", roles("adm"), (req, res) => {
 
 // Fila da catraca (leads sem dono). SDR e ADM.
 r.get("/queue", roles("sdr", "adm"), (req, res) => {
+  /* Com a fila pela primeira etapa ligada (services/fila-etapa.js), a fila da
+     Catraca são os leads na primeira etapa do funil comercial que nenhum
+     corretor pegou ainda — não mais "todo lead sem dono", que misturava o
+     cliente do SDR. Desligada, a régua de sempre. */
+  if (filaPorEtapaLigada(req.user.org_id)) {
+    const ids = filaAgora(req.user.org_id).corretor;
+    const rows = emLotes(ids, (m, lote) => db.prepare(`${SELECT_LEAD} WHERE l.org_id = ? AND l.id IN (${m})`).all(req.user.org_id, ...lote))
+      .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    return res.json(rows.map(parse));
+  }
   const rows = db.prepare(`${SELECT_LEAD} WHERE l.org_id = ? AND l.assigned_to IS NULL ORDER BY l.created_at DESC`).all(req.user.org_id);
   res.json(rows.map(parse));
 });
