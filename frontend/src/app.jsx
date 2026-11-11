@@ -1046,7 +1046,8 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
   const [obs,setObs]=useState("");
   const [salvando,setSalvando]=useState(false);
   const [erro,setErro]=useState("");
-  if(!tel) return null;
+  // Modo empreendimento: a ligação sairia do celular pessoal do corretor (11/11/2026).
+  if(!tel||contaEmpreendimento()) return null;
 
   async function aoLigar(){
     if(!leadId||!acoes||!acoes.registrarLigacao) return;
@@ -16288,7 +16289,8 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           dele: quem pareia o aparelho é quem tem o aparelho na mão. E fica
           acima das notificações porque é o que muda o dia dele. */}
       {podeGerir(session)&&!session.master&&!contaInterna()&&<CodigoDeAcesso acoes={acoes}/>}
-      <MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>
+      {/* Modo empreendimento: só o número da casa, sem WhatsApp pessoal. */}
+      {!contaEmpreendimento()&&<MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>}
       <GoogleAgenda acoes={acoes} session={session} isMobile={isMobile}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
       {/* O ambiente interno do ConHub não tem mensalidade. */}
@@ -23661,7 +23663,7 @@ function ConexaoConfig({acoes,session,isMobile}){
     {/* OS NÚMEROS DOS CORRETORES. Fica na mesma tela da conexão da casa porque
         é a mesma pergunta — "por quais números esta imobiliária fala" —, e
         porque é aqui que o gestor já vem quando o assunto é WhatsApp. */}
-    <NumerosDaEquipe acoes={acoes} isMobile={isMobile}/>
+    {!contaEmpreendimento()&&<NumerosDaEquipe acoes={acoes} isMobile={isMobile}/>/* empreendimento: só o número da casa */}
   </React.Fragment>;
 }
 

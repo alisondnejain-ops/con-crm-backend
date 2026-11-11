@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db, { versaoDosLeads, emLotes } from "../db.js";
+import { ehEmpreendimento, SO_NUMERO_DA_CASA } from "../services/lotes.js";
 import { filaPorEtapaLigada, filaAgora } from "../services/fila-etapa.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
 import { mascararTelefone } from "../seguranca.js";
@@ -1251,7 +1252,7 @@ function canalDaConversa(user, lead) {
     onde: atual && atual.ativo ? "corretor" : "imobiliaria",
     tenho_linha: meuLigado,
     minha_linha_id: meuLigado ? meu.id : null,
-    pode_trocar: meuLigado && lead.assigned_to === user.id,
+    pode_trocar: meuLigado && lead.assigned_to === user.id && !ehEmpreendimento(lead.org_id),
     /* A gestão traz a conversa de volta para o número da IMOBILIÁRIA (30/10/2026,
        pedido do Fernando) — o número é da casa. Mandar para o WhatsApp pessoal
        de alguém continua sendo só do dono do lead. */
@@ -1285,6 +1286,7 @@ r.post("/:id/canal", (req, res) => {
     return res.json({ ok: true, canal: canalDaConversa(req.user, { ...lead, canal_id: null }) });
   }
   if (para !== "minha") return res.status(400).json({ error: "Escolha 'minha' ou 'imobiliaria'." });
+  if (ehEmpreendimento(lead.org_id)) return res.status(403).json({ error: SO_NUMERO_DA_CASA });
 
   const meu = canalDoUsuario(lead.org_id, req.user.id);
   if (!meu || !meu.ativo || !meu.token)
@@ -1483,6 +1485,8 @@ r.post("/:id/reabrir", (req, res) => {
 r.post("/:id/ligacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  // Modo empreendimento: tudo pelo número da casa; ligar sairia do celular pessoal.
+  if (ehEmpreendimento(lead.org_id)) return res.status(403).json({ error: SO_NUMERO_DA_CASA });
   const id = "lig_" + randomUUID();
   db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
     .run(id, lead.id, req.user.id, Date.now());

@@ -19,9 +19,19 @@ import {
 import { instanceStatus, conectarInstancia, PROVEDORES } from "../services/uazapi.js";
 import { garantirWebhook } from "../services/webhook-uazapi.js";
 import { hashToken } from "../services/segredo-whatsapp.js";
+import { ehEmpreendimento, SO_NUMERO_DA_CASA } from "../services/lotes.js";
 
 const r = Router();
 r.use(authRequired);
+
+/* Modo empreendimento: só o número da casa (11/11/2026). Ligar, conectar ou
+   liberar linha pessoal é recusado; ler e desligar continuam. */
+r.use((req, res, next) => {
+  const fecha = req.method === "POST" && (req.path === "/liberar" || req.path.startsWith("/meu"));
+  if (fecha && req.body?.liberado !== false && ehEmpreendimento(req.user.org_id))
+    return res.status(403).json({ error: SO_NUMERO_DA_CASA });
+  next();
+});
 
 /* O que a tela precisa saber, do jeito que ela pergunta.
 

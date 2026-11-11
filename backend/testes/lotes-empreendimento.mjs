@@ -48,6 +48,11 @@ db.prepare(`INSERT INTO leads (id,org_id,name,phone,qual_json,stage,created_at,a
 db.prepare(`INSERT INTO leads (id,org_id,name,phone,qual_json,stage,created_at,assigned_to,assigned_at)
   VALUES ('l_outro','org_rr','Cliente da Bia','5581999990001','{}','Lead',?,'u_bia',?)`).run(agora, agora);
 
+// A Lara tinha o WhatsApp pessoal ligado antes do modo, com uma conversa nele.
+db.prepare("UPDATE users SET canal_liberado = 1 WHERE id = 'u_lara'").run();
+db.prepare("INSERT INTO canais (id,org_id,tipo,user_id,host,token,ativo,created_at) VALUES ('c_lara','org_rr','corretor','u_lara','https://x.uazapi.com','tok-lara',1,?)").run(agora);
+db.prepare("UPDATE leads SET canal_id = 'c_lara' WHERE id = 'l_silvio'").run();
+
 // Toda conta de verdade já nasce com o funil padrão (garantirPipelinePadrao no start e na criação).
 (await import("../src/services/pipelines.js")).garantirPipelinePadrao("org_rr");
 
@@ -179,6 +184,26 @@ await caso("11. O fluxo de boas-vindas é válido para disparar", async () => {
   const v = validarGrafo(JSON.parse(f.grafo), { paraDisparar: true });
   assert.deepEqual(v.erros, []);
   assert.equal(JSON.parse(f.grafo).nos.length, 10);
+});
+
+await caso("12. Só o número da casa: o WhatsApp pessoal foi desligado e não religa", async () => {
+  const c = db.prepare("SELECT ativo, token FROM canais WHERE id = 'c_lara'").get();
+  assert.equal(c.ativo, 0); assert.ok(!c.token);
+  assert.equal(db.prepare("SELECT canal_id FROM leads WHERE id = 'l_silvio'").get().canal_id, null);
+  assert.equal(db.prepare("SELECT canal_liberado FROM users WHERE id = 'u_lara'").get().canal_liberado, 0);
+  const meu = await chamar(tLara, "/canais/meu", "POST", {});
+  assert.equal(meu.status, 403); assert.match(meu.d.error, /número da imobiliária/);
+  const lib = await chamar(tElder, "/canais/liberar", "POST", { user_id: "u_lara", liberado: true });
+  assert.equal(lib.status, 403);
+  const tr = await chamar(tLara, "/leads/l_silvio/canal", "POST", { para: "minha" });
+  assert.equal(tr.status, 403);
+  // E ligar do celular também não (o botão some; a rota recusa).
+  assert.equal((await chamar(tLara, "/leads/l_silvio/ligacao", "POST", {})).status, 403);
+});
+
+await caso("13. O corretor não abre a Base de leads (importar, exportar, lote)", async () => {
+  for (const [m, c] of [["GET", "/leads/export"], ["POST", "/leads/import"], ["GET", "/leads/importacoes"], ["GET", "/leads/lote/passar"]])
+    assert.equal((await chamar(tLara, c, m, m === "POST" ? {} : undefined)).status, 403, c);
 });
 
 console.log(`\n${ok} casos passaram.`);
