@@ -22780,6 +22780,7 @@ function resumoDaAutomacao(cfg,pessoas,funis,catracas,tags){
     const p=(pessoas||[]).find(x=>x.id===c.distribuir);
     partes.push(`entrega a ${p?p.name:"uma pessoa que saiu da equipe"}`);
   }
+  if(c.distribuir&&c.so_sem_corretor&&partes.length) partes[partes.length-1]+=" (se ainda não estiver com um corretor)";
   if(c.limpar_responsavel) partes.push("devolve à fila, sem dono");
   const nomeTag=(id)=>((tags||[]).find(t=>t.id===id)||{}).nome||"etiqueta";
   if((c.adicionar_tags||[]).length) partes.push(`ganha ${c.adicionar_tags.map(nomeTag).join(", ")}`);
@@ -22947,6 +22948,9 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
                 {outros.map(x=><option key={x.id} value={x.id}>Mover para o funil {x.name}{x.stages&&x.stages[0]?` (entra em ${x.stages[0].name})`:""}</option>)}
               </select></div>
           </div>
+          {cfg.distribuir&&<label style={{display:"flex",gap:8,alignItems:"center",fontSize:12,color:C.ink,cursor:"pointer",minHeight:32}}>
+            <input type="checkbox" checked={!!cfg.so_sem_corretor} onChange={()=>{const n={...cfg}; if(n.so_sem_corretor) delete n.so_sem_corretor; else n.so_sem_corretor=true; salvarCfg(n);}}/>
+            Não tirar o lead de quem já é corretor dele</label>}
           {fora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A pessoa configurada não está mais ativa: o lead vai chegar sem dono até você escolher outra.</div>}
           {catFora&&<div style={{color:C.hot,fontSize:11,lineHeight:1.45}}>A catraca escolhida foi desativada: o lead vai pela catraca principal até você escolher outra.</div>}
           <div>{rot("Etiquetas","Toque uma vez para colocar, de novo para tirar, e mais uma para não mexer.")}
@@ -25628,7 +25632,8 @@ function QuadroEmpreendimento({conta,acoes,aoMudar,ocupado,setOcupado}){
       {ocupado==="kit"?"Aplicando…":"Aplicar o pacote do Reserva Real do Rio"}</button>
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Liga o modo e monta funil, ficha de produto, orientações da IA, mensagens prontas, tags, o fluxo de boas-vindas (desligado) e os lotes da planilha. Aplicar de novo não duplica.</div>
     {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 10px",fontSize:11.5,lineHeight:1.5}}>
-      Pacote aplicado. {["lotes","mensagens","orientacoes","tags"].filter(k=>feito[k]!=null).map(k=>`${({lotes:"Lotes",mensagens:"Mensagens",orientacoes:"Orientações",tags:"Tags"})[k]}: ${n(feito[k])}`).join(" · ")}
+      Pacote aplicado. {["lotes","mensagens","orientacoes","orientacoes_desligadas","campos","tags"].filter(k=>feito[k]!=null).map(k=>`${({lotes:"Lotes",mensagens:"Mensagens",orientacoes:"Orientações novas",orientacoes_desligadas:"Orientações antigas desligadas",campos:"Campos",tags:"Tags"})[k]}: ${n(feito[k])}`).join(" · ")}
+      {(feito.qualificacao||[]).length?<div style={{marginTop:4}}>{feito.qualificacao.join(" · ")}.</div>:null}
       {(feito.avisos||[]).length?<div style={{color:C.hot,marginTop:4}}>{feito.avisos.join(" ")}</div>:null}
     </div>}
   </div>;

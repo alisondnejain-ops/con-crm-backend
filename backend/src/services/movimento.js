@@ -177,6 +177,9 @@ function rodarAutomacao(lead, etapa, userId, { semResponsavel = false } = {}) {
     } else if (cfg.limpar_responsavel) {
       trocarResponsavel(lead, null, userId, "automatica");
       resultado.responsavel = null;
+    } else if (cfg.distribuir && cfg.so_sem_corretor && lead.assigned_to
+        && db.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'corretor' AND status = 'ativo'").get(lead.assigned_to)) {
+      // o lead já está com um corretor: a etapa não o tira dele.
     } else if (cfg.distribuir) {
       /* O rodízio é o da catraca do produto do lead, quando ele tem uma
          (03/10/2026); senão, ou sem ninguém disponível nela, o principal. */

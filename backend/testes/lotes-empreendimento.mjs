@@ -78,7 +78,7 @@ await caso("2. O master aplica o pacote do Reserva", async () => {
   assert.equal(r.d.feito.lotes, 60);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM lotes WHERE org_id='org_rr' AND status='disponivel'").get().n, 21);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM ia_produtos WHERE org_id='org_rr'").get().n, 1);
-  assert.equal(r.d.feito.orientacoes, 7); assert.equal(r.d.feito.mensagens, 5); assert.equal(r.d.feito.tags, 5);
+  assert.equal(r.d.feito.orientacoes, 14); assert.equal(r.d.feito.mensagens, 5); assert.equal(r.d.feito.tags, 5);
   assert.equal(r.d.feito.funil, true); assert.equal(r.d.feito.fluxo, true);
   const p = db.prepare("SELECT * FROM pipelines WHERE org_id='org_rr' AND name='Vendas de lotes'").get();
   assert.equal(p.is_default, 0, "a conta tem leads: o funil não vira padrão sozinho");
@@ -94,6 +94,40 @@ await caso("3. Aplicar de novo não duplica nada", async () => {
   assert.equal(r.status, 200);
   assert.deepEqual([r.d.feito.lotes, r.d.feito.orientacoes, r.d.feito.mensagens, r.d.feito.tags, r.d.feito.funil, r.d.feito.fluxo, r.d.feito.ficha], [0, 0, 0, 0, false, false, false]);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM lotes WHERE org_id='org_rr'").get().n, 60);
+});
+
+await caso("3b. A qualificação: campos, resumo, onde a IA atua, etapa final e roleta que não tira lead de corretor", async () => {
+  // Toda orientação cabe no campo (500).
+  for (const o of db.prepare("SELECT texto FROM robo_ensino WHERE org_id='org_rr'").all()) assert.ok(o.texto.length <= 500, o.texto.slice(0, 40));
+  const campos = db.prepare("SELECT key FROM custom_fields WHERE org_id='org_rr' AND is_active=1").all().map(c => c.key);
+  for (const k of ["motivo_da_compra", "prazo_de_compra", "forma_de_pagamento", "decisores", "lote_de_interesse", "melhor_periodo_para_contato", "como_conheceu"]) assert.ok(campos.includes(k), k);
+  const o = db.prepare("SELECT robo_escopo, robo_campos, robo_observacao, robo_etapa_final FROM orgs WHERE id='org_rr'").get();
+  const p = db.prepare("SELECT id FROM pipelines WHERE org_id='org_rr' AND name='Vendas de lotes'").get();
+  const st = (n) => db.prepare("SELECT * FROM pipeline_stages WHERE pipeline_id=? AND name=?").get(p.id, n);
+  assert.equal(o.robo_observacao, 1);
+  assert.deepEqual(JSON.parse(o.robo_escopo).etapas, [st("Lead novo").id]);
+  assert.equal(JSON.parse(o.robo_campos).length, 7);
+  assert.equal(o.robo_etapa_final, st("Primeiro contato").id);
+  assert.deepEqual(JSON.parse(st("Primeiro contato").automation_config), { distribuir: "rodizio", so_sem_corretor: true });
+  // Uma orientação da primeira versão do pacote, ainda ativa, é desligada ao reaplicar.
+  const velha = "Pergunte se a pessoa já conhece a região e para quando ela pensa em comprar.";
+  db.prepare("INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,created_at) VALUES ('re_v1','org_rr',?,99,1,?)").run(velha, Date.now());
+  const r = await chamar(tMaster, "/orgs/org_rr/empreendimento/kit-reserva", "POST", {});
+  assert.equal(r.d.feito.orientacoes_desligadas, 1);
+  assert.equal(db.prepare("SELECT ativo FROM robo_ensino WHERE id='re_v1'").get().ativo, 0);
+  // Lead que já está com corretor e volta para Primeiro contato continua com ele.
+  db.prepare("UPDATE leads SET pipeline_id=?, stage_id=?, stage='Agendado' WHERE id='l_outro'").run(p.id, st("Agendado").id);
+  const m = await chamar(tBia, "/leads/l_outro/stage", "PATCH", { stage_id: st("Primeiro contato").id });
+  assert.equal(m.status, 200, JSON.stringify(m.d));
+  assert.equal(db.prepare("SELECT assigned_to FROM leads WHERE id='l_outro'").get().assigned_to, "u_bia");
+  // Lead sem dono que chega em Primeiro contato vai para a roleta.
+  db.prepare(`INSERT INTO leads (id,org_id,name,phone,qual_json,stage,pipeline_id,stage_id,created_at) VALUES ('l_fila','org_rr','Da fila','5581999990009','{}','Lead novo',?,?,?)`)
+    .run(p.id, st("Lead novo").id, Date.now());
+  const m2 = await chamar(tElder, "/leads/l_fila/stage", "PATCH", { stage_id: st("Primeiro contato").id });
+  assert.equal(m2.status, 200, JSON.stringify(m2.d));
+  assert.ok(["u_lara", "u_bia"].includes(db.prepare("SELECT assigned_to FROM leads WHERE id='l_fila'").get().assigned_to));
+  // Os casos seguintes contam com os leads onde estavam.
+  db.prepare("DELETE FROM leads WHERE id='l_fila'").run();
 });
 
 await caso("4. O corretor reserva um lote disponível pelo prazo da conta", async () => {
