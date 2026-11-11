@@ -26,6 +26,7 @@ import { criarTag, CORES_TAG } from "./tags.js";
 import { criarPipeline, inserirEtapa } from "./pipelines.js";
 import { validarGrafo } from "./disparo.js";
 import { ligarModo, salvarConfig, importar, configDoEmpreendimento } from "./lotes.js";
+import { configDaEntrada, gerarToken as gerarTokenSite, salvarConfig as salvarEntradaSite } from "./entrada-site.js";
 
 const NOME = "Reserva Real do Rio";
 const TOUR = "https://rdantassmart.com/reservarealdorio";
@@ -107,6 +108,8 @@ Ainda não estão escritos aqui, e por isso o corretor é quem informa: preço, 
    dizer "um corretor vai falar com você", o que a qualificação nova proíbe —
    reaplicar o pacote DESLIGA as que continuam com o texto original (editada
    pela equipe não é tocada; desligada não é apagada). */
+const SITE_LANDING = "https://rdantassmart.com";
+
 const ORIENTACOES_V1 = [
   `Você atende o ${NOME}, um loteamento em Petrolina-PE à beira do Rio São Francisco. Trate a pessoa pelo primeiro nome, com acolhimento e sem pressa.`,
   "Antes de falar de lote, entenda o que a pessoa busca: construir a casa, investir ou ter um lugar de lazer, e qual tamanho de lote ela imagina.",
@@ -267,7 +270,7 @@ function qualificacao(orgId, funilNome, feito) {
 const chave = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 export function aplicarKitReserva(orgId, user) {
-  const feito = { modo: true, config: false, ficha: false, orientacoes: 0, orientacoes_desligadas: 0, campos: 0, qualificacao: [], mensagens: 0, tags: 0, funil: false, fluxo: false, lotes: null, avisos: [] };
+  const feito = { modo: true, config: false, ficha: false, orientacoes: 0, orientacoes_desligadas: 0, campos: 0, qualificacao: [], formulario_site: false, mensagens: 0, tags: 0, funil: false, fluxo: false, lotes: null, avisos: [] };
   ligarModo(orgId, true);
 
   const cfg = configDoEmpreendimento(orgId);
@@ -336,6 +339,18 @@ export function aplicarKitReserva(orgId, user) {
 
   // A qualificação: campos, resumo, onde a IA atua, para onde ela move e a roleta.
   qualificacao(orgId, funilNome, feito);
+
+  // O formulário da landing (rdantassmart.com): só na primeira vez — depois é da gestão.
+  if (!configDaEntrada(orgId).existe) {
+    try {
+      gerarTokenSite(orgId);
+      const funil = db.prepare("SELECT id, name FROM pipelines WHERE org_id = ?").all(orgId).find(p => chave(p.name) === chave(funilNome));
+      const ln = funil && db.prepare("SELECT id, name FROM pipeline_stages WHERE pipeline_id = ? AND org_id = ?").all(funil.id, orgId).find(e => chave(e.name) === chave("Lead novo"));
+      salvarEntradaSite(orgId, { origens: [SITE_LANDING], quem_recebe: "corretor", stage_id: ln ? ln.id : null });
+      feito.formulario_site = true;
+      feito.qualificacao.push("Formulário do site liberado para rdantassmart.com");
+    } catch (e) { feito.avisos.push("Formulário do site: " + e.message); }
+  }
 
   // Fluxo de boas-vindas — nasce DESLIGADO: quem liga é a gestão, escolhendo o gatilho.
   const fluxoNome = `Boas-vindas ${NOME}`;

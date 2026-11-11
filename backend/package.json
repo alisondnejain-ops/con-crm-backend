@@ -141,6 +141,7 @@
     "teste:lista-fernando-2": "node testes/lista-fernando-2.mjs",
     "teste:proposta": "node testes/proposta.mjs",
     "teste:conta-parceira": "node testes/conta-parceira.mjs",
+    "teste:formulario-site": "node testes/formulario-site.mjs",
     "teste:varias-contas": "node testes/varias-contas.mjs",
     "teste:lotes-empreendimento": "node testes/lotes-empreendimento.mjs"
   },

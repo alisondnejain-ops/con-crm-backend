@@ -3825,7 +3825,7 @@ const GATILHOS=[
   ["palavra","Mensagem do cliente","Quando o cliente escreve uma palavra, começa com uma frase ou manda o código de um imóvel.","msg"],
 ];
 const MODOS_PALAVRA=[["contem","Tem a palavra ou frase"],["comeca","Começa com"],["codigo","Manda o código de um imóvel do catálogo"]];
-const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["manual","Cadastro na mão"]];
+const ORIGENS_GATILHO=[["whatsapp","WhatsApp"],["formulario","Formulário do anúncio"],["portal","Portal de imóveis"],["site","Formulário do site"],["manual","Cadastro na mão"]];
 const REGRAS_CONDICAO=[["tag","Tem a etiqueta"],["etapa","Está na etapa"],["temperatura","Temperatura é"],["responsavel","Responsável"],
   ["campo","Campo com valor"],["respondeu","O cliente respondeu"]];
 const TEMPERATURAS_COND=[["QUENTE","Quente"],["MORNO","Morno"],["FRIO","Frio"],["SEM","Sem temperatura"]];
@@ -20272,6 +20272,89 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
     </div>
   </div>;
 }
+/* O FORMULÁRIO DO SITE (11/11/2026, services/entrada-site.js): o token que a
+   landing page da imobiliária manda em "Authorization: Bearer", os sites
+   liberados, quem recebe o lead e em que etapa ele nasce. Só gestor. */
+function FormularioDoSite({acoes,isMobile,cartao,titulo,sub,botao}){
+  const [c,setC]=useState(null); const [erro,setErro]=useState(""); const [ok,setOk]=useState("");
+  const [sites,setSites]=useState(""); const [funis,setFunis]=useState([]); const [ver,setVer]=useState(false);
+  const pegar=(x)=>{setC(x);setSites((x.origens||[]).join("\n"));};
+  useEffect(()=>{
+    api("/config/formulario-site").then(pegar).catch(e=>setErro(e.message));
+    acoes.pipelines().then(d=>setFunis(((d&&d.pipelines)||[]).filter(p=>p.is_active!==false&&p.is_active!==0))).catch(()=>{});
+  },[]);
+  const aviso=(t)=>{setOk(t);setErro("");setTimeout(()=>setOk(""),2500);};
+  async function salvar(dados,frase="Salvo."){
+    setErro("");
+    try{ pegar(await api("/config/formulario-site",{method:"PATCH",body:dados})); aviso(frase); }catch(e){ setErro(e.message); }
+  }
+  async function gerar(){
+    if(c&&c.existe&&!window.confirm("Gerar um token novo? O atual para de funcionar na hora, e o site precisa ser atualizado com o novo.")) return;
+    setErro("");
+    try{ pegar(await api("/config/formulario-site/token",{method:"POST"})); setVer(true); aviso("Token gerado."); }catch(e){ setErro(e.message); }
+  }
+  const copiar=(t)=>{try{navigator.clipboard.writeText(t);aviso("Copiado.");}catch{}};
+  if(!c) return null;
+  const mascara=(t)=>t?t.slice(0,6)+"••••••••••••"+t.slice(-4):"";
+  const caixa={fontFamily:"'IBM Plex Mono',monospace",fontSize:12,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",color:C.ink,wordBreak:"break-all",flex:1,minWidth:0};
+  const etapas=[];
+  for(const p of funis) for(const e of (p.stages||[])) if(e.is_active!==false&&e.is_active!==0) etapas.push({id:e.id,nome:`${p.name} › ${e.name}`});
+  return <div style={cartao}>
+    <div style={titulo}>Formulário do seu site</div>
+    <div style={sub}>
+      Para a landing page da imobiliária mandar os leads direto para o CRM. O lead entra como os do anúncio: mesmo telefone vira o mesmo lead (com uma observação nova), e as respostas ficam na ficha.
+      {" "}O token diz em qual conta o lead entra. Ele fica visível no código do site, por isso só os sites liberados abaixo conseguem enviar pelo navegador.
+    </div>
+    {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12,borderRadius:9,padding:"7px 10px",marginBottom:10}}>{erro||ok}</div>}
+    {!c.existe
+      ?<button onClick={gerar} style={botao(true)}>Gerar o token</button>
+      :<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div>
+          <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>Endereço (POST)</div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}><div style={caixa}>{c.endereco}</div>
+            <button onClick={()=>copiar(c.endereco)} style={botao(true)}>Copiar</button></div>
+        </div>
+        <div>
+          <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>Token (cabeçalho Authorization: Bearer …)</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:isMobile?"wrap":"nowrap"}}>
+            <div style={caixa}>{ver?c.token:mascara(c.token)}</div>
+            <button onClick={()=>setVer(!ver)} style={botao(true)}>{ver?"Esconder":"Ver"}</button>
+            <button onClick={()=>copiar(c.token)} style={botao(true)}>Copiar</button>
+          </div>
+          <button onClick={gerar} style={{marginTop:6,border:"none",background:"none",padding:0,color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>Gerar um token novo</button>
+        </div>
+        <label style={{display:"flex",gap:8,alignItems:"center",fontSize:12.5,color:C.ink,cursor:"pointer",minHeight:32}}>
+          <input type="checkbox" checked={c.ativo} onChange={()=>salvar({ativo:!c.ativo},c.ativo?"Recebimento desligado.":"Recebimento ligado.")}/>
+          Receber leads do site
+        </label>
+        <div>
+          <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>Sites liberados (um por linha)</div>
+          <textarea value={sites} onChange={e=>setSites(e.target.value)} rows={2} placeholder="https://meusite.com.br"
+            style={{...caixa,width:"100%",boxSizing:"border-box",resize:"vertical",fontSize:isMobile?16:12}}/>
+          <button onClick={()=>salvar({origens:sites.split(/[\n,]/).map(x=>x.trim()).filter(Boolean)})} style={{...botao(true),marginTop:6}}>Salvar sites</button>
+        </div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 220px"}}>
+            <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>Quem recebe</div>
+            <select value={c.quem_recebe} onChange={e=>salvar({quem_recebe:e.target.value})} style={{...caixa,width:"100%",fontFamily:"inherit",fontSize:isMobile?16:12.5}}>
+              <option value="corretor">O corretor da vez (rodízio dos disponíveis hoje)</option>
+              <option value="regra">A regra de sempre (catraca ou atendente)</option>
+            </select>
+          </div>
+          <div style={{flex:"1 1 220px"}}>
+            <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:4}}>Etapa em que o lead nasce</div>
+            <select value={c.stage_id||""} onChange={e=>salvar({stage_id:e.target.value||null})} style={{...caixa,width:"100%",fontFamily:"inherit",fontSize:isMobile?16:12.5}}>
+              <option value="">O funil de quem recebe</option>
+              {etapas.map(e=><option key={e.id} value={e.id}>{e.nome}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{color:C.faint,fontSize:11}}>Ninguém disponível no rodízio: o lead vai para a atendente da vez ou fica na fila, e quem cuida da fila é avisado.
+          {c.ultimo_em?` Último envio: ${new Date(c.ultimo_em).toLocaleString("pt-BR")} (${c.ultimo_resultado}).`:" Nenhum lead recebido ainda."}</div>
+      </div>}
+  </div>;
+}
+
 function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const autonomo=!!(org&&org.tipo==="autonomo");
   const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
@@ -20405,6 +20488,8 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
         Ler automaticamente tudo o que o cliente mandar
       </label>}
     </div>}
+
+    <FormularioDoSite acoes={acoes} isMobile={isMobile} cartao={cartao} titulo={titulo} sub={sub} botao={botao}/>
 
     <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 2px"}}>Outras telas do atendimento</div>
     <div style={{color:C.faint,fontSize:11.5,margin:"0 2px 8px"}}>Cada atalho abre a tela onde aquilo se configura.</div>

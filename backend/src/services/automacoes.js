@@ -40,7 +40,7 @@ import { temRecurso } from "./recursos.js";
 import { campoCasa } from "./campos-lead.js";
 
 export const TIPOS_DE_GATILHO = ["manual", "formulario", "lead_novo", "etapa", "etiqueta", "campo", "palavra"];
-export const ORIGENS_DE_LEAD = ["whatsapp", "formulario", "portal", "manual"];
+export const ORIGENS_DE_LEAD = ["whatsapp", "formulario", "portal", "site", "manual"];
 
 /* O gatilho que vem do navegador, limpo. Os campos de funil e catraca do
    formulário (pipeline_id/stage_id/catraca_id) passam por aqui só de

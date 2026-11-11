@@ -2677,6 +2677,26 @@ addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este l
 if (!db.prepare("PRAGMA table_info(pipeline_stages)").all().some(c => c.name === "prazo_acao"))
   db.exec("ALTER TABLE pipeline_stages ADD COLUMN prazo_acao TEXT");
 
+/* ===== FORMULÁRIO DO SITE DA IMOBILIÁRIA (11/11/2026) =====
+   Um token por conta para a landing page mandar leads em POST /publico/leads
+   (services/entrada-site.js). `origens` = sites permitidos (CORS), JSON;
+   `quem_recebe` = 'corretor' (rodízio dos disponíveis) ou 'regra' (a regra de
+   sempre: catraca/atendente); pipeline_id/stage_id = onde o lead nasce (nulo =
+   o funil de quem recebe). Só cria: nada existente é tocado. */
+db.exec(`CREATE TABLE IF NOT EXISTS entrada_site (
+  org_id TEXT PRIMARY KEY,
+  token TEXT UNIQUE NOT NULL,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  origens TEXT,
+  quem_recebe TEXT NOT NULL DEFAULT 'corretor',
+  pipeline_id TEXT,
+  stage_id TEXT,
+  ultimo_em INTEGER,
+  ultimo_resultado TEXT,
+  criado_em INTEGER NOT NULL,
+  atualizado_em INTEGER
+)`);
+
 export default db;
 
 /* MODO EMPREENDIMENTO E ESPELHO DE LOTES (11/11/2026, pedido do Ali para a
