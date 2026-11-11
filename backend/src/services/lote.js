@@ -25,6 +25,7 @@ import { trocarResponsavel } from "./movimento.js";
 import { avisar } from "./push.js";
 import { etapaDaConversa, temperaturaDaConversa, iaConfigurada } from "./ia.js";
 import { registrar as registrarUsoIA, custoEstimado } from "./iauso.js";
+import { corpoParaIA } from "./leitura-midia.js";
 
 /* ===== TEMPERATURA ===== */
 
@@ -116,7 +117,7 @@ export async function rodarTemperaturaIA(orgId, { corretorId, limite = 20, userI
   const contagem = { QUENTE: 0, MORNO: 0, FRIO: 0 };
 
   for (const l of lote) {
-    const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC").all(l.id);
+    const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC`).all(l.id);
     const r = await temperaturaDaConversa({
       nome: l.name,
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
@@ -227,7 +228,7 @@ export async function rodarEtapaIA(orgId, { limite = 20, userId = null } = {}) {
   const mudancas = [], erros = [];
 
   for (const l of lote) {
-    const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC").all(l.id);
+    const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id=? AND apagada_em IS NULL ORDER BY created_at ASC`).all(l.id);
     const r = await etapaDaConversa({
       nome: l.name,
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),

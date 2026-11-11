@@ -34,6 +34,7 @@ import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes
 import { canalDoUsuario, canalPorId } from "../services/canais.js";
 import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
+import { corpoParaIA } from "../services/leitura-midia.js";
 
 const r = Router();
 r.use(authRequired);
@@ -1173,7 +1174,7 @@ r.get("/:id", (req, res) => {
     .map(m => {
       if (m.reply_apagada) m.reply_body = "";
       if (!m.apagada_em || supervisiona(req.user)) return m;
-      return { ...m, body: "", body_original: null, media_url: null, media_name: null, media_mime: null };
+      return { ...m, body: "", body_original: null, media_url: null, media_name: null, media_mime: null, leitura: null, leitura_erro: null };
     });
 
   /* As ligações entram na MESMA linha do tempo da conversa.
@@ -1338,7 +1339,7 @@ r.post("/:id/resumo", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "O resumo automático não está ligado nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC`).all(lead.id);
   const r2 = await resumirConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
@@ -1369,7 +1370,7 @@ r.post("/:id/proxima-mensagem", async (req, res) => {
   if (meus.length >= 30) return res.status(429).json({ error: "São até 30 sugestões por hora. Tente de novo daqui a pouco." });
   meus.push(agora); pedidosDeSugestao.set(req.user.id, meus);
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC`).all(lead.id);
   const org = db.prepare("SELECT name FROM orgs WHERE id = ?").get(lead.org_id) || {};
   const ensino = db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ? AND ativo = 1 ORDER BY ordem, created_at").all(lead.org_id).map(x => x.texto);
   const r2 = await proximaMensagem({
@@ -1400,7 +1401,7 @@ r.post("/:id/etapa-ia", async (req, res) => {
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   if (!iaConfigurada()) return res.status(503).json({ error: "A leitura de etapa por IA não está ligada nesta instalação." });
 
-  const msgs = db.prepare("SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(lead.id);
+  const msgs = db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC`).all(lead.id);
   const r2 = await etapaDaConversa({
     nome: lead.name,
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),

@@ -92,6 +92,9 @@ let PAIS_CONTA="BR";
 /* A fila pela primeira etapa (11/11/2026, services/fila-etapa.js), ligada pelo
    master conta por conta: muda só o texto da fila na Catraca e no Painel. */
 let FILA_POR_ETAPA=false;
+/* Transcrição de áudio e leitura de foto disponíveis nesta instalação
+   (services/leitura-midia.js): decide se a conversa oferece os botões. */
+let LEITURA_MIDIA={audio:false,imagem:false};
 let PAIS_CONTA_DE=null;
 const contaInterna=()=>TIPO_CONTA==="interna";
 try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
@@ -258,6 +261,8 @@ const adaptMsg=(m)=>m.tipo==="ligacao"?{
   from:m.direction==="in"?"lead":"corretor",
   text:m.body, at:m.created_at, by:m.from_user_id, byName:m.from_name,
   midia:m.media_url?{url:m.media_url,mime:m.media_mime||"",nome:m.media_name||""}:null,
+  // A leitura do áudio (transcrição) e da foto (descrição) — services/leitura-midia.js.
+  leitura:m.leitura||null, leituraErro:m.leitura_erro||null,
   // A mensagem citada já vem resolvida do servidor: texto, de quem era e se
   // era mídia. Basta desenhar.
   citada:m.reply_to?{
@@ -1073,6 +1078,7 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
 
 /* ===== ícones (SVG inline) ===== */
 const ICO={
+  mic:<><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></>,
   // Megafone: a seção Marketing (disparos em massa, e depois os fluxos do bot).
   globo:<React.Fragment><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></React.Fragment>,
   redes:<React.Fragment><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></React.Fragment>,
@@ -1532,6 +1538,7 @@ function ConCRM(){
   const [org,setOrg]=useState(null);
   TIPO_CONTA=(org&&org.tipo)||null;
   FILA_POR_ETAPA=!!(org&&org.fila_por_etapa);
+  LEITURA_MIDIA=(org&&org.leitura_midia)||{audio:false,imagem:false};
   if(org&&org.id!==PAIS_CONTA_DE){ PAIS_CONTA_DE=org.id; PAIS_CONTA=org.pais_padrao||"BR"; }
   const isMobileRaiz=useIsMobile();
   const [carregando,setCarregando]=useState(!!TOKEN);
@@ -7437,8 +7444,9 @@ function BaloesDaConversa({itens,isMobile}){
    (07/10/2026) e um campo de uma linha escondia o que ele tinha escrito.
    `anexar`/`aoColar` só vêm no Claude do gestor; `prontoSemTexto` deixa
    enviar só o arquivo. */
-function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,teto,alturaMax=110,anexar,aoColar,prontoSemTexto}){
+function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,teto,alturaMax=110,anexar,aoColar,prontoSemTexto,ditar}){
   const ref=useRef(null);
+  const voz=usarDitado(ditar?(t)=>setValor(v=>(v&&!/\s$/.test(v)?v+" ":v)+t):null);
   useEffect(()=>{ const el=ref.current; if(!el) return; el.style.height="auto"; el.style.height=Math.min(alturaMax,Math.max(40,el.scrollHeight))+"px"; },[valor,alturaMax]);
   const vazio=!valor.trim()&&!prontoSemTexto;
   const perto=teto&&valor.length>teto*0.8;
@@ -7447,6 +7455,7 @@ function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,tet
       {anexar&&<button onClick={anexar} disabled={ocupado} aria-label="Anexar arquivo" title="Anexar foto, print, PDF, planilha ou vídeo"
         style={{width:40,height:40,borderRadius:11,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,flexShrink:0,
           cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="clipe" size={17}/></button>}
+      {ditar&&<BotaoDitado voz={voz} ocupado={ocupado}/>}
       <textarea ref={ref} value={valor} onChange={e=>setValor(e.target.value)} placeholder={placeholder} rows={1} maxLength={teto||undefined}
         onPaste={aoColar} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
         style={{flex:1,resize:"none",maxHeight:alturaMax,minHeight:40,boxSizing:"border-box",fontFamily:FONT,fontSize:isMobile?16:13.5,
@@ -7456,9 +7465,66 @@ function CampoDaConversa({valor,setValor,enviar,ocupado,placeholder,isMobile,tet
           background:ocupado||vazio?C.faint:C.green,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}>
         <Icon n={ocupado?"loader":"send"} size={16} spin={ocupado}/></button>
     </div>
+    {voz.erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{voz.erro}</div>}
     {perto&&<div style={{color:valor.length>=teto?C.hot:C.faint,fontSize:10.5,textAlign:"right",marginTop:4}}>
       {valor.length.toLocaleString("pt-BR")} / {teto.toLocaleString("pt-BR")} caracteres</div>}
   </div>;
+}
+
+/* FALAR COM O CLAUDE POR ÁUDIO (11/11/2026, pedido do Ali).
+   Grava, manda o áudio cru para /assistente/transcrever e ACRESCENTA o texto
+   ao campo — não envia sozinho: a transcrição pode errar um nome, e o pedido
+   ao Claude mexe na conta. A pessoa lê, corrige e manda. Só aparece com o
+   serviço de transcrição ligado no servidor (LEITURA_MIDIA.audio). */
+function usarDitado(aoTexto){
+  const [estado,setEstado]=useState("");   // "" | "gravando" | "transcrevendo"
+  const [seg,setSeg]=useState(0);
+  const [erro,setErro]=useState("");
+  const rec=useRef(null), pedacos=useRef([]), relogio=useRef(null), cancelar=useRef(false);
+  useEffect(()=>()=>{ clearInterval(relogio.current); try{ rec.current&&rec.current.state!=="inactive"&&(cancelar.current=true,rec.current.stop()); }catch(e){} },[]);
+  async function comecar(){
+    if(!aoTexto) return;
+    setErro("");
+    if(!navigator.mediaDevices||!window.MediaRecorder) return setErro("Este navegador não grava áudio.");
+    let stream;
+    try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+    catch(e){ return setErro("Não consegui usar o microfone. Confira a permissão no navegador."); }
+    const r=new MediaRecorder(stream); pedacos.current=[]; cancelar.current=false;
+    r.ondataavailable=(e)=>e.data.size&&pedacos.current.push(e.data);
+    r.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop()); clearInterval(relogio.current);
+      if(cancelar.current){ setEstado(""); return; }
+      const tipo=(r.mimeType||"audio/webm").split(";")[0];
+      const blob=new Blob(pedacos.current,{type:tipo});
+      setEstado("transcrevendo");
+      try{
+        const res=await fetch(API+"/assistente/transcrever",{method:"POST",
+          headers:{"content-type":tipo,...(TOKEN?{Authorization:"Bearer "+TOKEN}:{})},body:blob});
+        const d=await res.json().catch(()=>({}));
+        if(!res.ok) throw new Error(d.error||"Não consegui transcrever o áudio.");
+        if(d.texto) aoTexto(d.texto); else setErro("Não ouvi nada no áudio.");
+      }catch(e){ setErro(e.message||"Não consegui transcrever o áudio."); }
+      finally{ setEstado(""); }
+    };
+    rec.current=r; r.start(); setSeg(0); setEstado("gravando");
+    relogio.current=setInterval(()=>setSeg(s=>{ if(s+1>=300){ try{r.stop();}catch(e){} } return s+1; }),1000);
+  }
+  const parar=()=>{ try{ rec.current&&rec.current.state!=="inactive"&&rec.current.stop(); }catch(e){} };
+  const descartar=()=>{ cancelar.current=true; parar(); };
+  return {ligado:!!aoTexto,estado,seg,erro,comecar,parar,descartar};
+}
+
+function BotaoDitado({voz,ocupado}){
+  const q={width:40,height:40,borderRadius:11,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"};
+  if(voz.estado==="gravando") return <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
+    <span style={{color:C.hot,fontSize:12,fontWeight:700,fontFamily:MONO,minWidth:34}}>● {Math.floor(voz.seg/60)}:{String(voz.seg%60).padStart(2,"0")}</span>
+    <button onClick={voz.descartar} title="Descartar a gravação" aria-label="Descartar a gravação" style={{...q,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:17,fontWeight:700}}>×</button>
+    <button onClick={voz.parar} title="Parar e transcrever" aria-label="Parar e transcrever" style={{...q,border:"none",background:C.hot,color:"#fff"}}><Icon n="check" size={16}/></button>
+  </div>;
+  const transc=voz.estado==="transcrevendo";
+  return <button onClick={voz.comecar} disabled={ocupado||transc} aria-label="Falar em vez de escrever" title={transc?"Transcrevendo…":"Falar em vez de escrever"}
+    style={{...q,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:ocupado||transc?"default":"pointer"}}>
+    <Icon n={transc?"loader":"mic"} size={17} spin={transc}/></button>;
 }
 
 // Rola para a última fala sempre que a lista cresce.
@@ -7546,7 +7612,13 @@ async function cenasDoVideo(file){
 const ehPlanilhaOuTexto=(f)=>/\.(xlsx|csv|txt|md|json)$/i.test(f.name)||/^text\//.test(f.type)||f.type==="application/json";
 async function prepararAnexo(file){
   const base={id:Math.random().toString(36).slice(2),nome:file.name||"arquivo"};
-  if(/^audio\//.test(file.type)) throw new Error(`O Claude ainda não ouve áudio (“${base.nome}”). Escreva o que ele diz, ou cole a transcrição.`);
+  /* Áudio vira texto no servidor (services/leitura-midia.js) e vai como a
+     transcrição. Sem o serviço de transcrição ligado, a recusa de antes. */
+  if(/^audio\//.test(file.type)){
+    if(!LEITURA_MIDIA.audio) throw new Error(`A transcrição de áudio não está ligada nesta instalação (“${base.nome}”). Escreva o que ele diz, ou cole a transcrição.`);
+    if(file.size>12*1024*1024) throw new Error(`O áudio “${base.nome}” passa de 12 MB.`);
+    return {...base,tipo:file.type,dados:await lerComoBase64(file),rotulo:"Áudio · vai transcrito"};
+  }
   if(/^image\//.test(file.type)){
     const r=await fotoParaOClaude(file);
     return {...base,...r,rotulo:"Imagem",miniatura:"data:"+r.tipo+";base64,"+r.dados};
@@ -7697,7 +7769,7 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
           </div>
           :<div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>
             Diga o que precisa e eu faço na sua conta: mover leads de etapa e de funil, repassar, marcar tags, finalizar, criar tarefas e observações, cadastrar lead e registrar venda — e montar funis, etapas, prazos, campos, mensagens prontas e o Autoatendimento.
-            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Pode mandar foto, print, PDF, planilha ou vídeo junto (do vídeo eu vejo algumas cenas, sem som). Mexer em mais de 10 leads de uma vez eu só faço depois de você confirmar. Não apago nada, não mando mensagem ao cliente nem mexo em cobrança, WhatsApp ou equipe.</div>
+            <div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Pode mandar foto, print, PDF, planilha ou vídeo junto (do vídeo eu vejo algumas cenas, sem som){LEITURA_MIDIA.audio?" — e pode falar no microfone: o que você disser vira texto no campo, para conferir antes de mandar":""}. Mexer em mais de 10 leads de uma vez eu só faço depois de você confirmar. Não apago nada, não mando mensagem ao cliente nem mexo em cobrança, WhatsApp ou equipe.</div>
           </div>}
           {d.disponivel&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
             {sugestoes.map(s=><button key={s} onClick={()=>setTexto(s)} style={{textAlign:"left",border:`1px solid ${C.line}`,background:C.card,
@@ -7720,11 +7792,11 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
       </div>
       {d&&d.disponivel&&podeAnexar&&<AnexosEscolhidos lista={anexos} preparando={preparando>0} tirar={(id)=>setAnexos(x=>x.filter(a=>a.id!==id))}/>}
       {podeAnexar&&<input ref={arquivoRef} type="file" multiple style={{display:"none"}}
-        accept="image/*,video/*,application/pdf,.pdf,.xlsx,.csv,.txt,.md,.json"
+        accept="image/*,video/*,audio/*,application/pdf,.pdf,.xlsx,.csv,.txt,.md,.json"
         onChange={e=>{ juntar(e.target.files); e.target.value=""; }}/>}
       {d&&d.disponivel&&<CampoDaConversa valor={texto} setValor={setTexto} enviar={enviar} ocupado={ocupado||preparando>0}
         teto={d.teto_texto} alturaMax={podeAnexar?(isMobile?180:260):110}
-        anexar={podeAnexar?()=>arquivoRef.current&&arquivoRef.current.click():undefined} aoColar={aoColar} prontoSemTexto={anexos.length>0}
+        anexar={podeAnexar?()=>arquivoRef.current&&arquivoRef.current.click():undefined} aoColar={aoColar} prontoSemTexto={anexos.length>0} ditar={LEITURA_MIDIA.audio}
         placeholder={consulta?"Pergunte o que quiser":isMobile?"O que você precisa?":"Ex.: mova para Visita os leads da Marina que estão em Atendimento"} isMobile={isMobile}/>}
       {d&&d.disponivel&&<div style={{color:C.faint,fontSize:10,textAlign:"center",padding:"0 0 8px",background:C.card}}>
         {d.usados}/{d.limite} perguntas da equipe neste mês · {consulta?"confira antes de passar ao cliente":"confira o que foi feito antes de usar"}</div>}
@@ -9768,7 +9840,7 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar,aoFluxo}){
         {item("star",`Fotos (até ${LIMITE_FOTOS})`,()=>fotos.current.click())}
         {item("msg","Vídeo (1)",()=>video.current.click())}
         {item("form",`Documento (até ${LIMITE_DOCS})`,()=>docs.current.click())}
-        {item("phone","Gravar áudio",gravar)}
+        {item("mic","Gravar áudio",gravar)}
         {item("pin","Minha localização",local)}
         {aoFluxo&&item("branch","Mandar um fluxo",()=>{setAberto(false);aoFluxo();})}
       </div>
@@ -10039,17 +10111,67 @@ function PlayerDeAudio({src,mine,isMobile,aoFalhar,falhou}){
   </div>;
 }
 
+/* A LEITURA DO ÁUDIO E DA FOTO (11/11/2026, services/leitura-midia.js).
+   Embaixo do áudio, a transcrição — aberta, porque ela É o que o cliente
+   disse. Embaixo da foto, "o que a IA viu", recolhido: a foto está ali, e a
+   descrição serve para conferir o que a IA vai usar e para o texto dela
+   (print de anúncio, simulação). O áudio do cliente que acabou de chegar é
+   lido sozinho; o resto tem o botão. */
+function LeituraDaMidia({m,mine,leadId,tipo,largura}){
+  const [leitura,setLeitura]=useState(m.leitura);
+  const [erro,setErro]=useState(m.leituraErro);
+  const [lendo,setLendo]=useState(false);
+  const [aberta,setAberta]=useState(tipo==="audio");
+  const [tudo,setTudo]=useState(false);
+  useEffect(()=>{ if(m.leitura) setLeitura(m.leitura); if(m.leituraErro!==undefined&&!m.leitura) setErro(m.leituraErro); },[m.leitura,m.leituraErro]);
+  const disponivel=tipo==="audio"?LEITURA_MIDIA.audio:LEITURA_MIDIA.imagem;
+  const recente=m.from==="lead"&&Date.now()-(m.at||0)<3*60000;
+  const corFraca=mine?"rgba(255,255,255,.78)":C.faint;
+  const corTexto=mine?"#fff":C.ink;
+  async function ler(){
+    setLendo(true); setErro(null);
+    try{ const r=await api(`/leads/${leadId}/messages/${m.id}/ler`,{method:"POST"}); setLeitura(r.leitura); setAberta(true); }
+    catch(e){ setErro(e.message); } finally{ setLendo(false); }
+  }
+  const caixa={marginTop:6,maxWidth:largura,fontSize:12,lineHeight:1.45};
+  const link={border:"none",background:"none",padding:0,color:mine?"#fff":C.greenDeep,fontSize:11.5,fontWeight:600,cursor:"pointer",textDecoration:"underline"};
+  if(leitura){
+    const longo=leitura.length>260;
+    const mostrado=tudo||!longo?leitura:leitura.slice(0,240).trimEnd()+"…";
+    if(tipo==="imagem"&&!aberta) return <div style={caixa}>
+      <button onClick={()=>setAberta(true)} style={link}>O que a IA viu na foto</button></div>;
+    return <div style={{...caixa,borderLeft:`2px solid ${mine?"rgba(255,255,255,.5)":C.line}`,paddingLeft:8}}>
+      <div style={{color:corFraca,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:2}}>
+        {tipo==="audio"?"Transcrição":"O que a IA viu"}</div>
+      <div style={{color:corTexto,whiteSpace:"pre-wrap",fontStyle:tipo==="audio"?"italic":"normal"}}>{mostrado}</div>
+      <div style={{display:"flex",gap:10,marginTop:2}}>
+        {longo&&<button onClick={()=>setTudo(t=>!t)} style={link}>{tudo?"ver menos":"ver tudo"}</button>}
+        {tipo==="imagem"&&<button onClick={()=>setAberta(false)} style={link}>esconder</button>}
+      </div>
+    </div>;
+  }
+  if(!disponivel) return null;
+  if(lendo||(!erro&&recente)) return <div style={{...caixa,color:corFraca,display:"flex",alignItems:"center",gap:5}}>
+    <Icon n="loader" size={12} spin/> {tipo==="audio"?"Transcrevendo o áudio…":"Lendo a foto…"}</div>;
+  if(erro) return <div style={{...caixa,color:corFraca}}>
+    {tipo==="audio"?"Não deu para transcrever":"Não deu para ler a foto"}: {erro} · <button onClick={ler} style={link}>tentar de novo</button></div>;
+  return <div style={caixa}><button onClick={ler} style={link}>{tipo==="audio"?"Transcrever o áudio":"Ler a foto com a IA"}</button></div>;
+}
+
 function Midia({m,mine,isMobile,leadId}){
   const {url,mime,nome}=m.midia;
   const [src,aoFalhar,falhou]=usarFonteDaMidia(url,mime,leadId,m.id);
   const larguraMax=isMobile?220:260;
   if(/^image\//.test(mime))
-    return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
-      <a href={url} target="_blank" rel="noreferrer" style={{display:"block"}}>
-        <img src={src} onError={aoFalhar} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
-          style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
-      </a>
-      <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner leadId={leadId} messageId={m.id}/>
+    return <div style={{marginBottom:m.text?6:0}}>
+      <div style={{position:"relative",display:"inline-block"}}>
+        <a href={url} target="_blank" rel="noreferrer" style={{display:"block"}}>
+          <img src={src} onError={aoFalhar} alt={nome||"Foto enviada pelo cliente"} loading="lazy"
+            style={{maxWidth:larguraMax,maxHeight:300,width:"auto",borderRadius:10,display:"block",background:C.coolSoft}}/>
+        </a>
+        <BotaoBaixar url={url} nome={nome||"foto.jpg"} corner leadId={leadId} messageId={m.id}/>
+      </div>
+      <LeituraDaMidia m={m} mine={mine} leadId={leadId} tipo="imagem" largura={larguraMax}/>
     </div>;
   if(/^video\//.test(mime))
     return <div style={{position:"relative",display:"inline-block",marginBottom:m.text?6:0}}>
@@ -10059,9 +10181,12 @@ function Midia({m,mine,isMobile,leadId}){
     </div>;
   if(/^audio\//.test(mime))
     // O áudio de voz é o formato que mais chega: o cliente responde falando.
-    return <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:m.text?6:0}}>
-      <PlayerDeAudio src={src} mine={mine} isMobile={isMobile} aoFalhar={aoFalhar} falhou={falhou}/>
-      <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"} leadId={leadId} messageId={m.id}/></span>
+    return <div style={{marginBottom:m.text?6:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:4}}>
+        <PlayerDeAudio src={src} mine={mine} isMobile={isMobile} aoFalhar={aoFalhar} falhou={falhou}/>
+        <span style={{color:mine?"rgba(255,255,255,.85)":C.sub}}><BotaoBaixar url={url} nome={nome||"audio.ogg"} leadId={leadId} messageId={m.id}/></span>
+      </div>
+      <LeituraDaMidia m={m} mine={mine} leadId={leadId} tipo="audio" largura={isMobile?240:300}/>
     </div>;
   // Documento (PDF, RG, comprovante): cartão para abrir ou baixar.
   return <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:m.text?6:0,
@@ -20007,8 +20132,10 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const [prazo,setPrazo]=useState(null); const [espera,setEspera]=useState(""); const [esperaSalva,setEsperaSalva]=useState(null);
   const [fim,setFim]=useState(""); const [fimSalvo,setFimSalvo]=useState(null);
   const [pais,setPais]=useState(null);
+  const [leitura,setLeitura]=useState(null);
   const [erro,setErro]=useState(""); const [ok,setOk]=useState("");
   useEffect(()=>{
+    api("/distribution/leitura").then(setLeitura).catch(()=>{});
     if(!autonomo) acoes.prazoVencido().then(setPrazo).catch(e=>setErro(e.message));
     acoes.semResposta().then(x=>{setEspera(String(x.minutos));setEsperaSalva(x.minutos);}).catch(()=>{});
     acoes.expediente().then(x=>{setFim(x.fim||"");setFimSalvo(x.fim||"");}).catch(()=>{});
@@ -20113,6 +20240,25 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
       {pais!=="BR"&&<div style={{color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,marginTop:8}}>
         Um número brasileiro sem o +55 só é lido como brasileiro se vier inteiro, com o 55 e o DDD. Os leads que já entraram não mudam.
       </div>}
+    </div>}
+
+    {leitura&&<div style={cartao}>
+      <div style={titulo}>Ler áudios e fotos do cliente</div>
+      <div style={sub}>
+        Quando o cliente manda áudio, a IA transcreve; quando manda foto, ela descreve o que vê. O texto aparece embaixo do áudio e da foto na conversa,
+        e é ele que o Autoatendimento, o resumo e as sugestões passam a ler. Desligado, cada um continua podendo pedir a leitura de um áudio ou foto na própria conversa.
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:12,marginBottom:10}}>
+        <span style={{color:leitura.audio?C.greenDeep:"#8a6d1f"}}>{leitura.audio?"✓ Transcrição de áudio disponível":"Transcrição de áudio ainda não ligada nesta instalação — fale com o ConHub."}</span>
+        <span style={{color:leitura.imagem?C.greenDeep:"#8a6d1f"}}>{leitura.imagem?"✓ Leitura de fotos disponível":"Leitura de fotos ainda não ligada nesta instalação — fale com o ConHub."}</span>
+      </div>
+      {(leitura.audio||leitura.imagem)&&<label style={{display:"flex",alignItems:"center",gap:9,fontSize:13,color:C.ink,cursor:"pointer"}}>
+        <input type="checkbox" checked={leitura.automatico} style={{width:18,height:18}} onChange={async e=>{
+          const v=e.target.checked; setErro("");
+          try{ setLeitura(await api("/distribution/leitura",{method:"PATCH",body:{automatico:v}})); aviso("Salvo."); }catch(er){ setErro(er.message); }
+        }}/>
+        Ler automaticamente tudo o que o cliente mandar
+      </label>}
     </div>}
 
     <div style={{color:C.faint,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,margin:"18px 2px 2px"}}>Outras telas do atendimento</div>

@@ -423,7 +423,7 @@ assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(eu.anexos.map(a => a.nome), ["print.png", "tabela.pdf", "leads.csv", "visita.mp4"], "a tela guarda só os nomes");
 }
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "ouve", anexos: [{ nome: "a.ogg", tipo: "audio/ogg", dados: PNG }] });
-assert.equal(r.status, 400); assert.ok(/não consigo ouvir/i.test(r.body.error));
+assert.equal(r.status, 400); assert.ok(/transcrição de áudio não está ligada/i.test(r.body.error), r.body.error); // sem TRANSCRICAO_API_KEY (com ela, vira texto: teste:leitura-midia)
 r = await api("u_gestora", "POST", "/assistente/mensagem", { texto: "lê", anexos: [{ nome: "c.docx", tipo: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", dados: PNG }] });
 assert.equal(r.status, 400); assert.ok(/PDF/.test(r.body.error));
 assert.equal((await api("u_gestora", "POST", "/assistente/mensagem", { texto: "x".repeat(30001) })).status, 400);

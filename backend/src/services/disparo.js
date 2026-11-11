@@ -57,6 +57,7 @@ import { avisar, avisarDoLead } from "./push.js";
 const agoraFn = () => Date.now();
 const formas = (t) => [t, numeroAlternativo(t)].filter(Boolean);
 import { telefoneValido, normalizarPeloPadrao } from "./telefone.js";
+import { corpoParaIA } from "./leitura-midia.js";
 const normalizar = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
   .replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -942,7 +943,7 @@ async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "", l
   const e = { telefone, nome };
   if (no.tipo === "ia") {
     if (!temCredito(org)) throw new Error("A conta está sem crédito de IA — compre mais em Configurações → Autoatendimento.");
-    const msgs = leadId ? db.prepare(`SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL
+    const msgs = leadId ? db.prepare(`SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL
       ORDER BY created_at DESC LIMIT 60`).all(leadId).reverse() : [];
     const orgRow = db.prepare("SELECT name FROM orgs WHERE id = ?").get(org) || {};
     const ensino = db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ? AND ativo = 1 ORDER BY (COALESCE(origem,'') = 'ia'), ordem, created_at").all(org).map(x => x.texto);

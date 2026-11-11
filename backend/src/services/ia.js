@@ -110,6 +110,52 @@ async function perguntar({ content, max_tokens = 600, system }) {
   return { ok: true, texto, uso };
 }
 
+/* A LEITURA DE UMA FOTO QUE O CLIENTE MANDOU (11/11/2026, services/leitura-midia.js).
+
+   É TEXTO PARA GENTE DE DENTRO E PARA A PRÓPRIA IA: entra na conversa logo
+   abaixo da foto ("o que a IA viu") e substitui o rótulo "Foto" quando o
+   resumo, a etapa, o Autoatendimento e os fluxos leem a conversa. Nada daqui
+   vai para o cliente.
+
+   Precisa ser FIEL, e não bonito: dizer o que está na imagem e transcrever o
+   texto que ela tem (um print de anúncio, uma simulação, um endereço), sem
+   adivinhar intenção. Documento pessoal é a exceção — diz o tipo e os dados
+   que importam para o atendimento, sem copiar o número inteiro (o CPF na
+   descrição seria mais um lugar com o dado, e a foto já está guardada). */
+const INSTRUCAO_IMAGEM = `Você recebe uma imagem que um cliente mandou pelo WhatsApp para uma empresa
+(quase sempre uma imobiliária). Descreva em português do Brasil, para a equipe que vai atender,
+o que a imagem mostra — de forma FIEL e objetiva.
+
+Regras:
+- Se a imagem tem texto (print de anúncio, simulação, conversa, mapa, cartaz), transcreva o texto
+  que importa, com os números exatamente como aparecem (valores, metragens, quartos, endereço,
+  nome do condomínio, telefone de contato que estiver num anúncio).
+- Se é foto de imóvel ou lugar, diga o que se vê (fachada, cômodo, terreno, condição) sem inventar
+  bairro, preço ou tamanho que não estejam escritos.
+- Se é documento pessoal (RG, CNH, CPF, comprovante de renda ou de residência, extrato), diga qual
+  documento é e o nome que aparece, mas NÃO copie números de documento (CPF, RG, conta) por inteiro.
+  Valores de renda e datas podem ir.
+- Se é figurinha, meme, selfie ou algo sem relação com o atendimento, diga em poucas palavras.
+- Se não dá para entender a imagem, diga isso. Nunca adivinhe.
+- Sem introdução ("A imagem mostra...") e sem opinião. No máximo 6 linhas curtas.`;
+
+export async function descreverImagem({ base64, mime, legenda }) {
+  if (!iaConfigurada()) return { ok: false, erro: "IA não configurada." };
+  if (!base64) return { ok: false, erro: "Sem imagem." };
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(mime || "")) return { ok: false, erro: "Formato de imagem que a IA não lê." };
+  const r = await perguntar({
+    max_tokens: 500,
+    content: [
+      { type: "image", source: { type: "base64", media_type: mime, data: base64 } },
+      { type: "text", text: INSTRUCAO_IMAGEM + (legenda ? `\n\nLegenda que o cliente escreveu junto: "${String(legenda).slice(0, 300)}"` : "") },
+    ],
+  });
+  if (!r.ok) return r;
+  const texto = String(r.texto || "").trim().slice(0, 1500);
+  if (!texto) return { ok: false, erro: "A IA não descreveu a imagem." };
+  return { ok: true, texto, uso: r.uso, modelo: modeloAtual() };
+}
+
 // O modelo às vezes envolve o JSON em ```json apesar da instrução.
 const limparCercas = (t) => String(t || "").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
 
@@ -632,8 +678,11 @@ COMO FALAR
 - Se ela perguntar se você é um robô ou um sistema, diga a verdade em uma frase, sem drama,
   e siga a conversa
 
-ÁUDIO E FOTO: você recebe só o rótulo ("Áudio", "Foto"), não o conteúdo. Se vier áudio, peça
-com jeito para a pessoa mandar por escrito, dizendo que agora você não consegue ouvir.
+ÁUDIO E FOTO: o áudio do cliente chega TRANSCRITO, marcado "(áudio transcrito)", e a foto chega
+DESCRITA, marcada "(foto: ...)". Responda ao conteúdo como se tivesse ouvido e visto — não
+comente que era áudio nem que era foto. Se aparecer só o rótulo "Áudio" ou "Foto", sem o
+conteúdo, a leitura falhou: peça com jeito para a pessoa escrever o que disse ou o que a foto
+mostra.
 
 QUANDO ENCERRAR (encerrar: true):
 - Quando tiver entendido o que a pessoa precisa (e o que as orientações mandam colher), OU a

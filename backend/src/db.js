@@ -1473,6 +1473,11 @@ const msgCols = db.prepare("PRAGMA table_info(messages)").all().map(c => c.name)
 const addMsgCol = (name, ddl) => { if (!msgCols.includes(name)) db.exec(`ALTER TABLE messages ADD COLUMN ${name} ${ddl}`); };
 addMsgCol("media_url", "TEXT");   // endereço público do arquivo guardado
 addMsgCol("media_mime", "TEXT");  // image/jpeg, audio/ogg, application/pdf...
+/* A LEITURA do áudio (transcrição) e da foto (descrição) que o cliente mandou
+   (11/11/2026, services/leitura-midia.js). Nula = ainda não lida. */
+addMsgCol("leitura", "TEXT");
+addMsgCol("leitura_em", "INTEGER");
+addMsgCol("leitura_erro", "TEXT");
 addMsgCol("media_name", "TEXT");  // nome original, quando é documento
 /* O texto da mensagem que o CLIENTE respondeu, quando o WhatsApp o manda junto
    e a mensagem citada NÃO existe no CRM (anterior ao lead, ou mandada do
@@ -2537,6 +2542,8 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
      nova dos indicadores do SDR e da fila da Catraca. Liga conta por conta,
      pelo master — nula ou 0 é a régua de sempre, então nenhuma conta muda. */
   if (!o.includes("fila_por_etapa")) db.exec("ALTER TABLE orgs ADD COLUMN fila_por_etapa INTEGER");
+  // Ler áudios e fotos do cliente automaticamente (services/leitura-midia.js). Nulo = sim.
+  if (!o.includes("ler_midia")) db.exec("ALTER TABLE orgs ADD COLUMN ler_midia INTEGER");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
 }
 /* PAÍS PADRÃO DA CONTA (02/11/2026) — como ler o número que chega SEM o código

@@ -46,6 +46,7 @@ import { gravarCampos } from "./campos-lead.js";
 import { moverLead } from "./movimento.js";
 import { temCredito } from "./ia-creditos.js";
 import { aprenderDoAtendimento, aprendeLigado } from "./aprendizado.js";
+import { corpoParaIA, esperarLeiturasDoLead } from "./leitura-midia.js";
 
 export const TETO_PADRAO = 12;
 
@@ -358,6 +359,10 @@ export async function atender(orgId, leadId, opcoes = {}) {
 
     const espera = atraso == null ? ATRASO_MIN + Math.random() * (ATRASO_MAX - ATRASO_MIN) : atraso;
     if (espera > 0) await esperar(espera);
+    /* Áudio e foto do cliente ainda sendo lidos (services/leitura-midia.js):
+       espera a leitura, com teto, para responder ao que a pessoa disse e não
+       ao rótulo "Áudio". */
+    await esperarLeiturasDoLead(leadId, { orgId });
 
     /* Confere DE NOVO depois de esperar. Nesses segundos a Vanessa pode ter
        respondido pelo celular, ou o gestor pode ter desligado o robô. Decidir
@@ -373,7 +378,7 @@ export async function atender(orgId, leadId, opcoes = {}) {
        resposta — e é isso que faz a conferência de `deNovo` respondê-la. */
     const lidoEm = Date.now();
     const msgs = db.prepare(
-      "SELECT direction, body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC").all(leadId);
+      `SELECT direction, ${corpoParaIA()} AS body FROM messages WHERE lead_id = ? AND apagada_em IS NULL ORDER BY created_at ASC`).all(leadId);
     const coletado = lerColetado(lead);
 
     // A ficha do produto deste atendimento e os campos que ela pode preencher.
