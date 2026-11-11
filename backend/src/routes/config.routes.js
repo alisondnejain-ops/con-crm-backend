@@ -22,6 +22,7 @@ import { iaConfigurada, modeloIA, LIMITE_ORIENTACOES } from "../services/ia.js";
 import { garantirWebhook, garantirWebhooksDaOrg, enderecoDoWebhook } from "../services/webhook-uazapi.js";
 import { hashToken } from "../services/segredo-whatsapp.js";
 import { resumoDeUso } from "../services/iauso.js";
+import { configDaEntrada, gerarToken as gerarTokenSite, salvarConfig as salvarEntradaSite, ErroEntrada } from "../services/entrada-site.js";
 import { marcaDaOrg, validarCor, COR_PADRAO } from "../services/marca.js";
 import { salvar, apagar, tipoPermitido, ehVideo, ehDocumento, limiteBytes, chaveDaUrl } from "../services/storage.js";
 
@@ -498,6 +499,20 @@ r.post("/robo", roles("adm"), (req, res) => {
 /* ===== ONDE A IA ATUA E O QUE ELA FAZ NO LEAD (08/10/2026) =====
    Só o gestor, como ligar: é decidir o que uma máquina faz sozinha com o
    cliente e com o funil. Cada campo é opcional — ausente, fica como estava. */
+/* ===== FORMULÁRIO DO SITE (11/11/2026, services/entrada-site.js) =====
+   Só o gestor: o token decide em que conta entram os leads do site. */
+const baseDoSite = (req) => (process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+const comEndereco = (req, c) => ({ ...c, endereco: `${baseDoSite(req)}/publico/leads` });
+r.get("/formulario-site", roles("adm"), (req, res) => res.json(comEndereco(req, configDaEntrada(req.user.org_id))));
+r.post("/formulario-site/token", roles("adm"), (req, res) => {
+  console.log(`[site] token do formulário gerado por ${req.user.name}`);
+  res.json(comEndereco(req, gerarTokenSite(req.user.org_id)));
+});
+r.patch("/formulario-site", roles("adm"), (req, res) => {
+  try { res.json(comEndereco(req, salvarEntradaSite(req.user.org_id, req.body || {}))); }
+  catch (e) { if (e instanceof ErroEntrada) return res.status(e.status).json({ error: e.message }); throw e; }
+});
+
 r.post("/robo/acoes", roles("adm"), (req, res) => {
   const b = req.body || {};
   const org = req.user.org_id;

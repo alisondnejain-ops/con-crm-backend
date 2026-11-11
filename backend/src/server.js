@@ -39,6 +39,7 @@ import { gestao as metaConexaoGestao, retorno as metaConexaoRetorno } from "./ro
 import { feeds as portaisFeeds, webhook as portaisWebhook, gestao as portaisGestao } from "./routes/portais.routes.js";
 import canaisRoutes from "./routes/canais.routes.js";
 import publicoRoutes from "./routes/publico.routes.js";
+import entradaSiteRoutes from "./routes/entrada-site.routes.js";
 import propostaRoutes from "./routes/proposta.routes.js";
 import painelRoutes from "./routes/painel.routes.js";
 import orgsRoutes, { fundoDoLogin } from "./routes/orgs.routes.js";
@@ -87,6 +88,11 @@ app.use(cabecalhosDeSeguranca);
    que o CRM voltar a ser hospedado à parte, e aceita uma lista separada por
    vírgula — `https://www.conhubcrm.com.br,https://app.conhubcrm.com.br` — que
    é justamente o que a separação de domínios planejada vai precisar. */
+/* O FORMULÁRIO DO SITE DA IMOBILIÁRIA (11/11/2026): CORS próprio (só os
+   sites que alguma conta cadastrou) e corpo lido lá dentro — por isso antes
+   do cors() global, com caminho explícito. */
+app.use("/publico/leads", entradaSiteRoutes);
+
 const ORIGENS = String(process.env.FRONTEND_ORIGIN || "").split(",").map(s => s.trim()).filter(Boolean);
 app.use(cors({
   origin: ORIGENS.length ? ORIGENS : false,

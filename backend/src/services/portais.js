@@ -26,6 +26,7 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { entradaDoFormulario } from "./formularios.js";
 import { catracaNoNascimento, etapaDeEntrada } from "./catracas.js";
+import { pegarProximo } from "./rodizio.js";
 import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
 import { leadPorTelefone, normalizarPeloPadrao } from "./telefone.js";
@@ -463,7 +464,9 @@ export function receberLead(orgId, dados) {
     ? `Veio de um anúncio de formulário (${anuncio.platform === "ig" || anuncio.platform === "instagram" ? "Instagram" : anuncio.platform === "fb" || anuncio.platform === "facebook" ? "Facebook" : "Meta"})${
         anuncio.campaign_name ? ` — campanha “${anuncio.campaign_name}”` : ""}${anuncio.form_name ? `, formulário “${anuncio.form_name}”` : ""}.`
     : `Veio do ${portal}${produto ? ` — interessado em: ${produto.titulo}` : codigo ? ` — anúncio ${codigo}` : ""}.`;
-  const texto = [
+  /* O formulário do site (services/entrada-site.js) traz a própria
+     observação, já com as respostas, as UTMs e o consentimento. */
+  const texto = dados.texto || [
     deOnde,
     linhasDasRespostas.length ? `Respostas do formulário:\n${linhasDasRespostas.join("\n")}` : null,
     mensagem ? `Mensagem do cliente: "${mensagem}"` : null,
@@ -487,23 +490,30 @@ export function receberLead(orgId, dados) {
          na etapa que aciona a catraca, quando ela tem uma); "pela atendente",
          ou ninguém disponível, a atendente da vez recebe e o lead lembra a
          catraca para o repasse dela. */
-      const canal = formulario ? (anuncio.form_id ? { canal: "formulario", ref: String(anuncio.form_id) } : null) : { canal: "portal", ref: "" };
+      const canal = dados.canal !== undefined ? dados.canal
+        : formulario ? (anuncio.form_id ? { canal: "formulario", ref: String(anuncio.form_id) } : null) : { canal: "portal", ref: "" };
       const vez = catracaNoNascimento(orgId, canal);
       const catraca = vez.catraca;
-      const dono = vez.dono || proximoAtendente(orgId);
+      /* `rodizio` (formulário do site com "corretor da vez"): sem catraca que
+         entregue direto, o próximo corretor DISPONÍVEL hoje recebe e a vez
+         anda. Ninguém disponível: a regra de sempre (atendente da vez, ou a
+         fila). */
+      const doRodizio = !vez.dono && dados.rodizio ? pegarProximo(orgId) : null;
+      const dono = vez.dono || doRodizio || proximoAtendente(orgId);
       /* O funil: o do formulário escolhido no gatilho do fluxo manda; senão a
          etapa da catraca que entregou direto ao corretor; senão o funil de
          quem recebe, como sempre. */
-      const entrada = (formulario && entradaDoFormulario(orgId, anuncio.form_id))
+      const entrada = (dados.entrada && etapaDeEntrada(orgId, dados.entrada))
+        || (formulario && entradaDoFormulario(orgId, anuncio.form_id))
         || (vez.dono && catraca.stage_id && etapaDeEntrada(orgId, catraca.stage_id))
         || entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at,catraca_id)
         VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?,?)`)
-        .run(id, orgId, nome || (formulario ? "Contato do anúncio" : `Contato do ${portal}`), telefone || null, email || null, portal,
+        .run(id, orgId, nome || (formulario ? "Contato do anúncio" : `Contato do ${portal}`), telefone || null, email || null, dados.origem || portal,
              JSON.stringify(formulario ? qual : {}),
              entrada.nome, dono, agora, entrada.pipeline_id, entrada.stage_id, agora, agora,
-             formulario ? "meta" : "portal", dono ? agora : null, catraca ? catraca.id : null);
+             dados.source || (formulario ? "meta" : "portal"), dono ? agora : null, catraca ? catraca.id : null);
       /* A atribuição do anúncio vai para as MESMAS colunas do webhook nativo
          da Meta: é o que faz o lead aparecer em Operação → Campanhas e nos
          filtros de campanha, sem nenhuma tela saber por onde ele veio. */
@@ -533,7 +543,7 @@ export function receberLead(orgId, dados) {
   /* Os gatilhos dos fluxos (services/automacoes.js): o lead novo e o
      formulário preenchido — este, também quando a pessoa já era lead e
      preencheu de novo. Depois da transação: a automação lê o lead gravado. */
-  if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: formulario ? "formulario" : "portal" });
+  if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: dados.origemGatilho || (formulario ? "formulario" : "portal") });
   if (formulario && anuncio.form_id) dispararGatilho(orgId, "formulario", { leadId: lead.id, ref: String(anuncio.form_id) });
 
   // Sem dono, avisa quem cuida da fila (services/push.js → quemCuidaDaFila).
@@ -548,5 +558,5 @@ export function receberLead(orgId, dados) {
     novo ? (!lead.assigned_to ? " — sem atendente, foi para a fila"
       : lead.catraca_id && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor"
         ? " — direto ao corretor pela catraca" : " — para a atendente da vez") : ""}`);
-  return { ok: true, novo, lead_id: lead.id };
+  return { ok: true, novo, lead_id: lead.id, assigned_to: lead.assigned_to || null };
 }
