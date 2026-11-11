@@ -26,7 +26,7 @@ self.addEventListener("push", (e) => {
     // atualiza, em vez de dez avisos empilhados no celular do corretor.
     tag: d.leadId ? "lead-" + d.leadId : "conhub",
     renotify: true,
-    data: { leadId: d.leadId || null },
+    data: { leadId: d.leadId || null, conta: d.conta || null },
   }));
 });
 
@@ -74,7 +74,7 @@ self.addEventListener("pushsubscriptionchange", (e) => {
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const destino = e.notification.data && e.notification.data.leadId
-    ? "/app?lead=" + e.notification.data.leadId : "/app";
+    ? "/app?lead=" + e.notification.data.leadId + (e.notification.data.conta ? "&conta=" + e.notification.data.conta : "") : "/app";
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((janelas) => {
     for (const j of janelas) if ("focus" in j) return j.focus();
     return self.clients.openWindow(destino);

@@ -379,7 +379,7 @@ Regras:
 Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
 {"mensagem":texto}`;
 
-export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orientacoes = [], imobiliaria = "" }) {
+export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orientacoes = [], imobiliaria = "", contexto = "" }) {
   if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
   const linhas = (mensagens || []).filter(m => (m.texto || "").trim()).slice(-60)
     .map(m => `${m.de === "cliente" ? "CLIENTE" : "EMPRESA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
@@ -388,6 +388,7 @@ export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orienta
   const partes = [INSTRUCAO_FLUXO];
   if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
   if (ensino.length) partes.push("ORIENTAÇÕES DA CASA:\n" + ensino.map(t => "- " + t).join("\n"));
+  if (contexto) partes.push(String(contexto).slice(0, 6000));
   partes.push("INSTRUÇÃO DO BLOCO: " + String(instrucao || "").trim().slice(0, 1000));
   partes.push(`Cliente: ${nome || "sem nome"}`);
   partes.push(linhas ? "CONVERSA (da mais antiga para a mais recente):\n" + linhas : "Ainda não há conversa com este cliente.");

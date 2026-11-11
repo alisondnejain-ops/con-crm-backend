@@ -144,6 +144,11 @@
         <input id="code" placeholder="Código da imobiliária"/>
         <div class="hint" id="codeHint">Vincula sua conta à sua imobiliária. A gestão te passa esse código.</div>
       </div>
+      <div class="field" id="jaTemConta" style="display:none">
+        <label for="senhaAtual">Sua senha do ConHub</label>
+        <input id="senhaAtual" type="password" autocomplete="current-password" placeholder="A senha com que você já entra no ConHub"/>
+        <div class="hint">Você já usa o ConHub em outra conta. Com a mesma senha, você pede acesso a esta também: a gestão daqui aprova e, ao entrar, você escolhe qual conta abrir.</div>
+      </div>
       <button id="go">Continuar</button>
       <div class="rodape">
         <b>É dono ou gestor de uma imobiliária</b> e ainda não tem conta na plataforma?
@@ -205,6 +210,11 @@
       adm_code: codeEl.value.trim(),
       funcao: funcaoEscolhida()
     };
+    var senhaAtual = document.getElementById("senhaAtual");
+    if (document.getElementById("jaTemConta").style.display !== "none") {
+      if (!senhaAtual.value) return show("err", "Digite a senha que você já usa no ConHub.");
+      body.senha_atual = senhaAtual.value;
+    }
     if (!body.name || !body.email || !body.phone || !body.adm_code)
       return show("err", "Preencha todos os campos para continuar.");
     if (tel.conferir()) return show("err", tel.conferir());
@@ -215,7 +225,18 @@
         method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
       });
       var data = await res.json();
-      if (!res.ok) { show("err", data.error || "Não foi possível cadastrar agora."); return; }
+      if (!res.ok) {
+        if (data.ja_tem_conta) { document.getElementById("jaTemConta").style.display = "block"; senhaAtual.focus(); }
+        show("err", data.error || "Não foi possível cadastrar agora."); return;
+      }
+      if (data.vinculo) {
+        document.getElementById("formView").style.display = "none";
+        var feito = document.getElementById("doneView"); feito.style.display = "block";
+        feito.querySelector("h2").textContent = "Pedido enviado";
+        document.getElementById("doneText").innerHTML =
+          "Seu acesso como <b>" + (data.funcao || "") + "</b> está aguardando a aprovação da gestão desta conta. Depois de aprovado, entre no ConHub com o mesmo e-mail e a mesma senha e escolha qual conta abrir.";
+        return;
+      }
 
       document.getElementById("formView").style.display = "none";
       var done = document.getElementById("doneView"); done.style.display = "block";

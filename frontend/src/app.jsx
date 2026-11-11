@@ -97,8 +97,52 @@ let FILA_POR_ETAPA=false;
 let LEITURA_MIDIA={audio:false,imagem:false};
 let PAIS_CONTA_DE=null;
 const contaInterna=()=>TIPO_CONTA==="interna";
+/* A CONTA QUE VENDE UM EMPREENDIMENTO (11/11/2026, services/lotes.js): sai o
+   que é de imobiliária (catálogo, plantão, site, simulação de financiamento,
+   "Enviar imóvel") e entra o espelho de lotes. Ligado pelo master. */
+let EMPREENDIMENTO=false;
+const contaEmpreendimento=()=>EMPREENDIMENTO;
 try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
 function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
+/* AS CONTAS DA MESMA PESSOA (11/11/2026): o servidor manda, no login e no
+   /auth/me, as contas em que esta pessoa está ativa (mesmo e-mail). Com mais
+   de uma, aparece "Trocar de conta". Trocar pede um crachá novo ao servidor
+   e recarrega o app inteiro — é outra casa, com outros leads e outro papel. */
+let CONTAS=[];
+async function trocarParaConta(orgId){
+  const d=await api("/auth/trocar-conta",{method:"POST",body:{org_id:orgId}});
+  setToken(d.token);
+  window.location.replace("/app");
+}
+function TrocarDeConta({escuro,compacto}){
+  const [aberto,setAberto]=useState(false), [indo,setIndo]=useState(null), [erro,setErro]=useState("");
+  if((CONTAS||[]).length<2) return null;
+  const ir=async(c)=>{ if(c.atual) return setAberto(false); setIndo(c.org_id); setErro("");
+    try{ await trocarParaConta(c.org_id); }catch(e){ setErro(e.message); setIndo(null); } };
+  const atual=CONTAS.find(c=>c.atual);
+  return <div style={{position:"relative"}}>
+    <button onClick={()=>setAberto(!aberto)} title="Trocar de conta"
+      style={{width:"100%",display:"flex",alignItems:"center",gap:compacto?0:9,justifyContent:compacto?"center":"flex-start",
+        padding:compacto?"10px 0":"8px 11px",borderRadius:10,cursor:"pointer",fontFamily:FONT,fontSize:13,fontWeight:600,textAlign:"left",
+        border:escuro?"none":`1px solid ${C.line}`,background:escuro?"rgba(255,255,255,.08)":C.surface,color:escuro?"#fff":C.ink}}>
+      <Icon n="users" size={16}/>{!compacto&&<span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        Trocar de conta{atual?<span style={{opacity:.6,fontWeight:500}}> · {atual.nome}</span>:null}</span>}
+    </button>
+    {aberto&&<div style={{position:escuro?"absolute":"static",bottom:escuro?"calc(100% + 6px)":"auto",left:0,right:0,zIndex:50,marginTop:escuro?0:8,
+      background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:6,boxShadow:escuro?"0 12px 30px rgba(0,0,0,.25)":"none",minWidth:220}}>
+      {CONTAS.map(c=><button key={c.org_id} onClick={()=>ir(c)} disabled={!!indo}
+        style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 10px",borderRadius:9,border:"none",cursor:indo?"default":"pointer",
+          background:c.atual?C.greenSoft:"transparent",textAlign:"left",fontFamily:FONT}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</div>
+          <div style={{color:C.faint,fontSize:12}}>{c.papel}{c.atual?" · aberta agora":""}</div>
+        </div>
+        {indo===c.org_id&&<Icon n="loader" size={14} spin/>}
+      </button>)}
+      {erro&&<div style={{color:C.hot,fontSize:12.5,padding:"6px 10px"}}>{erro}</div>}
+    </div>}
+  </div>;
+}
 
 /* Marca de que o master JÁ escolheu uma imobiliária no hub.
    Sem ela, recarregar a página levaria direto para a imobiliária do crachá —
@@ -490,7 +534,7 @@ const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprov
    a tela ensina errado é pior do que regra nenhuma. */
 function DicaEtapa({etapa}){
   // As palavras são de venda de imóvel; o ambiente interno do ConHub não as usa.
-  if(contaInterna()) return null;
+  if(contaInterna()||contaEmpreendimento()) return null;
   const i=LINEAR.indexOf(etapa);
   const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
   // Só a dica que ensina alguma coisa: qual palavra sugere a próxima etapa.
@@ -1322,11 +1366,41 @@ function Auth({onLogin}){
     setErr(""); setBusy(true);
     try{
       const d=await api("/auth/login",{method:"POST",body:{email:f.email.trim(),password:f.pass}});
-      setToken(d.token); onLogin(d.user,d.org);
+      setToken(d.token); CONTAS=d.contas||[];
+      // Mais de uma conta: a pessoa escolhe qual abrir antes de entrar.
+      if(CONTAS.length>1) return setEscolha(d);
+      onLogin(d.user,d.org);
     }catch(e){ setErr(e.message); }
     finally{ setBusy(false); }
   }
   const onEnter=(e)=>{ if(e.key==="Enter") entrar(); };
+  const [escolha,setEscolha]=useState(null), [indoConta,setIndoConta]=useState(null);
+  async function abrirConta(c){
+    if(c.atual) return onLogin(escolha.user,escolha.org);
+    setIndoConta(c.org_id); setErr("");
+    try{ const d=await api("/auth/trocar-conta",{method:"POST",body:{org_id:c.org_id}});
+      setToken(d.token); CONTAS=d.contas||CONTAS; onLogin(d.user,d.org); }
+    catch(e){ setErr(e.message); setIndoConta(null); }
+  }
+  if(escolha) return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{width:"100%",maxWidth:420,background:C.card,border:`1px solid ${C.line}`,borderRadius:18,padding:isMobile?18:24}}>
+      <ConHubLogo variant="lockup" size={26}/>
+      <h2 style={{fontFamily:DISPLAY,color:C.ink,fontSize:20,margin:"18px 0 4px"}}>Qual conta você quer abrir?</h2>
+      <div style={{color:C.sub,fontSize:13.5,marginBottom:14}}>Você tem acesso a mais de uma conta. Dá para trocar depois, pela barra do menu ou em Minha conta.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {CONTAS.map(c=><button key={c.org_id} onClick={()=>abrirConta(c)} disabled={!!indoConta}
+          style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",borderRadius:12,border:`1px solid ${C.line}`,
+            background:C.surface,cursor:indoConta?"default":"pointer",textAlign:"left",fontFamily:FONT}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:C.ink,fontSize:15,fontWeight:700}}>{c.nome}</div>
+            <div style={{color:C.faint,fontSize:12.5}}>{c.papel}</div>
+          </div>
+          <Icon n={indoConta===c.org_id?"loader":"chevron"} size={16} spin={indoConta===c.org_id}/>
+        </button>)}
+      </div>
+      {err&&<div style={{color:C.hot,fontSize:13,marginTop:10}}>{err}</div>}
+    </div>
+  </div>;
   return <div style={{fontFamily:FONT,background:C.surface,width:"100%",minHeight:"100dvh",display:"flex",alignItems:isMobile?"stretch":"center",justifyContent:"center",padding:isMobile?0:24}}>
     {/* A FOTO É FUNDO DO CARTÃO INTEIRO, não de uma coluna.
 
@@ -1538,6 +1612,7 @@ function ConCRM(){
   const [org,setOrg]=useState(null);
   TIPO_CONTA=(org&&org.tipo)||null;
   FILA_POR_ETAPA=!!(org&&org.fila_por_etapa);
+  EMPREENDIMENTO=!!(org&&org.empreendimento);
   LEITURA_MIDIA=(org&&org.leitura_midia)||{audio:false,imagem:false};
   if(org&&org.id!==PAIS_CONTA_DE){ PAIS_CONTA_DE=org.id; PAIS_CONTA=org.pais_padrao||"BR"; }
   const isMobileRaiz=useIsMobile();
@@ -1575,7 +1650,7 @@ function ConCRM(){
        do menu, e com ela o lembrete no alto do sistema. Sem esta linha o app
        continuaria perguntando de hora em hora por uma escala que ninguém pode
        montar, só para receber uma resposta vazia. */
-    const semPlantao=!!(org&&org.tipo==="autonomo");
+    const semPlantao=!!(org&&(org.tipo==="autonomo"||org.empreendimento));
     if(semPlantao) setPlantao(null);
     const verPlantao=()=>acoes.plantaoDeHoje().then(p=>vivo&&setPlantao(p)).catch(()=>{});
     if(!semPlantao) verPlantao();
@@ -1592,6 +1667,13 @@ function ConCRM(){
     if(!TOKEN){setCarregando(false);return;}
     api("/auth/me").then(d=>{
       if(d.token) setToken(d.token); // master cuja entrada na conta terminou
+      CONTAS=d.contas||[];
+      /* O aviso no celular de um lead da OUTRA conta abre /app?conta=X: troca
+         para ela antes de entrar (só se a pessoa tem acesso ativo lá). */
+      try{
+        const q=new URLSearchParams(window.location.search), alvo=q.get("conta");
+        if(alvo&&d.org&&alvo!==d.org.id&&CONTAS.some(c=>c.org_id===alvo)){ trocarParaConta(alvo).catch(()=>{}); return; }
+      }catch(e){}
       setSession(toSession(d.user));
       // O master só volta direto para uma imobiliária se já tinha escolhido uma;
       // senão cai no hub. Para os demais, é sempre a casa deles.
@@ -2200,6 +2282,18 @@ function ConCRM(){
     definirBoleto:(id,liberado)=>api(`/orgs/${id}/boleto`,{method:"POST",body:{liberado}}),
     definirFilaPorEtapa:(id,ligado)=>api(`/orgs/${id}/fila-etapa`,{method:"POST",body:{ligado}}),
     definirParceira:(id,ligado)=>api(`/orgs/${id}/parceira`,{method:"POST",body:{ligado}}),
+    // Modo empreendimento e espelho de lotes (services/lotes.js, services/kit-reserva.js).
+    definirEmpreendimento:(id,ligado)=>api(`/orgs/${id}/empreendimento`,{method:"POST",body:{ligado}}),
+    aplicarKitReserva:(id)=>api(`/orgs/${id}/empreendimento/kit-reserva`,{method:"POST",body:{}}),
+    lotes:()=>api("/lotes"),
+    reservarLote:(id,dados)=>api(`/lotes/${id}/reservar`,{method:"POST",body:dados}),
+    liberarLote:(id)=>api(`/lotes/${id}/liberar`,{method:"POST",body:{}}),
+    prorrogarLote:(id,horas)=>api(`/lotes/${id}/prorrogar`,{method:"POST",body:{horas}}),
+    venderLote:(id,dados)=>api(`/lotes/${id}/vender`,{method:"POST",body:dados||{}}),
+    editarLote:(id,dados)=>api(`/lotes/${id}`,{method:"PATCH",body:dados}),
+    historicoLote:(id)=>api(`/lotes/${id}/historico`),
+    importarLotes:(texto,previa)=>api("/lotes/importar",{method:"POST",body:{texto,previa}}),
+    configLotes:(dados)=>api("/lotes/config",{method:"PATCH",body:dados}),
     definirAcessoLivre:(id,liberado)=>api(`/orgs/${id}/acesso-livre`,{method:"POST",body:{liberado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
@@ -5092,6 +5186,12 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 {ocupado==="parceira"+v?"…":t}</button>;})}
           </div>
         </div>
+        {/* MODO EMPREENDIMENTO (11/11/2026, Reserva Real do Rio): a conta vira
+            a de um loteamento — sai o que é de imobiliária (Imóveis, Plantão,
+            simulação, Cetrolab) e entra a tela de Lotes. O pacote monta o resto
+            uma vez (funil, ficha, orientações, mensagens, tags, fluxo e os 60
+            lotes da planilha); aplicar de novo não duplica nada. */}
+        {conta.tipo!=="autonomo"&&<QuadroEmpreendimento conta={conta} acoes={acoes} aoMudar={aoMudar} ocupado={ocupado} setOcupado={setOcupado}/>}
         {/* A FILA PELA PRIMEIRA ETAPA (11/11/2026, pedido do Fernando para a
             VJ): a régua nova dos indicadores do SDR e da fila da Catraca.
             Liga conta por conta; as outras continuam como estão. */}
@@ -8497,6 +8597,10 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
        numa loja — Imóveis e Plantão saem. Entra "Suporte", a fila de
        chamados dos clientes, para toda a equipe: o suporte é deles. */
     .filter(item=>!(org&&org.tipo==="interna"&&(item[0]==="imoveis"||item[0]==="plantao"||item[0]==="cetrolab")))
+    /* CONTA DE EMPREENDIMENTO (11/11/2026): vende UM produto, não um catálogo.
+       Saem Imóveis, Plantão e o site; entra Lotes, logo depois do Funil. */
+    .filter(item=>!(org&&org.empreendimento&&(item[0]==="imoveis"||item[0]==="plantao"||item[0]==="cetrolab")))
+    .flatMap(item=>org&&org.empreendimento&&item[0]==="funil"?[item,["lotes","pin","Lotes","Principal"]]:[item])
     .concat(org&&org.tipo==="interna"?[["suporte","boia","Suporte","Principal"]]:[])
     /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
@@ -8517,7 +8621,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",lotes:"Lotes do empreendimento",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
@@ -8657,12 +8761,13 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {podeGerir(session)&&view==="fluxos"&&<FluxosDeMarketing acoes={acoes} org={org} isMobile={isMobile}/>}
         {podeGerir(session)&&view==="redes"&&org&&org.marketing_liberado&&<RedesSociais acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {/* Catálogo aberto a todos: é o que tira a equipe do grupo de WhatsApp. */}
-        {view==="plantao"&&!contaInterna()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
-        {view==="imoveis"&&!contaInterna()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
+        {view==="lotes"&&org&&org.empreendimento&&<TelaLotes acoes={acoes} session={session} isMobile={isMobile} leads={leads} abrirConversa={openLead}/>}
+        {view==="plantao"&&!contaInterna()&&!contaEmpreendimento()&&<Plantao {...{acoes,session,pessoas,isMobile,podeEditar:supervisor}}/>}
+        {view==="imoveis"&&!contaInterna()&&!contaEmpreendimento()&&<Imoveis {...{acoes,session,pessoas,equipeToda,isMobile,supervisor}}/>}
         {/* CETROLAB (12/10/2026): o site da imobiliária saiu de Imóveis e virou
             ferramenta própria — tudo do site num lugar só, e é por aqui que os
             modelos novos entram. Só gestor, como a tela antiga. */}
-        {view==="cetrolab"&&podeGerir(session)&&!contaInterna()&&<TelaSite acoes={acoes} isMobile={isMobile} irPara={setView}/>}
+        {view==="cetrolab"&&podeGerir(session)&&!contaInterna()&&!contaEmpreendimento()&&<TelaSite acoes={acoes} isMobile={isMobile} irPara={setView}/>}
         {view==="suporte"&&contaInterna()&&<div style={molduraMkt(isMobile)}><SuporteNoHub isMobile={isMobile} equipe/></div>}
         {/* Minha conta é igual para os três papéis. */}
         {view==="conta"&&<MinhaConta {...{session,acoes,isMobile,org,canais,reverCanais}}/>}
@@ -8935,6 +9040,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
     <div style={{borderTop:"1px solid rgba(255,255,255,.1)",marginTop:10,paddingTop:9}}>
       {!recolhida&&<div style={{color:"rgba(255,255,255,.5)",fontSize:10.5,padding:"0 11px",marginBottom:6,
         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome} · {papel}</div>}
+      <div style={{marginBottom:4}}><TrocarDeConta escuro compacto={recolhida}/></div>
       <button onClick={sair} title={recolhida?`Sair — ${nome} · ${papel}`:"Sair"}
         style={{width:"100%",display:"flex",alignItems:"center",gap:recolhida?0:11,
           justifyContent:recolhida?"center":"flex-start",padding:recolhida?"11px 0":"9px 11px",borderRadius:10,
@@ -9602,7 +9708,7 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     {erroArq&&<span style={{color:C.hot,fontSize:11.5,width:"100%"}}>{erroArq}</span>}
   </div>}
   <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-    {!contaInterna()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
+    {!contaInterna()&&!contaEmpreendimento()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
     {daEtapa.length>0&&rotulo(`${lead.status}:`)}
     {daEtapa.map(m=>chip(m,true))}
     {daEtapa.length>0&&gerais.length>0&&rotulo("Gerais:")}
@@ -15210,7 +15316,7 @@ function SimulacaoEVenda({lead,acoes,aoSimular}){
   const [vendaAberta,setVendaAberta]=useState(false);
   const cheia=!!lead.venda||vendaAberta;
   return <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"stretch",marginTop:14}}>
-    {!contaInterna()&&<button onClick={aoSimular}
+    {!contaInterna()&&!contaEmpreendimento()&&<button onClick={aoSimular}
       style={{flex:"1 1 100px",border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,
         borderRadius:11,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
       <Icon n="chart" size={14}/> Simulação
@@ -16123,6 +16229,12 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+
+      {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16}}>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no ConHub</div>
+        <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Você tem acesso a {CONTAS.length} contas com o mesmo e-mail e a mesma senha. Cada uma tem os próprios leads e a sua função nela.</div>
+        <TrocarDeConta/>
+      </div>}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <Avatar ini={session.ini} color={session.color} size={64} foto={session.avatar}/>
@@ -25222,3 +25334,300 @@ function AvisoVersao(){
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<Rede><ConCRM/><AvisoVersao/></Rede>);
+
+/* ===== LOTES DO EMPREENDIMENTO (11/11/2026, Reserva Real do Rio) =====
+
+   A tela do dia de quem vende lote: o mapa das quadras com a situação de cada
+   lote, de longe (cor + código escritos — cor sozinha não é leitura para todo
+   mundo), e um toque para reservar para um cliente. A reserva vence sozinha
+   (prazo da conta, padrão 24h) e o lote volta a ficar disponível; prorrogar,
+   vender, bloquear e corrigir são da gestão. Quem decide é sempre o servidor:
+   esta tela só mostra o que ele devolveu. */
+const COR_LOTE={
+  disponivel:{fundo:"#E3F4EE",borda:"#0E8F6E",texto:"#0A5C47",rotulo:"Disponível"},
+  reservado:{fundo:"#FFF3D6",borda:"#C98A0B",texto:"#7A5200",rotulo:"Reservado"},
+  vendido:{fundo:"#ECEEF1",borda:"#9AA3AE",texto:"#56606B",rotulo:"Vendido"},
+  bloqueado:{fundo:"#F4E9F7",borda:"#8B5BA8",texto:"#5E3A73",rotulo:"Bloqueado"},
+};
+const fmtArea=(a)=>a?`${String(a).replace(".",",")} m²`:"";
+function tempoQueFalta(ms){
+  const m=Math.round((ms-Date.now())/60000);
+  if(m<=0) return "vencendo agora";
+  if(m<60) return `vence em ${m} min`;
+  const h=Math.floor(m/60);
+  if(h<48) return `vence em ${h}h${m%60?String(m%60).padStart(2,"0"):""}`;
+  return `vence em ${Math.floor(h/24)} dias`;
+}
+
+function TelaLotes({acoes,session,isMobile,leads,abrirConversa}){
+  const [d,setD]=useState(null), [erro,setErro]=useState(""), [filtro,setFiltro]=useState("todos");
+  const [sel,setSel]=useState(null), [config,setConfig]=useState(false);
+  const carregar=React.useCallback(()=>acoes.lotes().then(x=>{setD(x);setErro("");}).catch(e=>setErro(e.message)),[acoes]);
+  useEffect(()=>{carregar(); const t=setInterval(carregar,60000); return()=>clearInterval(t);},[carregar]);
+  if(erro&&!d) return <div style={{padding:20,color:C.hot}}>{erro}</div>;
+  if(!d) return <div style={{padding:20,color:C.faint}}>Carregando os lotes…</div>;
+  const cfg=d.config||{}, cont=d.contagem||{};
+  const quadras=[];
+  for(const l of d.lotes){ const q=l.quadra||"—"; let g=quadras.find(x=>x.q===q); if(!g){g={q,lotes:[]};quadras.push(g);} g.lotes.push(l); }
+  const mostra=(l)=>filtro==="todos"||(filtro==="meus"?l.meu:l.status===filtro);
+  const meus=d.lotes.filter(l=>l.meu&&l.status==="reservado").length;
+  const loteSel=sel&&d.lotes.find(l=>l.id===sel);
+  const pilula=(k,txt,n)=><button key={k} onClick={()=>setFiltro(k)}
+    style={{border:`1px solid ${filtro===k?C.green:C.line}`,background:filtro===k?C.greenSoft:C.card,color:filtro===k?C.greenDeep:C.sub,
+      borderRadius:999,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT,minHeight:34}}>
+    {txt}{n!=null?<span style={{opacity:.7}}> · {n}</span>:null}</button>;
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"20px 24px"}}>
+    <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:220}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?18:21,fontWeight:700}}>{cfg.nome||"Lotes"}</div>
+          <div style={{color:C.sub,fontSize:13}}>{[cfg.cidade,`${cont.total||0} lotes`].filter(Boolean).join(" · ")}
+            {` · a reserva vale ${cfg.reserva_horas||24}h`}</div>
+        </div>
+        {cfg.tour&&<a href={cfg.tour} target="_blank" rel="noopener noreferrer"
+          style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:10,padding:"9px 13px",fontSize:13,fontWeight:600,textDecoration:"none"}}>
+          <Icon n="globo" size={15}/>Tour 3D</a>}
+        {d.supervisiona&&<button onClick={()=>setConfig(true)}
+          style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:10,padding:"9px 13px",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+          <Icon n="gear" size={15}/>Ajustes e planilha</button>}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(4,minmax(0,1fr))",gap:10}}>
+        {["disponivel","reservado","vendido","bloqueado"].map(k=><button key={k} onClick={()=>setFiltro(filtro===k?"todos":k)}
+          style={{textAlign:"left",background:C.card,border:`1px solid ${filtro===k?COR_LOTE[k].borda:C.line}`,borderRadius:12,padding:"11px 13px",cursor:"pointer",fontFamily:FONT}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,color:C.sub,fontSize:12.5,fontWeight:600}}>
+            <span style={{width:10,height:10,borderRadius:3,background:COR_LOTE[k].fundo,border:`2px solid ${COR_LOTE[k].borda}`}}/>{COR_LOTE[k].rotulo}</div>
+          <div style={{fontFamily:MONO,color:C.ink,fontSize:22,fontWeight:700,marginTop:2}}>{cont[k]||0}</div>
+        </button>)}
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {pilula("todos","Todos",cont.total||0)}
+        {pilula("disponivel","Disponíveis",cont.disponivel||0)}
+        {pilula("meus","Minhas reservas",meus)}
+      </div>
+
+      {!d.lotes.length&&<div style={{background:C.card,border:`1px dashed ${C.line}`,borderRadius:12,padding:18,color:C.sub,fontSize:13.5}}>
+        Nenhum lote cadastrado ainda.{d.supervisiona?" Use “Ajustes e planilha” para subir a lista de lotes.":" A gestão sobe a lista de lotes."}</div>}
+
+      {quadras.map(g=>{
+        const vis=g.lotes.filter(mostra); if(!vis.length) return null;
+        return <div key={g.q} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?12:14}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10}}>
+            <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Quadra {g.q}</div>
+            <div style={{color:C.faint,fontSize:12}}>{g.lotes.filter(l=>l.status==="disponivel").length} de {g.lotes.length} disponíveis</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(${isMobile?78:92}px,1fr))`,gap:8}}>
+            {vis.map(l=>{const c=COR_LOTE[l.status]||COR_LOTE.bloqueado;
+              return <button key={l.id} onClick={()=>setSel(l.id)} title={`${l.codigo} · ${c.rotulo}`}
+                style={{background:c.fundo,border:`2px solid ${l.meu?C.ink:c.borda}`,borderRadius:10,padding:"8px 6px",cursor:"pointer",fontFamily:FONT,textAlign:"center",minHeight:58}}>
+                <div style={{fontFamily:MONO,color:c.texto,fontSize:15,fontWeight:700}}>{l.codigo}</div>
+                <div style={{color:c.texto,fontSize:10.5,opacity:.85}}>{l.meu?"sua reserva":fmtArea(l.area)||c.rotulo}</div>
+              </button>;})}
+          </div>
+        </div>;
+      })}
+    </div>
+    {loteSel&&<FolhaDoLote lote={loteSel} cfg={cfg} acoes={acoes} session={session} isMobile={isMobile} leads={leads}
+      supervisiona={d.supervisiona} abrirConversa={abrirConversa} aoFechar={()=>setSel(null)} aoMudar={carregar}/>}
+    {config&&<AjustesDosLotes cfg={cfg} acoes={acoes} isMobile={isMobile} aoFechar={()=>setConfig(false)} aoMudar={carregar}/>}
+  </div>;
+}
+
+function JanelaLote({titulo,isMobile,aoFechar,children}){
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,20,18,.45)",zIndex:300,display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:isMobile?"none":480,maxHeight:isMobile?"88dvh":"90vh",overflowY:"auto",
+      borderRadius:isMobile?"18px 18px 0 0":16,padding:isMobile?"16px 16px 24px":20,fontFamily:FONT}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <div style={{flex:1,fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{titulo}</div>
+        <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="x" size={16}/></button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+function FolhaDoLote({lote:l,cfg,acoes,session,isMobile,leads,supervisiona,abrirConversa,aoFechar,aoMudar}){
+  const [modo,setModo]=useState(null), [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [ok,setOk]=useState("");
+  const [busca,setBusca]=useState(""), [leadId,setLeadId]=useState(""), [cliente,setCliente]=useState(""), [obs,setObs]=useState("");
+  const [horas,setHoras]=useState(24), [hist,setHist]=useState(null);
+  const [ed,setEd]=useState({status:l.status,area:l.area||"",preco:l.preco||"",obs:l.obs||""});
+  const c=COR_LOTE[l.status]||COR_LOTE.bloqueado;
+  const minhas=(leads||[]).filter(x=>supervisiona||x.assignedTo===session.id);
+  const t=semAcento(busca.trim().toLowerCase());
+  const achados=t?minhas.filter(x=>semAcento(String(x.name||"").toLowerCase()).includes(t)||String(x.tel||"").replace(/\D/g,"").includes(t.replace(/\D/g,"")||"#")).slice(0,6):[];
+  const fazer=async(fn,msg)=>{ setOcupado(true); setErro(""); setOk("");
+    try{ await fn(); setOk(msg); setModo(null); await aoMudar(); }catch(e){ setErro(e.message); } finally{ setOcupado(false); } };
+  const botao=(txt,fn,{tom="verde",icone}={})=><button onClick={fn} disabled={ocupado}
+    style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:7,flex:1,minWidth:130,borderRadius:10,padding:"11px 12px",fontSize:13.5,fontWeight:700,cursor:ocupado?"default":"pointer",fontFamily:FONT,
+      border:tom==="verde"?"none":`1px solid ${tom==="perigo"?C.hot:C.line}`,background:tom==="verde"?C.green:C.card,color:tom==="verde"?"#fff":tom==="perigo"?C.hot:C.ink}}>
+    {icone&&<Icon n={icone} size={15}/>}{txt}</button>;
+  const campo={width:"100%",border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:FONT,background:C.surface,color:C.ink,boxSizing:"border-box"};
+  const lin=(r,v)=>v?<div style={{display:"flex",gap:10,fontSize:13.5,padding:"5px 0",borderBottom:`1px solid ${C.line}`}}><div style={{width:110,color:C.faint}}>{r}</div><div style={{flex:1,color:C.ink}}>{v}</div></div>:null;
+
+  return <JanelaLote titulo={`Lote ${l.codigo}`} isMobile={isMobile} aoFechar={aoFechar}>
+    <div style={{display:"inline-flex",alignItems:"center",gap:7,background:c.fundo,border:`1px solid ${c.borda}`,color:c.texto,borderRadius:999,padding:"4px 11px",fontSize:12.5,fontWeight:700,marginBottom:10}}>
+      {c.rotulo}{l.status==="reservado"&&l.vence_em?` · ${tempoQueFalta(l.vence_em)}`:""}</div>
+    {lin("Quadra",l.quadra)}{lin("Área",fmtArea(l.area))}{lin("Valor",l.preco?fmtMoeda(l.preco):null)}
+    {lin("Reservado por",l.status==="reservado"?(l.meu?"Você":l.corretor):null)}
+    {lin("Vendido por",l.status==="vendido"?l.corretor:null)}
+    {lin("Cliente",l.cliente)}{lin("Observação",l.obs)}
+    {l.lead_id&&abrirConversa&&<button onClick={()=>{aoFechar();abrirConversa(l.lead_id);}}
+      style={{marginTop:10,border:"none",background:"transparent",color:C.green,fontWeight:700,fontSize:13.5,cursor:"pointer",padding:0,fontFamily:FONT}}>Abrir a conversa de {l.lead_nome||l.cliente} →</button>}
+
+    {ok&&<div style={{marginTop:12,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"9px 11px",fontSize:13}}>{ok}</div>}
+    {erro&&<div style={{marginTop:12,background:C.hotSoft,color:C.hot,borderRadius:9,padding:"9px 11px",fontSize:13}}>{erro}</div>}
+
+    {modo==="reservar"&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontWeight:700,fontSize:14}}>Para qual cliente?</div>
+      <input value={busca} onChange={e=>{setBusca(e.target.value);setLeadId("");}} placeholder={supervisiona?"Buscar lead pelo nome ou telefone":"Buscar entre os seus leads"} style={campo}/>
+      {achados.map(x=><button key={x.id} onClick={()=>{setLeadId(x.id);setBusca(x.name||"");setCliente("");}}
+        style={{textAlign:"left",border:`1px solid ${leadId===x.id?C.green:C.line}`,background:leadId===x.id?C.greenSoft:C.card,borderRadius:9,padding:"8px 11px",cursor:"pointer",fontFamily:FONT,fontSize:13.5,color:C.ink}}>
+        {x.name||fmtTel(x.tel)}<span style={{color:C.faint}}> · {fmtTel(x.tel)}</span></button>)}
+      {!leadId&&<input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Ou escreva o nome do cliente" style={campo}/>}
+      <input value={obs} onChange={e=>setObs(e.target.value)} placeholder="Observação (opcional)" style={campo}/>
+      <div style={{color:C.faint,fontSize:12}}>A reserva vale {cfg.reserva_horas||24}h e depois o lote volta a ficar disponível sozinho.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {botao("Reservar",()=>fazer(()=>acoes.reservarLote(l.id,{lead_id:leadId||undefined,cliente:leadId?undefined:cliente,obs}),"Lote reservado."),{icone:"lock"})}
+        {botao("Cancelar",()=>setModo(null),{tom:"neutro"})}
+      </div>
+    </div>}
+
+    {modo==="vender"&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontWeight:700,fontSize:14}}>Registrar a venda do lote {l.codigo}</div>
+      {!l.cliente&&<input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Nome do cliente" style={campo}/>}
+      <div style={{color:C.faint,fontSize:12}}>O valor da venda fica no lead, em “Registrar venda” da ficha — é lá que ele entra nos relatórios.</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {botao("Confirmar venda",()=>fazer(()=>acoes.venderLote(l.id,{cliente:cliente||undefined}),"Venda registrada."),{icone:"check"})}
+        {botao("Cancelar",()=>setModo(null),{tom:"neutro"})}
+      </div>
+    </div>}
+
+    {modo==="prorrogar"&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontWeight:700,fontSize:14}}>Prorrogar a reserva por mais</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[12,24,48,72].map(h=><button key={h} onClick={()=>setHoras(h)}
+        style={{border:`1px solid ${horas===h?C.green:C.line}`,background:horas===h?C.greenSoft:C.card,color:C.ink,borderRadius:999,padding:"7px 13px",fontSize:13,cursor:"pointer",fontFamily:FONT,minHeight:34}}>{h}h</button>)}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {botao("Prorrogar",()=>fazer(()=>acoes.prorrogarLote(l.id,horas),`Reserva prorrogada por ${horas}h.`),{icone:"clock"})}
+        {botao("Cancelar",()=>setModo(null),{tom:"neutro"})}
+      </div>
+    </div>}
+
+    {modo==="editar"&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{color:C.ink,fontWeight:700,fontSize:14}}>Corrigir o lote</div>
+      <select value={ed.status} onChange={e=>setEd({...ed,status:e.target.value})} style={campo} disabled={l.status==="reservado"}>
+        {l.status==="reservado"&&<option value="reservado">Reservado (libere antes de mudar)</option>}
+        <option value="disponivel">Disponível</option><option value="bloqueado">Bloqueado</option><option value="vendido">Vendido</option>
+      </select>
+      <input value={ed.area} onChange={e=>setEd({...ed,area:e.target.value})} placeholder="Área (m²)" style={campo} inputMode="decimal"/>
+      <input value={ed.preco} onChange={e=>setEd({...ed,preco:e.target.value})} placeholder="Valor de tabela (R$)" style={campo} inputMode="decimal"/>
+      <input value={ed.obs} onChange={e=>setEd({...ed,obs:e.target.value})} placeholder="Observação interna" style={campo}/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {botao("Salvar",()=>fazer(()=>acoes.editarLote(l.id,l.status==="reservado"?{area:ed.area,preco:ed.preco,obs:ed.obs}:ed),"Lote atualizado."),{icone:"check"})}
+        {botao("Cancelar",()=>setModo(null),{tom:"neutro"})}
+      </div>
+    </div>}
+
+    {!modo&&<div style={{marginTop:16,display:"flex",gap:8,flexWrap:"wrap"}}>
+      {l.status==="disponivel"&&botao("Reservar para um cliente",()=>setModo("reservar"),{icone:"lock"})}
+      {l.pode_liberar&&botao("Liberar a reserva",()=>fazer(()=>acoes.liberarLote(l.id),"Reserva liberada: o lote voltou a ficar disponível."),{tom:"perigo",icone:"undo"})}
+      {supervisiona&&l.status==="reservado"&&botao("Prorrogar",()=>setModo("prorrogar"),{tom:"neutro",icone:"clock"})}
+      {supervisiona&&(l.status==="reservado"||l.status==="disponivel")&&botao("Registrar venda",()=>setModo("vender"),{tom:"neutro",icone:"check"})}
+      {supervisiona&&botao("Corrigir",()=>setModo("editar"),{tom:"neutro",icone:"edit"})}
+    </div>}
+
+    {supervisiona&&<div style={{marginTop:16}}>
+      {!hist?<button onClick={()=>acoes.historicoLote(l.id).then(r=>setHist(r.historico||r||[])).catch(e=>setErro(e.message))}
+        style={{border:"none",background:"transparent",color:C.sub,fontSize:12.5,cursor:"pointer",padding:0,fontFamily:FONT,textDecoration:"underline"}}>Ver o histórico deste lote</button>
+      :<div style={{display:"flex",flexDirection:"column",gap:5}}>
+        <div style={{color:C.faint,fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>Histórico</div>
+        {!hist.length&&<div style={{color:C.faint,fontSize:12.5}}>Nada registrado ainda.</div>}
+        {hist.map((h,i)=><div key={i} style={{fontSize:12.5,color:C.sub}}><b style={{color:C.ink}}>{h.quem||"Sistema"}</b> {h.acao}{h.cliente?` · ${h.cliente}`:""} <span style={{color:C.faint}}>· {fmtQuando(h.em)}</span></div>)}
+      </div>}
+    </div>}
+  </JanelaLote>;
+}
+
+function AjustesDosLotes({cfg,acoes,isMobile,aoFechar,aoMudar}){
+  const [f,setF]=useState({nome:cfg.nome||"",cidade:cfg.cidade||"",tour:cfg.tour||"",reserva_horas:cfg.reserva_horas||24,preco_para_ia:!!cfg.preco_para_ia});
+  const [texto,setTexto]=useState(""), [previa,setPrevia]=useState(null), [msg,setMsg]=useState(null), [ocupado,setOcupado]=useState(false);
+  const campo={width:"100%",border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:14,fontFamily:FONT,background:C.surface,color:C.ink,boxSizing:"border-box"};
+  const rot=(t)=><div style={{color:C.sub,fontSize:12.5,fontWeight:600,marginBottom:4}}>{t}</div>;
+  const salvar=async()=>{ setOcupado(true); setMsg(null);
+    try{ await acoes.configLotes(f); setMsg({ok:true,txt:"Ajustes salvos."}); aoMudar(); }catch(e){ setMsg({ok:false,txt:e.message}); } finally{ setOcupado(false); } };
+  const lerArquivo=(ev)=>{ const a=ev.target.files&&ev.target.files[0]; ev.target.value=""; if(!a) return;
+    const fr=new FileReader(); fr.onload=()=>{ setTexto(String(fr.result||"")); setPrevia(null); }; fr.readAsText(a); };
+  const verPrevia=async()=>{ setOcupado(true); setMsg(null);
+    try{ setPrevia(await acoes.importarLotes(texto,true)); }catch(e){ setMsg({ok:false,txt:e.message}); } finally{ setOcupado(false); } };
+  const importar=async()=>{ setOcupado(true); setMsg(null);
+    try{ const r=await acoes.importarLotes(texto,false); setMsg({ok:true,txt:`Planilha aplicada: ${r.novos||0} novos, ${r.atualizados||0} atualizados.`}); setPrevia(null); setTexto(""); aoMudar(); }
+    catch(e){ setMsg({ok:false,txt:e.message}); } finally{ setOcupado(false); } };
+  const btn=(txt,fn,prim)=><button onClick={fn} disabled={ocupado} style={{borderRadius:10,padding:"10px 14px",fontSize:13.5,fontWeight:700,cursor:ocupado?"default":"pointer",fontFamily:FONT,
+    border:prim?"none":`1px solid ${C.line}`,background:prim?C.green:C.card,color:prim?"#fff":C.ink}}>{txt}</button>;
+  return <JanelaLote titulo="Ajustes do empreendimento" isMobile={isMobile} aoFechar={aoFechar}>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div>{rot("Nome")}<input value={f.nome} onChange={e=>setF({...f,nome:e.target.value})} style={campo}/></div>
+      <div>{rot("Cidade")}<input value={f.cidade} onChange={e=>setF({...f,cidade:e.target.value})} style={campo}/></div>
+      <div>{rot("Link do tour 3D")}<input value={f.tour} onChange={e=>setF({...f,tour:e.target.value})} placeholder="https://" style={campo}/></div>
+      <div>{rot("Quantas horas vale uma reserva")}<input value={f.reserva_horas} onChange={e=>setF({...f,reserva_horas:e.target.value.replace(/\D/g,"")})} style={campo} inputMode="numeric"/></div>
+      <label style={{display:"flex",gap:9,alignItems:"flex-start",fontSize:13.5,color:C.ink,cursor:"pointer"}}>
+        <input type="checkbox" checked={f.preco_para_ia} onChange={e=>setF({...f,preco_para_ia:e.target.checked})} style={{marginTop:3}}/>
+        <span>A IA pode dizer o valor dos lotes ao cliente<br/><span style={{color:C.faint,fontSize:12}}>Desligado, ela fala só dos lotes disponíveis e das áreas, e deixa valor e condição para o corretor.</span></span>
+      </label>
+      <div>{btn("Salvar ajustes",salvar,true)}</div>
+
+      <div style={{borderTop:`1px solid ${C.line}`,marginTop:6,paddingTop:12}}>
+        <div style={{color:C.ink,fontWeight:700,fontSize:14,marginBottom:4}}>Subir a planilha de lotes</div>
+        <div style={{color:C.faint,fontSize:12.5,marginBottom:8}}>Arquivo CSV com as colunas lote, quadra, área, valor e situação. Lote que já existe é atualizado pelo código; reserva em andamento não é desfeita.</div>
+        <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.surface,color:C.ink,borderRadius:10,padding:"9px 13px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+          <Icon n="clip" size={14}/>Escolher arquivo<input type="file" accept=".csv,text/csv,text/plain" onChange={lerArquivo} style={{display:"none"}}/></label>
+        {texto&&!previa&&<div style={{marginTop:8}}>{btn("Conferir antes de aplicar",verPrevia)}</div>}
+        {previa&&<div style={{marginTop:10,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:11,fontSize:13,color:C.ink}}>
+          <div><b>{previa.total}</b> lotes lidos: {previa.novos} novos e {previa.atualizados} atualizados ({previa.disponiveis} disponíveis, {previa.vendidos} vendidos).</div>
+          {!!(previa.fora||[]).length&&<div style={{color:C.hot,marginTop:4}}>{previa.fora.length} linha(s) ficaram de fora: {previa.fora.slice(0,3).map(x=>x.motivo||x).join("; ")}</div>}
+          <div style={{marginTop:9,display:"flex",gap:8,flexWrap:"wrap"}}>{btn(`Aplicar ${previa.total} lotes`,importar,true)}{btn("Cancelar",()=>{setPrevia(null);setTexto("");})}</div>
+        </div>}
+      </div>
+      {msg&&<div style={{fontSize:13,borderRadius:9,padding:"9px 11px",color:msg.ok?C.greenDeep:C.hot,background:msg.ok?C.greenSoft:C.hotSoft}}>{msg.txt}</div>}
+    </div>
+  </JanelaLote>;
+}
+
+function QuadroEmpreendimento({conta,acoes,aoMudar,ocupado,setOcupado}){
+  const [feito,setFeito]=useState(null);
+  const ligado=!!conta.empreendimento;
+  const definir=async(v)=>{ if(v===ligado) return;
+    if(!v&&!window.confirm("Desligar o modo empreendimento? Imóveis, Plantão e a simulação voltam ao menu; os lotes ficam guardados.")) return;
+    setOcupado("emp"+v);
+    try{ await acoes.definirEmpreendimento(conta.id,v); await aoMudar(); }catch(e){ window.alert(e.message); } finally{ setOcupado(""); } };
+  const kit=async()=>{ setOcupado("kit"); setFeito(null);
+    try{ const r=await acoes.aplicarKitReserva(conta.id); setFeito(r.feito||r); await aoMudar(); }catch(e){ window.alert(e.message); } finally{ setOcupado(""); } };
+  const n=(x)=>Array.isArray(x)?x.length:(x&&typeof x==="object"?(x.criados??x.novos??Object.keys(x).length):x);
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Modo empreendimento</span>
+      <span style={{background:ligado?C.greenSoft:C.surface,color:ligado?C.greenDeep:C.faint,
+        borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{ligado?"loteamento":"imobiliária"}</span>
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Ligado, a conta vende um empreendimento: sai Imóveis, Plantão, a simulação e o site do Cetrolab, e entra a tela de Lotes (mapa das quadras, reserva com prazo, venda). A IA passa a conhecer os lotes disponíveis.
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {[[false,"Imobiliária"],[true,"Ligar modo empreendimento"]].map(([v,t])=>{const sel=ligado===v;
+        return <button key={t} disabled={!!ocupado} onClick={()=>definir(v)}
+          style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+          {ocupado==="emp"+v?"…":t}</button>;})}
+    </div>
+    <button disabled={!!ocupado} onClick={kit}
+      style={{width:"100%",marginTop:8,background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
+      {ocupado==="kit"?"Aplicando…":"Aplicar o pacote do Reserva Real do Rio"}</button>
+    <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Liga o modo e monta funil, ficha de produto, orientações da IA, mensagens prontas, tags, o fluxo de boas-vindas (desligado) e os lotes da planilha. Aplicar de novo não duplica.</div>
+    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 10px",fontSize:11.5,lineHeight:1.5}}>
+      Pacote aplicado. {["lotes","mensagens","orientacoes","tags"].filter(k=>feito[k]!=null).map(k=>`${({lotes:"Lotes",mensagens:"Mensagens",orientacoes:"Orientações",tags:"Tags"})[k]}: ${n(feito[k])}`).join(" · ")}
+      {(feito.avisos||[]).length?<div style={{color:C.hot,marginTop:4}}>{feito.avisos.join(" ")}</div>:null}
+    </div>}
+  </div>;
+}

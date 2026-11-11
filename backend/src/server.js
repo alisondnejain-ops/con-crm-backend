@@ -26,6 +26,8 @@ import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
+import lotesRoutes from "./routes/lotes.routes.js";
+import { expirarVencidas as expirarReservasDeLote } from "./services/lotes.js";
 import gruposRoutes from "./routes/grupos.routes.js";
 import { gestao as googleRoutes, retorno as googleRetorno } from "./routes/google.routes.js";
 import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
@@ -391,6 +393,7 @@ app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
 app.use("/triagem", cobrando, triagemRoutes); // números novos: é lead ou é pessoal?
+app.use("/lotes", cobrando, lotesRoutes); // espelho de lotes da conta de empreendimento (services/lotes.js)
 app.use("/grupos", cobrando, gruposRoutes);
 app.use("/google", cobrando, googleRoutes);   // Google Agenda de cada pessoa (31/10/2026)   // grupos do WhatsApp, quando a linha liga (31/10/2026)
 app.use("/portais", cobrando, portaisGestao);   // tela de Portais (só gestor)
@@ -524,6 +527,8 @@ app.listen(PORT, () => {
   reseedDemoSePassouDaHora();
   setInterval(() => {
     avisarPlantaoEmTodas(); avisarSemRespostaEmTodas();
+    // Reserva de lote vencida volta a ficar disponível (services/lotes.js).
+    try { expirarReservasDeLote(); } catch (e) { console.error("[lotes] expiração:", e.message); }
     // Prazo da etapa vencido com consequência (services/prazo-vencido.js).
     if (process.env.PRAZO_AGENDADOR !== "0")
       agirNosVencidosEmTodas().catch(e => console.error("[prazo] erro no ciclo:", e.message));

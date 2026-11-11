@@ -62,6 +62,8 @@ const codigoSugerido = (nome) =>
 import { limites as limitesDeCanais } from "../services/canais.js";
 import { chavesDaMidia } from "../services/fotos-imovel.js";
 import { transcricaoConfigurada, leituraDeImagemConfigurada } from "../services/leitura-midia.js";
+import { ligarModo as ligarModoEmpreendimento } from "../services/lotes.js";
+import { aplicarKitReserva } from "../services/kit-reserva.js";
 
 function resumo(req, org) {
   const n = (sql, ...a) => db.prepare(sql).get(...a)?.n ?? 0;
@@ -121,6 +123,7 @@ function resumo(req, org) {
       livre_em: org.acesso_livre_em || null },
     fila_por_etapa: !!org.fila_por_etapa,
     parceira: !!org.parceira,
+    empreendimento: !!org.empreendimento,
     leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() },
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
@@ -635,6 +638,33 @@ r.post("/:id/parceira", async (req, res) => {
   }
   console.log(`[master] ${req.user.name} ${liga ? "marcou" : "desmarcou"} ${org.name} como conta parceira`);
   res.json({ ok: true, aviso, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* MODO EMPREENDIMENTO (11/11/2026, services/lotes.js e services/kit-reserva.js):
+   a conta que vende um empreendimento troca o que é de imobiliária pelo
+   espelho de lotes. Só o master liga; o pacote do Reserva Real do Rio é
+   aplicado uma vez e não sobrescreve o que a equipe já mudou. */
+r.post("/:id/empreendimento", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não vende empreendimento." });
+  if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se o modo fica ligado ou não." });
+  ligarModoEmpreendimento(org.id, req.body.ligado);
+  console.log(`[master] ${req.user.name} ${req.body.ligado ? "ligou" : "desligou"} o modo empreendimento de ${org.name}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+r.post("/:id/empreendimento/kit-reserva", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não vende empreendimento." });
+  try {
+    const feito = aplicarKitReserva(org.id, req.user);
+    console.log(`[master] ${req.user.name} aplicou o pacote do Reserva Real do Rio em ${org.name}`);
+    res.json({ ok: true, feito, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+  } catch (e) {
+    console.error("[kit-reserva]", e);
+    res.status(500).json({ error: "Não consegui aplicar o pacote: " + e.message });
+  }
 });
 
 /* A FILA PELA PRIMEIRA ETAPA (11/11/2026, services/fila-etapa.js): a régua

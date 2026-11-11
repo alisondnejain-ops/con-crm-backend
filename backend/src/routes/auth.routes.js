@@ -39,8 +39,32 @@ const norm = (e) => String(e || "").trim().toLowerCase();
    Buscá-la separado faria a barra nascer verde e trocar de cor um instante
    depois, em todo login — o piscar diria à equipe que a marca dela é um
    enfeite que o sistema aplica com atraso. */
+/* AS CONTAS DA MESMA PESSOA (11/11/2026). Cada conta tem a própria linha da
+   pessoa (papel, aprovação e disponibilidade são de cada casa), e o que liga
+   as linhas é o e-mail. Só entram as ATIVAS: quem ainda espera aprovação na
+   outra casa não troca para ela. O master não tem: ele entra pelo hub. */
+function contasDaPessoa(user) {
+  if (!user || user.master) return [];
+  return db.prepare(`SELECT u.id, u.org_id, u.role, o.name AS org_nome FROM users u JOIN orgs o ON o.id = u.org_id
+      WHERE u.email = ? AND u.status = 'ativo' AND COALESCE(u.master,0) = 0 ORDER BY o.name`).all(user.email)
+    .map(c => ({ org_id: c.org_id, nome: c.org_nome, papel: PAPEIS[c.role]?.rotulo || c.role, atual: c.id === user.id }));
+}
+
+/* A senha é uma só para a pessoa: trocar numa conta troca em todas, e o
+   bloqueio por senha errada sai junto. `derrubar` encerra as sessões das
+   outras linhas (troca de senha e redefinição derrubam os outros aparelhos). */
+function senhaNasOutrasContas(userId, { derrubar = false } = {}) {
+  const u = db.prepare("SELECT id, email, pass_hash, master FROM users WHERE id = ?").get(userId);
+  if (!u || u.master || !u.pass_hash) return;
+  const outras = db.prepare("SELECT id FROM users WHERE email = ? AND id <> ? AND pass_hash <> '' AND COALESCE(master,0) = 0").all(u.email, u.id);
+  for (const o of outras) {
+    db.prepare("UPDATE users SET pass_hash = ?, senha_erros = 0, senha_bloqueada_em = NULL WHERE id = ?").run(u.pass_hash, o.id);
+    if (derrubar) encerrarSessoes(o.id);
+  }
+}
+
 function orgDoUsuario(user) {
-  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo,pais_padrao,fila_por_etapa FROM orgs WHERE id = ?").get(user.org_id);
+  const o = db.prepare("SELECT id,name,adm_code,logo_url,cor_barra,tipo,pais_padrao,fila_por_etapa,empreendimento FROM orgs WHERE id = ?").get(user.org_id);
   /* `tipo` vem junto porque decide o MENU: a conta de corretor autônomo não
      mostra catraca — fila de distribuição com uma pessoa não é fila. */
   /* As ferramentas (`recursos`) decidem o menu: Marketing só aparece com a
@@ -53,6 +77,8 @@ function orgDoUsuario(user) {
     recursos, marketing_liberado: recursos.marketing, pais_padrao: o.pais_padrao || "BR",
     // A fila pela primeira etapa (services/fila-etapa.js): muda o texto da Catraca.
     fila_por_etapa: !!o.fila_por_etapa,
+    // Modo empreendimento (services/lotes.js): troca Imóveis/Plantão/Site pelo espelho de lotes.
+    empreendimento: !!o.empreendimento,
     // Transcrição de áudio e leitura de foto disponíveis (services/leitura-midia.js): decide se a conversa mostra os botões.
     leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() }, ...marcaDaOrg(o) };
 }
@@ -225,9 +251,39 @@ r.post("/register", freioDeCadastro, async (req, res) => {
   }
 
   const mail = norm(email);
-  const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(mail);
+  const linhas = db.prepare("SELECT * FROM users WHERE email = ? ORDER BY (status = 'ativo') DESC, created_at ASC").all(mail);
+  const nestaConta = linhas.find(l => l.org_id === org.id);
+  /* JÁ USA O CONHUB EM OUTRA CONTA (11/11/2026, pedido do Ali: corretores da
+     Conecta também atendem a Reserva Real do Rio). Em vez de recusar, a pessoa
+     PEDE ACESSO a esta conta digitando a senha que já usa — é ela que prova
+     que o e-mail é dela (o link de cadastro circula em grupo). Nasce uma linha
+     desta conta, com a mesma senha, sempre aguardando a aprovação da gestão
+     daqui (mesmo corretor: é acesso a mais uma casa, e quem decide é ela).
+     Depois de aprovada, a pessoa escolhe a conta ao entrar e troca pelo app. */
+  const ativaFora = !nestaConta && !linhas.some(l => l.master)
+    && linhas.find(l => l.status === "ativo" && l.pass_hash);
+  if (ativaFora) {
+    const senhaAtual = req.body?.senha_atual;
+    const pedido = "Esse e-mail já usa o ConHub em outra conta. Para pedir acesso a esta também, digite a senha que você já usa no ConHub.";
+    if (!senhaAtual) return res.status(409).json({ ja_tem_conta: true, error: pedido });
+    const chave = "vincular:" + mail;
+    if (!podeTentar(chave, 8, 15 * 60 * 1000))
+      return res.status(429).json({ ja_tem_conta: true, error: `Muitas tentativas. Tente de novo em ${Math.ceil(faltamSegundos(chave) / 60)} minuto(s).` });
+    if (ativaFora.senha_bloqueada_em)
+      return res.status(423).json({ ja_tem_conta: true, error: BLOQUEADA });
+    if (!bcrypt.compareSync(String(senhaAtual), ativaFora.pass_hash))
+      return res.status(401).json({ ja_tem_conta: true, error: "Senha incorreta. Use a mesma senha com que você entra no ConHub." });
+    zerarTentativas(chave);
+    db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status)
+      VALUES (?,?,?,?,?,?,0,?,?,'aguardando_aprovacao')`)
+      .run("u_" + randomUUID(), org.id, String(name).trim() || ativaFora.name, mail, ativaFora.pass_hash, role, Date.now(), tel.phone || ativaFora.phone);
+    console.log(`[cadastro] ${mascararEmail(mail)} pediu acesso a mais uma conta (${PAPEIS[role].rotulo})`);
+    return res.json({ ok: true, vinculo: true, precisaAprovacao: true, funcao: PAPEIS[role].rotulo });
+  }
+  const existing = nestaConta || linhas[0];
   if (existing && existing.status === "ativo")
-    return res.status(409).json({ error: "Esse e-mail já tem conta ativa. Use 'Entrar' no CRM." });
+    return res.status(409).json({ error: existing.org_id === org.id
+      ? "Esse e-mail já tem acesso a esta conta. Use 'Entrar' no CRM." : "Esse e-mail já tem conta ativa. Use 'Entrar' no CRM." });
   /* Convite repetido só reaproveita conta DESTA imobiliária e que não é do
      ConHub: um sócio convidado (master) ou alguém de outra casa não pode ter
      o convite reemitido por quem tem o link de cadastro de uma imobiliária. */
@@ -301,6 +357,7 @@ r.post("/set-password", (req, res) => {
     db.prepare(`UPDATE users SET pass_hash=?, invite_token=NULL, invite_hash=NULL, invite_expires=NULL,
          invite_tipo=NULL, sessoes_desde=?, senha_erros=0, senha_bloqueada_em=NULL WHERE id=?`)
       .run(bcrypt.hashSync(String(password), 10), Date.now(), u.id);
+    senhaNasOutrasContas(u.id, { derrubar: true });
     const atual = db.prepare("SELECT * FROM users WHERE id = ?").get(u.id);
     if (atual.status !== "ativo")
       return res.json({ aguardandoAprovacao: true, funcao: PAPEIS[atual.role].rotulo, user: publicUser(atual) });
@@ -417,7 +474,11 @@ r.post("/login", (req, res) => {
     return res.status(429).json({ error: `Muitas tentativas de entrada. Tente de novo em ${Math.ceil(s / 60)} minuto(s).` });
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(norm(email));
+  /* O mesmo e-mail pode ter uma linha em cada conta (11/11/2026). Entra pela
+     ativa (a senha é a mesma em todas); `org_id` no corpo escolhe a conta. */
+  const linhasDoEmail = db.prepare("SELECT * FROM users WHERE email = ? ORDER BY (status = 'ativo') DESC, created_at ASC").all(norm(email));
+  const pedida = req.body?.org_id && linhasDoEmail.find(l => l.org_id === req.body.org_id && l.status === "ativo");
+  const user = pedida || linhasDoEmail[0];
   if (!user) return res.status(401).json({ error: "E-mail ou senha incorretos." });
   // Convite ainda não confirmado: sem senha definida, a mensagem precisa apontar o caminho certo.
   if (user.status === "pendente" || !user.pass_hash)
@@ -437,11 +498,14 @@ r.post("/login", (req, res) => {
     if (demo) return res.status(401).json({ error: "E-mail ou senha incorretos." });
     const erros = (user.senha_erros || 0) + 1;
     if (erros >= TETO_SENHA) {
-      db.prepare("UPDATE users SET senha_erros = ?, senha_bloqueada_em = ? WHERE id = ?").run(erros, Date.now(), user.id);
+      // A senha é uma só para as contas da pessoa: bloqueia todas juntas.
+      db.prepare("UPDATE users SET senha_erros = ?, senha_bloqueada_em = ? WHERE id = ? OR (email = ? AND COALESCE(master,0) = 0 AND ? = 0)")
+        .run(erros, Date.now(), user.id, user.email, user.master ? 1 : 0);
       console.log(`[login] conta ${mascararEmail(user.email)} bloqueada após ${TETO_SENHA} senhas erradas`);
       return res.status(423).json({ bloqueada: true, error: BLOQUEADA });
     }
-    db.prepare("UPDATE users SET senha_erros = ? WHERE id = ?").run(erros, user.id);
+    db.prepare("UPDATE users SET senha_erros = ? WHERE id = ? OR (email = ? AND COALESCE(master,0) = 0 AND ? = 0)")
+      .run(erros, user.id, user.email, user.master ? 1 : 0);
     const sobra = TETO_SENHA - erros;
     return res.status(401).json({ error: `E-mail ou senha incorretos. ${sobra === 1 ? "Mais 1 tentativa errada" : `Mais ${sobra} tentativas erradas`} e a conta é bloqueada.` });
   }
@@ -459,7 +523,7 @@ r.post("/login", (req, res) => {
      quinta e volta do almoço encontra a conta bloqueada por um erro que já
      tinha sido resolvido — o freio atrapalharia justamente quem ele protege. */
   zerarTentativas(chaveIp, chaveEmail);
-  res.json({ token: sign(user), user: publicUser(user), org: orgDoUsuario(user) });
+  res.json({ token: sign(user), user: publicUser(user), org: orgDoUsuario(user), contas: contasDaPessoa(user) });
 });
 
 r.get("/me", authRequired, (req, res) => {
@@ -475,7 +539,21 @@ r.get("/me", authRequired, (req, res) => {
      do cliente, e cada tela que o usasse levaria 403 — o app ficaria
      recarregando em volta disso. */
   if (req.user.acessoVencido) return res.json({ user: publicUser(user), org: null, acesso_vencido: true, token: sign(user) });
-  res.json({ user: publicUser(user), org: orgDoUsuario({ org_id: req.user.org_id }) });
+  res.json({ user: publicUser(user), org: orgDoUsuario({ org_id: req.user.org_id }), contas: contasDaPessoa(user) });
+});
+
+/* TROCAR DE CONTA (11/11/2026): a mesma pessoa, já logada, passa para a linha
+   dela em outra conta — sem senha de novo, porque é a mesma pessoa e a linha
+   de lá foi aprovada pela gestão de lá. Só para conta ATIVA desta pessoa. */
+r.post("/trocar-conta", authRequired, (req, res) => {
+  const eu = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!eu) return res.status(404).json({ error: "Conta não encontrada" });
+  if (eu.master) return res.status(403).json({ error: "O master troca de conta pelo hub." });
+  const alvo = db.prepare("SELECT * FROM users WHERE email = ? AND org_id = ? AND status = 'ativo' AND COALESCE(master,0) = 0")
+    .get(eu.email, String(req.body?.org_id || ""));
+  if (!alvo) return res.status(404).json({ error: "Você não tem acesso liberado a essa conta." });
+  if (alvo.senha_bloqueada_em) return res.status(423).json({ bloqueada: true, error: BLOQUEADA });
+  res.json({ token: sign(alvo), user: publicUser(alvo), org: orgDoUsuario(alvo), contas: contasDaPessoa(alvo) });
 });
 
 // ── Minha conta ───────────────────────────────────────────────────────────────
@@ -510,7 +588,10 @@ r.patch("/me", authRequired, (req, res) => {
     }
   }
 
-  db.prepare("UPDATE users SET name=?, email=?, phone=? WHERE id=?").run(nome, mail, fone, eu.id);
+  // A mesma pessoa nas outras contas (mesmo e-mail) muda junto: senão o
+  // e-mail novo separaria as linhas e ela perderia a troca de conta.
+  if (eu.master) db.prepare("UPDATE users SET name=?, email=?, phone=? WHERE id=?").run(nome, mail, fone, eu.id);
+  else db.prepare("UPDATE users SET name=?, email=?, phone=? WHERE email=? AND COALESCE(master,0)=0").run(nome, mail, fone, eu.email);
   const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);
   // O nome viaja dentro do token e é ele que assina as mensagens no WhatsApp —
   // então trocar o nome exige um token novo, senão as mensagens sairiam com o antigo.
@@ -606,6 +687,7 @@ r.post("/me/senha", authRequired, (req, res) => {
   const trocar = db.transaction(() => {
     db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(bcrypt.hashSync(String(nova), 10), eu.id);
     encerrarSessoes(eu.id);
+    senhaNasOutrasContas(eu.id, { derrubar: true });
   });
   trocar();
   const atualizado = db.prepare("SELECT * FROM users WHERE id = ?").get(eu.id);
@@ -772,7 +854,7 @@ r.post("/esqueci-senha", async (req, res) => {
   if (!podePedirSenha("ip:" + ip, TETO_IP) || !podePedirSenha("em:" + email, TETO_EMAIL))
     return res.json(resposta);
 
-  const u = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const u = db.prepare("SELECT * FROM users WHERE email = ? ORDER BY (status = 'ativo') DESC, (pass_hash <> '') DESC, created_at ASC").get(email);
   /* Sem senha definida a pessoa nunca ativou a conta: o caminho dela é o
      convite, não a redefinição. Responder igual mantém a rota calada sobre em
      que estado a conta está — e o convite original continua valendo. */
