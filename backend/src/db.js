@@ -2546,6 +2546,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("parceira")) db.exec("ALTER TABLE orgs ADD COLUMN parceira INTEGER");
   if (!o.includes("parceira_em")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_em INTEGER");
   if (!o.includes("parceira_por")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_por TEXT");
+  /* Só leads do formulário (11/11/2026, services/so-formulario.js): número que
+     escreve sem ter vindo de um formulário não entra no CRM. Nulo = como sempre. */
+  if (!o.includes("so_formulario")) db.exec("ALTER TABLE orgs ADD COLUMN so_formulario INTEGER");
   // Ler áudios e fotos do cliente automaticamente (services/leitura-midia.js). Nulo = sim.
   if (!o.includes("ler_midia")) db.exec("ALTER TABLE orgs ADD COLUMN ler_midia INTEGER");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
@@ -2787,3 +2790,21 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_lotes_hist ON lotes_historico(org_id, lo
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_org ON users(email, org_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)");
 }
+
+/* SÓ LEADS DO FORMULÁRIO (11/11/2026, services/so-formulario.js).
+   leads.formulario_em: quando o lead mandou um formulário (site, Meta, portal)
+   pela última vez — é o que separa o lead que preencheu do que só escreveu.
+   leads_retirados: cópia inteira (lead e conversa) do contato espontâneo que a
+   gestão retirou — sai da tela, mas nada some sem rastro. */
+{
+  const c = db.prepare("PRAGMA table_info(leads)").all().map(x => x.name);
+  if (!c.includes("formulario_em")) db.exec("ALTER TABLE leads ADD COLUMN formulario_em INTEGER");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS leads_retirados (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lead_json TEXT NOT NULL,
+  mensagens_json TEXT,
+  retirado_por TEXT,
+  retirado_em INTEGER NOT NULL
+)`);

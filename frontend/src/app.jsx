@@ -2286,6 +2286,10 @@ function ConCRM(){
     // Modo empreendimento e espelho de lotes (services/lotes.js, services/kit-reserva.js).
     definirEmpreendimento:(id,ligado)=>api(`/orgs/${id}/empreendimento`,{method:"POST",body:{ligado}}),
     aplicarKitReserva:(id)=>api(`/orgs/${id}/empreendimento/kit-reserva`,{method:"POST",body:{}}),
+    // Só leads do formulário (11/11/2026, services/so-formulario.js).
+    definirSoFormulario:(id,ligado)=>api(`/orgs/${id}/so-formulario`,{method:"POST",body:{ligado}}),
+    previaEspontaneos:(id)=>api(`/orgs/${id}/so-formulario/previa`),
+    retirarEspontaneos:(id)=>api(`/orgs/${id}/so-formulario/retirar`,{method:"POST",body:{confirmar:"RETIRAR"}}),
     lotes:()=>api("/lotes"),
     reservarLote:(id,dados)=>api(`/lotes/${id}/reservar`,{method:"POST",body:dados}),
     liberarLote:(id)=>api(`/lotes/${id}/liberar`,{method:"POST",body:{}}),
@@ -5193,6 +5197,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
             uma vez (funil, ficha, orientações, mensagens, tags, fluxo e os 60
             lotes da planilha); aplicar de novo não duplica nada. */}
         {conta.tipo!=="autonomo"&&<QuadroEmpreendimento conta={conta} acoes={acoes} aoMudar={aoMudar} ocupado={ocupado} setOcupado={setOcupado}/>}
+        <QuadroSoFormulario conta={conta} acoes={acoes} aoMudar={aoMudar} ocupado={ocupado} setOcupado={setOcupado}/>
         {/* A FILA PELA PRIMEIRA ETAPA (11/11/2026, pedido do Fernando para a
             VJ): a régua nova dos indicadores do SDR e da fila da Catraca.
             Liga conta por conta; as outras continuam como estão. */}
@@ -25686,6 +25691,52 @@ function AjustesDosLotes({cfg,acoes,isMobile,aoFechar,aoMudar}){
   </JanelaLote>;
 }
 
+/* SÓ LEADS DO FORMULÁRIO (11/11/2026, services/so-formulario.js): na conta
+   marcada, quem escreve no WhatsApp sem ter vindo de um formulário não entra no
+   CRM. Retirar os espontâneos que já entraram mostra antes quantos são. */
+function QuadroSoFormulario({conta,acoes,aoMudar,ocupado,setOcupado}){
+  const ligado=!!conta.so_formulario;
+  const [previa,setPrevia]=useState(null);
+  const [feito,setFeito]=useState(null);
+  const ver=async()=>{ try{ setPrevia(await acoes.previaEspontaneos(conta.id)); }catch(e){ window.alert(e.message); } };
+  useEffect(()=>{ if(ligado) ver(); },[ligado,conta.id]);
+  const definir=async(v)=>{ if(v===ligado) return;
+    if(v&&!window.confirm(`Ligar "só leads do formulário" em ${conta.nome}? A partir de agora, quem escrever no WhatsApp desta conta sem ter preenchido um formulário não entra no CRM — nem a mensagem nem o arquivo.`)) return;
+    setOcupado("sof"+v); setFeito(null);
+    try{ const r=await acoes.definirSoFormulario(conta.id,v); setPrevia(v?r.previa:null); await aoMudar(); }catch(e){ window.alert(e.message); } finally{ setOcupado(""); } };
+  const retirar=async()=>{ if(!previa?.total) return;
+    if(window.prompt(`Retirar ${previa.total} contato(s) espontâneo(s) desta conta? Eles saem do CRM (a cópia fica guardada). Escreva RETIRAR para confirmar.`)!=="RETIRAR") return;
+    setOcupado("ret");
+    try{ const r=await acoes.retirarEspontaneos(conta.id); setFeito(r); setPrevia(r.previa); await aoMudar(); }catch(e){ window.alert(e.message); } finally{ setOcupado(""); } };
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+      <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Só leads do formulário</span>
+      <span style={{background:ligado?C.greenSoft:C.surface,color:ligado?C.greenDeep:C.faint,
+        borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{ligado?"ligado":"desligado"}</span>
+    </div>
+    <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+      Ligado, só entra no WhatsApp desta conta quem preencheu um formulário (site, anúncio, portal) ou foi cadastrado pela equipe. Quem escrever espontaneamente fica de fora — nada da conversa é gravado. As outras contas não mudam.
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {[[false,"Desligado"],[true,"Ligar"]].map(([v,t])=>{const sel=ligado===v;
+        return <button key={t} disabled={!!ocupado} onClick={()=>definir(v)}
+          style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+          {ocupado==="sof"+v?"…":t}</button>;})}
+    </div>
+    {ligado&&previa&&<div style={{marginTop:9,fontSize:11.5,color:C.sub,lineHeight:1.5}}>
+      {previa.total
+        ?<>Já estão na conta <b style={{color:C.ink}}>{previa.total}</b> contato(s) que entraram espontaneamente ({previa.mensagens} mensagens){previa.exemplos?.length?`: ${previa.exemplos.map(x=>`${x.nome} (…${x.telefone_final})`).join(", ")}${previa.total>previa.exemplos.length?" e outros":""}`:""}. As mensagens deles já não entram.
+          <button disabled={!!ocupado} onClick={retirar}
+            style={{width:"100%",marginTop:7,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
+            {ocupado==="ret"?"Retirando…":`Retirar os ${previa.total} contatos espontâneos`}</button></>
+        :"Nenhum contato espontâneo na conta."}
+      {previa.com_venda_ficam?<div style={{marginTop:4}}>{previa.com_venda_ficam} com venda registrada ficam (já são clientes).</div>:null}
+    </div>}
+    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 10px",fontSize:11.5}}>
+      {feito.retirados} contato(s) retirado(s). A cópia de cada um ficou guardada.</div>}
+  </div>;
+}
 function QuadroEmpreendimento({conta,acoes,aoMudar,ocupado,setOcupado}){
   const [feito,setFeito]=useState(null);
   const ligado=!!conta.empreendimento;

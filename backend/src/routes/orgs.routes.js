@@ -11,6 +11,7 @@
 
    Tudo aqui exige master, conferido no banco (ver auth.js -> soMaster). */
 
+import { definirSoFormulario, previaEspontaneos, retirarEspontaneos } from "../services/so-formulario.js";
 import { Router } from "express";
 import { randomUUID, randomBytes } from "crypto";
 import db from "../db.js";
@@ -124,6 +125,7 @@ function resumo(req, org) {
     fila_por_etapa: !!org.fila_por_etapa,
     parceira: !!org.parceira,
     empreendimento: !!org.empreendimento,
+    so_formulario: !!org.so_formulario,
     leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() },
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
@@ -665,6 +667,32 @@ r.post("/:id/empreendimento/kit-reserva", (req, res) => {
     console.error("[kit-reserva]", e);
     res.status(500).json({ error: "Não consegui aplicar o pacote: " + e.message });
   }
+});
+
+/* SÓ LEADS DO FORMULÁRIO (11/11/2026, services/so-formulario.js): na conta
+   marcada, quem escreve no WhatsApp sem ter vindo de um formulário não entra.
+   Só o master liga, conta por conta. Retirar os espontâneos que já entraram
+   pede prévia e a palavra RETIRAR; a cópia fica em leads_retirados. */
+r.post("/:id/so-formulario", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se fica ligado ou não." });
+  definirSoFormulario(org.id, req.body.ligado);
+  console.log(`[master] ${req.user.name} ${req.body.ligado ? "ligou" : "desligou"} "só leads do formulário" em ${org.name}`);
+  res.json({ ok: true, previa: previaEspontaneos(org.id), org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+r.get("/:id/so-formulario/previa", (req, res) => {
+  const org = db.prepare("SELECT id FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  res.json(previaEspontaneos(org.id));
+});
+r.post("/:id/so-formulario/retirar", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (req.body?.confirmar !== "RETIRAR") return res.status(400).json({ error: "Escreva RETIRAR para confirmar." });
+  const out = retirarEspontaneos(org.id, req.user.id);
+  console.log(`[master] ${req.user.name} retirou ${out.retirados} contato(s) espontâneo(s) de ${org.name}`);
+  res.json({ ok: true, ...out, previa: previaEspontaneos(org.id) });
 });
 
 /* A FILA PELA PRIMEIRA ETAPA (11/11/2026, services/fila-etapa.js): a régua
