@@ -103,15 +103,53 @@ Tour 3D do loteamento: ${TOUR}
 
 Ainda não estão escritos aqui, e por isso o corretor é quem informa: preço, entrada, parcelas e condições de pagamento; infraestrutura e áreas comuns; prazo de obras; documentação.`;
 
-const ORIENTACOES = [
+/* As orientações da primeira versão do pacote (11/11/2026). Algumas mandavam
+   dizer "um corretor vai falar com você", o que a qualificação nova proíbe —
+   reaplicar o pacote DESLIGA as que continuam com o texto original (editada
+   pela equipe não é tocada; desligada não é apagada). */
+const ORIENTACOES_V1 = [
   `Você atende o ${NOME}, um loteamento em Petrolina-PE à beira do Rio São Francisco. Trate a pessoa pelo primeiro nome, com acolhimento e sem pressa.`,
   "Antes de falar de lote, entenda o que a pessoa busca: construir a casa, investir ou ter um lugar de lazer, e qual tamanho de lote ela imagina.",
-  `Quando a pessoa quiser conhecer o loteamento, mande o tour 3D: ${TOUR}`,
   "Não informe preço, entrada, parcelas nem condições de pagamento: diga que o corretor passa os valores atualizados.",
   "Fale só dos lotes que o sistema mostra como disponíveis. Você não reserva nem promete lote — quem reserva é o corretor.",
   "Pergunte se a pessoa já conhece a região e para quando ela pensa em comprar.",
   "Quando a pessoa pedir valores, quiser visitar o loteamento ou escolher um lote, diga que um corretor vai falar com ela em seguida e encerre o atendimento.",
 ];
+
+/* A qualificação (11/11/2026), no molde da que o Fernando montou para os
+   produtos da VJ: um objetivo claro (visita ao loteamento ou ligação de 10
+   minutos), nada de prometer corretor, uma pergunta por vez, e o resumo no
+   formato que o corretor lê. Cada linha cabe nos 500 caracteres do campo. */
+const ORIENTACOES = [
+  `Você faz o primeiro atendimento comercial do ${NOME}, loteamento à beira do Rio São Francisco em Petrolina-PE. Conecte com o cliente, apresente o loteamento e descubra o que ele busca. Não feche venda nem reserve lote pelo WhatsApp. A conversa segue o que o cliente traz, sem roteiro fixo, e o cliente não deve recomeçar com outra pessoa.`,
+  "Toda mensagem sua termina com uma pergunta curta ou um próximo passo concreto. Só na confirmação final de dia e horário você encerra sem pergunta. Nunca deixe o cliente sem continuação.",
+  "Cumprimente pelo primeiro nome. Se o lead veio de anúncio ou formulário, leia as respostas na observação do lead e não pergunte de novo o que já está lá.",
+  "Apresente em poucas frases: loteamento à beira do Rio São Francisco, em Petrolina; lotes de 382 m² a 1.209,67 m², a maioria com 600 m²; quatro quadras; e quais estão disponíveis agora, só os que o sistema mostra. Feche com: \"Esse perfil está dentro do que você procura hoje?\"",
+  `Quando a pessoa quiser conhecer o loteamento, mande o tour 3D: ${TOUR}`,
+  "Nunca invente preço, entrada, parcela, infraestrutura, prazo de obra ou documentação. Se perguntarem, diga que isso te mostramos melhor na visita ou na ligação. Nunca diga que um lote está disponível sem o sistema mostrar, e nunca reserve nem prometa lote.",
+  "Seu objetivo é marcar uma visita ao loteamento ou uma ligação de 10 minutos com o corretor. Proponha no momento certo: quando o cliente pedir preço, quiser escolher lote ou mostrar interesse claro. Pergunte o dia e o período: \"Fica melhor de manhã, à tarde ou depois das 18h?\". Se ele mora longe, proponha a ligação e mande o tour 3D.",
+  "O convite para visita ou ligação só vem depois da pergunta \"esse perfil está dentro do que você procura?\". Se disser que não, pergunte o que faltou (tamanho do lote, localização, forma de pagamento, prazo) antes de convidar.",
+  "Nunca diga que vai passar para o corretor ou que a equipe vai retornar. Diga que compreendeu e que vamos ajudá-lo nisso.",
+  "Priorize a necessidade, uma pergunta por vez, sem questionário: para que é o lote (construir para morar, investir ou lazer), se conhece a região, para quando pensa em comprar, como pretende pagar e quem decide junto. Não exija todas as respostas para seguir.",
+  "Se o cliente disser \"não era isso\" ou \"está fora do que busco\", pergunte o que faltou e o que é indispensável. Não insista antes de entender.",
+  "Se o cliente preferir receber tudo por escrito, diga que depois da visita ou da ligação mandamos as informações em texto para ele revisar com calma, e que sem esse passo o atendimento fica genérico. Proponha a visita ou a ligação com o período.",
+  "Quando o cliente disser de onde conheceu o loteamento (Instagram, Google, site, placa, indicação, portal), preencha o campo Como conheceu. Se ele não disser, não pergunte e não preencha.",
+  "Ao se despedir, escreva o resumo assim: Objetivo (morar/investir/lazer); Conhece a região; Prazo de compra; Forma de pagamento; Quem decide; Lote ou quadra de interesse; Visita ou ligação marcada (dia e período); Temperatura: quente (compra em até 3 meses e marcou), morno (até 12 meses) ou frio (mais de um ano ou sem interesse), com o motivo.",
+];
+
+/* Os campos que a IA preenche na conversa (o corretor vê na ficha). */
+const CAMPOS = [
+  { name: "Motivo da compra", type: "select", options: ["Construir para morar", "Investir", "Lazer"] },
+  { name: "Prazo de compra", type: "select", options: ["Até 3 meses", "3 a 12 meses", "Mais de 1 ano"] },
+  { name: "Forma de pagamento", type: "select", options: ["À vista", "Parcelado direto", "Financiamento", "Não sabe"] },
+  { name: "Decisores", type: "text" },
+  { name: "Lote de interesse", type: "text" },
+  { name: "Melhor período para contato", type: "select", options: ["Manhã", "Tarde", "Depois das 18h"] },
+  { name: "Como conheceu", type: "text" },
+];
+const chaveDoCampo = (nome) => String(nome || "").toLowerCase()
+  .normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 
 const mensagens = (horas) => [
   ["Apresentação", `Oi, {nome}! Aqui é do ${NOME}, loteamento à beira do Rio São Francisco, em Petrolina. Posso te mostrar os lotes disponíveis?`],
@@ -172,10 +210,64 @@ function fluxoDeBoasVindas(tags) {
   return validarGrafo(g).grafo || g;
 }
 
+/* Liga a qualificação sem desfazer o que a gestão já escolheu: campos que
+   faltam são criados; os da IA se SOMAM aos já marcados; onde ela atua, para
+   onde move e a roleta da etapa só são preenchidos quando estão vazios — o que
+   já estava escolhido fica, com um aviso. */
+function qualificacao(orgId, funilNome, feito) {
+  const agora = Date.now();
+  const chaves = [];
+  for (const c of CAMPOS) {
+    const key = chaveDoCampo(c.name);
+    chaves.push(key);
+    if (db.prepare("SELECT 1 FROM custom_fields WHERE org_id = ? AND key = ? AND is_active = 1").get(orgId, key)) continue;
+    const { n } = db.prepare("SELECT COUNT(*) n FROM custom_fields WHERE org_id = ?").get(orgId);
+    db.prepare(`INSERT INTO custom_fields
+      (id,org_id,name,key,type,options,is_required_default,show_on_card,show_on_lead_profile,
+       show_on_conversation_sidebar,show_on_reports,ordem,is_active,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,0,0,1,0,0,?,1,?,?)`).run(
+      "cf_" + randomUUID().replace(/-/g, "").slice(0, 10), orgId, c.name, key, c.type,
+      JSON.stringify(c.options || []), n, agora, agora);
+    feito.campos++;
+  }
+
+  const o = db.prepare("SELECT robo_escopo, robo_campos, robo_etapa_final FROM orgs WHERE id = ?").get(orgId) || {};
+  const json = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
+  const campos = [...new Set([...json(o.robo_campos, []).filter(k => typeof k === "string"), ...chaves])].slice(0, 15);
+
+  const funil = db.prepare("SELECT id, name FROM pipelines WHERE org_id = ?").all(orgId).find(p => chave(p.name) === chave(funilNome));
+  const etapa = (nome) => funil && db.prepare("SELECT id, name, automation_config FROM pipeline_stages WHERE pipeline_id = ? AND org_id = ?")
+    .all(funil.id, orgId).find(s => chave(s.name) === chave(nome));
+  const leadNovo = etapa("Lead novo");
+  const primeiro = etapa("Primeiro contato");
+
+  let escopo = json(o.robo_escopo, {});
+  const escopoVazio = !(escopo.pipelines || []).length && !(escopo.etapas || []).length;
+  if (escopoVazio && leadNovo) { escopo = { pipelines: [], etapas: [leadNovo.id] }; feito.qualificacao.push("A IA atende só em Lead novo"); }
+  else if (!escopoVazio) feito.avisos.push("Onde a IA atua já estava escolhido e não foi mudado.");
+
+  let etapaFinal = o.robo_etapa_final || null;
+  if (!etapaFinal && primeiro) { etapaFinal = primeiro.id; feito.qualificacao.push("Ao terminar, move para Primeiro contato"); }
+  else if (etapaFinal && primeiro && etapaFinal !== primeiro.id) feito.avisos.push("A etapa para onde a IA move já estava escolhida e não foi mudada.");
+
+  db.prepare("UPDATE orgs SET robo_escopo = ?, robo_campos = ?, robo_observacao = 1, robo_etapa_final = ? WHERE id = ?")
+    .run(JSON.stringify(escopo), JSON.stringify(campos), etapaFinal, orgId);
+  feito.qualificacao.push("Resumo do atendimento como observação");
+
+  if (primeiro) {
+    const cfg = json(primeiro.automation_config, {});
+    if (!cfg.distribuir && !cfg.limpar_responsavel) {
+      db.prepare("UPDATE pipeline_stages SET automation_config = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify({ ...cfg, distribuir: "rodizio", so_sem_corretor: true }), agora, primeiro.id);
+      feito.qualificacao.push("Primeiro contato entrega ao próximo corretor da roleta");
+    } else if (cfg.distribuir !== "rodizio") feito.avisos.push("A etapa Primeiro contato já tinha um responsável escolhido e não foi mudada.");
+  } else feito.avisos.push(`Não achei a etapa "Primeiro contato" no funil "${funilNome}": a roleta e a etapa final da IA não foram ligadas.`);
+}
+
 const chave = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 export function aplicarKitReserva(orgId, user) {
-  const feito = { modo: true, config: false, ficha: false, orientacoes: 0, mensagens: 0, tags: 0, funil: false, fluxo: false, lotes: null, avisos: [] };
+  const feito = { modo: true, config: false, ficha: false, orientacoes: 0, orientacoes_desligadas: 0, campos: 0, qualificacao: [], mensagens: 0, tags: 0, funil: false, fluxo: false, lotes: null, avisos: [] };
   ligarModo(orgId, true);
 
   const cfg = configDoEmpreendimento(orgId);
@@ -195,6 +287,12 @@ export function aplicarKitReserva(orgId, user) {
   // Orientações do Autoatendimento.
   const temOri = new Set(db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ?").all(orgId).map(x => chave(x.texto)));
   let ordem = db.prepare("SELECT COALESCE(MAX(ordem), -1) m FROM robo_ensino WHERE org_id = ?").get(orgId).m;
+  const novas = new Set(ORIENTACOES.map(chave));
+  for (const t of ORIENTACOES_V1) {
+    if (novas.has(chave(t))) continue;
+    const r = db.prepare("UPDATE robo_ensino SET ativo = 0 WHERE org_id = ? AND texto = ? AND ativo = 1").run(orgId, t);
+    feito.orientacoes_desligadas += r.changes;
+  }
   for (const t of ORIENTACOES) {
     if (temOri.has(chave(t))) continue;
     db.prepare("INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,criado_por,created_at) VALUES (?,?,?,?,1,?,?)")
@@ -235,6 +333,9 @@ export function aplicarKitReserva(orgId, user) {
       if (!semLeads) feito.avisos.push(`O funil "${funilNome}" foi criado, mas não virou o padrão porque a conta já tem leads. Mude em Configurações → Funis e etapas, se quiser.`);
     }
   }
+
+  // A qualificação: campos, resumo, onde a IA atua, para onde ela move e a roleta.
+  qualificacao(orgId, funilNome, feito);
 
   // Fluxo de boas-vindas — nasce DESLIGADO: quem liga é a gestão, escolhendo o gatilho.
   const fluxoNome = `Boas-vindas ${NOME}`;

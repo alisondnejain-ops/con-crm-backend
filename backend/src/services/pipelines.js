@@ -299,6 +299,10 @@ export function validarAutomacao(orgId, pipelineId, cfg) {
   if (config.adicionar_tags && config.remover_tags && config.adicionar_tags.some(t => config.remover_tags.includes(t)))
     return { erro: "A mesma etiqueta não pode ser colocada e tirada na mesma etapa." };
   if (cfg.tag_do_corretor) config.tag_do_corretor = true;
+  /* SÓ QUEM AINDA NÃO TEM CORRETOR (11/11/2026, pacote do Reserva): a roleta
+     da etapa entrega o lead que chega da IA ou da atendente, e deixa com o
+     corretor o lead que ele mesmo trouxe de volta para esta etapa. */
+  if (cfg.so_sem_corretor && config.distribuir) config.so_sem_corretor = true;
   /* AO PEGAR O LEAD, MOVER (07/11/2026, pedido do Fernando: "quando o corretor
      coletar o lead na etapa de roleta, mover para LEAD"). Na primeira mensagem
      ou ligação de quem está com o lead nesta etapa, ele vai para a etapa
