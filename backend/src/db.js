@@ -2542,6 +2542,10 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
      nova dos indicadores do SDR e da fila da Catraca. Liga conta por conta,
      pelo master — nula ou 0 é a régua de sempre, então nenhuma conta muda. */
   if (!o.includes("fila_por_etapa")) db.exec("ALTER TABLE orgs ADD COLUMN fila_por_etapa INTEGER");
+  // Conta parceira do ConHub (11/11/2026): sem cobrança, todas as ferramentas, master entra sem código.
+  if (!o.includes("parceira")) db.exec("ALTER TABLE orgs ADD COLUMN parceira INTEGER");
+  if (!o.includes("parceira_em")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_em INTEGER");
+  if (!o.includes("parceira_por")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_por TEXT");
   // Ler áudios e fotos do cliente automaticamente (services/leitura-midia.js). Nulo = sim.
   if (!o.includes("ler_midia")) db.exec("ALTER TABLE orgs ADD COLUMN ler_midia INTEGER");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");

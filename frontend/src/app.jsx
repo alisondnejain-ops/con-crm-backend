@@ -2199,6 +2199,7 @@ function ConCRM(){
     definirMensalidade:(id,dados)=>api(`/orgs/${id}/mensalidade`,{method:"POST",body:dados}),
     definirBoleto:(id,liberado)=>api(`/orgs/${id}/boleto`,{method:"POST",body:{liberado}}),
     definirFilaPorEtapa:(id,ligado)=>api(`/orgs/${id}/fila-etapa`,{method:"POST",body:{ligado}}),
+    definirParceira:(id,ligado)=>api(`/orgs/${id}/parceira`,{method:"POST",body:{ligado}}),
     definirAcessoLivre:(id,liberado)=>api(`/orgs/${id}/acesso-livre`,{method:"POST",body:{liberado}}),
     // Marketing (disparo em massa): estrutura — termo, número, listas, bloqueio.
     marketing:()=>api("/marketing"),
@@ -4892,6 +4893,7 @@ const ORIGEM_FERRAMENTA={
   avulso:"Contratada avulsa",
   liberado:"Liberada por você",
   retirado:"Retirada por você",
+  parceira:"Conta parceira",
   fora_do_plano:"Fora do plano",
 };
 function NomeDaContaNoHub({conta,acoes,aoMudar}){
@@ -5064,6 +5066,32 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 {ocupado==="boleto"+v?"…":t}</button>;})}
           </div>
         </div>}
+        {/* CONTA PARCEIRA (11/11/2026, pedido do Ali para a Reserva Real do
+            Rio): sem cobrança, todas as ferramentas, master entra sem código. */}
+        <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginTop:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+            <span style={{flex:1,color:C.ink,fontSize:13,fontWeight:700}}>Conta parceira</span>
+            <span style={{background:conta.parceira?C.greenSoft:C.surface,color:conta.parceira?C.greenDeep:C.faint,
+              borderRadius:999,padding:"3px 9px",fontSize:10.5,fontWeight:700}}>{conta.parceira?"parceira":"cliente comum"}</span>
+          </div>
+          <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
+            Parceira, a conta não tem mensalidade, cartão nem teste e nunca trava; todas as ferramentas ficam liberadas e você entra nela sem o código de 6 dígitos. Marcar cancela no provedor a assinatura que a conta tiver.
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[false,"Cliente comum"],[true,"Marcar como parceira"]].map(([v,t])=>{
+              const sel=!!conta.parceira===v;
+              return <button key={t} disabled={!!ocupado} onClick={async()=>{
+                  if(sel) return;
+                  if(!v&&!window.confirm("Voltar a ser cliente comum? A conta volta às regras de cobrança e o código de acesso volta a ser pedido.")) return;
+                  setOcupado("parceira"+v);
+                  try{ const r=await acoes.definirParceira(conta.id,v); if(r&&r.aviso) window.alert(r.aviso); await aoMudar(); }
+                  catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
+                }}
+                style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                {ocupado==="parceira"+v?"…":t}</button>;})}
+          </div>
+        </div>
         {/* A FILA PELA PRIMEIRA ETAPA (11/11/2026, pedido do Fernando para a
             VJ): a régua nova dos indicadores do SDR e da fila da Catraca.
             Liga conta por conta; as outras continuam como estão. */}
@@ -7069,6 +7097,9 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   const rever=()=>acoes.assinatura().then(setA).catch(()=>{});
   useEffect(()=>{rever();},[]);
   if(!a||!a.dono) return null;
+  /* Conta parceira do ConHub (11/11/2026): sem mensalidade, nada a contratar aqui. */
+  if(a.parceira) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,color:C.sub,fontSize:13,lineHeight:1.5}}>
+    <b style={{color:C.ink}}>Conta parceira do ConHub.</b> Sem mensalidade e com todas as ferramentas liberadas.</div>;
 
   /* `asaas_ligado` (22/09/2026) — a conta já tem cliente no Asaas
      (`orgs.asaas_customer_id`), pelos três caminhos que criam cobrança de

@@ -186,6 +186,10 @@ function situacaoDaCobranca(orgId, { dono = true } = {}) {
      sem trava. Se esta conta travasse, o suporte e o comercial parariam
      junto — e não há ninguém de fora para liberar. */
   if (org.tipo === "interna") return { status: "ativo", cobranca: false, dono, interna: true };
+  /* CONTA PARCEIRA (11/11/2026, pedido do Ali para a Reserva Real do Rio:
+     uma conta só para a gestão do atendimento dos corretores parceiros).
+     O master marca no hub; não tem mensalidade, cartão nem teste, e não trava. */
+  if (org.parceira) return { status: "ativo", cobranca: false, dono, parceira: true };
 
   /* Para quem não é o dono, sai só o que a tela de bloqueio precisa: em que
      estado está e desde quando. Valor, plano e link de pagamento não são

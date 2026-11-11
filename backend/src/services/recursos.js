@@ -80,7 +80,7 @@ export function incluiNoPlano(org, recurso) {
    onde veio o "sim" ou o "não", senão o master retira a IA de um cliente que
    pagou por ela avulsa sem saber que estava tirando algo pago. */
 export function situacaoDoRecurso(orgId, recurso, agora = Date.now()) {
-  const org = db.prepare("SELECT id, plano_id, tipo FROM orgs WHERE id = ?").get(orgId);
+  const org = db.prepare("SELECT id, plano_id, tipo, parceira FROM orgs WHERE id = ?").get(orgId);
   const l = linha(orgId, recurso);
   const doPlano = incluiNoPlano(org, recurso);
   const avulso = avulsoValendo(l, agora);
@@ -91,6 +91,8 @@ export function situacaoDoRecurso(orgId, recurso, agora = Date.now()) {
   if (org?.tipo === "interna") { ativo = recurso === "marketing"; origem = "interno"; }
   else if (l?.master === "retirado") { ativo = false; origem = "retirado"; }
   else if (l?.master === "liberado") { ativo = true; origem = "liberado"; }
+  // Conta parceira: todas as ferramentas, sem plano nem cobrança (o master ainda pode retirar uma).
+  else if (org?.parceira) { ativo = true; origem = "parceira"; }
   else if (avulso) { ativo = true; origem = "avulso"; }
   else if (doPlano) { ativo = true; origem = "plano"; }
   else { ativo = false; origem = "fora_do_plano"; }

@@ -270,7 +270,7 @@ export function conferirCrachaDeSessao(token) {
      mas não abre mais nada da conta. Quem decide isso é `authRequired`. */
   let acessoVencido = false;
   if (u.master && dados.org_id !== u.org_id) {
-    const org = db.prepare("SELECT id, tipo, demo FROM orgs WHERE id = ?").get(dados.org_id);
+    const org = db.prepare("SELECT id, tipo, demo, parceira FROM orgs WHERE id = ?").get(dados.org_id);
     if (contaPedeCodigo(org) && !acessoValido(dados.ac, dados.org_id, u.id)) acessoVencido = true;
   }
 

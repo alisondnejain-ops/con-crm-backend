@@ -28,7 +28,7 @@ import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../se
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
-import { criarProposta, listarPropostas, paraHub, cancelarProposta, ErroProposta } from "../services/propostas.js";
+import { criarProposta, listarPropostas, paraHub, cancelarProposta, ErroProposta, cancelarRecorrentes } from "../services/propostas.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
 import { situacaoDosCreditos, ajustarPeloMaster, configDosCreditos, salvarConfigDosCreditos } from "../services/ia-creditos.js";
@@ -120,6 +120,7 @@ function resumo(req, org) {
       saldo_hoje_ms: acessoLivre(org) ? saldoLivreHoje(org.id) : null,
       livre_em: org.acesso_livre_em || null },
     fila_por_etapa: !!org.fila_por_etapa,
+    parceira: !!org.parceira,
     leitura_midia: { audio: transcricaoConfigurada(), imagem: leituraDeImagemConfigurada() },
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
@@ -607,6 +608,33 @@ r.post("/:id/boleto", (req, res) => {
     .run(liga ? 1 : 0, liga ? Date.now() : null, liga ? req.user.id : null, org.id);
   console.log(`[master] ${req.user.name} ${liga ? "liberou" : "desligou"} o boleto de ${org.name}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* CONTA PARCEIRA (11/11/2026, pedido do Ali para a Reserva Real do Rio, criada
+   só para a gestão do atendimento dos corretores parceiros): sem cobrança, sem
+   cartão e sem teste (`situacao()` devolve ativo), todas as ferramentas
+   (`situacaoDoRecurso`, origem "parceira") e o master entra sem o código de 6
+   dígitos (`contaPedeCodigo`). Só o master liga. Ligar cancela no provedor a
+   assinatura que a conta tiver (senão o cartão continuaria sendo cobrado);
+   a falha no provedor vira aviso, não impede. */
+r.post("/:id/parceira", async (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub já não tem mensalidade." });
+  if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se a conta é parceira ou não." });
+  const liga = req.body.ligado;
+  const tinha = !!(org.pagarme_subscription_id || org.asaas_subscription_id);
+  db.prepare("UPDATE orgs SET parceira = ?, parceira_em = ?, parceira_por = ? WHERE id = ?")
+    .run(liga ? 1 : null, liga ? Date.now() : null, liga ? req.user.id : null, org.id);
+  let aviso = null;
+  if (liga && tinha) {
+    await cancelarRecorrentes(org);
+    const depois = db.prepare("SELECT pagarme_subscription_id, asaas_subscription_id FROM orgs WHERE id = ?").get(org.id);
+    if (depois.pagarme_subscription_id || depois.asaas_subscription_id)
+      aviso = "Não consegui cancelar a assinatura no provedor de pagamento. Cancele por lá para o cartão não ser cobrado.";
+  }
+  console.log(`[master] ${req.user.name} ${liga ? "marcou" : "desmarcou"} ${org.name} como conta parceira`);
+  res.json({ ok: true, aviso, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 
 /* A FILA PELA PRIMEIRA ETAPA (11/11/2026, services/fila-etapa.js): a régua
