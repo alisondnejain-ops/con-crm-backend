@@ -1435,6 +1435,8 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
   **Relatórios dentro da Visão geral**: aba "Relatórios" (a mesma tela, `embutido`), e Relatórios passou a ter a ordem **SDR → cada corretor → score → ponto**. O item Operação → Relatórios continua no menu.
 
+  **A etapa pulada aparece escrita** (11/11/2026, decisão do Ali): o marco deduzido do salto vem marcado (`inferido` em `marcosDosLeads`), e o funil de atividades (`pulados` em cada degrau de marco) e o relatório de cada pessoa (`pulados` em `marcosDaPessoa`) mostram uma linha discreta — "Contados porque o lead pulou a etapa: 3 de 10 agendados" (`AvisoPulados` em `app.jsx`), que some quando nada foi deduzido. **A parte da visita no ranking ficou com a regra nova** (agendados pelos marcos, etapa pulada contando), também por decisão dele.
+
 - **A segunda lista do Fernando, 12 itens** (07/11/2026). Teste: `npm run teste:lista-fernando-2`.
   1. **Mensagem agendada com arquivo**: uma foto, áudio, vídeo ou documento por agendada (mesmos tipos e limites do anexo), guardado na hora de agendar (`mensagens_agendadas.midia_*`), sai por `enviarArquivoDoCrm` (o mesmo envio do anexo) com o texto de legenda — no áudio, o texto sai logo depois.
   2. **Anúncio de clique-para-WhatsApp no lead**: a primeira mensagem traz `externalAdReply`/`referral` (Uazapi e API oficial); o lead sem campanha grava `ad_id`/`ad_name`, origem "Anúncio (WhatsApp)", e `completarAnuncioDoLead` busca campanha e conjunto na Meta com o token de anúncios (`ads_read`). **Não conferido contra a Meta e a Uazapi de verdade** (o nome do campo vem da forma do WhatsApp).

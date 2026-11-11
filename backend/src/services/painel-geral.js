@@ -179,6 +179,11 @@ export function etapasDeQualificacao(orgId) {
 }
 const semAcentoTexto = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
 const distintos = (pares) => new Set(pares.map(x => x.lead)).size;
+/* Quantos destes leads foram contados porque PULARAM a etapa (o marco foi
+   deduzido do salto, não visto). Vai escrito ao lado do número, numa linha
+   discreta (decisão do Ali, 11/11/2026): sem isso, "10 agendados" com 3
+   deduzidos parece 10 agendamentos que alguém fez. */
+const inferidos = (pares) => new Set(pares.filter(x => x.inferido).map(x => x.lead)).size;
 
 /* LEADS: para a casa, os que ENTRARAM no período. Para UMA pessoa, os que
    CHEGARAM NA MÃO DELA — a mesma conta de Relatórios e da Operação
@@ -315,8 +320,12 @@ export function visaoGeral(orgId, filtros = {}) {
   };
 
   const ligacoes = contarLigacoes(orgId, filtros, periodo.de, periodo.ate);
-  const agendadas = distintos(alcances(orgId, filtros, periodo.de, periodo.ate, "agendado", ctx));
-  const propostas = distintos(alcances(orgId, filtros, periodo.de, periodo.ate, "proposta", ctx));
+  const aQual = alcances(orgId, filtros, periodo.de, periodo.ate, "qualificado", ctx);
+  const aAgend = alcances(orgId, filtros, periodo.de, periodo.ate, "agendado", ctx);
+  const aVisita = alcances(orgId, filtros, periodo.de, periodo.ate, "visita", ctx);
+  const aProp = alcances(orgId, filtros, periodo.de, periodo.ate, "proposta", ctx);
+  const agendadas = distintos(aAgend);
+  const propostas = distintos(aProp);
 
   /* Os oito degraus do Fernando (28/10/2026, revistos em 07/11/2026).
      Trabalhados e faladas contam LEAD POR DIA; qualificados, agendados,
@@ -326,10 +335,10 @@ export function visaoGeral(orgId, filtros = {}) {
     { id: "trabalhados", nome: "Leads trabalhados", valor: trabalhados(orgId, filtros, periodo.de, periodo.ate).length },
     { id: "ligacoes", nome: "Ligações", valor: ligacoes },
     { id: "faladas", nome: "Pessoas faladas", valor: faladas(orgId, filtros, periodo.de, periodo.ate).length },
-    { id: "qualificadas", nome: "Qualificados", valor: distintos(alcances(orgId, filtros, periodo.de, periodo.ate, "qualificado", ctx)) },
-    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Agendados" : "Demonstrações agendadas", valor: agendadas },
-    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas" : "Demonstrações feitas", valor: visitasAtual },
-    { id: "proposta", nome: "Propostas", valor: propostas },
+    { id: "qualificadas", nome: "Qualificados", valor: distintos(aQual), pulados: inferidos(aQual) },
+    { id: "visita_agendada", nome: nomes.agendada === "Agendamento" ? "Agendados" : "Demonstrações agendadas", valor: agendadas, pulados: inferidos(aAgend) },
+    { id: "visita_realizada", nome: nomes.realizada === "Visita" ? "Visitas" : "Demonstrações feitas", valor: visitasAtual, pulados: inferidos(aVisita) },
+    { id: "proposta", nome: "Propostas", valor: propostas, pulados: inferidos(aProp) },
     { id: "venda", nome: "Vendas", valor: vAtual.quantidade },
   ];
   /* Duas colunas de porcentagem: SEQUENCIAL (sobre o degrau anterior — mostra

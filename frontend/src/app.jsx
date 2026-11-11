@@ -23963,6 +23963,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         {numero("Perdidos",linha.perdidos??0,"moveu para perda no período")}
         {numero("Perdidos p/ outro corretor",linha.leads_perdidos_para_outro,"repasse manual no período")}
       </div>
+      <AvisoPulados itens={pulosDaLinha(linha)}/>
 
       {meu&&!meu.sem_dados&&<React.Fragment>
         {titulo("Como a nota foi formada")}
@@ -24332,6 +24333,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
           <Metric n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro}
             sub="repasse manual no período" accent={C.hot}/>
         </div>
+        <AvisoPulados itens={pulosDaLinha(linha)}/>
 
         {/* ONDE ESTÃO OS LEADS DELE AGORA, no funil de verdade. As barras que
             ficavam aqui embaixo usavam a lista fixa das 11 etapas antigas —
@@ -24523,6 +24525,24 @@ function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
    lead, e para leads de antes do período também. As duas leituras respondem
    perguntas diferentes — misturá-las é o erro que este projeto já corrigiu
    antes (a taxa sequencial de 300%). */
+/* QUANTOS FORAM CONTADOS PORQUE O LEAD PULOU A ETAPA (11/11/2026, decisão
+   do Ali): lead que vai de Lead direto para Visita conta também em
+   Qualificado e Agendado. Uma linha discreta diz quantos números saíram dessa
+   dedução — sem ela, "10 agendados" com 3 deduzidos parece 10 agendamentos
+   que alguém fez. Some quando nada foi deduzido. */
+const pulosDaLinha=(l)=>l&&l.pulados?[
+  {nome:"Qualificados",valor:l.qualificados??0,pulados:l.pulados.qualificados},
+  {nome:"Agendamentos",valor:l.agendados??0,pulados:l.pulados.agendados},
+  {nome:"Visitas",valor:l.visitas??0,pulados:l.pulados.visitas}]:[];
+function AvisoPulados({itens}){
+  const partes=(itens||[]).filter(x=>x&&x.pulados>0).map(x=>`${x.pulados} de ${x.valor} ${x.nome.toLowerCase()}`);
+  if(!partes.length) return null;
+  return <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:10}}
+    title="Quando o lead pula uma etapa (ex.: de Lead direto para Visita), as etapas do meio contam como passadas.">
+    Contados porque o lead pulou a etapa: {partes.join(" · ")}.
+  </div>;
+}
+
 function FunilAtividadeViz({passos,isMobile}){
   const max=Math.max(1,...passos.map(p=>p.valor));
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
@@ -24547,6 +24567,7 @@ function FunilAtividadeViz({passos,isMobile}){
         </div>;
       })}
     </div>
+    <AvisoPulados itens={passos.map(p=>({...p,nome:rotuloDaConta(p.id,p.nome)}))}/>
   </div>;
 }
 

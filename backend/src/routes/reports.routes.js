@@ -201,6 +201,7 @@ r.get("/", (req, res) => {
       agendados: mk.agendados,
       visitas: mk.visitas,
       propostas: mk.propostas,
+      pulados: mk.pulados,
       perdidos: perdeu,
       vendas: vendas.length,
       // Conversão é de COORTE: dos leads que entraram no período, quantos já

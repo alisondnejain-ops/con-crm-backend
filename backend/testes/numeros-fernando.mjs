@@ -127,6 +127,11 @@ assert.equal(passo("visita_agendada"), 1);
 assert.equal(passo("visita_realizada"), 0);
 assert.equal(lb.qualificados, 1); assert.equal(lb.agendados, 1); assert.equal(lb.visitas, 0);
 assert.equal(op.atendimento.qualificados, 1, "Visão geral filtrada pela Blanca: 1 qualificado");
+// A linha discreta (11/11/2026): o qualificado foi deduzido do salto; o agendado, não.
+const pulo = (id) => pg.funil_atividade.find(p => p.id === id).pulados;
+assert.equal(pulo("qualificadas"), 1, "qualificado veio da etapa pulada");
+assert.equal(pulo("visita_agendada"), 0, "agendado foi a etapa de chegada");
+assert.deepEqual(lb.pulados, { qualificados: 1, agendados: 0, visitas: 0, propostas: 0 });
 mover(A, E["Agendamento"], E["Visita"], t(240), blanca);
 const pg2 = await get(tAli, `/painel/geral?periodo=hoje&responsavel=${blanca}`);
 assert.equal(pg2.funil_atividade.find(p => p.id === "visita_realizada").valor, 1);

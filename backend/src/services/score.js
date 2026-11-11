@@ -186,8 +186,11 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
 export function marcosDaPessoa(orgId, userId, de, ate, ctx = {}) {
   const ids = ctx.idsDoPeriodo || (ctx.idsDoPeriodo = candidatosDoPeriodo(orgId, "l.org_id = ?", [orgId], de, ate));
   const mapa = ctx.mapa || (ctx.mapa = marcosDosLeads(orgId, ids));
-  const n = (k) => alcancesNoPeriodo(orgId, ids, k, de, ate, { quem: userId, mapa }).length;
-  return { qualificados: n("qualificado"), agendados: n("agendado"), visitas: n("visita"), propostas: n("proposta") };
+  const a = (k) => alcancesNoPeriodo(orgId, ids, k, de, ate, { quem: userId, mapa });
+  const q = a("qualificado"), g = a("agendado"), v = a("visita"), p = a("proposta");
+  const pul = (x) => x.filter(y => y.inferido).length;
+  return { qualificados: q.length, agendados: g.length, visitas: v.length, propostas: p.length,
+    pulados: { qualificados: pul(q), agendados: pul(g), visitas: pul(v), propostas: pul(p) } };
 }
 
 // Quantos destes leads esta pessoa de fato respondeu.
