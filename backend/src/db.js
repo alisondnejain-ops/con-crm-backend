@@ -2533,6 +2533,10 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("boleto_liberado")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado INTEGER DEFAULT 0");
   if (!o.includes("boleto_liberado_em")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_em INTEGER");
   if (!o.includes("boleto_liberado_por")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_liberado_por TEXT");
+  /* A FILA PELA PRIMEIRA ETAPA (11/11/2026, services/fila-etapa.js): a régua
+     nova dos indicadores do SDR e da fila da Catraca. Liga conta por conta,
+     pelo master — nula ou 0 é a régua de sempre, então nenhuma conta muda. */
+  if (!o.includes("fila_por_etapa")) db.exec("ALTER TABLE orgs ADD COLUMN fila_por_etapa INTEGER");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
 }
 /* PAÍS PADRÃO DA CONTA (02/11/2026) — como ler o número que chega SEM o código

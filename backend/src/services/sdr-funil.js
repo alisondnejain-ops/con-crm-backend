@@ -24,7 +24,11 @@ import db, { emLotes } from "../db.js";
 import { ehFunilDeSdr } from "./pipelines.js";
 import { alcancesNoPeriodo } from "./marcos.js";
 
-export function preAtendimento(orgId, de, ate) {
+export function preAtendimento(orgId, de, ate, { semEtiqueta = null } = {}) {
+  /* Sem dizer, vale a régua da conta: com a fila por etapa ligada
+     (orgs.fila_por_etapa), a etiqueta não pré-qualifica. Lido aqui, e não
+     importado de fila-etapa.js, porque aquele arquivo importa este. */
+  if (semEtiqueta === null) semEtiqueta = !!(db.prepare("SELECT fila_por_etapa f FROM orgs WHERE id = ?").get(orgId) || {}).f;
   const pipes = db.prepare("SELECT id FROM pipelines WHERE org_id = ?").all(orgId).map(p => p.id);
   const sdr = new Set(pipes.filter(id => ehFunilDeSdr(orgId, id)));
   const etapaSdr = new Map(db.prepare("SELECT id, pipeline_id, status_type FROM pipeline_stages WHERE org_id = ?").all(orgId)
@@ -71,7 +75,9 @@ export function preAtendimento(orgId, de, ate) {
     if (ehSdr(r.de_stage_id) && para && !para.sdr && !para.perdido) marcar(qualificados, r.lead_id, r.t, r.user_id);
     else if (!sdr.size && (qualific.has(r.para_stage_id) || (!r.para_stage_id && ehQualific(r.para)))) marcar(qualificados, r.lead_id, r.t, r.user_id);
   }
-  for (const r of db.prepare(`SELECT lt.lead_id, lt.marcada_em t, lt.marcada_por user_id, tg.nome FROM lead_tags lt
+  /* A etiqueta "qualificado" só conta fora da régua nova (fila por etapa,
+     services/fila-etapa.js): lá, pré-qualificar é só o lead sair do SDR. */
+  if (!semEtiqueta) for (const r of db.prepare(`SELECT lt.lead_id, lt.marcada_em t, lt.marcada_por user_id, tg.nome FROM lead_tags lt
       JOIN tags tg ON tg.id = lt.tag_id WHERE lt.org_id = ? AND lt.marcada_em BETWEEN ? AND ? ORDER BY lt.marcada_em`).all(orgId, de, ate))
     if (/qualific/i.test(String(r.nome || "").normalize("NFD").replace(/[̀-ͯ]/g, ""))) marcar(qualificados, r.lead_id, r.t, r.user_id);
 

@@ -118,6 +118,7 @@ function resumo(req, org) {
     acesso: { pede_codigo: contaPedeCodigo(org) && org.id !== db.prepare("SELECT org_id FROM users WHERE id = ?").get(req.user.id)?.org_id, livre: acessoLivre(org), horas_livre: ACESSO_LIVRE_HORAS,
       saldo_hoje_ms: acessoLivre(org) ? saldoLivreHoje(org.id) : null,
       livre_em: org.acesso_livre_em || null },
+    fila_por_etapa: !!org.fila_por_etapa,
     boleto: { liberado: !!org.boleto_liberado, liberado_em: org.boleto_liberado_em || null,
       ultimo: db.prepare("SELECT valor, vencimento, status, criado_em, pago_em FROM boletos WHERE org_id = ? ORDER BY criado_em DESC LIMIT 1").get(org.id) || null },
   };
@@ -603,6 +604,18 @@ r.post("/:id/boleto", (req, res) => {
   db.prepare("UPDATE orgs SET boleto_liberado = ?, boleto_liberado_em = ?, boleto_liberado_por = ? WHERE id = ?")
     .run(liga ? 1 : 0, liga ? Date.now() : null, liga ? req.user.id : null, org.id);
   console.log(`[master] ${req.user.name} ${liga ? "liberou" : "desligou"} o boleto de ${org.name}`);
+  res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
+});
+
+/* A FILA PELA PRIMEIRA ETAPA (11/11/2026, services/fila-etapa.js): a régua
+   nova dos indicadores do SDR e da fila da Catraca, pedida pelo Fernando para
+   a VJ. Só o master liga, conta por conta; as outras continuam como estão. */
+r.post("/:id/fila-etapa", (req, res) => {
+  const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Conta não encontrada." });
+  if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se a régua nova fica ligada ou não." });
+  db.prepare("UPDATE orgs SET fila_por_etapa = ? WHERE id = ?").run(req.body.ligado ? 1 : 0, org.id);
+  console.log(`[master] ${req.user.name} ${req.body.ligado ? "ligou" : "desligou"} a fila pela primeira etapa de ${org.name}`);
   res.json({ ok: true, org: resumo(req, db.prepare("SELECT * FROM orgs WHERE id = ?").get(org.id)) });
 });
 

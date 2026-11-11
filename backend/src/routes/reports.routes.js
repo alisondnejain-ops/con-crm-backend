@@ -8,6 +8,7 @@ import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao 
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "../services/movimento.js";
 import { resolverPeriodo } from "../services/painel.js";
 import { indicadoresDoSdr } from "../services/sdr.js";
+import { filaPorEtapaLigada, sdrConsolidado } from "../services/fila-etapa.js";
 
 const r = Router();
 r.use(authRequired);
@@ -325,7 +326,12 @@ const fimDoDia = (s) => new Date(`${s}T23:59:59.999`).getTime();
 r.get("/sdr", (req, res) => {
   if (!veRelatoriosDaEquipe(req.user)) return res.status(403).json({ error: "Este relatório é da supervisão." });
   const { de, ate } = intervaloDaQuery(req.query);
-  res.json(indicadoresDoSdr(req.user.org_id, de, ate));
+  const base = indicadoresDoSdr(req.user.org_id, de, ate);
+  /* Com a fila pela primeira etapa ligada (só nas contas que o master liga),
+     vai também o resultado CONSOLIDADO — um bloco só, com a lista de leads
+     por trás de cada número (services/fila-etapa.js). */
+  if (filaPorEtapaLigada(req.user.org_id)) base.consolidado = sdrConsolidado(req.user.org_id, de, ate);
+  res.json(base);
 });
 
 function intervaloDaQuery(q) {
