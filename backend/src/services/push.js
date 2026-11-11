@@ -78,14 +78,31 @@ export function trocar(antigo, nova) {
 }
 export const inscricoesDe = (userId) => db.prepare("SELECT COUNT(*) n FROM push_subs WHERE user_id = ?").get(userId).n;
 
+/* As linhas da mesma pessoa (mesmo e-mail) ativas, em todas as contas. */
+export function linhasDaPessoa(userId) {
+  const eu = db.prepare("SELECT u.email, u.org_id, u.master, o.name AS org_nome FROM users u LEFT JOIN orgs o ON o.id = u.org_id WHERE u.id = ?").get(userId);
+  const linhas = eu && !eu.master
+    ? db.prepare("SELECT id FROM users WHERE email = ? AND status = 'ativo' AND COALESCE(master,0) = 0").all(eu.email).map(x => x.id)
+    : [];
+  return { eu, ids: [...new Set([userId, ...linhas])] };
+}
+
 /* Dispara para todos os aparelhos do usuário. Não lança nunca: push é aviso,
    não pode derrubar o recebimento de um lead nem o repasse de uma conversa. */
 export async function avisar(userId, { titulo, corpo, leadId }) {
   if (!configurado() || !userId) return { enviados: 0 };
-  const subs = db.prepare("SELECT * FROM push_subs WHERE user_id = ?").all(userId);
+  /* A MESMA PESSOA EM MAIS DE UMA CONTA (11/11/2026): o aparelho fica
+     inscrito na linha da conta em que ela estava quando ativou o aviso, e o
+     lead da outra conta chegaria a ninguém. Vai para os aparelhos de todas as
+     linhas dela (mesmo e-mail), com o nome da conta no título — e `conta`
+     faz o app trocar para ela ao tocar. */
+  const { eu, ids } = linhasDaPessoa(userId);
+  const subs = db.prepare(`SELECT * FROM push_subs WHERE user_id IN (${ids.map(() => "?").join(",")})`).all(...ids);
   if (!subs.length) return { enviados: 0, aparelhos: 0, removidos: 0, falhas: [] };
 
-  const carga = JSON.stringify({ titulo, corpo, leadId: leadId || null });
+  const variasContas = ids.length > 1 && eu?.org_nome;
+  const carga = JSON.stringify({ titulo: variasContas ? `${eu.org_nome} · ${titulo}` : titulo, corpo,
+    leadId: leadId || null, conta: variasContas ? eu.org_id : null });
   let enviados = 0, removidos = 0;
   const falhas = [];
   await Promise.all(subs.map(async (s) => {

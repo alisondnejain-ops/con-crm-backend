@@ -46,6 +46,7 @@ import { ROTULO_DISPARO, ROTULO_AUTOMACAO, marcarEnvio, desmarcarEnvio, envioEmC
 import { gatilhoLimpo, problemasDoGatilho, formulariosDaRef, gatilhosDoGrafo, sobreposicoes, chavesDoFluxo, MAX_GATILHOS, nomeDoTipoDeGatilho } from "./automacoes.js";
 import { temRecurso } from "./recursos.js";
 import { iaConfigurada, mensagemDoFluxo } from "./ia.js";
+import { textoParaIA as textoDosLotes } from "./lotes.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { temCredito } from "./ia-creditos.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
@@ -948,6 +949,8 @@ async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "", l
     const orgRow = db.prepare("SELECT name FROM orgs WHERE id = ?").get(org) || {};
     const ensino = db.prepare("SELECT texto FROM robo_ensino WHERE org_id = ? AND ativo = 1 ORDER BY (COALESCE(origem,'') = 'ia'), ordem, created_at").all(org).map(x => x.texto);
     const r = await mensagemDoFluxo({ instrucao: no.dados.instrucao, nome: e.nome, orientacoes: ensino, imobiliaria: orgRow.name,
+      // Conta de empreendimento: a IA escreve sabendo quais lotes estão disponíveis agora (services/lotes.js).
+      contexto: textoDosLotes(org),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "empresa", texto: m.body })) });
     if (!r.ok) throw new Error("A IA não escreveu a mensagem: " + r.erro);
     registrarUsoIA({ orgId: org, userId: null, leadId, recurso: "fluxo_ia", uso: r.uso });

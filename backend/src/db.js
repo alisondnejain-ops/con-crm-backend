@@ -2678,3 +2678,92 @@ if (!db.prepare("PRAGMA table_info(pipeline_stages)").all().some(c => c.name ===
   db.exec("ALTER TABLE pipeline_stages ADD COLUMN prazo_acao TEXT");
 
 export default db;
+
+/* MODO EMPREENDIMENTO E ESPELHO DE LOTES (11/11/2026, pedido do Ali para a
+   Reserva Real do Rio — ver services/lotes.js). Nulo em toda conta: nada muda
+   sem o master ligar. */
+{
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("empreendimento")) db.exec("ALTER TABLE orgs ADD COLUMN empreendimento INTEGER");
+  if (!o.includes("empreendimento_json")) db.exec("ALTER TABLE orgs ADD COLUMN empreendimento_json TEXT");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS lotes (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  codigo TEXT NOT NULL,
+  quadra TEXT NOT NULL DEFAULT '',
+  area REAL,
+  preco REAL,
+  status TEXT NOT NULL DEFAULT 'disponivel',
+  corretor_id TEXT,
+  lead_id TEXT,
+  cliente TEXT,
+  reservado_em INTEGER,
+  vence_em INTEGER,
+  vendido_em INTEGER,
+  obs TEXT,
+  ordem INTEGER DEFAULT 0,
+  atualizado_em INTEGER,
+  atualizado_por TEXT
+)`);
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_lotes_org_codigo ON lotes(org_id, codigo)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_lotes_vence ON lotes(status, vence_em)");
+db.exec(`CREATE TABLE IF NOT EXISTS lotes_historico (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  lote_id TEXT NOT NULL,
+  acao TEXT NOT NULL,
+  de_status TEXT,
+  para_status TEXT,
+  user_id TEXT,
+  lead_id TEXT,
+  cliente TEXT,
+  obs TEXT,
+  em INTEGER NOT NULL
+)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_lotes_hist ON lotes_historico(org_id, lote_id, em)");
+
+/* UMA PESSOA EM MAIS DE UMA CONTA (11/11/2026, pedido do Ali para a Reserva
+   Real do Rio: corretores da Conecta também atendem os leads da Reserva).
+
+   O e-mail era ÚNICO no sistema inteiro, e cada pessoa morava numa conta só.
+   Agora é único POR CONTA: a mesma pessoa tem uma linha em cada conta (cada
+   uma com o próprio papel, disponibilidade e aprovação — é isso que a catraca,
+   o score e a equipe de cada casa leem), ligadas pelo e-mail.
+
+   O SQLite não tira um UNIQUE de coluna: a tabela é refeita (cria a nova com
+   as mesmas colunas, copia, troca). Tudo numa transação, e a contagem de
+   linhas é conferida antes da troca — se não bater, nada muda. Roda uma vez:
+   depois disso a tabela já não tem o UNIQUE. Não há chave estrangeira nem
+   gatilho apontando para `users` (conferido), e os índices são recriados. */
+{
+  const t = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (t && /email\s+TEXT\s+UNIQUE\s+NOT\s+NULL/i.test(t.sql)) {
+    const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='users' AND sql IS NOT NULL").all().map(i => i.sql);
+    const novaSql = t.sql.replace(/CREATE TABLE\s+"?users"?/i, "CREATE TABLE users_refeita")
+      .replace(/email\s+TEXT\s+UNIQUE\s+NOT\s+NULL/i, "email TEXT NOT NULL");
+    const antes = db.prepare("SELECT COUNT(*) n FROM users").get().n;
+    db.pragma("legacy_alter_table = ON");
+    try {
+      db.transaction(() => {
+        db.exec("DROP TABLE IF EXISTS users_refeita");
+        db.exec(novaSql);
+        db.exec("INSERT INTO users_refeita SELECT * FROM users");
+        const depois = db.prepare("SELECT COUNT(*) n FROM users_refeita").get().n;
+        if (depois !== antes) throw new Error(`contagem não bate (${antes} → ${depois})`);
+        db.exec("DROP TABLE users");
+        db.exec("ALTER TABLE users_refeita RENAME TO users");
+        for (const s of indices) db.exec(s);
+      })();
+      console.log(`[banco] e-mail passou a ser único por conta (${antes} pessoas conferidas)`);
+    } catch (e) {
+      console.error("[banco] não deu para refazer a tabela de pessoas; continua como estava:", e.message);
+    } finally {
+      db.pragma("legacy_alter_table = OFF");
+    }
+  }
+  // Único por conta. Se a troca acima falhou, o UNIQUE antigo continua e este
+  // índice também é criado (é mais fraco que ele) — nada quebra.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_org ON users(email, org_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)");
+}

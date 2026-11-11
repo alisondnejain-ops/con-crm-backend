@@ -754,7 +754,9 @@ export function sugerirEtapa(leadId) {
     /* As palavras-chave são de venda de imóvel ("documentação" → Pasta,
        "visita" → Agendamento). No ambiente interno do ConHub elas apontariam
        para etapas que o funil dele não tem. */
-    if (db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(lead.org_id)?.tipo === "interna") return;
+    // A conta de empreendimento (services/lotes.js) tem o funil da venda de lote, sem Pasta nem Aprovação.
+    const o = db.prepare("SELECT tipo, empreendimento FROM orgs WHERE id = ?").get(lead.org_id);
+    if (o?.tipo === "interna" || o?.empreendimento) return;
     const msgs = db.prepare("SELECT direction,body FROM messages WHERE lead_id = ? ORDER BY created_at ASC").all(leadId);
     const sugerida = inferStage(lead.stage, msgs);
     /* `inferStage` só anda para a frente, então "igual à atual" quer dizer que

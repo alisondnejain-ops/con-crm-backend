@@ -41,6 +41,7 @@ import { lerHorario } from "./expediente.js";
 import { temRecurso } from "./recursos.js";
 import { semAtendenteAtiva } from "./rodizio.js";
 import { fichaDoLead, outrasFichas, catracaDoProduto } from "./ia-produtos.js";
+import { textoParaIA as textoDosLotes, configDoEmpreendimento } from "./lotes.js";
 import { definirCatracaDoLead } from "./catracas.js";
 import { gravarCampos } from "./campos-lead.js";
 import { moverLead } from "./movimento.js";
@@ -386,6 +387,14 @@ export async function atender(orgId, leadId, opcoes = {}) {
     // As outras fichas da conta, as citadas na conversa primeiro (ia-produtos.js).
     const outros = outrasFichas(orgId, ficha?.id || null,
       msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" "));
+    /* CONTA DE EMPREENDIMENTO (11/11/2026, services/lotes.js): a situação dos
+       lotes agora entra junto do produto — na ficha deste atendimento, ou como
+       mais um produto quando o lead não tem ficha ligada. */
+    const lotesAgora = textoDosLotes(orgId);
+    if (lotesAgora) {
+      if (ficha) ficha.texto = [ficha.texto, lotesAgora].filter(Boolean).join("\n\n");
+      else outros.fichas.unshift({ nome: configDoEmpreendimento(orgId).nome || "O empreendimento", texto: lotesAgora });
+    }
     const defs = cfg.campos.length ? db.prepare(`SELECT key, name, type, options FROM custom_fields WHERE org_id = ? AND is_active = 1
       AND key IN (${cfg.campos.map(() => "?").join(",")})`).all(orgId, ...cfg.campos).map(d => ({ chave: d.key, nome: d.name, tipo: d.type,
         opcoes: (() => { try { return JSON.parse(d.options || "[]"); } catch { return []; } })() })) : [];
