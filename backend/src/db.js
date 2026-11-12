@@ -2145,6 +2145,10 @@ CREATE INDEX IF NOT EXISTS idx_leads_apagados ON leads_apagados(org_id, versao);
 CREATE INDEX IF NOT EXISTS idx_leads_versao ON leads(org_id, versao);
 -- O aviso de "cliente sem resposta" olha só quem conversou nos últimos dias.
 CREATE INDEX IF NOT EXISTS idx_leads_interacao ON leads(org_id, last_interaction_at);
+-- Vendas do período (Painel, Relatórios): sem isto, cada conta lia a casa inteira.
+CREATE INDEX IF NOT EXISTS idx_leads_venda ON leads(org_id, sale_date);
+-- "Pessoas faladas" e o "a última mensagem é do cliente?": mensagem por lead, direção e hora.
+CREATE INDEX IF NOT EXISTS idx_msg_lead_dir_data ON messages(lead_id, direction, created_at);
 -- O Painel conta avanços por etapa no período (visitas, propostas, vendas).
 CREATE INDEX IF NOT EXISTS idx_etapas_org_para ON lead_etapas(org_id, para, created_at);
 DROP TRIGGER IF EXISTS trg_leads_versao_ins;

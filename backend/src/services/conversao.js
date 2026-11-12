@@ -210,13 +210,13 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const eventos = new Map(), transfer = new Map();
   for (const e of emLotes(ids, (m, lote) => db.prepare(
     `SELECT lead_id, de_stage_id, para_stage_id, motivo, created_at FROM lead_etapas
-     WHERE org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
+     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
     if (!eventos.has(e.lead_id)) eventos.set(e.lead_id, []);
     eventos.get(e.lead_id).push(e);
   }
   for (const t of emLotes(ids, (m, lote) => db.prepare(
     `SELECT lead_id, from_user_id, to_user_id, created_at FROM lead_transfers
-     WHERE org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
+     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
     if (!transfer.has(t.lead_id)) transfer.set(t.lead_id, []);
     transfer.get(t.lead_id).push(t);
   }
@@ -358,7 +358,7 @@ function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
   const naFaixa = (sid) => !!sid && cfg.faixa.has(sid);
   const marcas = faixa.map(() => "?").join(",");
   const entraram = new Set(emLotes(ids, (m, lote) => db.prepare(
-    `SELECT DISTINCT lead_id FROM lead_etapas WHERE org_id = ? AND lead_id IN (${m})
+    `SELECT DISTINCT lead_id FROM lead_etapas WHERE +org_id = ? AND lead_id IN (${m})
      AND para_stage_id IN (${marcas}) AND created_at <= ?`).all(orgId, ...lote, ...faixa, corte)).map(r => r.lead_id));
   // Quem NASCEU numa etapa da faixa também entrou (a etapa de origem da
   // primeira mudança, ou a etapa de hoje de quem nunca mudou).

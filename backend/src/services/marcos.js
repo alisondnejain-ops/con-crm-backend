@@ -88,7 +88,7 @@ export function marcosDosLeads(orgId, ids, cls = null) {
   if (!ids.length) return res;
   const linhas = emLotes(ids, (m, lote) => db.prepare(
     `SELECT lead_id, para_stage_id sid, para nome, user_id, created_at t FROM lead_etapas
-     WHERE org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote));
+     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote));
   linhas.sort((a, b) => a.t - b.t);
   for (const r of linhas) {
     const k = c.deLinha(r.sid, r.nome);
@@ -134,7 +134,7 @@ export function etapaNoInstante(orgId, ids) {
   if (!ids.length) return () => null;
   for (const r of emLotes(ids, (m, lote) => db.prepare(
     `SELECT lead_id, de_stage_id, para_stage_id, created_at t FROM lead_etapas
-     WHERE org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
+     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
     if (!hist.has(r.lead_id)) hist.set(r.lead_id, []);
     hist.get(r.lead_id).push(r);
   }
