@@ -32,7 +32,7 @@ const C = {
   hot:"#E1553A", hotSoft:"#FBE7E1", amber:"#C8912B", amberSoft:"#F7EFD9", cool:"#5C6B7A", coolSoft:"#ECEFF2", white:"#FFF",
 };
 const SOMBRA="0 8px 26px rgba(23,60,40,.06)";
-const DISPLAY="'Manrope','Sora',sans-serif", FONT="'DM Sans','Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
+const DISPLAY="'Manrope','Sora',sans-serif", FONT="'DM Sans','Inter',sans-serif", MONO="'DM Sans','Inter',sans-serif";
 
 /* A MARCA DA IMOBILIÁRIA (white-label).
 
@@ -1262,7 +1262,7 @@ function Metric({n,label,value,sub,accent=C.green}){
       <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
       <span style={{color:C.sub,fontSize:12,fontWeight:500,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
     </div>
-    <NumeroQueCabe texto={txt} max={tamanho} min={12} style={{color:C.ink,fontFamily:MONO,fontWeight:600,lineHeight:1.1}}/>
+    <NumeroQueCabe texto={txt} max={tamanho} min={12} style={{color:C.ink,fontFamily:DISPLAY,fontWeight:700,letterSpacing:-.5,lineHeight:1.1}}/>
     {sub&&<div style={{color:C.faint,fontSize:11,marginTop:4,overflowWrap:"anywhere"}}>{sub}</div>}
   </div>;
 }
@@ -3123,7 +3123,7 @@ function AvisoPlantao({meu,isMobile,compacto}){
    janela simplesmente não existia. O recuo lateral centraliza o conteúdo em
    880px sem tirar a barra de rolagem da borda da janela. */
 const molduraMkt=(isMobile)=>({height:"100%",overflowY:"auto",boxSizing:"border-box",
-  padding:isMobile?"14px 12px 90px":"20px max(22px, calc((100% - 836px) / 2)) 40px"});
+  padding:isMobile?"14px 12px 90px":"20px max(22px, calc((100% - 1156px) / 2)) 40px"});
 const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,marginBottom:14};
 const TITULO_MKT={fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8};
 const campoMkt=(isMobile)=>({width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
@@ -3626,7 +3626,7 @@ function NovoDisparo({d,acoes,isMobile,aoFechar,aoCriar,irParaFluxos}){
 
     <div style={{...secao,display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
       <div style={{minWidth:120}}>
-        <div style={{fontFamily:MONO,fontSize:30,fontWeight:700,color:C.ink,lineHeight:1}}>{previa?previa.total:"…"}</div>
+        <div style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:30,fontWeight:700,color:C.ink,lineHeight:1}}>{previa?previa.total:"…"}</div>
         <div style={{color:C.sub,fontSize:12}}>pessoa(s) recebem</div>
       </div>
       <div style={{flex:1,minWidth:220,fontSize:12.5,color:C.sub,lineHeight:1.55}}>
@@ -3704,7 +3704,7 @@ function RelatorioDoDisparo({id,acoes,isMobile,aoVoltar,irParaRitmo}){
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10}}>{erro}</div>}
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,1fr)",gap:8,marginBottom:12}}>
       {numeros.map(([t,n])=><div key={t} style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px"}}>
-        <div style={{fontFamily:MONO,fontSize:19,fontWeight:700,color:C.ink}}>{n}</div>
+        <div style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700,color:C.ink}}>{n}</div>
         <div style={{color:C.sub,fontSize:11}}>{t}</div></div>)}
     </div>
     {(c.status==="rodando"||c.status==="pausada")&&<div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
@@ -4573,7 +4573,7 @@ function PainelDaAutomacao({manual,ativo,automacao,desatualizada,avisos,ocupado,
   if(manual) return <div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.5}}>
     Este fluxo não liga sozinho: é usado em <b>Marketing → Disparos em massa</b>. Escolha outro gatilho abaixo para ele rodar automático.</div>;
   const num=(t,v)=><div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",flex:"1 1 46%"}}>
-    <div style={{color:C.faint,fontSize:10.5}}>{t}</div><div style={{color:C.ink,fontFamily:MONO,fontSize:17,fontWeight:700}}>{v}</div></div>;
+    <div style={{color:C.faint,fontSize:10.5}}>{t}</div><div style={{color:C.ink,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:17,fontWeight:700}}>{v}</div></div>;
   return <div style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:12,borderBottom:`1px solid ${C.line}`}}>
     <div style={ROTULO_MKT}>Execução</div>
     <button onClick={()=>aoLigar(!ativo)} disabled={ocupado} style={{display:"flex",alignItems:"center",gap:9,background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
@@ -5468,7 +5468,7 @@ function AmbienteInterno({conta,isMobile,ocupado,copiado,entrar,copiar,criar}){
   return <div style={caixa}>{cabeca}
     <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
       {[["Equipe",conta.equipe],["Leads",conta.leads],["Na fila",conta.na_fila]].map(([t,v])=>
-        <div key={t}><div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
+        <div key={t}><div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
           <div style={{color:C.faint,fontSize:10}}>{t}</div></div>)}
     </div>
     {conta.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
@@ -5571,7 +5571,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
 
             <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
               {[["Equipe",c.equipe],["Leads",c.leads],["Na fila",c.na_fila]].map(([t,v])=>
-                <div key={t}><div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
+                <div key={t}><div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
                   <div style={{color:C.faint,fontSize:10}}>{t}</div></div>)}
             </div>
 
@@ -6616,7 +6616,7 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
   return <div>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Sua mensalidade</div>
     <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:9}}>
-      <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtMoeda(c.valor)}</span>
+      <span style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700}}>{fmtMoeda(c.valor)}</span>
       <span style={{color:C.faint,fontSize:11}}>por mês · valor combinado com o ConHub</span>
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
@@ -7056,7 +7056,7 @@ function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
           <Icon n="check" size={14}/> Boleto de {fmtPreco(pagoRecente.valor)} pago em {fmtData(pagoRecente.pago_em)}.</div>}
         {emAberto&&<div style={{border:`1px solid ${emAberto.vencido?C.amber+"88":C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:6}}>
-            <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtPreco(emAberto.valor)}</span>
+            <span style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700}}>{fmtPreco(emAberto.valor)}</span>
             <span style={{color:emAberto.vencido?"#8a6d1f":C.sub,fontSize:12,fontWeight:emAberto.vencido?700:500}}>
               {emAberto.vencido?"venceu em ":"vence em "}{venceTexto(emAberto.vencimento)}</span>
           </div>
@@ -7290,7 +7290,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
             <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",
               display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
               <span style={{color:C.sub,fontSize:11.5}}>Sua mensalidade</span>
-              <span style={{color:C.greenDeep,fontFamily:MONO,fontSize:18,fontWeight:700}}>{fmtMoeda(a.valor||a.valor_mensal)}</span>
+              <span style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700}}>{fmtMoeda(a.valor||a.valor_mensal)}</span>
               <span style={{color:C.faint,fontSize:11}}>por mês</span>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -8741,7 +8741,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}
           pickable={temPerm(session,"ver_relatorios_equipe")}/>}
         {role==="corretor"&&temPerm(session,"editar_mensagens")&&view==="mensagens"&&<div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"22px 28px"}}>
-          <div style={{maxWidth:820,margin:"0 auto"}}><MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile}/></div></div>}
+          <div style={{maxWidth:1100,margin:"0 auto"}}><MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile}/></div></div>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
         {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
@@ -11137,7 +11137,7 @@ function FichaVenda({lead,onSalvar,lado,aoAbrir}){
 
   if(v&&!aberto) return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:8}}><Icon n="check" size={13} color={C.greenMid}/> Venda registrada</div>
-    <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
+    <div style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
     <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||(interna?"Plano não informado":"Imóvel não informado")} · {fmtData(v.data)}</div>
     {/* Comissão é opcional — sem ela, some do VGC do painel de indicadores em
         vez de virar 0% inventado, e a tela diz isso em vez de fingir zero. */}
@@ -12672,13 +12672,13 @@ function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
     fontSize:12,fontWeight:600,cursor:"pointer"}}>{t}</button>;
   const num=(rotulo,valor,sub)=><div style={{background:C.surface,borderRadius:10,padding:"10px 11px",minWidth:0}}>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>
-    <div style={{color:C.ink,fontFamily:MONO,fontSize:18,fontWeight:700,marginTop:3}}>{valor}</div>
+    <div style={{color:C.ink,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700,marginTop:3}}>{valor}</div>
     {sub&&<div style={{color:C.faint,fontSize:11,marginTop:2}}>{sub}</div>}</div>;
   const iaVsSem=(x)=>{
     const melhor=x.ia.conversao!=null&&x.sem_ia.conversao!=null?(x.ia.conversao>x.sem_ia.conversao?"ia":x.ia.conversao<x.sem_ia.conversao?"sem":null):null;
     const lado=(rot,b,dest)=><div style={{flex:1,minWidth:0,border:`1px solid ${dest?C.green+"66":C.line}`,background:dest?C.greenSoft:C.card,borderRadius:10,padding:"9px 11px"}}>
       <div style={{color:C.sub,fontSize:11.5,fontWeight:600}}>{rot}</div>
-      <div style={{color:C.ink,fontFamily:MONO,fontSize:17,fontWeight:700,marginTop:2}}>{pctCatraca(b.conversao)}</div>
+      <div style={{color:C.ink,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:17,fontWeight:700,marginTop:2}}>{pctCatraca(b.conversao)}</div>
       <div style={{color:C.faint,fontSize:11}}>{b.vendas} venda{b.vendas===1?"":"s"} de {b.leads} lead{b.leads===1?"":"s"}</div></div>;
     return <div style={{display:"flex",gap:8,flexWrap:isMobile?"wrap":"nowrap"}}>
       {lado("Atendidos pela IA (Autoatendimento)",x.ia,melhor==="ia")}{lado("Sem a IA",x.sem_ia,melhor==="sem")}</div>;
@@ -13016,7 +13016,7 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
   if(!catracas) return <div style={{padding:30,color:C.faint,fontSize:13,textAlign:"center"}}>Carregando…</div>;
   const c=principal?null:(catracas.catracas||[]).find(x=>x.id===id);
   const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16};
-  const moldura=(filhos)=><div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}><div style={{maxWidth:860,margin:"0 auto"}}>{filhos}</div></div>;
+  const moldura=(filhos)=><div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}><div style={{maxWidth:1200,margin:"0 auto"}}>{filhos}</div></div>;
   if(!principal&&!c) return moldura(<div style={caixa}>
     <div style={{color:C.ink,fontSize:14,fontWeight:600}}>Esta catraca não existe mais.</div>
     <button onClick={irParaConfig} style={{marginTop:10,border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Ir para Configurações da catraca</button>
@@ -13866,7 +13866,7 @@ function EngajamentoDasRedes({acoes,isMobile,pagina}){
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
               <LogoRede rede={c.rede} size={18}/><span style={{fontWeight:700,color:C.ink,fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</span></div>
             <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:12}}>
-              <span style={{fontFamily:MONO,fontSize:24,fontWeight:700,color:C.ink}}>{fmtNum(c.seguidores)}</span>
+              <span style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:24,fontWeight:700,color:C.ink}}>{fmtNum(c.seguidores)}</span>
               <span style={{fontSize:12,color:C.sub}}>seguidores</span>
               {c.crescimento?<span style={{fontSize:12,fontWeight:600,color:c.crescimento.valor>=0?C.greenDeep:C.hot}}>
                 {c.crescimento.valor>=0?"+":""}{fmtNum(c.crescimento.valor)} desde {c.crescimento.desde.split("-").reverse().slice(0,2).join("/")}</span>
@@ -16235,7 +16235,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{maxWidth:820,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
       {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no ConHub</div>
@@ -17182,7 +17182,7 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
         {[["vão ser movidos",previa.leads],["já estão lá",previa.ja_estao_la]].map(([t,v])=>
           <div key={t} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
             padding:"9px 12px",flex:"1 1 110px"}}>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
             <div style={{color:C.faint,fontSize:10,marginTop:3}}>{t}</div></div>)}
       </div>
 
@@ -17347,7 +17347,7 @@ function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
         {[["vão passar",previa.vao],["finalizados",previa.finalizados],["com venda ou fechados (ficam)",previa.fechados]].map(([t,v])=>
           <div key={t} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
             padding:"9px 12px",flex:"1 1 110px"}}>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
+            <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1}}>{v}</div>
             <div style={{color:C.faint,fontSize:10,marginTop:3}}>{t}</div></div>)}
       </div>
 
@@ -17931,7 +17931,7 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
           <div style={{textAlign:"center",padding:"10px 0"}}>
             <div style={{width:54,height:54,borderRadius:"50%",background:feito.criados?C.greenSoft:C.hotSoft,margin:"0 auto 10px",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Icon n={feito.criados?"check":"xcirc"} size={26} color={feito.criados?C.greenDeep:C.hot}/></div>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:34,fontWeight:700,lineHeight:1}}>{feito.criados}</div>
+            <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:34,fontWeight:700,lineHeight:1}}>{feito.criados}</div>
             <div style={{color:C.sub,fontSize:13.5,marginTop:6}}>{feito.criados===1?"lead entrou na base":"leads entraram na base"}</div>
             {feito.vendas>0&&<div style={{color:C.greenDeep,fontSize:12.5,fontWeight:600,marginTop:4}}>{feito.vendas} com a venda registrada</div>}
           </div>
@@ -17943,11 +17943,11 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
           {/* O número que decide: quantos entram de fato. */}
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
             <div style={{flex:"1 1 150px",background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:14,padding:"13px 15px"}}>
-              <div style={{fontFamily:MONO,color:C.greenDeep,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":vaoEntrar}</div>
+              <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.greenDeep,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":vaoEntrar}</div>
               <div style={{color:C.greenDeep,fontSize:12,fontWeight:600,marginTop:5}}>vão entrar na base</div>
             </div>
             <div style={{flex:"1 1 150px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:14,padding:"13px 15px"}}>
-              <div style={{fontFamily:MONO,color:previa&&previa.ignorados?"#8a6d1f":C.ink,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":(previa?previa.ignorados:0)}</div>
+              <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:previa&&previa.ignorados?"#8a6d1f":C.ink,fontSize:28,fontWeight:700,lineHeight:1}}>{semTelefone?"—":lendo&&!previa?"…":(previa?previa.ignorados:0)}</div>
               <div style={{color:C.sub,fontSize:12,fontWeight:600,marginTop:5}}>ficam de fora</div>
             </div>
           </div>
@@ -18396,7 +18396,7 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nome}</span>
           {m.sem_dados
             ?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
-            :<span style={{fontFamily:MONO,fontSize:19,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}
+            :<span style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}
         </button>
         {!m.sem_dados&&<React.Fragment>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
@@ -18861,7 +18861,7 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
   const passos=(lista)=><ol style={{margin:"10px 0 0",paddingLeft:20,color:C.sub,fontSize:12.5,lineHeight:1.65}}>{lista.map((p,i)=><li key={i}>{p}</li>)}</ol>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:760,margin:"0 auto"}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
         <button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Portais de imóveis</div>
@@ -19815,7 +19815,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
 
       {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:12}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>{p.finalidade==="aluguel"?"Comissão do aluguel":"Comissão da venda"}</div>
-        <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}{p.finalidade==="aluguel"&&<span style={{fontSize:13}}>/mês</span>}</div>
+        <div style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}{p.finalidade==="aluguel"&&<span style={{fontSize:13}}>/mês</span>}</div>
         <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
           Imobiliária ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
           Corretor ({p.comissao.split.corretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(p.comissao.corretor)}</b>
@@ -21236,7 +21236,7 @@ function CreditoDeIA({acoes,isMobile,cartao}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="spark" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Crédito de IA</span>
-      <span style={{color:cor,fontSize:18,fontWeight:700,fontFamily:MONO}}>{fmtReais2(d.saldo)}</span>
+      <span style={{color:cor,fontSize:18,fontWeight:700,fontFamily:DISPLAY,letterSpacing:-.3}}>{fmtReais2(d.saldo)}</span>
     </div>
     {d.acabou&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
       O crédito acabou: a IA parou de responder os clientes. Compre um pacote para ela voltar.</div>}
@@ -23399,7 +23399,7 @@ function UsoDaIA({acoes,isMobile}){
 
   const cartao=(rot,valor,sub)=><div style={{flex:"1 1 150px",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12}}>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{rot}</div>
-    <div style={{fontFamily:MONO,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1.2,marginTop:3}}>{valor}</div>
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:19,fontWeight:700,lineHeight:1.2,marginTop:3}}>{valor}</div>
     {sub&&<div style={{color:C.faint,fontSize:10.5,marginTop:2}}>{sub}</div>}
   </div>;
 
@@ -23847,7 +23847,7 @@ function NumerosDaEquipe({acoes,isMobile}){
   };
 
   const caixa=(rot,v,cor)=><div style={{background:C.surface,borderRadius:10,padding:"9px 12px",flex:"1 1 110px"}}>
-    <div style={{fontFamily:MONO,color:cor||C.ink,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:cor||C.ink,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
     <div style={{color:C.faint,fontSize:10,marginTop:3}}>{rot}</div></div>;
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
@@ -24017,7 +24017,7 @@ function PresencaNoPlantao({pl,isMobile}){
   const veio=pl.presencas||0, faltou=pl.faltas||0, semConferir=pl.nao_conferidos||0;
   const conferidos=veio+faltou;
   const caixa=(rot,v,cor)=><div style={{background:C.surface,borderRadius:10,padding:"8px 11px",flex:"1 1 88px"}}>
-    <div style={{fontFamily:MONO,color:cor,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:cor,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
     <div style={{color:C.faint,fontSize:10,marginTop:3}}>{rot}</div></div>;
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:isMobile?11:12,marginBottom:10}}>
     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
@@ -24118,7 +24118,7 @@ function LeadsPorDia({linha,isMobile}){
           </div>
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontFamily:MONO,color:recebidos?C.ink:C.faint,fontSize:26,fontWeight:700,lineHeight:1}}>{recebidos}</div>
+          <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:recebidos?C.ink:C.faint,fontSize:26,fontWeight:700,lineHeight:1}}>{recebidos}</div>
           <div style={{color:C.faint,fontSize:11,marginTop:3}}>lead(s) recebido(s)</div>
         </div>
       </div>}
@@ -24244,7 +24244,7 @@ function BlocoAtendimento({linhas,isMobile}){
             // O único número que merece alarme: lead que entrou e ninguém falou.
             ["Sem contato",a.sem_contato,a.sem_contato>0?C.hot:null]].map(([t,v,cor])=>
             <div key={t}>
-              <div style={{fontFamily:MONO,color:cor||C.ink,fontSize:17,fontWeight:700,lineHeight:1.1}}>{v}</div>
+              <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:cor||C.ink,fontSize:17,fontWeight:700,lineHeight:1.1}}>{v}</div>
               <div style={{color:C.faint,fontSize:10.5}}>{t}</div>
             </div>)}
         </div>
@@ -24331,7 +24331,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
     borderBottom:`1px solid ${C.line}`,paddingBottom:6,margin:"22px 0 12px"}}>{t}</div>;
 
   const numero=(rot,val,sub)=><div style={{flex:"1 1 128px",minWidth:112}}>
-    <div style={{fontFamily:MONO,color:C.ink,fontSize:22,fontWeight:700,lineHeight:1.05}}>{val}</div>
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:22,fontWeight:700,lineHeight:1.05}}>{val}</div>
     <div style={{color:C.sub,fontSize:11,fontWeight:600,marginTop:3}}>{rot}</div>
     {sub&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>{sub}</div>}
   </div>;
@@ -24364,7 +24364,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
             Período: <b style={{color:C.sub}}>{fmtData(dados.periodo.de)} a {fmtData(dados.periodo.ate)}</b></div>
         </div>
         {meu&&!meu.sem_dados&&<div style={{textAlign:"right"}}>
-          <div style={{fontFamily:MONO,fontSize:38,fontWeight:700,lineHeight:1,color:cor(meu.score)}}>{meu.score}</div>
+          <div style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:38,fontWeight:700,lineHeight:1,color:cor(meu.score)}}>{meu.score}</div>
           <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>score de 100</div>
         </div>}
       </div>
@@ -24518,7 +24518,7 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
             <div style={{color:C.faint,fontSize:11.5}}>{fmtData(periodo.de)} a {fmtData(periodo.ate)}</div>
           </div>
           <div style={{textAlign:"right"}}>
-            <div style={{fontFamily:MONO,fontSize:30,fontWeight:700,lineHeight:1,color:cor(m.score)}}>{m.score}</div>
+            <div style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:30,fontWeight:700,lineHeight:1,color:cor(m.score)}}>{m.score}</div>
             <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>de 100</div>
           </div>
           <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
@@ -24579,7 +24579,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
   </div>;
   const tempo=(min)=>min==null?"—":fmtMin(min);
   const caixa=(rot,v,dica)=><div title={dica||""} style={{background:C.surface,borderRadius:10,padding:"9px 11px",minWidth:0}}>
-    <div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.3}}>{rot}</div></div>;
   const grade={display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(104px,1fr))",gap:8};
   const th={textAlign:"left",color:C.faint,fontSize:10.5,fontWeight:700,padding:"6px 6px",textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap"};
@@ -24643,7 +24643,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
   const conta=(x,base)=>base?`${x} de ${base} · ${pctBR(Math.round(x/base*100))}`:"—";
   const caixa=(chave,rot,v,sub,dica)=><button key={chave} title={dica||""} onClick={()=>chave&&setAberto(chave)} disabled={!chave}
     style={{background:C.surface,border:"none",borderRadius:10,padding:"9px 11px",minWidth:0,textAlign:"left",cursor:chave?"pointer":"default"}}>
-    <div style={{fontFamily:MONO,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+    <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1.1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
       textDecoration:chave?"underline":"none",textDecorationColor:C.line,textUnderlineOffset:3}}>{v}</div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:3,lineHeight:1.3}}>{rot}</div>
     {sub&&<div style={{color:C.sub,fontSize:10.5,marginTop:2,fontFamily:MONO}}>{sub}</div>}</button>;
@@ -25500,7 +25500,7 @@ function TelaLotes({acoes,session,isMobile,leads,abrirConversa}){
           style={{textAlign:"left",background:C.card,border:`1px solid ${filtro===k?COR_LOTE[k].borda:C.line}`,borderRadius:12,padding:"11px 13px",cursor:"pointer",fontFamily:FONT}}>
           <div style={{display:"flex",alignItems:"center",gap:7,color:C.sub,fontSize:12.5,fontWeight:600}}>
             <span style={{width:10,height:10,borderRadius:3,background:COR_LOTE[k].fundo,border:`2px solid ${COR_LOTE[k].borda}`}}/>{COR_LOTE[k].rotulo}</div>
-          <div style={{fontFamily:MONO,color:C.ink,fontSize:22,fontWeight:700,marginTop:2}}>{cont[k]||0}</div>
+          <div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:22,fontWeight:700,marginTop:2}}>{cont[k]||0}</div>
         </button>)}
       </div>
 
