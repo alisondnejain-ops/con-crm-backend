@@ -85,7 +85,7 @@ export const ASSINATURA_ROBO = "Atendimento automático";
    ruim") — eram 8 a 20. Com a espera curta, a mensagem que o cliente manda
    enquanto a IA ainda está escrevendo fica mais comum; ela não é mais
    descartada: `deNovo` faz o atendimento rodar outra vez ao terminar. */
-const ATRASO_MIN = 3000, ATRASO_MAX = 8000;
+const ATRASO_MIN = Number(process.env.ROBO_ATRASO_MIN ?? 3000), ATRASO_MAX = Number(process.env.ROBO_ATRASO_MAX ?? 8000);
 const deNovo = new Set();
 const esperar = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -119,7 +119,7 @@ export function orientacoes(orgId, todas = false) {
 export function configDoRobo(orgId) {
   const o = db.prepare(
     `SELECT robo_ativo, robo_inicio, robo_fim, robo_teto, robo_dias, robo_sempre, tipo,
-            robo_escopo, robo_campos, robo_observacao, robo_etapa_final
+            robo_escopo, robo_campos, robo_observacao, robo_etapa_final, robo_abre_formulario
        FROM orgs WHERE id = ?`).get(orgId) || {};
   const json = (t, p) => { try { return t ? JSON.parse(t) : p; } catch { return p; } };
   const esc = json(o.robo_escopo, {});
@@ -161,6 +161,8 @@ export function configDoRobo(orgId) {
     campos: json(o.robo_campos, []).filter(k => typeof k === "string"),
     observacao: !!o.robo_observacao,
     etapa_final: o.robo_etapa_final || null,
+    // Abre a conversa com o lead que chega por formulário (12/11/2026). Nulo = não.
+    abre_formulario: !!o.robo_abre_formulario,
     aprender: aprendeLigado(orgId),
   };
 }
@@ -222,7 +224,7 @@ const orgDoAutonomo = (orgId) => {
 /* Quem o robô pode atender AGORA. Devolve o motivo quando não pode: sem isso,
    "o robô não respondeu" é indistinguível de "o robô está quebrado", e essa
    dúvida custa mais tempo do que o recurso economiza. */
-export function podeAtender(orgId, leadId, agora = Date.now()) {
+export function podeAtender(orgId, leadId, agora = Date.now(), { abrir = false } = {}) {
   const cfg = configDoRobo(orgId);
   if (!cfg.incluido) return { pode: false, motivo: "sem_autoatendimento" };
   if (!cfg.ativo) return { pode: false, motivo: "desligado" };
@@ -234,7 +236,7 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
      na hora, mesmo dentro do expediente. Só o lead SEM dono: o que já está
      com uma atendente continua esperando por ela durante o dia. */
   const cobrindo = !!lead && !lead.assigned_to && semAtendenteAtiva(orgId);
-  if (!dentroDaJanela(cfg, agora) && !cobrindo) return { pode: false, motivo: "dentro_do_expediente" };
+  if (!dentroDaJanela(cfg, agora) && !cobrindo && !abrir) return { pode: false, motivo: "dentro_do_expediente" };
   if (!lead) return { pode: false, motivo: "lead_nao_encontrado" };
   /* Neutro de propósito: aqui só interessa que ele está fora da conversa. POR
      QUE ele saiu — gente respondeu, ele se despediu, bateu o teto, a atendente
@@ -300,6 +302,24 @@ export function podeAtender(orgId, leadId, agora = Date.now()) {
   // não fala duas vezes seguidas.
   const ultima = db.prepare(
     `SELECT direction FROM messages WHERE lead_id = ? AND ${semDisparo()} ORDER BY created_at DESC LIMIT 1`).get(leadId);
+  /* ABRIR A CONVERSA COM O LEAD DO FORMULÁRIO (12/11/2026, pedido do Ali para o
+     Reserva Real do Rio). O lead que preencheu um formulário chega sem
+     mensagem nenhuma, e a regra de sempre ("só fala quando a última é do
+     cliente") deixava a IA esperando para sempre. Com a conta ligada, ela
+     manda a PRIMEIRA mensagem — mas só enquanto ninguém falou com o cliente:
+     nenhuma mensagem enviada por ninguém (gente, robô, disparo ou automação)
+     e nenhum fluxo andando para ele. O resto das travas acima vale igual. */
+  if (abrir) {
+    if (!cfg.abre_formulario) return { pode: false, motivo: "nao_abre_formulario" };
+    if (!lead.formulario_em) return { pode: false, motivo: "nao_veio_de_formulario" };
+    if (!lead.phone) return { pode: false, motivo: "sem_telefone" };
+    const emFluxo = db.prepare(`SELECT 1 FROM marketing_execucoes WHERE org_id = ? AND lead_id = ?
+      AND estado IN ('ativa','aguardando_resposta') LIMIT 1`).get(orgId, leadId);
+    if (emFluxo) return { pode: false, motivo: "fluxo_de_disparo" };
+    const jaFalou = db.prepare("SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'out' LIMIT 1").get(leadId);
+    // Já existe conversa: vale a regra de sempre (responde se o cliente for o último a falar).
+    if (!jaFalou) return ultima && ultima.direction === "in" ? { pode: true, lead, cfg } : { pode: true, lead, cfg, abrindo: true };
+  }
   if (!ultima || ultima.direction !== "in") return { pode: false, motivo: "nao_esta_esperando" };
 
   return { pode: true, lead, cfg };
@@ -339,13 +359,26 @@ export function pararPorGente(leadId) {
 
 const lerColetado = (lead) => { try { return JSON.parse(lead.robo_json || "{}") || {}; } catch { return {}; } };
 
+/* A IA ABRE A CONVERSA COM O LEAD DO FORMULÁRIO (12/11/2026). Chamado por
+   `receberLead` (formulário do site, da Meta e portais) sem esperar. Só faz
+   alguma coisa na conta que ligou a opção — o resto é conferido por
+   `podeAtender` com `abrir`. Nunca lança. */
+export function abrirConversaDoFormulario(orgId, leadId) {
+  try {
+    if (!configDoRobo(orgId).abre_formulario) return;
+    atender(orgId, leadId, { abrir: true })
+      .then(r => { if (!r.atendeu && r.motivo !== "ja_respondendo") console.log(`[robo] não abri a conversa do formulário: ${r.motivo}`); })
+      .catch(() => {});
+  } catch (e) { console.warn("[robo] abrir conversa:", e.message); }
+}
+
 /* Atende uma vez: lê a conversa, escreve a resposta, confere e envia.
 
    Nunca lança. É chamado sem `await` pelo webhook — uma exceção aqui viraria
    um `unhandledRejection` que derruba o processo inteiro, e o processo inteiro
    é o CRM da Conecta. */
 export async function atender(orgId, leadId, opcoes = {}) {
-  const { agora = Date.now(), atraso = null } = opcoes;
+  const { agora = Date.now(), atraso = null, abrir = false } = opcoes;
   // Já tem uma resposta a caminho para esta conversa: a segunda mensagem do
   // cliente não vira uma segunda resposta. Ela vai ser lida pela primeira.
   // Se ela chegou depois de a conversa ter sido lida, a resposta a caminho
@@ -355,8 +388,8 @@ export async function atender(orgId, leadId, opcoes = {}) {
   try {
     // `agora` existe para o teste poder ser 21h de sábado a qualquer hora do
     // dia. Em produção é sempre o relógio.
-    if (!podeAtender(orgId, leadId, agora).pode)
-      return { atendeu: false, motivo: podeAtender(orgId, leadId, agora).motivo };
+    const antes = podeAtender(orgId, leadId, agora, { abrir });
+    if (!antes.pode) return { atendeu: false, motivo: antes.motivo };
 
     const espera = atraso == null ? ATRASO_MIN + Math.random() * (ATRASO_MAX - ATRASO_MIN) : atraso;
     if (espera > 0) await esperar(espera);
@@ -369,9 +402,17 @@ export async function atender(orgId, leadId, opcoes = {}) {
        respondido pelo celular, ou o gestor pode ter desligado o robô. Decidir
        antes de esperar e agir depois é como um recurso automático atropela uma
        pessoa que estava trabalhando. */
-    const t = podeAtender(orgId, leadId, agora);
+    const t = podeAtender(orgId, leadId, agora, { abrir });
     if (!t.pode) return { atendeu: false, motivo: t.motivo };
     const { lead, cfg } = t;
+    /* Abrindo a conversa: a IA recebe o que a pessoa respondeu no formulário
+       (a observação que o formulário gravou), para a primeira mensagem já
+       mostrar que a equipe leu o cadastro — e não perguntar o que já foi dito. */
+    const abertura = t.abrindo ? {
+      formulario: lead.form_name || lead.origem || null,
+      respostas: db.prepare(`SELECT texto FROM observacoes WHERE lead_id = ? ORDER BY created_at DESC LIMIT 3`).all(leadId)
+        .map(o => o.texto).join("\n\n").slice(0, 3000),
+    } : null;
 
     /* A resposta entra na conversa com a hora em que a IA LEU a conversa, não
        com a hora em que saiu. Ela responde ao que leu: a mensagem que o cliente
@@ -424,6 +465,7 @@ export async function atender(orgId, leadId, opcoes = {}) {
       // O que ela aprendeu nos atendimentos anteriores (services/aprendizado.js).
       aprendidas: orientacoes(orgId).filter(o => o.origem === "ia").map(o => o.texto),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
+      abertura,
     });
     if (!r.ok) {
       console.warn(`[robo] não atendi ${lead.name}: ${r.erro}`);
@@ -515,7 +557,7 @@ export async function atender(orgId, leadId, opcoes = {}) {
     /* Chegou mensagem do cliente durante este atendimento: roda outra vez.
        Se a última mensagem já é a resposta que acabou de sair (a espera leu as
        duas juntas), `podeAtender` vê "sem cliente esperando" e não responde. */
-    if (deNovo.delete(leadId)) setTimeout(() => { atender(orgId, leadId, { ...opcoes, agora: opcoes.agora ?? Date.now() }).catch(() => {}); }, 0);
+    if (deNovo.delete(leadId)) setTimeout(() => { atender(orgId, leadId, { ...opcoes, abrir: false, agora: opcoes.agora ?? Date.now() }).catch(() => {}); }, 0);
   }
 }
 

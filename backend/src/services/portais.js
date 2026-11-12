@@ -561,5 +561,9 @@ export function receberLead(orgId, dados) {
         ? " — direto ao corretor pela catraca" : " — para a atendente da vez") : ""}`);
   // Mandou formulário: é o que libera a conversa na conta "só leads do formulário".
   marcarFormulario(lead.id);
+  /* A IA abre a conversa (12/11/2026), na conta que ligou "abrir a conversa
+     com o lead do formulário". Sem esperar: a resposta ao formulário/portal
+     não pode depender da IA. A função confere tudo e nunca lança. */
+  import("./robo.js").then(m => m.abrirConversaDoFormulario(orgId, lead.id)).catch(() => {});
   return { ok: true, novo, lead_id: lead.id, assigned_to: lead.assigned_to || null };
 }

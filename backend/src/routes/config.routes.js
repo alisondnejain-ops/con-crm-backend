@@ -542,11 +542,23 @@ r.post("/robo/acoes", roles("adm"), (req, res) => {
       return res.status(400).json({ error: "A etapa escolhida não existe ou está desativada." });
   }
   const observacao = b.observacao === undefined ? atual.observacao : !!b.observacao;
-  db.prepare("UPDATE orgs SET robo_escopo = ?, robo_campos = ?, robo_observacao = ?, robo_etapa_final = ? WHERE id = ?")
-    .run(JSON.stringify(escopo), JSON.stringify(campos), observacao ? 1 : 0, etapaFinal, org);
+  /* Abrir a conversa com o lead do formulário (12/11/2026). Ligar também passa
+     o formulário do site de "corretor da vez" para a regra de sempre: lead que
+     nasce com corretor a IA não atende, e a opção ligada não faria nada. */
+  const abre = b.abre_formulario === undefined ? atual.abre_formulario : !!b.abre_formulario;
+  let formularioSiteMudou = false;
+  if (abre && !atual.abre_formulario) {
+    const e = db.prepare("SELECT quem_recebe FROM entrada_site WHERE org_id = ?").get(org);
+    if (e && e.quem_recebe === "corretor") {
+      db.prepare("UPDATE entrada_site SET quem_recebe = 'regra', atualizado_em = ? WHERE org_id = ?").run(Date.now(), org);
+      formularioSiteMudou = true;
+    }
+  }
+  db.prepare("UPDATE orgs SET robo_escopo = ?, robo_campos = ?, robo_observacao = ?, robo_etapa_final = ?, robo_abre_formulario = ? WHERE id = ?")
+    .run(JSON.stringify(escopo), JSON.stringify(campos), observacao ? 1 : 0, etapaFinal, abre ? 1 : null, org);
   const cfg = configDoRobo(org);
   console.log(`[robo] ações/escopo atualizados por ${req.user.name}`);
-  res.json({ ...cfg, ferramenta: situacaoDoRecurso(org, "autoatendimento"),
+  res.json({ ...cfg, ferramenta: situacaoDoRecurso(org, "autoatendimento"), formulario_site_mudou: formularioSiteMudou,
     agora_atenderia: cfg.incluido && cfg.ativo && cfg.configurada && dentroDaJanela(cfg) });
 });
 

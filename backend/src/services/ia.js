@@ -704,7 +704,7 @@ const FORMATO_EXTRA = `
 No JSON da resposta, acrescente também (quando couber): "campos":{"chave":"valor"}, "resumo":"...", "interessado":true|false.`;
 
 export async function atenderPrimeiroContato({ mensagens, nome, coletado = {}, restantes = null, orientacoes = [], aprendidas = [], imobiliaria = "",
-  produto = null, outrosProdutos = null, campos = [], resumo = false, comFotos = [] }) {
+  produto = null, outrosProdutos = null, campos = [], resumo = false, comFotos = [], abertura = null }) {
   if (!iaConfigurada()) return { ok: false, erro: "Atendimento automático por IA não configurado." };
 
   const linhas = (mensagens || []).slice(-40)
@@ -815,10 +815,25 @@ que você não viu.` : "";
     ? `\n\nVOCÊ JÁ ANOTOU (não pergunte de novo): ${jaTem.map(k => `${k} = ${coletado[k]}`).join("; ")}`
     : "";
 
+  /* A PRIMEIRA MENSAGEM PARA QUEM PREENCHEU UM FORMULÁRIO (12/11/2026,
+     services/robo.js). A pessoa não escreveu no WhatsApp: ela pediu contato
+     num formulário. A mensagem precisa dizer de onde a imobiliária tem o
+     número dela — senão é um desconhecido escrevendo do nada. */
+  const blocoAbertura = abertura ? `
+
+ESTA É A PRIMEIRA MENSAGEM DA CONVERSA, e quem começa é você: a pessoa ainda não escreveu no WhatsApp.
+Ela preencheu um formulário${abertura.formulario ? ` ("${String(abertura.formulario).slice(0, 120)}")` : ""} pedindo contato.
+Cumprimente pelo primeiro nome (se o nome parecer um nome de pessoa), diga em uma frase que recebeu o
+cadastro dela e por isso está escrevendo, e faça UMA pergunta para começar — de preferência a primeira
+que as orientações da equipe mandam fazer. Não repita perguntas que o formulário já respondeu.${abertura.respostas ? `
+
+O QUE ELA RESPONDEU NO FORMULÁRIO:
+${abertura.respostas}` : ""}` : "";
+
   const r = await perguntar({
     max_tokens: 500,
     content: [{ type: "text", text:
-      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoAprendido}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}${blocoFotos}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}\n\nCONVERSA ATÉ AGORA:\n${linhas}` }],
+      `${instrucaoAtendimento(imobiliaria)}${bloco}${blocoAprendido}${blocoProduto}${blocoOutros}${blocoCampos}${blocoResumo}${listaCampos.length || resumo ? FORMATO_EXTRA : ""}${blocoEscolha}${blocoFotos}\n\nNome que aparece no WhatsApp: ${nome || "não sei"}${contexto}${aviso}${blocoAbertura}\n\nCONVERSA ATÉ AGORA:\n${linhas || "(nenhuma mensagem ainda)"}` }],
   });
   if (!r.ok) return { ok: false, erro: r.erro };
 
