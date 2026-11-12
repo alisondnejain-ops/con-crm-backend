@@ -26,6 +26,7 @@ import { completarAnuncioDoLead } from "./anuncios-desempenho.js";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
 import { triarNumeroNovo } from "./triagem.js";
+import { barrarMensagem } from "./so-formulario.js";
 import { dispararGatilho } from "./automacoes.js";
 import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
@@ -127,6 +128,12 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
 
   let lead = leadPorTelefone(db, orgId, phone);
   const ehNovo = !lead;
+
+  /* SÓ LEADS DO FORMULÁRIO (11/11/2026, services/so-formulario.js): na conta
+     marcada pelo master, quem escreve sem ter vindo de um formulário não entra
+     — nada da mensagem é gravado, nem o arquivo. As outras contas não mudam. */
+  const barrada = barrarMensagem(orgId, lead);
+  if (barrada) return lembrar({ em: Date.now(), evento, provider, resultado: barrada });
 
   /* O WHATSAPP PESSOAL DE QUEM JÁ NÃO ESTÁ COM O LEAD (05/11/2026,
      services/linha-solta.js). Antes de baixar qualquer arquivo: nada desta

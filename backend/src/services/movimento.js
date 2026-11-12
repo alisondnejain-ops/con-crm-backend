@@ -422,7 +422,37 @@ function mudarParaOFunilDe(lead, userId, quemMandou) {
    (`recebidosEm`): o lead que vai e volta para a mesma pessoa no mesmo
    período é UM lead recebido. */
 const MOTIVOS_QUE_NAO_SAO_RECEBER = ["lote", "saida_equipe"];
+/* GUARDADO POR CONTA (12/11/2026, instabilidade relatada pela Conecta): esta
+   conta lê a casa inteira — numa base de 30 mil leads, meio segundo com o
+   servidor PARADO —, e Painel, Relatórios, Score, Operação e SDR a pediam a
+   cada abertura, inclusive na atualização de minuto em minuto de cada
+   aparelho. Com vários corretores no Painel, o servidor não respondia mais
+   ninguém (o login ficava em "Entrando…").
+
+   O resultado é guardado e refeito quando muda o que ele lê: a quantidade de
+   leads, o dono/hora de atribuição/planilha de algum lead, ou as
+   transferências. A IMPRESSÃO custa uma fração da conta. O teto de 60 s cobre
+   o caso raro que a impressão não vê (a primeira mensagem de um lead de
+   formulário chegando depois pela linha pessoal de alguém) — o mesmo intervalo
+   em que as telas já se atualizam sozinhas. Ninguém altera as listas
+   devolvidas (só leem e filtram), então devolver a mesma é seguro. */
+const GUARDA_EVENTOS = new Map();
+const TETO_GUARDA_MS = 60000;
+function impressaoDaAtribuicao(orgId) {
+  const l = db.prepare(`SELECT COUNT(*) n, TOTAL(COALESCE(assigned_at, 0)) a, TOTAL(LENGTH(COALESCE(assigned_to, ''))) d,
+      COUNT(import_id) i, MAX(created_at) c FROM leads WHERE org_id = ?`).get(orgId);
+  const t = db.prepare("SELECT COUNT(*) n, MAX(rowid) r FROM lead_transfers WHERE org_id = ?").get(orgId);
+  return [l.n, l.a, l.d, l.i, l.c, t.n, t.r].join("|");
+}
 export function eventosDeAtribuicao(orgId) {
+  const imp = impressaoDaAtribuicao(orgId);
+  const g = GUARDA_EVENTOS.get(orgId);
+  if (g && g.imp === imp && Date.now() - g.em < TETO_GUARDA_MS) return g.valor;
+  const valor = calcularEventosDeAtribuicao(orgId);
+  GUARDA_EVENTOS.set(orgId, { imp, em: Date.now(), valor });
+  return valor;
+}
+function calcularEventosDeAtribuicao(orgId) {
   const fora = MOTIVOS_QUE_NAO_SAO_RECEBER.map(() => "?").join(",");
   const recebidos = db.prepare(`
     SELECT l.id AS lead_id,

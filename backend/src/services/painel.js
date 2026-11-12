@@ -104,9 +104,14 @@ export function peneira(orgId, f = {}) {
 export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = null) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
+  const lista = recebidosEm(eventos || eventosDeAtribuicao(orgId), userId, de, ate);
+  /* Sem filtro além da conta, a peneira é a conta inteira — e os eventos já
+     são só de leads desta conta que existem. Montar o conjunto de todos os
+     ids (30 mil numa casa grande) só para filtrar nada custava ~70 ms a cada
+     Painel (12/11/2026). */
+  if (p.args.length === 1) return lista;
   const ids = new Set(db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql}`).all(...p.args).map(r => r.id));
-  return recebidosEm(eventos || eventosDeAtribuicao(orgId), userId, de, ate)
-    .filter(e => ids.has(e.lead_id));
+  return lista.filter(e => ids.has(e.lead_id));
 }
 
 /* SÓ AS COLUNAS QUE A CONTA USA (28/09/2026, teste de carga). O lead tem ~60

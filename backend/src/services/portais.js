@@ -20,6 +20,7 @@
    descrição, sem bairro) o portal recusa ou publica mal — e a imobiliária só
    descobre olhando o portal. Aqui ele fica FORA do arquivo, e a tela de
    Portais diz exatamente o que falta em cada um. */
+import { marcarFormulario } from "./so-formulario.js";
 import { randomBytes, randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -558,5 +559,7 @@ export function receberLead(orgId, dados) {
     novo ? (!lead.assigned_to ? " — sem atendente, foi para a fila"
       : lead.catraca_id && db.prepare("SELECT role FROM users WHERE id = ?").get(lead.assigned_to)?.role === "corretor"
         ? " — direto ao corretor pela catraca" : " — para a atendente da vez") : ""}`);
+  // Mandou formulário: é o que libera a conversa na conta "só leads do formulário".
+  marcarFormulario(lead.id);
   return { ok: true, novo, lead_id: lead.id, assigned_to: lead.assigned_to || null };
 }
