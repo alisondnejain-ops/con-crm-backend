@@ -21652,15 +21652,16 @@ function RoboConfig({acoes,session,isMobile}){
 function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
   const [pipes,setPipes]=useState(null);
   const [campos,setCampos]=useState(null);
-  const [f,setF]=useState({escopo:cfg.escopo||{pipelines:[],etapas:[]},campos:cfg.campos||[],observacao:!!cfg.observacao,etapa_final:cfg.etapa_final||""});
+  const [f,setF]=useState({escopo:cfg.escopo||{pipelines:[],etapas:[]},campos:cfg.campos||[],observacao:!!cfg.observacao,etapa_final:cfg.etapa_final||"",abre_formulario:!!cfg.abre_formulario});
   const [estado,setEstado]=useState("");
+  const [avisoSite,setAvisoSite]=useState(false);
   useEffect(()=>{ acoes.pipelines().then(d=>setPipes((d.pipelines||[]).filter(p=>p.is_active))).catch(()=>setPipes([]));
     acoes.camposPersonalizados().then(d=>setCampos(d.campos||[])).catch(()=>setCampos([])); },[]);
   const alterna=(lista,id)=>lista.includes(id)?lista.filter(x=>x!==id):[...lista,id];
   const mexe=(patch)=>{setF(x=>({...x,...patch}));setEstado("pendente");};
   async function salvar(){
     setEstado("salvando");
-    try{ aoSalvar(await acoes.salvarAcoesRobo(f)); setEstado("salvo"); }catch(e){ setEstado("Erro: "+e.message); }
+    try{ const r=await acoes.salvarAcoesRobo(f); setAvisoSite(!!r.formulario_site_mudou); aoSalvar(r); setEstado("salvo"); }catch(e){ setEstado("Erro: "+e.message); }
   }
   const pill=(on)=>({fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:999,cursor:"pointer",minHeight:32,fontFamily:FONT,
     border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub});
@@ -21673,6 +21674,10 @@ function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Onde a IA atua e o que ela faz no lead</span>
     </div>
     {!pipes||!campos?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:<React.Fragment>
+      <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12,color:C.ink,lineHeight:1.45,cursor:"pointer",marginTop:6}}>
+        <input type="checkbox" checked={f.abre_formulario} onChange={e=>mexe({abre_formulario:e.target.checked})} style={{marginTop:3}}/>
+        <span><b>Mandar a primeira mensagem a quem preenche um formulário</b> <span style={{color:C.faint}}>— site, anúncio da Meta ou portal. Ela escreve na hora, a qualquer hora, dizendo que recebeu o cadastro, e segue a qualificação. Só se ninguém da equipe falou com o cliente ainda, e não com lead que já está com um corretor.</span></span></label>
+      {avisoSite&&<div style={{background:"#FFF6DD",color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginTop:6,lineHeight:1.5}}>O formulário do seu site entregava o lead direto ao corretor da vez. Ele passou a seguir a regra de sempre (atendente da vez ou fila), senão a IA não poderia falar com esses leads.</div>}
       <div style={sub}>EM QUAIS FUNIS OU ETAPAS ELA ATENDE</div>
       <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:6}}>{nada?"Nada marcado: ela atende em todos os funis.":"Ela só fala com leads dos funis marcados ou das etapas marcadas."}</div>
       {pipes.map(p=><div key={p.id} style={{marginBottom:8}}>

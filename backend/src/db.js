@@ -2555,6 +2555,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
   if (!o.includes("so_formulario")) db.exec("ALTER TABLE orgs ADD COLUMN so_formulario INTEGER");
   // Ler áudios e fotos do cliente automaticamente (services/leitura-midia.js). Nulo = sim.
   if (!o.includes("ler_midia")) db.exec("ALTER TABLE orgs ADD COLUMN ler_midia INTEGER");
+  /* A IA abre a conversa com o lead de formulário (12/11/2026, services/robo.js →
+     abrirConversaDoFormulario). Nulo = não: a IA continua só respondendo. */
+  if (!o.includes("robo_abre_formulario")) db.exec("ALTER TABLE orgs ADD COLUMN robo_abre_formulario INTEGER");
   if (!o.includes("boleto_endereco_json")) db.exec("ALTER TABLE orgs ADD COLUMN boleto_endereco_json TEXT");
 }
 /* PAÍS PADRÃO DA CONTA (02/11/2026) — como ler o número que chega SEM o código

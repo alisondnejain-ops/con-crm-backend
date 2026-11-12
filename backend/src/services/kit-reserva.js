@@ -346,10 +346,21 @@ export function aplicarKitReserva(orgId, user) {
       gerarTokenSite(orgId);
       const funil = db.prepare("SELECT id, name FROM pipelines WHERE org_id = ?").all(orgId).find(p => chave(p.name) === chave(funilNome));
       const ln = funil && db.prepare("SELECT id, name FROM pipeline_stages WHERE pipeline_id = ? AND org_id = ?").all(funil.id, orgId).find(e => chave(e.name) === chave("Lead novo"));
-      salvarEntradaSite(orgId, { origens: [SITE_LANDING], quem_recebe: "corretor", stage_id: ln ? ln.id : null });
+      salvarEntradaSite(orgId, { origens: [SITE_LANDING], quem_recebe: "regra", stage_id: ln ? ln.id : null });
       feito.formulario_site = true;
       feito.qualificacao.push("Formulário do site liberado para rdantassmart.com");
     } catch (e) { feito.avisos.push("Formulário do site: " + e.message); }
+  }
+
+  /* A IA ABRE A CONVERSA COM QUEM PREENCHE O FORMULÁRIO (12/11/2026, pedido do
+     Ali): só na primeira vez que o pacote liga isso — depois é da gestão. O
+     formulário do site deixa de entregar direto ao corretor da vez, senão a
+     IA não poderia falar com o lead (ela não atende lead de corretor). */
+  const ab = db.prepare("SELECT robo_abre_formulario FROM orgs WHERE id = ?").get(orgId);
+  if (ab && ab.robo_abre_formulario == null) {
+    db.prepare("UPDATE orgs SET robo_abre_formulario = 1 WHERE id = ?").run(orgId);
+    db.prepare("UPDATE entrada_site SET quem_recebe = 'regra' WHERE org_id = ? AND quem_recebe = 'corretor'").run(orgId);
+    feito.qualificacao.push("A IA manda a primeira mensagem a quem preenche o formulário");
   }
 
   // Fluxo de boas-vindas — nasce DESLIGADO: quem liga é a gestão, escolhendo o gatilho.
