@@ -27,11 +27,12 @@ if(typeof Node==="function"&&Node.prototype&&!Node.prototype.__tradutorTolerado)
 
 /* ===== IDENTIDADE ===== */
 const C = {
-  ink:"#14181F", sub:"#5A6472", faint:"#8A93A0", line:"#E6E9E7", surface:"#F4F6F5", card:"#FFFFFF",
+  ink:"#14181F", sub:"#5A6472", faint:"#8A93A0", line:"#E3E8E2", surface:"#F4F6F1", panel:"#ECF1EA", card:"#FFFFFF",
   green:"#0E8F6E", greenDeep:"#0A3D30", greenMid:"#0C6B52", greenSoft:"#E5F2EC",
   hot:"#E1553A", hotSoft:"#FBE7E1", amber:"#C8912B", amberSoft:"#F7EFD9", cool:"#5C6B7A", coolSoft:"#ECEFF2", white:"#FFF",
 };
-const DISPLAY="'Sora',sans-serif", FONT="'Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
+const SOMBRA="0 8px 26px rgba(23,60,40,.06)";
+const DISPLAY="'Manrope','Sora',sans-serif", FONT="'DM Sans','Inter',sans-serif", MONO="'IBM Plex Mono',monospace";
 
 /* A MARCA DA IMOBILIÁRIA (white-label).
 
@@ -1256,7 +1257,7 @@ function NumeroQueCabe({texto,max=21,min=12,style}){
 function Metric({n,label,value,sub,accent=C.green}){
   const txt=String(value ?? "");
   const tamanho=txt.length<=6?26:txt.length<=9?22:txt.length<=12?18:16;
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,flex:"1 1 150px",minWidth:0}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,flex:"1 1 150px",minWidth:0}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
       <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
       <span style={{color:C.sub,fontSize:12,fontWeight:500,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
@@ -2527,11 +2528,11 @@ function RelatorioPlantao({acoes,isMobile,de,ate}){
   const pct=(v)=>v===null||v===undefined?"—":v+"%";
   const corDoAproveitamento=(v)=>v===null?C.faint:v>=80?C.green:v>=50?C.amber:C.hot;
 
-  if(!d.totais.turnos_escalado) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
+  if(!d.totais.turnos_escalado) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,
     padding:22,color:C.faint,fontSize:13,lineHeight:1.6}}>
     Nenhum plantão escalado neste mês. Suba a planilha da escala em <b>Mês</b> e o relatório aparece aqui.</div>;
 
-  const bloco={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:12};
+  const bloco={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:12};
   const num={fontFamily:MONO,fontWeight:700,color:C.ink};
 
   return <div>
@@ -2892,7 +2893,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   };
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:860,margin:"0 auto"}}>
+    <div style={{maxWidth:1200,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
       {/* O próprio plantão da pessoa, em primeiro lugar. É a informação que ela
@@ -3123,7 +3124,7 @@ function AvisoPlantao({meu,isMobile,compacto}){
    880px sem tirar a barra de rolagem da borda da janela. */
 const molduraMkt=(isMobile)=>({height:"100%",overflowY:"auto",boxSizing:"border-box",
   padding:isMobile?"14px 12px 90px":"20px max(22px, calc((100% - 836px) / 2)) 40px"});
-const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,marginBottom:14};
+const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,marginBottom:14};
 const TITULO_MKT={fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8};
 const campoMkt=(isMobile)=>({width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
   background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",fontFamily:FONT});
@@ -5528,7 +5529,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
 
   return <div style={{fontFamily:FONT,background:C.surface,minHeight:"100dvh",padding:isMobile?"18px 14px 40px":"32px 24px"}}>
-    <div style={{maxWidth:900,margin:"0 auto"}}>
+    <div style={{maxWidth:1200,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:isMobile?18:26,flexWrap:"wrap"}}>
         <Brand size={isMobile?24:28}/>
         <div style={{flex:1}}/>
@@ -5555,7 +5556,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
       {contas===null
         ?<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>
         :<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(270px,1fr))",gap:12}}>
-          {contas.map(c=><div key={c.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:15,display:"flex",flexDirection:"column",gap:11}}>
+          {contas.map(c=><div key={c.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:15,display:"flex",flexDirection:"column",gap:11}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:9}}>
               <div style={{background:C.greenSoft,width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                 <Icon n="pin" size={18} color={C.greenDeep}/></div>
@@ -5828,7 +5829,7 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
     </div>
 
     {abrindo
-      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,
+      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,
         display:"flex",flexDirection:"column",gap:9,maxWidth:420}}>
         <div><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome do corretor</div>
           <input value={novo.nome} onChange={e=>setNovo({...novo,nome:e.target.value})} placeholder="como ele assina" style={entrada}/></div>
@@ -5970,7 +5971,7 @@ function Socios({acoes,session,isMobile}){
       </div>}
 
     {abrindo
-      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,
+      ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,
         display:"flex",flexDirection:"column",gap:9,maxWidth:420}}>
         <div>
           <div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>Nome</div>
@@ -7204,7 +7205,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   useEffect(()=>{rever();},[]);
   if(!a||!a.dono) return null;
   /* Conta parceira do ConHub (11/11/2026): sem mensalidade, nada a contratar aqui. */
-  if(a.parceira) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,color:C.sub,fontSize:13,lineHeight:1.5}}>
+  if(a.parceira) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,color:C.sub,fontSize:13,lineHeight:1.5}}>
     <b style={{color:C.ink}}>Conta parceira do ConHub.</b> Sem mensalidade e com todas as ferramentas liberadas.</div>;
 
   /* `asaas_ligado` (22/09/2026) — a conta já tem cliente no Asaas
@@ -7214,7 +7215,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
      — não mostra o formulário de novo para quem já ativou. */
   const asaasLigado=!!a.asaas_ligado;
 
-  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12};
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12};
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none"};
   const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
@@ -8657,9 +8658,9 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
       org={org&&org.nome} marca={marcaDe(org)} papel={roleLabel} nome={first(session.name)} session={session}
       irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
-      <header style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:isMobile?52:58,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
+      <header style={{background:"rgba(251,252,249,.94)",borderBottom:`1px solid ${C.line}`,height:isMobile?52:66,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-          <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:17,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1>
+          <div style={{minWidth:0}}>{!isMobile&&<div style={{fontSize:10,fontWeight:700,letterSpacing:1.4,textTransform:"uppercase",color:"#7C9486",marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{[(org&&org.nome)||"",new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})].filter(Boolean).join(" · ")}</div>}<h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:19,letterSpacing:-.3,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1></div>
           {/* Em qual imobiliária o master está agora, e o caminho de volta ao
               hub. Trabalhando em várias contas parecidas, saber ONDE se está é
               o que evita mandar mensagem pelo cliente errado. */}
@@ -8962,7 +8963,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
       style={{position:"relative",width:"100%",display:"flex",alignItems:"center",
         gap:recolhida?0:11,justifyContent:recolhida?"center":"flex-start",
         padding:recolhida?(filho?"8px 0":"11px 0"):(filho?"7px 10px":"9px 11px"),borderRadius:10,border:"none",cursor:"pointer",textAlign:"left",
-        background:ativo?"rgba(255,255,255,.13)":"transparent",
+        background:ativo?"linear-gradient(110deg,rgba(255,255,255,.17),rgba(255,255,255,.07))":"transparent",boxShadow:ativo?"inset 0 0 0 1px rgba(255,255,255,.10), 0 6px 16px rgba(0,0,0,.12)":"none",
         color:ativo?"#fff":"rgba(255,255,255,.62)",fontWeight:ativo?600:500,fontSize:filho?13:13.5,
         fontFamily:FONT,marginBottom:2}}>
       {/* Marcador na borda: a cor de fundo sozinha some no verde escuro. */}
@@ -10987,12 +10988,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             {mine&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
             {mine&&<BotaoApagar m={m} pode={!m.byName||m.by===session.id||podeSupervisionar} leadId={sel.id} acoes={acoes}/>}
             {mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?C.green:C.card,color:mine?"#fff":C.ink,border:mine?"none":`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
-              {mine&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
-              {m.apagadaEm?<MensagemApagada m={m} mine={mine} session={session}/>:<React.Fragment>
-              <Citacao c={m.citada} claro={mine}/>
-              {m.midia&&<Midia m={m} mine={mine} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:mine?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?"#E3F1E8":C.card,color:C.ink,border:mine?`1px solid ${C.green}2E`:`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
+              {mine&&<div style={{fontSize:10.5,fontWeight:700,color:C.greenMid,marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={false} session={session}/>:<React.Fragment>
+              <Citacao c={m.citada} claro={false}/>
+              {m.midia&&<Midia m={m} mine={false} isMobile={isMobile} leadId={sel.id}/>}
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
@@ -11585,7 +11586,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             {emNegociacao>0?`${fmtMoedaCurta(emNegociacao)} em negociação`:""}</div>}
           <div ref={el=>{colunas.current[st]=el;}}
             style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
-              background:destacada?corCol+"14":C.surface,padding:6,overflowY:arrasto?"hidden":"auto",
+              background:destacada?corCol+"14":C.panel,padding:6,overflowY:arrasto?"hidden":"auto",
               display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
             {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
@@ -11724,7 +11725,7 @@ function GoogleAgenda({acoes,session,isMobile}){
     setOcupado(true);setErro("");
     try{ await acoes.googleDesconectar(); await ler(); }catch(e){ setErro(e.message); }finally{ setOcupado(false); }
   }
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginTop:12}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
       <Icon n="calendar" size={14} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Google Agenda e Meet</span>
@@ -12036,7 +12037,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
 
   return <div style={{height:"100%",overflowY:"auto",padding:16}}>
     <div style={{maxWidth:520,margin:"0 auto"}}>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:24,textAlign:"center"}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:24,textAlign:"center"}}>
         <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={ehPonto?"clock":(avail?"toggleOn":"toggleOff")} size={30}/></div>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{titulo}</div>
         <div style={{color:C.sub,fontSize:13,marginTop:6,lineHeight:1.5}}>
@@ -12112,7 +12113,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
         </div>
       </React.Fragment>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:20,marginTop:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
           <Icon n={ehPonto?"clock":"transfer"} size={15} color={C.green}/> {ehPonto?"Como funciona o seu ponto":"Como funciona a catraca"}</div>
         <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
@@ -12129,7 +12130,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
 
       {/* O corretor vê o próprio histórico. Ele é cobrado por isso, então tem
           que conseguir conferir o que foi registrado no nome dele. */}
-      {meu&&meu.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:20,marginTop:16}}>
+      {meu&&meu.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:20,marginTop:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Seus últimos 7 dias</div>
         <div style={{display:"flex",flexDirection:"column",gap:2}}>
           {meu.slice(0,20).map(e=><LinhaDisponibilidade key={e.id} e={e} hhmm={hhmm}/>)}
@@ -12179,7 +12180,7 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
   const resumo=d.resumo||[];
   const naoProntificaram=resumo.filter(p=>!p.prontificou);
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="clock" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Disponibilidade da equipe</span>
@@ -12334,7 +12335,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
   const n=d.leads.length;
   const maisAntigo=n?Math.max(...d.leads.map(l=>l.esperando_min||0)):0;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:16,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:16,marginBottom:16}}>
     <button onClick={()=>setAberto(a=>!a)} aria-expanded={aberto}
       style={{width:"100%",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:"none",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
       <Icon n="timer" size={15} color={n?C.hot:C.greenMid}/>
@@ -12531,7 +12532,7 @@ function FilaDaVez({acoes,isMobile,versao,principal}){
   const naFila=d?d.fila.filter(x=>x.posicao):[];
   const fora=d?d.fila.filter(x=>!x.posicao):[];
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,display:"flex",alignItems:"center",gap:8}}>
       <Icon n="transfer" size={15} color={C.green}/> {principal?"Catraca principal":"Ordem da catraca"}</div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
@@ -12626,7 +12627,7 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
       <div style={{color:C.faint,fontSize:10.5,marginTop:3}}>{c.leads_abertos} lead{c.leads_abertos===1?"":"s"} em aberto</div>
     </div>;
   };
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="transfer" size={15} color={C.green}/>
       <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Catracas por produto</span>
@@ -12940,7 +12941,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
   const catracas=usarCatracas(acoes);
   const nomeDaCatraca=(id)=>id&&catracas?((catracas.catracas.find(c=>c.id===id)||{}).nome||null):null;
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:860,margin:"0 auto"}}>
+    <div style={{maxWidth:1200,margin:"0 auto"}}>
       {/* A FILA DA VEZ, numerada.
 
           Pedido do Ali: dá para saber quem é o próximo antes de transferir. A
@@ -12953,7 +12954,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal={!!(catracas&&catracas.catracas.some(c=>c.ativa))}/>
 
       {/* roster de disponibilidade */}
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {brokers.length===0&&<span style={{color:C.faint,fontSize:12}}>Ninguém cadastrado ainda — mande o link de cadastro para a equipe.</span>}
@@ -12974,10 +12975,10 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div><div style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>{novos.length} lead(s) na fila</div><div style={{color:C.faint,fontSize:12}}>{FILA_POR_ETAPA?"Na primeira etapa do funil comercial, sem nenhum corretor ter falado com o cliente ainda.":"Transfira manualmente para quem está disponível."}</div></div>
       </div>
-      {novos.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:40,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={30} color={C.green}/><div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:8}}>Fila zerada</div><div style={{color:C.faint,fontSize:12,marginTop:4}}>Novos leads da campanha caem aqui automaticamente.</div></div>}
+      {novos.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:40,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={30} color={C.green}/><div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:8}}>Fila zerada</div><div style={{color:C.faint,fontSize:12,marginTop:4}}>Novos leads da campanha caem aqui automaticamente.</div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {novos.map(l=>{const age=Date.now()-l.createdAt;
-          return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
+          return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:12}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
               <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span>{l.prio&&<Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill>}{nomeDaCatraca(l.catracaId)&&<Pill c={C.greenDeep} bg={C.greenSoft}>{nomeDaCatraca(l.catracaId)}</Pill>}{l.assignedTo&&<Pill c={C.amber} bg={C.amberSoft}>com {first(l.assignedName||"corretor")}, sem falar ainda</Pill>}</div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
@@ -13014,7 +13015,7 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
   const [erro,setErro]=useState("");
   if(!catracas) return <div style={{padding:30,color:C.faint,fontSize:13,textAlign:"center"}}>Carregando…</div>;
   const c=principal?null:(catracas.catracas||[]).find(x=>x.id===id);
-  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16};
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16};
   const moldura=(filhos)=><div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}><div style={{maxWidth:860,margin:"0 auto"}}>{filhos}</div></div>;
   if(!principal&&!c) return moldura(<div style={caixa}>
     <div style={{color:C.ink,fontSize:14,fontWeight:600}}>Esta catraca não existe mais.</div>
@@ -13094,7 +13095,7 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
       <div style={{color:C.ink,fontSize:13.5,fontWeight:600,marginTop:6}}>Nenhum lead esperando</div></div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {esperando.map(l=>{const age=Date.now()-l.createdAt;
-        return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:12}}>
+        return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:12}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={36}/>
             <button onClick={()=>openLead(l.id)} style={{minWidth:0,flex:1,border:"none",background:"transparent",padding:0,textAlign:"left",cursor:"pointer"}}>
@@ -13409,7 +13410,7 @@ function LigarGrupos({acoes,isMobile}){
       await ler(); }
     catch(e){ setErro(e.message); }finally{ setOcupado(null); }
   }
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:12}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginTop:12}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
       <Icon n="users" size={14} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Grupos do WhatsApp</span>
@@ -14387,12 +14388,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
             {meu&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
             {meu&&<BotaoApagar m={m} pode leadId={sel.id} acoes={acoes}/>}
             {meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?C.green:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
-              {meu&&<div style={{fontSize:10.5,fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
-              {m.apagadaEm?<MensagemApagada m={m} mine={meu} session={session}/>:<React.Fragment>
-              <Citacao c={m.citada} claro={meu}/>
-              {m.midia&&<Midia m={m} mine={meu} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:meu?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?"#E3F1E8":C.card,color:C.ink,border:meu?`1px solid ${C.green}2E`:`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
+              {meu&&<div style={{fontSize:10.5,fontWeight:700,color:C.greenMid,marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
+              {m.apagadaEm?<MensagemApagada m={m} mine={false} session={session}/>:<React.Fragment>
+              <Citacao c={m.citada} claro={false}/>
+              {m.midia&&<Midia m={m} mine={false} isMobile={isMobile} leadId={sel.id}/>}
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
@@ -16047,7 +16048,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
         borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",background:C.surface}}/>
   </label>;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
     <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:6,flexWrap:"wrap"}}>
       <Icon n="whatsapp" size={17} color={ligado?C.greenDeep:C.faint}/>
       <span style={{color:C.ink,fontSize:14,fontWeight:700,flex:1}}>Meu WhatsApp</span>
@@ -16236,13 +16237,13 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:560,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
-      {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16}}>
+      {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no ConHub</div>
         <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Você tem acesso a {CONTAS.length} contas com o mesmo e-mail e a mesma senha. Cada uma tem os próprios leads e a sua função nela.</div>
         <TrocarDeConta/>
       </div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <Avatar ini={session.ini} color={session.color} size={64} foto={session.avatar}/>
         <div style={{flex:1,minWidth:150}}>
           <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:17,fontWeight:700}}>{session.name}</div>
@@ -16257,7 +16258,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
         </div>
       </div>
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12}}>
         <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Meus dados</div>
         <div>{rotulo("Nome completo")}<input value={f.name} onChange={set("name")} style={entrada}/></div>
         <div>
@@ -16279,7 +16280,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
         </button>
       </div>
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12}}>
         <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Trocar senha</div>
         <div>{rotulo("Senha atual")}<input value={senha.atual} onChange={setS("atual")} type="password" autoComplete="current-password" style={entrada}/></div>
         <div>{rotulo("Nova senha")}<input value={senha.nova} onChange={setS("nova")} type="password" autoComplete="new-password" placeholder="Mínimo de 6 caracteres" style={entrada}/></div>
@@ -16320,7 +16321,7 @@ function CodigoDeAcesso({acoes}){
   useEffect(()=>{ const t=setInterval(()=>setAgora(Date.now()),1000); return()=>clearInterval(t); },[]);
   const resta=d&&d.muda_em?Math.max(0,Math.ceil((d.muda_em-(agora+delta.current))/1000)):0;
   useEffect(()=>{ if(d&&d.muda_em&&resta===0) ler(); },[resta===0]);
-  if(erro) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,color:C.hot,fontSize:13}}>{erro}</div>;
+  if(erro) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,color:C.hot,fontSize:13}}>{erro}</div>;
   if(!d||!d.pede_codigo) return null;
   const abertos=(d.acessos||[]).filter(a=>a.aberto);
   const fmtData=(t)=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -16329,7 +16330,7 @@ function CodigoDeAcesso({acoes}){
     setDesligando(true); try{ const x=await acoes.desligarAcessoLivre(); setD(v=>({...v,livre:null,acessos:x.acessos})); }catch(e){ setErro(e.message); } setDesligando(false); };
   const copiar=()=>{ try{ navigator.clipboard.writeText(d.codigo); setCopiado(true); setTimeout(()=>setCopiado(false),1500); }catch(e){} };
   const pct=Math.max(0,Math.min(100,(resta/(d.segundos||60))*100));
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12}}>
     <div>
       <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Código de acesso do suporte ConHub</div>
       <div style={{color:C.sub,fontSize:12.5,marginTop:4,lineHeight:1.45}}>O suporte do ConHub só entra na sua conta com este código. Passe-o apenas quando você pedir ajuda. Ele muda a cada 60 segundos.</div>
@@ -16528,7 +16529,7 @@ function Notificacoes({acoes,isMobile}){
     finally{ setOcupado(""); }
   }
 
-  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:12};
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12};
   const titulo=<div style={{color:C.ink,fontSize:13.5,fontWeight:700,display:"flex",alignItems:"center",gap:7}}>
     <Icon n="zap" size={15} color={C.greenMid}/> Notificações no celular</div>;
   const explica=(t)=><div style={{color:C.sub,fontSize:12.5,lineHeight:1.5}}>{t}</div>;
@@ -17475,7 +17476,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
 
   const cartao=(filhos)=><div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:10}}>{filhos}</div>;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="target" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Arrumar a base</span>
@@ -17750,7 +17751,7 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
     try{ const r=await acoes.aplicarReanalise(); setFeito(r); setD(null); aoAplicar&&aoAplicar(); }
     catch(e){ setErro(e.message); } finally{ setAplicando(false); } };
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:15,marginBottom:14}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:15,marginBottom:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
       <Icon n="target" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Reorganizar o funil pela regra nova</span>
@@ -18126,9 +18127,9 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const cel={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:1100,margin:"0 auto"}}>
+    <div style={{maxWidth:1440,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14,
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:14,
         display:"flex",gap:8,flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center"}}>
         <div style={{flex:1,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px",minWidth:0}}>
           <Icon n="search" size={15} color={C.faint}/>
@@ -18157,7 +18158,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
         aoImportar={async(r)=>{ setResultado(r); await recarregar(); releituraLotes(); }}/>}
 
       {/* ===== listas já importadas ===== */}
-      {lotes&&lotes.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
+      {lotes&&lotes.length>0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:14}}>
         <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>Listas importadas</div>
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
           {lotes.map(l=><div key={l.id}>
@@ -18202,7 +18203,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           Aqui mora a lista velha que o Ali quer apagar. Como lead da Meta e do
           WhatsApp também não tem lote, o agrupamento é por origem: ele enxerga
           o que é planilha e o que é operação, e escolhe. */}
-      {antigos&&antigos.length>0&&!pronto&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:14}}>
+      {antigos&&antigos.length>0&&!pronto&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:14}}>
         <button onClick={()=>setLimpeza(v=>!v)}
           style={{width:"100%",display:"flex",alignItems:"center",gap:8,background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left"}}>
           <Icon n="undo" size={15} color={C.faint}/>
@@ -18265,7 +18266,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
         {lista===null?"Carregando…":`${filtrados.length} lead(s)`} · a planilha sai em CSV e abre direto no Excel.
         <br/>Para <b>importar de outro CRM</b>: exporte em CSV com uma coluna de telefone. Nome, e-mail, origem, temperatura, etapa e corretor entram se existirem.
       </div>
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,overflowX:"auto"}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
           <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
             {["Lead","Telefone","Origem","Temp.","Etapa","Corretor","Entrou em"].map(h=>
@@ -18313,7 +18314,7 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
   const CORES={sem_resposta:C.hot,direcionar:"#2F80C4",trocar:C.amber};
   const ROTULOS={sem_resposta:"Sem resposta",direcionar:"Direcionar",trocar:"Trocar de corretor"};
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
       <Icon n="spark" size={16} color="#2F80C4"/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Recomendações da IA</span>
@@ -18363,7 +18364,7 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
   const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
   const celula={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="award" size={16} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Score de performance</span>
@@ -18676,10 +18677,10 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   </select>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:1020,margin:"0 auto"}}>
+    <div style={{maxWidth:1440,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:13,marginBottom:16,display:"flex",flexDirection:"column",gap:9}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:16,display:"flex",flexDirection:"column",gap:9}}>
         <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
           <div style={{flex:1,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px",minWidth:0}}>
             <Icon n="search" size={15} color={C.faint}/>
@@ -18738,7 +18739,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
         </div>}
       </div>
 
-      {lista&&lista.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:34,textAlign:"center"}}>
+      {lista&&lista.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:34,textAlign:"center"}}>
         <Icon n="pin" size={26} color={C.faint}/>
         <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum produto encontrado</div>
         <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>Ajuste os filtros ou cadastre o primeiro imóvel.</div>
@@ -18746,7 +18747,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
 
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
         {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto"),s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
-          return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
+          return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
             <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
               {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
@@ -18852,7 +18853,7 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
     if(!window.confirm(msg)) return;
     try{ setD(await acoes.trocarTokenPortal(qual)); }catch(e){ setErro(e.message); }
   }
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14};
   const titulo=(t,sub)=><div style={{marginBottom:10}}>
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>{t}</div>
     {sub&&<div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.5}}>{sub}</div>}
@@ -19205,7 +19206,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
     try{ const r=await acoes.salvarSite({...f,...extra}); carregar(r); setOk(aviso||"Salvo."); setTimeout(()=>setOk(""),2600); }
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14};
   const ajuda=(t)=><div style={{color:C.faint,fontSize:11.5,marginTop:5,lineHeight:1.5}}>{t}</div>;
   const slugMudou=d&&f&&d.ligado&&f.slug!==d.slug;
   const base=window.location.host+"/imoveis/";
@@ -19598,7 +19599,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,whiteSpace:"pre-line",lineHeight:1.5}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:13}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:13}}>
         <div>
           {rotulo("O que é")}
           <div style={{display:"flex",gap:8}}>
@@ -19784,7 +19785,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       </div>}
       {videos.map(m=><video key={m.id} src={m.url} controls style={{width:"100%",borderRadius:12,marginBottom:12,background:"#000"}}/>)}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:"4px 14px 14px",marginBottom:12}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:"4px 14px 14px",marginBottom:12}}>
         {linha(p.finalidade==="aluguel"?"Aluguel":"Valor",p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):null)}
         {linha("Tipo",p.tipo==="casa"?(p.formato==="empreendimento"?"Casa em empreendimento":"Casa solta"):"Terreno")}
         {linha("Quartos",p.quartos)}
@@ -19804,7 +19805,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
 
       {/* O link do site: é o que o corretor manda ao cliente. Só com o imóvel
           disponível — o de um vendido abriria "não está mais disponível". */}
-      {p.site_path&&p.status==="ativo"&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
+      {p.site_path&&p.status==="ativo"&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:8}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Página no site</div>
           <a href={p.site_path} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>Abrir</a>
@@ -19812,7 +19813,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
         <CopiarEndereco url={window.location.origin+p.site_path}/>
       </div>}
 
-      {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:12}}>
+      {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:12}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>{p.finalidade==="aluguel"?"Comissão do aluguel":"Comissão da venda"}</div>
         <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}{p.finalidade==="aluguel"&&<span style={{fontSize:13}}>/mês</span>}</div>
         <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
@@ -20150,10 +20151,10 @@ function Equipe({acoes,session,org,isMobile,versao}){
   </div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:760,margin:"0 auto"}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:14,marginBottom:16}}>
+      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><Icon n="link" size={14} color={C.green}/> Link de cadastro da equipe</div>
         <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Corretor entra direto; atendente e gestor aparecem aqui para você aprovar.</div>
         <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
@@ -20389,7 +20390,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   async function salvarFim(){
     try{ const r=await acoes.definirExpediente(fim.trim()); setFimSalvo(r.fim||""); setFim(r.fim||""); aviso("Salvo."); }catch(e){ setErro(e.message); }
   }
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:16,marginBottom:12};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?14:16,marginBottom:12};
   const titulo={color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:3};
   const sub={color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10};
   const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",width:90};
@@ -20550,7 +20551,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
     ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:760,margin:"0 auto"}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
         {abas.map(([k,t])=><button key={k} onClick={()=>setAba(k)}
           style={{fontSize:12.5,fontWeight:600,padding:"8px 15px",borderRadius:999,border:"none",cursor:"pointer",
@@ -20664,7 +20665,7 @@ function AnunciosDoMeta({acoes,isMobile}){
     try{ const r=await acoes.desconectarPaginaMeta(p.page_id); setD(x=>({...x,paginas:r.paginas})); }
     catch(e){ setErro(e.message); }
   }
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14};
   const botaoFace=(texto)=><button onClick={conectar} disabled={indo||!d.configurado}
     style={{display:"inline-flex",alignItems:"center",gap:10,border:"none",borderRadius:8,minHeight:44,padding:"0 18px",
       background:d.configurado?AZUL_FACEBOOK:C.faint,color:"#fff",fontFamily:"Helvetica, Arial, sans-serif",fontSize:14.5,fontWeight:700,
@@ -20842,7 +20843,7 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
   const moeda=d?.conta?.moeda||"BRL";
   const dinheiro=(v)=>v==null?"—":v.toLocaleString("pt-BR",{style:"currency",currency:moeda,maximumFractionDigits:2});
   const inteiro=(v)=>v==null?"—":Math.round(v).toLocaleString("pt-BR");
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14};
   const irConfig=()=>{abaConfigPedida="anuncios";irPara&&irPara("config");};
   if(erro) return <div style={cartao}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
@@ -21037,7 +21038,7 @@ function IdentidadeConfig({acoes,isMobile}){
 
   if(!salvo) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando…"}</div>;
 
-  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:14};
+  const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:14};
   const botao=(ativo)=>({background:ativo?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
     padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ativo?"pointer":"default"});
 
@@ -21340,7 +21341,7 @@ function RoboConfig({acoes,session,isMobile}){
      aba vira o lugar de ligar a ferramenta — é aqui que a pessoa descobre
      que não tem, e é aqui que ela resolve. A configuração guardada não some:
      volta como estava no dia em que a ferramenta ligar. */
-  if(!cfg.incluido) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  if(!cfg.incluido) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
       <Icon n="spark" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Autoatendimento com IA</span>
@@ -21356,7 +21357,7 @@ function RoboConfig({acoes,session,isMobile}){
   </div>;
   const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
     borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",width:92};
-  const cartao=(filhos,extra)=><div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,
+  const cartao=(filhos,extra)=><div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,
     padding:isMobile?13:16,marginBottom:14,...extra}}>{filhos}</div>;
 
   return <React.Fragment>
@@ -22301,7 +22302,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   const tempo=(v)=>v===null||v===undefined?"—":fmtMin(v);
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?12:18}}>
-    <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{maxWidth:1440,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
       {/* ===== FILTROS ===== */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
@@ -22342,13 +22343,13 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         {/* Sem prazo em etapa nenhuma, os três primeiros números são zero
             por definição — quatro caixas para dizer isso viram uma linha. */}
         {d.sla.sem_sla_configurado>=d.sla.total_em_aberto&&!d.sla.vencidos&&!d.sla.em_aviso
-        ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 13px":"12px 16px",
+        ?<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?"11px 13px":"12px 16px",
             display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Quem está esperando</span>
           <span style={{color:C.sub,fontSize:12,flex:1,minWidth:200,lineHeight:1.45}}>
             Nenhuma etapa tem prazo, então não há atrasados para medir. Defina em Configurações → Funis e etapas.</span>
         </div>
-        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
           <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
             <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
@@ -22380,12 +22381,12 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         {aba==="funil"&&!funil&&<div style={{color:C.faint,fontSize:13}}>Carregando o funil…</div>}
         {aba==="funil"&&funil&&funil.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{funil.erro}</div>}
         {aba==="funil"&&funil&&!funil.erro&&<React.Fragment>
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
             <FunilDeConversao dados={funil.conversao} pipelineId={funil.pipeline_pedido} filtros={f}
               acoes={acoes} isMobile={isMobile} abrirConversa={abrirConversa}/>
           </div>
 
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão agora</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
               Contatos em cada etapa neste momento, pelo responsável de hoje — Inbox incluído. Não é conversão.
@@ -22414,7 +22415,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           abrirConversa={abrirConversa} org={org} embutido/>}
 
         {/* ===== EQUIPE ===== */}
-        {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+        {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Equipe</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {equipe.map(p=><div key={p.id} style={{background:C.surface,border:`1px solid ${C.line}`,
@@ -22439,7 +22440,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
 
         {/* ===== CAMPANHAS ===== */}
         {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
-        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
           {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
               operação inteira. */}
@@ -22533,7 +22534,7 @@ function QuemEntraOndeFunis({acoes,isMobile}){
   };
   const padrao=(d.pipelines||[]).find(p=>p.is_default);
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="transfer" size={14} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Quem entra em qual funil</span>
@@ -22590,7 +22591,7 @@ function FunisConfig({acoes,session,isMobile}){
   const roda=(nome,fn)=>async()=>{ setErro("");setOcupado(nome);
     try{ await fn(); await rever(); }catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
 
-  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16};
+  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16};
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
     background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
   const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
@@ -22749,7 +22750,7 @@ function TagsConfig({acoes,session,isMobile}){
       });
   };
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginTop:14}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginTop:14}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Tags</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
       Marcações livres do lead — "investidor", "indicação", "não perturbe". Quem atende marca na
@@ -23144,7 +23145,7 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
   const TIPOS=[["text","Texto"],["number","Número"],["currency","Valor em R$"],["select","Escolha única"],
     ["multiselect","Escolha múltipla"],["date","Data"],["boolean","Sim/Não"],["phone","Telefone"],["email","E-mail"]];
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Campos do lead</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
       O que a sua operação precisa saber de cada atendimento. Depois de criado, o campo
@@ -23283,7 +23284,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
   if(!lista) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
 
   return <React.Fragment>
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
         <Icon n="zap" size={15} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensagens automáticas</span>
@@ -23386,7 +23387,7 @@ function UsoDaIA({acoes,isMobile}){
   if(erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{erro}</div>;
   if(!d) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
 
-  if(!d.configurada) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:18}}>
+  if(!d.configurada) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?14:18}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
       <Icon n="sparkles" size={15} color={C.faint}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>IA não configurada</span>
@@ -23423,7 +23424,7 @@ function UsoDaIA({acoes,isMobile}){
       {cartao("Desde o início",d.sempre.usos,emReais(d.sempre.custo))}
     </div>
 
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16,marginBottom:14}}>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9,display:"flex",alignItems:"center",gap:7}}>
         <Icon n="users" size={14} color={C.greenMid}/> Quem usou</div>
       {d.por_pessoa.length===0
@@ -23443,7 +23444,7 @@ function UsoDaIA({acoes,isMobile}){
         </div>}
     </div>
 
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9,display:"flex",alignItems:"center",gap:7}}>
         <Icon n="chart" size={14} color={C.greenMid}/> Em que foi usado</div>
       {d.por_recurso.length===0
@@ -23591,7 +23592,7 @@ function ConexaoConfig({acoes,session,isMobile}){
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>{erro}</div>}
 
     {/* Estado atual */}
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?14:18,marginBottom:14}}>
+    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
         <div style={{background:ligado?C.greenSoft:C.hotSoft,width:44,height:44,borderRadius:12,display:"flex",
           alignItems:"center",justifyContent:"center",color:ligado?C.green:C.hot,flexShrink:0}}>
@@ -23849,7 +23850,7 @@ function NumerosDaEquipe({acoes,isMobile}){
     <div style={{fontFamily:MONO,color:cor||C.ink,fontSize:18,fontWeight:700,lineHeight:1}}>{v}</div>
     <div style={{color:C.faint,fontSize:10,marginTop:3}}>{rot}</div></div>;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="users" size={14} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Números dos corretores</span>
@@ -24069,7 +24070,7 @@ function LeadsPorDia({linha,isMobile}){
   // Os dias com movimento, para ele saber onde procurar sem abrir a lista toda.
   const comMovimento=dias.filter(d=>d.recebidos>0).length;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
       <Icon n="calendar" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Leads recebidos por dia</span>
@@ -24145,7 +24146,7 @@ function PontoDaEquipe({acoes,isMobile,ehGestor}){
   if(!d) return null;
   if(!d.pessoas.length) return null;
 
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="clock" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>{ehGestor?"Ponto das atendentes":"Meu ponto"}</span>
@@ -24223,7 +24224,7 @@ function PontoDaEquipe({acoes,isMobile,ehGestor}){
 function BlocoAtendimento({linhas,isMobile}){
   if(!linhas||!linhas.length) return null;
   const tempo=(min)=>min<60?`${Math.round(min)} min`:`${Math.floor(min/60)}h${String(Math.round(min%60)).padStart(2,"0")}`;
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="msg" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Primeiro atendimento</span>
@@ -24571,7 +24572,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
   /* Sem atendente e sem a IA atendendo no período, o quadro não tem o que
      medir. Antes ele sumia calado, e quem procurava achava que a função não
      existia (07/11/2026, VJ). Agora diz por quê, numa linha. */
-  if(!d.por_pessoa||!d.por_pessoa.length) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?"12px 14px":"12px 18px",marginBottom:16,color:C.faint,fontSize:12,lineHeight:1.5}}>
+  if(!d.por_pessoa||!d.por_pessoa.length) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?"12px 14px":"12px 18px",marginBottom:16,color:C.faint,fontSize:12,lineHeight:1.5}}>
     <span style={{color:C.ink,fontWeight:700}}>Indicadores do SDR:</span> {d.tem_atendente
       ?"nada no período escolhido."
       :"esta conta não tem atendente, e o Autoatendimento não atendeu ninguém no período. Os números aparecem quando alguém da equipe tiver o papel de atendente ou quando a IA atender."}
@@ -24583,7 +24584,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
   const grade={display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fit,minmax(104px,1fr))",gap:8};
   const th={textAlign:"left",color:C.faint,fontSize:10.5,fontWeight:700,padding:"6px 6px",textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap"};
   const td={padding:"7px 6px",fontSize:12.5,color:C.ink,borderTop:`1px solid ${C.line}`,whiteSpace:"nowrap"};
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="target" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
@@ -24652,7 +24653,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
   const titulos={chegaram:"Chegaram no período",aguardando_agora:"Aguardando na fila agora",contatados:"Contatados",responderam:"Responderam",
     pre_qualificados:"Pré-qualificados (saíram do SDR)",repassados_ao_corretor:"Repassados a um corretor",perdidos:"Perdidos no SDR"};
   const atendentes=(d.por_pessoa||[]).filter(a=>!a.ia);
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?14:18,marginBottom:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="target" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
@@ -24795,7 +24796,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
      Visão geral: sem a rolagem própria e sem o seletor de período (o da
      Visão geral, que é o mesmo, fica no alto). */
   return <div style={embutido?{}:{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:embutido?"none":920,margin:"0 auto"}}>
+    <div style={{maxWidth:embutido?"none":1440,margin:"0 auto"}}>
       {!embutido&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
         <SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>
       </div>}
@@ -24815,11 +24816,11 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
 
       {linha&&<LeadsPorDia linha={linha} isMobile={isMobile}/>}
       {!linha?((dados.atendimento||[]).length?null
-        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
+        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:32,textAlign:"center",color:C.faint,fontSize:13}}>Nenhum corretor cadastrado ainda.</div>)
       :<React.Fragment>
         {/* No celular empilha: nome, tempo de resposta e o botão em largura
             inteira — numa linha só o botão ficava minúsculo. */}
-        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,padding:16,marginBottom:16,display:"flex",
+        <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16,display:"flex",
           alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:12,flexWrap:"wrap"}}>
           <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
           <Avatar ini={initials(linha.nome)} color={COLORS[[...linha.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={46}/>
@@ -24871,14 +24872,14 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             e levou adiante, mesmo que tenha repassado depois. */}
         {rosca&&rosca.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"10px 12px",marginBottom:16}}>{rosca.erro}</div>}
         {!rosca&&<div style={{color:C.faint,fontSize:12.5,marginBottom:16,display:"flex",gap:6,alignItems:"center"}}><Icon n="loader" size={13} spin/> carregando o funil…</div>}
-        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
+        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,
           padding:16,marginBottom:16}}>
           <FunilDeConversao dados={rosca.conversao} pipelineId={rosca.pipeline_pedido}
             filtros={{...periodo,responsavel:linha.id}} acoes={acoes} isMobile={isMobile}
             abrirConversa={abrirConversa} titulo={`Funil de conversão de ${first(linha.nome)}`}/>
         </div>}
 
-        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,
+        {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,
           padding:16,marginBottom:16}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão os leads de {first(linha.nome)} agora</div>
           <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>A carteira de hoje — complemento do funil acima, não conversão.</div>
@@ -24959,20 +24960,20 @@ const dinheiro=(v)=>v===null||v===undefined?"—":fmtMoeda(v);
 const variacaoCor=(v)=>v===null?C.faint:v>0?C.green:v<0?C.hot:C.faint;
 const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${pctBR(v)}`:v<0?pctBR(v):"estável";
 
-function KpiCard({label,valor,comp,sub,isMobile,span}){
+function KpiCard({label,valor,comp,sub,isMobile,span,destaque}){
   const txt=String(valor??"—");
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?"11px 12px":"13px 15px",minWidth:0,gridColumn:span?`span ${span}`:undefined}}>
-    <div style={{color:C.faint,fontSize:10.5,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
-    <NumeroQueCabe texto={txt} max={isMobile?19:22} min={12} style={{color:C.ink,fontFamily:MONO,fontWeight:700,lineHeight:1.15}}/>
+  return <div style={{background:destaque?`linear-gradient(135deg,${C.greenMid},${C.greenDeep})`:C.card,border:destaque?"none":`1px solid ${C.line}`,boxShadow:SOMBRA,borderRadius:16,padding:isMobile?"13px 14px":"16px 18px",minWidth:0,gridColumn:span?`span ${span}`:undefined}}>
+    <div style={{color:destaque?"rgba(255,255,255,.75)":C.sub,fontSize:12,fontWeight:600,marginBottom:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+    <NumeroQueCabe texto={txt} max={isMobile?21:25} min={12} style={{color:destaque?"#fff":C.ink,fontFamily:DISPLAY,fontWeight:700,letterSpacing:-.5,lineHeight:1.15}}/>
     <div style={{display:"flex",alignItems:"center",gap:4,marginTop:6,minHeight:14}}>
       {comp&&<React.Fragment>
         {comp.variacao_pct!==null&&<span style={{display:"inline-flex",transform:comp.variacao_pct<0?"scaleY(-1)":undefined}}>
-          <Icon n="trend" size={11} color={variacaoCor(comp.variacao_pct)}/>
+          <Icon n="trend" size={11} color={destaque?"#fff":variacaoCor(comp.variacao_pct)}/>
         </span>}
-        <span style={{color:variacaoCor(comp.variacao_pct),fontSize:11,fontWeight:700}}>{variacaoTexto(comp.variacao_pct)}</span>
+        <span style={{color:destaque?"rgba(255,255,255,.85)":variacaoCor(comp.variacao_pct),fontSize:11,fontWeight:700}}>{variacaoTexto(comp.variacao_pct)}</span>
       </React.Fragment>}
     </div>
-    {sub&&<div style={{color:C.faint,fontSize:10,marginTop:2,lineHeight:1.3}}>{sub}</div>}
+    {sub&&<div style={{color:destaque?"rgba(255,255,255,.7)":C.faint,fontSize:10,marginTop:2,lineHeight:1.3}}>{sub}</div>}
   </div>;
 }
 
@@ -24982,7 +24983,7 @@ function LinhaKpis({kpis,isMobile}){
      visita ao imóvel é a demonstração do sistema — a conta é a mesma. */
   const interna=contaInterna();
   const cards=[
-    {label:interna?"Valor vendido":"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv},
+    {label:interna?"Valor vendido":"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv,destaque:true},
     {label:"Ticket médio",valor:dinheiro(kpis.ticket_medio.atual),comp:kpis.ticket_medio},
     ...(interna?[]:[{label:"VGC",valor:dinheiro(kpis.vgc.atual),comp:kpis.vgc,
       sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"}]),
@@ -25034,7 +25035,7 @@ function MetaCard({item}){
 }
 
 function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Metas de {mesLegivel(metas.mes)}</div>
       {podeConfigurar&&<button onClick={onConfigurar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Configurar metas</button>}
@@ -25072,7 +25073,7 @@ function AvisoPulados({itens}){
 
 function FunilAtividadeViz({passos,isMobile}){
   const max=Math.max(1,...passos.map(p=>p.valor));
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
       Quanto se trabalhou no período. Trabalhados, faladas e qualificadas contam pessoas; o resto conta ações — não é conversão (essa fica em Operação → Funil).
@@ -25104,7 +25105,7 @@ const CHAVES_SERIE=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"
 function SerieBarrasEmpilhadas({serie,isMobile}){
   const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));
   const altura=isMobile?110:150;
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Análise de funil — últimos 14 dias</div>
     <div style={{height:11}}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:6,height:altura+22,overflowX:"auto",paddingBottom:2}}>
@@ -25302,7 +25303,7 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
   const semCorretor=supervisor&&!sozinho&&!(pessoas||[]).some(p=>p.role==="corretor");
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:1020,margin:"0 auto"}}>
+    <div style={{maxWidth:1440,margin:"0 auto"}}>
       {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>{setMetasModal(false);
         acoes.painelGeral(f).then(setDGeral).catch(()=>{});}}/>}
 
@@ -25479,7 +25480,7 @@ function TelaLotes({acoes,session,isMobile,leads,abrirConversa}){
     {txt}{n!=null?<span style={{opacity:.7}}> · {n}</span>:null}</button>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"20px 24px"}}>
-    <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{maxWidth:1440,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:220}}>
           <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?18:21,fontWeight:700}}>{cfg.nome||"Lotes"}</div>
@@ -25514,7 +25515,7 @@ function TelaLotes({acoes,session,isMobile,leads,abrirConversa}){
 
       {quadras.map(g=>{
         const vis=g.lotes.filter(mostra); if(!vis.length) return null;
-        return <div key={g.q} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?12:14}}>
+        return <div key={g.q} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?12:14}}>
           <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10}}>
             <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Quadra {g.q}</div>
             <div style={{color:C.faint,fontSize:12}}>{g.lotes.filter(l=>l.status==="disponivel").length} de {g.lotes.length} disponíveis</div>
