@@ -2388,6 +2388,8 @@ function ConCRM(){
     rodarBackup:()=>api("/orgs/backup",{method:"POST"}),
     // ===== CORE DE GESTAO: funis, etapas, campos e painel =====
     pipelines:()=>api("/pipelines"),
+    loteAcaoPrevia:(d)=>api("/leads/lote/acao/previa",{method:"POST",body:d}),
+    loteAcao:(d)=>api("/leads/lote/acao",{method:"POST",body:d}),
     pipelinesTodos:()=>api("/pipelines?todos=1"),
     criarPipeline:(dados)=>api("/pipelines",{method:"POST",body:dados}),
     editarPipeline:(id,dados)=>api(`/pipelines/${id}`,{method:"PATCH",body:dados}),
@@ -18435,6 +18437,70 @@ function ConferirImportacao({arquivo,pessoas,acoes,isMobile,aoFechar,aoImportar}
   </div>;
 }
 
+/* AÇÕES EM LOTE NA BASE DE LEADS (CETRO 22.2): responsável, funil e etapa
+   independentes, cada um com "manter"; etapa que não existe no destino pede
+   o mapeamento; a prévia mostra cada mudança e o servidor só aplica o que foi
+   conferido (assinatura). */
+function AcoesEmLote({ids,rotulo,pessoas,acoes,aoFechar,aoAplicar,isMobile}){
+  const [funis,setFunis]=useState([]);
+  const [resp,setResp]=useState("manter"), [quem,setQuem]=useState("");
+  const [fa,setFa]=useState("manter"), [pid,setPid]=useState(""), [mapa,setMapa]=useState({});
+  const [ea,setEa]=useState("manter"), [sid,setSid]=useState("");
+  const [prev,setPrev]=useState(null), [erro,setErro]=useState(""), [rodando,setRodando]=useState(false), [feito,setFeito]=useState(null);
+  useEffect(()=>{acoes.pipelines().then(r=>setFunis((Array.isArray(r)?r:(r.pipelines||[])).filter(p=>p.is_active!==0))).catch(()=>{});},[]);
+  const pedido=()=>({ids,responsavel:resp==="pessoa"?{acao:"pessoa",user_id:quem}:{acao:"manter"},
+    funil:fa==="mover"?{acao:"mover",pipeline_id:pid,mapa}:{acao:"manter"},etapa:ea==="etapa"?{acao:"etapa",stage_id:sid}:{acao:"manter"}});
+  useEffect(()=>{setPrev(null);setErro("");},[resp,quem,fa,pid,ea,sid,JSON.stringify(mapa)]);
+  async function verPrevia(){ setErro(""); try{ setPrev(await acoes.loteAcaoPrevia(pedido())); }catch(e){setErro(e.message);} }
+  async function aplicar(){ setRodando(true); setErro(""); try{ const r=await acoes.loteAcao({...pedido(),assinatura:prev.assinatura}); setFeito(r); aoAplicar(); }catch(e){setErro(e.message);} finally{setRodando(false);} }
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  const destino=funis.find(f=>f.id===pid);
+  const etapasDe=(f)=>f?(f.stages||f.etapas||[]).filter(e=>e.is_active!==0):[];
+  const funilDaEtapa=fa==="mover"?destino:null;
+  const todasEtapas=funilDaEtapa?etapasDe(funilDaEtapa):funis.flatMap(f=>etapasDe(f).map(e=>({...e,_funil:f.name})));
+  const bloco=(t,el)=><div style={{marginBottom:12}}><div style={{color:C.sub,fontSize:11.5,fontWeight:700,marginBottom:5}}>{t}</div>{el}</div>;
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:90,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:isMobile?"100%":620,maxHeight:"90vh",overflowY:"auto",padding:18}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:4}}><b style={{flex:1,color:C.ink,fontSize:15}}>Ações em lote</b>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.sub}}><Icon n="x" size={18}/></button></div>
+      <div style={{color:C.faint,fontSize:12,marginBottom:12}}>{rotulo}</div>
+      {feito?<div>
+        <div style={{background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:12,fontSize:13,fontWeight:600}}>Pronto: {feito.donos} troca(s) de responsável e {feito.etapas} mudança(s) de etapa.{feito.fora?` ${feito.fora} lead(s) ficaram de fora.`:""}</div>
+        <button onClick={aoFechar} style={{marginTop:12,width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>Fechar</button>
+      </div>:<React.Fragment>
+      {bloco("Responsável",<div style={{display:"flex",gap:8}}>
+        <select value={resp} onChange={e=>setResp(e.target.value)} style={{...ent,flex:1}}><option value="manter">Não alterar</option><option value="pessoa">Passar para…</option></select>
+        {resp==="pessoa"&&<select aria-label="Novo responsável" value={quem} onChange={e=>setQuem(e.target.value)} style={{...ent,flex:1}}><option value="">Escolher…</option>{pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>}</div>)}
+      {bloco("Funil",<div style={{display:"flex",gap:8}}>
+        <select value={fa} onChange={e=>{setFa(e.target.value);setSid("");}} style={{...ent,flex:1}}><option value="manter">Manter o funil de cada lead</option><option value="mover">Mover para outro funil…</option></select>
+        {fa==="mover"&&<select aria-label="Funil de destino" value={pid} onChange={e=>{setPid(e.target.value);setMapa({});setSid("");}} style={{...ent,flex:1}}><option value="">Escolher…</option>{funis.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>}</div>)}
+      {bloco("Etapa",<div style={{display:"flex",gap:8}}>
+        <select value={ea} onChange={e=>setEa(e.target.value)} style={{...ent,flex:1}}><option value="manter">{fa==="mover"?"Levar cada etapa para a equivalente":"Manter a etapa de cada lead"}</option><option value="etapa">Mandar todos para uma etapa…</option></select>
+        {ea==="etapa"&&<select aria-label="Etapa de destino" value={sid} onChange={e=>setSid(e.target.value)} style={{...ent,flex:1}}><option value="">Escolher…</option>{todasEtapas.map(e=><option key={e.id} value={e.id}>{e._funil?`${e._funil} › `:""}{e.name}</option>)}</select>}</div>)}
+      {prev&&prev.faltam_mapear.length>0&&destino&&<div style={{background:C.amberSoft,borderRadius:10,padding:11,marginBottom:12}}>
+        <div style={{color:"#8a6d1f",fontSize:12.5,fontWeight:700,marginBottom:6}}>Estas etapas não existem em {destino.name} — escolha para onde vão:</div>
+        {prev.faltam_mapear.map(f=><div key={f.origem} style={{display:"flex",gap:8,alignItems:"center",marginBottom:5}}>
+          <span style={{flex:1,fontSize:12.5,color:C.ink}}>{f.funil?`${f.funil} › `:""}{f.nome} <span style={{color:C.faint}}>({f.leads})</span></span>
+          <select aria-label={`Destino de ${f.nome}`} value={mapa[f.origem]||""} onChange={e=>setMapa({...mapa,[f.origem]:e.target.value})} style={{...ent,flex:1}}>
+            <option value="">Escolher…</option>{etapasDe(destino).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></div>)}
+      </div>}
+      {prev&&<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:11,marginBottom:12,fontSize:12.5,color:C.sub}}>
+        <div style={{color:C.ink,fontWeight:700,marginBottom:4}}>{prev.mudam} lead(s) vão mudar{prev.sem_mudanca?` · ${prev.sem_mudanca} já estão assim`:""}{prev.fora.length?` · ${prev.fora.length} de fora`:""}</div>
+        {prev.consequencias.map((c,i)=><div key={i}>• {c}</div>)}
+        {prev.fora.length>0&&<div style={{marginTop:4,color:C.faint}}>De fora: {[...new Set(prev.fora.map(f=>f.motivo))].map(m=>`${prev.fora.filter(f=>f.motivo===m).length} ${m}`).join(" · ")}</div>}
+        <div style={{maxHeight:200,overflowY:"auto",marginTop:8}}>{prev.linhas.map(l=><div key={l.id} style={{borderTop:`1px solid ${C.line}`,padding:"5px 0"}}>
+          <b style={{color:C.ink}}>{l.nome}</b>: {l.para.dono?<span>{l.de.dono} → <b>{l.para.dono}</b> </span>:null}{l.para.etapa?<span>· {l.de.funil} › {l.de.etapa} → <b>{l.para.funil} › {l.para.etapa}</b></span>:null}</div>)}
+          {prev.mudam>prev.linhas.length&&<div style={{color:C.faint,paddingTop:4}}>e mais {prev.mudam-prev.linhas.length}…</div>}</div>
+      </div>}
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"9px 11px",fontSize:12.5,marginBottom:10}}>{erro}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={verPrevia} style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>{prev?"Atualizar a prévia":"Ver a prévia"}</button>
+        <button onClick={aplicar} disabled={!prev||!prev.pode_aplicar||rodando} style={{flex:1,background:!prev||!prev.pode_aplicar?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:!prev||!prev.pode_aplicar?"default":"pointer"}}>{rodando?"Aplicando…":prev&&prev.pode_aplicar?`Aplicar em ${prev.mudam}`:"Aplicar"}</button>
+      </div>
+      </React.Fragment>}
+    </div></div>;
+}
+
 function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const [limiteBase,maisBase]=usarLimite(200,"");
   const [lista,setLista]=useState(null);
@@ -18444,6 +18510,10 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const [lotes,setLotes]=useState(null);
   const [antigos,setAntigos]=useState(null);
   const [limpeza,setLimpeza]=useState(false);   // seção dos leads sem lote aberta
+  const [fb,setFb]=useState({donos:"",funil:"",etapa:"",origem:"",prio:"",tag:"",situacao:"",de:"",ate:""});
+  const [selec,setSelec]=useState(()=>new Set()); const [acaoAberta,setAcaoAberta]=useState(false); const [filtrosAbertos,setFiltrosAbertos]=useState(false);
+  const [funisB,setFunisB]=useState([]); const [tagsB,setTagsB]=useState([]);
+  useEffect(()=>{acoes.pipelines().then(r=>setFunisB(Array.isArray(r)?r:(r.pipelines||[]))).catch(()=>{}); acoes.tags().then(r=>setTagsB(Array.isArray(r)?r:(r.tags||[]))).catch(()=>{});},[]);
 
   const recarregar=()=>acoes.buscar({finalizados:"1"}).then(setLista).catch(e=>setErro(e.message));
   const releituraLotes=()=>{
@@ -18503,10 +18573,29 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
     finally{ setSubindo(false); }
   }
 
+  const donosSel=donosDoValor(fb.donos);
+  const deTs=fb.de?new Date(fb.de+"T00:00:00").getTime():null, ateTs=fb.ate?new Date(fb.ate+"T23:59:59").getTime():null;
   const filtrados=(lista||[]).filter(l=>{
     const t=busca.trim().toLowerCase();
-    return !t||[l.nome,l.tel,l.assignedName,l.status].some(v=>String(v||"").toLowerCase().includes(t));
+    if(t&&![l.nome,l.tel,l.assignedName,l.status].some(v=>String(v||"").toLowerCase().includes(t))) return false;
+    if(donosSel.length&&!donosSel.some(d=>d==="fila"?!l.assignedTo:l.assignedTo===d)) return false;
+    if(fb.funil&&l.pipelineId!==fb.funil) return false;
+    if(fb.etapa&&l.stageId!==fb.etapa) return false;
+    if(fb.origem&&(l.origem||"")!==fb.origem) return false;
+    if(fb.prio&&(fb.prio==="sem"?l.prio:l.prio!==fb.prio)) return false;
+    if(fb.tag&&!(l.tags||[]).some(x=>(x.id||x)===fb.tag)) return false;
+    if(fb.situacao==="aberto"&&(l.finalizadoEm||l.venda)) return false;
+    if(fb.situacao==="finalizado"&&!l.finalizadoEm) return false;
+    if(fb.situacao==="venda"&&!l.venda) return false;
+    if(deTs&&l.createdAt<deTs) return false; if(ateTs&&l.createdAt>ateTs) return false;
+    return true;
   });
+  const pagina=filtrados.slice(0,limiteBase);
+  const filtrosLigados=Object.values(fb).filter(Boolean).length;
+  const todosDaPaginaMarcados=pagina.length>0&&pagina.every(l=>selec.has(l.id));
+  const marcar=(id)=>setSelec(s0=>{const n=new Set(s0); n.has(id)?n.delete(id):n.add(id); return n;});
+  const origensB=[...new Set((lista||[]).map(l=>l.origem).filter(Boolean))].sort();
+  const etapasB=fb.funil?((funisB.find(f=>f.id===fb.funil)||{}).stages||[]):funisB.flatMap(f=>(f.stages||[]).map(e=>({...e,_f:f.name})));
   const cel={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
@@ -18645,6 +18734,33 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           <div style={{color:C.faint,fontSize:11,marginTop:3}}>Telefone repetido é ignorado de propósito — o cadastro que já existe no CETRO tem histórico e não pode ser sobrescrito por planilha.</div>
         </div>}
       </div>}
+      {(()=>{const cx={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"7px 9px",color:C.ink,outline:"none",maxWidth:"100%"};
+        return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:12,marginBottom:10}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>setFiltrosAbertos(x=>!x)} style={{border:`1px solid ${filtrosLigados?C.green+"66":C.line}`,background:filtrosLigados?C.greenSoft:C.surface,color:filtrosLigados?C.greenDeep:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Filtros{filtrosLigados?` (${filtrosLigados})`:""}</button>
+            {filtrosLigados>0&&<button onClick={()=>setFb({donos:"",funil:"",etapa:"",origem:"",prio:"",tag:"",situacao:"",de:"",ate:""})} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>limpar</button>}
+            <span style={{marginLeft:"auto",color:C.faint,fontSize:11.5}}>{filtrados.length} lead(s){filtrosLigados||busca?` de ${(lista||[]).length}`:""}</span>
+          </div>
+          {filtrosAbertos&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+            <SeletorDePessoas valor={fb.donos} mudar={v=>setFb({...fb,donos:v||""})} pessoas={pessoas} estilo={cx} isMobile={isMobile} rotuloTodos="Todos os responsáveis"/>
+            <select aria-label="Funil" value={fb.funil} onChange={e=>setFb({...fb,funil:e.target.value,etapa:""})} style={cx}><option value="">Todos os funis</option>{funisB.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}</select>
+            <select aria-label="Etapa" value={fb.etapa} onChange={e=>setFb({...fb,etapa:e.target.value})} style={cx}><option value="">Todas as etapas</option>{etapasB.map(e=><option key={e.id} value={e.id}>{e._f?`${e._f} › `:""}{e.name}</option>)}</select>
+            <select aria-label="Origem" value={fb.origem} onChange={e=>setFb({...fb,origem:e.target.value})} style={cx}><option value="">Todas as origens</option>{origensB.map(o=><option key={o} value={o}>{o}</option>)}</select>
+            <select aria-label="Temperatura" value={fb.prio} onChange={e=>setFb({...fb,prio:e.target.value})} style={cx}><option value="">Toda temperatura</option><option value="QUENTE">Quente</option><option value="MORNO">Morno</option><option value="FRIO">Frio</option><option value="sem">Sem temperatura</option></select>
+            {tagsB.length>0&&<select aria-label="Tag" value={fb.tag} onChange={e=>setFb({...fb,tag:e.target.value})} style={cx}><option value="">Todas as tags</option>{tagsB.map(t=><option key={t.id} value={t.id}>{t.nome}</option>)}</select>}
+            <select aria-label="Situação" value={fb.situacao} onChange={e=>setFb({...fb,situacao:e.target.value})} style={cx}><option value="">Toda situação</option><option value="aberto">Em aberto</option><option value="finalizado">Finalizados</option><option value="venda">Com venda</option></select>
+            <label style={{fontSize:11.5,color:C.faint,display:"flex",alignItems:"center",gap:4}}>entrou de<input type="date" value={fb.de} onChange={e=>setFb({...fb,de:e.target.value})} style={cx}/></label>
+            <label style={{fontSize:11.5,color:C.faint,display:"flex",alignItems:"center",gap:4}}>até<input type="date" value={fb.ate} onChange={e=>setFb({...fb,ate:e.target.value})} style={cx}/></label>
+          </div>}
+          {selec.size>0&&<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:10,background:C.greenSoft,borderRadius:10,padding:"8px 10px"}}>
+            <b style={{color:C.greenDeep,fontSize:13}}>{selec.size} selecionado(s)</b>
+            {selec.size<filtrados.length&&<button onClick={()=>setSelec(new Set(filtrados.map(l=>l.id)))} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,textDecoration:"underline",cursor:"pointer"}}>selecionar todos os {filtrados.length} do filtro</button>}
+            <button onClick={()=>setSelec(new Set())} style={{border:"none",background:"none",color:C.faint,fontSize:12,textDecoration:"underline",cursor:"pointer"}}>limpar seleção</button>
+            <button onClick={()=>setAcaoAberta(true)} style={{marginLeft:"auto",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Ações</button>
+          </div>}
+        </div>;})()}
+      {acaoAberta&&<AcoesEmLote ids={[...selec]} rotulo={selec.size===filtrados.length&&filtrados.length>limiteBase?`Todos os ${selec.size} leads do filtro (não só os da tela)`:`${selec.size} lead(s) selecionado(s)`}
+        pessoas={pessoas} acoes={acoes} isMobile={isMobile} aoFechar={()=>setAcaoAberta(false)} aoAplicar={()=>{recarregar();setSelec(new Set());}}/>}
       <div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
         {lista===null?"Carregando…":`${filtrados.length} lead(s)`} · a planilha sai em CSV e abre direto no Excel.
         <br/>Para <b>importar de outro CRM</b>: exporte em CSV com uma coluna de telefone. Nome, e-mail, origem, temperatura, etapa e corretor entram se existirem.
@@ -18652,15 +18768,18 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
           <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
+            <th style={{...cel,width:30}}><input type="checkbox" aria-label="Selecionar os leads desta página" title="Selecionar os desta página" checked={todosDaPaginaMarcados}
+              onChange={()=>setSelec(s0=>{const n=new Set(s0); if(todosDaPaginaMarcados) pagina.forEach(l=>n.delete(l.id)); else pagina.forEach(l=>n.add(l.id)); return n;})}/></th>
             {["Lead","Telefone","Origem","Temp.","Etapa","Corretor","Entrou em"].map(h=>
               <th key={h} style={{...cel,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:"left"}}>{h}</th>)}
           </tr></thead>
           {/* A linha inteira abre a conversa. Era a pergunta natural de quem
               olha a base ("e esse aí, como está?") e não tinha resposta: só
               dava para procurar o nome de novo na tela de atendimento. */}
-          <tbody>{filtrados.slice(0,limiteBase).map(l=><tr key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
+          <tbody>{pagina.map(l=><tr key={l.id} onClick={()=>abrirConversa&&abrirConversa(l.id)}
             title="Abrir a conversa deste lead"
-            style={{borderBottom:`1px solid ${C.line}`,cursor:abrirConversa?"pointer":"default"}}>
+            style={{borderBottom:`1px solid ${C.line}`,cursor:abrirConversa?"pointer":"default",background:selec.has(l.id)?C.greenSoft:undefined}}>
+            <td style={cel} onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={`Selecionar ${l.nome}`} checked={selec.has(l.id)} onChange={()=>marcar(l.id)}/></td>
             <td style={{...cel,color:C.ink,fontWeight:600}}>{l.nome}</td>
             <td style={{...cel,fontFamily:MONO}}>{fmtTel(l.tel)}</td>
             <td style={cel}>{l.origem}</td>
