@@ -25964,8 +25964,10 @@ const dataHoje=()=>{const t=new Date().toLocaleDateString("pt-BR",{weekday:"long
    da conversa — o cabeçalho tomaria o espaço que falta. */
 function MolduraAtender({isMobile,corretor,children}){
   if(isMobile) return children;
-  return <div style={{height:"100%",display:"flex",flexDirection:"column",minHeight:0,padding:"24px 32px 20px",boxSizing:"border-box"}}>
-    <CabecalhoTela isMobile={false} eyebrow={corretor?"MEU WORKSPACE":undefined} titulo="Atendimento com contexto." sub="Conversa, acompanhamento e informações do lead no mesmo lugar."/>
+  /* Sem o cabeçalho grande (13/11/2026, pedido do Ali com print): no notebook
+     ele tirava ~130px da conversa, e a tela de atender é onde cada linha
+     conta. Fica o cartão com borda, com uma margem fina. */
+  return <div style={{height:"100%",display:"flex",flexDirection:"column",minHeight:0,padding:"10px 12px",boxSizing:"border-box"}}>
     <div style={{flex:1,minHeight:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,overflow:"hidden",display:"flex",flexDirection:"column"}}>{children}</div>
   </div>;
 }
