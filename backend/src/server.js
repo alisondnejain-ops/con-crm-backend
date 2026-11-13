@@ -25,6 +25,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import produtosRoutes from "./routes/produtos.routes.js";
 import pipelinesRoutes from "./routes/pipelines.routes.js";
 import tagsRoutes from "./routes/tags.routes.js";
+import estruturaRoutes from "./routes/estrutura.routes.js";
 import triagemRoutes from "./routes/triagem.routes.js";
 import lotesRoutes from "./routes/lotes.routes.js";
 import { expirarVencidas as expirarReservasDeLote, ligarModo as ligarModoEmpreendimento } from "./services/lotes.js";
@@ -399,6 +400,7 @@ app.use("/pipelines", cobrando, pipelinesRoutes);
 app.use("/canais", cobrando, canaisRoutes);
 app.use("/painel", cobrando, painelRoutes);
 app.use("/tags", cobrando, tagsRoutes);
+app.use("/estrutura", cobrando, estruturaRoutes);
 app.use("/triagem", cobrando, triagemRoutes); // números novos: é lead ou é pessoal?
 app.use("/lotes", cobrando, lotesRoutes); // espelho de lotes da conta de empreendimento (services/lotes.js)
 app.use("/grupos", cobrando, gruposRoutes);

@@ -2928,3 +2928,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS metas_conversao (
    participa. `participantes_json` nulo = todos. */
 db.exec(`CREATE TABLE IF NOT EXISTS score_pontos (
   org_id TEXT PRIMARY KEY, pesos_json TEXT, participantes_json TEXT, updated_at INTEGER, updated_by TEXT);`);
+
+/* ESTRUTURA DA EQUIPE (CETRO 23, 13/11/2026): os níveis que a OPERAÇÃO cria
+   (diretoria, gerência, subgerência… — nada pré-montado), cada um com um pai
+   opcional; a pessoa fica num nível (`users.nivel_id`). É agrupamento e
+   escopo de filtro, não papel. `users.participa_indicadores`: nulo = como
+   sempre (corretor entra; gestor entra quando atendeu no período), 1 =
+   sempre entra nos indicadores, 0 = nunca. */
+db.exec(`CREATE TABLE IF NOT EXISTS estrutura_niveis (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, nome TEXT NOT NULL, tipo TEXT, pai_id TEXT, ordem INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_niveis_org ON estrutura_niveis(org_id);`);
+{
+  const u = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!u.includes("nivel_id")) db.exec("ALTER TABLE users ADD COLUMN nivel_id TEXT");
+  if (!u.includes("participa_indicadores")) db.exec("ALTER TABLE users ADD COLUMN participa_indicadores INTEGER");
+}
