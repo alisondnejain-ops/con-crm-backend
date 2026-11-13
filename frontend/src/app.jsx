@@ -25996,17 +25996,14 @@ function MolduraAtender({isMobile,corretor,children}){
     <div style={{flex:1,minHeight:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,overflow:"hidden",display:"flex",flexDirection:"column"}}>{children}</div>
   </div>;
 }
-function CabecalhoTela({titulo,sub,acoes,isMobile,eyebrow}){
-  const ey=eyebrow||(ORG_ATUAL.nome?`OPERAÇÃO · ${ORG_ATUAL.nome}`:"MEU WORKSPACE");
-  return <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"flex-start",
-    justifyContent:"space-between",gap:isMobile?12:20,marginBottom:isMobile?16:22}}>
-    <div style={{minWidth:0}}>
-      <div style={{textTransform:"uppercase",fontSize:10,fontWeight:800,letterSpacing:1.6,color:"#729180",marginBottom:7}}>{ey}</div>
-      <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?23:30,fontWeight:800,letterSpacing:-.8,margin:0,lineHeight:1.15}}>{titulo}</h1>
-      {sub&&<div style={{marginTop:7,fontSize:12.5,color:C.faint}}>{sub}</div>}
-    </div>
-    {acoes&&<div style={{display:"flex",gap:8,flexWrap:"wrap",flexShrink:0}}>{acoes}</div>}
-  </div>;
+/* O cabeçalho grande (eyebrow + título de 30px + frase) saiu de todas as telas
+   (13/11/2026, pedido do Ali depois do Atender e do Funil): ele comia ~130px de
+   cada tela, e o caminho "Conta / Tela" da barra do topo já diz onde se está.
+   Ficam só os botões que ele carregava (Relatório, Criar catraca…), numa linha
+   à direita; sem botões, não desenha nada. */
+function CabecalhoTela({acoes,isMobile}){
+  if(!acoes) return null;
+  return <div style={{display:"flex",justifyContent:isMobile?"stretch":"flex-end",gap:8,flexWrap:"wrap",marginBottom:isMobile?12:16}}>{acoes}</div>;
 }
 const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green},#06663f)`,color:"#fff",borderRadius:8,padding:"10px 16px",
   fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:"0 3px 0 #0a4a30, 0 6px 14px rgba(8,122,80,.18)",display:"inline-flex",alignItems:"center",gap:6};
