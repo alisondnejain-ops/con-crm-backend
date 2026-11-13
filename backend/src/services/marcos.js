@@ -108,10 +108,11 @@ export function alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem = null, cls
   const k = MARCOS.indexOf(marco);
   const m = mapa || marcosDosLeads(orgId, ids, cls);
   const out = [];
+  const qs = quem ? new Set(Array.isArray(quem) ? quem : [quem]) : null;
   for (const id of ids) {
     const a = (m.get(id) || [])[k];
     if (!a || a.t < de || a.t > ate) continue;
-    if (quem && a.user_id !== quem) continue;
+    if (qs && !qs.has(a.user_id)) continue;
     out.push({ lead: id, t: a.t, user_id: a.user_id, inferido: a.inferido });
   }
   return out;

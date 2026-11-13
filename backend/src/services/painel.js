@@ -78,12 +78,33 @@ export function resolverPeriodo({ periodo, de, ate } = {}) {
 
    Monta o WHERE a partir dos filtros. Um lugar só, usado por todas as contas —
    é o que garante a regra 3. */
+/* VÁRIAS PESSOAS NO FILTRO (CETRO 04.1, 13/11/2026). `responsavel` pode ser
+   um id, "fila", uma lista separada por vírgula ou um array. Dentro da
+   dimensão é UNIÃO (Blanca OU Sil, OU a fila); entre dimensões, interseção.
+   Uma regra só, lida por todas as contas. */
+export function listaDeDonos(r) {
+  if (!r) return [];
+  const arr = Array.isArray(r) ? r : String(r).split(",");
+  return [...new Set(arr.map(x => String(x).trim()).filter(Boolean))];
+}
+// Só as PESSOAS do filtro ("fila" não é pessoa); null quando não há nenhuma.
+export function pessoasDoFiltro(f) {
+  const l = listaDeDonos(f && f.responsavel).filter(x => x !== "fila");
+  return l.length ? l : null;
+}
+export const marcasSql = (n) => Array(n).fill("?").join(",");
+
 export function peneira(orgId, f = {}) {
   const where = ["l.org_id = ?"], args = [orgId];
   if (f.pipeline_id) { where.push("l.pipeline_id = ?"); args.push(f.pipeline_id); }
   if (f.stage_id) { where.push("l.stage_id = ?"); args.push(f.stage_id); }
-  if (f.responsavel === "fila") where.push("l.assigned_to IS NULL");
-  else if (f.responsavel) { where.push("l.assigned_to = ?"); args.push(f.responsavel); }
+  const donos = listaDeDonos(f.responsavel);
+  if (donos.length) {
+    const ids = donos.filter(x => x !== "fila"), partes = [];
+    if (ids.length) { partes.push(`l.assigned_to IN (${marcasSql(ids.length)})`); args.push(...ids); }
+    if (donos.includes("fila")) partes.push("l.assigned_to IS NULL");
+    where.push("(" + partes.join(" OR ") + ")");
+  }
   if (f.origem) { where.push("l.origem = ?"); args.push(f.origem); }
   if (f.source) { where.push("l.source = ?"); args.push(f.source); }
   if (f.campanha) { where.push("l.campaign_name = ?"); args.push(f.campanha); }
@@ -104,7 +125,15 @@ export function peneira(orgId, f = {}) {
 export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = null) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
-  const lista = recebidosEm(eventos || eventosDeAtribuicao(orgId), userId, de, ate);
+  const evs = eventos || eventosDeAtribuicao(orgId);
+  const quem = Array.isArray(userId) ? userId : [userId];
+  /* Várias pessoas: o lead que passou por duas delas conta UMA vez (pessoas
+     distintas, 04.3) — a primeira chegada no período. */
+  let lista = quem.length === 1 ? recebidosEm(evs, quem[0], de, ate)
+    : (() => { const m = new Map();
+        for (const u of quem) for (const e of recebidosEm(evs, u, de, ate))
+          if (!m.has(e.lead_id) || e.quando < m.get(e.lead_id).quando) m.set(e.lead_id, e);
+        return [...m.values()].sort((a, b) => a.quando - b.quando); })();
   /* Sem filtro além da conta, a peneira é a conta inteira — e os eventos já
      são só de leads desta conta que existem. Montar o conjunto de todos os
      ids (30 mil numa casa grande) só para filtrar nada custava ~70 ms a cada
@@ -123,7 +152,7 @@ export function recebidosDaPessoa(orgId, userId, filtros, de, ate, eventos = nul
 const COLUNAS_PRAZO = "l.id, l.stage, l.stage_id, l.assigned_to, l.last_interaction_at, l.stage_entered_at, l.created_at, l.closed_at";
 
 // Quem o filtro de responsável aponta — "fila" não é pessoa.
-const pessoaDoFiltro = (f) => (f && f.responsavel && f.responsavel !== "fila" ? f.responsavel : null);
+const pessoaDoFiltro = pessoasDoFiltro;
 
 // Leads que ENTRARAM no período (coorte). É a base de "recebidos" e da conversão.
 // Com uma pessoa no filtro, "entrar" é chegar na mão dela (ver acima).
@@ -131,6 +160,13 @@ function coorte(orgId, { de, ate }, f, eventos = null) {
   const quem = pessoaDoFiltro(f);
   if (quem) {
     const ids = [...new Set(recebidosDaPessoa(orgId, quem, f, de, ate, eventos).map(e => e.lead_id))];
+    // Pessoas E a fila marcadas juntas: soma os que nasceram na fila (união).
+    if (listaDeDonos(f.responsavel).includes("fila")) {
+      const { responsavel: _r, ...resto } = f;
+      const p = peneira(orgId, resto);
+      for (const r of db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.assigned_to IS NULL AND l.created_at BETWEEN ? AND ?`)
+        .all(...p.args, de, ate)) if (!ids.includes(r.id)) ids.push(r.id);
+    }
     if (!ids.length) return [];
     return emLotes(ids, (marcas, lote) => db.prepare(`SELECT l.* FROM leads l WHERE l.id IN (${marcas})`).all(...lote));
   }
@@ -198,7 +234,7 @@ export function painel(orgId, filtros = {}) {
   const eventos = quem ? eventosDeAtribuicao(orgId) : null;
   const recebidos = coorte(orgId, periodo, filtros, eventos);
   // O número mostrado é o de Relatórios: um por lead que chegou na mão dela.
-  const totalRecebidos = quem
+  const totalRecebidos = quem && !listaDeDonos(filtros.responsavel).includes("fila")
     ? recebidosDaPessoa(orgId, quem, filtros, periodo.de, periodo.ate, eventos).length
     : recebidos.length;
   const p = peneira(orgId, filtros);

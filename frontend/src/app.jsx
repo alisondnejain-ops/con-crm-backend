@@ -254,6 +254,8 @@ function adaptLead(l,anterior){
     formulario:l.form_name!==undefined?(l.form_name||null):(anterior?anterior.formulario:null),
     // A catraca do produto (03/10/2026). Nulo = a catraca principal.
     catracaId:l.catraca_id!==undefined?(l.catraca_id||null):(anterior?anterior.catracaId:null),
+    // Fluxo automático rodando para este lead (CETRO 07.1) — o nome dele, ou nulo.
+    fluxoAtivo:l.fluxo_ativo!==undefined?(l.fluxo_ativo||null):(anterior?anterior.fluxoAtivo:null),
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
     // Pediu contato pelo anúncio ou portal e ninguém falou com ele ainda (ver esperandoContato).
@@ -9222,7 +9224,7 @@ function usarLinhas(acoes,session,lista){
     const c=porId.get(canalId);
     if(!c) return {texto:"Outro número",pessoal:true};
     if(c.tipo==="disparo") return {texto:"Disparo",pessoal:false};
-    if(c.user_id===session.id) return {texto:"Seu número",pessoal:true};
+    if(c.user_id===session.id) return {texto:"Seu número",pessoal:true,grande:"Seu número"};
     return {texto:first(c.pessoa||c.nome||"Corretor"),pessoal:true};
   };
   const pessoais=equipe.filter(c=>c.tipo==="corretor"&&(c.conectado||(lista||[]).some(l=>l.canalId===c.id)));
@@ -9238,7 +9240,7 @@ function SeloDaLinha({linha,grande}){
       fontSize:grande?11:10,fontWeight:700,padding:grande?"2px 8px":"1px 6px",borderRadius:999,
       color:linha.pessoal?C.greenDeep:C.sub,background:linha.pessoal?C.greenSoft:C.surface,
       border:`1px solid ${linha.pessoal?C.green+"55":C.line}`}}>
-    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:contaInterna()?"Nº do CETRO":"Nº da imobiliária"):linha.texto}</span>;
+    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.grande?linha.grande:linha.pessoal?"Nº de "+linha.texto:contaInterna()?"Nº do CETRO":"Nº da imobiliária"):linha.texto}</span>;
 }
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
@@ -9278,7 +9280,12 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
           da campanha. */}
       {relogio
         ?<span title={`${relogio.titulo} · ${fmtEspera(espera)}`} style={{display:"flex",alignItems:"center",gap:3,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={11} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtRelogio(espera)}</span></span>
-        :<span style={{color:STAGE_C[l.status],background:STAGE_C[l.status]+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,flexShrink:0}}>{l.status}</span>}
+        :null}
+      {/* A etapa sempre (CETRO 07.1), encolhendo antes do resto. */}
+      <span title={l.status} style={{color:STAGE_C[l.status]||C.sub,background:(STAGE_C[l.status]||C.sub)+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,
+        flexShrink:1,minWidth:0,maxWidth:relogio?84:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.status}</span>
+      {/* Follow-up automático rodando: não confundir com cliente esperando. */}
+      {l.fluxoAtivo&&<span title={`Fluxo automático rodando: ${l.fluxoAtivo}`} style={{display:"flex",alignItems:"center",gap:2,color:C.cool,fontSize:10,fontWeight:700,flexShrink:0}}><Icon n="zap" size={10} color={C.cool}/>fluxo</span>}
       <SeloDoFormulario l={l}/>
       <SeloDaLinha linha={linha}/>
       {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
@@ -9491,7 +9498,17 @@ function PossivelDuplicado({lead,acoes,podeUnir}){
   </div>;
 }
 
-function OrigemDoLead({lead}){
+/* Com quem está o lead (CETRO 08, item 1) — linha curta logo abaixo do telefone. */
+function ResponsavelDoLead({lead,session}){
+  if(!lead) return null;
+  const txt=lead.assignedTo&&session&&lead.assignedTo===session.id?"Com você"
+    :lead.assignedName?`Com ${lead.assignedName}`:"Na fila, sem responsável";
+  return <div style={{display:"flex",alignItems:"center",gap:5,color:C.sub,fontSize:11.5,margin:"-2px 0 8px"}}>
+    <Icon n="user" size={12} color={C.faint}/><span style={{color:lead.assignedTo?C.ink:C.amber,fontWeight:600}}>{txt}</span>
+  </div>;
+}
+
+function OrigemDoLead({lead,catraca}){
   if(!lead) return null;
   const doAnuncio=lead.fonte==="meta";
   const plat=lead.plataforma?(NOME_PLATAFORMA[String(lead.plataforma).toLowerCase()]||lead.plataforma):null;
@@ -9505,6 +9522,8 @@ function OrigemDoLead({lead}){
       <Icon n="target" size={12} color={C.faint}/>
       <span style={{color:C.ink,fontWeight:600}}>{veio}</span>
       {lead.createdAt?<span style={{color:C.faint}}>· entrou há {fmtAge(Date.now()-lead.createdAt)}</span>:null}
+      {/* A catraca ao lado da origem (CETRO 08, item 2). */}
+      {catraca&&<span style={{color:C.faint}}>· catraca <b style={{color:C.sub,fontWeight:600}}>{catraca}</b></span>}
     </div>
     {linhas.length>0&&<div style={{marginTop:3,paddingLeft:17,display:"flex",flexDirection:"column",gap:1}}>
       {linhas.map(([r,v])=><div key={r} style={{fontSize:11,lineHeight:1.4,color:C.sub,overflowWrap:"anywhere"}}>
@@ -10947,7 +10966,14 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:12,minWidth:0}}>
           {isMobile&&backBtn(()=>setPane("lista"),"Voltar para a lista")}
           <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
-          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}</div></div>
+          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}
+            {/* Responsável e linha (CETRO 07.2). */}
+            <span>· {sel.assignedTo===session.id?"com você":sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
+            {/* No celular o cabeçalho é estreito e o selo era cortado: a linha
+                fica na faixa acima do campo, que diz a mesma coisa. */}
+            {!isMobile&&<SeloDaLinha grande linha={sel.canal&&sel.canal.onde==="corretor"
+              ?(sel.canal.atual&&sel.canal.atual.minha===false?{pessoal:true,texto:first(sel.canal.atual.nome||"corretor")}:{pessoal:true,texto:"você",grande:"Seu número"})
+              :{pessoal:false,texto:"imobiliária"}}/>}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
           <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
@@ -11044,8 +11070,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             contradiria, na mesma tela, a faixa logo acima. */}
         <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}><Icon n="msg" size={11} color={C.faint}/>
           {sel.canal&&sel.canal.onde==="corretor"
-            ?<React.Fragment>Sai pelo seu número, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
-            :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+            ?<React.Fragment>Mensagem <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
+            :<React.Fragment>Assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
           <BotaoSugestaoIA sg={sg}/></div>
       </div>
     </div>}
@@ -11057,16 +11083,17 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <div style={{padding:16}}>
         {fichaPorBotao&&<div style={{marginBottom:10}}>{backBtn(()=>setPane("chat"),"Voltar para a conversa")}</div>}
 
+        {/* Mesma ordem da ficha da supervisão (CETRO 08). */}
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
-        <TemperaturaDoLead lead={sel} acoes={acoes}/>
+        <ResponsavelDoLead lead={sel} session={session}/>
         <OrigemDoLead lead={sel}/>
+        <TemperaturaDoLead lead={sel} acoes={acoes}/>
         <PossivelDuplicado lead={sel} acoes={acoes} podeUnir={podeSupervisionar(session)}/>
 
         {/* O corretor que acabou de receber o lead é quem mais precisa do
             resumo — foi ele que não acompanhou a conversa até aqui. */}
         <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <SugestaoDaConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
         <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
         {(()=>{
           const etapasFunil=etapasFunilDoLead;
@@ -11081,6 +11108,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </select>;
         })()}
         <DicaEtapa etapa={sel.status}/>
+        <MoverParaOutroFunil lead={sel} acoes={acoes} session={session}/>
+        <SugestaoDaConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
         <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
         {!canHandoff&&temPerm(session,"repassar_leads")&&sel.assignedTo===session.id&&<RepasseDoCorretor lead={sel} acoes={acoes} session={session}/>}
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
@@ -11278,7 +11307,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       }
       // "fila" é um dono possível: lead sem ninguém é justamente o que some do
       // radar, e sem esta opção não haveria como listá-los.
-      if(f.dono==="fila"?l.assignedTo:f.dono&&l.assignedTo!==f.dono) return false;
+      // Várias pessoas (e/ou a fila) — união dentro da dimensão (CETRO 04.1).
+      {const donos=donosDoValor(f.dono); if(donos.length&&!donos.includes(l.assignedTo||"fila")) return false;}
       if(f.prioridade&&l.prio!==f.prioridade) return false;
       // Filtrar por tag é a razão de a tag existir: é daqui que sai o
       // "mostre os investidores" que ninguém conseguia perguntar ao CRM.
@@ -11529,9 +11559,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
 
       {filtrosAbertos&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingBottom:2}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {mostrarDono&&selo("Todo mundo",f.dono,"dono",
-            [...(session?[{v:session.id,t:"Comigo"}]:[]),{v:"fila",t:"Na fila (sem dono)"},
-             ...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {mostrarDono&&<SeletorDePessoas valor={f.dono} mudar={v=>setF(a=>({...a,dono:v||""}))} isMobile={isMobile} rotuloTodos="Todo mundo"
+            pessoas={pessoas.map(p=>({id:p.id,name:session&&p.id===session.id?`${p.name} (eu)`:p.name}))}
+            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>}
           {selo("Temperatura",f.prioridade,"prioridade",
             [{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           {/* Só aparece quando a casa tem tag: um seletor vazio é um filtro
@@ -14184,8 +14214,12 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
 function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
-  if(!canal||(!canal.tenho_linha&&canal.onde==="imobiliaria")) return null;
+  /* SEMPRE à vista (CETRO 07.4, 13/11/2026): a gestão também precisa saber
+     por onde a próxima mensagem sai antes de escrever — e com o final do
+     número, que é o que separa uma linha da outra de relance. */
+  if(!canal) return null;
   const noMeu=canal.onde==="corretor";
+  const finalDe=(n)=>{const d=String(n||"").replace(/\D/g,"");return d.length>=4?` · final ${d.slice(-4)}`:"";};
   // A linha pode ser de outra pessoa quando quem olha é a gestão (30/10/2026).
   const deOutro=noMeu&&canal.atual&&canal.atual.minha===false;
   const trocar=async(para)=>{
@@ -14201,8 +14235,8 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     <Icon n="whatsapp" size={13} color={noMeu?C.greenDeep:C.faint}/>
     <span style={{fontSize:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
       {noMeu
-        ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{canal.atual&&canal.atual.wa_number?` (${canal.atual.wa_number})`:""}</React.Fragment>
-        :"Sai pelo WhatsApp da imobiliária"}
+        ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{finalDe(canal.atual&&canal.atual.wa_number)} · sem assinatura</React.Fragment>
+        :<React.Fragment>Sai pelo <b>WhatsApp {contaInterna()?"do CETRO":"da imobiliária"}</b>{finalDe(canal.casa_numero)}</React.Fragment>}
     </span>
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
       style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
@@ -14312,7 +14346,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         {filtrosAtivos>0&&<button onClick={()=>{setF({atendente:"",etapa:"",prioridade:"",q:f.q,de:"",ate:""});setNumero("");setFTag("");setFSit("");}}
           style={{alignSelf:"flex-end",border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>limpar filtros</button>}
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {selo("Todo mundo",f.atendente,"atendente",[{v:session.id,t:"Comigo"},{v:"fila",t:"Na fila (sem dono)"},...pessoas.map(p=>({v:p.id,t:p.name}))])}
+          {/* Várias pessoas por caixas de seleção (CETRO 04.1). */}
+          <SeletorDePessoas valor={f.atendente} mudar={v=>setF({...f,atendente:v||""})} isMobile={isMobile} rotuloTodos="Todo mundo"
+            pessoas={pessoas.map(p=>({id:p.id,name:p.id===session.id?`${p.name} (eu)`:p.name}))}
+            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>
           {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
           {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           {!!tagsDaCasa.length&&<SeloLocal rotulo="Tag" valor={fTag} mudar={setFTag} opcoes={tagsDaCasa.map(t=>({v:t.id,t:t.nome}))} isMobile={isMobile}/>}
@@ -14354,7 +14391,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
           <div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <span>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
-            {linhas.varias&&<SeloDaLinha linha={linhas.rotulo(sel.canalId)} grande/>}</div>
+            {/* Responsável e linha sempre juntos (CETRO 07.2): "com Blanca · Nº de Blanca". */}
+            {!isMobile&&<SeloDaLinha linha={linhas.rotulo(sel.canalId)} grande/>}</div>
         </div>
         <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes} nome={sel.nome}/>
         {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>}
@@ -15185,6 +15223,10 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
      Buscando aqui, ANTES do `return`, a chamada acontece sempre, e só o que
      é FEITO com o resultado muda de acordo com a tela. */
   const etapasFunil=usarEtapasDoLead(lead,acoes,session);
+  // A catraca do lead, para escrever ao lado da origem — só quando a conta tem catraca de produto.
+  const catD=usarCatracas(acoes);
+  const catrNome=(()=>{const cs=(catD&&catD.catracas)||[]; if(!cs.length) return null;
+    const c=lead.catracaId&&cs.find(x=>x.id===lead.catracaId); return c?c.nome:"principal";})();
   // Ocupa o lugar da ficha, como o cadastro de imóveis faz. Sem sobreposição,
   // não há barra do celular por cima nem disputa de camada.
   if(simulando) return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:"100%"}}>
@@ -15195,13 +15237,18 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       {/* Sem o título "Ficha do lead": o nome logo abaixo já diz de quem é. */}
       {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",marginBottom:10}}><Icon n="chevron" size={17}/></button>}
 
+      {/* A ORDEM DO CAPÍTULO 08 (CETRO, 13/11/2026): quem é e com quem está;
+          de onde veio e por qual catraca; temperatura; resumo; etapa (com a
+          sugestão e a leitura da IA); repasse; tarefas; observações; tags;
+          ficha; campos; simulação e venda; IA do lead; linha do tempo;
+          conversa pessoal; dados do titular. */}
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
+      <ResponsavelDoLead lead={lead} session={session}/>
+      <OrigemDoLead lead={lead} catraca={catrNome}/>
       <TemperaturaDoLead lead={lead} acoes={acoes}/>
-      <OrigemDoLead lead={lead}/>
       <PossivelDuplicado lead={lead} acoes={acoes} podeUnir={podeSupervisionar(session)}/>
       <ResumoIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
-      <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
       {(()=>{
@@ -15217,6 +15264,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
       })()}
       <DicaEtapa etapa={lead.status}/>
       <MoverParaOutroFunil lead={lead} acoes={acoes} session={session}/>
+      <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <EtapaIA lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
 
       <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
@@ -15580,10 +15628,11 @@ function BotaoAgendar({ag,desligado,isMobile}){
   </button>;
 }
 
-function amanhaAs(h){const d=new Date();d.setDate(d.getDate()+1);d.setHours(h,0,0,0);return d.getTime();}
+function amanhaAs(h,dias=1,min=0){const d=new Date();d.setDate(d.getDate()+dias);d.setHours(h,min,0,0);return d.getTime();}
 
 function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
   const [quando,setQuando]=useState("");
+  const [horaAtalho,setHoraAtalho]=useState("09:00");
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
   /* UM ARQUIVO NA AGENDADA (07/11/2026, pedido do Fernando): foto, áudio,
@@ -15654,7 +15703,14 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
         {arquivo&&/^audio\//.test(arquivo.mime)&&<span style={{color:C.faint,fontSize:10.5}}>o texto sai logo depois do áudio</span>}
       </div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-        {atalho("Em 1 hora",Date.now()+3600000)}{atalho("Amanhã 9h",amanhaAs(9))}{atalho("Amanhã 14h",amanhaAs(14))}
+        {/* CETRO 07.7: em uma hora, amanhã e depois de amanhã NO HORÁRIO
+            ESCOLHIDO, e data/hora personalizadas logo abaixo. */}
+        {atalho("Em 1 hora",Date.now()+3600000)}
+        {(()=>{const [h,m]=(horaAtalho||"09:00").split(":").map(Number);
+          return <React.Fragment>{atalho(`Amanhã ${horaAtalho}`,amanhaAs(h,1,m))}{atalho(`Depois de amanhã ${horaAtalho}`,amanhaAs(h,2,m))}</React.Fragment>;})()}
+        <label style={{display:"flex",alignItems:"center",gap:4,color:C.faint,fontSize:11}}>às
+          <input type="time" value={horaAtalho} onChange={e=>setHoraAtalho(e.target.value||"09:00")} aria-label="Horário dos atalhos"
+            style={{fontSize:isMobile?16:11.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"3px 6px",color:C.ink,background:C.card,outline:"none"}}/></label>
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
         <input type="datetime-local" value={quando} min={paraCampoDataHora(Date.now())} onChange={e=>setQuando(e.target.value)} aria-label="Dia e hora do envio"
@@ -15663,7 +15719,7 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
           style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 14px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {ocupado?"Agendando…":ts?`Agendar para ${fmtTarefa(ts)}`:"Agendar"}</button>
       </div>
-      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Sai em seu nome, pelo mesmo número da conversa. Se o lead passar para outra pessoa antes, a mensagem não sai.</div>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Sai em seu nome, pelo mesmo número da conversa. Se o lead passar para outra pessoa antes do horário, o agendamento é cancelado e o motivo fica aqui.</div>
     </div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5}}>{erro}</div>}
   </div>;
@@ -15774,8 +15830,8 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
     <div style={{color:C.faint,fontSize:10.5,marginTop:6,display:"flex",alignItems:"center",gap:5}}>
       <Icon n="msg" size={11} color={C.faint}/>
       {lead.canal&&lead.canal.onde==="corretor"
-        ?<React.Fragment>Sai pelo número pessoal, <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
-        :<React.Fragment>Sai pelo número da imobiliária, assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
+        ?<React.Fragment>Mensagem <b style={{color:C.sub}}>&nbsp;sem assinatura</b>.</React.Fragment>
+        :<React.Fragment>Assinada como <b style={{color:C.sub}}>&nbsp;{first(session.name)}</b>.</React.Fragment>}
       <BotaoSugestaoIA sg={sg}/>
     </div>
   </div>
@@ -18347,8 +18403,10 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
    logo abaixo mostrava o mês que o gestor escolheu. Os dois números estavam
    certos e descreviam pedaços diferentes do tempo — que é a pior forma de
    errar, porque ninguém desconfia. */
-function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
-  const [d,setD]=useState(null);
+function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe,soIds}){
+  const [d0,setD]=useState(null);
+  // A posição no ranking continua a da equipe inteira; o filtro só esconde linhas.
+  const d=d0&&soIds&&soIds.length?{...d0,equipe:d0.equipe.filter(m=>soIds.includes(m.id))}:d0;
   const chave=JSON.stringify(periodo);
   // Troca de período limpa a tabela; a atualização automática, não (sem piscar).
   useEffect(()=>{setD(null);},[chave]);
@@ -18386,7 +18444,7 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
           disabled={m.sem_dados}
           style={{width:"100%",border:"none",background:"transparent",padding:"6px 0",textAlign:"left",
             display:"flex",alignItems:"center",gap:9,cursor:m.sem_dados?"default":"pointer"}}>
-          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,minWidth:16}}>{m.sem_dados?"–":i+1}</span>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,minWidth:16}}>{m.sem_dados?"–":(d0.equipe.findIndex(x=>x.id===m.id)+1)}</span>
           <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1,minWidth:0,
             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nome}</span>
           {m.sem_dados
@@ -18417,7 +18475,7 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe}){
             <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
         </tr></thead>
         <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
-          <td style={{...celula,fontFamily:MONO,color:C.faint}}>{m.sem_dados?"–":i+1}</td>
+          <td style={{...celula,fontFamily:MONO,color:C.faint}}>{m.sem_dados?"–":(d0.equipe.findIndex(x=>x.id===m.id)+1)}</td>
           <td style={{...celula,color:C.ink,fontWeight:600}}>
             <button onClick={()=>aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)} disabled={m.sem_dados}
               title={m.sem_dados?undefined:"Ver de onde saiu cada ponto"}
@@ -22309,11 +22367,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           <option value="">Todos os funis</option>
           {op.pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
         </select>}
-        {op&&<select value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)} style={entrada}>
-          <option value="">Toda a equipe</option>
-          <option value="fila">Na fila, sem dono</option>
-          {op.pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>}
+        {op&&<SeletorDePessoas valor={f.responsavel} mudar={v=>set("responsavel",v)} pessoas={op.pessoas} estilo={entrada} isMobile={isMobile}/>}
         {op&&op.campanhas.length>0&&<select value={f.campanha||""} onChange={e=>set("campanha",e.target.value)} style={entrada}>
           <option value="">Todas as campanhas</option>
           {op.campanhas.map(c=><option key={c} value={c}>{c}</option>)}
@@ -22334,7 +22388,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           <Metric rot="Responderam à 1ª mensagem" v={num(d.atendimento.taxa_resposta_cliente,"%")}
             sub={d.atendimento.clientes_contatados?`${d.atendimento.clientes_responderam} de ${d.atendimento.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>
           <Metric rot="Qualificados" v={d.atendimento.qualificados??"—"}
-            sub={f.responsavel&&f.responsavel!=="fila"?"que esta pessoa qualificou no período":"pelo SDR ou no comercial, no período"}/>
+            sub={donosDoValor(f.responsavel).some(x=>x!=="fila")?(donosDoValor(f.responsavel).length>1?"que estas pessoas qualificaram no período":"que esta pessoa qualificou no período"):"pelo SDR ou no comercial, no período"}/>
         </div>
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
@@ -22396,7 +22450,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
                   escolhida={fatia} aoEscolher={setFatia}
                   vazioTexto="Nenhum contato em aberto neste funil — nada para desenhar ainda."/>
                 {(()=>{const aberta=fatias.find(x=>x.id===fatia);
-                  const quem=f.responsavel&&f.responsavel!=="fila"?f.responsavel:undefined;
+                  const quem=f.responsavel||undefined;
                   return <DetalheDaFatia fatia={aberta} isMobile={isMobile}
                     leadsDa={(sid)=><LeadsDaFatia acoes={acoes} stageId={sid} atendente={quem} abrirConversa={abrirConversa}/>}>
                     {aberta&&!aberta.agrupadas&&<LeadsDaFatia acoes={acoes} stageId={aberta.id} atendente={quem} abrirConversa={abrirConversa}/>}
@@ -24264,8 +24318,13 @@ function LeadsDaFatia({acoes,stageId,atendente,abrirConversa}){
   const [lista,setLista]=useState(null);
   const [ver,setVer]=useState(80);
   useEffect(()=>{let vivo=true; setLista(null);
-    acoes.buscar(atendente?{atendente,finalizados:"1"}:{finalizados:"1"})
-      .then(r=>vivo&&setLista(r.filter(l=>l.stageId===stageId))).catch(()=>vivo&&setLista([]));
+    /* Uma pessoa vai ao servidor; várias (ou a fila) são peneiradas aqui,
+       sobre a lista que a supervisão já pode ver (CETRO 04.1). */
+    const donos=donosDoValor(atendente);
+    const um=donos.length===1&&donos[0]!=="fila"?donos[0]:null;
+    const passa=(l)=>!donos.length||um||donos.includes(l.assignedTo||"fila");
+    acoes.buscar(um?{atendente:um,finalizados:"1"}:{finalizados:"1"})
+      .then(r=>vivo&&setLista(r.filter(l=>l.stageId===stageId&&passa(l)))).catch(()=>vivo&&setLista([]));
     return()=>{vivo=false;};},[stageId,atendente]);
   return <div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.line}`}}>
     {lista===null
@@ -24747,6 +24806,11 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
   const [dados,setDados]=useState(null);
   const [carregando,setCarregando]=useState(true);
   const [sel,setSel]=useState(null);
+  /* Quem aparece no relatório (CETRO 04.1): uma, várias ou todas as pessoas,
+     na fileira principal — sem abrir "mais filtros". Vale para a faixa de
+     pessoas e para o score. */
+  const [quemVer,setQuemVer]=useState(undefined);
+  const verIds=donosDoValor(quemVer);
 
   /* A ROSCA DESTA PESSOA vem da MESMA rota do painel do gestor, filtrada por
      responsável — a fatia "Pasta" daqui e a da Operação são a mesma conta. O
@@ -24795,8 +24859,11 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
      Visão geral, que é o mesmo, fica no alto). */
   return <div style={embutido?{}:{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:embutido?"none":1440,margin:"0 auto"}}>
-      {!embutido&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
-        <SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>
+      {(!embutido||(pickable&&dados.atendentes.length>1))&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        {!embutido&&<SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>}
+        {pickable&&dados.atendentes.length>1&&<SeletorDePessoas valor={quemVer} comFila={false} isMobile={isMobile} estilo={entrada}
+          rotuloTodos="Todas as pessoas" pessoas={dados.atendentes.map(a=>({id:a.id,name:a.nome}))}
+          mudar={v=>{setQuemVer(v);const ids=donosDoValor(v);if(ids.length&&!ids.includes(sel))setSel(ids[0]);}}/>}
       </div>}
       {nota&&<DetalheDaNota m={nota.m} componentes={nota.componentes} periodo={dados.periodo} isMobile={isMobile} aoFechar={()=>setNota(null)}/>}
       {paraReuniao&&linha&&<RelatorioParaReuniao acoes={acoes} linha={linha} dados={dados} periodo={periodo}
@@ -24807,7 +24874,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
       {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
         ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
-        {dados.atendentes.map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
+        {dados.atendentes.filter(a=>!verIds.length||verIds.includes(a.id)).map(a=><button key={a.id} onClick={()=>setSel(a.id)} style={{flexShrink:0,display:"flex",alignItems:"center",gap:8,border:`1px solid ${sel===a.id?C.green:C.line}`,background:sel===a.id?C.greenSoft:C.card,borderRadius:999,padding:"4px 12px 4px 4px",cursor:"pointer"}}>
           <Avatar ini={initials(a.nome)} color={COLORS[[...a.id].reduce((s,c)=>s+c.charCodeAt(0),0)%COLORS.length]} size={26}/>
           <span style={{color:C.ink,fontSize:13,fontWeight:500}}>{first(a.nome)}</span></button>)}
       </div>}
@@ -24897,7 +24964,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
       </React.Fragment>}
       {/* O score por último: é a comparação entre os corretores, lida depois
           de ver o que cada um fez. */}
-      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} soIds={verIds} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
       {/* O ponto das atendentes (28/10/2026): é registro de presença, e o que
           se abre esta tela para ver é o desempenho. */}
       <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>
@@ -25222,6 +25289,49 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
   </div>;
 }
 
+/* SELETOR DE VÁRIAS PESSOAS (CETRO 04.1, 13/11/2026). Uma, duas, várias ou
+   todas, por caixas de seleção — nunca só "Todos" ou uma pessoa. O valor é o
+   texto "id1,id2" (ou "fila"), que vai inteiro na consulta: o servidor faz a
+   UNIÃO dentro da dimensão (Blanca OU Sil). Vazio = todos os autorizados.
+   `comFila` oferece "Na fila, sem dono". */
+const donosDoValor=(v)=>String(v||"").split(",").map(x=>x.trim()).filter(Boolean);
+function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotuloTodos="Toda a equipe"}){
+  const [aberto,setAberto]=useState(false);
+  const ref=useRef(null);
+  const sel=donosDoValor(valor);
+  useEffect(()=>{if(!aberto)return;
+    const fora=(e)=>{if(ref.current&&!ref.current.contains(e.target))setAberto(false);};
+    document.addEventListener("mousedown",fora);document.addEventListener("touchstart",fora);
+    return()=>{document.removeEventListener("mousedown",fora);document.removeEventListener("touchstart",fora);};},[aberto]);
+  const nomeDe=(id)=>id==="fila"?"Na fila":first((pessoas.find(p=>p.id===id)||{}).name||"?");
+  const rotulo=!sel.length?rotuloTodos:sel.length===1?nomeDe(sel[0]):sel.length===2?`${nomeDe(sel[0])} e ${nomeDe(sel[1])}`:`${sel.length} selecionados`;
+  const alternar=(id)=>{const n=sel.includes(id)?sel.filter(x=>x!==id):[...sel,id];mudar(n.join(",")||undefined);};
+  const opcoes=[...(comFila?[{id:"fila",name:"Na fila, sem dono"}]:[]),...pessoas];
+  return <div ref={ref} style={{position:"relative"}}>
+    <button type="button" onClick={()=>setAberto(a=>!a)} aria-expanded={aberto}
+      style={{...estilo,display:"flex",alignItems:"center",gap:6,
+        ...(sel.length?{background:C.greenSoft,border:`1px solid ${C.green}66`,color:C.greenDeep,fontWeight:600}:{})}}>
+      <Icon n="users" size={13}/>{rotulo}<span style={{display:"flex",transform:"rotate(90deg)"}}><Icon n="chevron" size={12}/></span>
+    </button>
+    {aberto&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:60,background:C.card,
+      border:`1px solid ${C.line}`,borderRadius:12,boxShadow:"0 12px 32px rgba(10,45,36,.16)",
+      width:isMobile?"min(86vw,300px)":260,maxHeight:340,overflowY:"auto",padding:6}}>
+      <label style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:8,cursor:"pointer",
+        fontSize:isMobile?14.5:12.5,color:C.ink,fontWeight:600,borderBottom:`1px solid ${C.line}`,marginBottom:4}}>
+        <input type="checkbox" checked={!sel.length} onChange={()=>mudar(undefined)} style={{accentColor:C.green,width:16,height:16}}/>
+        {rotuloTodos}
+      </label>
+      {opcoes.map(p=><label key={p.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:8,
+        cursor:"pointer",fontSize:isMobile?14.5:12.5,color:C.ink,background:sel.includes(p.id)?C.greenSoft:"transparent"}}>
+        <input type="checkbox" checked={sel.includes(p.id)} onChange={()=>alternar(p.id)} style={{accentColor:C.green,width:16,height:16}}/>
+        <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+      </label>)}
+      {sel.length>0&&<button type="button" onClick={()=>setAberto(false)} style={{width:"100%",marginTop:4,border:"none",
+        background:C.green,color:"#fff",borderRadius:8,padding:"8px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Pronto</button>}
+    </div>}
+  </div>;
+}
+
 /* Filtros da tela de entrada: só período é de todo mundo. Canal de aquisição
    e corretor são leitura de gestão — o corretor já está vendo só o dele
    (o servidor garante isso), então um seletor "corretor" na tela dele
@@ -25237,11 +25347,7 @@ function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
       <option value="">Todo canal de aquisição</option>
       {op.origens.map(o=><option key={o} value={o}>{o}</option>)}
     </select>}
-    {supervisor&&op&&<select value={f.responsavel||""} onChange={e=>set("responsavel",e.target.value)} style={entrada}>
-      <option value="">Toda a equipe</option>
-      <option value="fila">Na fila, sem dono</option>
-      {op.pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>}
+    {supervisor&&op&&<SeletorDePessoas valor={f.responsavel} mudar={v=>set("responsavel",v)} pessoas={op.pessoas} estilo={entrada} isMobile={isMobile}/>}
     {Object.keys(f).filter(k=>k!=="periodo"&&f[k]).length>0&&
       <button onClick={()=>setF({periodo:f.periodo})}
         style={{...entrada,color:C.hot,border:`1px solid ${C.hot}44`,fontWeight:600}}>Limpar filtros</button>}

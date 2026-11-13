@@ -12,7 +12,7 @@
 
 import { Router } from "express";
 import { authRequired, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
-import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo } from "../services/painel.js";
+import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo, listaDeDonos, pessoasDoFiltro } from "../services/painel.js";
 import { conferenciaDoFunil } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
 import { proximosPassos } from "../services/proximos-passos.js";
@@ -32,7 +32,9 @@ const soGestao = (req, res, next) => supervisiona(req.user)
 const filtrosDe = (q) => ({
   periodo: q.periodo, de: q.de, ate: q.ate,
   pipeline_id: q.pipeline_id, stage_id: q.stage_id,
-  responsavel: q.responsavel, origem: q.origem, source: q.source,
+  // Uma pessoa continua indo como texto; várias viram lista (CETRO 04.1).
+  responsavel: (() => { const l = listaDeDonos(q.responsavel); return l.length > 1 ? l : (l[0] || undefined); })(),
+  origem: q.origem, source: q.source,
   campanha: q.campanha, campaign_id: q.campaign_id, produto_id: q.produto_id,
 });
 
@@ -107,7 +109,8 @@ r.get("/geral", (req, res) => {
   const f = filtrosDe(req.query);
   if (!supervisiona(req.user)) f.responsavel = req.user.id;
   const dados = visaoGeral(req.user.org_id, f);
-  const alvo = f.responsavel && f.responsavel !== "fila" ? f.responsavel : null;
+  const pessoas = pessoasDoFiltro(f);
+  const alvo = !pessoas ? null : pessoas.length === 1 ? pessoas[0] : pessoas;
   dados.metas = metasComRealizado(req.user.org_id, alvo, mesAtual());
   res.json(dados);
 });

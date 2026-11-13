@@ -38,7 +38,7 @@ import { etapasDeContagem } from "./interno.js";
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
-import { resolverPeriodo, pct, peneira, recebidosDaPessoa } from "./painel.js";
+import { resolverPeriodo, pct, peneira, recebidosDaPessoa, pessoasDoFiltro, marcasSql, listaDeDonos } from "./painel.js";
 import { eventosDeAtribuicao } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { ASSINATURA_ROBO } from "./robo.js";
@@ -55,10 +55,8 @@ const DIA = 86400000;
    pela `peneira()`). "fila" é
    sentinela só de dono — não faz sentido como "quem ligou", então nunca entra
    na trava de atividade. */
-function condPessoa(filtros) {
-  const r = filtros && filtros.responsavel;
-  return r && r !== "fila" ? r : null;
-}
+// As pessoas do filtro (uma ou várias, CETRO 04.1); "fila" nunca entra aqui.
+const condPessoa = (filtros) => pessoasDoFiltro(filtros);
 
 /* Cada contador tem duas formas: `momentos*` devolve os INSTANTES em que a
    coisa aconteceu, e o contador é só o tamanho da lista. Assim o gráfico de 14
@@ -72,7 +70,7 @@ function momentosDeLigacao(orgId, filtros, de, ate, apenasContato = false) {
   const args = [...p.args, de, ate];
   if (apenasContato) where.push("lg.resultado = 'falou'");
   const quem = condPessoa(filtros);
-  if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`lg.user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
     WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
 }
@@ -96,7 +94,7 @@ function msgsDeGente(orgId, filtros, de, ate) {
     `NOT (m.from_user_id IS NULL AND COALESCE(m.from_name, '') = '${ASSINATURA_ROBO}')`];
   const args = [...p.args, de, ate];
   const quem = condPessoa(filtros);
-  if (quem) { where.push("m.from_user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`m.from_user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
     WHERE ${where.join(" AND ")}`).all(...args);
 }
@@ -107,7 +105,7 @@ function ligacoesComLead(orgId, filtros, de, ate, apenasContato = false) {
   const args = [...p.args, de, ate];
   if (apenasContato) where.push("lg.resultado = 'falou'");
   const quem = condPessoa(filtros);
-  if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`lg.user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT lg.lead_id lead, lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
     WHERE ${where.join(" AND ")}`).all(...args);
 }
@@ -146,8 +144,8 @@ function faladas(orgId, filtros, de, ate) {
       AND o.created_at < m.created_at AND ${semDisparo("o.")}
       AND NOT (o.from_user_id IS NULL AND COALESCE(o.from_name, '') = '${ASSINATURA_ROBO}'))`;
   const responderam = db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
-    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ? AND ${quem ? `${anterior} = ?` : temAnterior}`)
-    .all(...p.args, de, ate, ...(quem ? [quem] : []));
+    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ? AND ${quem ? `${anterior} IN (${marcasSql(quem.length)})` : temAnterior}`)
+    .all(...p.args, de, ate, ...(quem || []));
   return porLeadDia([...ligacoesComLead(orgId, filtros, de, ate, true), ...responderam]);
 }
 
@@ -192,7 +190,18 @@ const inferidos = (pares) => new Set(pares.filter(x => x.inferido).map(x => x.le
    enquanto aparecia na Produção dele. */
 function momentosDeLeads(orgId, filtros, de, ate, eventos = null) {
   const quem = condPessoa(filtros);
-  if (quem) return recebidosDaPessoa(orgId, quem, filtros, de, ate, eventos).map(e => e.quando);
+  if (quem) {
+    const ts = recebidosDaPessoa(orgId, quem, filtros, de, ate, eventos).map(e => e.quando);
+    /* Pessoas E a fila marcadas juntas (CETRO 04.1): soma os que nasceram na
+       fila no período — a mesma união da `coorte` da Operação. */
+    if (listaDeDonos(filtros.responsavel).includes("fila")) {
+      const { responsavel: _r, ...resto } = filtros;
+      const p = peneira(orgId, resto);
+      for (const r of db.prepare(`SELECT l.created_at t FROM leads l WHERE ${p.sql} AND l.assigned_to IS NULL AND l.created_at BETWEEN ? AND ?`)
+        .all(...p.args, de, ate)) ts.push(r.t);
+    }
+    return ts;
+  }
   const p = peneira(orgId, filtros);
   return db.prepare(`SELECT l.created_at t FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
     .all(...p.args, de, ate).map(r => r.t);
@@ -456,7 +465,17 @@ function realizadoDoMes(orgId, userId, mes) {
 
 export function metasComRealizado(orgId, userId, mes) {
   mes = mes || mesAtual();
-  const meta = obterMeta(orgId, userId, mes);
+  /* Várias pessoas no filtro (CETRO 04.1): a meta é a SOMA das metas
+     pessoais de cada uma — campo que ninguém do grupo definiu continua "não
+     definido" — e o realizado é o do grupo (união). */
+  let meta;
+  if (Array.isArray(userId)) {
+    const ms = userId.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
+    meta = ms.length ? Object.fromEntries(CAMPOS_META.map(c => {
+      const vs = ms.map(m => m[c]).filter(v => v != null);
+      return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
+    })) : null;
+  } else meta = obterMeta(orgId, userId, mes);
   const realizado = realizadoDoMes(orgId, userId, mes);
   const interna = etapasDeContagem(orgId).realizada !== "Visita";
   const nomeDe = (campo) => interna
