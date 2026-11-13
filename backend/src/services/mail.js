@@ -120,20 +120,20 @@ function explicar(status, body) {
    nenhum dado de quem recebe entra nele.
 
    Muita caixa de entrada bloqueia imagem até a pessoa liberar: o `alt` escreve
-   "ConHub" em branco no lugar, para o cabeçalho nunca ficar vazio. Link que
+   "CETRO" em branco no lugar, para o cabeçalho nunca ficar vazio. Link que
    não é endereço (não deveria acontecer) volta para o nome escrito. */
 function logoDoEmail(link) {
-  let origem = "";
-  try { const u = new URL(link); if (u.protocol === "https:" || u.protocol === "http:") origem = u.origin; } catch (_) {}
-  if (!origem) return `<div style="color:#fff;font-size:20px;font-weight:700">ConHub</div>`;
-  return `<img src="${origem}/conhub-email.png" width="143" height="28" alt="ConHub" style="display:block;border:0;color:#fff;font-size:20px;font-weight:700">`;
+  /* 13/11/2026: o nome passou a CETRO, e a imagem antiga dizia "conhub".
+     O cabeçalho vai em TEXTO até existir a imagem nova: aparece sempre, mesmo
+     com a caixa de entrada bloqueando imagens. */
+  return `<div style="color:#fff;font-size:22px;font-weight:800;letter-spacing:3px;font-family:Manrope,Arial,sans-serif">CETRO</div>`;
 }
 
 // E-mail de convite: o corretor clica e define a própria senha.
 export function inviteEmail({ name, link, orgName }) {
   const first = (name || "").split(" ")[0] || "corretor(a)";
   return {
-    subject: `${orgName}: confirme seu cadastro no ConHub`,
+    subject: `${orgName}: confirme seu cadastro no CETRO`,
     html: `
 <div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
@@ -144,7 +144,7 @@ export function inviteEmail({ name, link, orgName }) {
     <div style="padding:28px">
       <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}! 👋</p>
       <p style="color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 20px">
-        Seu cadastro no ConHub da ${orgName} foi criado. Falta só um passo:
+        Seu cadastro no CETRO da ${orgName} foi criado. Falta só um passo:
         clique no botão abaixo para <b>criar sua senha</b> e ativar o acesso.
       </p>
       <a href="${link}" style="display:inline-block;background:#0E8F6E;color:#fff;font-size:15px;font-weight:600;text-decoration:none;padding:13px 26px;border-radius:12px">Criar minha senha</a>
@@ -173,7 +173,7 @@ export function inviteEmail({ name, link, orgName }) {
 export function senhaEmail({ name, link, horas = 24 }) {
   const first = (name || "").split(" ")[0] || "você";
   return {
-    subject: "ConHub: criar uma senha nova",
+    subject: "CETRO: criar uma senha nova",
     html: `
 <div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
@@ -184,7 +184,7 @@ export function senhaEmail({ name, link, horas = 24 }) {
     <div style="padding:28px">
       <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}!</p>
       <p style="color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 20px">
-        Recebemos um pedido para criar uma <b>senha nova</b> no seu acesso ao ConHub.
+        Recebemos um pedido para criar uma <b>senha nova</b> no seu acesso ao CETRO.
         Clique no botão abaixo para escolher a senha.
       </p>
       <a href="${link}" style="display:inline-block;background:#0E8F6E;color:#fff;font-size:15px;font-weight:600;text-decoration:none;padding:13px 26px;border-radius:12px">Criar senha nova</a>

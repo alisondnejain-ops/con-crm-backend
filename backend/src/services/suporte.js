@@ -7,8 +7,8 @@
    1. TRIAGEM pela IA, com o manual do sistema (services/ajuda.js). Ela
       responde o que é de uso e, quando não dá (cobrança, erro, algo que só
       olhando a conta), oferece a pessoa do suporte.
-   2. CHAMADO com uma pessoa do ConHub. Ele cai na aba Suporte do ambiente
-      interno do ConHub, a equipe é avisada no celular e responde por lá
+   2. CHAMADO com uma pessoa do CETRO. Ele cai na aba Suporte do ambiente
+      interno do CETRO, a equipe é avisada no celular e responde por lá
       (05/10/2026). Opcional, no hub: repassar também ao WhatsApp do suporte
       (`suporte_destino`), pela linha de uma conta (`suporte_org`) — aí a
       resposta dada no WhatsApp volta para a nuvem do cliente.
@@ -45,11 +45,11 @@ export const soDigitos = (t) => String(t || "").replace(/\D/g, "");
 export function destinoDoSuporte() { return lerCfg("suporte_destino") || DESTINO_PADRAO; }
 
 /* A conta cuja linha da casa manda as mensagens. Sem escolha no hub: a conta
-   do primeiro master (é a do ConHub), e na falta dela a mais antiga. */
+   do primeiro master (é a do CETRO), e na falta dela a mais antiga. */
 export function orgDoSuporte() {
   const escolhida = lerCfg("suporte_org");
   if (escolhida && db.prepare("SELECT 1 FROM orgs WHERE id = ?").get(escolhida)) return escolhida;
-  /* Sem escolha no hub, a linha é a do AMBIENTE INTERNO do ConHub
+  /* Sem escolha no hub, a linha é a do AMBIENTE INTERNO do CETRO
      (05/10/2026). Antes caía na conta do master — que é a Conecta, e o
      chamado de um cliente saía pelo WhatsApp de outro cliente. */
   const interna = db.prepare("SELECT id FROM orgs WHERE tipo = 'interna' ORDER BY created_at LIMIT 1").get()?.id;
@@ -59,7 +59,7 @@ export function orgDoSuporte() {
 }
 /* ENCAMINHAR AO WHATSAPP É OPÇÃO, NÃO O CAMINHO (05/10/2026, pedido do Ali:
    "a nuvem de suporte, quando o cliente solicitar, cai no atendimento dentro
-   do sistema interno do ConHub… sem intermediação"). Com o ambiente interno
+   do sistema interno do CETRO… sem intermediação"). Com o ambiente interno
    criado, o chamado mora LÁ: a equipe é avisada no celular e responde pela
    aba Suporte, e a resposta aparece na nuvem do cliente. Repassar cada
    mensagem para um WhatsApp pessoal vira escolha do hub (`suporte_whatsapp`).
@@ -132,7 +132,7 @@ async function mandarAoSuporte(texto, { forcar = false } = {}) {
 }
 
 // O botão "Enviar teste" do hub.
-export const testarEnvio = () => mandarAoSuporte("✅ Teste do suporte ConHub: as mensagens da nuvem de suporte vão chegar aqui.", { forcar: true });
+export const testarEnvio = () => mandarAoSuporte("✅ Teste do suporte CETRO: as mensagens da nuvem de suporte vão chegar aqui.", { forcar: true });
 
 /* Quem atende o suporte: a equipe ativa do ambiente interno e os masters.
    É a eles que vai o aviso no celular de chamado novo e de mensagem nova. */
@@ -222,7 +222,7 @@ export async function respostaDoSuporte(chamado, texto, { viaPainel = false, por
   if (/^\/fechar\b/i.test(t)) return fecharChamado(chamado, "suporte");
   if (chamado.status !== "aberto") db.prepare("UPDATE suporte_chamados SET status = 'aberto', fechado_em = NULL WHERE id = ?").run(chamado.id);
   gravarMsg(chamado.id, "suporte", t);
-  avisar(chamado.user_id, { titulo: "Suporte ConHub respondeu", corpo: t.slice(0, 120) }).catch(() => {});
+  avisar(chamado.user_id, { titulo: "Suporte CETRO respondeu", corpo: t.slice(0, 120) }).catch(() => {});
   if (viaPainel) await mandarAoSuporte(`↪ (respondido pelo painel${por ? " por " + por : ""}) *#${chamado.numero}*: ${t}`);
   return { ok: true };
 }
@@ -273,7 +273,7 @@ export async function mensagemDoSuporte({ canal, phone, fromMe, texto, citada })
 }
 
 /* ===== TRIAGEM PELA IA ===== */
-const INSTRUCOES_SUPORTE = `Você é o suporte do ConHub, um CRM de imobiliárias, e conversa em português do Brasil com quem usa o sistema (gestor, atendente ou corretor).
+const INSTRUCOES_SUPORTE = `Você é o suporte do CETRO, um CRM de imobiliárias, e conversa em português do Brasil com quem usa o sistema (gestor, atendente ou corretor).
 
 Seu trabalho é resolver a dúvida AGORA, pelo manual abaixo, com o caminho exato na tela ("Configurações → Conexão → Conectar"). Respostas curtas, em passos numerados quando houver mais de um, sem jargão técnico e sem markdown pesado.
 
@@ -304,7 +304,7 @@ export const FERRAMENTAS_SUPORTE = [
   },
   {
     name: "abrir_tela",
-    description: "Leva a pessoa até uma tela do ConHub.",
+    description: "Leva a pessoa até uma tela do CETRO.",
     input_schema: { type: "object", additionalProperties: false, required: ["tela", "motivo"],
       properties: { tela: { type: "string", enum: Object.keys(TELAS) }, motivo: { type: "string" } } },
   },

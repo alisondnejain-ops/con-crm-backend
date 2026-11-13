@@ -38,7 +38,7 @@ import { etapasDeContagem } from "./interno.js";
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
-import { resolverPeriodo, pct, peneira, recebidosDaPessoa } from "./painel.js";
+import { resolverPeriodo, pct, peneira, recebidosDaPessoa, pessoasDoFiltro, marcasSql, listaDeDonos } from "./painel.js";
 import { eventosDeAtribuicao } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { ASSINATURA_ROBO } from "./robo.js";
@@ -55,10 +55,8 @@ const DIA = 86400000;
    pela `peneira()`). "fila" é
    sentinela só de dono — não faz sentido como "quem ligou", então nunca entra
    na trava de atividade. */
-function condPessoa(filtros) {
-  const r = filtros && filtros.responsavel;
-  return r && r !== "fila" ? r : null;
-}
+// As pessoas do filtro (uma ou várias, CETRO 04.1); "fila" nunca entra aqui.
+const condPessoa = (filtros) => pessoasDoFiltro(filtros);
 
 /* Cada contador tem duas formas: `momentos*` devolve os INSTANTES em que a
    coisa aconteceu, e o contador é só o tamanho da lista. Assim o gráfico de 14
@@ -72,7 +70,7 @@ function momentosDeLigacao(orgId, filtros, de, ate, apenasContato = false) {
   const args = [...p.args, de, ate];
   if (apenasContato) where.push("lg.resultado = 'falou'");
   const quem = condPessoa(filtros);
-  if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`lg.user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
     WHERE ${where.join(" AND ")}`).all(...args).map(r => r.t);
 }
@@ -96,7 +94,7 @@ function msgsDeGente(orgId, filtros, de, ate) {
     `NOT (m.from_user_id IS NULL AND COALESCE(m.from_name, '') = '${ASSINATURA_ROBO}')`];
   const args = [...p.args, de, ate];
   const quem = condPessoa(filtros);
-  if (quem) { where.push("m.from_user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`m.from_user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
     WHERE ${where.join(" AND ")}`).all(...args);
 }
@@ -107,7 +105,7 @@ function ligacoesComLead(orgId, filtros, de, ate, apenasContato = false) {
   const args = [...p.args, de, ate];
   if (apenasContato) where.push("lg.resultado = 'falou'");
   const quem = condPessoa(filtros);
-  if (quem) { where.push("lg.user_id = ?"); args.push(quem); }
+  if (quem) { where.push(`lg.user_id IN (${marcasSql(quem.length)})`); args.push(...quem); }
   return db.prepare(`SELECT lg.lead_id lead, lg.created_at t FROM ligacoes lg JOIN leads l ON l.id = lg.lead_id
     WHERE ${where.join(" AND ")}`).all(...args);
 }
@@ -146,8 +144,8 @@ function faladas(orgId, filtros, de, ate) {
       AND o.created_at < m.created_at AND ${semDisparo("o.")}
       AND NOT (o.from_user_id IS NULL AND COALESCE(o.from_name, '') = '${ASSINATURA_ROBO}'))`;
   const responderam = db.prepare(`SELECT m.lead_id lead, m.created_at t FROM messages m JOIN leads l ON l.id = m.lead_id
-    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ? AND ${quem ? `${anterior} = ?` : temAnterior}`)
-    .all(...p.args, de, ate, ...(quem ? [quem] : []));
+    WHERE ${p.sql} AND m.direction = 'in' AND m.created_at BETWEEN ? AND ? AND ${quem ? `${anterior} IN (${marcasSql(quem.length)})` : temAnterior}`)
+    .all(...p.args, de, ate, ...(quem || []));
   return porLeadDia([...ligacoesComLead(orgId, filtros, de, ate, true), ...responderam]);
 }
 
@@ -192,7 +190,18 @@ const inferidos = (pares) => new Set(pares.filter(x => x.inferido).map(x => x.le
    enquanto aparecia na Produção dele. */
 function momentosDeLeads(orgId, filtros, de, ate, eventos = null) {
   const quem = condPessoa(filtros);
-  if (quem) return recebidosDaPessoa(orgId, quem, filtros, de, ate, eventos).map(e => e.quando);
+  if (quem) {
+    const ts = recebidosDaPessoa(orgId, quem, filtros, de, ate, eventos).map(e => e.quando);
+    /* Pessoas E a fila marcadas juntas (CETRO 04.1): soma os que nasceram na
+       fila no período — a mesma união da `coorte` da Operação. */
+    if (listaDeDonos(filtros.responsavel).includes("fila")) {
+      const { responsavel: _r, ...resto } = filtros;
+      const p = peneira(orgId, resto);
+      for (const r of db.prepare(`SELECT l.created_at t FROM leads l WHERE ${p.sql} AND l.assigned_to IS NULL AND l.created_at BETWEEN ? AND ?`)
+        .all(...p.args, de, ate)) ts.push(r.t);
+    }
+    return ts;
+  }
   const p = peneira(orgId, filtros);
   return db.prepare(`SELECT l.created_at t FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`)
     .all(...p.args, de, ate).map(r => r.t);
@@ -292,7 +301,7 @@ export function visaoGeral(orgId, filtros = {}) {
   const vAtual = somaVendas(orgId, filtros, periodo.de, periodo.ate);
   const vAnterior = somaVendas(orgId, filtros, anterior.de, anterior.ate);
 
-  /* Imobiliária conta a visita ao imóvel; o ambiente interno do ConHub, a
+  /* Imobiliária conta a visita ao imóvel; o ambiente interno do CETRO, a
      demonstração do sistema. Mesma conta, outro nome de etapa. */
   const nomes = etapasDeContagem(orgId);
   const ctx = {};
@@ -326,6 +335,16 @@ export function visaoGeral(orgId, filtros = {}) {
   const aProp = alcances(orgId, filtros, periodo.de, periodo.ate, "proposta", ctx);
   const agendadas = distintos(aAgend);
   const propostas = distintos(aProp);
+
+  /* O CATÁLOGO DO "ESCOLHER INDICADORES" (13/11/2026, especificação CETRO
+     06.2): os mesmos números do funil de atividades logo abaixo, com o
+     período anterior de mesma duração ao lado. Um número, uma conta. */
+  const ant = (fn) => fn(anterior.de, anterior.ate);
+  kpis.qualificados = comparativo(distintos(aQual), ant((de, ate) => distintos(alcances(orgId, filtros, de, ate, "qualificado", ctx))));
+  kpis.agendamentos = comparativo(agendadas, ant((de, ate) => distintos(alcances(orgId, filtros, de, ate, "agendado", ctx))));
+  kpis.ligacoes = comparativo(ligacoes, ant((de, ate) => contarLigacoes(orgId, filtros, de, ate)));
+  kpis.faladas = comparativo(faladas(orgId, filtros, periodo.de, periodo.ate).length, ant((de, ate) => faladas(orgId, filtros, de, ate).length));
+  kpis.propostas = comparativo(propostas, ant((de, ate) => distintos(alcances(orgId, filtros, de, ate, "proposta", ctx))));
 
   /* Os oito degraus do Fernando (28/10/2026, revistos em 07/11/2026).
      Trabalhados e faladas contam LEAD POR DIA; qualificados, agendados,
@@ -366,9 +385,13 @@ export function visaoGeral(orgId, filtros = {}) {
    e porque "atual e anterior mexem na mesma tabela" evita a armadilha de
    `pipeline_entrada` (regra escrita duas vezes que diverge). */
 const ALVO_ORG = "";
-const CAMPOS_META = ["ligacoes", "contatos", "visitas_agendadas", "visitas_realizadas", "propostas", "vgv"];
-const NOMES_META = { ligacoes: "Ligações", contatos: "Contatos", visitas_agendadas: "Visitas Agendadas",
-  visitas_realizadas: "Visitas Realizadas", propostas: "Propostas", vgv: "VGV" };
+/* A sequência das metas (13/11/2026, especificação CETRO 06.4): a ordem do
+   trabalho, terminando em vendas em quantidade e vendas em VGV, separadas. */
+const CAMPOS_META = ["trabalhados", "ligacoes", "contatos", "qualificados", "visitas_agendadas",
+  "visitas_realizadas", "propostas", "vendas", "vgv"];
+const NOMES_META = { trabalhados: "Leads trabalhados", ligacoes: "Ligações", contatos: "Pessoas faladas",
+  qualificados: "Qualificados", visitas_agendadas: "Agendamentos", visitas_realizadas: "Visitas",
+  propostas: "Propostas", vendas: "Vendas (quantidade)", vgv: "Vendas (VGV)" };
 
 export function mesAtual() {
   const d = new Date();
@@ -403,17 +426,14 @@ export function salvarMeta(orgId, userId, mes, dados = {}) {
   }
   const agora = Date.now();
   if (existente) {
-    db.prepare(`UPDATE metas SET ligacoes=?, contatos=?, visitas_agendadas=?, visitas_realizadas=?,
-      propostas=?, vgv=?, updated_at=? WHERE id=?`).run(
-      valores.ligacoes, valores.contatos, valores.visitas_agendadas, valores.visitas_realizadas,
-      valores.propostas, valores.vgv, agora, existente.id);
+    db.prepare(`UPDATE metas SET ${CAMPOS_META.map(c => c + "=?").join(", ")}, updated_at=? WHERE id=?`)
+      .run(...CAMPOS_META.map(c => valores[c]), agora, existente.id);
     return { ok: true, id: existente.id };
   }
   const id = randomUUID();
-  db.prepare(`INSERT INTO metas (id, org_id, user_id, mes, ligacoes, contatos, visitas_agendadas,
-    visitas_realizadas, propostas, vgv, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-    id, orgId, alvo, mes, valores.ligacoes, valores.contatos, valores.visitas_agendadas,
-    valores.visitas_realizadas, valores.propostas, valores.vgv, agora, agora);
+  db.prepare(`INSERT INTO metas (id, org_id, user_id, mes, ${CAMPOS_META.join(", ")}, created_at, updated_at)
+    VALUES (?,?,?,?,${CAMPOS_META.map(() => "?").join(",")},?,?)`)
+    .run(id, orgId, alvo, mes, ...CAMPOS_META.map(c => valores[c]), agora, agora);
   return { ok: true, id };
 }
 
@@ -429,23 +449,37 @@ function realizadoDoMes(orgId, userId, mes) {
      propostas são os marcos. Meta com outra conta mostraria uma barra que
      não bate com o número logo abaixo dela. */
   const ctx = {};
+  const vendas = somaVendas(orgId, filtros, de, ate);
   return {
+    trabalhados: trabalhados(orgId, filtros, de, ate).length,
     ligacoes: contarLigacoes(orgId, filtros, de, ate),
     contatos: faladas(orgId, filtros, de, ate).length,
+    qualificados: distintos(alcances(orgId, filtros, de, ate, "qualificado", ctx)),
     visitas_agendadas: distintos(alcances(orgId, filtros, de, ate, "agendado", ctx)),
     visitas_realizadas: distintos(alcances(orgId, filtros, de, ate, "visita", ctx)),
     propostas: distintos(alcances(orgId, filtros, de, ate, "proposta", ctx)),
-    vgv: somaVendas(orgId, filtros, de, ate).vgv,
+    vendas: vendas.quantidade,
+    vgv: vendas.vgv,
   };
 }
 
 export function metasComRealizado(orgId, userId, mes) {
   mes = mes || mesAtual();
-  const meta = obterMeta(orgId, userId, mes);
+  /* Várias pessoas no filtro (CETRO 04.1): a meta é a SOMA das metas
+     pessoais de cada uma — campo que ninguém do grupo definiu continua "não
+     definido" — e o realizado é o do grupo (união). */
+  let meta;
+  if (Array.isArray(userId)) {
+    const ms = userId.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
+    meta = ms.length ? Object.fromEntries(CAMPOS_META.map(c => {
+      const vs = ms.map(m => m[c]).filter(v => v != null);
+      return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
+    })) : null;
+  } else meta = obterMeta(orgId, userId, mes);
   const realizado = realizadoDoMes(orgId, userId, mes);
   const interna = etapasDeContagem(orgId).realizada !== "Visita";
   const nomeDe = (campo) => interna
-    ? ({ visitas_agendadas: "Demonstrações agendadas", visitas_realizadas: "Demonstrações feitas", vgv: "Valor vendido" }[campo] || NOMES_META[campo])
+    ? ({ visitas_agendadas: "Demonstrações agendadas", visitas_realizadas: "Demonstrações feitas", vgv: "Vendas (valor)" }[campo] || NOMES_META[campo])
     : NOMES_META[campo];
   return {
     mes,
@@ -454,6 +488,7 @@ export function metasComRealizado(orgId, userId, mes) {
       return {
         campo, nome: nomeDe(campo),
         meta: alvo, realizado: realizado[campo],
+        falta: alvo != null ? Math.max(alvo - realizado[campo], 0) : null,
         // Meta não definida é NULL, nunca 0% — a régua de sempre neste
         // painel: zero é um fato medido, não a ausência de meta.
         pct: (alvo != null && alvo > 0) ? Math.round((realizado[campo] / alvo) * 1000) / 10 : null,

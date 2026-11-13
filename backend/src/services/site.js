@@ -127,7 +127,7 @@ export function salvarSite(orgId, b = {}) {
     if (d && d.erro) return { erro: d.erro };
     if (d) {
       const dono = db.prepare("SELECT org_id FROM sites WHERE dominio = ?").get(d);
-      if (dono && dono.org_id !== orgId) return { erro: "Esse domínio já está ligado ao site de outra imobiliária no ConHub." };
+      if (dono && dono.org_id !== orgId) return { erro: "Esse domínio já está ligado ao site de outra imobiliária no CETRO." };
     }
     if ((d || null) !== (atual.dominio || null)) {
       novo.dominio = d || null;
@@ -207,7 +207,7 @@ export function salvarSite(orgId, b = {}) {
    no Railway e anota no hub o destino (`definirDestino`). `SITE_DNS_DESTINO`
    serve a uma hospedagem que aceite qualquer domínio sozinha.
 
-   Endereços do próprio ConHub e da hospedagem são recusados: registrar o
+   Endereços do próprio CETRO e da hospedagem são recusados: registrar o
    domínio da plataforma como "site da imobiliária" sequestraria a porta de
    entrada de todo mundo. */
 const DOMINIO_VALIDO = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
@@ -229,7 +229,7 @@ export function normalizarDominio(bruto) {
   const raiz = host.replace(/^www\./, "");
   const plataforma = hostsDaPlataforma();
   if ([...plataforma].some(p => raiz === p || raiz.endsWith("." + p)) || /(^|\.)(railway\.app|up\.railway\.app|onrender\.com)$/.test(raiz))
-    return { erro: "Esse é um endereço do ConHub ou da hospedagem — use o domínio da imobiliária." };
+    return { erro: "Esse é um endereço do CETRO ou da hospedagem — use o domínio da imobiliária." };
   return host;
 }
 const destinoPadrao = () => {
@@ -284,7 +284,7 @@ export async function ativarDominio(orgId) {
     console.warn("[site] cadastro do domínio no Railway:", e.message);
     if (cfg.dominio_estado !== "ativo")
       db.prepare("UPDATE sites SET dominio_estado = 'aguardando_conhub', dominio_detalhe = ?, dominio_conferido_em = ? WHERE org_id = ?")
-        .run(`Não deu para preparar o domínio na hospedagem (${String(e.message).slice(0, 200)}). Tente “Conferir agora” em alguns minutos; se continuar, fale com o ConHub.`,
+        .run(`Não deu para preparar o domínio na hospedagem (${String(e.message).slice(0, 200)}). Tente “Conferir agora” em alguns minutos; se continuar, fale com o CETRO.`,
           Date.now(), orgId);
   }
 }
@@ -308,7 +308,7 @@ export async function verificarDominio(orgId) {
     const r = await fetch(`https://${dominio}/.well-known/conhub-site`, { signal: AbortSignal.timeout(8000), redirect: "manual" });
     const j = r.ok ? await r.json().catch(() => null) : null;
     if (j && j.site === marcaDoSite(orgId)) return grava("ativo", "O site está abrindo pelo domínio, com https.");
-    erroHttp = r.ok ? "respondeu, mas não é o site desta imobiliária no ConHub" : `respondeu ${r.status}`;
+    erroHttp = r.ok ? "respondeu, mas não é o site desta imobiliária no CETRO" : `respondeu ${r.status}`;
   } catch (e) {
     erroHttp = /certificate|cert|SSL|TLS/i.test(String(e.cause && e.cause.code || e.cause || e.message)) ? "certificado" : "sem_resposta";
   }
@@ -316,7 +316,7 @@ export async function verificarDominio(orgId) {
   if (cfg.dominio_estado === "aguardando_conhub" && cfg.dominio_detalhe && cfg.dominio_railway_id == null && railwayPronto().ok)
     return { cfg };   // o cadastro no Railway falhou agora: a frase do erro fica
   if (!destino) return grava("aguardando_conhub",
-    "Falta o ConHub ativar este domínio na hospedagem. Depois disso aparece aqui para onde apontar o DNS.");
+    "Falta o CETRO ativar este domínio na hospedagem. Depois disso aparece aqui para onde apontar o DNS.");
   const registros = registrosDoSite(cfg);
   const faltando = registros.filter(x => !x.ok);
   if (faltando.length) return grava("aguardando_dns",
@@ -337,7 +337,7 @@ export async function verificarDominio(orgId) {
 }
 
 /* Destino do DNS anotado pelo master no hub, depois de ativar o domínio na
-   hospedagem. Vazio volta ao "aguardando o ConHub". */
+   hospedagem. Vazio volta ao "aguardando o CETRO". */
 export function definirDestino(orgId, destino) {
   const cfg = db.prepare("SELECT dominio, dominio_estado FROM sites WHERE org_id = ?").get(orgId);
   if (!cfg || !cfg.dominio) return { erro: "Esta imobiliária não tem domínio cadastrado no site." };
@@ -358,7 +358,7 @@ export function dominiosDaPlataforma() {
    minutos — a imobiliária cria o DNS e não precisa voltar à tela para o site
    começar a abrir. O que já está no ar não é reconferido sozinho: uma falha
    passageira de DNS trocaria os links do site de volta para o endereço do
-   ConHub sem ninguém ter mexido em nada. Vinte por rodada, os mais antigos
+   CETRO sem ninguém ter mexido em nada. Vinte por rodada, os mais antigos
    primeiro. */
 export async function conferirDominiosPendentes() {
   const lista = db.prepare(`SELECT org_id FROM sites WHERE dominio IS NOT NULL AND COALESCE(dominio_estado,'') <> 'ativo'
@@ -564,10 +564,10 @@ export function imovelDoSite(orgId, id) {
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const abs = (base, u) => (!u ? "" : /^https?:\/\//i.test(u) ? u : base + (u.startsWith("/") ? "" : "/") + u);
-/* Onde o site mora: em /imoveis/<slug> no endereço do ConHub, ou na RAIZ do
+/* Onde o site mora: em /imoveis/<slug> no endereço do CETRO, ou na RAIZ do
    domínio da imobiliária (`ctx.raiz` vazio). Todo link interno passa por aqui —
    escrito à mão, um "/imoveis/" esquecido levaria o visitante do domínio
-   próprio de volta ao endereço do ConHub. */
+   próprio de volta ao endereço do CETRO. */
 const inicio = (ctx) => ctx.raiz || "/";
 const caminho = (ctx, resto) => (ctx.raiz || "") + resto;
 const hrefImovel = (ctx, i) => caminho(ctx, `/${i.id}/${slugify(i.titulo) || "imovel"}`);
@@ -884,7 +884,7 @@ ${extraHead}${pixel(cfg, pixelExtra)}${jsonLd(dados)}
 ${corpo}
 <footer class="rodape"><div class="wrap">
   <div><b>${esc(org.name)}</b><br>WhatsApp ${esc(telefoneLegivel(numeroWa))}</div>
-  <div class="fina">${cfg.pixel_id || cfg.gtm_id ? "Este site usa cookies para medir anúncios e visitas. · " : ""}© ${new Date().getFullYear()} ${esc(org.name)} · Site por ConHub</div>
+  <div class="fina">${cfg.pixel_id || cfg.gtm_id ? "Este site usa cookies para medir anúncios e visitas. · " : ""}© ${new Date().getFullYear()} ${esc(org.name)} · Site por CETRO</div>
 </div></footer>
 <script>
 document.querySelectorAll('[data-contato]').forEach(function(a){a.addEventListener('click',function(){try{if(window.fbq)fbq('track','Lead',{content_name:a.getAttribute('data-nome')||'Site'})}catch(e){}})});
@@ -1146,7 +1146,7 @@ export const pecas = { imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle, da
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====
    O mapa que o Google lê para achar cada imóvel: a página inicial e todo
    imóvel disponível. No domínio próprio, /sitemap.xml e /robots.txt moram na
-   raiz, que é onde o Google procura; no endereço do ConHub o mapa fica em
+   raiz, que é onde o Google procura; no endereço do CETRO o mapa fica em
    /imoveis/<slug>/sitemap.xml e é informado no Search Console. */
 export function sitemap(ctx) {
   const itens = db.prepare("SELECT id, titulo, COALESCE(atualizado_em, created_at) AS em FROM produtos WHERE org_id = ? AND status = 'ativo' ORDER BY created_at DESC LIMIT 5000").all(ctx.org.id);

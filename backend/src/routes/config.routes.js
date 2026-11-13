@@ -41,12 +41,12 @@ const PADRAO = [
   { titulo: "Pedir documentação", corpo: "{nome}, pra eu já adiantar a sua pasta e a simulação de crédito, consegue me enviar seus documentos (RG, CPF e comprovante de renda)?" },
 ];
 
-/* O ambiente interno do ConHub vende o ConHub, não imóvel: começa com
+/* O ambiente interno do CETRO vende o CETRO, não imóvel: começa com
    textos de demonstração e teste, que a equipe edita como quiser. */
 const PADRAO_INTERNO = [
-  { titulo: "Primeiro contato", corpo: "Oi {nome}! Aqui é do ConHub. Vi que você se interessou pelo nosso CRM para imobiliárias e corretores. Posso te mostrar em 15 minutos como ele funciona na prática?" },
-  { titulo: "Agendar demonstração", corpo: "{nome}, que tal uma demonstração rápida do ConHub? Consigo essa semana. Prefere de manhã ou à tarde?" },
-  { titulo: "Acompanhar o teste", corpo: "Oi {nome}, como está sendo o teste do ConHub? Ficou alguma dúvida que eu possa resolver?" },
+  { titulo: "Primeiro contato", corpo: "Oi {nome}! Aqui é do CETRO. Vi que você se interessou pelo nosso CRM para imobiliárias e corretores. Posso te mostrar em 15 minutos como ele funciona na prática?" },
+  { titulo: "Agendar demonstração", corpo: "{nome}, que tal uma demonstração rápida do CETRO? Consigo essa semana. Prefere de manhã ou à tarde?" },
+  { titulo: "Acompanhar o teste", corpo: "Oi {nome}, como está sendo o teste do CETRO? Ficou alguma dúvida que eu possa resolver?" },
 ];
 
 function semear(orgId) {
@@ -188,7 +188,7 @@ r.post("/mensagens/:id/mover", rolesOuPermissao("editar_mensagens", "adm", "sdr"
 /* ===== CONSUMO DA IA — SÓ DO MASTER (02/09/2026, pedido do Ali) =====
 
    Quem paga a conta pergunta duas coisas: quanto já usamos, e quem usou. A
-   questão é QUEM paga: a chave da IA é uma só, do ConHub (`ANTHROPIC_API_KEY`
+   questão é QUEM paga: a chave da IA é uma só, do CETRO (`ANTHROPIC_API_KEY`
    no servidor), e não existe chave por imobiliária. O dólar que aparece aqui
    nunca foi despesa do cliente — é a nossa, e cobrá-la dele não está no plano
    que ele assinou.
@@ -323,7 +323,7 @@ r.post("/conexao/oficial", roles("adm"), async (req, res) => {
     return res.status(400).json({ error: "Preencha o Phone Number ID, o WABA ID, o token de acesso permanente e o App Secret." });
 
   const casa = garantirCasa(req.user.org_id);
-  /* Phone Number ID repetido apontaria duas linhas do ConHub para o MESMO
+  /* Phone Number ID repetido apontaria duas linhas do CETRO para o MESMO
      número da Meta — o índice do banco já barra a gravação; a mensagem aqui
      é só para dizer o motivo, em vez de um erro genérico de banco. */
   const emUso = db.prepare(`SELECT o.name AS imobiliaria FROM canais c JOIN orgs o ON o.id = c.org_id

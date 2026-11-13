@@ -206,7 +206,7 @@ const RECURSOS = [
 /* O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026): pedido que chega pelo
    domínio de um site cadastrado é o site, na raiz. A única peça montada SEM
    caminho no servidor, e de propósito: ela não barra nada do endereço do
-   ConHub — pedido de outro endereço passa direto, sem consulta ao banco
+   CETRO — pedido de outro endereço passa direto, sem consulta ao banco
    (routes/site.routes.js → dominioProprio). Fica antes de tudo para que o
    domínio do cliente nunca abra o CRM nem a API. */
 app.use(dominioProprio);
@@ -277,7 +277,7 @@ function servirPagina(arquivo, req, res, erroSeFaltar) {
   }
 }
 /* A tela do CRM (o login) não vai para o Google (05/10/2026): o resultado da
-   busca por "ConHub" passou a ser "ConHub: Login". Quem procura o ConHub tem
+   busca por "CETRO" passou a ser "CETRO: Login". Quem procura o CETRO tem
    que cair no site de vendas (`conhubcrm.com.br`), que é o que se indexa. */
 const servirApp = (req, res) => {
   res.set("X-Robots-Tag", "noindex");
@@ -582,7 +582,7 @@ app.listen(PORT, () => {
   if (process.env.MARKETING_AGENDADOR !== "0")
     setInterval(() => processarDisparos().catch(e => console.error("[disparo] erro no ciclo:", e.message)), 5000);
   /* POSTS PROGRAMADOS DAS REDES SOCIAIS (20/10/2026, services/redes.js): o
-     ConHub publica ele mesmo na hora marcada. `REDES_AGENDADOR=0` desliga
+     CETRO publica ele mesmo na hora marcada. `REDES_AGENDADOR=0` desliga
      (os testes chamam a função direto). */
   if (process.env.REDES_AGENDADOR !== "0")
     setInterval(() => processarRedes().catch(e => console.error("[redes] erro no ciclo:", e.message)), 10000);

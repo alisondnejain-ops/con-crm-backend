@@ -43,7 +43,7 @@ export function confirmarBoleto(boleto, { valor = null, quando = Date.now() } = 
   const plano = boleto.plano_id ? planoPorId(boleto.plano_id) : null;
   if (plano && org.plano_id !== plano.id)
     db.prepare("UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ? WHERE id = ?")
-      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, org.id);
+      .run(plano.id, `CETRO ${plano.nome}`, plano.mensal, org.id);
   db.prepare("UPDATE orgs SET cancelado_em = NULL WHERE id = ?").run(org.id);
   registrarPagamento(org.id, { quando, valor: valor != null ? Number(valor) : boleto.valor,
     origem: boleto.provedor, asaasId: boleto.cobranca_id || boleto.id, meses: boleto.meses, obs: "Boleto" });

@@ -1,6 +1,6 @@
 /* Hub de contas — a camada da PLATAFORMA, acima das imobiliárias.
 
-   O ConHub deixou de ser o CRM de uma imobiliária só. Quem mantém a plataforma
+   O CETRO deixou de ser o CRM de uma imobiliária só. Quem mantém a plataforma
    (o gestor master) entra e escolhe em qual cliente vai trabalhar; quem
    trabalha na imobiliária nem sabe que esta camada existe.
 
@@ -102,7 +102,7 @@ function resumo(req, org) {
     marketing_liberado: recursosDaOrg(org.id).find(x => x.id === "marketing").ativo,
     /* Por qual provedor esta conta é cobrada, e se foi escolha do master ou
        a regra padrão (04/10/2026). */
-    /* O que o ConHub combinou com esta conta e onde a cobrança está: o hub
+    /* O que o CETRO combinou com esta conta e onde a cobrança está: o hub
        mostra e edita a data e a tolerância (05/10/2026). */
     mensalidade: { valor: org.valor_mensal ?? null, vence_em: org.vence_em || null,
       dias_carencia: org.dias_carencia == null ? 5 : org.dias_carencia, plano_id: org.plano_id || null,
@@ -161,14 +161,14 @@ r.get("/", (req, res) => {
   res.json({
     orgs: orgs.filter(o => o.tipo !== "autonomo" && o.tipo !== TIPO_INTERNO),
     autonomos: orgs.filter(o => o.tipo === "autonomo"),
-    /* O ambiente interno do ConHub tem lugar próprio no hub: não é cliente, e
+    /* O ambiente interno do CETRO tem lugar próprio no hub: não é cliente, e
        no meio das imobiliárias ele pareceria uma conta a cobrar. */
     interna: orgs.find(o => o.tipo === TIPO_INTERNO) || null,
     atual: req.user.org_id,
   });
 });
 
-/* Cria o ambiente interno do ConHub (ou devolve o que já existe — há um só). */
+/* Cria o ambiente interno do CETRO (ou devolve o que já existe — há um só). */
 /* CETROLAB — os planos que o master cadastra (12/10/2026). Antes de "/:id/…"
    não importa (outros verbos/caminhos), mas fica aqui, perto do topo, junto
    das outras rotas de plataforma. */
@@ -309,7 +309,7 @@ r.post("/masters", async (req, res) => {
   let enviado = false;
   if (mailConfigured()) {
     try {
-      const { subject, html } = inviteEmail({ name: nome, link, orgName: "ConHub" });
+      const { subject, html } = inviteEmail({ name: nome, link, orgName: "CETRO" });
       const out = await sendMail({ to: email, subject, html });
       enviado = !!out.sent;
     } catch (e) { console.error("[master] não consegui enviar o e-mail:", e.message); }
@@ -325,8 +325,8 @@ r.post("/masters", async (req, res) => {
    Antes só o `master` caía, e a pessoa virava gestora comum da imobiliária
    onde a conta dela nasceu — aparecendo na Equipe, com acesso total aos leads
    daquela casa. Era o contrário do que a conta de sócio é: um acesso que
-   ninguém da operação enxerga. Quem deixa de ser sócio do ConHub não vira, por
-   tabela, gestor de um cliente do ConHub.
+   ninguém da operação enxerga. Quem deixa de ser sócio do CETRO não vira, por
+   tabela, gestor de um cliente do CETRO.
 
    Desativar e não apagar: o histórico do que a pessoa fez enquanto era sócia
    continua de pé, e a conta pode ser reativada pela tela Equipe se um dia for
@@ -480,7 +480,7 @@ r.post("/autonomos/:id/liberar", (req, res) => {
 /* LIBERAR O MARKETING (disparo em massa) PARA UMA CONTA — 27/09/2026.
 
    Desligado por padrão, para toda conta. É o primeiro degrau da proteção do
-   ConHub: o recurso só existe para quem o master decidiu liberar, e a data e
+   CETRO: o recurso só existe para quem o master decidiu liberar, e a data e
    quem liberou ficam gravadas. Desligar esconde a seção e trava as rotas, mas
    NÃO apaga nada — termo aceito, listas, declarações e bloqueios continuam
    guardados, porque são a prestação de contas. */
@@ -544,12 +544,12 @@ function avisarGestaoDaEntrada(org, eu, saldo) {
     const restam = `${Math.floor(saldo / 3600000)}h${String(Math.floor(saldo / 60000) % 60).padStart(2, "0")}`;
     const hora = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     for (const p of gente) {
-      avisarPush(p.id, { titulo: "O ConHub entrou na sua conta",
+      avisarPush(p.id, { titulo: "O CETRO entrou na sua conta",
         corpo: `${eu.name} entrou sem código às ${hora}. Hoje restam ${restam} das ${ACESSO_LIVRE_HORAS}h. Veja em Minha conta.` }).catch(() => {});
-      if (p.email) sendMail({ to: p.email, subject: "ConHub: entrada do suporte na sua conta",
+      if (p.email) sendMail({ to: p.email, subject: "CETRO: entrada do suporte na sua conta",
         html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#14181F">
           <p style="font-size:15px">Oi, ${esc((p.name || "").split(" ")[0] || "tudo bem")}!</p>
-          <p style="font-size:14px;line-height:1.6;color:#5A6472"><b>${esc(eu.name)}</b>, do ConHub, entrou na conta <b>${esc(org.name)}</b> sem o código de acesso em ${esc(hora)}, pela exceção de implantação que está ligada nela.</p>
+          <p style="font-size:14px;line-height:1.6;color:#5A6472"><b>${esc(eu.name)}</b>, do CETRO, entrou na conta <b>${esc(org.name)}</b> sem o código de acesso em ${esc(hora)}, pela exceção de implantação que está ligada nela.</p>
           <p style="font-size:14px;line-height:1.6;color:#5A6472">Hoje restam ${esc(restam)} das ${ACESSO_LIVRE_HORAS} horas diárias sem código. Em <b>Minha conta</b> você vê cada entrada, encerra a que estiver aberta e pode voltar a exigir o código.</p>
         </div>` }).catch(() => {});
     }
@@ -560,7 +560,7 @@ function avisarGestaoDaEntrada(org, eu, saldo) {
    que já são nossos conhecidos… a gente abra uma exceção de pelo menos algumas
    horas"). Só o master liga; a gestão da conta vê que está ligada e pode
    desligar (/auth/conta/acesso/livre). Desligar não derruba a entrada aberta:
-   para isso a gestão tem o "Encerrar o acesso do ConHub agora". */
+   para isso a gestão tem o "Encerrar o acesso do CETRO agora". */
 r.post("/:id/acesso-livre", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
@@ -606,7 +606,7 @@ r.post("/:id/ia-creditos", (req, res) => {
 r.post("/:id/boleto", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
-  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do CETRO não tem mensalidade." });
   if (typeof req.body?.liberado !== "boolean") return res.status(400).json({ error: "Diga se o boleto fica liberado ou não." });
   const liga = req.body.liberado;
   db.prepare("UPDATE orgs SET boleto_liberado = ?, boleto_liberado_em = ?, boleto_liberado_por = ? WHERE id = ?")
@@ -625,7 +625,7 @@ r.post("/:id/boleto", (req, res) => {
 r.post("/:id/parceira", async (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
-  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub já não tem mensalidade." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do CETRO já não tem mensalidade." });
   if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se a conta é parceira ou não." });
   const liga = req.body.ligado;
   const tinha = !!(org.pagarme_subscription_id || org.asaas_subscription_id);
@@ -649,7 +649,7 @@ r.post("/:id/parceira", async (req, res) => {
 r.post("/:id/empreendimento", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
-  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não vende empreendimento." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do CETRO não vende empreendimento." });
   if (typeof req.body?.ligado !== "boolean") return res.status(400).json({ error: "Diga se o modo fica ligado ou não." });
   ligarModoEmpreendimento(org.id, req.body.ligado);
   console.log(`[master] ${req.user.name} ${req.body.ligado ? "ligou" : "desligou"} o modo empreendimento de ${org.name}`);
@@ -658,7 +658,7 @@ r.post("/:id/empreendimento", (req, res) => {
 r.post("/:id/empreendimento/kit-reserva", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
-  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não vende empreendimento." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do CETRO não vende empreendimento." });
   try {
     const feito = aplicarKitReserva(org.id, req.user);
     console.log(`[master] ${req.user.name} aplicou o pacote do Reserva Real do Rio em ${org.name}`);
@@ -721,7 +721,7 @@ r.post("/:id/fila-etapa", (req, res) => {
 r.post("/:id/mensalidade", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Conta não encontrada." });
-  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+  if (org.tipo === TIPO_INTERNO) return res.status(409).json({ error: "O ambiente interno do CETRO não tem mensalidade." });
   const corpo = req.body || {};
   const mudar = {};
   if (corpo.vence_em !== undefined) {
@@ -785,7 +785,7 @@ r.post("/:id/tipo", (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
   if (org.tipo === TIPO_INTERNO)
-    return res.status(409).json({ error: "O ambiente interno do ConHub não muda de tipo." });
+    return res.status(409).json({ error: "O ambiente interno do CETRO não muda de tipo." });
   const tipoAtual = org.tipo || "imobiliaria";
   const pedido = req.body?.tipo;
   const tipoNovo = pedido === "autonomo" ? "autonomo" : pedido === "imobiliaria" ? "imobiliaria" : null;
@@ -860,7 +860,7 @@ const gravarConfig = (chave, valor) =>
     .run(chave, valor ? JSON.stringify(valor) : null, Date.now());
 
 /* DOMÍNIOS DOS SITES (04/10/2026). A imobiliária cadastra o domínio no site
-   dela; quem ATIVA na hospedagem é o ConHub (é a hospedagem que emite o
+   dela; quem ATIVA na hospedagem é o CETRO (é a hospedagem que emite o
    certificado do https). Aqui o master vê quem está esperando, ativa o domínio
    no painel da hospedagem e anota o destino de DNS que ela deu — é esse
    destino que a imobiliária passa a ver na tela dela para apontar o DNS. */
@@ -982,11 +982,11 @@ r.get("/:id/apagar", (req, res) => {
 r.delete("/:id", async (req, res) => {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.params.id);
   if (!org) return res.status(404).json({ error: "Imobiliária não encontrada." });
-  /* Apagar o ambiente interno levaria junto a equipe do ConHub, o comercial e
+  /* Apagar o ambiente interno levaria junto a equipe do CETRO, o comercial e
      o número que manda os chamados de suporte — e o suporte cairia em
      silêncio na linha de um cliente. Não sai por aqui. */
   if (org.tipo === TIPO_INTERNO)
-    return res.status(409).json({ error: "O ambiente interno do ConHub não pode ser apagado." });
+    return res.status(409).json({ error: "O ambiente interno do CETRO não pode ser apagado." });
   if (String(req.body?.confirmar || "").trim() !== org.name)
     return res.status(400).json({ error: `Para apagar, digite o nome exato: ${org.name}` });
   if (db.prepare("SELECT COUNT(*) n FROM orgs").get().n <= 1)

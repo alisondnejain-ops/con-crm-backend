@@ -702,7 +702,7 @@ export function criarCampanha(orgId, user, { nome, fluxo_id, mensagem, publico, 
   exigirPronto(orgId);
   const eu = db.prepare("SELECT id, name, master, org_id FROM users WHERE id = ?").get(user.id);
   if (eu?.master && eu.org_id !== orgId)
-    throw new ErroMarketing(403, "O disparo precisa ser feito pelo gestor desta imobiliária, não pelo ConHub.");
+    throw new ErroMarketing(403, "O disparo precisa ser feito pelo gestor desta imobiliária, não pelo CETRO.");
   const linha = linhaDeDisparo(orgId);
   if (!linha.canal) throw new ErroMarketing(409, linha.erro);
   const n = String(nome || "").replace(/\s+/g, " ").trim().slice(0, 100);

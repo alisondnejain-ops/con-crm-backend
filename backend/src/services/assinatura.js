@@ -182,7 +182,7 @@ export function situacao(orgId, opcoes = {}) {
 function situacaoDaCobranca(orgId, { dono = true } = {}) {
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(orgId);
   if (!org) return { status: "ativo", cobranca: false, dono };
-  /* O ambiente interno do ConHub não é cliente: sem mensalidade, sem teste,
+  /* O ambiente interno do CETRO não é cliente: sem mensalidade, sem teste,
      sem trava. Se esta conta travasse, o suporte e o comercial parariam
      junto — e não há ninguém de fora para liberar. */
   if (org.tipo === "interna") return { status: "ativo", cobranca: false, dono, interna: true };

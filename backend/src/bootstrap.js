@@ -90,7 +90,7 @@ export function bootstrap() {
     }
   }
 
-  /* Gestor MASTER — quem mantém o ConHub, não quem trabalha na imobiliária.
+  /* Gestor MASTER — quem mantém o CETRO, não quem trabalha na imobiliária.
 
      Definido por MASTER_EMAIL. Sem essa variável, promove o gestor mais antigo
      (que é quem montou o sistema) na primeira vez, e nunca mais mexe: assim a

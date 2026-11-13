@@ -107,11 +107,11 @@ export function limites(orgId) {
     /* O QUE ISSO CUSTA POR MÊS, já calculado.
 
        A conta é uma multiplicação, e é justamente por isso que ela mora aqui e
-       não em cada tela: repetida no painel do gestor, no hub do ConHub e na
+       não em cada tela: repetida no painel do gestor, no hub do CETRO e na
        fatura, seriam três contas que um dia divergem — e divergência em conta
        de dinheiro o cliente descobre antes de nós.
 
-       Nulo quando o ConHub ainda não definiu o preço por linha. Nulo é
+       Nulo quando o CETRO ainda não definiu o preço por linha. Nulo é
        "não sei", e a tela escreve isso: mostrar R$ 0,00 para um preço não
        combinado seria prometer de graça o que vai ser cobrado. */
     valor_extra: o.valor_canal != null ? Math.max(0, usados - incluidos) * Number(o.valor_canal) : null,
@@ -166,7 +166,7 @@ export function criarCanalDoCorretor(orgId, userId, { quem = null } = {}) {
   // pedido o token à Uazapi é pior do que recusar antes.
   const registrados = db.prepare("SELECT COUNT(*) n FROM canais WHERE org_id = ? AND ativo = 1 AND tipo <> 'disparo'").get(orgId).n;
   if (registrados >= l.limite)
-    return { erro: `O plano desta imobiliária permite ${l.limite} número(s) de WhatsApp, e todos já estão em uso. Fale com o ConHub para aumentar o limite.` };
+    return { erro: `O plano desta imobiliária permite ${l.limite} número(s) de WhatsApp, e todos já estão em uso. Fale com o CETRO para aumentar o limite.` };
 
   const id = "cn_" + randomUUID();
   db.prepare(`INSERT INTO canais (id,org_id,tipo,user_id,nome,ativo,criado_por,created_at)
@@ -325,7 +325,7 @@ export function salvarConexaoOficial(canalId, { phoneNumberId, wabaId, token, ap
        verify_token na hora da verificação (o GET com hub.challenge) — não a
        cada mensagem — e trocá-lo por baixo faria a PRÓXIMA reverificação
        (o gestor mexendo no app, por exemplo) falhar sem ele ter mudado nada
-       na tela do ConHub. */
+       na tela do CETRO. */
     if (!verify) verify = c.verify_token || gerarVerifyToken();
   }
 

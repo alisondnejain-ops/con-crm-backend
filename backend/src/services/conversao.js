@@ -1,4 +1,4 @@
-/* FUNIL DE CONVERSÃO POR COORTE — a conta única do ConHub (01/10/2026).
+/* FUNIL DE CONVERSÃO POR COORTE — a conta única do CETRO (01/10/2026).
 
    Pedido do Ali: os números do funil, do painel e do relatório precisavam
    bater com o que aconteceu, e não com uma mistura de "leads criados no
@@ -56,7 +56,7 @@
 
 import db, { emLotes } from "../db.js";
 import { etapasDoPipeline, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
-import { peneira, resolverPeriodo, recebidosDaPessoa } from "./painel.js";
+import { peneira, resolverPeriodo, recebidosDaPessoa, listaDeDonos } from "./painel.js";
 
 /* Desde quando o histórico é completo. Um dia depois de cada recurso entrar,
    de propósito: o que entrou no meio do dia da publicação pode ter mudado
@@ -221,7 +221,9 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
     transfer.get(t.lead_id).push(t);
   }
 
-  const filtroDono = filtros.responsavel || null;
+  // Uma pessoa, várias (CETRO 04.1) ou a fila — união dentro da dimensão.
+  const donosFiltro = listaDeDonos(filtros.responsavel);
+  const filtroDono = donosFiltro.length ? new Set(donosFiltro.map(x => x === "fila" ? null : x)) : null;
   const inferir = !ehFunilDeSdr(orgId, pipelineId);
   for (const l of leads) {
     const evs = eventos.get(l.id) || [];
@@ -259,8 +261,7 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
     const dono = donoNaEntrada(l, transfer.get(l.id) || [], entrada.t);
     if (filtroDono) {
       if (!dono.conhecido) { base.donoDesconhecido.push({ lead: l, entrada: entrada.t }); continue; }
-      const alvo = filtroDono === "fila" ? null : filtroDono;
-      if ((dono.id || null) !== alvo) continue;
+      if (!filtroDono.has(dono.id || null)) continue;
     }
 
     // As chegadas a cada marco entre a entrada e o corte.
@@ -344,14 +345,23 @@ const taxa = (parte, total) => (total ? (parte / total) * 100 : null);
 function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
   if (cfg.sem_marcos || periodo.de < COBERTURA_ETAPAS || periodo.de > corte) return null;
   const { responsavel, origem, source, campanha, campaign_id, produto_id } = filtros || {};
+  const donos = listaDeDonos(responsavel);
+  const pessoas = donos.filter(x => x !== "fila");
+  const resto = { origem, source, campanha, campaign_id, produto_id };
   let ids;
-  if (responsavel && responsavel !== "fila") {
-    ids = [...new Set(recebidosDaPessoa(orgId, responsavel, { origem, source, campanha, campaign_id, produto_id }, periodo.de, corte)
-      .map(e => e.lead_id))];
+  if (!donos.length) {
+    const p = peneira(orgId, resto);
+    ids = db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`).all(...p.args, periodo.de, corte).map(r => r.id);
   } else {
-    const p = peneira(orgId, { origem, source, campanha, campaign_id, produto_id });
-    ids = db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`
-      + (responsavel === "fila" ? " AND l.assigned_to IS NULL" : "")).all(...p.args, periodo.de, corte).map(r => r.id);
+    // Pessoas (uma ou várias) e/ou a fila — união (CETRO 04.1).
+    const set = new Set();
+    if (pessoas.length) for (const e of recebidosDaPessoa(orgId, pessoas, resto, periodo.de, corte)) set.add(e.lead_id);
+    if (donos.includes("fila")) {
+      const p = peneira(orgId, resto);
+      for (const r of db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ? AND l.assigned_to IS NULL`)
+        .all(...p.args, periodo.de, corte)) set.add(r.id);
+    }
+    ids = [...set];
   }
   if (!ids.length) return { chegaram: 0, entraram: 0, taxa: null };
   const faixa = [...cfg.faixa];

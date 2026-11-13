@@ -32,7 +32,7 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
   corretoresParaTemperatura, previaTemperaturaIA, rodarTemperaturaIA, previaMoverFunil, moverParaFunil, previaPassarLeads, passarLeads } from "../services/lote.js";
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
-import { canalDoUsuario, canalPorId } from "../services/canais.js";
+import { canalDoUsuario, canalPorId, canalDaCasa } from "../services/canais.js";
 import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { corpoParaIA } from "../services/leitura-midia.js";
@@ -119,8 +119,16 @@ r.get("/", (req, res) => {
     // e os filtros abaixo seguem valendo dentro dos dois escopos.
     if (req.query.escopo === "meus") { where.push("(l.assigned_to = ? OR l.assigned_to IS NULL)"); args.push(id); }
     const { atendente, etapa, prioridade, q, de, ate } = req.query;
-    if (atendente === "fila") where.push("l.assigned_to IS NULL");
-    else if (atendente) { where.push("l.assigned_to = ?"); args.push(atendente); }
+    /* Uma pessoa, várias ("id1,id2") ou a fila — UNIÃO dentro da dimensão
+       (CETRO 04.1). A conta (org_id) já está no WHERE, então id de fora não
+       acha nada. */
+    const donos = [...new Set(String(atendente || "").split(",").map(x => x.trim()).filter(Boolean))];
+    if (donos.length) {
+      const ids = donos.filter(x => x !== "fila"), partes = [];
+      if (ids.length) { partes.push(`l.assigned_to IN (${ids.map(() => "?").join(",")})`); args.push(...ids); }
+      if (donos.includes("fila")) partes.push("l.assigned_to IS NULL");
+      where.push("(" + partes.join(" OR ") + ")");
+    }
     if (etapa) { where.push("l.stage = ?"); args.push(etapa); }
     if (prioridade) { where.push("l.priority = ?"); args.push(prioridade); }
     if (q) { where.push("(l.name LIKE ? OR l.phone LIKE ?)"); args.push(`%${q}%`, `%${q}%`); }
@@ -164,6 +172,16 @@ r.get("/", (req, res) => {
     "SELECT * FROM pipeline_stages WHERE org_id = ?").all(org_id)
     .map(e => [e.id, formatarEtapa(e)]));
   const tagsPorLead = tagsDeLeads(rows.map(l => l.id));
+  /* FOLLOW-UP AUTOMÁTICO RODANDO (CETRO 07.1): o nome do fluxo de cada lead
+     que está no meio de uma automação. Uma consulta para a conta inteira —
+     as execuções ativas são poucas perto dos leads. */
+  const fluxos = new Map();
+  try {
+    for (const r of db.prepare(`SELECT e.lead_id, c.nome FROM marketing_execucoes e JOIN marketing_campanhas c ON c.id = e.campanha_id
+        WHERE e.org_id = ? AND e.lead_id IS NOT NULL AND e.estado IN ('ativa','aguardando_resposta')
+          AND c.status = 'rodando' AND e.primeira_enviada = 1`).all(org_id))
+      if (!fluxos.has(r.lead_id)) fluxos.set(r.lead_id, r.nome);
+  } catch { /* conta sem marketing: nada a mostrar */ }
   const agoraMs = Date.now();
   const lista = rows.map(l => ({
     ...enxuto(l),
@@ -183,6 +201,7 @@ r.get("/", (req, res) => {
        depois, por lead, seriam sessenta requisições a cada dez segundos em
        todo aparelho da equipe — e o card do funil precisa delas para desenhar. */
     tags: tagsPorLead.get(l.id) || [],
+    fluxo_ativo: fluxos.get(l.id) || null,
   }));
   if (!incremental) return res.json(req.query.versao === "1" ? { versao, leads: lista } : lista);
 
@@ -404,7 +423,7 @@ r.get("/export", roles("adm"), (req, res) => {
 
    Três decisões que evitam estrago numa base que já está rodando:
    - telefone repetido é IGNORADO, não sobrescrito. Se o cliente já está no
-     ConHub com histórico de conversa, uma planilha antiga não pode apagar isso
+     CETRO com histórico de conversa, uma planilha antiga não pode apagar isso
    - lead importado entra SEM dono por padrão. Quem distribui é a catraca ou o
      gestor; adivinhar corretor por nome parecido daria lead na mão errada
    - etapa desconhecida vira "Lead". Melhor entrar no começo do funil do que
@@ -1250,6 +1269,9 @@ function canalDaConversa(user, lead) {
       minha: atual.user_id === user.id } : null,
     // Nulo em `atual` é a linha da casa. A tela escreve o nome, não o nulo.
     onde: atual && atual.ativo ? "corretor" : "imobiliaria",
+    /* O número da CASA, para a faixa "Sai pelo WhatsApp da imobiliária ·
+       final 2066" (CETRO 07.4). Só o número — nada da credencial. */
+    casa_numero: (() => { try { return canalDaCasa(lead.org_id)?.wa_number || null; } catch { return null; } })(),
     tenho_linha: meuLigado,
     minha_linha_id: meuLigado ? meu.id : null,
     pode_trocar: meuLigado && lead.assigned_to === user.id && !ehEmpreendimento(lead.org_id),

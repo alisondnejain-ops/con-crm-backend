@@ -1,6 +1,6 @@
-/* CETROLAB — a ferramenta de sites do ConHub (12/10/2026, pedido do Ali).
+/* CETROLAB — a ferramenta de sites do CETRO (12/10/2026, pedido do Ali).
 
-   Hoje mora dentro do ConHub, como uma ferramenta da conta. Amanhã vira um
+   Hoje mora dentro do CETRO, como uma ferramenta da conta. Amanhã vira um
    produto à parte, que quem não é cliente do CRM contrata sozinho. O código
    foi separado pensando nisso:
 

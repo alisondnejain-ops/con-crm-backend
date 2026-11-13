@@ -7,7 +7,7 @@
    IMÓVEL, que é a mesma nos três (só o tema muda). Cada modelo escreve só a
    página inicial, que é onde eles são diferentes.
 
-   As regras são as de todo site do ConHub (services/site.js → `pecas`): lista
+   As regras são as de todo site do CETRO (services/site.js → `pecas`): lista
    branca do imóvel, contato pelo WhatsApp da imobiliária, Pixel, Tag Manager,
    dados para o Google e os caminhos que respeitam o domínio próprio. */
 import { pecas } from "../../site.js";

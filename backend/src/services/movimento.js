@@ -276,6 +276,13 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao", 
       "tr_" + randomUUID(), atual.org_id, atual.id,
       atual.pipeline_id, atual.stage_id, atual.pipeline_id, atual.stage_id,
       atual.assigned_to, novoUserId, quemMandou, motivo, quando);
+    /* AGENDADAS DO DONO ANTERIOR SÃO CANCELADAS NA HORA (CETRO 07.7,
+       13/11/2026), com o motivo escrito — vale para todo repasse, inclusive em
+       lote, porque todos passam por aqui. Antes elas só eram barradas no
+       instante de sair; agora a tela mostra o cancelamento já no repasse. */
+    if (atual.assigned_to) db.prepare(`UPDATE mensagens_agendadas SET status = 'cancelada',
+        motivo = 'Cancelada: o lead passou para outra pessoa antes do horário.'
+      WHERE lead_id = ? AND user_id = ? AND status = 'pendente'`).run(atual.id, atual.assigned_to);
   });
   aplicar();
 

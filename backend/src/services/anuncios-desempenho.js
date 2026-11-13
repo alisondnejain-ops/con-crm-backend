@@ -1,6 +1,6 @@
 /* DESEMPENHO DOS ANÚNCIOS DA META (22/10/2026).
 
-   A Meta recusou a `ads_read` porque o ConHub só a usava para ler o NOME da
+   A Meta recusou a `ads_read` porque o CETRO só a usava para ler o NOME da
    campanha junto do lead, e o revisor quer ver o uso que a permissão existe
    para cobrir: números de desempenho (investimento, impressões, alcance,
    cliques, resultados) lidos AO VIVO da conta de anúncios e mostrados no
@@ -13,7 +13,7 @@
    cerca de 60 dias: vencido, a tela manda conectar de novo, e o lead continua
    entrando, porque o lead usa o token da PÁGINA, que não vence.
 
-   Só leitura. O ConHub não cria, pausa nem altera anúncio nenhum. */
+   Só leitura. O CETRO não cria, pausa nem altera anúncio nenhum. */
 import db from "../db.js";
 import { fechar, abrir } from "./cofre.js";
 import { graph } from "./meta.js";

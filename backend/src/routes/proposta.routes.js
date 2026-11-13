@@ -47,12 +47,12 @@ export const podeCobrarAsaas = () => asaas.asaasConfigurado()
 
 const reais = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const ESTADOS = {
-  paga: { status: 409, error: "Esta proposta já foi paga. Obrigado! Entre no ConHub com o seu e-mail e senha.", ja_paga: true },
+  paga: { status: 409, error: "Esta proposta já foi paga. Obrigado! Entre no CETRO com o seu e-mail e senha.", ja_paga: true },
   aguardando: { status: 409, error: "A fatura desta proposta já foi gerada no Asaas. Use o botão para abrir a fatura e pagar.", aguardando: true },
   processando: { status: 409, error: "O pagamento desta proposta está em análise. Assim que for aprovado, a conta é liberada — não precisa pagar de novo.", processando: true },
-  vencida: { status: 410, error: "Este link de pagamento venceu. Fale com o ConHub para receber um novo.", vencida: true },
-  cancelada: { status: 410, error: "Esta proposta foi cancelada. Fale com o ConHub.", cancelada: true },
-  estornada: { status: 410, error: "Esta proposta foi estornada. Fale com o ConHub.", cancelada: true },
+  vencida: { status: 410, error: "Este link de pagamento venceu. Fale com o CETRO para receber um novo.", vencida: true },
+  cancelada: { status: 410, error: "Esta proposta foi cancelada. Fale com o CETRO.", cancelada: true },
+  estornada: { status: 410, error: "Esta proposta foi estornada. Fale com o CETRO.", cancelada: true },
   pagando: { status: 409, error: "Já há um pagamento desta proposta em andamento. Aguarde alguns segundos e recarregue a página.", pagando: true },
 };
 
@@ -80,7 +80,7 @@ r.get("/publico/proposta/:codigo", async (req, res) => {
 function lerResponsavel(p, corpo) {
   if (p.org_id) {
     const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(p.org_id);
-    if (!org) return { status: 410, erro: "A conta desta proposta não existe mais. Fale com o ConHub." };
+    if (!org) return { status: 410, erro: "A conta desta proposta não existe mais. Fale com o CETRO." };
     const pagador = db.prepare("SELECT name nome, email, phone telefone FROM users WHERE id = ?").get(org.dono_user_id)
       || db.prepare("SELECT name nome, email, phone telefone FROM users WHERE org_id = ? AND role = 'adm' AND status = 'ativo' ORDER BY created_at LIMIT 1").get(org.id)
       || { nome: p.contato_nome || p.cliente, email: p.contato_email || null, telefone: "" };
@@ -97,7 +97,7 @@ function lerResponsavel(p, corpo) {
   if (senha.length < 6) return { status: 400, erro: "A senha precisa ter pelo menos 6 caracteres." };
   const ja = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (ja && ja.status === "ativo")
-    return { status: 409, ja_tem_conta: true, erro: "Esse e-mail já tem conta no ConHub. Use outro e-mail para a conta nova, ou fale com o ConHub para ligar esta proposta à conta que já existe." };
+    return { status: 409, ja_tem_conta: true, erro: "Esse e-mail já tem conta no CETRO. Use outro e-mail para a conta nova, ou fale com o CETRO para ligar esta proposta à conta que já existe." };
   if (!cadastroPodeReaproveitar(ja)) return { status: 409, ja_tem_conta: true, erro: EMAIL_EM_USO };
   const novo = { nome, email, telefone: tel.phone || "", senha, marca, ja };
   return { novo, pagador: { nome, email, telefone: novo.telefone } };
@@ -113,9 +113,9 @@ r.post("/publico/proposta/:codigo/asaas", async (req, res) => {
   if (estado === "aguardando" && p.asaas_fatura) return res.json({ ok: true, fatura: p.asaas_fatura, aguardando: true });
   if (estado !== "aberta") { const e = ESTADOS[estado] || ESTADOS.cancelada; return res.status(e.status).json(e); }
   if (!passou(ipDe(req)))
-    return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o ConHub." });
+    return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o CETRO." });
   if (!podeCobrarAsaas())
-    return res.status(503).json({ error: "O pagamento não está disponível agora. Fale com o ConHub." });
+    return res.status(503).json({ error: "O pagamento não está disponível agora. Fale com o CETRO." });
   const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
   if (doc.length !== 11 && doc.length !== 14) return res.status(400).json({ error: "Informe o CPF (11 dígitos) ou CNPJ (14 dígitos) de quem vai pagar." });
   const quem = lerResponsavel(p, req.body);
@@ -130,7 +130,7 @@ r.post("/publico/proposta/:codigo/asaas", async (req, res) => {
     cliente = quem.org && quem.org.asaas_customer_id
       ? { id: quem.org.asaas_customer_id }
       : await asaas.criarCliente({ nome: quem.pagador.nome, cpfCnpj: doc, email: quem.pagador.email, telefone: quem.pagador.telefone });
-    const descricao = `ConHub — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
+    const descricao = `CETRO — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
     cobranca = await asaas.criarParcelamento({ clienteId: cliente.id, parcelas: p.parcelas, total: p.total,
       vencimento: hojeBrasilia(), descricao, referencia: "proposta:" + p.id });
   } catch (e) {
@@ -158,9 +158,9 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
   const estado = estadoDe(p);
   if (estado !== "aberta") { const e = ESTADOS[estado] || ESTADOS.cancelada; return res.status(e.status).json(e); }
   if (!passou(ipDe(req)))
-    return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o ConHub." });
+    return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o CETRO." });
   if (!podeCobrar())
-    return res.status(503).json({ error: "O pagamento por cartão não está disponível agora. Fale com o ConHub." });
+    return res.status(503).json({ error: "O pagamento por cartão não está disponível agora. Fale com o CETRO." });
 
   const token = String(req.body?.token || "");
   const doc = String(req.body?.cpfCnpj || "").replace(/\D/g, "");
@@ -187,7 +187,7 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
       ? { id: orgExistente.pagarme_customer_id }
       : await pagarme.criarCliente({ nome: pagador.nome, email: pagador.email, telefone: pagador.telefone, documento: doc, orgId });
     cartao = await pagarme.salvarCartao(cliente.id, token);
-    const descricao = `ConHub — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
+    const descricao = `CETRO — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
     pedido = await pagarme.criarPedido({ clienteId: cliente.id, cartaoId: cartao.id, valor: p.total, parcelas: p.parcelas,
       descricao, codigo: "proposta", metadata: { proposta_id: p.id, org_id: orgId } });
     cobranca = (pedido.charges || [])[0] || null;
@@ -227,7 +227,7 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
     marcarProcessando(p, { pedidoId: pedido.id, cobrancaId: cobranca && cobranca.id, orgId: null, pagador });
     db.prepare("UPDATE propostas SET ultimo_erro = ? WHERE id = ?").run("Pagamento feito, mas a conta não foi criada: " + e.message, p.id);
     console.error(`[proposta] PAGO SEM CONTA (${p.cliente}, pedido ${pedido.id}): ${e.message}`);
-    return res.status(500).json({ error: "O pagamento foi recebido, mas a conta não pôde ser criada agora. Não pague de novo: o ConHub já foi avisado e vai liberar a sua conta.", pago_sem_conta: true });
+    return res.status(500).json({ error: "O pagamento foi recebido, mas a conta não pôde ser criada agora. Não pague de novo: o CETRO já foi avisado e vai liberar a sua conta.", pago_sem_conta: true });
   }
 
   if (paga) {

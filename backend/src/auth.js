@@ -291,7 +291,7 @@ export function authRequired(req, res, next) {
       return res.status(403).json({ codigo: "acesso_vencido",
         error: acessoSemCodigo(r.user.ac)
           ? "O tempo de hoje sem código nesta conta acabou. Amanhã ele renova; para entrar agora, peça à gestão o código de acesso do momento."
-          : "O acesso do ConHub a esta conta terminou. Para entrar de novo, peça à gestão o código de acesso do momento." });
+          : "O acesso do CETRO a esta conta terminou. Para entrar de novo, peça à gestão o código de acesso do momento." });
   } else if (r.user.master && r.user.ac && !doHub) {
     // Entrada sem código: o tempo com a conta aberta sai do saldo do dia.
     registrarUso(r.user.ac);
@@ -431,7 +431,7 @@ export const semMaster = (alias = "u") => ` AND COALESCE(${alias}.master, 0) = 0
    continuaria abrindo a plataforma inteira até o mês que vem. */
 export function soMaster(req, res, next) {
   const u = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
-  if (!u || !u.master) return res.status(403).json({ error: "Área restrita ao ConHub." });
+  if (!u || !u.master) return res.status(403).json({ error: "Área restrita ao CETRO." });
   next();
 }
 
@@ -495,5 +495,5 @@ export function cadastroPodeReaproveitar(u) {
   const leads = db.prepare("SELECT COUNT(*) n FROM leads WHERE org_id = ?").get(u.org_id).n;
   return !outros && !leads;
 }
-export const EMAIL_EM_USO = "Esse e-mail já está cadastrado no ConHub. Entre com a sua senha (ou use “Esqueci minha senha”). Se não conseguir, fale com a gente.";
+export const EMAIL_EM_USO = "Esse e-mail já está cadastrado no CETRO. Entre com a sua senha (ou use “Esqueci minha senha”). Se não conseguir, fale com a gente.";
 

@@ -1,6 +1,6 @@
 /* TEMPLATES DE OPERACAO — pontos de partida, nunca regra.
 
-   Uma imobiliaria que assina o ConHub nao deveria precisar montar um funil do
+   Uma imobiliaria que assina o CETRO nao deveria precisar montar um funil do
    zero para comecar a usar, nem receber o funil de OUTRA imobiliaria como se
    fosse verdade universal. O template resolve os dois: entrega uma operacao
    pronta e reconhecivel no primeiro minuto, e some do caminho no momento em
@@ -101,16 +101,16 @@ export const TEMPLATES = [
   },
 ];
 
-/* O funil comercial do PRÓPRIO ConHub (05/10/2026). Fica fora de TEMPLATES
+/* O funil comercial do PRÓPRIO CETRO (05/10/2026). Fica fora de TEMPLATES
    de propósito: só o ambiente interno o recebe, e nenhuma imobiliária deveria
    ver "Demonstração do sistema" na lista de modelos dela. É vendendo o
-   ConHub que este funil existe: do contato ao cliente assinante. */
+   CETRO que este funil existe: do contato ao cliente assinante. */
 export const FUNIL_INTERNO = {
   id: "conhub_comercial",
-  nome: "Comercial ConHub",
+  nome: "Comercial CETRO",
   tipo: "commercial",
-  descricao: "Do contato até virar cliente do ConHub.",
-  para: "Venda do ConHub.",
+  descricao: "Do contato até virar cliente do CETRO.",
+  para: "Venda do CETRO.",
   etapas: [
     { name: "Lead novo", color: "#6B7280", sla: 60 },
     { name: "Primeiro contato", color: "#0E8F6E", sla: 1440, conversao: true },

@@ -41,7 +41,7 @@ export const RECURSOS = {
   /* O CETROLAB (12/10/2026): os modelos premium do site. O modelo Clássico
      continua em todo plano, sem esta ferramenta (decisão do Ali — ninguém perde
      o site que já tem). O preço NÃO mora aqui: é o plano "para clientes do
-     ConHub" que o master cadastra no hub (services/cetrolab/planos.js). Sem
+     CETRO" que o master cadastra no hub (services/cetrolab/planos.js). Sem
      plano cadastrado o preço é nulo, e a contratação recusa — nada se vende
      por um valor que ninguém escolheu. */
   cetrolab: {
@@ -85,9 +85,9 @@ export function situacaoDoRecurso(orgId, recurso, agora = Date.now()) {
   const doPlano = incluiNoPlano(org, recurso);
   const avulso = avulsoValendo(l, agora);
   let ativo, origem;
-  /* Ambiente interno do ConHub: o Marketing vem ligado (é o comercial da
+  /* Ambiente interno do CETRO: o Marketing vem ligado (é o comercial da
      própria plataforma) e o Autoatendimento não existe — o texto dele atende
-     comprador de imóvel, e diria isso a quem quer conhecer o ConHub. */
+     comprador de imóvel, e diria isso a quem quer conhecer o CETRO. */
   if (org?.tipo === "interna") { ativo = recurso === "marketing"; origem = "interno"; }
   else if (l?.master === "retirado") { ativo = false; origem = "retirado"; }
   else if (l?.master === "liberado") { ativo = true; origem = "liberado"; }

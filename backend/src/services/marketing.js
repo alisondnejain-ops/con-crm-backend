@@ -3,11 +3,11 @@
    Pedido do Ali: "monta a estrutura primeiro — a liberação, o termo de aceite e
    tudo mais". O disparo em si é a próxima etapa. Esta aqui existe para uma
    coisa só: quando alguém perguntar (cliente, Procon, ANPD, juiz) de onde veio
-   um contato e quem autorizou a mensagem, o ConHub ter a resposta registrada,
+   um contato e quem autorizou a mensagem, o CETRO ter a resposta registrada,
    com nome, data e o arquivo original.
 
    POR QUE ISSO PROTEGE O CONHUB, e o contrato sozinho não protegeria: pela
-   LGPD o operador (o ConHub) só responde junto com a imobiliária quando deixa
+   LGPD o operador (o CETRO) só responde junto com a imobiliária quando deixa
    de cumprir a lei ou as instruções dela (art. 42). Um termo dizendo "a culpa é
    da imobiliária" num sistema sem trava nenhuma não convence ninguém; o mesmo
    termo num sistema que RECUSA lista comprada, que obriga a declarar a origem,
@@ -42,31 +42,31 @@ import { temRecurso, definirPeloMaster } from "./recursos.js";
    Texto a ser revisado por advogado antes de valer como contrato definitivo;
    trocou o texto, sobe a versão. */
 export const TERMO_VERSAO = "3 — 27/09/2026";
-export const TERMO_TEXTO = `TERMO DE USO DO DISPARO DE MENSAGENS EM MASSA — ConHub
+export const TERMO_TEXTO = `TERMO DE USO DO DISPARO DE MENSAGENS EM MASSA — CETRO
 
 1. O QUE É ESTE RECURSO
-O disparo de mensagens em massa permite que a IMOBILIÁRIA (a empresa titular desta conta no ConHub) envie mensagens pelo WhatsApp, seguindo fluxos montados por ela, a listas de contatos enviadas por ela ou a leads do próprio CRM escolhidos por etiqueta, etapa do funil ou qualificação. O envio sai do número de WhatsApp da própria IMOBILIÁRIA já conectado ao ConHub ou, se ela preferir, de um número cadastrado só para disparo — nos dois casos por uma API não oficial (Uazapi), contratada por ela e em nome dela. As respostas dos contatos entram na conversa do lead no CRM.
+O disparo de mensagens em massa permite que a IMOBILIÁRIA (a empresa titular desta conta no CETRO) envie mensagens pelo WhatsApp, seguindo fluxos montados por ela, a listas de contatos enviadas por ela ou a leads do próprio CRM escolhidos por etiqueta, etapa do funil ou qualificação. O envio sai do número de WhatsApp da própria IMOBILIÁRIA já conectado ao CETRO ou, se ela preferir, de um número cadastrado só para disparo — nos dois casos por uma API não oficial (Uazapi), contratada por ela e em nome dela. As respostas dos contatos entram na conversa do lead no CRM.
 
 2. PAPÉIS NA LEI GERAL DE PROTEÇÃO DE DADOS (LGPD)
-A IMOBILIÁRIA é a CONTROLADORA dos dados dos contatos: é ela quem decide quem recebe, o que recebe e com base em qual autorização. O ConHub é OPERADOR: apenas executa as instruções da IMOBILIÁRIA, dentro das travas descritas neste termo.
+A IMOBILIÁRIA é a CONTROLADORA dos dados dos contatos: é ela quem decide quem recebe, o que recebe e com base em qual autorização. O CETRO é OPERADOR: apenas executa as instruções da IMOBILIÁRIA, dentro das travas descritas neste termo.
 
 3. ORIGEM DOS CONTATOS
-A IMOBILIÁRIA declara que só enviará mensagens a pessoas com quem tem base legal para isso — consentimento da pessoa, ou relação anterior com ela (legítimo interesse), sempre com a opção de sair. É PROIBIDO usar lista comprada, alugada, raspada da internet ou obtida de terceiros sem autorização das pessoas. A cada lista enviada, a IMOBILIÁRIA declara a origem dos contatos e a data em que foram coletados, e a cada disparo declara que as pessoas escolhidas se enquadram nessa regra; o ConHub guarda essas declarações, o arquivo original e o público de cada disparo para prestação de contas.
+A IMOBILIÁRIA declara que só enviará mensagens a pessoas com quem tem base legal para isso — consentimento da pessoa, ou relação anterior com ela (legítimo interesse), sempre com a opção de sair. É PROIBIDO usar lista comprada, alugada, raspada da internet ou obtida de terceiros sem autorização das pessoas. A cada lista enviada, a IMOBILIÁRIA declara a origem dos contatos e a data em que foram coletados, e a cada disparo declara que as pessoas escolhidas se enquadram nessa regra; o CETRO guarda essas declarações, o arquivo original e o público de cada disparo para prestação de contas.
 
 4. PEDIDO PARA SAIR
 A primeira mensagem que cada pessoa recebe em cada disparo leva a opção de sair ("responda SAIR"), que não pode ser removida. Quem pedir para sair entra numa lista de bloqueio permanente da IMOBILIÁRIA, sai de qualquer disparo em andamento e não recebe novos disparos, mesmo que apareça em outra lista.
 
 5. RISCOS CONHECIDOS
 a) A API usada NÃO é a API oficial do WhatsApp e o uso para envio em massa contraria os termos do WhatsApp. O número usado pode ser restringido ou banido a qualquer momento, sem aviso.
-b) O ConHub não garante a entrega das mensagens.
-c) Por padrão o disparo sai do número de WhatsApp já conectado ao ConHub, o mesmo que recebe os leads. Se esse número for restringido ou banido por causa do disparo, o atendimento por ele também para. A IMOBILIÁRIA pode cadastrar um número separado, só para disparo (contingência), e reconhece que a escolha de disparar pelo número de atendimento é dela. O WhatsApp pessoal de corretores não deve ser usado para disparo.
-d) O ConHub aplica limites de envio (quantidade por dia, intervalo entre mensagens e horário comercial) e pausa o disparo quando as falhas se repetem. Os limites reduzem o risco de bloqueio, mas não o eliminam.
+b) O CETRO não garante a entrega das mensagens.
+c) Por padrão o disparo sai do número de WhatsApp já conectado ao CETRO, o mesmo que recebe os leads. Se esse número for restringido ou banido por causa do disparo, o atendimento por ele também para. A IMOBILIÁRIA pode cadastrar um número separado, só para disparo (contingência), e reconhece que a escolha de disparar pelo número de atendimento é dela. O WhatsApp pessoal de corretores não deve ser usado para disparo.
+d) O CETRO aplica limites de envio (quantidade por dia, intervalo entre mensagens e horário comercial) e pausa o disparo quando as falhas se repetem. Os limites reduzem o risco de bloqueio, mas não o eliminam.
 
 6. RESPONSABILIDADE
-A IMOBILIÁRIA responde integralmente pelo conteúdo das mensagens, pela escolha dos destinatários e pela origem dos contatos. Se o ConHub for demandado, multado ou condenado por fato decorrente do uso deste recurso pela IMOBILIÁRIA, a IMOBILIÁRIA se obriga a ressarcir o ConHub de todos os valores e custos, inclusive honorários.
+A IMOBILIÁRIA responde integralmente pelo conteúdo das mensagens, pela escolha dos destinatários e pela origem dos contatos. Se o CETRO for demandado, multado ou condenado por fato decorrente do uso deste recurso pela IMOBILIÁRIA, a IMOBILIÁRIA se obriga a ressarcir o CETRO de todos os valores e custos, inclusive honorários.
 
 7. SUSPENSÃO E REGISTROS
-O ConHub pode suspender este recurso a qualquer momento em caso de denúncia, abuso ou descumprimento deste termo. Os registros deste aceite, das listas enviadas, das declarações de origem e dos pedidos para sair são guardados e poderão ser apresentados a autoridades ou em processos.
+O CETRO pode suspender este recurso a qualquer momento em caso de denúncia, abuso ou descumprimento deste termo. Os registros deste aceite, das listas enviadas, das declarações de origem e dos pedidos para sair são guardados e poderão ser apresentados a autoridades ou em processos.
 
 8. ACEITE
 Ao aceitar, a pessoa declara que tem poderes para representar a IMOBILIÁRIA. O aceite fica registrado com o nome, o e-mail, a data, a hora e o endereço de internet de quem aceitou, junto com a versão deste texto.`;
@@ -110,21 +110,21 @@ export const aceiteVigente = (orgId) => db.prepare(
    seria justamente a que abriria o recurso sem aceite. */
 export function exigirPronto(orgId, { termo = true } = {}) {
   if (!liberado(orgId))
-    throw new ErroMarketing(403, "O disparo em massa não está liberado para esta conta. Fale com o ConHub.");
+    throw new ErroMarketing(403, "O disparo em massa não está liberado para esta conta. Fale com o CETRO.");
   if (termo && !aceiteVigente(orgId))
     throw new ErroMarketing(409, "Aceite o termo de uso do disparo antes de continuar.");
 }
 
 /* Quem aceita é o gestor DA imobiliária. O master pode estar dentro de
    qualquer conta pelo hub, e um aceite dele por um cliente não vincularia o
-   cliente a nada — seria o ConHub assinando o próprio termo pelo outro lado.
+   cliente a nada — seria o CETRO assinando o próprio termo pelo outro lado.
    Na conta de origem dele (a casa dele) vale normalmente. */
 export function aceitarTermo(orgId, user, { ip, userAgent }) {
   exigirPronto(orgId, { termo: false });
   const eu = db.prepare("SELECT id, name, email, role, org_id, master FROM users WHERE id = ?").get(user.id);
   if (!eu) throw new ErroMarketing(401, "Sessão inválida.");
   if (eu.master && eu.org_id !== orgId)
-    throw new ErroMarketing(403, "O aceite precisa ser feito pelo gestor desta imobiliária, não pelo ConHub.");
+    throw new ErroMarketing(403, "O aceite precisa ser feito pelo gestor desta imobiliária, não pelo CETRO.");
   const linha = {
     id: "mt_" + randomUUID(), org_id: orgId, user_id: eu.id, user_nome: eu.name, user_email: eu.email,
     papel: eu.role, versao: TERMO_VERSAO, texto_hash: TERMO_HASH, ip: ip || null,
@@ -379,14 +379,14 @@ export async function salvarNumero(orgId, user, { host, token }) {
   if (url.protocol !== "https:" && !local) throw new ErroMarketing(400, "Use o endereço com https://.");
 
   /* A trava principal desta tela: o token não pode ser de nenhuma linha que
-     já existe no ConHub — nem desta conta (seria o número que recebe leads),
+     já existe no CETRO — nem desta conta (seria o número que recebe leads),
      nem de outra (seria o número de outra imobiliária). */
   const hk = hashToken(tk);
   const emUso = db.prepare("SELECT 1 FROM canais WHERE (token_hash = ? OR token = ?) AND NOT (org_id = ? AND tipo = 'disparo') LIMIT 1").get(hk, tk, orgId)
     || db.prepare("SELECT 1 FROM orgs WHERE uazapi_token_hash = ? OR uazapi_token = ? LIMIT 1").get(hk, tk)
     || db.prepare("SELECT 1 FROM marketing_numero WHERE (token_hash = ? OR token = ?) AND org_id <> ? LIMIT 1").get(hk, tk, orgId);
   if (emUso)
-    throw new ErroMarketing(409, "Este token já é de uma linha de atendimento no ConHub. Sem cadastrar nada, o disparo já sai pelo número de atendimento — o número de contingência precisa ser uma instância SEPARADA, com outro número.");
+    throw new ErroMarketing(409, "Este token já é de uma linha de atendimento no CETRO. Sem cadastrar nada, o disparo já sai pelo número de atendimento — o número de contingência precisa ser uma instância SEPARADA, com outro número.");
 
   const inst = await consultarInstancia(h, tk);
   if (inst.ok && inst.numero && numerosDeAtendimento(orgId).has(inst.numero))
@@ -435,7 +435,7 @@ export function numeroDeDisparo(orgId, consulta = null) {
 }
 
 /* DE ONDE O DISPARO SAI (27/09/2026, pedido do Ali: "por padrão você vai
-   utilizar a conexão existente no ConHub; o que fica opcional é colocar um
+   utilizar a conexão existente no CETRO; o que fica opcional é colocar um
    número específico para disparo — ele decide se quer um número de
    contingência").
 

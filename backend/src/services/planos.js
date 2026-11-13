@@ -10,7 +10,7 @@
 
    Até hoje este arquivo era só do autônomo, e o comentário dizia o porquê: o
    preço da imobiliária era negociado caso a caso e vinha de `orgs.valor_mensal`,
-   gravado à mão pelo ConHub. Isso valia enquanto a venda era conversada.
+   gravado à mão pelo CETRO. Isso valia enquanto a venda era conversada.
 
    Deixou de valer no dia em que o site publicou Essencial e Plus com preço na
    vitrine e um botão "Testar 14 dias grátis" ao lado. A partir daí eles são

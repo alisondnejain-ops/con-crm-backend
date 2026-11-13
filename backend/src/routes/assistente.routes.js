@@ -204,13 +204,13 @@ suporte.post("/nova", (req, res) => {
 /* ===== HUB DO MASTER E TELA DE SUPORTE DO AMBIENTE INTERNO =====
 
    A configuração (número que recebe, linha que envia) continua só do master.
-   A FILA de chamados abre também para a equipe do ConHub — quem está ativo
+   A FILA de chamados abre também para a equipe do CETRO — quem está ativo
    no ambiente interno (05/10/2026): o suporte vai ser um time, e cada pessoa
    dele responde de dentro do sistema, com o próprio login. */
 const equipeDeSuporte = (req, res, next) => {
   const master = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id)?.master;
   if (master || daEquipeConHub(req.user.id)) return next();
-  res.status(403).json({ error: "Área restrita à equipe do ConHub." });
+  res.status(403).json({ error: "Área restrita à equipe do CETRO." });
 };
 
 suporte.get("/chamados", equipeDeSuporte, (req, res) => res.json({ chamados: chamadosParaOHub(), config: configDoSuporte(), esperando: chamadosEsperando() }));

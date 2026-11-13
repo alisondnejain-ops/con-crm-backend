@@ -1,7 +1,7 @@
 /* MODELO "BAIRROS" (12/10/2026) — o 2F que o Ali escolheu: futurista e
    minimalista, e a vitrine começa pelo BAIRRO, não pela lista.
 
-   Mesmas regras de todo site do ConHub (services/site.js): montado no
+   Mesmas regras de todo site do CETRO (services/site.js): montado no
    servidor (a prévia do link no WhatsApp precisa do HTML pronto), só a lista
    branca do imóvel, contato sempre pelo WhatsApp da imobiliária, Pixel e Tag
    Manager pelas mesmas peças. O que muda é a cara e a ordem da conversa.
