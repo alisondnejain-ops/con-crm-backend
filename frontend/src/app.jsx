@@ -2921,8 +2921,9 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     </div>;
   };
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Plantões conectados à distribuição." sub="Equipes, turnos e conferência de presença no mesmo planejamento."/>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
       {/* O próprio plantão da pessoa, em primeiro lugar. É a informação que ela
@@ -2938,8 +2939,8 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
             os números DELE no relatório individual dele. */}
         {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"],...(podeEditar?[["relatorio","Relatório"]]:[])].map(([k,t])=>
           <button key={k} onClick={()=>setAba(k)}
-            style={{fontSize:12.5,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
-              background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
+            style={{fontSize:12,fontWeight:aba===k?700:500,padding:"10px 14px",border:"none",borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,cursor:"pointer",
+              background:"transparent",color:aba===k?C.greenMid:"#7c8b7d"}}>{t}</button>)}
         {podeEditar&&<React.Fragment>
           <span style={{flex:1}}/>
           <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={lerPlanilha} style={{display:"none"}}/>
@@ -3152,8 +3153,8 @@ function AvisoPlantao({meu,isMobile,compacto}){
    janela simplesmente não existia. O recuo lateral centraliza o conteúdo em
    880px sem tirar a barra de rolagem da borda da janela. */
 const molduraMkt=(isMobile)=>({height:"100%",overflowY:"auto",boxSizing:"border-box",
-  padding:isMobile?"14px 12px 90px":"20px max(22px, calc((100% - 1156px) / 2)) 40px"});
-const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,marginBottom:14};
+  padding:isMobile?"14px 12px 90px":"28px max(32px, calc((100% - 1200px) / 2)) 40px"});
+const CARTAO_MKT={background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:20,marginBottom:16};
 const TITULO_MKT={fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8};
 const campoMkt=(isMobile)=>({width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13.5,border:`1px solid ${C.line}`,
   background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",fontFamily:FONT});
@@ -3188,6 +3189,7 @@ function Marketing({acoes,org,isMobile,irParaFluxos}){
   const abaAtual=aceito?aba:"config";
   const ABAS=[["disparos","Disparos"],["contatos","Contatos"],["config","Configuração"]];
   return <div style={moldura}>
+    <CabecalhoTela isMobile={isMobile} titulo="Relacionamento em movimento." sub="Disparos organizados, contatos segmentados e envio com controle."/>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     {/* Fluxo deixou de ser passo obrigatório (27/09/2026): dá para disparar
         "Só uma mensagem". O único pré-requisito é o termo. */}
@@ -4972,6 +4974,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
   if(aberto) return <div style={{height:"100%",boxSizing:"border-box",padding:isMobile?"10px 10px 12px":"16px 20px",maxWidth:1500,margin:"0 auto"}}>
     <EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
   return <div style={moldura}>
+    <CabecalhoTela isMobile={isMobile} titulo="Automações com próximo passo." sub="Gatilhos, mensagens e atividades em um fluxo visual."/>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
     <div style={CARTAO_MKT}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:8}}>
@@ -8651,7 +8654,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
   ORG_ATUAL.nome=(org&&org.nome)||"";
-  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",lotes:"Lotes do empreendimento",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
+  const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",lotes:"Lotes do empreendimento",cetrolab:"Cetrolab",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
      "Atendimento | CETRO" repetido quatro vezes não ajudaria em nada. */
@@ -8760,7 +8763,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             o papel dele de gestor pra corretor (correto, é a regra do
             recurso), e a caixa errada passou a ganhar da certa — parecendo
             que as mensagens simplesmente pararam. */}
-        {role==="corretor"&&!supervisor&&view==="atendimento"&&<Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}}/>}
+        {role==="corretor"&&!supervisor&&view==="atendimento"&&<MolduraAtender isMobile={isMobile} corretor><Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}}/></MolduraAtender>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
         {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
@@ -8782,7 +8785,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
           <FaixaTeste assinatura={assinatura} isMobile={isMobile}/>
           <Dashboard {...{acoes,pessoas,fila,setView,openLead,isMobile,sozinho:org&&org.tipo==="autonomo",session,supervisor}}/>
         </React.Fragment>}
-        {supervisor&&(view==="conversas"||view==="atendimento")&&<Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}}/>}
+        {supervisor&&(view==="conversas"||view==="atendimento")&&<MolduraAtender isMobile={isMobile}><Conversas {...{acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}}/></MolduraAtender>}
         {supervisor&&view==="relatorios"&&<Relatorios acoes={acoes} session={session} pickable isMobile={isMobile} abrirConversa={openLead} org={org}/>}
         {/* O painel de gestão: filtros, SLA, funil de conversão x avanço
             operacional, equipe e campanha. Fica ao lado de Relatórios e não
@@ -11389,7 +11392,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   // por vez e o fundo escuro é da tela inteira.
   const [aberto,setAberto]=useState(null);
   const abrirCard=(l)=>setAberto(l.id);
-  const colW=isMobile?"82vw":164;
+  const colW=isMobile?"82vw":212;
   const [arrasto,setArrasto]=useState(null);   // {id,nome,de,x,y}
   const [alvo,setAlvo]=useState(null);         // etapa sob o dedo
   const colunas=useRef({});                    // etapa -> elemento, para medir onde soltou
@@ -11447,7 +11450,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         Achar um lead pelo nome é o gesto mais repetido do quadro — esse campo
         não pode custar um clique a mais. Os outros filtros abertos empurrariam
         as colunas para baixo e sobraria meia coluna visível. */}
-    <div style={{display:"flex",flexDirection:"column",gap:9,padding:isMobile?"12px 12px 0":"14px 16px 0",flexShrink:0}}>
+    <div style={{display:"flex",flexDirection:"column",gap:9,padding:isMobile?"12px 12px 0":"26px 32px 0",flexShrink:0}}>
+      {!isMobile&&<CabecalhoTela isMobile={isMobile} eyebrow={mostrarDono?undefined:"MEU WORKSPACE"} titulo="Cada oportunidade, no seu próximo passo." sub="Cards com contexto e ficha completa do lead."/>}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{position:"relative",flex:1,minWidth:isMobile?"100%":220}}>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex"}}>
@@ -11640,10 +11644,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     </div>
 
     <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
-    style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:16,
+    style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:"16px 32px 20px",
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
-    <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*172}}>
+    <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*226}}>
       {colunas2.map(col=>{const st=col.name;
         /* Casa pelo VINCULO quando os dois lados o têm, e pelo nome quando
            não. Só pelo nome, dois funis com uma etapa "Visita" misturariam os
@@ -11655,20 +11659,20 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         // O VGV em aberto da coluna: soma do valor em negociação de quem ainda não vendeu.
         const emNegociacao=items.reduce((t,l)=>t+(!l.venda&&l.negociacao?l.negociacao:0),0);
         return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,padding:"0 4px"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:4}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 12px 10px",background:destacada?corCol+"14":C.panel,border:`1px solid ${destacada?corCol:C.line}`,borderBottom:"none",borderRadius:"12px 12px 0 0"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span>
             {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
               aria-label={"Prazo e consequência de "+st}
-              style={{border:"none",background:"none",padding:2,cursor:"pointer",display:"flex",alignItems:"center",
+              style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:7,width:26,height:26,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                 color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
-              <Icon n="gear" size={13} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}
-            <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span></span></div>
+              <Icon n="gear" size={12} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}</span></div>
           {algumaNegociacao&&<div title={emNegociacao>0?"Soma do valor em negociação dos leads desta coluna (sem os vendidos)":undefined}
-            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,margin:"-4px 4px 7px",height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,padding:"0 12px 6px",height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:destacada?corCol+"14":C.panel,borderLeft:`1px solid ${destacada?corCol:C.line}`,borderRight:`1px solid ${destacada?corCol:C.line}`}}>
             {emNegociacao>0?`${fmtMoedaCurta(emNegociacao)} em negociação`:""}</div>}
           <div ref={el=>{colunas.current[st]=el;}}
-            style={{flex:1,borderRadius:12,border:`1px solid ${destacada?corCol:C.line}`,
-              background:destacada?corCol+"14":C.panel,padding:6,overflowY:arrasto?"hidden":"auto",
-              display:"flex",flexDirection:"column",gap:6,transition:"background .12s,border-color .12s"}}>
+            style={{flex:1,borderRadius:"0 0 12px 12px",border:`1px solid ${destacada?corCol:C.line}`,borderTop:"none",
+              background:destacada?corCol+"14":C.panel,padding:"2px 10px 10px",overflowY:arrasto?"hidden":"auto",
+              display:"flex",flexDirection:"column",gap:8,transition:"background .12s,border-color .12s"}}>
             {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
               return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto} ocultar={ocultar}
@@ -12105,13 +12109,13 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
        O `overflow:hidden` entrou aqui só para a faixa de urgência respeitar o
        canto arredondado — e levou junto a proteção contra encolher. Com 96
        leads numa etapa, os 96 cards viraram tiras de 3px empilhadas. */
-    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",flexShrink:0,
+    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",flexShrink:0,boxShadow:"0 2px 6px rgba(23,60,40,.04)",
       opacity:opaco?.35:1,cursor:arrastando?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
     {/* A faixa de urgência no topo: some quando está tudo bem. */}
     {urgencia&&<div style={{height:3,background:urgencia}}/>}
-    <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:8}}>
-      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
-        <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
+    <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:"12px 13px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
+        <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
         {/* Sem temperatura, sem pastilha. Escrever "sem temperatura" num card
             de 160px é gastar a linha mais visível para dizer que não se sabe —
             e no funil inteiro vira um carimbo repetido que o olho aprende a
@@ -12211,8 +12215,9 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
   const rotuloBotao=ehPonto?(avail?"Encerrar meu atendimento":"Iniciar meu atendimento")
     :(avail?"Ficar indisponível":"Me prontificar para atendimento");
 
-  return <div style={{height:"100%",overflowY:"auto",padding:16}}>
-    <div style={{maxWidth:520,margin:"0 auto"}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
+    <div style={{maxWidth:860,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} eyebrow={"MEU WORKSPACE"} titulo="Sua disponibilidade, de forma simples." sub="Só participa da distribuição quem está disponível no dia."/>
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:24,textAlign:"center"}}>
         <div style={{background:avail?C.greenSoft:C.coolSoft,width:64,height:64,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",color:avail?C.green:C.cool}}><Icon n={ehPonto?"clock":(avail?"toggleOn":"toggleOff")} size={30}/></div>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:18,fontWeight:700}}>{titulo}</div>
@@ -13809,12 +13814,7 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
   const arquivados=(d?.formularios||[]).filter(f=>f.status&&f.status!=="ACTIVE");
   const semPagina=d&&!d.paginas.length;
   return <div style={molduraMkt(isMobile)}>
-    <div style={{marginBottom:14}}>
-      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700}}>Formulários dos anúncios</div>
-      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>
-        {semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Escolha em que funil nasce o lead de cada formulário e por quais catracas ele é distribuído. Sem escolha, vale a regra de sempre."}
-</div>
-    </div>
+    <CabecalhoTela isMobile={isMobile} titulo="Da campanha ao atendimento certo." sub={semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Defina o funil, a etapa, as catracas e a ficha de produto para cada formulário."}/>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
     {d&&(d.erros||[]).map((e,i)=><div key={i} style={{background:"#FFF8E6",border:"1px solid #E8D9A8",color:"#8a6d1f",
@@ -13869,11 +13869,7 @@ function RedesSociais({acoes,isMobile,irPara}){
   const faltamPublicar=pagina?[...new Set([...pagina.faltam.publicar_facebook,...(pagina.instagram?pagina.faltam.publicar_instagram:[])])]:[];
   const abas=[["programacao","Programação"],["novo",editando&&editando.id?"Editar post":"Novo post"],["engajamento","Engajamento"],["comentarios","Comentários automáticos"]];
   return <div style={molduraMkt(isMobile)}>
-    <div style={{marginBottom:14}}>
-      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:19,fontWeight:700,display:"flex",alignItems:"center",gap:8}}>
-        <LogoFacebook size={20}/><LogoInstagram size={20}/> Redes sociais</div>
-      <div style={{color:C.sub,fontSize:12.5,lineHeight:1.5,marginTop:3}}>Programe posts no Facebook e no Instagram da imobiliária, acompanhe o engajamento e responda comentários sozinho.</div>
-    </div>
+    <CabecalhoTela isMobile={isMobile} titulo="Sua presença, dentro da operação." sub="Programação de conteúdo, engajamento e automações de comentários no Facebook e no Instagram."/>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
     {d&&!d.paginas.length&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
@@ -13905,11 +13901,7 @@ function RedesSociais({acoes,isMobile,irPara}){
       {!pagina.permissoes_conhecidas&&<div style={{background:C.surface,color:C.sub,fontSize:12,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
         Esta página foi conectada antes das redes sociais existirem no CETRO. Se algo for recusado,{" "}
         <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>conecte a página de novo</button>.</div>}
-      <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-        {abas.map(([k,t])=><button key={k} onClick={()=>{ if(k==="novo"&&aba!=="novo") setEditando({}); setAba(k); }}
-          style={{fontSize:12.5,fontWeight:600,padding:"8px 14px",borderRadius:999,border:"none",cursor:"pointer",minHeight:36,
-            background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
-      </div>
+      <AbasLinha ativa={aba} aoMudar={(k)=>{ if(k==="novo"&&aba!=="novo") setEditando({}); setAba(k); }} abas={abas}/>
       {aba==="programacao"&&<ProgramacaoDePosts acoes={acoes} isMobile={isMobile} pageId={pageId}
         aoEditar={(p)=>{setEditando(p);setAba("novo");}} aoNovo={()=>{setEditando({});setAba("novo");}}/>}
       {aba==="novo"&&<EditorDePost key={editando?.id||"novo"} acoes={acoes} isMobile={isMobile} pagina={pagina} post={editando&&editando.id?editando:null}
@@ -16557,8 +16549,9 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
   const recado=(a)=>a&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",lineHeight:1.45,
     color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:820,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+      <CabecalhoTela isMobile={isMobile} eyebrow={"MEU WORKSPACE"} titulo="Minha conta" sub="Perfil, segurança e suas conexões pessoais."/>
 
       {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no CETRO</div>
@@ -18639,8 +18632,9 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
   const etapasB=fb.funil?((funisB.find(f=>f.id===fb.funil)||{}).stages||[]):funisB.flatMap(f=>(f.stages||[]).map(e=>({...e,_f:f.name})));
   const cel={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1440,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Toda a base, com contexto." sub="Origem, responsável, etapa e histórico para organizar as oportunidades."/>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:14,
         display:"flex",gap:8,flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center"}}>
@@ -19349,8 +19343,9 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     {opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1440,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} titulo="O imóvel certo, com a informação certa." sub="Catálogo, unidades e condições de pagamento conectados ao site."/>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:16,display:"flex",flexDirection:"column",gap:9}}>
@@ -19889,14 +19884,11 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
   const slugMudou=d&&f&&d.ligado&&f.slug!==d.slug;
   const base=window.location.host+"/imoveis/";
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:680,margin:"0 auto"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Seu site, conectado à sua operação." sub="Cetrolab · catálogo, conteúdo e identidade do site público."/>
+      <div style={{display:aoFechar?"flex":"none",alignItems:"center",gap:10,marginBottom:16}}>
         {aoFechar&&<button onClick={aoFechar} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>}
-        <div>
-          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>Cetrolab</div>
-          <div style={{color:C.faint,fontSize:12}}>O site da imobiliária: modelo, endereço, domínio e Google</div>
-        </div>
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
       {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>}
@@ -20909,8 +20901,9 @@ function Equipe({acoes,session,org,isMobile,versao}){
     {permDe===u.id&&<PermissoesDoCorretor u={u} acoes={acoes} aoSalvar={async()=>{setPermDe(null);setUsers(await acoes.equipe());}} aoFechar={()=>setPermDe(null)}/>}
   </div>;
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1100,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Pessoas alinhadas. Estrutura flexível." sub="Hierarquia, funções, permissões e participação nos indicadores são independentes."/>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
@@ -21324,13 +21317,10 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
     ["conexao","Conexão"],
     ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1100,margin:"0 auto"}}>
-      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-        {abas.map(([k,t])=><button key={k} onClick={()=>setAba(k)}
-          style={{fontSize:12.5,fontWeight:600,padding:"8px 15px",borderRadius:999,border:"none",cursor:"pointer",
-            background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
-      </div>
+      <CabecalhoTela isMobile={isMobile} titulo="As regras da sua operação." sub="Configure fluxos de trabalho, integrações e atendimento em um só lugar."/>
+      <AbasLinha ativa={aba} aoMudar={setAba} abas={abas}/>
       {/* No celular a aba não existe. Sem esta linha, o gestor que mexeu na
           identidade no notebook procuraria a aba no celular e concluiria que
           alguma coisa quebrou — recurso que some sem explicação vira chamado. */}
@@ -22820,14 +22810,15 @@ function legendaDoFunil(c,ganho){
 /* Uma taxa do cone num bloco próprio (CETRO 16.2/16.4): número grande, a
    base embaixo e a meta. Abaixo da meta: vermelho com "abaixo"; na meta ou
    acima: verde com "na meta"; sem meta ou sem base: neutro, escrito. */
+const TONS_CONE=['#1e5c3f','#2c714b','#4b8156','#6a8b57','#8f925b','#b59b5a'];
 function BlocoDeTaxa({rotulo,taxa,base,meta,conteudo,estreito}){
   const temMeta=meta!=null&&meta!==undefined, semBase=taxa==null;
   const estado=semBase?"neutro":!temMeta?"neutro":taxa+1e-9>=meta?"ok":"abaixo";
   const cor=estado==="ok"?C.greenDeep:estado==="abaixo"?C.hot:C.ink;
   const fundo=estado==="ok"?C.greenSoft:estado==="abaixo"?C.hotSoft:C.surface;
-  return <div style={{background:fundo,border:`1px solid ${estado==="ok"?C.green+"55":estado==="abaixo"?C.hot+"44":C.line}`,borderRadius:10,padding:estreito?"6px 8px":"8px 11px",minWidth:0}}>
+  return <div style={{background:estado==="abaixo"?"#fff4ef":"#eef3e8",border:`1px solid ${estado==="abaixo"?"#f2d6cb":"#dce6d6"}`,borderRadius:8,padding:estreito?"6px 8px":"11px 13px",minWidth:0}}>
     {rotulo&&<div style={{color:C.faint,fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>}
-    <div style={{fontFamily:DISPLAY,fontSize:estreito?15:18,fontWeight:700,color:cor,lineHeight:1.2}}>{conteudo||fmtTaxa(taxa)}</div>
+    <div style={{fontFamily:DISPLAY,fontSize:estreito?15:24,fontWeight:700,color:estado==="ok"?"#1f9a5b":estado==="abaixo"?"#d0533f":C.ink,lineHeight:1.2,letterSpacing:-.3}}>{conteudo||fmtTaxa(taxa)}</div>
     {base&&<div style={{color:C.sub,fontSize:10.5}}>{base}</div>}
     {conteudo!=="—"&&<div style={{fontSize:10.5,color:estado==="neutro"?C.faint:cor,fontWeight:600}}>
       {semBase?"Sem base":!temMeta?"Sem meta":`${estado==="ok"?"✓ na meta":"▼ abaixo"} · meta ${String(meta).replace(".",",")}%`}</div>}
@@ -22878,8 +22869,8 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
   const pedir=(etapa,conjunto,tituloConf)=>{ if(!impressao&&acoes) setConf({etapa,conjunto,titulo:tituloConf}); };
 
   const cabecalho=<div style={{marginBottom:10}}>
-    <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
-      {gestor&&!impressao&&pipelineId&&<button onClick={()=>setMetasAbertas(true)} title="Metas de conversão" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Icon n="gear" size={13}/>Metas</button>}</div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:impressao?0:6}}><div style={{color:C.ink,fontSize:impressao?13:17.5,fontFamily:impressao?undefined:DISPLAY,fontWeight:700,letterSpacing:impressao?0:-.3,flex:1}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
+      {gestor&&!impressao&&pipelineId&&<button onClick={()=>setMetasAbertas(true)} title="Metas de conversão" style={{...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5}}><Icon n="gear" size={13}/>Metas de conversão</button>}</div>
     {/* Uma linha (28/10/2026, limpeza): o parágrafo inteiro sobre a base
         repetia a legenda do fim do quadro, que agora abre em "Como ler". */}
     {/* O topo (28/10/2026): a MESMA turma do começo ao fim — dos que chegaram
@@ -22979,10 +22970,10 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         const final=l.status_type==="ganho";
         return <div key={l.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr)",gap:10,alignItems:"stretch"}}>
           <div>
-            <div style={{width:larg+"%",margin:"0 auto",minHeight:impressao?34:44,background:final?C.gold:i%2?C.greenMid:C.green,color:"#fff",
-              clipPath:"polygon(0 0,100% 0,96% 100%,4% 100%)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 14px",boxSizing:"border-box",textAlign:"center"}}>
-              <b style={{fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.name}</b>
-              <span style={{fontFamily:DISPLAY,fontSize:15,fontWeight:700}}>{impressao?l.chegaram:<NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} cor="#fff" tit={`Chegaram a ${l.name}`}/>}</span>
+            <div style={{width:larg+"%",margin:"0 auto",minHeight:impressao?34:62,background:final?"#b59b5a":TONS_CONE[Math.min(TONS_CONE.length-2,Math.round(i*(TONS_CONE.length-2)/Math.max(1,linhas.length-2)))],color:"#fff",
+              clipPath:"polygon(0 0,100% 0,92% 100%,8% 100%)",display:"flex",flexDirection:impressao?"row":"column",alignItems:"center",justifyContent:"center",gap:impressao?8:1,padding:"0 14px",boxSizing:"border-box",textAlign:"center"}}>
+              <b style={{fontSize:impressao?12.5:10.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%"}}>{l.name}</b>
+              <span style={{fontFamily:DISPLAY,fontSize:impressao?15:19,fontWeight:800}}>{impressao?l.chegaram:<NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} cor="#fff" tit={`Chegaram a ${l.name}`}/>}</span>
             </div>
             {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.45,marginTop:4,textAlign:"center",display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
           </div>
@@ -23126,12 +23117,12 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
     borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
 
-  const Metric=({rot,v,sub,cor})=><div style={{background:C.card,border:`1px solid ${C.line}`,
-    borderRadius:13,padding:isMobile?"11px 12px":"13px 15px",flex:"1 1 130px",minWidth:0}}>
-    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>{rot}</div>
-    <div style={{color:cor||C.ink,fontFamily:MONO,fontSize:isMobile?20:23,fontWeight:700,lineHeight:1,
-      overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
-    {sub&&<div style={{color:C.faint,fontSize:10,marginTop:4,lineHeight:1.35}}>{sub}</div>}
+  const Metric=({rot,v,sub,cor})=><div style={{background:C.card,border:`1px solid ${C.line}`,boxShadow:SOMBRA,
+    borderRadius:10,padding:isMobile?"14px 15px":"19px 20px",flex:"1 1 160px",minWidth:0}}>
+    <div style={{color:"#7c8b7d",fontSize:11,marginBottom:isMobile?8:12}}>{rot}</div>
+    <div style={{color:cor||C.ink,fontFamily:DISPLAY,fontSize:isMobile?22:28,fontWeight:800,letterSpacing:-1,lineHeight:1.1,
+      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
+    {sub&&<div style={{color:"#8b978d",fontSize:10.5,marginTop:isMobile?8:12,lineHeight:1.35}}>{sub}</div>}
   </div>;
 
   /* "Não disponível" e zero são coisas diferentes, e a tela precisa manter a
@@ -23140,8 +23131,9 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   // Tempo no mesmo formato de Relatórios e do Score ("4 dias 9h", não "6305 min").
   const tempo=(v)=>v===null||v===undefined?"—":fmtMin(v);
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?12:18}}>
-    <div style={{maxWidth:1440,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
+    <div style={{maxWidth:1440,margin:"0 auto",display:"flex",flexDirection:"column",gap:18}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Visão geral da operação" sub="Entenda o avanço comercial e a origem das suas oportunidades."/>
 
       {/* ===== FILTROS ===== */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
@@ -23184,7 +23176,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           <span style={{color:C.sub,fontSize:12,flex:1,minWidth:200,lineHeight:1.45}}>
             Nenhuma etapa tem prazo, então não há atrasados para medir. Defina em Configurações → Funis e etapas.</span>
         </div>
-        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+        :<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Quem está esperando</div>
           <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
             <Metric rot="SLA vencido" v={d.sla.vencidos} cor={d.sla.vencidos?C.hot:C.ink}/>
@@ -23201,12 +23193,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           </div>}
         </div>}
 
-        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {[["funil","Funil"],["relatorios","Relatórios"],["campanhas","Campanhas"]].map(([k,t])=>
-            <button key={k} onClick={()=>setAba(k)}
-              style={{fontSize:12,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
-                background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
-        </div>
+        <div style={{marginBottom:-4}}><AbasLinha ativa={aba} aoMudar={setAba} abas={[["funil","Funil"],["relatorios","Relatórios"],["campanhas","Campanhas"]]}/></div>
 
         {/* ===== FUNIL: CONVERSÃO x ONDE ESTÃO AGORA (01/10/2026) =====
             Duas perguntas, dois quadros, de propósito. A conversão é a coorte
@@ -23216,12 +23203,12 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         {aba==="funil"&&!funil&&<div style={{color:C.faint,fontSize:13}}>Carregando o funil…</div>}
         {aba==="funil"&&funil&&funil.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px"}}>{funil.erro}</div>}
         {aba==="funil"&&funil&&!funil.erro&&<React.Fragment>
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
             <FunilDeConversao dados={funil.conversao} pipelineId={funil.pipeline_pedido} filtros={f}
               acoes={acoes} isMobile={isMobile} abrirConversa={abrirConversa} gestor={podeGerir(session)} aoMudarMetas={()=>setRecargaMetas(n=>n+1)}/>
           </div>
 
-          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+          <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão agora</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
               Contatos em cada etapa neste momento, pelo responsável de hoje — Inbox incluído. Não é conversão.
@@ -23250,7 +23237,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           abrirConversa={abrirConversa} org={org} embutido/>}
 
         {/* ===== EQUIPE ===== */}
-        {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+        {aba==="equipe"&&equipe&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:12}}>Equipe</div>
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
             {equipe.map(p=><div key={p.id} style={{background:C.surface,border:`1px solid ${C.line}`,
@@ -23275,7 +23262,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
 
         {/* ===== CAMPANHAS ===== */}
         {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
-        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
           {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
               operação inteira. */}
@@ -25753,8 +25740,9 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
      score, que compara os corretores. `embutido` é a aba Relatórios dentro da
      Visão geral: sem a rolagem própria e sem o seletor de período (o da
      Visão geral, que é o mesmo, fica no alto). */
-  return <div style={embutido?{}:{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={embutido?{}:{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:embutido?"none":1440,margin:"0 auto"}}>
+      {!embutido&&<CabecalhoTela isMobile={isMobile} eyebrow={pickable?undefined:"MEU WORKSPACE"} titulo={pickable?"Relatórios que orientam decisões.":"Minha produção"} sub={pickable?"Pré-atendimento, equipe e resultado individual no mesmo lugar.":"Seu resultado com os indicadores e o funil."}/>}
       {(!embutido||(pickable&&dados.atendentes.length>1))&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
         {!embutido&&<SeletorPeriodo f={per} set={mudarPeriodo} isMobile={isMobile} estilo={entrada}/>}
         {pickable&&dados.atendentes.length>1&&<SeletorDePessoas valor={quemVer} comFila={false} isMobile={isMobile} estilo={entrada}
@@ -25971,6 +25959,16 @@ let KPIS_ESCOLHA=null; // o que a pessoa acabou de salvar, até a sessão ser re
    cartão de painel com título e subtítulo. Nenhuma regra mora aqui. */
 const ORG_ATUAL={nome:""};
 const dataHoje=()=>{const t=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});return t.charAt(0).toUpperCase()+t.slice(1);};
+/* O Atender no layout do protótipo: cabeçalho da tela e as três colunas
+   dentro de um cartão com borda. No celular, a tela inteira continua sendo
+   da conversa — o cabeçalho tomaria o espaço que falta. */
+function MolduraAtender({isMobile,corretor,children}){
+  if(isMobile) return children;
+  return <div style={{height:"100%",display:"flex",flexDirection:"column",minHeight:0,padding:"24px 32px 20px",boxSizing:"border-box"}}>
+    <CabecalhoTela isMobile={false} eyebrow={corretor?"MEU WORKSPACE":undefined} titulo="Atendimento com contexto." sub="Conversa, acompanhamento e informações do lead no mesmo lugar."/>
+    <div style={{flex:1,minHeight:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,overflow:"hidden",display:"flex",flexDirection:"column"}}>{children}</div>
+  </div>;
+}
 function CabecalhoTela({titulo,sub,acoes,isMobile,eyebrow}){
   const ey=eyebrow||(ORG_ATUAL.nome?`OPERAÇÃO · ${ORG_ATUAL.nome}`:"MEU WORKSPACE");
   return <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"flex-start",
@@ -26665,8 +26663,9 @@ function TelaLotes({acoes,session,isMobile,leads,abrirConversa}){
       borderRadius:999,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT,minHeight:34}}>
     {txt}{n!=null?<span style={{opacity:.7}}> · {n}</span>:null}</button>;
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"20px 24px"}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?"14px 16px 90px":"28px 32px"}}>
     <div style={{maxWidth:1440,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+      <CabecalhoTela isMobile={isMobile} titulo="Lotes do empreendimento." sub="Mapa, reservas e situação de cada lote."/>
       <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:220}}>
           <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?18:21,fontWeight:700}}>{cfg.nome||"Lotes"}</div>
