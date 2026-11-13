@@ -39,6 +39,7 @@ import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { corpoParaIA } from "../services/leitura-midia.js";
 import { simularPronto, simularLancamento } from "../services/simulador.js";
+import { previaLote, aplicarLote } from "../services/lote-selecao.js";
 
 const r = Router();
 r.use(authRequired);
@@ -911,6 +912,18 @@ function reanalisar(orgId, aplicar) {
 
    `soDono` não: é ADM como as outras operações em massa. Mexe na base inteira
    da imobiliária e não se desfaz na mão. */
+/* Ações em lote sobre leads escolhidos na Base de leads (CETRO 22.2). */
+r.post("/lote/acao/previa", roles("adm"), (req, res) => {
+  const p = previaLote(req.user.org_id, req.body || {});
+  if (p.erro) return res.status(400).json({ error: p.erro });
+  const { _aplicar, ...resto } = p; res.json(resto);
+});
+r.post("/lote/acao", roles("adm"), (req, res) => {
+  const r2 = aplicarLote(req.user.org_id, req.user.id, req.body || {});
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json(r2);
+});
+
 r.get("/lote/mover-funil", roles("adm"), (req, res) => {
   const r1 = previaMoverFunil(req.user.org_id, {
     userId: req.query.user_id, pipelineId: req.query.pipeline_id,
