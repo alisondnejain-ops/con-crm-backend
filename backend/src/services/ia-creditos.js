@@ -19,7 +19,7 @@
    centavo, e arredondar cada uma para cima cobraria o triplo do combinado.
 
    QUEM ENTRA NISSO: a conta em que o master LIGOU (`orgs.ia_creditos_ligado`).
-   Desligado é como sempre foi — o ConHub paga a IA. É o que impede esta
+   Desligado é como sempre foi — o CETRO paga a IA. É o que impede esta
    versão de calar o Autoatendimento de todas as contas que já usam, com
    saldo zero, no minuto em que sobe.
 
@@ -163,7 +163,7 @@ export const fmtReais = (v) => "R$ " + Number(v || 0).toLocaleString("pt-BR", { 
 function avisarGestores(orgId, titulo, corpo) {
   for (const g of gestoresDa(orgId)) {
     push(g.id, { titulo, corpo }).catch(() => {});
-    if (g.email) sendMail({ to: g.email, subject: `ConHub — ${titulo}`,
+    if (g.email) sendMail({ to: g.email, subject: `CETRO — ${titulo}`,
       html: `<p>Olá, ${String(g.name || "").split(" ")[0]}!</p><p>${corpo}</p>` }).catch(() => {});
   }
   console.log(`[ia-creditos] ${titulo} (${orgId})`);
@@ -220,7 +220,7 @@ export function ajustarPeloMaster(orgId, { ligado, reais, motivo, quem }) {
     const micro = Math.round(v * MICRO);
     db.prepare(`INSERT INTO ia_creditos_mov (id,org_id,tipo,micro,valor,descricao,status,criado_por,criado_em,pago_em)
       VALUES (?,?,'ajuste',?,?,?,'feito',?,?,?)`).run("icr_" + randomUUID(), orgId, micro, v,
-      String(motivo || (v > 0 ? "Crédito do ConHub" : "Correção do ConHub")).slice(0, 120), quem || null, Date.now(), Date.now());
+      String(motivo || (v > 0 ? "Crédito do CETRO" : "Correção do CETRO")).slice(0, 120), quem || null, Date.now(), Date.now());
     if (v > 0) creditar(orgId, micro);
     else db.prepare("UPDATE orgs SET ia_saldo_micro = COALESCE(ia_saldo_micro,0) + ? WHERE id = ?").run(micro, orgId);
   }

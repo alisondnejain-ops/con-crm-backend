@@ -476,7 +476,7 @@ export async function atender(orgId, leadId, opcoes = {}) {
     registrarUsoIA({ orgId, userId: null, leadId, recurso: "atendimento", uso: r.uso });
 
     /* O filtro de palavras que barrava a resposta ("visita", "contrato",
-       "proposta"…) saiu em 08/10/2026: ele era uma regra fixa do ConHub, e as
+       "proposta"…) saiu em 08/10/2026: ele era uma regra fixa do CETRO, e as
        regras do atendimento agora são de cada conta. A palavra também já não
        move o funil (26/08/2026), e `advanceStage` não roda enquanto a IA atende. */
 

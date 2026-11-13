@@ -110,7 +110,7 @@ function linkDaEquipe(req, user) {
    Nenhuma das duas tinha: `/criar-imobiliaria` é totalmente aberta e
    `/register` só exige o código da casa, que circula no grupo da equipe. Um
    laço de dez linhas criava imobiliárias e convites a noite inteira — e cada
-   um deles DISPARA UM E-MAIL pelo nosso Resend, o que transforma o ConHub numa
+   um deles DISPARA UM E-MAIL pelo nosso Resend, o que transforma o CETRO numa
    máquina de spam com o nosso domínio assinando. A limpeza é manual e a
    reputação do domínio queimado não se limpa.
 
@@ -264,7 +264,7 @@ r.post("/register", freioDeCadastro, async (req, res) => {
     && linhas.find(l => l.status === "ativo" && l.pass_hash);
   if (ativaFora) {
     const senhaAtual = req.body?.senha_atual;
-    const pedido = "Esse e-mail já usa o ConHub em outra conta. Para pedir acesso a esta também, digite a senha que você já usa no ConHub.";
+    const pedido = "Esse e-mail já usa o CETRO em outra conta. Para pedir acesso a esta também, digite a senha que você já usa no CETRO.";
     if (!senhaAtual) return res.status(409).json({ ja_tem_conta: true, error: pedido });
     const chave = "vincular:" + mail;
     if (!podeTentar(chave, 8, 15 * 60 * 1000))
@@ -272,7 +272,7 @@ r.post("/register", freioDeCadastro, async (req, res) => {
     if (ativaFora.senha_bloqueada_em)
       return res.status(423).json({ ja_tem_conta: true, error: BLOQUEADA });
     if (!bcrypt.compareSync(String(senhaAtual), ativaFora.pass_hash))
-      return res.status(401).json({ ja_tem_conta: true, error: "Senha incorreta. Use a mesma senha com que você entra no ConHub." });
+      return res.status(401).json({ ja_tem_conta: true, error: "Senha incorreta. Use a mesma senha com que você entra no CETRO." });
     zerarTentativas(chave);
     db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,phone,status)
       VALUES (?,?,?,?,?,?,0,?,?,'aguardando_aprovacao')`)
@@ -285,7 +285,7 @@ r.post("/register", freioDeCadastro, async (req, res) => {
     return res.status(409).json({ error: existing.org_id === org.id
       ? "Esse e-mail já tem acesso a esta conta. Use 'Entrar' no CRM." : "Esse e-mail já tem conta ativa. Use 'Entrar' no CRM." });
   /* Convite repetido só reaproveita conta DESTA imobiliária e que não é do
-     ConHub: um sócio convidado (master) ou alguém de outra casa não pode ter
+     CETRO: um sócio convidado (master) ou alguém de outra casa não pode ter
      o convite reemitido por quem tem o link de cadastro de uma imobiliária. */
   if (existing && (existing.master || existing.org_id !== org.id))
     return res.status(409).json({ error: EMAIL_EM_USO });
@@ -611,6 +611,18 @@ r.post("/me/barra", authRequired, (req, res) => {
   res.json({ barra_recolhida: !!recolhida });
 });
 
+/* Os indicadores que a pessoa escolheu ver no Painel (13/11/2026, CETRO 06.2).
+   Guarda só CHAVES de uma lista fechada; o que não está nela é descartado. */
+export const KPIS_PAINEL = ["vgv", "vgc", "ticket_medio", "vendas", "lead_em_venda_pct", "leads",
+  "qualificados", "visitas", "agendamentos", "ligacoes", "faladas", "propostas"];
+const kpisDoPainel = (v) => Array.isArray(v) ? [...new Set(v.filter(k => KPIS_PAINEL.includes(k)))] : null;
+r.post("/me/painel", authRequired, (req, res) => {
+  const lista = kpisDoPainel(req.body?.kpis);
+  const valor = lista && lista.length ? JSON.stringify(lista) : null;
+  db.prepare("UPDATE users SET painel_kpis=? WHERE id=?").run(valor, req.user.id);
+  res.json({ painel_kpis: valor ? lista : null });
+});
+
 /* A ordem do menu da própria pessoa. `POST /auth/me/menu`
 
    Preferência de tela, como a barra recolhida, e pelo mesmo motivo numa rota
@@ -639,7 +651,7 @@ r.post("/me/menu", authRequired, (req, res) => {
 /* O CÓDIGO DE ACESSO DA CONTA (14/10/2026) — ver services/acesso-master.js.
    Só a gestão da própria conta vê o código; o master nunca, nem de dentro da
    conta (senão quem entrou uma vez leria o código seguinte e voltaria sem
-   pedir). Junto, a lista das entradas do ConHub e o botão de encerrar. */
+   pedir). Junto, a lista das entradas do CETRO e o botão de encerrar. */
 const soGestaoDaConta = (req, res, next) =>
   req.user.master ? res.status(403).json({ error: "O código de acesso é da gestão da conta." }) : next();
 
@@ -647,10 +659,10 @@ r.get("/conta/acesso", authRequired, roles("adm"), soGestaoDaConta, (req, res) =
   const org = db.prepare("SELECT id, tipo, demo, parceira, acesso_livre, acesso_livre_em FROM orgs WHERE id = ?").get(req.user.org_id);
   res.json({ pede_codigo: contaPedeCodigo(org), ...(codigoAtual(req.user.org_id) || {}),
     horas: ACESSO_HORAS, acessos: acessosDaConta(req.user.org_id), agora: Date.now(),
-    /* A exceção ligada pelo ConHub fica à vista de quem é dono dos dados. */
+    /* A exceção ligada pelo CETRO fica à vista de quem é dono dos dados. */
     livre: acessoLivre(org) ? { desde: org.acesso_livre_em || null, horas: ACESSO_LIVRE_HORAS, usado_hoje_ms: usadoHoje(org.id) } : null });
 });
-/* A gestão desliga a entrada sem código que o ConHub ligou: a partir daí o
+/* A gestão desliga a entrada sem código que o CETRO ligou: a partir daí o
    código volta a ser pedido. Junto, encerra a entrada que estiver aberta. */
 r.post("/conta/acesso/livre/desligar", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
   db.prepare("UPDATE orgs SET acesso_livre = 0, acesso_livre_em = NULL, acesso_livre_por = NULL WHERE id = ?").run(req.user.org_id);
@@ -660,7 +672,7 @@ r.post("/conta/acesso/livre/desligar", authRequired, roles("adm"), soGestaoDaCon
 });
 r.post("/conta/acesso/encerrar", authRequired, roles("adm"), soGestaoDaConta, (req, res) => {
   const n = encerrarAcessos(req.user.org_id);
-  if (n) console.log(`[acesso] ${req.user.name} encerrou ${n} acesso(s) do ConHub à conta ${req.user.org_id}`);
+  if (n) console.log(`[acesso] ${req.user.name} encerrou ${n} acesso(s) do CETRO à conta ${req.user.org_id}`);
   res.json({ ok: true, encerrados: n, acessos: acessosDaConta(req.user.org_id) });
 });
 
@@ -808,7 +820,7 @@ const REDEFINICAO_HORAS = 24;
    Existindo ou não a conta, esta rota responde 200 com a mesma frase. É a
    trava principal, e ela não é decoração: qualquer diferença — mensagem,
    código HTTP, até o tempo de resposta — transforma a rota num CONSULTOR DE
-   E-MAILS. Quem quisesse saber quais dos seus clientes usam o ConHub bastaria
+   E-MAILS. Quem quisesse saber quais dos seus clientes usam o CETRO bastaria
    ir testando endereços aqui até a resposta mudar.
 
    Pelo mesmo motivo, conta removida, recusada ou que nunca definiu senha
@@ -816,7 +828,7 @@ const REDEFINICAO_HORAS = 24;
 
    ===== O FREIO É DUPLO =====
 
-   Por IP (impede a varredura) e por E-MAIL (impede usar o ConHub para encher a
+   Por IP (impede a varredura) e por E-MAIL (impede usar o CETRO para encher a
    caixa de alguém: sem ele, um laço manda mil e-mails para o mesmo endereço em
    nome da nossa marca, e quem paga a conta do domínio queimado somos nós).
    Em memória de propósito, igual ao freio de `/publico/comecar`: some no
@@ -1033,7 +1045,7 @@ r.post("/users/:id/remover", authRequired, roles("adm", "sdr"), (req, res) => {
   const casa = db.prepare("SELECT dono_user_id FROM orgs WHERE id = ?").get(req.user.org_id);
   if (casa && casa.dono_user_id && casa.dono_user_id === u.id)
     return res.status(409).json({
-      error: "Essa pessoa é a titular da conta — é quem responde pela mensalidade. Para trocar o titular, fale com o ConHub." });
+      error: "Essa pessoa é a titular da conta — é quem responde pela mensalidade. Para trocar o titular, fale com o CETRO." });
 
   let destino = null;
   if (destino_leads) {
@@ -1076,6 +1088,7 @@ function publicUser(u) {
            barra_recolhida: !!u.barra_recolhida,
            // A ordem do menu que a pessoa escolheu (nulo = padrão do papel).
            menu_ordem: (() => { try { return ordemDoMenu(JSON.parse(u.menu_ordem || "null")); } catch { return null; } })(),
+           painel_kpis: (() => { try { return kpisDoPainel(JSON.parse(u.painel_kpis || "null")); } catch { return null; } })(),
            /* PODE GERIR A PRÓPRIA CASA sem ser `adm`. (02/09/2026)
 
               É o corretor autônomo: o papel dele é `corretor`, porque é isso

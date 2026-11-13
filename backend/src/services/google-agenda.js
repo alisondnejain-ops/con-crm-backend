@@ -47,7 +47,7 @@ async function postarForm(url, campos) {
 export async function conectar(user, code, redirect) {
   const d = await postarForm(`${OAUTH()}/token`, { code, client_id: process.env.GOOGLE_CLIENT_ID,
     client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: redirect, grant_type: "authorization_code" });
-  if (!d.refresh_token) throw new Error("o Google não devolveu a permissão permanente. Tire o acesso do ConHub na sua conta Google e conecte de novo.");
+  if (!d.refresh_token) throw new Error("o Google não devolveu a permissão permanente. Tire o acesso do CETRO na sua conta Google e conecte de novo.");
   db.prepare(`INSERT INTO google_contas (user_id, org_id, refresh_token, conectado_em) VALUES (?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET org_id = excluded.org_id, refresh_token = excluded.refresh_token, conectado_em = excluded.conectado_em`)
     .run(user.id, user.org_id, fechar(d.refresh_token), Date.now());
@@ -102,7 +102,7 @@ export async function eventoDaTarefa(tarefaId, { meet = false } = {}) {
     const base = (process.env.APP_URL || "").replace(/\/$/, "");
     const evento = {
       summary: `${t.titulo} · ${t.lead_nome || "lead"}`,
-      description: `Tarefa do ConHub${base ? `\nAbrir a conversa: ${base}/app?lead=${t.lead_id}` : ""}`,
+      description: `Tarefa do CETRO${base ? `\nAbrir a conversa: ${base}/app?lead=${t.lead_id}` : ""}`,
       start: { dateTime: new Date(t.quando).toISOString() },
       end: { dateTime: new Date(t.quando + 30 * 60000).toISOString() },
       ...(meet ? { conferenceData: { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } } } : {}),

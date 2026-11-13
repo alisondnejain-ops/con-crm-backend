@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS mensagens_rapidas (
    toda vez que a abordagem muda.
 
    Desde 08/10/2026 estas linhas SÃO as regras do atendimento (o que perguntar,
-   o que falar, o que nunca fazer): não há mais proibição fixa do ConHub no
+   o que falar, o que nunca fazer): não há mais proibição fixa do CETRO no
    texto da IA — cada conta define as suas (pedido do Ali). */
 CREATE TABLE IF NOT EXISTS robo_ensino (
   id TEXT PRIMARY KEY,
@@ -324,7 +324,7 @@ CREATE TABLE IF NOT EXISTS config_plataforma (
   atualizado_em INTEGER
 );
 /* ===== PIPELINES E ETAPAS CONFIGURAVEIS =====
-   (28/08/2026 - o core de gestao do ConHub)
+   (28/08/2026 - o core de gestao do CETRO)
 
    O funil era uma lista fixa de 11 nomes num arquivo do servidor
    (services/stages.js), igual para toda imobiliaria. Isso servia enquanto o
@@ -679,7 +679,7 @@ addUserCol("menu_ordem", "TEXT");
    imobiliária. Papel novo exigiria mexer no CHECK da tabela (que o SQLite não
    altera sem recriar) e revisar todo `roles("adm")` do sistema.
 
-   Com o ConHub virando SaaS, é o que separa "quem opera a Conecta" de "quem
+   Com o CETRO virando SaaS, é o que separa "quem opera a Conecta" de "quem
    mantém o sistema". Ver auth.js -> semMaster(). */
 addUserCol("master", "INTEGER DEFAULT 0");
 // Quando a pessoa se prontificou. É o que faz a disponibilidade expirar no fim
@@ -772,7 +772,7 @@ addOrgCol("uazapi_token", "TEXT");
    `canais_incluidos` é quantas já estão pagas dentro da mensalidade. O padrão
    é 1 porque a linha da casa já vinha junto do plano desde antes disto existir;
    passar a cobrar por ela seria aumentar o preço de quem já é cliente sem
-   ninguém ter combinado. O ConHub muda esse número pelo hub quando quiser. */
+   ninguém ter combinado. O CETRO muda esse número pelo hub quando quiser. */
 addOrgCol("limite_canais", "INTEGER DEFAULT 11");
 addOrgCol("canais_incluidos", "INTEGER DEFAULT 1");
 addOrgCol("valor_canal", "REAL");
@@ -1178,7 +1178,7 @@ for (const [col, tipo] of [
    quem viu o endereço do feed alguém capaz de encher o CRM de lead falso. */
 /* PÁGINAS DO FACEBOOK CONECTADAS PELO BOTÃO "Conectar com Facebook"
    (01/10/2026). `page_id` é a CHAVE: uma página pertence a UMA conta do
-   ConHub, e é por ela que o lead de formulário que a Meta avisa encontra a
+   CETRO, e é por ela que o lead de formulário que a Meta avisa encontra a
    imobiliária certa. Lead de página que não está aqui não é entregue a
    ninguém (exceto a página antiga da instalação, ver meta.webhook.js).
    `page_token` vai fechado pelo cofre quando a CRYPTO_KEY existe. */
@@ -1241,7 +1241,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS redes_destinos (
 db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_fila ON redes_destinos(status, proxima_em)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_redes_destinos_post ON redes_destinos(post_id)");
 /* Seguidores anotados um por dia: a Meta não devolve a série antiga, então o
-   crescimento só existe a partir do dia em que o ConHub começou a anotar. */
+   crescimento só existe a partir do dia em que o CETRO começou a anotar. */
 db.exec(`CREATE TABLE IF NOT EXISTS redes_seguidores (
   org_id TEXT NOT NULL, page_id TEXT NOT NULL, rede TEXT NOT NULL, dia TEXT NOT NULL, seguidores INTEGER,
   PRIMARY KEY (org_id, page_id, rede, dia)
@@ -1419,7 +1419,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS sites (
 /* O SITE NO DOMÍNIO DA IMOBILIÁRIA, Google Tag Manager e SEO (04/10/2026,
    pedido do Ali). `dominio` é o endereço que a imobiliária registrou (ex.:
    www.imobiliaria.com.br), único na plataforma; `dominio_destino` é para onde
-   o DNS dela tem que apontar (o ConHub ativa o domínio na hospedagem e anota
+   o DNS dela tem que apontar (o CETRO ativa o domínio na hospedagem e anota
    aqui o destino que ela deu); `dominio_estado` é aguardando_conhub |
    aguardando_dns | ativo; `dominio_detalhe` é o motivo da última conferência,
    em português. */
@@ -1839,7 +1839,7 @@ CREATE TABLE IF NOT EXISTS numeros_pessoais (
 db.exec("DROP INDEX IF EXISTS idx_canal_token");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canal_token ON canais(token) WHERE token IS NOT NULL AND provider = 'uazapi'");
 /* E o de `phone_number_id` é o equivalente para a linha oficial: um número da
-   Meta só pode estar registrado numa linha do ConHub por vez — não porque duas
+   Meta só pode estar registrado numa linha do CETRO por vez — não porque duas
    imobiliárias possam disputar o mesmo número (a Meta já impede isso do lado
    dela), mas porque é a mesma garantia que o token dava: a coluna que aponta
    para "qual linha é esta" tem que ser única. */
@@ -1868,7 +1868,7 @@ addMsgCol("canal_id", "TEXT");
 /* ===== MARKETING: A ESTRUTURA DO DISPARO EM MASSA (27/09/2026) =====
 
    Primeira fase, pedido do Ali: antes de qualquer envio existir, tudo o que
-   PROVA que o ConHub cumpriu a lei e que a responsabilidade pelos contatos é
+   PROVA que o CETRO cumpriu a lei e que a responsabilidade pelos contatos é
    da imobiliária. Ver services/marketing.js.
 
    - `orgs.marketing_liberado`: o master liga por conta, no hub. Desligado é o
@@ -2351,7 +2351,7 @@ CREATE INDEX IF NOT EXISTS idx_etapas_pendentes ON lead_etapas(org_id) WHERE eta
    pedido de quem.
 
    `suporte_chamados`/`suporte_mensagens`: a conversa com uma pessoa do
-   ConHub, levada para o WhatsApp do suporte e trazida de volta. `wa_id` é o
+   CETRO, levada para o WhatsApp do suporte e trazida de volta. `wa_id` é o
    id da mensagem que saiu para o WhatsApp — é por ele que a resposta citada
    volta para o chamado certo. */
 db.exec(`
@@ -2507,10 +2507,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS cetrolab_conteudo (
      conta, e só a nova senha pelo e-mail ("Esqueci minha senha") destrava.
    - orgs.acesso_segredo: a semente do CÓDIGO DE ACESSO de cada conta — 6
      dígitos que mudam a cada 60 segundos, vistos só pela gestão da conta. O
-     master do ConHub só entra na conta digitando o código do momento.
+     master do CETRO só entra na conta digitando o código do momento.
      Guardada fechada pelo cofre quando há CRYPTO_KEY.
    - acessos_master: cada entrada do master numa conta, com prazo. É o
-     registro que a gestão vê ("o ConHub entrou na sua conta em…"). */
+     registro que a gestão vê ("o CETRO entrou na sua conta em…"). */
 {
   const u = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
   if (!u.includes("senha_erros")) db.exec("ALTER TABLE users ADD COLUMN senha_erros INTEGER DEFAULT 0");
@@ -2546,7 +2546,7 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_acessos_master_org ON acessos_master(org
      nova dos indicadores do SDR e da fila da Catraca. Liga conta por conta,
      pelo master — nula ou 0 é a régua de sempre, então nenhuma conta muda. */
   if (!o.includes("fila_por_etapa")) db.exec("ALTER TABLE orgs ADD COLUMN fila_por_etapa INTEGER");
-  // Conta parceira do ConHub (11/11/2026): sem cobrança, todas as ferramentas, master entra sem código.
+  // Conta parceira do CETRO (11/11/2026): sem cobrança, todas as ferramentas, master entra sem código.
   if (!o.includes("parceira")) db.exec("ALTER TABLE orgs ADD COLUMN parceira INTEGER");
   if (!o.includes("parceira_em")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_em INTEGER");
   if (!o.includes("parceira_por")) db.exec("ALTER TABLE orgs ADD COLUMN parceira_por TEXT");
@@ -2815,3 +2815,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS leads_retirados (
   retirado_por TEXT,
   retirado_em INTEGER NOT NULL
 )`);
+
+/* CETRO, 13/11/2026: as metas ganham leads trabalhados, qualificados e vendas
+   em quantidade (especificação 06.4), e o Painel guarda os indicadores que a
+   pessoa escolheu ver (06.2) — preferência dela, em qualquer aparelho. */
+{
+  const m = db.prepare("PRAGMA table_info(metas)").all().map(x => x.name);
+  for (const c of ["trabalhados", "qualificados", "vendas"])
+    if (!m.includes(c)) db.exec(`ALTER TABLE metas ADD COLUMN ${c} INTEGER`);
+  const u = db.prepare("PRAGMA table_info(users)").all().map(x => x.name);
+  if (!u.includes("painel_kpis")) db.exec("ALTER TABLE users ADD COLUMN painel_kpis TEXT");
+}

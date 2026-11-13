@@ -404,7 +404,7 @@ r.get("/export", roles("adm"), (req, res) => {
 
    Três decisões que evitam estrago numa base que já está rodando:
    - telefone repetido é IGNORADO, não sobrescrito. Se o cliente já está no
-     ConHub com histórico de conversa, uma planilha antiga não pode apagar isso
+     CETRO com histórico de conversa, uma planilha antiga não pode apagar isso
    - lead importado entra SEM dono por padrão. Quem distribui é a catraca ou o
      gestor; adivinhar corretor por nome parecido daria lead na mão errada
    - etapa desconhecida vira "Lead". Melhor entrar no começo do funil do que

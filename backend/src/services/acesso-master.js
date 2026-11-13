@@ -1,11 +1,11 @@
 /* O CÓDIGO DE ACESSO DE CADA CONTA (14/10/2026, pedido do Ali: "token de
-   segurança para cada conta criada no ConHub… instantâneo, até 1 minuto, e
+   segurança para cada conta criada no CETRO… instantâneo, até 1 minuto, e
    quando zerar o contador o token renumera… protege imobiliárias grandes
    inclusive do acesso que um master pode fazer").
 
    Cada conta (imobiliária ou corretor autônomo) tem um código de 6 dígitos
    que muda a cada 60 segundos. Só a GESTÃO da conta o vê, dentro do CRM. O
-   master do ConHub só entra na conta digitando o código daquele minuto — ou
+   master do CETRO só entra na conta digitando o código daquele minuto — ou
    seja, só entra quando o cliente passa o código, e o cliente sabe quando.
 
    COMO O CÓDIGO NASCE: uma semente aleatória por conta (`orgs.acesso_segredo`,
@@ -78,11 +78,11 @@ export function registrarUso(acessoId, agora = Date.now()) {
   db.prepare("UPDATE acessos_master SET visto_em = ? WHERE id = ?").run(agora, a.id);
 }
 
-/* As contas que NÃO pedem código: a do próprio ConHub (ambiente interno) e a
+/* As contas que NÃO pedem código: a do próprio CETRO (ambiente interno) e a
    de demonstração — nenhuma das duas tem dado de cliente de verdade. */
 export function contaPedeCodigo(org) {
   if (!org) return false;
-  // A conta parceira é coordenada pelo próprio ConHub (11/11/2026): o master entra sem código.
+  // A conta parceira é coordenada pelo próprio CETRO (11/11/2026): o master entra sem código.
   return org.tipo !== "interna" && !org.demo && !org.parceira;
 }
 
@@ -151,7 +151,7 @@ export function acessosDaConta(orgId) {
     .map(a => ({ ...a, aberto: !a.encerrado_em && a.ate > agora }));
 }
 
-/* A gestão encerra as entradas abertas do ConHub na conta dela. */
+/* A gestão encerra as entradas abertas do CETRO na conta dela. */
 export function encerrarAcessos(orgId) {
   return db.prepare("UPDATE acessos_master SET encerrado_em = ? WHERE org_id = ? AND encerrado_em IS NULL AND ate > ?")
     .run(Date.now(), orgId, Date.now()).changes;

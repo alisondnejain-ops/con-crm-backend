@@ -1,7 +1,7 @@
 /* ===== PROPOSTA PERSONALIZADA: O CHECKOUT DE UM CLIENTE SÓ =====
    (10/11/2026, pedido do Ali: "vendemos um plano anual para uma imobiliária
    que vai precisar de 42 acessos por R$ 14.400 — cria um link com o preço
-   parcelado em evidência, exatamente como a página de vendas do ConHub")
+   parcelado em evidência, exatamente como a página de vendas do CETRO")
 
    A página de vendas (`/comecar`) só conhece os planos da tabela. A venda
    negociada — preço, prazo e quantidade de acessos combinados com UM cliente —
@@ -11,7 +11,7 @@
 
    A proposta é essa porta. O master cria no hub (nome do cliente, valor,
    parcelas, meses, acessos, o que está incluído, validade) e manda o link
-   `/proposta/<código>`. O cliente vê a página com a cara do ConHub, montada
+   `/proposta/<código>`. O cliente vê a página com a cara do CETRO, montada
    para ele, e paga ali mesmo.
 
    ===== AS TRAVAS =====
@@ -112,7 +112,7 @@ export function lerEntrada(corpo = {}) {
     throw new ErroProposta(400, "A conta escolhida não existe.");
   return {
     cliente, total, parcelas, meses, acessos, dias, itens, recursos, orgId, provedor,
-    titulo: texto(corpo.titulo, 80) || `Plano ConHub · ${meses === 12 ? "anual" : meses + " meses"}`,
+    titulo: texto(corpo.titulo, 80) || `Plano CETRO · ${meses === 12 ? "anual" : meses + " meses"}`,
     contato_nome: texto(corpo.contato_nome, 80) || null,
     contato_email: texto(corpo.contato_email, 120).toLowerCase() || null,
     mensagem: texto(corpo.mensagem, 400) || null,
@@ -229,7 +229,7 @@ export function confirmarProposta(p, { orgId, cobrancaId, valor = null, quando =
   const porMes = Math.round((atual.total / atual.meses) * 100) / 100;
   const provedor = atual.provedor === "asaas" ? "asaas" : "pagarme";
   db.prepare(`UPDATE orgs SET cobranca = ?, plano_id = NULL, plano = ?, valor_mensal = ?, cancelado_em = NULL,
-      assinatura_status = NULL WHERE id = ?`).run(provedor, `ConHub · ${atual.titulo}`, porMes, org.id);
+      assinatura_status = NULL WHERE id = ?`).run(provedor, `CETRO · ${atual.titulo}`, porMes, org.id);
   registrarPagamento(org.id, { quando, valor: valor != null ? Number(valor) : atual.total, origem: provedor,
     asaasId: cobrancaId || atual.id, meses: atual.meses, obs: `Proposta: ${atual.titulo}` });
   for (const r of json(atual.recursos_json, [])) {
@@ -311,7 +311,7 @@ export function nascerConta({ orgId, nome, email, telefone, marca, passHash, cob
 /* ===== PELO ASAAS (10/11/2026, pedido do Ali: "a taxa dele é melhor") =====
 
    O cartão é digitado na FATURA HOSPEDADA do Asaas — a mesma regra do resto do
-   ConHub com o Asaas: número de cartão nunca passa por aqui. A página da
+   CETRO com o Asaas: número de cartão nunca passa por aqui. A página da
    proposta continua sendo a nossa (o preço em destaque, o que está incluído);
    o botão cria o parcelamento e abre a fatura.
 

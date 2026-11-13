@@ -15,6 +15,7 @@ import { authRequired, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo } from "../services/painel.js";
 import { conferenciaDoFunil } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
+import { proximosPassos } from "../services/proximos-passos.js";
 import { visaoGeral, metasComRealizado, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
 
 const r = Router();
@@ -109,6 +110,14 @@ r.get("/geral", (req, res) => {
   const alvo = f.responsavel && f.responsavel !== "fila" ? f.responsavel : null;
   dados.metas = metasComRealizado(req.user.org_id, alvo, mesAtual());
   res.json(dados);
+});
+
+/* PRÓXIMOS PASSOS (CETRO 06.3): a mesma trava do /geral — quem não
+   supervisiona vê só os próprios leads, o que vier na query é descartado. */
+r.get("/proximos", (req, res) => {
+  const f = filtrosDe(req.query);
+  if (!supervisiona(req.user)) f.responsavel = req.user.id;
+  res.json(proximosPassos(req.user.org_id, f));
 });
 
 /* METAS: LER e ESCREVER são só da gestão — é ela quem combina o número do

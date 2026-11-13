@@ -1,13 +1,13 @@
 /* OS PLANOS DO CETROLAB (12/10/2026, decisão do Ali: "você define no hub").
 
    O preço de site não está escrito no código, ao contrário dos planos do
-   ConHub: o produto é novo e o preço vai mudar enquanto o mercado responde.
+   CETRO: o produto é novo e o preço vai mudar enquanto o mercado responde.
    Quem cadastra é o master, no hub. Enquanto não houver plano cadastrado,
    NADA fica à venda — a ferramenta aparece como "em breve", e o master ainda
    pode liberá-la na mão para uma conta (cortesia, teste).
 
    Dois públicos, uma tabela:
-     - `conhub`: o preço da ferramenta para quem já é cliente do ConHub. UM SÓ
+     - `conhub`: o preço da ferramenta para quem já é cliente do CETRO. UM SÓ
        ativo: é ele que a contratação avulsa cobra (services/recursos.js), e
        dois preços ativos para a mesma ferramenta seriam uma escolha que
        ninguém sabe quem faz.
@@ -20,7 +20,7 @@
 import { randomUUID } from "crypto";
 import db from "../../db.js";
 
-export const PUBLICOS = { conhub: "Clientes do ConHub", fora: "Quem não é cliente (só o site)" };
+export const PUBLICOS = { conhub: "Clientes do CETRO", fora: "Quem não é cliente (só o site)" };
 
 const formatar = (l) => l && ({
   id: l.id, nome: l.nome, resumo: l.resumo || "", valor_mensal: l.valor_mensal,
@@ -63,7 +63,7 @@ export function salvarPlano(id, b = {}) {
     novo.valor_mensal = v;
   }
   if (b.para !== undefined || !atual) {
-    if (!PUBLICOS[b.para]) return { erro: "Escolha para quem é o plano: clientes do ConHub ou quem vai contratar só o site." };
+    if (!PUBLICOS[b.para]) return { erro: "Escolha para quem é o plano: clientes do CETRO ou quem vai contratar só o site." };
     novo.para = b.para;
   }
   if (b.ativo !== undefined) novo.ativo = b.ativo ? 1 : 0;
@@ -71,7 +71,7 @@ export function salvarPlano(id, b = {}) {
 
   if (novo.para === "conhub" && novo.ativo) {
     const outro = db.prepare("SELECT nome FROM cetrolab_planos WHERE para = 'conhub' AND ativo = 1 AND id <> ?").get(id || "");
-    if (outro) return { erro: `Já existe um preço ativo para clientes do ConHub ("${outro.nome}"). Desative-o antes — a contratação cobra um preço só.`, status: 409 };
+    if (outro) return { erro: `Já existe um preço ativo para clientes do CETRO ("${outro.nome}"). Desative-o antes — a contratação cobra um preço só.`, status: 409 };
   }
 
   const agora = Date.now();

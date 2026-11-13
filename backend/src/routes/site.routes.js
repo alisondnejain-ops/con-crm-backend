@@ -81,7 +81,7 @@ function paginaDoImovel(ctx, req, res) {
    Pedido de qualquer outro endereço passa direto (`next()`), sem custo: a
    pergunta "este endereço é de algum site?" é respondida por uma tabela em
    memória. Por isso esta é a única peça montada no servidor sem caminho — ela
-   não barra nada do endereço do ConHub; só responde pelos domínios dos sites. */
+   não barra nada do endereço do CETRO; só responde pelos domínios dos sites. */
 export const dominioProprio = Router();
 dominioProprio.use((req, res, next) => {
   const achado = orgDoDominio(req.get("host"));
@@ -116,7 +116,7 @@ function resposta(req) {
     nome_site: c.nome_site || "", google_verificacao: c.google_verificacao || "",
     // O endereço que se cadastra no Search Console (propriedade "Prefixo do
     // URL") e o mapa do site que se envia lá: o domínio próprio, quando ativo;
-    // senão, o endereço do site no ConHub.
+    // senão, o endereço do site no CETRO.
     google_endereco: c.dominio && c.dominio_estado === "ativo" ? `https://${c.dominio}/` : `${baseDe(req)}/imoveis/${c.slug}/`,
     google_sitemap: c.dominio && c.dominio_estado === "ativo" ? `https://${c.dominio}/sitemap.xml` : `${baseDe(req)}/imoveis/${c.slug}/sitemap.xml`,
     dominio: c.dominio || "", dominio_destino: c.dominio_destino || "", dominio_estado: c.dominio_estado || null,

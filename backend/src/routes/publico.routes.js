@@ -7,7 +7,7 @@
 
    Esta rota é o outro lado desse botão: o corretor preenche três campos no
    site, a conta nasce em teste e ele recebe o link para criar a senha e entrar.
-   Ninguém do ConHub precisa estar acordado.
+   Ninguém do CETRO precisa estar acordado.
 
    ===== POR QUE ELA MORA SOZINHA, NUM ARQUIVO SÓ DELA =====
 
@@ -97,7 +97,7 @@ const paraVitrine = (p) => ({
 
 /* CETROLAB: os planos de quem vai contratar SÓ o site (12/10/2026). É o
    gatilho para a página de venda do Cetrolab — os preços vêm do hub, como os
-   do ConHub vêm da tabela do servidor: preço copiado na página divergiria no
+   do CETRO vêm da tabela do servidor: preço copiado na página divergiria no
    primeiro reajuste. A contratação em si é a etapa seguinte. */
 /* A lista de países do telefone (02/11/2026), para as páginas de cadastro —
    que são HTML puro e não passam pelo build do app. É a MESMA lista do
@@ -208,7 +208,7 @@ r.post("/publico/comecar", async (req, res) => {
   const jaExiste = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (jaExiste && jaExiste.status === "ativo")
     return res.status(409).json({
-      error: "Esse e-mail já tem conta no ConHub. Entre com a sua senha — ou peça uma nova na tela de entrada.",
+      error: "Esse e-mail já tem conta no CETRO. Entre com a sua senha — ou peça uma nova na tela de entrada.",
       ja_tem_conta: true, entrar: `${siteUrl(req)}/app`,
     });
   if (!cadastroPodeReaproveitar(jaExiste))
@@ -355,7 +355,7 @@ r.post("/publico/assinar", async (req, res) => {
   const jaExiste = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (jaExiste && jaExiste.status === "ativo")
     return res.status(409).json({
-      error: "Esse e-mail já tem conta no ConHub. Entre com a sua senha — ou peça uma nova na tela de entrada.",
+      error: "Esse e-mail já tem conta no CETRO. Entre com a sua senha — ou peça uma nova na tela de entrada.",
       ja_tem_conta: true, entrar: `${siteUrl(req)}/app`,
     });
   if (!cadastroPodeReaproveitar(jaExiste))

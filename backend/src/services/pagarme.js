@@ -3,7 +3,7 @@
    pay para upgrade e contratação").
 
    POR QUE ELE: é o que cobre o cliente brasileiro inteiro num provedor só —
-   cartão com tokenização (o cartão é digitado DENTRO do ConHub e vai direto
+   cartão com tokenização (o cartão é digitado DENTRO do CETRO e vai direto
    do navegador para o Pagar.me, sem passar pelo nosso servidor), assinatura
    recorrente, parcelado em 12x e Pix/boleto. O cartão fica guardado no
    cliente do Pagar.me e serve para cobrar de novo sem a pessoa digitar nada:
@@ -168,7 +168,7 @@ export const trocarCartaoDaAssinatura = (assinaturaId, cartaoId) =>
 /* ===== PEDIDO À VISTA OU PARCELADO (o anual em 12x) =====
 
    Uma cobrança só, no valor CHEIO, parcelada no cartão do cliente — a
-   imobiliária/ConHub recebe conforme o contrato de antecipação com a Stone,
+   imobiliária/CETRO recebe conforme o contrato de antecipação com a Stone,
    e o CRM credita os doze meses de uma vez quando o pedido é pago. */
 export function criarPedido({ clienteId, cartaoId, valor, parcelas = 1, descricao, codigo, metadata = {} }) {
   return chamar("/orders", { metodo: "POST", corpo: {
@@ -214,7 +214,7 @@ export function criarBoleto({ clienteId, valor, vencimento, descricao, codigo, m
     items: [{ amount: centavos(valor), description: descricao, quantity: 1, code: codigo || "conhub" }],
     payments: [{
       payment_method: "boleto",
-      boleto: { instructions: "Pagamento da mensalidade do ConHub. Não receber após 30 dias do vencimento.",
+      boleto: { instructions: "Pagamento da mensalidade do CETRO. Não receber após 30 dias do vencimento.",
         due_at: `${vencimento}T23:59:59Z` },
     }],
     metadata,

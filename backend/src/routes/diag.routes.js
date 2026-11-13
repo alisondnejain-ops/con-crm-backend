@@ -31,7 +31,7 @@ const inicio = Date.now();
    O que ela NÃO podia continuar contando para a internet inteira:
 
      - o NOME da primeira imobiliária e QUANTAS existem na plataforma;
-     - quantos usuários, leads e mensagens o ConHub tem no total;
+     - quantos usuários, leads e mensagens o CETRO tem no total;
      - o registro das últimas tentativas de e-mail, com os endereços
        parcialmente escondidos e o domínio inteiro à mostra.
 
@@ -120,11 +120,11 @@ r.get("/integracoes", async (_req, res) => {
   const base = (process.env.APP_URL || "").replace(/\/$/, "");
   res.json({
     /* Nome da imobiliária e tamanho da plataforma são informação comercial:
-       só para quem administra o ConHub. Para o visitante fica um "sim, o
+       só para quem administra o CETRO. Para o visitante fica um "sim, o
        servidor conhece uma imobiliária", que é o que o diagnóstico precisa. */
     org: master ? (org?.name || null) : (org ? "configurada" : null),
     imobiliarias: master ? db.prepare("SELECT COUNT(*) n FROM orgs").get().n : undefined,
-    detalhe_completo: master ? true : "entre como ConHub (master) para ver os números da plataforma",
+    detalhe_completo: master ? true : "entre como CETRO (master) para ver os números da plataforma",
     cole_este_webhook_na_uazapi: `${base}/webhooks/uazapi`,
     whatsapp: resumoDoWhatsapp(await instanceStatus(org?.id), master),
     meta: {

@@ -7,7 +7,7 @@
    A DIFERENÇA QUE MOLDA ESTA ROTA: aqui cada imobiliária tem o PRÓPRIO
    aplicativo na Meta, com o próprio `app_secret` e `verify_token` — não um
    segredo do servidor, como em `meta.webhook.js` (o webhook de Lead Ads, que
-   é UM app do ConHub para todo mundo). Então a ordem de trabalho é ao
+   é UM app do CETRO para todo mundo). Então a ordem de trabalho é ao
    contrário do que pareceria natural: primeiro descobrir DE QUEM é a
    mensagem (pelo `phone_number_id`, que a Meta manda em toda mensagem), para
    só então saber QUAL app_secret usar na conferência da assinatura. Sem essa

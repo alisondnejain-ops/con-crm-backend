@@ -294,7 +294,7 @@ r.post(["/uazapi", "/uazapi/:sufixo", "/uazapi/:sufixo/:sufixo2"], async (req, r
           : "RECUSADO: a mensagem chegou SEM o token da instância",
         dica: tinhaToken
           ? "Confira o token em Configurações → Conexão (linha da imobiliária) ou em Minha conta → Meu WhatsApp (linha do corretor). Ele precisa ser o mesmo da instância na Uazapi."
-          : "O reconhecimento pelo NÚMERO foi desligado por segurança: o número da imobiliária é público, e qualquer pessoa poderia mandar mensagem falsa para o CRM sabendo ele. Se a sua Uazapi realmente não manda o token, crie a variável UAZAPI_ACEITAR_POR_NUMERO=1 no painel da hospedagem para religar o caminho antigo — e avise o ConHub.",
+          : "O reconhecimento pelo NÚMERO foi desligado por segurança: o número da imobiliária é público, e qualquer pessoa poderia mandar mensagem falsa para o CRM sabendo ele. Se a sua Uazapi realmente não manda o token, crie a variável UAZAPI_ACEITAR_POR_NUMERO=1 no painel da hospedagem para religar o caminho antigo — e avise o CETRO.",
         campos: Object.keys(p) });
     }
 

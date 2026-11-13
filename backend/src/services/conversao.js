@@ -1,4 +1,4 @@
-/* FUNIL DE CONVERSÃO POR COORTE — a conta única do ConHub (01/10/2026).
+/* FUNIL DE CONVERSÃO POR COORTE — a conta única do CETRO (01/10/2026).
 
    Pedido do Ali: os números do funil, do painel e do relatório precisavam
    bater com o que aconteceu, e não com uma mistura de "leads criados no

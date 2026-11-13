@@ -1,5 +1,5 @@
 /* SÓ LEADS DO FORMULÁRIO (11/11/2026, pedido do Ali para o Reserva Real do
-   Rio, que atende pelo número do ConHub: "nada pode chegar lá, nele só serão
+   Rio, que atende pelo número do CETRO: "nada pode chegar lá, nele só serão
    atendidos os leads que se cadastrarem no formulário").
 
    Uma chave por conta (orgs.so_formulario), ligada pelo master. Nula = como

@@ -29,7 +29,7 @@ const NOMES_REDES = { instagram: "Instagram", facebook: "Facebook", youtube: "Yo
 const ler = (orgId) => db.prepare("SELECT * FROM cetrolab_conteudo WHERE org_id = ?").get(orgId) || {};
 const json = (t, padrao) => { try { const v = JSON.parse(t || ""); return Array.isArray(v) ? v : padrao; } catch { return padrao; } };
 
-// A equipe que PODE ser escolhida: gente ativa da conta, sem o master do ConHub.
+// A equipe que PODE ser escolhida: gente ativa da conta, sem o master do CETRO.
 function equipeDaConta(orgId) {
   return db.prepare(`SELECT id, name, role, avatar_url FROM users
     WHERE org_id = ? AND status = 'ativo' AND COALESCE(master,0) = 0 ORDER BY name`).all(orgId);

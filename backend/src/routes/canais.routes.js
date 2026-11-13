@@ -118,7 +118,7 @@ r.post("/liberar", roles("adm"), (req, res) => {
     // +1 pela linha da casa, que ocupa uma das vagas do plano.
     if (jaLiberados + 1 + 1 > l.limite)
       return res.status(409).json({
-        error: `O plano desta imobiliária permite ${l.limite} linha(s) de WhatsApp (a da imobiliária mais ${l.limite - 1} de corretores), e elas já estão liberadas. Tire a liberação de alguém ou fale com o ConHub para aumentar o plano.` });
+        error: `O plano desta imobiliária permite ${l.limite} linha(s) de WhatsApp (a da imobiliária mais ${l.limite - 1} de corretores), e elas já estão liberadas. Tire a liberação de alguém ou fale com o CETRO para aumentar o plano.` });
   }
 
   db.prepare("UPDATE users SET canal_liberado = ? WHERE id = ?").run(ligar ? 1 : 0, u.id);

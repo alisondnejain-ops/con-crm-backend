@@ -146,7 +146,7 @@ gestao.post("/formularios/:formId", (req, res) => {
 });
 
 gestao.post("/iniciar", (req, res) => {
-  if (!botaoConfigurado()) return res.status(503).json({ error: "A conexão com o Facebook ainda não foi ativada no servidor do ConHub." });
+  if (!botaoConfigurado()) return res.status(503).json({ error: "A conexão com o Facebook ainda não foi ativada no servidor do CETRO." });
   const state = emitirTokenCurto({ o: req.user.org_id, u: req.user.id }, ESCOPO, "15m");
   res.json({ url: urlDeLogin(state, retornoDe(req)) });
 });
@@ -180,7 +180,7 @@ gestao.post("/escolha/:chave", async (req, res) => {
     if (!p) { resultado.push({ id, ok: false, erro: "Esta página não veio do Facebook nesta conexão." }); continue; }
     const dono = db.prepare("SELECT org_id FROM meta_paginas WHERE page_id = ?").get(id);
     if (dono && dono.org_id !== req.user.org_id) {
-      resultado.push({ id, nome: p.nome, ok: false, erro: "Esta página já está conectada em outra conta do ConHub. Desconecte lá primeiro." });
+      resultado.push({ id, nome: p.nome, ok: false, erro: "Esta página já está conectada em outra conta do CETRO. Desconecte lá primeiro." });
       continue;
     }
     try {

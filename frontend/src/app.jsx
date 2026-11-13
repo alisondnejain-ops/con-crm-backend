@@ -27,9 +27,10 @@ if(typeof Node==="function"&&Node.prototype&&!Node.prototype.__tradutorTolerado)
 
 /* ===== IDENTIDADE ===== */
 const C = {
-  ink:"#14181F", sub:"#5A6472", faint:"#8A93A0", line:"#E3E8E2", surface:"#F4F6F1", panel:"#ECF1EA", card:"#FFFFFF",
-  green:"#0E8F6E", greenDeep:"#0A3D30", greenMid:"#0C6B52", greenSoft:"#E5F2EC",
-  hot:"#E1553A", hotSoft:"#FBE7E1", amber:"#C8912B", amberSoft:"#F7EFD9", cool:"#5C6B7A", coolSoft:"#ECEFF2", white:"#FFF",
+  ink:"#18392E", sub:"#56655D", faint:"#76827B", line:"#E3E9E3", surface:"#F4F6F2", panel:"#ECF1EA", card:"#FFFFFF",
+  green:"#087A50", greenDeep:"#0A2D24", greenMid:"#0B5C40", greenSoft:"#E4F2EA", accent:"#19B777",
+  gold:"#B99953", goldSoft:"#F5EEDC",
+  hot:"#D35745", hotSoft:"#FBE7E1", amber:"#C8912B", amberSoft:"#F7EFD9", cool:"#5C6B7A", coolSoft:"#ECEFF2", white:"#FFF",
 };
 const SOMBRA="0 8px 26px rgba(23,60,40,.06)";
 const DISPLAY="'Manrope','Sora',sans-serif", FONT="'DM Sans','Inter',sans-serif", MONO="'DM Sans','Inter',sans-serif";
@@ -50,7 +51,9 @@ const DISPLAY="'Manrope','Sora',sans-serif", FONT="'DM Sans','Inter',sans-serif"
 const semAcento=(t)=>String(t||"").normalize("NFD").replace(/[̀-ͯ]/g,"");
 
 const MARCA_PADRAO={logo:null,cor:C.greenDeep};
-const marcaDe=(org)=>({logo:(org&&org.logo)||null,cor:(org&&org.cor)||C.greenDeep});
+/* A marca do CRM é FIXA (13/11/2026, especificação CETRO 14.1): a logo e a cor
+   da imobiliária valem no site dela (Cetrolab), não no ambiente de trabalho. */
+const marcaDe=()=>MARCA_PADRAO;
 /* O marcador do item ativo é verde no tema padrão e branco em cima de qualquer
    outra cor: um risco verde numa barra azul-marinho vira sujeira, e o branco
    funciona sobre todas as cores que passam na regra de contraste. */
@@ -78,7 +81,7 @@ const linkDeCadastro=(codigo)=>(typeof window!=="undefined"?window.location.orig
 // Token guardado no navegador para o corretor não ter que logar toda vez (importante no celular).
 const STORE="concrm_token";
 let TOKEN=null;
-/* O TIPO DA CONTA ABERTA (05/10/2026). O ambiente interno do ConHub
+/* O TIPO DA CONTA ABERTA (05/10/2026). O ambiente interno do CETRO
    ("interna") é um CRM que não é imobiliário: some tudo que é de imóvel —
    catálogo, plantão, simulação de financiamento. São dezenas de telas
    espalhadas, e passar o tipo de mão em mão por todas elas seria o tipo de
@@ -534,7 +537,7 @@ const PALAVRA_ETAPA={"Atendimento":"atendimento","Pasta":"documentação","Aprov
    e o lead vai", ele prometia um automatismo que não existe mais — e regra que
    a tela ensina errado é pior do que regra nenhuma. */
 function DicaEtapa({etapa}){
-  // As palavras são de venda de imóvel; o ambiente interno do ConHub não as usa.
+  // As palavras são de venda de imóvel; o ambiente interno do CETRO não as usa.
   if(contaInterna()||contaEmpreendimento()) return null;
   const i=LINEAR.indexOf(etapa);
   const prox=i>=0&&i<LINEAR.length-1?LINEAR[i+1]:null;
@@ -619,17 +622,17 @@ function usarAlturaDaBarra(){
 /* O TÍTULO DA ABA diz em que tela a pessoa está.
 
    O CRM é uma página só: o endereço não muda ao trocar de tela, então o
-   navegador mostrava "ConHub — CRM de atendimento" do login ao relatório. Com
+   navegador mostrava "CETRO — CRM de atendimento" do login ao relatório. Com
    quatro abas abertas — que é como a gestão trabalha — todas ficavam iguais, e
    achar a certa virava tentativa e erro.
 
-   A ordem é "Tela | ConHub" porque a aba corta o fim quando estreita: o que
+   A ordem é "Tela | CETRO" porque a aba corta o fim quando estreita: o que
    sobra visível ao lado do ícone precisa ser o que muda, não a marca que se
    repete em todas. */
 function usarTitulo(tela){
   useEffect(()=>{
     if(typeof document==="undefined") return;
-    document.title=tela?`${tela} | ConHub`:"ConHub · CRM imobiliário";
+    document.title=tela?`${tela} | CETRO`:"CETRO · CRM imobiliário";
   },[tela]);
 }
 
@@ -1167,6 +1170,7 @@ const ICO={
   form:<React.Fragment><rect x="5" y="3" width="14" height="18" rx="2"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></React.Fragment>,
   lista:<React.Fragment><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r=".6"/><circle cx="3" cy="12" r=".6"/><circle cx="3" cy="18" r=".6"/></React.Fragment>,
   chart:<React.Fragment><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></React.Fragment>,
+  sliders:<React.Fragment><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></React.Fragment>,
   trend:<React.Fragment><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></React.Fragment>,
   grid:<React.Fragment><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></React.Fragment>,
   phone2:<React.Fragment><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></React.Fragment>,
@@ -1287,11 +1291,10 @@ function Metric({n,label,value,sub,accent=C.green}){
    poder mudar sem arrastar o outro. */
 const LOGO_ANEL="M166.33 58.97A78 78 0 1 1 141.03 33.67A21.5 21.5 0 0 0 123.79 56.02A50 50 0 1 0 143.98 76.21A21.5 21.5 0 0 0 166.33 58.97Z";
 const LOGO_ANEL_P="M173.13 60.74A83 83 0 1 1 139.26 26.87A28.5 28.5 0 0 0 116.98 58.33A45 45 0 1 0 141.67 83.02A28.5 28.5 0 0 0 173.13 60.74Z";
-const LOGO_NOME="M318.75 19.5Q247.5 19.5 195.125 -4.125Q142.75 -27.75 107.875 -67.875Q73 -108 55.75 -158.5Q38.5 -209.0 38.5 -262.5V-282.0Q38.5 -338.25 56.5 -389.5Q74.5 -440.75 109.875 -480.625Q145.25 -520.5 197.5 -543.75Q249.75 -567.0 318.25 -567.0Q392 -567 448.875 -538.25Q505.75 -509.5 539.75 -458.75Q573.75 -408.0 577.75 -341.5H421.25Q417.25 -378.75 391.375 -404.375Q365.5 -430.0 318.25 -430.0Q277.75 -430.0 251.375 -410.0Q225 -390 212.0 -354.75Q199.0 -319.5 199.0 -272.25Q199.0 -227.75 210.875 -192.375Q222.75 -157.0 249.25 -137.25Q275.75 -117.5 318.75 -117.5Q351.0 -117.5 373.5 -129.0Q396.0 -140.5 409.25 -161.125Q422.5 -181.75 425.75 -209.0H582.25Q578.5 -140.75 543.5 -89.5Q508.5 -38.25 450.625 -9.375Q392.75 19.5 318.75 19.5ZM896.25 19.5Q824.0 19.5 768.0 -3.0Q712.0 -25.5 673.25 -64.625Q634.5 -103.75 614.5 -154.25Q594.5 -204.75 594.5 -261.0V-283.5Q594.5 -341.25 615.375 -392.625Q636.25 -444.0 675.5 -483.125Q714.75 -522.25 770.75 -544.625Q826.75 -567.0 896.25 -567.0Q966.5 -567.0 1022.125 -544.625Q1077.75 -522.25 1117.0 -483.125Q1156.25 -444.0 1177.125 -392.625Q1198.0 -341.25 1198.0 -283.5V-261Q1198.0 -204.75 1178.0 -154.25Q1158.0 -103.75 1119.25 -64.625Q1080.5 -25.5 1024.5 -3.0Q968.5 19.5 896.25 19.5ZM896.25 -116.0Q942.75 -116.0 974.0 -136.125Q1005.25 -156.25 1021.375 -191.875Q1037.5 -227.5 1037.5 -272.25Q1037.5 -318.75 1020.875 -354.375Q1004.25 -390.0 972.625 -410.75Q941.0 -431.5 896.25 -431.5Q851.75 -431.5 820.0 -410.75Q788.25 -390.0 771.625 -354.375Q755.0 -318.75 755.0 -272.25Q755.0 -227.5 771.125 -191.875Q787.25 -156.25 818.875 -136.125Q850.5 -116.0 896.25 -116.0ZM1254.5 0.0V-547.5H1381.5V-312.5H1372.5Q1372.5 -396.75 1394.375 -452.75Q1416.25 -508.75 1459.875 -536.875Q1503.5 -565.0 1566.75 -565.0H1573.75Q1669.5 -565.0 1720.25 -502.375Q1771.0 -439.75 1771.0 -313.25V0H1610.5V-322.0Q1610.5 -366.0 1584.875 -393.75Q1559.25 -421.5 1514.75 -421.5Q1469.75 -421.5 1442.375 -393.375Q1415.0 -365.25 1415.0 -319V0ZM1851.5 0.0V-730.0H2012.0V-309H1988.0Q1988.0 -391.75 2008.875 -448.875Q2029.75 -506.0 2070.875 -535.5Q2112.0 -565 2173.75 -565.0H2180.75Q2272.25 -565.0 2320.125 -500.375Q2368.0 -435.75 2368.0 -311.75V0H2207.5V-322.0Q2207.5 -366.75 2181.125 -394.125Q2154.75 -421.5 2111.75 -421.5Q2067.25 -421.5 2039.625 -392.5Q2012.0 -363.5 2012.0 -316.25V0ZM2633.5 17.5Q2539.25 17.5 2487.875 -44.125Q2436.5 -105.75 2436.5 -230.25V-547.75H2597.0V-221.75Q2597.0 -178.25 2622.0 -152.125Q2647.0 -126 2689.25 -126.0Q2732.0 -126 2758.75 -152.875Q2785.5 -179.75 2785.5 -225.75V-547.75H2946.0V0H2819.0V-231.25H2829.5Q2829.5 -147.75 2808.125 -92.5Q2786.75 -37.25 2744.875 -9.875Q2703.0 17.5 2640.5 17.5ZM3376.0 18Q3308.5 18.0 3257.75 -10.25Q3207.0 -38.5 3178.125 -92.875Q3149.25 -147.25 3147.0 -225.25H3165.5V0.0H3038.5V-730.0H3199.0V-359.25L3160.5 -311.0Q3163.75 -393.5 3192.5 -450.0Q3221.25 -506.5 3271.0 -535.25Q3320.75 -564.0 3384.75 -564.0Q3441.0 -564 3486.5 -543.25Q3532.0 -522.5 3564.125 -485.0Q3596.25 -447.5 3613.5 -396.875Q3630.75 -346.25 3630.75 -286.25V-263.75Q3630.75 -203.75 3613.375 -152.625Q3596.0 -101.5 3562.5 -63.0Q3529.0 -24.5 3482.0 -3.25Q3435.0 18 3376.0 18ZM3334.25 -115.5Q3374.75 -115.5 3405.375 -135.875Q3436.0 -156.25 3453.125 -192.375Q3470.25 -228.5 3470.25 -275.0Q3470.25 -322.25 3453.0 -357.125Q3435.75 -392.0 3405.5 -411.25Q3375.25 -430.5 3334.25 -430.5Q3297.5 -430.5 3265.875 -413.875Q3234.25 -397.25 3214.625 -365.375Q3195.0 -333.5 3195.0 -288.5V-251.5Q3195.0 -208.5 3215.5 -178.125Q3236.0 -147.75 3268.0 -131.625Q3300.0 -115.5 3334.25 -115.5Z";
 const LOGO_TONS={default:{ink:"#0B2E24",dot:"#E0563A"},inverse:{ink:"#FFFFFF",dot:"#E0563A"},mono:{ink:"currentColor",dot:"currentColor"}};
 function ConHubLogo({variant="lockup",tone="default",size,style}){
   const c=LOGO_TONS[tone]||LOGO_TONS.default;
-  const comum={role:"img","aria-label":"ConHub",style:{display:"block",flexShrink:0,...style},xmlns:"http://www.w3.org/2000/svg"};
+  const comum={role:"img","aria-label":"CETRO",style:{display:"block",flexShrink:0,...style},xmlns:"http://www.w3.org/2000/svg"};
   if(variant==="app"){
     const s=size||40, pequeno=s<=32;
     return <svg {...comum} viewBox="0 0 200 200" width={s} height={s}>
@@ -1310,12 +1313,15 @@ function ConHubLogo({variant="lockup",tone="default",size,style}){
     </svg>;
   }
   const h=size||32;
-  return <svg {...comum} viewBox="0 -790 4803 940" height={h} width={Math.round(h*4803/940)}>
+  /* O nome é CETRO (13/11/2026). Vai como texto na fonte de títulos, com as
+     reservas do sistema: se a Manrope não carregar, o nome continua lá. */
+  return <svg {...comum} viewBox="0 -790 4200 940" height={h} width={Math.round(h*4200/940)}>
     <g transform="translate(-132.56 -922.56) scale(6.0256)">
       <path d={LOGO_ANEL} fill={c.ink}/>
       <circle cx="145.25" cy="54.75" r="14.5" fill={c.dot}/>
     </g>
-    <path d={LOGO_NOME} transform="translate(1171.5 0)" fill={c.ink}/>
+    <text x="1171.5" y="0" fill={c.ink} fontFamily="Manrope,Sora,Arial,sans-serif" fontWeight="800"
+      fontSize="760" letterSpacing="60">CETRO</text>
   </svg>;
 }
 /* A marca da plataforma nas telas SEM imobiliária: login, carregamento e hub.
@@ -1465,7 +1471,7 @@ function Auth({onLogin}){
         <div style={{padding:isMobile?"26px 22px":"36px 34px",display:"flex",
           flexDirection:"column",justifyContent:"space-between",gap:isMobile?16:0,flex:1}}>
         <Brand size={isMobile?28:34} noEscuro/>
-        {/* Nada de Conecta aqui: esta tela é a porta do ConHub, e a partir de
+        {/* Nada de Conecta aqui: esta tela é a porta do CETRO, e a partir de
             agora ela abre para qualquer imobiliária. O nome de quem opera
             aparece depois de entrar, dentro do sistema. */}
         <div><div style={{fontFamily:DISPLAY,fontSize:isMobile?21:28,fontWeight:700,lineHeight:1.15,
@@ -1480,7 +1486,7 @@ function Auth({onLogin}){
             diz "aqui está diferente", este número responde na hora, sem
             precisar entrar no sistema nem procurar menu. */}
         {!isMobile&&<div style={{color:"rgba(255,255,255,.62)",fontSize:11,textShadow:"0 1px 8px rgba(0,0,0,.5)"}}>
-          ConHub · plataforma de atendimento imobiliário
+          CETRO · plataforma de atendimento imobiliário
           {typeof window!=="undefined"&&window.CONHUB_BUILD?<React.Fragment><br/>versão {window.CONHUB_BUILD}</React.Fragment>:null}
         </div>}
         </div>
@@ -1569,6 +1575,8 @@ function toSession(u){
           barra_recolhida:!!u.barra_recolhida,
           // A ordem do menu escolhida pela pessoa (pelo Claude); nulo = padrão.
           menu_ordem:Array.isArray(u.menu_ordem)?u.menu_ordem:null,
+          // Os indicadores escolhidos para o Painel (CETRO 06.2); nulo = padrão.
+          painel_kpis:Array.isArray(u.painel_kpis)?u.painel_kpis:null,
           /* PODE GERIR A PRÓPRIA CASA sem ser `adm` — é o corretor autônomo.
              Mesma armadilha do `master` e do `barra_recolhida` acima: sem estar
              listado aqui, o campo chega do servidor e é jogado fora em
@@ -1903,7 +1911,7 @@ function ConCRM(){
     // endereço da tela de pagamento do Asaas, para onde o navegador vai.
     planos:()=>api("/assinatura/planos"),
     contratarPlano:(dados)=>api("/assinatura/plano",{method:"POST",body:dados}),
-    // As ferramentas da conta (29/09/2026): o que vem no plano, o avulso e o que o ConHub liberou.
+    // As ferramentas da conta (29/09/2026): o que vem no plano, o avulso e o que o CETRO liberou.
     ferramentas:()=>api("/assinatura/recursos"),
     contratarFerramenta:(id,cpfCnpj)=>api(`/assinatura/recursos/${id}`,{method:"POST",body:{cpfCnpj}}),
     cancelarFerramenta:(id)=>api(`/assinatura/recursos/${id}`,{method:"DELETE"}),
@@ -2395,6 +2403,8 @@ function ConCRM(){
     conferenciaFunil:(id,f)=>api(`/painel/funil/${id}/conferencia?${new URLSearchParams(Object.entries(f||{}).filter(([,v])=>v!==undefined&&v!==null&&v!==""))}`),
     painelCampanhas:(f)=>api("/painel/campanhas"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
     painelGeral:(f)=>api("/painel/geral"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    proximosPassos:(f)=>api("/painel/proximos"+(f?`?${new URLSearchParams(Object.entries(f).filter(([,v])=>v))}`:"")),
+    salvarKpisDoPainel:(kpis)=>api("/auth/me/painel",{method:"POST",body:{kpis}}),
     metasConfig:(mes)=>api("/painel/metas"+(mes?`?mes=${mes}`:"")),
     salvarMeta:(dados)=>api("/painel/metas",{method:"POST",body:dados}),
     resumirConversa:(id)=>api(`/leads/${id}/resumo`,{method:"POST"}),
@@ -3100,7 +3110,7 @@ function AvisoPlantao({meu,isMobile,compacto}){
 
 /* MARKETING · DISPAROS EM MASSA — a ESTRUTURA (27/09/2026).
 
-   Pedido do Ali: montar primeiro o que protege o ConHub, e só depois o envio.
+   Pedido do Ali: montar primeiro o que protege o CETRO, e só depois o envio.
    Esta tela tem quatro partes, e a ordem é a ordem em que a imobiliária
    precisa passar por elas:
 
@@ -3149,7 +3159,7 @@ function Marketing({acoes,org,isMobile,irParaFluxos}){
   if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
   if(!d.liberado) return <div style={moldura}><div style={CARTAO_MKT}>
     <div style={TITULO_MKT}><Icon n="lock" size={16}/> Disparo em massa não liberado</div>
-    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Este recurso é liberado pelo ConHub para cada conta. Fale com a gente para ativar.</div>
+    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>Este recurso é liberado pelo CETRO para cada conta. Fale com a gente para ativar.</div>
   </div></div>;
   const aceito=!!d.termo.aceite;
   /* Três abas em vez de uma página comprida (27/09/2026, "não estou
@@ -3219,12 +3229,12 @@ function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
         <button onClick={aceitar} disabled={!li||ocupado} style={botaoMkt(li&&!ocupado)}>{ocupado?"Registrando…":"Aceitar termo"}</button>
       </React.Fragment>
       :<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5}}>
-        Você está nesta conta como ConHub. O aceite precisa ser feito pelo gestor da imobiliária, na conta dele.</div>)}
+        Você está nesta conta como CETRO. O aceite precisa ser feito pelo gestor da imobiliária, na conta dele.</div>)}
   </div>;
 }
 
 /* DE ONDE O DISPARO SAI (27/09/2026, pedido do Ali): por padrão, do WhatsApp
-   que já está conectado no ConHub — não precisa conectar nada novo. O número
+   que já está conectado no CETRO — não precisa conectar nada novo. O número
    próprio de disparo virou OPCIONAL, como contingência: quem quer separar o
    risco do disparo do número de atendimento cadastra um aqui. */
 function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
@@ -3257,7 +3267,7 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
       :linha.propria
         ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>Pelo <b style={{color:C.ink}}>número de contingência</b> cadastrado abaixo. O número de atendimento fica de fora.</div>
         :<React.Fragment>
-          <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>Pelo <b style={{color:C.ink}}>WhatsApp de atendimento</b>, já conectado no ConHub. Não precisa conectar nada.</div>
+          <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>Pelo <b style={{color:C.ink}}>WhatsApp de atendimento</b>, já conectado no CETRO. Não precisa conectar nada.</div>
           <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>
             Se o WhatsApp restringir o número por causa do disparo, o atendimento para junto. Para separar os dois, use um número de contingência.</div>
         </React.Fragment>}
@@ -4267,7 +4277,7 @@ function ModeloDaMeta({d,aoMudar,acoes,isMobile}){
         {m&&(m.variaveis||[]).map((v,i)=><div key={i}><div style={rot}>{`{{${i+1}}}`}</div>
           <input value={v} onChange={e=>aoMudar({modelo:{...m,variaveis:m.variaveis.map((x,j)=>j===i?e.target.value:x)}})} maxLength={200}
             placeholder="ex.: {nome}" style={campoMkt(isMobile)}/></div>)}
-        {escolhido&&escolhido.cabecalho_com_midia&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.45}}>Este modelo tem foto ou vídeo no cabeçalho — o ConHub ainda não manda esse tipo. Escolha um modelo só com texto.</div>}
+        {escolhido&&escolhido.cabecalho_com_midia&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.45}}>Este modelo tem foto ou vídeo no cabeçalho — o CETRO ainda não manda esse tipo. Escolha um modelo só com texto.</div>}
         <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>{"{nome}"} vira o primeiro nome do cliente. Os modelos são criados e aprovados no Gerenciador do WhatsApp da Meta.</div>
       </React.Fragment>}
     </React.Fragment>}
@@ -4938,7 +4948,7 @@ function FluxosDeMarketing({acoes,org,isMobile}){
   if(!d) return <div style={moldura}><div style={{color:erro?C.hot:C.faint,fontSize:13}}>{erro||"Carregando…"}</div></div>;
   if(!d.liberado||!d.termo.aceite) return <div style={moldura}><div style={CARTAO_MKT}>
     <div style={TITULO_MKT}><Icon n="lock" size={16}/> {d.liberado?"Aceite o termo primeiro":"Disparo em massa não liberado"}</div>
-    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>{d.liberado?"O termo de uso fica em Marketing → Disparos em massa.":"Este recurso é liberado pelo ConHub para cada conta."}</div>
+    <div style={{color:C.sub,fontSize:13,lineHeight:1.55}}>{d.liberado?"O termo de uso fica em Marketing → Disparos em massa.":"Este recurso é liberado pelo CETRO para cada conta."}</div>
   </div></div>;
   if(aberto) return <div style={{height:"100%",boxSizing:"border-box",padding:isMobile?"10px 10px 12px":"16px 20px",maxWidth:1500,margin:"0 auto"}}>
     <EditorDeFluxo key={aberto.id} inicial={aberto} acoes={acoes} isMobile={isMobile} aoVoltar={()=>{setAberto(null);rever();}}/></div>;
@@ -5240,7 +5250,7 @@ const paraCampoData=(ms)=>{ if(!ms) return ""; const d=new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 /* CRÉDITO DE IA NO HUB (07/11/2026, services/ia-creditos.js): o master liga a
    cobrança por crédito nesta conta e lança crédito (cortesia ou correção).
-   Desligado, o ConHub paga a IA da conta, como sempre foi. */
+   Desligado, o CETRO paga a IA da conta, como sempre foi. */
 function CreditoNoHub({conta,acoes}){
   const [d,setD]=useState(null);
   const [valor,setValor]=useState("");
@@ -5261,7 +5271,7 @@ function CreditoNoHub({conta,acoes}){
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>
       {!d?"Carregando…":d.ligado
         ?"Ligado: a IA desta conta gasta do saldo, e para quando ele acaba. O gestor compra mais em Configurações → Autoatendimento."
-        :"Desligado: a IA desta conta não gasta crédito (o ConHub paga, como sempre foi). Ligue com saldo, senão a IA para na hora."}
+        :"Desligado: a IA desta conta não gasta crédito (o CETRO paga, como sempre foi). Ligue com saldo, senão a IA para na hora."}
       {d&&<span> Últimos 30 dias: {fmtReais2(d.gasto_30d)}.</span>}
     </div>
     {d&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
@@ -5352,7 +5362,7 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
     {m.cancelado_em&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
       A assinatura foi cancelada em {fmtData(m.cancelado_em)}. <b>Salvar uma data aqui desfaz o cancelamento</b>: a conta volta a seguir o vencimento abaixo. Nenhuma cobrança é recriada.</div>}
     {naAsaas&&!m.plano_id&&<div style={{background:C.surface,color:C.sub,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
-      Esta conta está na cobrança do <b>Asaas</b>. Para o cliente cadastrar o cartão no ConHub e ligar a mensalidade, escolha <b>Pagar.me</b> em Cobrança, logo abaixo.</div>}
+      Esta conta está na cobrança do <b>Asaas</b>. Para o cliente cadastrar o cartão no CETRO e ligar a mensalidade, escolha <b>Pagar.me</b> em Cobrança, logo abaixo.</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
       <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 120px"}}>
         <span style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Valor por mês (R$)</span>
@@ -5447,7 +5457,7 @@ function ApagarConta({conta,acoes,isMobile,aoApagar,aoFechar}){
    equipe, leads na fila, quem tem cadastro esperando aprovação e a situação da
    mensalidade. */
 /* O AMBIENTE INTERNO DO CONHUB no hub (05/10/2026): um cartão só, acima das
-   imobiliárias, porque não é cliente — é a casa da equipe do ConHub, onde
+   imobiliárias, porque não é cliente — é a casa da equipe do CETRO, onde
    ficam o comercial e o suporte. Cada pessoa da equipe entra pelo link de
    cadastro, com o próprio login, e o master aprova. */
 function AmbienteInterno({conta,isMobile,ocupado,copiado,entrar,copiar,criar}){
@@ -5457,9 +5467,9 @@ function AmbienteInterno({conta,isMobile,ocupado,copiado,entrar,copiar,criar}){
     <div style={{background:C.greenSoft,width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
       <ConHubLogo variant="symbol" size={20}/></div>
     <div style={{flex:1,minWidth:0}}>
-      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,lineHeight:1.2}}>Ambiente interno do ConHub</div>
+      <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15.5,fontWeight:700,lineHeight:1.2}}>Ambiente interno do CETRO</div>
       <div style={{color:C.sub,fontSize:12,marginTop:3,lineHeight:1.45}}>
-        O CRM da equipe do ConHub: comercial e suporte aos clientes, sem nada de imóvel. Não é cliente — não tem mensalidade nem aparece na lista abaixo.</div>
+        O CRM da equipe do CETRO: comercial e suporte aos clientes, sem nada de imóvel. Não é cliente — não tem mensalidade nem aparece na lista abaixo.</div>
     </div>
   </div>;
   if(!conta) return <div style={caixa}>{cabeca}
@@ -5535,7 +5545,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
         <div style={{flex:1}}/>
         <div style={{textAlign:"right"}}>
           <div style={{color:C.ink,fontSize:12.5,fontWeight:600,lineHeight:1}}>{session.name}</div>
-          <div style={{color:C.faint,fontSize:10.5}}>ConHub · master</div>
+          <div style={{color:C.faint,fontSize:10.5}}>CETRO · master</div>
         </div>
         <button onClick={aoSair} title="Sair" style={{width:34,height:34,borderRadius:10,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <Icon n="logout" size={16}/></button>
@@ -5915,7 +5925,7 @@ function Socios({acoes,session,isMobile}){
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>
       Sócios e administradores</div>
     <div style={{color:C.sub,fontSize:12.5,marginBottom:16,lineHeight:1.55}}>
-      Quem administra o ConHub, e não uma imobiliária. Um sócio enxerga todas as
+      Quem administra o CETRO, e não uma imobiliária. Um sócio enxerga todas as
       contas desta tela, os clientes de cada uma e o que cada uma paga.
     </div>
 
@@ -6032,7 +6042,7 @@ function Socios({acoes,session,isMobile}){
    E a data vem da LISTA DO R2, não de um registro nosso: registro nosso diz o
    que o servidor acha que aconteceu; a lista diz o que está guardado lá. */
 /* DOMÍNIOS DOS SITES, no hub (04/10/2026). A imobiliária cadastra o domínio
-   dela na tela Site; quem ATIVA na hospedagem é o ConHub, porque é a
+   dela na tela Site; quem ATIVA na hospedagem é o CETRO, porque é a
    hospedagem que emite o certificado do https. O caminho: adicionar o domínio
    no painel da hospedagem (Railway → serviço → Settings → Networking → Custom
    Domain), copiar o destino CNAME que ela mostra e colar aqui. A partir daí a
@@ -6076,7 +6086,7 @@ function DominiosDosSites({acoes,isMobile}){
       Domínios dos sites{pendentes?` · ${pendentes} esperando`:""}</div>
     {d&&d.automatico
       ?<div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
-        O cadastro na hospedagem é <b>automático</b>: a imobiliária escreve o domínio, o ConHub cadastra no Railway e mostra a ela os registros de DNS para criar. Esta lista é só para acompanhar.</div>
+        O cadastro na hospedagem é <b>automático</b>: a imobiliária escreve o domínio, o CETRO cadastra no Railway e mostra a ela os registros de DNS para criar. Esta lista é só para acompanhar.</div>
       :<div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
         <div style={{background:C.amberSoft,color:"#6b561a",borderRadius:10,padding:"9px 11px",marginBottom:10}}>
           Para a imobiliária fazer tudo sozinha, crie um token no Railway (Account Settings → Tokens) e coloque-o no serviço como <code>RAILWAY_API_TOKEN</code>.
@@ -6313,12 +6323,12 @@ function FundoDoLogin({acoes,isMobile}){
 
    O corretor autônomo compra de prateleira: mensal R$ 297, semestral R$ 247/mês
    e anual R$ 197/mês em 12x no cartão. Escolhe, digita o CPF e vai pagar. Nada
-   passa pelo ConHub — antes cada conta nova era uma digitação do Ali no painel
+   passa pelo CETRO — antes cada conta nova era uma digitação do Ali no painel
    do Asaas, e isso é o oposto de escalar.
 
    ESTA TELA NÃO PEDE NÚMERO DE CARTÃO, e é de propósito. O corretor é levado
    para a fatura hospedada pelo Asaas, que é onde ele digita o cartão. Fazer o
-   formulário aqui colocaria o ConHub dentro do escopo de PCI-DSS e faria dado
+   formulário aqui colocaria o CETRO dentro do escopo de PCI-DSS e faria dado
    de cartão passar pelo nosso servidor, para ganhar uma tela que o Asaas já
    entrega pronta e auditada.
 
@@ -6331,11 +6341,11 @@ function FundoDoLogin({acoes,isMobile}){
    ofertas que não existem. */
 /* ===== CARTÃO PELO PAGAR.ME (04/10/2026) =====
 
-   O cartão é digitado AQUI, na tela do ConHub, e vai DIRETO do navegador para
+   O cartão é digitado AQUI, na tela do CETRO, e vai DIRETO do navegador para
    o Pagar.me com a chave pública (`tokenizarCartao`). O que volta é um token
    descartável, e é só ele que chega ao nosso servidor — o número, a validade e
    o código de segurança nunca passam por lá. É o que permite ter o checkout
-   com a cara do ConHub sem o servidor tocar em dado de cartão.
+   com a cara do CETRO sem o servidor tocar em dado de cartão.
 
    Guardado no Pagar.me, o cartão vira o "um clique": plano e ferramenta saem
    nele sem a pessoa digitar de novo, e a tela sempre diz em qual ("Visa final
@@ -6351,7 +6361,7 @@ async function tokenizarCartao(chavePublica,{numero,nome,validade,cvv}){
         exp_month:Number(mes),exp_year:Number(ano.length===2?"20"+ano:ano),cvv:cvv.replace(/\D/g,"")}})});
   }catch(e){
     // Sem resposta nenhuma: internet, bloqueador ou domínio não autorizado no painel da Stone.
-    throw new Error("Não consegui falar com o Pagar.me. Confira a internet e tente de novo — se continuar, avise o ConHub.");
+    throw new Error("Não consegui falar com o Pagar.me. Confira a internet e tente de novo — se continuar, avise o CETRO.");
   }
   const d=await r.json().catch(()=>({}));
   if(!r.ok||!d.id){
@@ -6421,7 +6431,7 @@ function CartaoPagarme({dados,acoes,isMobile,aoSalvar,aoCancelar,botao="Salvar c
     </div>
     <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,display:"flex",gap:6}}>
       <Icon n="lock" size={12}/>
-      <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O ConHub guarda só a bandeira e o final do número.
+      <span>Os dados do cartão vão direto para o Pagar.me (Stone), com criptografia. O CETRO guarda só a bandeira e o final do número.
         {dados.ambiente==="teste"?" Ambiente de TESTE: use um cartão de teste.":""}</span>
     </div>
   </form>;
@@ -6617,7 +6627,7 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Sua mensalidade</div>
     <div style={{background:C.greenSoft,borderRadius:10,padding:"11px 13px",display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:9}}>
       <span style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700}}>{fmtMoeda(c.valor)}</span>
-      <span style={{color:C.faint,fontSize:11}}>por mês · valor combinado com o ConHub</span>
+      <span style={{color:C.faint,fontSize:11}}>por mês · valor combinado com o CETRO</span>
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
     {c.ligada
@@ -6776,7 +6786,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
           <div style={{color:C.faint,fontSize:10.5,marginTop:8,lineHeight:1.5,display:"flex",gap:6}}>
             <Icon n="lock" size={12}/>
             <span>Abre a tela segura do Asaas, onde você cadastra o cartão de crédito.
-              Os dados do cartão são digitados lá — o ConHub não recebe nem guarda nenhum deles.</span>
+              Os dados do cartão são digitados lá — o CETRO não recebe nem guarda nenhum deles.</span>
           </div>
         </div>}
   </React.Fragment>;
@@ -6893,7 +6903,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
 /* AS FERRAMENTAS DA CONTA, NA TELA DO TITULAR (29/09/2026, pedido do Ali:
    "as vezes o cliente não quer um plano mais caro mas quer apenas aquela
    ferramenta"). Cada ferramenta diz se vem no plano, se foi contratada avulsa
-   ou liberada pelo ConHub — e a que falta pode ser contratada aqui mesmo, com
+   ou liberada pelo CETRO — e a que falta pode ser contratada aqui mesmo, com
    cobrança mensal própria no cartão, pela tela do Asaas.
 
    `so` mostra uma ferramenta só: é como a tela do Autoatendimento oferece a
@@ -6959,12 +6969,12 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         </div>}
         {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
           Cancelada — continua ligada até {fmtData(r.avulso.pago_ate)}.</div>}
-        {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo ConHub nesta conta. Fale com a gente.</div>}
-        {/* Ferramenta sem preço cadastrado (o Cetrolab antes de o ConHub criar o plano): não se vende. */}
-        {!r.ativo&&r.origem==="fora_do_plano"&&!(r.preco_avulso>0)&&<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Em breve à venda. Fale com o ConHub.</div>}
+        {r.origem==="retirado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Desligada pelo CETRO nesta conta. Fale com a gente.</div>}
+        {/* Ferramenta sem preço cadastrado (o Cetrolab antes de o CETRO criar o plano): não se vende. */}
+        {!r.ativo&&r.origem==="fora_do_plano"&&!(r.preco_avulso>0)&&<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Em breve à venda. Fale com o CETRO.</div>}
         {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&pm&&(pm.configurado
           ?<FerramentaNoPagarme r={r} pm={pm} acoes={acoes} isMobile={isMobile} aoMudar={async()=>{await carregar(); if(aoMudar) aoMudar();}}/>
-          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
+          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o CETRO para ligar esta ferramenta.</div>)}
         {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&!pm&&(d.asaas
           ?<div style={{marginTop:9}}>
             {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
@@ -6993,7 +7003,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
                   <Icon n="lock" size={12}/><span>Cobrança mensal no cartão, pela tela do Asaas. Cancele quando quiser.</span></div>
               </div>}
           </div>
-          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o ConHub para ligar esta ferramenta.</div>)}
+          :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o CETRO para ligar esta ferramenta.</div>)}
       </div>;})}
   </div>;
 }
@@ -7046,7 +7056,7 @@ function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
       <span style={{flex:1,color:C.ink,fontSize:13.5,fontWeight:700}}>Pagar por boleto</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
-      Liberado pelo suporte do ConHub. O boleto não renova sozinho: a cada período, gere um novo aqui. O acesso é liberado quando o banco confirma o pagamento (até 3 dias úteis).
+      Liberado pelo suporte do CETRO. O boleto não renova sozinho: a cada período, gere um novo aqui. O acesso é liberado quando o banco confirma o pagamento (até 3 dias úteis).
     </div>
     {d.cartao_cobrando
       ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
@@ -7092,7 +7102,7 @@ function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
                 {d.opcoes.map(o=><option key={o.id} value={o.id}>{o.nome} — {fmtPreco(o.valor)}{o.meses>1?` (${o.meses} meses)`:""}</option>)}
               </select></div>}
             {!(d.opcoes||[]).length&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
-              O valor da sua mensalidade ainda não foi definido. Fale com o ConHub.</div>}
+              O valor da sua mensalidade ainda não foi definido. Fale com o CETRO.</div>}
             {d.pede_cpf&&<div>{rot("CPF ou CNPJ de quem paga")}
               <input value={cpf} onChange={e=>setCpf(e.target.value)} inputMode="numeric" placeholder="só números" style={entrada}/></div>}
             {d.pede_endereco&&<div style={{display:"flex",flexDirection:"column",gap:7}}>
@@ -7204,9 +7214,9 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   const rever=()=>acoes.assinatura().then(setA).catch(()=>{});
   useEffect(()=>{rever();},[]);
   if(!a||!a.dono) return null;
-  /* Conta parceira do ConHub (11/11/2026): sem mensalidade, nada a contratar aqui. */
+  /* Conta parceira do CETRO (11/11/2026): sem mensalidade, nada a contratar aqui. */
   if(a.parceira) return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,color:C.sub,fontSize:13,lineHeight:1.5}}>
-    <b style={{color:C.ink}}>Conta parceira do ConHub.</b> Sem mensalidade e com todas as ferramentas liberadas.</div>;
+    <b style={{color:C.ink}}>Conta parceira do CETRO.</b> Sem mensalidade e com todas as ferramentas liberadas.</div>;
 
   /* `asaas_ligado` (22/09/2026) — a conta já tem cliente no Asaas
      (`orgs.asaas_customer_id`), pelos três caminhos que criam cobrança de
@@ -7239,7 +7249,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
   }
 
   /* CORRETOR AUTÔNOMO: compra de prateleira, três planos, sem digitação do
-     ConHub no meio. */
+     CETRO no meio. */
   if(autonomo)
     return <div style={caixa}><PagarPorBoleto acoes={acoes} isMobile={isMobile} aoMudar={rever}/>
       <GerenciarAssinatura acoes={acoes} isMobile={isMobile} atualSituacao={a} aoMudar={rever}/>
@@ -7283,7 +7293,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
         {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
         {!(a.valor||a.valor_mensal)
           ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
-            O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano —
+            O valor da sua mensalidade ainda não foi definido. Fale com o CETRO para combinar o plano —
             assim que ele estiver aqui, você ativa a cobrança sozinho.
           </div>
           :<React.Fragment>
@@ -7432,7 +7442,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
           {baixando?"Gerando…":"Baixar a base de leads"}</button>
         {/* "Já paguei" fazia duas coisas muito diferentes na mesma frase.
 
-            Para o ConHub é a baixa manual — destravar o cliente na hora quando
+            Para o CETRO é a baixa manual — destravar o cliente na hora quando
             o webhook falha. Para o CLIENTE era destravar a si mesmo: um clique
             e a conta voltava, sem ter pago nada. O servidor recusa desde
             27/08/2026.
@@ -7442,7 +7452,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
             sem isto a única saída era recarregar a página no escuro. */}
         {/* "Já paguei" fazia duas coisas muito diferentes na mesma frase.
 
-            Para o ConHub é a baixa manual — destravar o cliente na hora quando
+            Para o CETRO é a baixa manual — destravar o cliente na hora quando
             o webhook falha. Para o CLIENTE era destravar a si mesmo: um clique
             e a conta voltava sem ter pago nada. O servidor recusa desde
             27/08/2026, e aqui o botão simplesmente não existe mais para ele —
@@ -7527,7 +7537,7 @@ function Splash(){
      mesmas rotas da tela, com o login de quem conversa;
    - a NUVEM DE SUPORTE, no canto de baixo, para todo mundo: a IA tenta
      resolver pelo manual do sistema e, quando não dá, abre a conversa com uma
-     pessoa do ConHub, que responde pelo WhatsApp e a resposta volta aqui.
+     pessoa do CETRO, que responde pelo WhatsApp e a resposta volta aqui.
 
    A cor do Claude (#D97757) aparece só no botão e no selo dele, para separar
    "a IA está falando" do resto da tela. O símbolo é desenhado aqui (estrela
@@ -7560,7 +7570,7 @@ function BaloesDaConversa({itens,isMobile}){
       background:meu?C.greenDeep:C.card,color:meu?"#fff":C.ink,border:meu?"none":`1px solid ${C.line}`,
       borderRadius:meu?"13px 13px 4px 13px":"13px 13px 13px 4px",padding:"8px 11px",fontSize:isMobile?14:13,
       lineHeight:1.5,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-      {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte ConHub</div>}
+      {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte CETRO</div>}
       {Array.isArray(i.anexos)&&i.anexos.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:5,whiteSpace:"normal"}}>
         {i.anexos.map((a,k)=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:4,background:"rgba(255,255,255,.16)",
           borderRadius:6,padding:"2px 6px",fontSize:11,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -8024,7 +8034,7 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
       <div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",background:C.greenDeep,color:"#fff"}}>
         <Icon n="msg" size={18}/>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:14,fontWeight:700}}>{comPessoa?`Suporte ConHub · #${chamado.numero}`:"Suporte ConHub"}</div>
+          <div style={{fontSize:14,fontWeight:700}}>{comPessoa?`Suporte CETRO · #${chamado.numero}`:"Suporte CETRO"}</div>
           <div style={{fontSize:11,opacity:.8}}>{comPessoa?"Você está falando com uma pessoa":"Tire sua dúvida — se precisar, chamo uma pessoa"}</div>
         </div>
         {!comPessoa&&itensIA.length>0&&<button onClick={recomecar} style={{border:"1px solid rgba(255,255,255,.35)",background:"transparent",color:"#fff",borderRadius:9,padding:"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Nova</button>}
@@ -8084,11 +8094,11 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
    o teste, e os chamados — com resposta pelo painel para quando o WhatsApp
    do suporte estiver fora. */
 /* No hub (master): configuração + chamados. Com `equipe` (a aba Suporte do
-   ambiente interno do ConHub): só os chamados — quem configura o número é o
+   ambiente interno do CETRO): só os chamados — quem configura o número é o
    master, e a equipe só precisa atender. */
 /* PLANOS DO CETROLAB, no hub (12/10/2026, decisão do Ali: o preço de site é
    ele quem define, aqui, e não fica escrito no código). Sem plano para
-   clientes do ConHub, a ferramenta aparece como "em breve" para todo mundo.
+   clientes do CETRO, a ferramenta aparece como "em breve" para todo mundo.
    Os planos de quem não é cliente já ficam cadastrados para a página de venda
    (/publico/cetrolab/planos); a contratação deles vem numa etapa seguinte. */
 function PlanosCetrolab({acoes,isMobile}){
@@ -8106,7 +8116,7 @@ function PlanosCetrolab({acoes,isMobile}){
   return <div style={{marginTop:isMobile?26:36,borderTop:`1px solid ${C.line}`,paddingTop:isMobile?20:26}}>
     <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?17:20,fontWeight:700,marginBottom:4}}>Cetrolab · planos</div>
     <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
-      O modelo Clássico do site vem em todo plano. Os modelos premium pedem o Cetrolab: o preço para clientes do ConHub é o
+      O modelo Clássico do site vem em todo plano. Os modelos premium pedem o Cetrolab: o preço para clientes do CETRO é o
       que a conta paga ao contratar a ferramenta (um só ativo). Os planos para quem não é cliente ficam prontos para a página de venda.
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
@@ -8141,7 +8151,7 @@ function PlanosCetrolab({acoes,isMobile}){
 /* ===== PROPOSTAS PERSONALIZADAS (10/11/2026) =====
    O checkout de um cliente só: o master escreve o que foi vendido (valor,
    parcelas, meses, acessos, o que está incluído) e copia o link
-   /proposta/<código>. O cliente paga na página com a cara do ConHub e a conta
+   /proposta/<código>. O cliente paga na página com a cara do CETRO e a conta
    é liberada sozinha. O valor mora no servidor — a página só mostra. */
 const FERRAMENTAS_PROPOSTA=[["autoatendimento","Autoatendimento com IA"],["marketing","Marketing"],["cetrolab","Cetrolab (site)"]];
 const ESTADO_PROPOSTA={aberta:["Aguardando pagamento",C.amber],pagando:["Pagando agora",C.amber],processando:["Em análise / liberando",C.amber],aguardando:["Fatura do Asaas aberta, aguardando pagamento",C.amber],
@@ -8189,7 +8199,7 @@ function PropostasNoHub({isMobile,contas}){
       {!abrir&&<button onClick={()=>{setAbrir(true);setNova(null);}} style={botaoVerde}>+ Nova proposta</button>}
     </div>
     <div style={{color:C.sub,fontSize:12.5,marginBottom:14,lineHeight:1.55}}>
-      Para a venda negociada: um link de pagamento com a cara do ConHub, montado para um cliente, com o preço parcelado em destaque.
+      Para a venda negociada: um link de pagamento com a cara do CETRO, montado para um cliente, com o preço parcelado em destaque.
       Pagou no cartão, a conta é liberada sozinha pelo período da proposta.
     </div>
     {d&&!d.pode_cobrar&&!(d.asaas&&d.asaas.pode_cobrar)&&<div style={{background:"#FBF1DE",color:"#8A5A12",borderRadius:11,padding:"10px 12px",fontSize:12.5,marginBottom:12,lineHeight:1.5}}>
@@ -8206,7 +8216,7 @@ function PropostasNoHub({isMobile,contas}){
     {abrir&&<div style={{border:`1px solid ${C.line}`,borderRadius:14,padding:isMobile?12:16,display:"flex",flexDirection:"column",gap:12,marginBottom:14,background:C.card}}>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         {campo("Cliente (nome da imobiliária)",<input value={f.cliente} onChange={e=>muda("cliente",e.target.value)} placeholder="Ex.: Imobiliária Horizonte" style={entrada}/>,"2 1 220px")}
-        {campo("Título do plano",<input value={f.titulo} onChange={e=>muda("titulo",e.target.value)} placeholder="Plano ConHub · anual" style={entrada}/>,"2 1 200px")}
+        {campo("Título do plano",<input value={f.titulo} onChange={e=>muda("titulo",e.target.value)} placeholder="Plano CETRO · anual" style={entrada}/>,"2 1 200px")}
       </div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         {campo("Valor total (R$)",<input value={f.total} onChange={e=>muda("total",e.target.value)} inputMode="decimal" placeholder="14.400" style={entrada}/>)}
@@ -8311,7 +8321,7 @@ function SuporteNoHub({isMobile,equipe}){
         repassar a WhatsApp nenhum; o repasse continua existindo como opção. */}
     <div style={{background:C.surface,borderRadius:11,padding:"10px 12px",fontSize:12,color:C.sub,lineHeight:1.5}}>
       {d.config.ambiente_interno
-        ?"Os chamados caem na aba Suporte do ambiente interno do ConHub. A equipe é avisada no celular e responde por lá."
+        ?"Os chamados caem na aba Suporte do ambiente interno do CETRO. A equipe é avisada no celular e responde por lá."
         :"Crie o ambiente interno (no alto desta tela) para os chamados caírem dentro do sistema. Sem ele, eles vão para o WhatsApp abaixo."}
     </div>
     <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:C.ink,cursor:"pointer"}}>
@@ -8609,7 +8619,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     .filter(item=>!(org&&org.empreendimento&&(item[0]==="imoveis"||item[0]==="plantao"||item[0]==="cetrolab")))
     .flatMap(item=>org&&org.empreendimento&&item[0]==="funil"?[item,["lotes","pin","Lotes","Principal"]]:[item])
     .concat(org&&org.tipo==="interna"?[["suporte","boia","Suporte","Principal"]]:[])
-    /* Disparos e Fluxos só existem para a conta que o ConHub liberou; sem a
+    /* Disparos e Fluxos só existem para a conta que o CETRO liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
     .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item)
     /* Com catraca de produto ativa, "Catraca" vira grupo: Configurações (a
@@ -8631,7 +8641,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
   const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",lotes:"Lotes do empreendimento",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
-     "Atendimento | ConHub" repetido quatro vezes não ajudaria em nada. */
+     "Atendimento | CETRO" repetido quatro vezes não ajudaria em nada. */
   if(view.startsWith("catraca:")){
     const c=view==="catraca:principal"?null:((catracasMenu&&catracasMenu.catracas)||[]).find(x=>"catraca:"+x.id===view);
     TITLES[view]=c?`Catraca · ${c.nome}`:"Catraca principal";
@@ -8648,7 +8658,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      diria isso a ele. Sem este aviso, é fácil esquecer de qual lado da conta
      você está e estranhar não se achar na lista de pessoas. */
   const ehMaster=!!session.master;
-  const roleLabel=ehMaster?"ConHub · master":roleParaTexto(role);
+  const roleLabel=ehMaster?"CETRO · master":roleParaTexto(role);
 
   return <div style={{fontFamily:FONT,background:C.surface,color:C.ink,width:"100%",height:"100dvh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden"}}>
     {/* A marca leva para a tela inicial de cada papel — Painel para quem
@@ -8790,7 +8800,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
       menu={NAV.map(i=>({id:i[0],rotulo:i[2],secao:i[3]||"Principal"}))}
       aoMudarMenu={mudarMenuOrdem}/>}
     {/* O master não ganha a nuvem: o suporte é ele. */}
-    {/* Nem a equipe do ConHub: o suporte também é ela. */}
+    {/* Nem a equipe do CETRO: o suporte também é ela. */}
     {!ehMaster&&!contaInterna()&&<NuvemDeSuporte isMobile={isMobile} irPara={setView} view={view} nome={session.name}/>}
   </div>;
 }
@@ -8830,11 +8840,11 @@ const LIMITE_NAV=5;      // celular: 4 + o "Mais"
 const OPERACAO_FILHOS=[["gestao","target","Visão geral"],["relatorios","chart","Relatórios"]];
 /* MARKETING (27/09/2026): hoje só os disparos em massa; os fluxos de
    atendimento por bot entram aqui depois, como segundo filho. Só aparece para
-   o gestor, e só quando o ConHub liberou o recurso para a conta (hub). */
+   o gestor, e só quando o CETRO liberou o recurso para a conta (hub). */
 /* FORMULÁRIOS (03/10/2026, pedido do Ali): os formulários dos anúncios — o
    funil e as catracas de cada um — moram em Marketing, ao lado dos disparos
    e dos fluxos (de 03/10 até aqui ficavam em Atender). Disparos e Fluxos só
-   existem com o Marketing liberado pelo ConHub; Formulários não depende
+   existem com o Marketing liberado pelo CETRO; Formulários não depende
    disso, e a conta sem a ferramenta vê o grupo só com ele. */
 const MARKETING_FILHOS=[["marketing","send","Disparos em massa"],["fluxos","zap","Fluxos"],["redes","redes","Redes sociais"],["formularios","form","Formulários"]];
 const SO_FORMULARIOS=MARKETING_FILHOS.filter(f=>f[0]==="formularios");
@@ -8997,26 +9007,11 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
             Fundo branco atrás dela porque logo quase sempre é feita para papel
             branco: uma marca de traço escuro colocada direto na barra some.
             `contain` para não recortar — logo cortada é pior que logo nenhuma. */}
-        {marca.logo
-          ? <div style={{background:"#fff",width:34,height:34,borderRadius:10,flexShrink:0,
-              display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-              <img src={marca.logo} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
-            </div>
-          : (org||recolhida)&&<ConHubLogo variant="app" size={34}/>}
-        {/* Sem imobiliária (e com espaço), a assinatura inteira do ConHub,
-            em branco — é o fundo escuro da barra. */}
-        {!recolhida&&!org&&<ConHubLogo tone="inverse" size={24}/>}
-        {!recolhida&&org&&<div style={{minWidth:0,textAlign:"left"}}>
-          {/* O NOME DA IMOBILIÁRIA VEM PRIMEIRO, e o ConHub embaixo.
-
-              Era o contrário, e fazia sentido enquanto havia uma casa só. Numa
-              plataforma que outras imobiliárias assinam, a equipe abrir o
-              sistema e ler o nome do fornecedor em cima do próprio é o oposto
-              do que a marca na barra existe para fazer. */}
-          <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:15,fontWeight:700,lineHeight:1.15,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org}</div>
-          <div style={{color:"rgba(255,255,255,.5)",fontSize:10,lineHeight:1.3,marginTop:1,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>ConHub</div>
+        <ConHubLogo variant="app" size={34}/>
+        {!recolhida&&<div style={{minWidth:0,textAlign:"left"}}>
+          <div style={{fontFamily:DISPLAY,color:"#fff",fontSize:16,fontWeight:800,letterSpacing:1.6,lineHeight:1.1}}>CETRO</div>
+          {org&&<div style={{color:"rgba(255,255,255,.55)",fontSize:10.5,lineHeight:1.3,marginTop:2,
+            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{org}</div>}
         </div>}
       </button>
       {/* A seta aponta para onde a barra VAI: fechando quando aberta, abrindo
@@ -9063,7 +9058,7 @@ function NavCelular({nav,view,setView,aviso,marca=MARCA_PADRAO}){
   /* A barra do celular acompanha a cor da imobiliária pelo mesmo motivo da
      barra do computador: é o corretor, em pé, na rua, com o cliente esperando
      — é ele quem passa o dia olhando para esta faixa. O ícone na tela de
-     início continua o do ConHub: aquele é gerado no build, não por conta. */
+     início continua o do CETRO: aquele é gerado no build, não por conta. */
   const realce=realceDa(marca);
   const [maisAberto,setMaisAberto]=useState(false);
   const [gavetas,setGavetas]=useState({});
@@ -9223,7 +9218,7 @@ function usarLinhas(acoes,session,lista){
   const equipe=(d&&d.equipe)||(d&&d.meu?[d.meu]:[]);
   const porId=new Map(equipe.map(c=>[c.id,c]));
   const rotulo=(canalId)=>{
-    if(!canalId) return {texto:contaInterna()?"ConHub":"Imobiliária",pessoal:false};
+    if(!canalId) return {texto:contaInterna()?"CETRO":"Imobiliária",pessoal:false};
     const c=porId.get(canalId);
     if(!c) return {texto:"Outro número",pessoal:true};
     if(c.tipo==="disparo") return {texto:"Disparo",pessoal:false};
@@ -9232,7 +9227,7 @@ function usarLinhas(acoes,session,lista){
   };
   const pessoais=equipe.filter(c=>c.tipo==="corretor"&&(c.conectado||(lista||[]).some(l=>l.canalId===c.id)));
   const varias=pessoais.length>0||(lista||[]).some(l=>l.canalId);
-  const opcoes=[{v:"casa",t:contaInterna()?"Número do ConHub":"Número da imobiliária"},...pessoais.map(c=>({v:c.id,t:"Número de "+first(c.pessoa||c.nome||"corretor")}))];
+  const opcoes=[{v:"casa",t:contaInterna()?"Número do CETRO":"Número da imobiliária"},...pessoais.map(c=>({v:c.id,t:"Número de "+first(c.pessoa||c.nome||"corretor")}))];
   return {rotulo,varias,opcoes};
 }
 function SeloDaLinha({linha,grande}){
@@ -9243,7 +9238,7 @@ function SeloDaLinha({linha,grande}){
       fontSize:grande?11:10,fontWeight:700,padding:grande?"2px 8px":"1px 6px",borderRadius:999,
       color:linha.pessoal?C.greenDeep:C.sub,background:linha.pessoal?C.greenSoft:C.surface,
       border:`1px solid ${linha.pessoal?C.green+"55":C.line}`}}>
-    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:contaInterna()?"Nº do ConHub":"Nº da imobiliária"):linha.texto}</span>;
+    <Icon n="whatsapp" size={grande?11:10}/>{grande?(linha.pessoal?"Nº de "+linha.texto:contaInterna()?"Nº do CETRO":"Nº da imobiliária"):linha.texto}</span>;
 }
 
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
@@ -10916,7 +10911,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <TopoDaCaixa isMobile={isMobile} busca={busca} setBusca={setBusca} onNovoLead={()=>setNovoLead(true)}
         vista={vista} setVista={setVista} contagem={contagem} lista={daLinha} campanha={campanha} setCampanha={setCampanha}
         seletor={minhaLinha?{rotulo:"Número",valor:linha,mudar:setLinha,opcoes:[
-          {v:"todas",t:"Todos os números"},{v:"casa",t:contaInterna()?"Do ConHub":"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
+          {v:"todas",t:"Todos os números"},{v:"casa",t:contaInterna()?"Do CETRO":"Da imobiliária"},{v:"minha",t:"Meu WhatsApp"}]}:null}
         filtrosAtivos={filtrosAtivos} gaveta={gaveta} setGaveta={setGaveta} ordem={ordemCaixa} setOrdem={setOrdemCaixa}
         contador={(filtrosAtivos||busca.trim()||vista!=="todos")?`${list.length} ${list.length===1?"conversa":"conversas"}`:""}>
         {filtrosAtivos>0&&<button onClick={limparFiltros}
@@ -11114,7 +11109,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 /* ===== REGISTRO DE VENDA (pedido do Ali: valor, data e qual imóvel) ===== */
 function FichaVenda({lead,onSalvar,lado,aoAbrir}){
   const v=lead.venda;
-  // No ambiente interno do ConHub a venda é uma assinatura, não um imóvel.
+  // No ambiente interno do CETRO a venda é uma assinatura, não um imóvel.
   const interna=contaInterna();
   const [aberto,setAberto]=useState(false);
   const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:"",comissao:""});
@@ -11737,7 +11732,7 @@ function GoogleAgenda({acoes,session,isMobile}){
     {aviso&&aviso.estado==="ok"&&<div style={{color:C.greenDeep,background:C.greenSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Google Agenda ligado.</div>}
     {aviso&&aviso.estado==="erro"&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Não deu para ligar: {aviso.motivo}</div>}
     {!d.configurado&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"8px 10px"}}>
-      Ainda não está ligado nesta instalação: falta o projeto do ConHub no Google Cloud (e a verificação do Google). Fale com o ConHub.</div>}
+      Ainda não está ligado nesta instalação: falta o projeto do CETRO no Google Cloud (e a verificação do Google). Fale com o CETRO.</div>}
     {d.configurado&&(d.conectado
       ?<button onClick={desconectar} disabled={ocupado} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado?"…":"Desligar o Google"}</button>
       :<button onClick={conectar} disabled={ocupado} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"Abrindo o Google…":"Conectar com o Google"}</button>)}
@@ -13598,18 +13593,18 @@ function RedesSociais({acoes,isMobile,irPara}){
         <button onClick={atualizarInstagram} disabled={atualizando} style={{...botaoLeveMkt,marginLeft:"auto",minHeight:36}}>{atualizando?"Atualizando…":"Atualizar"}</button>
       </div>
       {!pagina.instagram&&pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
-        Para enxergar o Instagram ligado a esta página, o ConHub precisa de uma permissão da Meta (<b>instagram_basic</b>) que ainda está em análise.
+        Para enxergar o Instagram ligado a esta página, o CETRO precisa de uma permissão da Meta (<b>instagram_basic</b>) que ainda está em análise.
         Sem ela, a Meta não informa o Instagram — mesmo ele estando ligado. Quando a permissão for aprovada, conecte a página de novo e o Instagram aparece aqui.</div>}
       {!pagina.instagram&&!pagina.instagram_sem_permissao&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.5}}>
         Para publicar no Instagram, ele precisa ser uma conta <b>profissional</b> (comercial ou criador) ligada a esta página do Facebook.
         Ligue no app do Instagram (Configurações → Central de Contas) e clique em Atualizar.</div>}
       {faltamPublicar.length>0&&!d.pedindo_redes&&<div style={{background:C.surface,color:C.sub,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
-        A publicação e as respostas automáticas ainda estão sendo liberadas pela Meta para o ConHub. Enquanto isso, a conexão da página continua servindo aos anúncios normalmente.</div>}
+        A publicação e as respostas automáticas ainda estão sendo liberadas pela Meta para o CETRO. Enquanto isso, a conexão da página continua servindo aos anúncios normalmente.</div>}
       {faltamPublicar.length>0&&d.pedindo_redes&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
-        A Meta ainda não deu ao ConHub permissão para: <b>{descreverPermissoes(faltamPublicar)}</b>.
+        A Meta ainda não deu ao CETRO permissão para: <b>{descreverPermissoes(faltamPublicar)}</b>.
         Se a permissão já foi aprovada na análise do app, <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>conecte a página de novo</button> para ela valer.</div>}
       {!pagina.permissoes_conhecidas&&<div style={{background:C.surface,color:C.sub,fontSize:12,borderRadius:10,padding:"9px 12px",marginBottom:12,lineHeight:1.5}}>
-        Esta página foi conectada antes das redes sociais existirem no ConHub. Se algo for recusado,{" "}
+        Esta página foi conectada antes das redes sociais existirem no CETRO. Se algo for recusado,{" "}
         <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>conecte a página de novo</button>.</div>}
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
         {abas.map(([k,t])=><button key={k} onClick={()=>{ if(k==="novo"&&aba!=="novo") setEditando({}); setAba(k); }}
@@ -13638,7 +13633,7 @@ function ProgramacaoDePosts({acoes,isMobile,pageId,aoEditar,aoNovo}){
     try{ await acoes.redesCancelarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
   }
   async function apagar(p){
-    if(!window.confirm("Tirar este post da lista do ConHub? O que já foi publicado continua no Facebook e no Instagram.")) return;
+    if(!window.confirm("Tirar este post da lista do CETRO? O que já foi publicado continua no Facebook e no Instagram.")) return;
     try{ await acoes.redesApagarPost(p.id); carregar(); }catch(e){ setErro(e.message); }
   }
   const lista=(itens)=>itens.map(p=><CartaoDePost key={p.id} p={p} isMobile={isMobile} aoEditar={aoEditar} aoCancelar={cancelar} aoApagar={apagar}/>);
@@ -13829,7 +13824,7 @@ function EditorDePost({acoes,isMobile,pagina,post,aoSalvar,aoCancelar}){
         {quando==="programar"&&<input type="datetime-local" value={dataHora} onChange={e=>setDataHora(e.target.value)}
           min={paraCampoDataHora(Date.now())} style={{...campoMkt(isMobile),width:"auto",flex:"0 1 230px"}}/>}
       </div>
-      {quando==="programar"&&<div style={{color:C.faint,fontSize:11.5,marginTop:5}}>O ConHub publica sozinho na hora marcada (até 90 dias à frente).</div>}
+      {quando==="programar"&&<div style={{color:C.faint,fontSize:11.5,marginTop:5}}>O CETRO publica sozinho na hora marcada (até 90 dias à frente).</div>}
     </div>
     {avisos.length>0&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"9px 12px",marginBottom:10,lineHeight:1.5}}>
       {avisos.map((a,i)=><div key={i}>{a}</div>)}</div>}
@@ -13892,7 +13887,7 @@ function EngajamentoDasRedes({acoes,isMobile,pagina}){
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:11.5,color:C.faint,marginBottom:3}}>
             <LogoRede rede={x.rede} size={13}/>{x.data?new Date(x.data).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}
             {x.tipo&&<span>· {x.tipo}</span>}
-            {x.do_conhub&&<span style={{color:C.greenDeep,fontWeight:700}}>· programado no ConHub</span>}
+            {x.do_conhub&&<span style={{color:C.greenDeep,fontWeight:700}}>· programado no CETRO</span>}
             {x.link&&<a href={x.link} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,marginLeft:"auto"}}>abrir</a>}
           </div>
           <div style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{x.texto||<span style={{color:C.faint}}>(sem texto)</span>}</div>
@@ -13929,7 +13924,7 @@ function ComentariosAutomaticos({acoes,isMobile,pagina,irParaAnuncios}){
       A conversa no direct não entra no CRM: o link leva ao WhatsApp, e é lá que a pessoa vira lead, pela catraca de sempre.
     </div>
     {!pagina.comentarios_ligados&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,lineHeight:1.55}}>
-      A Meta ainda não avisa o ConHub dos comentários do Facebook desta página.{" "}
+      A Meta ainda não avisa o CETRO dos comentários do Facebook desta página.{" "}
       <button onClick={irParaAnuncios} style={{border:"none",background:"transparent",color:C.greenDeep,fontWeight:700,padding:0,cursor:"pointer",fontSize:12.5,textDecoration:"underline"}}>Conecte a página de novo</button> depois que a permissão for aprovada.</div>}
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
@@ -15810,7 +15805,7 @@ function VersaoDoApp(){
 
   const velha=publicada&&publicada!==meu;
   return <div style={{textAlign:"center",marginTop:6,lineHeight:1.6}}>
-    <div style={{color:C.faint,fontSize:11}}>ConHub · versão {meu}</div>
+    <div style={{color:C.faint,fontSize:11}}>CETRO · versão {meu}</div>
     {publicada===false&&<div style={{color:C.faint,fontSize:10.5}}>não consegui conferir a versão do servidor</div>}
     {publicada&&!velha&&<div style={{color:C.greenMid,fontSize:10.5,fontWeight:600}}>este aparelho está na última versão</div>}
     {velha&&<React.Fragment>
@@ -16238,7 +16233,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     <div style={{maxWidth:820,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
       {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
-        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no ConHub</div>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no CETRO</div>
         <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Você tem acesso a {CONTAS.length} contas com o mesmo e-mail e a mesma senha. Cada uma tem os próprios leads e a sua função nela.</div>
         <TrocarDeConta/>
       </div>}
@@ -16264,7 +16259,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
         <div>
           {rotulo("E-mail")}
           <input value={f.email} onChange={set("email")} type="email" inputMode="email" style={entrada}/>
-          <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no ConHub.</div>
+          <div style={{color:C.faint,fontSize:11,marginTop:5}}>É com ele que você entra no CETRO.</div>
         </div>
         <div>{rotulo("WhatsApp")}
           <div style={{display:"flex",gap:6}}>
@@ -16299,7 +16294,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
       {!contaEmpreendimento()&&<MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>}
       <GoogleAgenda acoes={acoes} session={session} isMobile={isMobile}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
-      {/* O ambiente interno do ConHub não tem mensalidade. */}
+      {/* O ambiente interno do CETRO não tem mensalidade. */}
       {podeGerir(session)&&!contaInterna()&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
         autonomo={!!org&&org.tipo==="autonomo"}/>}
       <VersaoDoApp/>
@@ -16308,7 +16303,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
 }
 /* ===== CÓDIGO DE ACESSO DA CONTA (14/10/2026) =====
    Seis dígitos que mudam a cada 60 segundos. Só a gestão da conta vê. O
-   suporte do ConHub só entra na conta digitando o código do momento — então
+   suporte do CETRO só entra na conta digitando o código do momento — então
    entra quando a gestão passa o código, e a lista embaixo diz quando entrou.
    O contador corre no aparelho; ao zerar, o código novo é buscado no servidor. */
 function CodigoDeAcesso({acoes}){
@@ -16326,14 +16321,14 @@ function CodigoDeAcesso({acoes}){
   const abertos=(d.acessos||[]).filter(a=>a.aberto);
   const fmtData=(t)=>new Date(t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
   const encerrar=async()=>{ setEncerrando(true); try{ const x=await acoes.encerrarAcessoMaster(); setD(v=>({...v,acessos:x.acessos})); }catch(e){ setErro(e.message); } setEncerrando(false); };
-  const desligarLivre=async()=>{ if(!window.confirm("Voltar a exigir o código de acesso? O ConHub só entra de novo com o código que você passar.")) return;
+  const desligarLivre=async()=>{ if(!window.confirm("Voltar a exigir o código de acesso? O CETRO só entra de novo com o código que você passar.")) return;
     setDesligando(true); try{ const x=await acoes.desligarAcessoLivre(); setD(v=>({...v,livre:null,acessos:x.acessos})); }catch(e){ setErro(e.message); } setDesligando(false); };
   const copiar=()=>{ try{ navigator.clipboard.writeText(d.codigo); setCopiado(true); setTimeout(()=>setCopiado(false),1500); }catch(e){} };
   const pct=Math.max(0,Math.min(100,(resta/(d.segundos||60))*100));
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:12}}>
     <div>
-      <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Código de acesso do suporte ConHub</div>
-      <div style={{color:C.sub,fontSize:12.5,marginTop:4,lineHeight:1.45}}>O suporte do ConHub só entra na sua conta com este código. Passe-o apenas quando você pedir ajuda. Ele muda a cada 60 segundos.</div>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Código de acesso do suporte CETRO</div>
+      <div style={{color:C.sub,fontSize:12.5,marginTop:4,lineHeight:1.45}}>O suporte do CETRO só entra na sua conta com este código. Passe-o apenas quando você pedir ajuda. Ele muda a cada 60 segundos.</div>
     </div>
     <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
       <button onClick={copiar} title="Copiar o código" style={{fontFamily:MONO,fontSize:32,fontWeight:700,letterSpacing:6,color:C.greenDeep,background:C.greenSoft,border:"none",borderRadius:12,padding:"8px 16px",cursor:"pointer"}}>
@@ -16345,21 +16340,21 @@ function CodigoDeAcesso({acoes}){
       </div>
     </div>
     {d.livre&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
-      <b>O ConHub pode entrar sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta: até {d.livre.horas} horas por dia, e você é avisado a cada entrada. Hoje foram usados {fmtDuracao(d.livre.usado_hoje_ms)}.
+      <b>O CETRO pode entrar sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta: até {d.livre.horas} horas por dia, e você é avisado a cada entrada. Hoje foram usados {fmtDuracao(d.livre.usado_hoje_ms)}.
       <div><button onClick={desligarLivre} disabled={desligando}
         style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:9,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         {desligando?"Desligando…":"Voltar a exigir o código"}</button></div>
     </div>}
     <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
-      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>Entradas do ConHub na sua conta</div>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:600,marginBottom:6}}>Entradas do CETRO na sua conta</div>
       {!(d.acessos||[]).length
         ?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma até agora.</div>
         :<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.acessos.slice(0,6).map(a=>
           <div key={a.id} style={{fontSize:12.5,color:a.aberto?C.ink:C.sub}}>
-            {fmtData(a.inicio)} · {a.quem||"ConHub"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>{a.sem_codigo?"aberta agora":`aberta até ${fmtData(a.ate)}`}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
+            {fmtData(a.inicio)} · {a.quem||"CETRO"}{a.sem_codigo?" · sem código":""} · {a.aberto?<b style={{color:C.amber}}>{a.sem_codigo?"aberta agora":`aberta até ${fmtData(a.ate)}`}</b>:a.encerrado_em?"encerrada por vocês":"terminou"}</div>)}</div>}
       {abertos.length>0&&<button onClick={encerrar} disabled={encerrando}
         style={{marginTop:10,border:`1px solid ${C.line}`,background:"#fff",color:C.ink,borderRadius:10,padding:"9px 12px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-        {encerrando?"Encerrando…":"Encerrar o acesso do ConHub agora"}</button>}
+        {encerrando?"Encerrando…":"Encerrar o acesso do CETRO agora"}</button>}
     </div>
   </div>;
 }
@@ -16542,15 +16537,15 @@ function Notificacoes({acoes,isMobile}){
     {explica("Este navegador não recebe notificações. Tente pelo Chrome (Android) ou pelo Safari com o site na tela de início (iPhone).")}</div>;
   // O caso que mais confunde: iPhone com o site aberto no Safari.
   if(ehIOS()&&!naTelaDeInicio()) return <div style={caixa}>{titulo}
-    {explica("No iPhone, as notificações só funcionam com o ConHub adicionado à tela de início.")}
+    {explica("No iPhone, as notificações só funcionam com o CETRO adicionado à tela de início.")}
     <div style={{background:C.greenSoft,borderRadius:10,padding:12,color:C.greenDeep,fontSize:12.5,lineHeight:1.7}}>
       <b>Como fazer:</b><br/>1. Toque no botão de compartilhar (a setinha para cima)<br/>
-      2. Escolha <b>Adicionar à Tela de Início</b><br/>3. Abra o ConHub por esse ícone e volte aqui
+      2. Escolha <b>Adicionar à Tela de Início</b><br/>3. Abra o CETRO por esse ícone e volte aqui
     </div></div>;
 
   return <div style={caixa}>
     {titulo}
-    {explica("Avisa quando um lead cair na sua mão e quando o cliente responder — mesmo com o ConHub fechado.")}
+    {explica("Avisa quando um lead cair na sua mão e quando o cliente responder — mesmo com o CETRO fechado.")}
     {recado&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
       color:recado.ok?C.greenDeep:C.hot,background:recado.ok?C.greenSoft:C.hotSoft}}>{recado.txt}</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -18259,7 +18254,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           {resultado.criados} lead(s) importado(s)</div>
         {resultado.ignorados>0&&<div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>
           {resultado.ignorados} linha(s) fora: {Object.entries(resultado.motivos).map(([m,n])=>`${n} ${m}`).join(" · ")}.
-          <div style={{color:C.faint,fontSize:11,marginTop:3}}>Telefone repetido é ignorado de propósito — o cadastro que já existe no ConHub tem histórico e não pode ser sobrescrito por planilha.</div>
+          <div style={{color:C.faint,fontSize:11,marginTop:3}}>Telefone repetido é ignorado de propósito — o cadastro que já existe no CETRO tem histórico e não pode ser sobrescrito por planilha.</div>
         </div>}
       </div>}
       <div style={{color:C.faint,fontSize:11.5,marginBottom:10,lineHeight:1.5}}>
@@ -18925,7 +18920,7 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
                 "Lá só entram fotos JPG (as fotos do CRM já são convertidas) e vídeo apenas do YouTube."])}
             </div>
             <div style={{background:C.surface,borderRadius:10,padding:"10px 12px",color:C.sub,fontSize:12.5,lineHeight:1.55}}>
-              <b style={{color:C.ink}}>Imovelweb:</b> ainda não confirmamos qual formato de arquivo eles aceitam. Envie o endereço do Grupo OLX (VRSync) ao suporte do Imovelweb e pergunte se serve — muitos portais leem esse formato. Se pedirem outro, avise a equipe do ConHub.
+              <b style={{color:C.ink}}>Imovelweb:</b> ainda não confirmamos qual formato de arquivo eles aceitam. Envie o endereço do Grupo OLX (VRSync) ao suporte do Imovelweb e pergunte se serve — muitos portais leem esse formato. Se pedirem outro, avise a equipe do CETRO.
             </div>
           </div>
           <button onClick={()=>trocar("feed")} style={{marginTop:12,border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline",padding:0}}>Gerar endereço novo (se este vazou)</button>
@@ -18992,7 +18987,7 @@ function MiniaturaModelo({id}){
    "Assinar". A assinatura abre ALI MESMO (a mesma contratação de Minha conta →
    Ferramentas, filtrada no Cetrolab) — mandar a pessoa para outra tela no
    minuto em que ela decidiu contratar é perder a venda. Sem plano cadastrado
-   pelo ConHub, o botão não aparece e a tela diz que ainda não está à venda:
+   pelo CETRO, o botão não aparece e a tela diz que ainda não está à venda:
    botão que só leva a "em breve" é pior que nenhum. */
 function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embutido}){
   const [salvando,setSalvando]=useState(null); const [erro,setErro]=useState("");
@@ -19066,7 +19061,7 @@ function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embut
             ?<span style={{color:C.greenDeep,fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><Icon n="check" size={13}/>Assinado</span>
             :plano
               ?(!assinando&&<button onClick={abrirAssinatura} style={{...botaoVerde,background:C.greenDeep}}>Assinar o Cetrolab · {fmtPreco(plano.valor_mensal)}/mês</button>)
-              :<span style={{color:C.faint,fontSize:11.5}}>Ainda não está à venda. Fale com o ConHub.</span>}
+              :<span style={{color:C.faint,fontSize:11.5}}>Ainda não está à venda. Fale com o CETRO.</span>}
         </div>
         {!temCetrolab&&plano&&assinando&&<div ref={blocoAssinar} style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.green}33`}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
@@ -19251,6 +19246,10 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             resumo={`No ar: ${noAr?noAr.nome:"Clássico"} · ${temCetrolab?"Cetrolab ativo":`Clássico grátis · ${premium} modelos no Cetrolab`}`}>
             <ModelosDoSite d={d} acoes={acoes} aoMudar={carregar} aoAtualizar={setD} isMobile={isMobile} irPara={irPara} cartao={cartao} embutido/>
           </GavetaSite>;})()}
+        <GavetaSite titulo="Marca do site" isMobile={isMobile} aberta={aberta==="marca"} onAlternar={()=>alternar("marca")}
+          resumo="Logo e cor de destaque do site da imobiliária">
+          <IdentidadeConfig acoes={acoes} isMobile={isMobile}/>
+        </GavetaSite>
         <GavetaSite titulo="Conteúdo do site" isMobile={isMobile} aberta={aberta==="conteudo"} onAlternar={()=>alternar("conteudo")}
           resumo={resumoConteudo?`${resumoConteudo} · usado no Institucional`:"Sobre nós, redes, equipe e depoimentos"}>
           <ConteudoDoSite acoes={acoes} isMobile={isMobile} cartao={cartao} embutido aoResumo={setResumoConteudo}/>
@@ -19295,12 +19294,12 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
 
         {/* DOMÍNIO PRÓPRIO (04/10/2026, pedido do Ali): o site abrindo no
             endereço da imobiliária. São três passos, e a tela diz em qual está:
-            registrar aqui → o ConHub ativa na hospedagem → a imobiliária aponta
+            registrar aqui → o CETRO ativa na hospedagem → a imobiliária aponta
             o DNS. "No ar" só aparece quando o site responde de verdade pelo
             domínio, com https. */}
         <GavetaSite titulo="Domínio próprio" isMobile={isMobile} aberta={aberta==="dominio"} onAlternar={()=>alternar("dominio")}
           alerta={!!d.dominio&&d.dominio_estado!=="ativo"}
-          resumo={!d.dominio?"Não usa — o site abre no endereço do ConHub":`${d.dominio} · ${d.dominio_estado==="ativo"?"no ar":d.dominio_estado==="aguardando_dns"?"falta criar os registros no DNS":"preparando"}`}>
+          resumo={!d.dominio?"Não usa — o site abre no endereço do CETRO":`${d.dominio} · ${d.dominio_estado==="ativo"?"no ar":d.dominio_estado==="aguardando_dns"?"falta criar os registros no DNS":"preparando"}`}>
           <div style={{color:C.faint,fontSize:12,lineHeight:1.5,marginBottom:12}}>O site abre no endereço da imobiliária, como www.suaimobiliaria.com.br.</div>
           {rotulo("Domínio")}
           <input value={f.dominio} onChange={e=>setF({...f,dominio:e.target.value.trim().toLowerCase()})} placeholder="www.suaimobiliaria.com.br" style={entrada} autoCapitalize="none"/>
@@ -19310,18 +19309,18 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
             const cor=est==="ativo"?C.greenDeep:est==="aguardando_dns"?"#6b561a":C.sub;
             const fundo=est==="ativo"?C.greenSoft:est==="aguardando_dns"?C.amberSoft:C.surface;
             /* Os registros vêm do Railway (CNAME de rota + TXT de verificação);
-               sem o cadastro automático, só o CNAME que o ConHub anotou. */
+               sem o cadastro automático, só o CNAME que o CETRO anotou. */
             const regs=(d.dominio_registros&&d.dominio_registros.length)?d.dominio_registros
               :d.dominio_destino?[{tipo:"CNAME",nome:d.dominio.startsWith("www.")?"www":d.dominio,valor:d.dominio_destino,ok:false}]:[];
             return <div style={{background:fundo,borderRadius:10,padding:"11px 12px",marginTop:12,color:cor,fontSize:12.5,lineHeight:1.55}}>
-              <div style={{fontWeight:700,marginBottom:4}}>{est==="ativo"?"No ar pelo domínio":est==="aguardando_dns"?"Falta criar os registros no DNS":d.dominio_automatico?"Preparando o domínio":"Esperando o ConHub ativar"}</div>
+              <div style={{fontWeight:700,marginBottom:4}}>{est==="ativo"?"No ar pelo domínio":est==="aguardando_dns"?"Falta criar os registros no DNS":d.dominio_automatico?"Preparando o domínio":"Esperando o CETRO ativar"}</div>
               {est==="aguardando_conhub"&&!d.dominio_detalhe&&<div>{d.dominio_automatico
                 ?"O domínio está sendo preparado na hospedagem. Em instantes aparecem aqui os registros para criar no DNS."
-                :"Recebemos o domínio. O ConHub ativa ele na hospedagem (é ela que emite o cadeado do https) e aqui aparece para onde apontar o DNS."}</div>}
+                :"Recebemos o domínio. O CETRO ativa ele na hospedagem (é ela que emite o cadeado do https) e aqui aparece para onde apontar o DNS."}</div>}
               {est==="aguardando_dns"&&regs.length>0&&<div>
                 No painel onde o domínio foi registrado, crie {regs.length>1?`estes ${regs.length} registros`:"este registro"}. No Registro.br fica em <b>DNS → Editar zona → Nova entrada</b>; se o domínio usa o DNS de outro lugar (Hostinger, Cloudflare…), é lá.
                 {regs.map((r,i)=><RegistroDns key={i} r={r} isMobile={isMobile}/>)}
-                Depois de criar, pode levar algumas horas para valer. O ConHub confere sozinho a cada 15 minutos.</div>}
+                Depois de criar, pode levar algumas horas para valer. O CETRO confere sozinho a cada 15 minutos.</div>}
               {d.dominio_detalhe&&est!=="ativo"&&<div style={{marginTop:6,opacity:.85}}>{d.dominio_detalhe}</div>}
               {est!=="ativo"&&<button onClick={conferirDominio} disabled={conferindo} style={{marginTop:9,border:`1px solid ${C.line}`,background:C.card,color:C.ink,
                 borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{conferindo?"Conferindo…":"Conferir agora"}</button>}
@@ -19381,7 +19380,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
                 <div><b>3.</b> Verificado, abra <b>Sitemaps</b> no menu do Search Console e envie:
                   <div style={{marginTop:6}}><CopiarEndereco url={d.google_sitemap}/></div></div>
               </div>
-              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:10}}>{d.dominio?(d.dominio_estado==="ativo"?"Com o domínio próprio ativo, cadastre o domínio. Se antes cadastrou o endereço do ConHub, cadastre de novo com o domínio.":"Quando o domínio próprio ficar ativo, os endereços acima mudam para ele — cadastre de novo."):"Se o site ganhar um domínio próprio depois, os endereços mudam e é preciso cadastrar de novo."} O Google leva de alguns dias a algumas semanas para mostrar as páginas.</div>
+              <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:10}}>{d.dominio?(d.dominio_estado==="ativo"?"Com o domínio próprio ativo, cadastre o domínio. Se antes cadastrou o endereço do CETRO, cadastre de novo com o domínio.":"Quando o domínio próprio ficar ativo, os endereços acima mudam para ele — cadastre de novo."):"Se o site ganhar um domínio próprio depois, os endereços mudam e é preciso cadastrar de novo."} O Google leva de alguns dias a algumas semanas para mostrar as páginas.</div>
             </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
@@ -19391,7 +19390,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
         </GavetaSite>
 
         <div style={{color:C.faint,fontSize:12,lineHeight:1.6,padding:"4px 4px 20px"}}>
-          A logo e a cor vêm de <b>Configurações → Identidade</b>. A página de cada imóvel usa a descrição do anúncio e respeita o que foi escolhido em "O que mostrar do endereço". Construtora, comissão, quem captou e as observações internas <b>nunca</b> aparecem no site.
+          A logo e a cor vêm da gaveta <b>Marca do site</b>, logo acima. A página de cada imóvel usa a descrição do anúncio e respeita o que foi escolhido em "O que mostrar do endereço". Construtora, comissão, quem captou e as observações internas <b>nunca</b> aparecem no site.
         </div>
       </React.Fragment>}
     </div>
@@ -19897,7 +19896,7 @@ function PainelRemocao({alvo,candidatos,onConfirmar,onCancelar,isMobile}){
 function LinkNovaSenha({dados,isMobile,aoFechar}){
   const [copiado,setCopiado]=useState(false);
   const copiar=()=>{
-    const texto=`Oi, ${first(dados.nome)}! Para criar uma senha nova no ConHub, abra este link: ${dados.link}`;
+    const texto=`Oi, ${first(dados.nome)}! Para criar uma senha nova no CETRO, abra este link: ${dados.link}`;
     const pronto=()=>{setCopiado(true);setTimeout(()=>setCopiado(false),2500);};
     // O clipboard moderno só existe em HTTPS; o método antigo cobre o resto.
     if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(texto).then(pronto).catch(()=>{});
@@ -19967,7 +19966,7 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="key" size={14} color={C.amber}/>
       <span style={{color:C.ink,fontSize:13,fontWeight:700}}>Tipo da conta</span>
-      <Pill c={"#8a6d1f"} bg={C.amberSoft}>só ConHub · master</Pill>
+      <Pill c={"#8a6d1f"} bg={C.amberSoft}>só CETRO · master</Pill>
     </div>
     <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:10}}>
       Hoje é <b>{autonomo?"corretor autônomo":"imobiliária"}</b>. Cadastro errado na origem? Converta aqui — ajusta o papel de quem manda na conta e o que aparece no menu, sem mexer na mensalidade já combinada.
@@ -20483,8 +20482,8 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
         e é ele que o Autoatendimento, o resumo e as sugestões passam a ler. Desligado, cada um continua podendo pedir a leitura de um áudio ou foto na própria conversa.
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:12,marginBottom:10}}>
-        <span style={{color:leitura.audio?C.greenDeep:"#8a6d1f"}}>{leitura.audio?"✓ Transcrição de áudio disponível":"Transcrição de áudio ainda não ligada nesta instalação — fale com o ConHub."}</span>
-        <span style={{color:leitura.imagem?C.greenDeep:"#8a6d1f"}}>{leitura.imagem?"✓ Leitura de fotos disponível":"Leitura de fotos ainda não ligada nesta instalação — fale com o ConHub."}</span>
+        <span style={{color:leitura.audio?C.greenDeep:"#8a6d1f"}}>{leitura.audio?"✓ Transcrição de áudio disponível":"Transcrição de áudio ainda não ligada nesta instalação — fale com o CETRO."}</span>
+        <span style={{color:leitura.imagem?C.greenDeep:"#8a6d1f"}}>{leitura.imagem?"✓ Leitura de fotos disponível":"Leitura de fotos ainda não ligada nesta instalação — fale com o CETRO."}</span>
       </div>
       {(leitura.audio||leitura.imagem)&&<label style={{display:"flex",alignItems:"center",gap:9,fontSize:13,color:C.ink,cursor:"pointer"}}>
         <input type="checkbox" checked={leitura.automatico} style={{width:18,height:18}} onChange={async e=>{
@@ -20533,7 +20532,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
   const podeMarca=session&&podeGerir(session)&&!isMobile;
   /* "USO DA IA" É SÓ DO MASTER (02/09/2026, pedido do Ali).
 
-     A chave da IA é uma só, do ConHub — não existe chave por imobiliária. O
+     A chave da IA é uma só, do CETRO — não existe chave por imobiliária. O
      dólar dessa tela nunca foi despesa do cliente, é a nossa; mostrá-la a ele
      dava um número de custo que não é dele (e que ele leria como conta a pagar
      ou como argumento de desconto) e abria a estrutura de custo da plataforma
@@ -20543,11 +20542,11 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
      na imobiliária e "Atendimento pela IA" no autônomo; virou uma ferramenta
      com nome próprio, o mesmo no plano, no hub e na assinatura — e o horário
      passou a ser uma opção dentro dela, não o nome dela. */
-  /* No ambiente interno do ConHub o Autoatendimento não existe: o texto da IA
+  /* No ambiente interno do CETRO o Autoatendimento não existe: o texto da IA
      atende comprador de imóvel. */
   const abas=[...(session&&podeGerir(session)?[["atendimento","Atendimento"]]:[]),["funis","Funis e etapas"],["mensagens","Mensagens automáticas"],
     ...(contaInterna()?[]:[["robo","Autoatendimento"]]),
-    ...(podeMarca?[["marca","Identidade"]]:[]),["conexao","Conexão"],
+    ["conexao","Conexão"],
     ...(session&&podeGerir(session)?[["anuncios","Anúncios do Meta"]]:[]),
     ...(session&&session.master?[["ia","Uso da IA"]]:[])];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
@@ -20560,7 +20559,7 @@ function Configuracoes({acoes,session,isMobile,org,aoMudarMensagens,irPara}){
       {/* No celular a aba não existe. Sem esta linha, o gestor que mexeu na
           identidade no notebook procuraria a aba no celular e concluiria que
           alguma coisa quebrou — recurso que some sem explicação vira chamado. */}
-      {isMobile&&session&&podeGerir(session)&&<div style={{background:C.card,border:`1px solid ${C.line}`,
+      {false&&<div style={{background:C.card,border:`1px solid ${C.line}`,
         borderRadius:12,padding:"11px 13px",marginBottom:14,color:C.faint,fontSize:11.5,lineHeight:1.55}}>
         A logo e a cor do menu ficam em <b style={{color:C.sub}}>Identidade</b>, no computador — é lá que
         está o arquivo da sua marca e a tela para conferir o resultado.
@@ -20696,7 +20695,7 @@ function AnunciosDoMeta({acoes,isMobile}){
               <span style={{flex:1,minWidth:0}}>
                 <span style={{display:"block",color:C.ink,fontSize:13.5,fontWeight:600}}>{p.nome||p.id}</span>
                 {p.nesta_conta&&<span style={{display:"block",color:C.greenDeep,fontSize:11.5}}>Já conectada aqui — marcar de novo renova a conexão.</span>}
-                {p.em_outra_conta&&<span style={{display:"block",color:C.faint,fontSize:11.5}}>Conectada em outra conta do ConHub.</span>}
+                {p.em_outra_conta&&<span style={{display:"block",color:C.faint,fontSize:11.5}}>Conectada em outra conta do CETRO.</span>}
               </span>
             </label>;})}
         </div>
@@ -20756,12 +20755,12 @@ function AnunciosDoMeta({acoes,isMobile}){
           <div style={{color:C.faint,fontSize:11.5,marginTop:10,lineHeight:1.5}}>
             Entram os leads novos, a partir da conexão. Os que chegaram antes continuam só no Facebook.
             Conectou e o lead não chega? A página pode estar num Gerenciador de Negócios que restringe quem lê os leads:
-            lá, em Configurações do negócio → Integrações → Acesso a leads, libere o ConHub.
+            lá, em Configurações do negócio → Integrações → Acesso a leads, libere o CETRO.
           </div>
         </React.Fragment>}
 
         {!d.configurado&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12.5,borderRadius:10,padding:"10px 12px",marginTop:12,lineHeight:1.55}}>
-          A conexão com o Facebook está sendo ativada pela equipe do ConHub e o botão ainda não funciona.
+          A conexão com o Facebook está sendo ativada pela equipe do CETRO e o botão ainda não funciona.
           Enquanto isso, se precisar com urgência, use o outro jeito logo abaixo.
         </div>}
       </div>
@@ -20801,7 +20800,7 @@ function ContaDeAnuncios({acoes,isMobile,estado,cartao,botaoFace}){
     <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:12}}>
       Escolha a conta de anúncios da imobiliária. O investimento, as impressões, o alcance, os cliques e os resultados de cada
       campanha aparecem em <b>Operação → Visão geral → Campanhas</b>, ao lado dos leads e das vendas que ela trouxe. Só leitura:
-      o ConHub não cria nem altera anúncios.</div>
+      o CETRO não cria nem altera anúncios.</div>
     {!est.conectado&&<React.Fragment>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>
         Para ler os números, conecte o Facebook de quem tem acesso à conta de anúncios e aceite a permissão de ler os anúncios.</div>
@@ -21029,7 +21028,7 @@ function IdentidadeConfig({acoes,isMobile}){
       if(tirando&&!logoNova) d=await acoes.removerLogo();
       if(logoNova) d=await acoes.enviarLogo(logoNova.mime,logoNova.base64);
       setSalvo(d); setCor(d.cor); setLogoNova(null); setTirando(false);
-      setFeito("Pronto. A equipe já vê a nova identidade.");
+      setFeito("Pronto. O site da imobiliária já usa a nova marca.");
     }catch(e){
       setErro(e.message);
       if(e.dados&&e.dados.sugestao) setSugestao(e.dados.sugestao);
@@ -21046,8 +21045,8 @@ function IdentidadeConfig({acoes,isMobile}){
     <div style={cartao}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Logo da imobiliária</div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
-        Aparece no alto do menu, para a equipe inteira. PNG com fundo transparente
-        fica melhor. Até 2 MB.
+        Aparece no topo do site da imobiliária. O CRM continua com a marca CETRO.
+        PNG com fundo transparente fica melhor. Até 2 MB.
       </div>
       <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         {/* A prévia fica sobre a COR ESCOLHIDA, não sobre branco: é ali que a
@@ -21060,7 +21059,7 @@ function IdentidadeConfig({acoes,isMobile}){
               ? <img src={logoPrevia} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain",display:"block"}}/>
               : <Icon n="pin" size={18} color={C.faint}/>}
           </div>
-          <div style={{color:"#fff",fontSize:12,fontWeight:600,opacity:.85}}>assim no menu</div>
+          <div style={{color:"#fff",fontSize:12,fontWeight:600,opacity:.85}}>assim no site</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <input ref={arquivo} type="file" accept="image/png,image/jpeg,image/webp" onChange={escolherArquivo} style={{display:"none"}}/>
@@ -21074,11 +21073,10 @@ function IdentidadeConfig({acoes,isMobile}){
     </div>
 
     <div style={cartao}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Cor do menu</div>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Cor de destaque do site</div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
-        A faixa do menu, no computador e no celular. O resto do sistema não muda:
-        o vermelho do cliente esperando e o âmbar da tarefa vencida são avisos, não
-        decoração — se virassem cor de marca, o alerta sumiria junto.
+        Usada nos botões e destaques do site público. Cor clara demais é recusada,
+        com uma versão mais escura da mesma cor, para o texto em branco continuar legível.
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
         {[["#0A3D30","Verde (padrão)"],["#12263F","Azul-marinho"],["#1B3A6B","Azul"],
@@ -21206,7 +21204,7 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
 /* As proibições que eram fixas no texto da IA até 08/10/2026 — agora cada conta
    escolhe se quer cada uma (cartão de orientações do Autoatendimento). */
 /* CRÉDITO DE IA (07/11/2026, services/ia-creditos.js). Só aparece na conta em
-   que o ConHub ligou a cobrança por crédito: ali o agente (Autoatendimento,
+   que o CETRO ligou a cobrança por crédito: ali o agente (Autoatendimento,
    "Chamar a IA" nos fluxos e o aprendizado) gasta do saldo, e quando ele
    acaba a IA para e a gestão é avisada. Quem compra é o titular. */
 const fmtReais2=(v)=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL",minimumFractionDigits:2,maximumFractionDigits:2});
@@ -21337,7 +21335,7 @@ function RoboConfig({acoes,session,isMobile}){
 
   if(!cfg) return <div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>;
   /* SEM A FERRAMENTA (29/09/2026). O Autoatendimento vem nos planos a partir
-     do completo, é contratado avulso ou liberado pelo ConHub. Sem ele, esta
+     do completo, é contratado avulso ou liberado pelo CETRO. Sem ele, esta
      aba vira o lugar de ligar a ferramenta — é aqui que a pessoa descobre
      que não tem, e é aqui que ela resolve. A configuração guardada não some:
      volta como estava no dia em que a ferramenta ligar. */
@@ -21350,7 +21348,7 @@ function RoboConfig({acoes,session,isMobile}){
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:12}}>
       Quando um lead chama e ninguém responde, a IA conversa com ele, acolhe e anota o que ele precisa — e sai da conversa assim que alguém da equipe responde.
       {cfg.ferramenta&&cfg.ferramenta.origem==="retirado"
-        ?" Esta ferramenta foi desligada pelo ConHub nesta conta."
+        ?" Esta ferramenta foi desligada pelo CETRO nesta conta."
         :" Ela vem nos planos completos, ou pode ser contratada à parte."}
     </div>
     {cfg.ferramenta&&cfg.ferramenta.origem!=="retirado"&&<FerramentasDaConta acoes={acoes} isMobile={isMobile} so="autoatendimento" aoMudar={carregar}/>}
@@ -21379,7 +21377,7 @@ function RoboConfig({acoes,session,isMobile}){
       </div>
 
       {/* AS REGRAS SÃO DE CADA CONTA (08/10/2026, pedido do Ali). Aqui havia
-          o quadro "O que ele nunca faz" com proibições fixas do ConHub; elas
+          o quadro "O que ele nunca faz" com proibições fixas do CETRO; elas
           saíram do texto da IA e viraram sugestões no cartão de orientações. */}
       <div style={{background:C.surface,borderRadius:11,padding:"10px 13px",margin:"11px 0",color:C.sub,fontSize:11.5,lineHeight:1.55}}>
         <b style={{color:C.ink}}>As regras são suas.</b> O que a IA pergunta, o que ela pode falar e o que ela nunca faz
@@ -23360,7 +23358,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
 
 /* Conexão do WhatsApp: qual provedor, como está, e como contratar.
 
-   O tutorial fica DENTRO da ferramenta de propósito. Quem assina o ConHub não
+   O tutorial fica DENTRO da ferramenta de propósito. Quem assina o CETRO não
    tem obrigação de saber o que é Uazapi — e mandar o cliente "procurar no
    site deles" é onde a instalação para. */
 
@@ -23814,7 +23812,7 @@ function RecebimentoDasLinhas({acoes,isMobile,automatico}){
       </div>
     </div>)}
     {!automatico&&linhas!=null&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginTop:6}}>
-      O servidor não tem o endereço público configurado, então não liga o recebimento sozinho — fale com o suporte do ConHub.</div>}
+      O servidor não tem o endereço público configurado, então não liga o recebimento sozinho — fale com o suporte do CETRO.</div>}
   </div>;
 }
 
@@ -23868,7 +23866,7 @@ function NumerosDaEquipe({acoes,isMobile}){
       {caixa("números ligados",`${lim.usados||0} de ${lim.limite||0}`)}
       {caixa("inclusos no plano",lim.incluidos||0)}
       {caixa("cobrados à parte",lim.cobrados||0,lim.cobrados?C.amber:C.ink)}
-      {/* Nulo é "o ConHub ainda não definiu o preço" — e a tela escreve isso.
+      {/* Nulo é "o CETRO ainda não definiu o preço" — e a tela escreve isso.
           Mostrar R$ 0,00 prometeria de graça o que vai ser cobrado. */}
       {caixa("por mês",lim.valor_extra!=null?fmtMoeda(lim.valor_extra):"a combinar",lim.valor_extra?C.greenDeep:C.faint)}
     </div>
@@ -23911,12 +23909,12 @@ function NumerosDaEquipe({acoes,isMobile}){
 /* O passo a passo escrito para quem nunca ouviu falar de API. */
 function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
   const passos=[
-    ["Crie a conta na Uazapi",<React.Fragment>Acesse <b>{site.replace("https://","")}</b> e cadastre-se. É um serviço pago por instância (cada número conectado é uma instância), contratado pela imobiliária direto com eles — o ConHub não revende nem cobra por isso.</React.Fragment>],
+    ["Crie a conta na Uazapi",<React.Fragment>Acesse <b>{site.replace("https://","")}</b> e cadastre-se. É um serviço pago por instância (cada número conectado é uma instância), contratado pela imobiliária direto com eles — o CETRO não revende nem cobra por isso.</React.Fragment>],
     ["Crie uma instância",<React.Fragment>No painel da Uazapi, crie uma instância para o número da imobiliária. Use um <b>número dedicado</b>, nunca o WhatsApp pessoal de alguém.</React.Fragment>],
     ["Conecte o WhatsApp",<React.Fragment>A Uazapi mostra um <b>QR Code</b>. No celular do número da imobiliária, abra o WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> e leia o código, igual ao WhatsApp Web.</React.Fragment>],
-    ["Copie o endereço e o token",<React.Fragment>No painel, copie o <b>host</b> (algo como suaempresa.uazapi.com) e o <b>token da instância</b> — não o token de administrador. São essas duas informações que o ConHub precisa.</React.Fragment>],
-    ["Cole o host e o token aqui no ConHub",<React.Fragment>No botão <b>Conectar</b> desta tela. <b>Nunca mande o token em grupo</b> — ele dá acesso ao WhatsApp da imobiliária.</React.Fragment>],
-    ["O recebimento liga sozinho",<React.Fragment>Ao salvar, o ConHub configura o <b>webhook</b> da instância — é por ele que a resposta do cliente chega. Se o quadro "Recebimento das mensagens" avisar que não conseguiu, cole o endereço abaixo no campo <b>Webhook</b> da instância, no painel da Uazapi.</React.Fragment>],
+    ["Copie o endereço e o token",<React.Fragment>No painel, copie o <b>host</b> (algo como suaempresa.uazapi.com) e o <b>token da instância</b> — não o token de administrador. São essas duas informações que o CETRO precisa.</React.Fragment>],
+    ["Cole o host e o token aqui no CETRO",<React.Fragment>No botão <b>Conectar</b> desta tela. <b>Nunca mande o token em grupo</b> — ele dá acesso ao WhatsApp da imobiliária.</React.Fragment>],
+    ["O recebimento liga sozinho",<React.Fragment>Ao salvar, o CETRO configura o <b>webhook</b> da instância — é por ele que a resposta do cliente chega. Se o quadro "Recebimento das mensagens" avisar que não conseguiu, cole o endereço abaixo no campo <b>Webhook</b> da instância, no painel da Uazapi.</React.Fragment>],
   ];
   return <div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:11}}>
     {passos.map(([titulo,texto],i)=><div key={i} style={{display:"flex",gap:10,marginBottom:i===passos.length-1?0:12}}>
@@ -23952,7 +23950,7 @@ function TutorialMeta({webhook,site,copiar,copiado,isMobile}){
     ["Registre o número da imobiliária",<React.Fragment>No produto WhatsApp, registre o número que vai atender. Ele precisa estar <b>livre</b> — não pode já estar em uso no WhatsApp comum ou no Business App, e a Meta explica na tela como liberar um número que já usa.</React.Fragment>],
     ["Gere um token de acesso PERMANENTE",<React.Fragment>O token que a tela mostra de início dura só 24h e cai sozinho. Crie um <b>usuário do sistema</b> (System User) no Gerenciador de Negócios e gere para ele um token <b>permanente</b>, com a permissão <b>whatsapp_business_messaging</b>.</React.Fragment>],
     ["Cole o webhook e o Verify Token",<React.Fragment>Na configuração do WhatsApp do aplicativo, procure <b>Webhook</b> e cole os dois campos abaixo. Marque a inscrição no campo <b>messages</b> — sem isso a Meta não avisa o CRM quando o cliente responde.</React.Fragment>],
-    ["Cole os quatro dados aqui no ConHub",<React.Fragment>Phone Number ID, WABA ID, o token permanente e o App Secret — os quatro ficam no painel do aplicativo, na configuração do WhatsApp.</React.Fragment>],
+    ["Cole os quatro dados aqui no CETRO",<React.Fragment>Phone Number ID, WABA ID, o token permanente e o App Secret — os quatro ficam no painel do aplicativo, na configuração do WhatsApp.</React.Fragment>],
   ];
   return <div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:11}}>
     {passos.map(([titulo,texto],i)=><div key={i} style={{display:"flex",gap:10,marginBottom:i===passos.length-1?0:12}}>
@@ -24493,7 +24491,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         <Icon n="download" size={15}/>Imprimir / salvar em PDF</button>
 
       <div style={{borderTop:`1px solid ${C.line}`,marginTop:20,paddingTop:10,color:C.faint,fontSize:10.5,lineHeight:1.5}}>
-        Gerado pelo ConHub em {hoje}. Os números são os mesmos da tela de Relatórios, no mesmo período —
+        Gerado pelo CETRO em {hoje}. Os números são os mesmos da tela de Relatórios, no mesmo período —
         qualquer diferença entre este papel e o sistema é erro, não critério diferente.
       </div>
     </div>
@@ -24977,70 +24975,162 @@ function KpiCard({label,valor,comp,sub,isMobile,span,destaque}){
   </div>;
 }
 
-function LinhaKpis({kpis,isMobile}){
-  /* Ambiente interno do ConHub: VGV e VGC são termos de imobiliária (valor
-     geral de vendas e de comissão). Lá é "valor vendido", sem comissão, e a
-     visita ao imóvel é a demonstração do sistema — a conta é a mesma. */
+/* O CATÁLOGO DE INDICADORES DO PAINEL (13/11/2026, especificação CETRO 06.2).
+   A pessoa escolhe quais aparecem ("Escolher indicadores"), e a escolha fica
+   na CONTA dela (POST /auth/me/painel), valendo em qualquer aparelho. Todo
+   número vem de /painel/geral, a mesma conta do funil de atividades logo
+   abaixo: indicador sem fonte não entra aqui. */
+const KPIS_CATALOGO=[
+  {k:"vgv",label:"VGV",ajuda:"Valor Geral de Vendas: soma do valor dos imóveis vendidos no período. Não é comissão.",fmt:"dinheiro"},
+  {k:"vgc",label:"VGC",ajuda:"Valor Geral de Comissão: soma das comissões das vendas do período que têm a comissão preenchida.",fmt:"dinheiro"},
+  {k:"ticket_medio",label:"Ticket médio",ajuda:"VGV dividido pela quantidade de vendas do período.",fmt:"dinheiro"},
+  {k:"vendas",label:"Vendas",ajuda:"Quantidade de vendas registradas no período, pela data da venda.",fmt:"numero"},
+  {k:"lead_em_venda_pct",label:"Conversão leads → vendas",ajuda:"Vendas do período divididas pelos leads recebidos no mesmo período.",fmt:"pct"},
+  {k:"leads",label:"Leads recebidos",ajuda:"Leads que chegaram no período (com uma pessoa no filtro, os que chegaram na mão dela).",fmt:"numero"},
+  {k:"qualificados",label:"Qualificados",ajuda:"Leads que passaram pela etapa de qualificação comercial no período, uma vez por lead.",fmt:"numero"},
+  {k:"visitas",label:"Visitas realizadas",ajuda:"Visitas que aconteceram no período, separadas dos agendamentos.",fmt:"numero"},
+  {k:"agendamentos",label:"Agendamentos",ajuda:"Leads que chegaram à etapa de agendamento no período.",fmt:"numero"},
+  {k:"ligacoes",label:"Ligações",ajuda:"Cliques em Ligar registrados no período (cada tentativa conta).",fmt:"numero"},
+  {k:"faladas",label:"Pessoas faladas",ajuda:"Pessoas que atenderam a ligação ou responderam a uma mensagem da equipe, uma por dia.",fmt:"numero"},
+  {k:"propostas",label:"Propostas",ajuda:"Leads que chegaram à etapa de proposta no período.",fmt:"numero"},
+];
+const KPIS_PADRAO=["vgv","ticket_medio","vgc","vendas","leads","lead_em_venda_pct","visitas"];
+let KPIS_ESCOLHA=null; // o que a pessoa acabou de salvar, até a sessão ser relida
+
+function LinhaKpis({kpis,isMobile,escolha}){
   const interna=contaInterna();
-  const cards=[
-    {label:interna?"Valor vendido":"VGV",valor:dinheiro(kpis.vgv.atual),comp:kpis.vgv,destaque:true},
-    {label:"Ticket médio",valor:dinheiro(kpis.ticket_medio.atual),comp:kpis.ticket_medio},
-    ...(interna?[]:[{label:"VGC",valor:dinheiro(kpis.vgc.atual),comp:kpis.vgc,
-      sub:kpis.vgc.cobertura.total?`${kpis.vgc.cobertura.com_comissao} de ${kpis.vgc.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"}]),
-    {label:"Vendas",valor:naoDisp(kpis.vendas.atual),comp:kpis.vendas},
-    {label:"Leads",valor:naoDisp(kpis.leads.atual),comp:kpis.leads},
-    {label:"Lead em venda",valor:pctBR(kpis.lead_em_venda_pct.atual),comp:kpis.lead_em_venda_pct},
-    // Mesmo nome do degrau do funil de atividade e da meta: é o mesmo número.
-    {label:interna?"Demonstrações feitas":"Visitas realizadas",valor:naoDisp(kpis.visitas.atual),comp:kpis.visitas},
-  ];
-  /* Grade fixa, não "o que couber" (28/10/2026): com sete cartões soltos, o
-     sétimo caía sozinho numa linha inteira. Dinheiro em cima, mais largo
-     (os números são os maiores), contagens embaixo. No celular, o VGV ocupa a
-     linha e o resto vai de dois em dois. */
-  const dinheiros=cards.length-4, contagens=cards.slice(dinheiros);
-  const spanDinheiro=isMobile?null:12/dinheiros;
-  return <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(12,minmax(0,1fr))",gap:9}}>
-    {cards.slice(0,dinheiros).map((c,i)=><KpiCard key={c.label} {...c} isMobile={isMobile}
-      span={isMobile?(i===0&&dinheiros%2===1?2:1):spanDinheiro}/>)}
-    {contagens.map(c=><KpiCard key={c.label} {...c} isMobile={isMobile} span={isMobile?1:3}/>)}
+  const rotulo=(c)=>interna?({vgv:"Valor vendido",visitas:"Demonstrações feitas",agendamentos:"Demonstrações agendadas"}[c.k]||c.label):c.label;
+  const lista=(escolha&&escolha.length?escolha:KPIS_PADRAO)
+    .map(k=>KPIS_CATALOGO.find(c=>c.k===k)).filter(c=>c&&kpis[c.k]&&!(interna&&c.k==="vgc"));
+  const cards=lista.map((c,i)=>{
+    const comp=kpis[c.k];
+    const valor=c.fmt==="dinheiro"?dinheiro(comp.atual):c.fmt==="pct"?pctBR(comp.atual):naoDisp(comp.atual);
+    const sub=c.k==="vgc"?(comp.cobertura&&comp.cobertura.total?`${comp.cobertura.com_comissao} de ${comp.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"):null;
+    return {key:c.k,label:rotulo(c),valor,comp,sub,ajuda:c.ajuda,destaque:i===0};
+  });
+  /* Quatro por linha no computador e dois no celular: o cartão de destaque
+     (o primeiro escolhido) ocupa duas colunas para nenhum ficar sozinho numa
+     linha quando a conta não fecha. */
+  const col=isMobile?2:4;
+  const sobra=(cards.length+1)%col;
+  return <div style={{display:"grid",gridTemplateColumns:`repeat(${col},minmax(0,1fr))`,gap:9}}>
+    {cards.map((c,i)=><KpiCard key={c.key} {...c} isMobile={isMobile} span={i===0&&(sobra===0||isMobile)?2:undefined}/>)}
   </div>;
 }
 
-/* Os nomes que mudam no ambiente interno do ConHub: lá não há visita ao
+function EscolherIndicadores({escolha,aoSalvar,aoFechar,isMobile}){
+  const [sel,setSel]=useState(escolha&&escolha.length?escolha:KPIS_PADRAO);
+  const [salvando,setSalvando]=useState(false); const [erro,setErro]=useState("");
+  const alternar=(k)=>setSel(a=>a.includes(k)?a.filter(x=>x!==k):[...a,k]);
+  const salvar=async()=>{ if(!sel.length) return setErro("Escolha ao menos um indicador.");
+    setSalvando(true); try{ await aoSalvar(sel); }catch(e){ setErro(e.message); setSalvando(false); } };
+  return <div className="tela-cheia" style={{zIndex:50,background:"rgba(0,0,0,.4)",display:"flex",
+    alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}} onClick={aoFechar}>
+    <div role="dialog" aria-label="Escolher indicadores" onClick={e=>e.stopPropagation()} style={{background:C.card,width:"100%",maxWidth:520,maxHeight:"92%",
+      borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`}}>
+        <div style={{color:C.ink,fontSize:15,fontWeight:700,fontFamily:DISPLAY}}>Escolher indicadores</div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>Marque o que aparece no seu Painel, na ordem em que marcar. O primeiro vira o cartão em destaque. Vale só para você.</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"10px 16px"}}>
+        {KPIS_CATALOGO.filter(c=>!(contaInterna()&&c.k==="vgc")).map(c=>{const on=sel.includes(c.k), pos=sel.indexOf(c.k)+1;
+          return <label key={c.k} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"9px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer"}}>
+            <input type="checkbox" checked={on} onChange={()=>alternar(c.k)} style={{marginTop:3,accentColor:C.green,width:16,height:16}}/>
+            <span style={{flex:1,minWidth:0}}>
+              <span style={{color:C.ink,fontSize:13,fontWeight:600}}>{c.label}</span>
+              {on&&<span style={{marginLeft:6,color:C.gold,fontSize:11,fontWeight:700}}>{pos}º</span>}
+              <span style={{display:"block",color:C.faint,fontSize:11.5,lineHeight:1.45}}>{c.ajuda}</span>
+            </span>
+          </label>;})}
+      </div>
+      {erro&&<div style={{color:C.hot,fontSize:12,padding:"0 16px 8px"}}>{erro}</div>}
+      <div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <button onClick={()=>setSel(KPIS_PADRAO)} style={{marginRight:"auto",border:"none",background:"transparent",color:C.sub,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Voltar ao padrão</button>
+        <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={salvando} style={{border:"none",background:C.green,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* PRÓXIMOS PASSOS (CETRO 06.3): primeiro as tarefas vencidas, depois os leads
+   com o prazo da etapa vencido. Vem de /painel/proximos, com o mesmo recorte
+   de pessoa do resto do Painel; clicar no cliente abre a conversa dele. */
+function ProximosPassos({d,openLead,isMobile}){
+  const [info,setInfo]=useState(false);
+  const [todos,setTodos]=useState(false);
+  const itens=d?(todos?d.itens:d.itens.slice(0,6)):[];
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?13:16,height:"100%",boxSizing:"border-box"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,fontFamily:DISPLAY,flex:1}}>Próximos passos</div>
+      <button onClick={()=>setInfo(v=>!v)} aria-label="Como a lista é montada" aria-expanded={info}
+        style={{width:22,height:22,borderRadius:"50%",border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:700,cursor:"pointer",lineHeight:1}}>i</button>
+    </div>
+    {info&&<div style={{background:C.surface,borderRadius:10,padding:"8px 10px",color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
+      Primeiro, atividades vencidas; depois, leads com prazo da etapa vencido. Dentro de cada grupo, o mais atrasado em cima.</div>}
+    {!d?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
+    :!d.total?<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Nada vencido agora: nenhuma tarefa atrasada nem prazo de etapa estourado.</div>
+    :<React.Fragment>
+      <div style={{color:C.faint,fontSize:11,marginBottom:6}}>{d.tarefas_vencidas} tarefa(s) vencida(s) · {d.prazos_vencidos} prazo(s) de etapa vencido(s)</div>
+      {itens.map(it=><button key={it.lead_id+it.tipo} onClick={()=>openLead&&openLead(it.lead_id)}
+        style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"flex-start",padding:"9px 0",border:"none",borderTop:`1px solid ${C.line}`,background:"transparent",cursor:"pointer"}}>
+        <span style={{width:8,height:8,borderRadius:"50%",marginTop:5,flexShrink:0,background:it.tipo==="tarefa"?C.hot:C.amber}}/>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nome||fmtTel(it.telefone)}</span>
+          <span style={{display:"block",color:C.sub,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {it.tipo==="tarefa"?"Tarefa vencida":"Prazo da etapa"} · {it.descricao}{it.quantas>1?` (+${it.quantas-1})`:""}{it.tambem_prazo?" · também prazo da etapa":""}</span>
+          {it.responsavel&&<span style={{display:"block",color:C.faint,fontSize:10.5}}>com {it.responsavel}{it.etapa?` · ${it.etapa}`:""}</span>}
+        </span>
+        <span style={{color:it.tipo==="tarefa"?C.hot:C.amber,fontSize:11.5,fontWeight:700,flexShrink:0}}>há {fmtMin(it.atraso_min)}</span>
+      </button>)}
+      {d.itens.length>6&&<button onClick={()=>setTodos(v=>!v)} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:700,cursor:"pointer",padding:"6px 0 0"}}>
+        {todos?"Mostrar menos":`Ver todos (${d.total})`}</button>}
+    </React.Fragment>}
+  </div>;
+}
+
+/* Os nomes que mudam no ambiente interno do CETRO: lá não há visita ao
    imóvel nem VGV — há demonstração do sistema e valor vendido. */
 const ROTULOS_INTERNOS={visitas_agendadas:"Demonstrações agendadas",visitas_realizadas:"Demonstrações feitas",vgv:"Valor vendido",
   visita_agendada:"Demonstração agendada",visita_realizada:"Demonstração feita"};
 const rotuloDaConta=(chave,padrao)=>contaInterna()?(ROTULOS_INTERNOS[chave]||padrao):padrao;
-const CAMPOS_META=[["ligacoes","Ligações"],["contatos","Contatos"],["visitas_agendadas","Visitas Agendadas"],
-  ["visitas_realizadas","Visitas Realizadas"],["propostas","Propostas"],["vgv","VGV"]];
+const CAMPOS_META=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"],["contatos","Pessoas faladas"],
+  ["qualificados","Qualificados"],["visitas_agendadas","Agendamentos"],["visitas_realizadas","Visitas"],
+  ["propostas","Propostas"],["vendas","Vendas (qtd.)"],["vgv","Vendas (VGV)"]];
 
+/* Cada meta: rótulo, a META em destaque, % de atingimento, Feito, Falta e a
+   barra (CETRO 06.4). A barra para em 100%, o texto mostra a superação. Meta
+   ausente é "Meta não definida" — nunca 0% nem divisão por zero. */
 function MetaCard({item}){
   const {nome,meta,realizado,pct,campo}=item;
   const ehDinheiro=campo==="vgv";
-  const valorFmt=ehDinheiro?fmtMoeda(realizado):realizado;
-  const metaFmt=meta==null?null:(ehDinheiro?fmtMoeda(meta):meta);
+  const fmt=(v)=>ehDinheiro?fmtMoeda(v):naoDisp(v);
   const cor=pct==null?C.faint:pct>=100?C.green:pct>=60?C.amber:C.hot;
-  return <div style={{background:C.surface,borderRadius:11,padding:"10px 12px"}}>
-    <div style={{display:"flex",justifyContent:"space-between",fontSize:11.5,color:C.sub,fontWeight:600,marginBottom:6,gap:6}}>
-      <span>Meta {nome}</span>
-      <span style={{color:cor,fontFamily:MONO,fontWeight:700,flexShrink:0}}>{pctBR(pct)}</span>
+  const falta=meta==null?null:Math.max(meta-realizado,0);
+  return <div style={{background:C.surface,borderRadius:11,padding:"10px 12px",minWidth:0}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:11.5,color:C.sub,fontWeight:600,gap:6}}>
+      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome}</span>
+      <span style={{color:pct!=null&&pct>=100?C.gold:cor,fontWeight:700,flexShrink:0}}>{pct==null?"":pctBR(pct)}</span>
     </div>
-    <div style={{height:7,borderRadius:99,background:C.line,overflow:"hidden",marginBottom:6}}>
+    <div style={{color:meta==null?C.faint:C.ink,fontFamily:DISPLAY,fontWeight:700,fontSize:meta==null?12:17,margin:"3px 0 6px",letterSpacing:-.3}}>
+      {meta==null?"Meta não definida":fmt(meta)}</div>
+    <div style={{height:6,borderRadius:99,background:C.line,overflow:"hidden",marginBottom:6}}>
       <div style={{height:"100%",width:(pct==null?0:Math.min(100,pct))+"%",background:cor,borderRadius:99}}/>
     </div>
-    <div style={{color:C.faint,fontSize:11}}>
-      {metaFmt==null?"meta não definida":`${valorFmt} / ${metaFmt}`}
+    <div style={{display:"flex",justifyContent:"space-between",color:C.faint,fontSize:10.5,gap:6}}>
+      <span>Feito <b style={{color:C.sub}}>{fmt(realizado)}</b></span>
+      {falta!=null&&<span>Falta <b style={{color:C.sub}}>{fmt(falta)}</b></span>}
     </div>
   </div>;
 }
 
 function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?13:16,height:"100%",boxSizing:"border-box"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>Metas de {mesLegivel(metas.mes)}</div>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700,fontFamily:DISPLAY}}>Metas de {mesLegivel(metas.mes)}</div>
       {podeConfigurar&&<button onClick={onConfigurar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Configurar metas</button>}
     </div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,minmax(0,1fr))",gap:9}}>
       {metas.itens.map(m=><MetaCard key={m.campo} item={m}/>)}
     </div>
   </div>;
@@ -25106,7 +25196,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
   const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));
   const altura=isMobile?110:150;
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Análise de funil — últimos 14 dias</div>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,fontFamily:DISPLAY}}>Ritmo de produção — últimos 14 dias</div>
     <div style={{height:11}}/>
     <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:6,height:altura+22,overflowX:"auto",paddingBottom:2}}>
       {serie.map((d,i)=>{
@@ -25291,6 +25381,15 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
   const [dGeral,setDGeral]=useState(null);
   const [erroGeral,setErroGeral]=useState("");
   const [metasModal,setMetasModal]=useState(false);
+  const [proximos,setProximos]=useState(null);
+  const [escolha,setEscolha]=useState(()=>KPIS_ESCOLHA||(session&&session.painel_kpis)||null);
+  const [escolhendo,setEscolhendo]=useState(false);
+  useEffect(()=>{
+    let vivo=true;
+    acoes.proximosPassos({responsavel:f.responsavel}).then(r=>vivo&&setProximos(r)).catch(()=>vivo&&setProximos({total:0,itens:[],tarefas_vencidas:0,prazos_vencidos:0}));
+    return()=>{vivo=false;};
+  },[f.responsavel,tick]);
+  const salvarEscolha=async(kpis)=>{ const r=await acoes.salvarKpisDoPainel(kpis); KPIS_ESCOLHA=r.painel_kpis||null; setEscolha(KPIS_ESCOLHA); setEscolhendo(false); };
 
   // Corretor e canal são filtro de gestão — o corretor já vê só o dele.
   useEffect(()=>{ if(supervisor) acoes.painelOpcoes().then(setOp).catch(()=>{}); },[supervisor]);
@@ -25322,9 +25421,16 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
 
       {!dGeral?<div style={{color:C.faint,fontSize:13,padding:"18px 0",display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Carregando os indicadores…</div>
       :<React.Fragment>
-        <div style={{marginBottom:16}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile}/></div>
-        <div style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+          <div style={{color:C.faint,fontSize:11.5}}>Indicadores do período · comparados ao período anterior de mesma duração</div>
+          <button onClick={()=>setEscolhendo(true)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+            <Icon n="sliders" size={13}/> Escolher indicadores</button>
+        </div>
+        <div style={{marginBottom:16}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile} escolha={escolha}/></div>
+        {escolhendo&&<EscolherIndicadores escolha={escolha} aoSalvar={salvarEscolha} aoFechar={()=>setEscolhendo(false)} isMobile={isMobile}/>}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"minmax(0,1.55fr) minmax(0,1fr)",gap:12,marginBottom:16,alignItems:"stretch"}}>
           <LinhaMetas metas={dGeral.metas} isMobile={isMobile} podeConfigurar={podeGerir(session)} onConfigurar={()=>setMetasModal(true)}/>
+          <ProximosPassos d={proximos} openLead={openLead} isMobile={isMobile}/>
         </div>
         <div style={{marginBottom:16}}><FunilAtividadeViz passos={dGeral.funil_atividade} isMobile={isMobile}/></div>
         <div style={{marginBottom:16}}><SerieBarrasEmpilhadas serie={dGeral.serie} isMobile={isMobile}/></div>
@@ -25345,7 +25451,7 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
 class Rede extends React.Component{
   constructor(p){ super(p); this.state={erro:null}; }
   static getDerivedStateFromError(erro){ return {erro}; }
-  componentDidCatch(erro,info){ console.error("[ConHub] erro na tela:",erro,info); }
+  componentDidCatch(erro,info){ console.error("[CETRO] erro na tela:",erro,info); }
   render(){
     if(!this.state.erro) return this.props.children;
     const e=this.state.erro;
@@ -25364,7 +25470,7 @@ class Rede extends React.Component{
           fontSize:14,fontWeight:600,cursor:"pointer",marginBottom:9}}>Voltar</button>
       <button onClick={()=>window.location.reload()}
         style={{width:"100%",background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:11,
-          padding:"13px",fontSize:14,fontWeight:600,cursor:"pointer"}}>Recarregar o ConHub</button>
+          padding:"13px",fontSize:14,fontWeight:600,cursor:"pointer"}}>Recarregar o CETRO</button>
     </div>;
   }
 }
@@ -25429,7 +25535,7 @@ function AvisoVersao(){
     padding:"11px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
     paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 11px)",boxShadow:"0 -6px 24px rgba(0,0,0,.2)"}}>
     <Icon n="zap" size={15}/>
-    <span style={{flex:1,fontSize:13,fontWeight:600,minWidth:140}}>Tem uma versão nova do ConHub.</span>
+    <span style={{flex:1,fontSize:13,fontWeight:600,minWidth:140}}>Tem uma versão nova do CETRO.</span>
     <button onClick={atualizarConHub} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:9,
       padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Atualizar agora</button>
   </div>;

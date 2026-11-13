@@ -752,7 +752,7 @@ export function sugerirEtapa(leadId) {
     const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(leadId);
     if (!lead) return;
     /* As palavras-chave são de venda de imóvel ("documentação" → Pasta,
-       "visita" → Agendamento). No ambiente interno do ConHub elas apontariam
+       "visita" → Agendamento). No ambiente interno do CETRO elas apontariam
        para etapas que o funil dele não tem. */
     // A conta de empreendimento (services/lotes.js) tem o funil da venda de lote, sem Pasta nem Aprovação.
     const o = db.prepare("SELECT tipo, empreendimento FROM orgs WHERE id = ?").get(lead.org_id);

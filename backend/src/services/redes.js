@@ -8,7 +8,7 @@
    ligado a ela vem junto. Não há um segundo login.
 
    COMO O AGENDAMENTO FUNCIONA. O Instagram não tem agendamento pela API, e o
-   do Facebook não se cancela pelo mesmo caminho. Por isso o ConHub guarda o
+   do Facebook não se cancela pelo mesmo caminho. Por isso o CETRO guarda o
    post e PUBLICA ELE MESMO na hora marcada (`processarRedes`, batimento no
    server.js). Quem manda é o registro, não o relógio: servidor que estava
    fora do ar às 10h publica quando volta.
@@ -50,11 +50,11 @@ export const PRECISA = {
 };
 
 export function exigirLiberado(orgId) {
-  if (!liberado(orgId)) throw new ErroRedes(403, "As redes sociais fazem parte do Marketing, que não está liberado para esta conta. Fale com o ConHub.");
+  if (!liberado(orgId)) throw new ErroRedes(403, "As redes sociais fazem parte do Marketing, que não está liberado para esta conta. Fale com o CETRO.");
 }
 
 const lista = (txt) => String(txt || "").split(",").map(x => x.trim()).filter(Boolean);
-/* `null` = a página foi conectada antes de o ConHub anotar as permissões, e
+/* `null` = a página foi conectada antes de o CETRO anotar as permissões, e
    não dá para saber. Aí não se barra nada: o erro da Meta, se vier, diz. */
 export function faltando(pagina, chave) {
   if (!pagina.permissoes) return [];
@@ -119,10 +119,10 @@ export function traduzir(e) {
   if (c === 190) return "a conexão com a página venceu ou foi desfeita no Facebook — conecte a página de novo";
   if (c === 10 || c === 200 || (c >= 200 && c < 300))
     return "a Meta não deu permissão para isso (" + msg.slice(0, 120) + "). Se a permissão já foi aprovada, conecte a página de novo";
-  if (c === 4 || c === 17 || c === 32 || c === 613) return "a Meta pediu para esperar (limite de uso). O ConHub tenta de novo sozinho";
+  if (c === 4 || c === 17 || c === 32 || c === 613) return "a Meta pediu para esperar (limite de uso). O CETRO tenta de novo sozinho";
   if (sub === 2207026) return "o Instagram não aceitou o vídeo (formato, duração ou tamanho)";
   if (sub === 2207003 || sub === 2207020 || c === 9004)
-    return "a Meta não conseguiu baixar a mídia do ConHub. Confira o armazenamento de arquivos em /integracoes";
+    return "a Meta não conseguiu baixar a mídia do CETRO. Confira o armazenamento de arquivos em /integracoes";
   if (sub === 2207009) return "a proporção da foto não é aceita pelo Instagram (no feed vale de 4:5 em pé até 1,91:1 deitada)";
   if (sub === 2207042) return "esta conta do Instagram chegou ao limite de posts das últimas 24 horas";
   return (e?.titulo ? e.titulo + " — " : "") + msg.slice(0, 200);
@@ -258,7 +258,7 @@ export function editarPost(orgId, id, dados, agora = Date.now()) {
 }
 
 /* Cancelar o que ainda não saiu. O que já foi publicado continua no ar — o
-   ConHub não apaga post do Facebook nem do Instagram. */
+   CETRO não apaga post do Facebook nem do Instagram. */
 export function cancelarPost(orgId, id) {
   const p = postDaConta(orgId, id);
   if (!["agendado", "publicando"].includes(p.status)) throw new ErroRedes(409, "Só dá para cancelar post que ainda não foi publicado.");
@@ -268,7 +268,7 @@ export function cancelarPost(orgId, id) {
   return montarPost(db.prepare("SELECT * FROM redes_posts WHERE id = ?").get(id));
 }
 
-// Apagar do ConHub (o histórico). Não mexe no que já está no ar.
+// Apagar do CETRO (o histórico). Não mexe no que já está no ar.
 export function apagarPost(orgId, id) {
   const p = postDaConta(orgId, id);
   if (["agendado", "publicando"].includes(p.status) && db.prepare(
@@ -397,7 +397,7 @@ export async function processarRedes(agora = Date.now(), { max = 6 } = {}) {
         // Conta sem o Marketing não publica (a liberação pode ter caído depois de programar).
         if (!liberado(d.org_id)) { falhar("o Marketing desta conta não está mais liberado"); continue; }
         const pagina = db.prepare("SELECT * FROM meta_paginas WHERE page_id = ? AND org_id = ?").get(post.page_id, d.org_id);
-        if (!pagina) { falhar("a página foi desconectada do ConHub"); continue; }
+        if (!pagina) { falhar("a página foi desconectada do CETRO"); continue; }
         const token = abrir(pagina.page_token);
         if (!token) { falhar("não consegui abrir a conexão da página — conecte de novo"); continue; }
         if (d.status === "pendente") db.prepare("UPDATE redes_destinos SET status='processando', iniciado_em=? WHERE id=?").run(agora, d.id);
@@ -546,7 +546,7 @@ export async function engajamento(orgId, pageId, { atualizar = false } = {}, ago
     engajamentoFacebook(orgId, p, token, agora),
     p.ig_id ? engajamentoInstagram(orgId, p, token, agora) : Promise.resolve({ conta: null, posts: [], erros: [] }),
   ]);
-  // Quais vieram do ConHub (para a tela marcar "programado aqui").
+  // Quais vieram do CETRO (para a tela marcar "programado aqui").
   const nossos = new Set(db.prepare("SELECT publicado_id FROM redes_destinos WHERE org_id = ? AND publicado_id IS NOT NULL").all(orgId).map(x => x.publicado_id));
   const posts = [...fb.posts, ...ig.posts].map(x => ({ ...x, do_conhub: nossos.has(x.id) }))
     .sort((a, b) => (b.data || 0) - (a.data || 0));

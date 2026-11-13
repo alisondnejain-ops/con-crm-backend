@@ -192,12 +192,12 @@ r.post("/webhooks/asaas", async (req, res) => {
 const soDono = (req, res, next) => {
   if (!ehDono(req.user.org_id, req.user.id))
     return res.status(403).json({ error: "A mensalidade é visível apenas para o titular da conta." });
-  /* O ambiente interno do ConHub não tem mensalidade: assinar um plano ali
-     seria o ConHub cobrando a si mesmo no cartão de alguém da equipe. */
+  /* O ambiente interno do CETRO não tem mensalidade: assinar um plano ali
+     seria o CETRO cobrando a si mesmo no cartão de alguém da equipe. */
   if (req.method !== "GET" && ehInterna(req.user.org_id))
-    return res.status(409).json({ error: "O ambiente interno do ConHub não tem mensalidade." });
+    return res.status(409).json({ error: "O ambiente interno do CETRO não tem mensalidade." });
   if (req.method !== "GET" && db.prepare("SELECT parceira FROM orgs WHERE id = ?").get(req.user.org_id)?.parceira)
-    return res.status(409).json({ error: "Esta conta é parceira do ConHub e não tem mensalidade." });
+    return res.status(409).json({ error: "Esta conta é parceira do CETRO e não tem mensalidade." });
   next();
 };
 
@@ -268,7 +268,7 @@ r.get("/assinatura", authRequired, async (req, res) => {
        que sobrevive aos três. */
     asaas_ligado: dono ? !!orgAtual.asaas_customer_id : undefined,
     /* QUAL PROVEDOR COBRA ESTA CONTA (04/10/2026). É o que decide se a tela
-       abre a fatura do Asaas ou o formulário de cartão do ConHub. */
+       abre a fatura do Asaas ou o formulário de cartão do CETRO. */
     provedor: dono ? provedorDe(orgAtual) : undefined,
     cancelamento: dono ? cancelamentoParaTela(orgAtual) : undefined,
     pagarme: dono && provedorDe(orgAtual) === "pagarme" ? dadosDoPagarme(orgAtual) : undefined });
@@ -309,7 +309,7 @@ r.get("/assinatura/pagamentos", authRequired, soDono, (req, res) => {
    valor. O buraco não estava na tela de ativar: estava aqui, um passo antes.
 
    Agora quem não é master só consegue mexer no NOME do plano, que é rótulo. O
-   que vira dinheiro fica com o ConHub. */
+   que vira dinheiro fica com o CETRO. */
 r.patch("/assinatura", authRequired, soDono, (req, res) => {
   const { plano, valor_mensal, vence_em, dias_carencia, limite_canais, canais_incluidos, valor_canal } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
@@ -323,7 +323,7 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
     || limite_canais != null || canais_incluidos != null || valor_canal != null;
   if (!souMaster && soDoConHub)
     return res.status(403).json({
-      error: "Valor, vencimento, carência e os números de WhatsApp do plano são definidos pelo ConHub. Fale com a gente para mudar o seu plano." });
+      error: "Valor, vencimento, carência e os números de WhatsApp do plano são definidos pelo CETRO. Fale com a gente para mudar o seu plano." });
   const data = vence_em ? dataDoFormulario(vence_em) : org.vence_em;
   if (vence_em && !isFinite(data)) return res.status(400).json({ error: "Data de vencimento inválida." });
 
@@ -351,7 +351,7 @@ r.patch("/assinatura", authRequired, soDono, (req, res) => {
    da conta, num cliente, é o próprio cliente — então ele clicava em "Registrar
    pagamento" e ganhava um mês, quantas vezes quisesse. Bloqueado, o mesmo
    clique destravava a conta. Era o preço de 27/08/2026 outra vez, num botão
-   diferente: a régua de "o que vira dinheiro é do ConHub" não tinha alcançado
+   diferente: a régua de "o que vira dinheiro é do CETRO" não tinha alcançado
    a baixa manual, o apagar, o corrigir e o reorganizar.
 
    `soDono` continua na frente por causa da privacidade — outro gestor da casa
@@ -361,7 +361,7 @@ const soCobranca = (req, res, next) => {
   const eu = db.prepare("SELECT master FROM users WHERE id = ?").get(req.user.id);
   if (eu && eu.master) return next();
   res.status(403).json({
-    error: "Só o ConHub registra e corrige pagamento. O seu acesso é liberado sozinho assim que a cobrança é confirmada." });
+    error: "Só o CETRO registra e corrige pagamento. O seu acesso é liberado sozinho assim que a cobrança é confirmada." });
 };
 
 /* Baixa manual. Continua existindo mesmo com o Asaas ligado: pagamento por
@@ -425,7 +425,7 @@ r.get("/assinatura/gestores", authRequired, soDono, (req, res) => {
 /* ATIVAR A COBRANÇA AUTOMÁTICA — e quem preenche o quê.
 
    O cliente ativa a PRÓPRIA assinatura, dentro do CRM dele. Antes esta rota
-   exigia nome, e-mail e telefone digitados na mão, e o ConHub acabava
+   exigia nome, e-mail e telefone digitados na mão, e o CETRO acabava
    preenchendo dados do cliente por ele — que é justamente o que não escala:
    cada conta nova vira uma digitação sua.
 
@@ -444,7 +444,7 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
   /* Conta que o master passou para o Pagar.me não ganha cobrança nova no
      Asaas por este caminho — seria cobrança nos dois provedores. */
   if (provedorDe(orgCompleta(req.user.org_id)) === "pagarme")
-    return res.status(409).json({ error: "A cobrança desta conta é pelo Pagar.me. Escolha o plano em Gerenciar assinatura ou fale com o ConHub." });
+    return res.status(409).json({ error: "A cobrança desta conta é pelo Pagar.me. Escolha o plano em Gerenciar assinatura ou fale com o CETRO." });
   if (!asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const { cpfCnpj, vencimento } = req.body || {};
   const org = db.prepare("SELECT * FROM orgs WHERE id = ?").get(req.user.org_id);
@@ -466,7 +466,7 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
   const valor = souMaster && Number(req.body?.valor) ? Number(req.body.valor) : Number(org.valor_mensal);
   if (!valor)
     return res.status(400).json({
-      error: "O valor da mensalidade ainda não foi definido para esta conta. Fale com o ConHub para combinar o plano." });
+      error: "O valor da mensalidade ainda não foi definido para esta conta. Fale com o CETRO para combinar o plano." });
 
   try {
     let clienteId = org.asaas_customer_id;
@@ -477,7 +477,7 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
     const venc = vencimento || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
     const assinatura = await criarAssinatura({
       clienteId, valor: Number(valor), vencimento: venc,
-      descricao: `ConHub — ${org.name}`,
+      descricao: `CETRO — ${org.name}`,
     });
     db.prepare(`UPDATE orgs SET asaas_customer_id = ?, asaas_subscription_id = ?, valor_mensal = ?, vence_em = ?, vence_base = ?,
                 cancelado_em = NULL WHERE id = ?`).run(clienteId, assinatura.id, Number(valor), dataDoFormulario(venc), dataDoFormulario(venc), org.id);
@@ -491,7 +491,7 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
 
    Aqui o preço é público e o cliente se contrata sozinho: escolhe o ciclo,
    digita o CPF/CNPJ e é mandado para a tela do Asaas para pagar. Nada disso
-   passa pelo ConHub, que é o ponto — cada conta nova deixa de ser uma
+   passa pelo CETRO, que é o ponto — cada conta nova deixa de ser uma
    digitação do Ali.
 
    ATÉ 02/09/2026 ISTO ERA SÓ DO AUTÔNOMO, e o comentário aqui dizia que a
@@ -508,7 +508,7 @@ r.post("/assinatura/asaas", authRequired, soDono, async (req, res) => {
 const comPrateleira = (req, res, next) => {
   const org = db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(req.user.org_id);
   if (org && planosDe(org.tipo).length) { req.tipoDaConta = org.tipo; return next(); }
-  res.status(404).json({ error: "O seu plano é combinado com o ConHub. Fale com a gente para alterá-lo." });
+  res.status(404).json({ error: "O seu plano é combinado com o CETRO. Fale com a gente para alterá-lo." });
 };
 
 r.get("/assinatura/planos", authRequired, soDono, comPrateleira, (req, res) => {
@@ -599,14 +599,14 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
     /* A DESCRIÇÃO É O QUE O CLIENTE LÊ NO CHECKOUT — e depois na fatura do
        cartão, meses depois, quando não lembrar mais o que contratou.
 
-       "ConHub Mensal" não diz o que é nem por quanto tempo. A linha abaixo
+       "CETRO Mensal" não diz o que é nem por quanto tempo. A linha abaixo
        responde as três perguntas que a pessoa faz olhando a cobrança: o que é,
        quanto tempo compra e quanto custa por mês. É o texto mais barato de
        escrever e o que mais evita contestação de cartão. */
     const porMes = plano.mensal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const descricao = plano.meses > 1
-      ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
-      : `ConHub — Plano ${plano.nome} (${porMes}/mês)`;
+      ? `CETRO — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
+      : `CETRO — Plano ${plano.nome} (${porMes}/mês)`;
     let assinaturaId = null, link = null;
 
     if (plano.forma === "assinatura") {
@@ -634,13 +634,13 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
     const data = dataDoFormulario(venc);
     db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, asaas_subscription_id = ?,
                 vence_em = ?, vence_base = ?, link_pagamento = ?, assinatura_status = NULL, cancelado_em = NULL WHERE id = ?`)
-      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, data, data, link, org.id);
+      .run(plano.id, `CETRO ${plano.nome}`, plano.mensal, assinaturaId, data, data, link, org.id);
 
     /* Sem `url` a tela não tem para onde mandar o corretor, e ele ficaria com
        um plano contratado e nenhum jeito de pagar. Isso é falha, não detalhe:
        responder ok aqui seria dizer que deu certo o que não deu. */
     if (!link) return res.status(502).json({
-      error: "O plano foi criado no Asaas, mas a tela de pagamento não veio. Abra a fatura pelo e-mail que o Asaas enviou, ou fale com o ConHub." });
+      error: "O plano foi criado no Asaas, mas a tela de pagamento não veio. Abra a fatura pelo e-mail que o Asaas enviou, ou fale com o CETRO." });
 
     res.json({ ok: true, url: link, plano: plano.id, ...situacao(org.id) });
   } catch (e) {
@@ -650,7 +650,7 @@ r.post("/assinatura/plano", authRequired, soDono, comPrateleira, async (req, res
 
 /* ===== AS FERRAMENTAS DA CONTA (29/09/2026) =====
 
-   O que vem no plano, o que foi contratado avulso e o que o ConHub liberou
+   O que vem no plano, o que foi contratado avulso e o que o CETRO liberou
    ou retirou — ver services/recursos.js. A tela do dono lista as ferramentas
    e oferece contratar avulso o que o plano não traz. */
 const PAGO = ["CONFIRMED", "RECEIVED", "RECEIVED_IN_CASH"];
@@ -686,12 +686,12 @@ r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) =
   if (!ehRecurso(recurso)) return res.status(404).json({ error: "Ferramenta desconhecida." });
   // Ferramenta sem preço cadastrado (o Cetrolab antes de o master criar o plano) não se vende.
   if (!(RECURSOS[recurso].avulso > 0))
-    return res.status(409).json({ error: `${RECURSOS[recurso].nome} ainda não está à venda. Fale com o ConHub.` });
+    return res.status(409).json({ error: `${RECURSOS[recurso].nome} ainda não está à venda. Fale com o CETRO.` });
   const pelaPagarme = provedorDe(orgCompleta(req.user.org_id)) === "pagarme";
   if (!pelaPagarme && !asaasConfigurado()) return res.status(503).json({ error: "Asaas não configurado no servidor (ASAAS_API_KEY)." });
   const antes = situacaoDoRecurso(req.user.org_id, recurso);
   if (antes.master === "retirado")
-    return res.status(403).json({ error: "Esta ferramenta foi desligada pelo ConHub nesta conta. Fale com a gente." });
+    return res.status(403).json({ error: "Esta ferramenta foi desligada pelo CETRO nesta conta. Fale com a gente." });
   if (antes.ativo)
     return res.status(409).json({ error: antes.origem === "plano" ? "Esta ferramenta já vem no seu plano." : "Esta ferramenta já está ligada na sua conta." });
 
@@ -713,7 +713,7 @@ r.post("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res) =
       catch (e) { console.warn(`[asaas] tentativa anterior da ferramenta ${recurso} não foi cancelada: ${e.message}`); }
     }
     const a = await criarAssinatura({ clienteId, valor: preco, vencimento: hoje, ciclo: "MONTHLY",
-      descricao: `ConHub — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${porMes}/mês)` });
+      descricao: `CETRO — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${porMes}/mês)` });
     const link = await linkDaPrimeiraFatura(a.id);
     registrarContratacao(org.id, recurso, { assinaturaId: a.id, link });
     console.log(`[asaas] ${req.user.name} contratou ${RECURSOS[recurso].nome} avulso (${org.name})`);
@@ -751,7 +751,7 @@ r.delete("/assinatura/recursos/:recurso", authRequired, soDono, async (req, res)
 
    O que muda em relação ao Asaas é o lugar do cartão: no Asaas a pessoa ia
    para a fatura hospedada e digitava o cartão lá; aqui ela digita DENTRO do
-   ConHub, num formulário que manda o número direto do navegador para o
+   CETRO, num formulário que manda o número direto do navegador para o
    Pagar.me (com a chave pública) e devolve só um token. É esse token que
    chega a estas rotas — o número do cartão nunca passa pelo nosso servidor.
 
@@ -821,7 +821,7 @@ r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
       console.log(`[pagarme] cartão confirmado para "${org.name}" — teste de ${TRIAL_DIAS} dias começou agora`);
     }
     res.json({ ok: true, cartao: resumo,
-      aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o ConHub.",
+      aviso: todasTrocaram ? null : "O cartão novo foi guardado, mas uma das assinaturas continuou no cartão antigo. Fale com o CETRO.",
       ...situacao(org.id) });
   } catch (e) {
     res.status(502).json({ error: e.message });
@@ -832,7 +832,7 @@ r.post("/assinatura/cartao", authRequired, soDono, async (req, res) => {
    consiga fazer o cadastro do cartão deles para poder cobrar").
 
    É a conta com preço negociado (`orgs.valor_mensal`, sem plano da tabela) —
-   a Conecta e quem o Ali configurou à mão. O valor é o gravado pelo ConHub,
+   a Conecta e quem o Ali configurou à mão. O valor é o gravado pelo CETRO,
    nunca o que vem no corpo (a mesma trava de 27/08/2026).
 
    A PRIMEIRA COBRANÇA CAI NO PRÓXIMO VENCIMENTO, nunca antes dele: quem já
@@ -851,7 +851,7 @@ r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
   if (exigePagarme(res)) return;
   if (org.plano_id) return res.status(409).json({ error: "A sua conta está num plano da tabela. Para mudar, escolha em Gerenciar assinatura." });
   const valor = Number(org.valor_mensal);
-  if (!valor) return res.status(400).json({ error: "O valor da sua mensalidade ainda não foi definido. Fale com o ConHub para combinar o plano." });
+  if (!valor) return res.status(400).json({ error: "O valor da sua mensalidade ainda não foi definido. Fale com o CETRO para combinar o plano." });
   if (!org.pagarme_card_id) return res.status(400).json({ error: "Cadastre o cartão de crédito antes de ligar a mensalidade." });
   if (org.pagarme_subscription_id && !org.cancelado_em) return res.status(409).json({ error: "A mensalidade já está ligada neste cartão." });
 
@@ -859,7 +859,7 @@ r.post("/assinatura/combinada", authRequired, soDono, async (req, res) => {
   try {
     const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
       valor, meses: 1, codigo: "combinada", metadata: { org_id: org.id, plano: "combinada" },
-      descricao: `ConHub — Mensalidade ${org.name} (${brl(valor)}/mês)`,
+      descricao: `CETRO — Mensalidade ${org.name} (${brl(valor)}/mês)`,
       inicio: inicio ? dataISO(inicio) : undefined });
     if (org.asaas_subscription_id) {
       try { await cancelarAssinatura(org.asaas_subscription_id); }
@@ -916,7 +916,7 @@ r.post("/assinatura/cancelar", authRequired, soDono, async (req, res) => {
     if (c.prov === "pagarme") await pagarme.cancelarAssinatura(c.sub);
     else await cancelarAssinatura(c.sub);
   } catch (e) {
-    return res.status(502).json({ error: "Não consegui cancelar no provedor de pagamento: " + e.message + " Tente de novo ou fale com o ConHub." });
+    return res.status(502).json({ error: "Não consegui cancelar no provedor de pagamento: " + e.message + " Tente de novo ou fale com o CETRO." });
   }
   db.prepare("UPDATE orgs SET cancelado_em = ? WHERE id = ?").run(Date.now(), org.id);
   console.log(`[assinatura] ${req.user.name} cancelou a assinatura de "${org.name}" (${c.prov})`);
@@ -986,8 +986,8 @@ export async function assinarPlanoNoPagarme(orgId, plano, quem = "") {
   const comecaDepois = emTeste || !!pagoAte;
   const porMes = brl(plano.mensal);
   const descricao = plano.meses > 1
-    ? `ConHub — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
-    : `ConHub — Plano ${plano.nome} (${porMes}/mês)`;
+    ? `CETRO — Plano ${plano.nome} (${plano.meses} meses · ${porMes}/mês)`
+    : `CETRO — Plano ${plano.nome} (${porMes}/mês)`;
   const meta = { org_id: org.id, plano_id: plano.id };
 
   try {
@@ -1024,7 +1024,7 @@ export async function assinarPlanoNoPagarme(orgId, plano, quem = "") {
     const { n: jaPagos } = db.prepare("SELECT COALESCE(SUM(COALESCE(meses,1)),0) n FROM pagamentos WHERE org_id = ?").get(org.id);
     db.prepare(`UPDATE orgs SET plano_id = ?, plano = ?, valor_mensal = ?, pagarme_subscription_id = ?, pagarme_order_id = ?,
         asaas_subscription_id = NULL, vence_em = ?, vence_base = ?, link_pagamento = NULL, assinatura_status = NULL, cancelado_em = NULL WHERE id = ?`)
-      .run(plano.id, `ConHub ${plano.nome}`, plano.mensal, assinaturaId, pedidoId, inicio, somaMeses(inicio, -jaPagos), org.id);
+      .run(plano.id, `CETRO ${plano.nome}`, plano.mensal, assinaturaId, pedidoId, inicio, somaMeses(inicio, -jaPagos), org.id);
 
     if (!paga && assinaturaId && !comecaDepois) paga = await cobrancaPagaDaAssinatura(assinaturaId);
     if (paga) creditarPlano(org.id, paga);
@@ -1052,7 +1052,7 @@ async function contratarFerramentaPagarme(req, res, org, recurso) {
     }
     const a = await pagarme.criarAssinatura({ clienteId: org.pagarme_customer_id, cartaoId: org.pagarme_card_id,
       valor: preco, meses: 1, codigo: recurso, metadata: { org_id: org.id, recurso },
-      descricao: `ConHub — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${brl(preco)}/mês)` });
+      descricao: `CETRO — ${RECURSOS[recurso].nome} (ferramenta avulsa · ${brl(preco)}/mês)` });
     registrarContratacao(org.id, recurso, { assinaturaId: a.id, link: null });
     db.prepare("UPDATE org_recursos SET avulso_provedor = 'pagarme' WHERE org_id = ? AND recurso = ?").run(org.id, recurso);
     const paga = await cobrancaPagaDaAssinatura(a.id);
@@ -1165,7 +1165,7 @@ r.post("/assinatura/ia-creditos/comprar", authRequired, soDono, async (req, res)
   const provedor = provedorDe(org);
   if (provedor === "pagarme" ? !pagarme.pagarmeConfigurado() : !asaasConfigurado())
     return res.status(503).json({ error: `O ${provedor === "pagarme" ? "Pagar.me" : "Asaas"} não está configurado no servidor.` });
-  const descricao = `ConHub — Crédito de IA ${fmtReais(valor)}`;
+  const descricao = `CETRO — Crédito de IA ${fmtReais(valor)}`;
   const id = novaCompra({ orgId: org.id, valor, provedor, quem: req.user.id });
   try {
     if (provedor === "pagarme") {
@@ -1212,7 +1212,7 @@ r.get("/assinatura/boleto", authRequired, soDono, async (req, res) => {
 r.post("/assinatura/boleto", authRequired, soDono, async (req, res) => {
   const org = orgCompleta(req.user.org_id);
   if (!boletoLiberado(org))
-    return res.status(403).json({ error: "O pagamento por boleto não está liberado nesta conta. Fale com o suporte do ConHub." });
+    return res.status(403).json({ error: "O pagamento por boleto não está liberado nesta conta. Fale com o suporte do CETRO." });
   const provedor = provedorDe(org);
   if (provedor === "pagarme" ? !pagarme.pagarmeConfigurado() : !asaasConfigurado())
     return res.status(503).json({ error: `O ${provedor === "pagarme" ? "Pagar.me" : "Asaas"} não está configurado no servidor.` });
@@ -1221,7 +1221,7 @@ r.post("/assinatura/boleto", authRequired, soDono, async (req, res) => {
 
   const opcoes = opcoesDeBoleto(org);
   if (!opcoes.length)
-    return res.status(409).json({ error: "O valor da mensalidade desta conta ainda não foi definido. Fale com o ConHub." });
+    return res.status(409).json({ error: "O valor da mensalidade desta conta ainda não foi definido. Fale com o CETRO." });
   const pedido = req.body?.plano_id || org.plano_id || opcoes[0].id;
   const op = opcoes.find(o => o.id === pedido);
   if (!op) return res.status(400).json({ error: "Escolha um dos planos da lista." });
@@ -1256,8 +1256,8 @@ r.post("/assinatura/boleto", authRequired, soDono, async (req, res) => {
   const vence = org.vence_em && org.vence_em > em3 && org.vence_em < Date.now() + 30 * 86400000 ? org.vence_em : em3;
   const vencimento = dataISO(vence);
   const descricao = op.plano_id
-    ? `ConHub — Plano ${op.nome} (${op.meses > 1 ? `${op.meses} meses · ` : ""}boleto)`
-    : `ConHub — Mensalidade (boleto)`;
+    ? `CETRO — Plano ${op.nome} (${op.meses > 1 ? `${op.meses} meses · ` : ""}boleto)`
+    : `CETRO — Mensalidade (boleto)`;
   const id = "bol_" + randomUUID();
 
   try {
@@ -1298,7 +1298,7 @@ r.post("/assinatura/boleto", authRequired, soDono, async (req, res) => {
     /* Sem endereço nem linha, a pessoa não tem como pagar: é falha, e a tela
        precisa dizer, não mostrar um "pronto" vazio. */
     if (!dados.url && !dados.linha)
-      return res.status(502).json({ error: "O boleto foi criado, mas o provedor não devolveu o endereço nem a linha digitável. Fale com o suporte do ConHub." });
+      return res.status(502).json({ error: "O boleto foi criado, mas o provedor não devolveu o endereço nem a linha digitável. Fale com o suporte do CETRO." });
     res.json({ ok: true, boleto: boletosParaTela(org.id).find(b => b.id === id) });
   } catch (e) {
     res.status(502).json({ error: e.message });

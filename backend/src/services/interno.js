@@ -1,5 +1,5 @@
 /* O AMBIENTE INTERNO DO CONHUB (05/10/2026, pedido do Ali: "um ambiente
-   virtual apenas para uso interno do ConHub, com todas as funcionalidades
+   virtual apenas para uso interno do CETRO, com todas as funcionalidades
    necessárias, de suporte à parte comercial… um CRM que não é imobiliário").
 
    Por dentro é uma conta como qualquer outra (`orgs.tipo = 'interna'`), e é
@@ -17,7 +17,7 @@
      do suporte, e a equipe dela responde os chamados de dentro do sistema.
 
    Existe UMA só. Duas contas internas fariam o suporte e o comercial do
-   ConHub se dividirem sem ninguém saber em qual olhar. */
+   CETRO se dividirem sem ninguém saber em qual olhar. */
 
 import { randomUUID } from "crypto";
 import db from "../db.js";
@@ -36,7 +36,7 @@ export function ehInterna(orgOuId) {
   return db.prepare("SELECT tipo FROM orgs WHERE id = ?").get(orgOuId)?.tipo === TIPO_INTERNO;
 }
 
-/* Quem é da equipe do ConHub: conta ativa DENTRO do ambiente interno.
+/* Quem é da equipe do CETRO: conta ativa DENTRO do ambiente interno.
    Conferido no banco, como o master — crachá antigo de quem saiu da equipe
    não abre a fila de chamados dos clientes. */
 export function daEquipeConHub(userId) {
@@ -48,10 +48,10 @@ export function daEquipeConHub(userId) {
 /* Cria o ambiente — ou devolve o que já existe. O funil nasce junto: conta
    criada pelo hub só ganhava funil no reinício seguinte do servidor, e o
    ambiente interno não pode nascer com o Kanban vazio. */
-export function criarAmbienteInterno(nome = "ConHub") {
+export function criarAmbienteInterno(nome = "CETRO") {
   const existente = orgInterna();
   if (existente) return { org: existente, criado: false };
-  const nomeLimpo = String(nome || "").trim() || "ConHub";
+  const nomeLimpo = String(nome || "").trim() || "CETRO";
   const id = "org_" + randomUUID().slice(0, 8);
   const rodar = db.transaction(() => {
     db.prepare(`INSERT INTO orgs (id,name,adm_code,wa_number,wa_connected,distribution_ptr,created_at,tipo)

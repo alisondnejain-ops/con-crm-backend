@@ -75,7 +75,7 @@ r.get("/push/situacao", authRequired, (req, res) =>
 r.post("/push/teste", authRequired, async (req, res) => {
   if (!configurado()) return res.status(503).json({ error: "Notificações não configuradas no servidor." });
   const r = await avisar(req.user.id, {
-    titulo: "ConHub", corpo: "Notificação de teste — está funcionando! 🎉",
+    titulo: "CETRO", corpo: "Notificação de teste — está funcionando! 🎉",
   });
   res.json({ ok: true, ...r });
 });

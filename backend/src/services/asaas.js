@@ -122,7 +122,7 @@ export const criarParcelamento = ({ clienteId, parcelas, total, vencimento, desc
 
    Uma cobrança só, `billingType: BOLETO`, sem assinatura: boleto não fica
    "guardado" para cobrar sozinho depois, então cada período é um boleto novo
-   que o cliente gera. `externalReference` leva o id do boleto no ConHub, para
+   que o cliente gera. `externalReference` leva o id do boleto no CETRO, para
    dar para achar a conta no painel do Asaas. */
 export const criarBoleto = ({ clienteId, valor, vencimento, descricao, referencia }) =>
   chamar("/payments", { metodo: "POST", corpo: {
