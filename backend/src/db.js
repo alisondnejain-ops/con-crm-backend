@@ -2922,3 +2922,9 @@ CREATE INDEX IF NOT EXISTS idx_venda_eventos_lead ON venda_eventos(lead_id, crea
 db.exec(`CREATE TABLE IF NOT EXISTS metas_conversao (
   org_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, stage_id TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '',
   anterior_pct REAL, acumulada_pct REAL, updated_at INTEGER, PRIMARY KEY (org_id, pipeline_id, stage_id, user_id));`);
+
+/* PONTUAÇÃO LIVRE DO SCORE (CETRO 17.3, 13/11/2026): o gestor dá um peso
+   (positivo, negativo ou zero) a cada indicador de CONTAGEM e escolhe quem
+   participa. `participantes_json` nulo = todos. */
+db.exec(`CREATE TABLE IF NOT EXISTS score_pontos (
+  org_id TEXT PRIMARY KEY, pesos_json TEXT, participantes_json TEXT, updated_at INTEGER, updated_by TEXT);`);

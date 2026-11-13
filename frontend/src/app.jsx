@@ -1907,6 +1907,8 @@ function ConCRM(){
     // Controle da conversa: encerrar o atendimento e o vai-e-vem do "lida".
     // Aceita {de,ate} — o MESMO intervalo da tela — ou um número de dias.
     // Objeto = o período compartilhado (atalho ou datas); número = ?dias= antigo.
+    scorePontos:()=>api("/reports/score/pontos"),
+    salvarScorePontos:(dados)=>api("/reports/score/pontos",{method:"PUT",body:dados}),
     score:(p)=>api("/reports/score"+(p&&typeof p==="object"?`?${new URLSearchParams(Object.entries(p).filter(([,v])=>v))}`:p?`?dias=${p}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
     assinatura:()=>api("/assinatura"),
@@ -18733,103 +18735,127 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
    logo abaixo mostrava o mês que o gestor escolheu. Os dois números estavam
    certos e descreviam pedaços diferentes do tempo — que é a pior forma de
    errar, porque ninguém desconfia. */
-function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe,soIds}){
+/* As colunas visíveis do Score (CETRO 17.2) — escolha de quem olha, no aparelho. */
+const SCORE_COLUNAS_PADRAO=["score","conversao","recebidos","resposta_min","atendimento_min","visitas_agendadas","visitas_realizadas","vendas","ligacoes","perdidos"];
+function fmtIndicador(k,m){
+  const v=m[k]; if(m.sem_dados&&k!=="na_mao") return "—";
+  if(k==="conversao") return pctBR(v);
+  if(k==="resposta_min"||k==="atendimento_min") return v==null?"—":fmtMin(v);
+  return v==null?"—":v;
+}
+
+/* A pontuação livre (CETRO 17.3): peso por indicador de contagem e quem participa. */
+function ConfigPontuacao({acoes,indicadores,equipe,aoFechar,aoSalvar,isMobile}){
+  const [cfg,setCfg]=useState(null); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  useEffect(()=>{acoes.scorePontos().then(r=>setCfg({pesos:Object.fromEntries(Object.entries(r.pesos||{}).map(([k,v])=>[k,String(v)])),participantes:r.participantes})).catch(e=>setErro(e.message));},[]);
+  if(!cfg) return null;
+  const pont=indicadores.filter(i=>i.pontuavel);
+  const todos=!cfg.participantes;
+  const marca=(id)=>{const atual=cfg.participantes||equipe.map(m=>m.id); setCfg({...cfg,participantes:atual.includes(id)?atual.filter(x=>x!==id):[...atual,id]});};
+  async function salvar(){ setSalvando(true); setErro("");
+    try{ await acoes.salvarScorePontos({pesos:cfg.pesos,participantes:cfg.participantes}); aoSalvar(); aoFechar(); }catch(e){setErro(e.message);} finally{setSalvando(false);} }
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 8px",color:C.ink,outline:"none"};
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:90,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:isMobile?"100%":600,maxHeight:"88vh",overflowY:"auto",padding:18}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:6}}><b style={{flex:1,color:C.ink,fontSize:15}}>Pontuação da equipe</b>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.sub}}><Icon n="x" size={18}/></button></div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>Pontos = soma de cada indicador × o peso que você der (pode ser negativo). Só indicadores de contagem pontuam — Score, conversão e tempos não. Em branco ou zero, o indicador não conta. O Score de 0 a 100 continua igual, ao lado.</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 80px":"1fr 80px 1fr 80px",gap:8,alignItems:"center"}}>
+        {pont.map(i=><React.Fragment key={i.chave}>
+          <span style={{fontSize:13,color:C.ink}}>{i.nome}<span style={{color:C.faint,fontSize:10.5}}> · {i.unidade}</span></span>
+          <input aria-label={`Peso de ${i.nome}`} value={cfg.pesos[i.chave]??""} onChange={e=>setCfg({...cfg,pesos:{...cfg.pesos,[i.chave]:e.target.value.replace(/[^0-9,.\-]/g,"")}})} inputMode="decimal" placeholder="0" style={ent}/>
+        </React.Fragment>)}
+      </div>
+      <div style={{fontWeight:700,fontSize:13,color:C.ink,margin:"14px 0 6px"}}>Quem participa</div>
+      <label style={{display:"flex",gap:7,fontSize:13,color:C.sub,marginBottom:6}}><input type="checkbox" checked={todos} onChange={()=>setCfg({...cfg,participantes:todos?equipe.map(m=>m.id):null})}/>Toda a equipe (quem entrar depois também)</label>
+      {!todos&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>{equipe.map(m=><label key={m.id} style={{display:"flex",gap:5,fontSize:12.5,color:C.ink,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 8px"}}>
+        <input type="checkbox" checked={cfg.participantes.includes(m.id)} onChange={()=>marca(m.id)}/>{m.nome}</label>)}</div>}
+      {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:10}}>{erro}</div>}
+      <button onClick={salvar} disabled={salvando} style={{marginTop:14,width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar pontuação"}</button>
+    </div></div>;
+}
+
+function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe,soIds,gestor}){
   const [d0,setD]=useState(null);
+  const [recarga,setRecarga]=useState(0);
+  const [cols,setColsRaw]=useState(()=>{try{const v=JSON.parse(localStorage.getItem("conhub:score.colunas")||"null");return Array.isArray(v)&&v.length?v:SCORE_COLUNAS_PADRAO;}catch(e){return SCORE_COLUNAS_PADRAO;}});
+  const setCols=(v)=>{setColsRaw(v);try{localStorage.setItem("conhub:score.colunas",JSON.stringify(v));}catch(e){}};
+  const [escolher,setEscolher]=useState(false); const [config,setConfig]=useState(false); const [aberto,setAberto]=useState(null);
   // A posição no ranking continua a da equipe inteira; o filtro só esconde linhas.
   const d=d0&&soIds&&soIds.length?{...d0,equipe:d0.equipe.filter(m=>soIds.includes(m.id))}:d0;
   const chave=JSON.stringify(periodo);
-  // Troca de período limpa a tabela; a atualização automática, não (sem piscar).
   useEffect(()=>{setD(null);},[chave]);
   useEffect(()=>{let vivo=true;
     acoes.score(periodo).then(x=>vivo&&setD(x)).catch(()=>{});
-    return()=>{vivo=false;};},[chave,tick]);
+    return()=>{vivo=false;};},[chave,tick,recarga]);
 
   const cor=(n)=>n==null?C.faint:n>=70?C.green:n>=45?C.amber:C.hot;
   const celula={padding:"9px 8px",fontSize:12,color:C.sub,whiteSpace:"nowrap"};
+  const inds=(d&&d.indicadores)||[];
+  const nome=(k)=>(inds.find(i=>i.chave===k)||{}).nome||k;
+  const visiveis=inds.filter(i=>cols.includes(i.chave)).map(i=>i.chave);
+  const comPontos=d&&d.pontuacao&&d.pontuacao.ligada;
+  const posicao=(m)=>m.sem_dados?"–":(d0.equipe.findIndex(x=>x.id===m.id)+1);
+  const nomeDe=(k)=>nome(k);
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="award" size={16} color={C.greenMid}/>
-      <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Score de performance</span>
-
+      <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Score de performance e equipe</span>
+      {d&&<button onClick={()=>setEscolher(x=>!x)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Colunas ({visiveis.length})</button>}
+      {d&&gestor&&<button onClick={()=>setConfig(true)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Icon n="gear" size={13}/>Pontuação</button>}
     </div>
     <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
-      Clique no nome para ver de onde saiu cada ponto.
+      Clique no nome para ver de onde saiu cada ponto do Score.{comPontos?" Clique nos pontos para ver a soma.":""}
     </div>
+    {escolher&&d&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10,background:C.surface,borderRadius:10,padding:10}}>
+      {inds.map(i=>{const on=cols.includes(i.chave); return <button key={i.chave} title={i.unidade} onClick={()=>setCols(on?cols.filter(x=>x!==i.chave):[...cols,i.chave])}
+        style={{border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,borderRadius:999,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{i.nome}</button>;})}
+      <button onClick={()=>setCols(SCORE_COLUNAS_PADRAO)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>voltar ao padrão</button>
+    </div>}
     {!d&&<div style={{color:C.faint,fontSize:12,padding:"10px 0"}}>Calculando…</div>}
 
-    {/* NO CELULAR A TABELA VIRA CARTÃO.
-
-        A tabela tem dez colunas e 696px de largura. Numa tela de 375 cabiam
-        quatro — as outras seis (1ª resposta, atendimento, visitas, perdas,
-        vendas, ligações) ficavam fora da tela, sem nada indicando que dava
-        para arrastar. Ou seja: no celular, a metade do relatório que mais
-        interessa simplesmente não existia.
-
-        Rolagem lateral dentro de uma tela que já rola para baixo é o gesto que
-        ninguém descobre sozinho. Um cartão por corretor mostra tudo. */}
     {d&&isMobile&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {d.equipe.map((m,i)=><div key={m.id} style={{background:C.surface,borderRadius:12,padding:"11px 12px"}}>
-        <button onClick={()=>!m.sem_dados&&aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)}
-          disabled={m.sem_dados}
-          style={{width:"100%",border:"none",background:"transparent",padding:"6px 0",textAlign:"left",
-            display:"flex",alignItems:"center",gap:9,cursor:m.sem_dados?"default":"pointer"}}>
-          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,minWidth:16}}>{m.sem_dados?"–":(d0.equipe.findIndex(x=>x.id===m.id)+1)}</span>
-          <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1,minWidth:0,
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nome}</span>
-          {m.sem_dados
-            ?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
+      {d.equipe.map(m=><div key={m.id} style={{background:C.surface,borderRadius:12,padding:"11px 12px"}}>
+        <button onClick={()=>!m.sem_dados&&aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)} disabled={m.sem_dados}
+          style={{width:"100%",border:"none",background:"transparent",padding:"6px 0",textAlign:"left",display:"flex",alignItems:"center",gap:9,cursor:m.sem_dados?"default":"pointer"}}>
+          <span style={{fontFamily:MONO,color:C.faint,fontSize:12,minWidth:16}}>{posicao(m)}</span>
+          <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nome}</span>
+          {m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
             :<span style={{fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}
         </button>
-        {!m.sem_dados&&<React.Fragment>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
-            {[["Conversão",pctBR(m.conversao)],["1ª resposta",m.resposta_min==null?"—":fmtMin(m.resposta_min)],
-              ["Atendimento",m.atendimento_min==null?"—":fmtMin(m.atendimento_min)],
-              ["Atendeu",`${m.atendidos??m.respondidos??0}/${m.recebidos}`],
-              ["Agendou",m.visitas_agendadas??0],["Compareceram",m.visitas_realizadas??0],["Perdas",m.perdidos],["Vendas",m.vendas],
-              ["Ligações",m.ligacoes]].map(([r,v])=>
-              <div key={r}>
-                <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700,lineHeight:1.1}}>{v}</div>
-                <div style={{color:C.faint,fontSize:9.5,marginTop:1}}>{r}</div>
-              </div>)}
-          </div>
-          <div style={{color:C.greenDeep,fontSize:11,fontWeight:600,marginTop:8}}>toque no nome para abrir a nota</div>
-        </React.Fragment>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:9}}>
+          {visiveis.filter(k=>k!=="score").map(k=><div key={k}><div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700,lineHeight:1.1}}>{fmtIndicador(k,m)}</div>
+            <div style={{color:C.faint,fontSize:9.5,marginTop:1}}>{nomeDe(k)}</div></div>)}
+          {comPontos&&m.pontos&&<div><div style={{fontFamily:MONO,color:C.greenDeep,fontSize:13,fontWeight:700}}>{m.pontos.total}</div><div style={{color:C.faint,fontSize:9.5}}>Pontos</div></div>}
+        </div>
       </div>)}
     </div>}
 
     {d&&!isMobile&&<div style={{overflowX:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:520}}>
         <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-          {["#","Corretor","Score","Conversão","1ª resposta","Atendimento","Agendou","Compareceram","Perdas","Vendas","Ligações"].map((h,i)=>
-            <th key={h} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
+          {["#","Corretor",...visiveis.map(nomeDe),...(comPontos?["Pontos"]:[])].map((h,i)=>
+            <th key={h+i} title={i>1&&inds.find(x=>x.nome===h)?inds.find(x=>x.nome===h).unidade:undefined} style={{...celula,fontWeight:700,color:C.faint,fontSize:10.5,textTransform:"uppercase",textAlign:i<2?"left":"right"}}>{h}</th>)}
         </tr></thead>
-        <tbody>{d.equipe.map((m,i)=><tr key={m.id} style={{borderBottom:`1px solid ${C.line}`}}>
-          <td style={{...celula,fontFamily:MONO,color:C.faint}}>{m.sem_dados?"–":(d0.equipe.findIndex(x=>x.id===m.id)+1)}</td>
+        <tbody>{d.equipe.map(m=><React.Fragment key={m.id}><tr style={{borderBottom:`1px solid ${C.line}`}}>
+          <td style={{...celula,fontFamily:MONO,color:C.faint}}>{posicao(m)}</td>
           <td style={{...celula,color:C.ink,fontWeight:600}}>
-            <button onClick={()=>aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)} disabled={m.sem_dados}
-              title={m.sem_dados?undefined:"Ver de onde saiu cada ponto"}
-              style={{border:"none",background:"transparent",padding:0,color:C.ink,fontWeight:600,fontSize:12,
-                cursor:m.sem_dados?"default":"pointer",textDecoration:m.sem_dados?"none":"underline",textUnderlineOffset:3}}>
-              {m.nome}</button>
+            <button onClick={()=>aoAbrirDetalhe&&aoAbrirDetalhe(m,d.componentes)} disabled={m.sem_dados} title={m.sem_dados?undefined:"Ver de onde saiu cada ponto"}
+              style={{border:"none",background:"transparent",padding:0,color:C.ink,fontWeight:600,fontSize:12,cursor:m.sem_dados?"default":"pointer",textDecoration:m.sem_dados?"none":"underline",textUnderlineOffset:3}}>{m.nome}</button>
             {m.papel==="sdr"&&<span style={{color:C.faint,fontWeight:400}}> · atendente</span>}</td>
-          <td style={{...celula,textAlign:"right"}}>
-            {m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>
-              :<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":pctBR(m.conversao)}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.resposta_min==null?"—":fmtMin(m.resposta_min)}</td>
-          {/* Espera média a cada pergunta do cliente, não só a primeira. */}
-          <td style={{...celula,textAlign:"right"}}>{m.atendimento_min==null?"—":fmtMin(m.atendimento_min)}</td>
-          <td style={{...celula,textAlign:"right"}} title="leads que ele levou ao agendamento no período (pular direto para visita ou proposta também conta)">
-            {m.sem_dados?"—":(m.visitas_agendadas??0)}</td>
-          <td style={{...celula,textAlign:"right"}} title="leads que chegaram à visita no período, pelas mãos dele">
-            {m.sem_dados?"—":(m.visitas_realizadas??0)}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.perdidos}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.vendas}</td>
-          <td style={{...celula,textAlign:"right"}}>{m.sem_dados?"—":m.ligacoes}</td>
-        </tr>)}</tbody>
+          {visiveis.map(k=><td key={k} style={{...celula,textAlign:"right"}}>{k==="score"
+            ?(m.sem_dados?<span style={{color:C.faint,fontSize:11}}>sem dados</span>:<span style={{fontFamily:MONO,fontSize:15,fontWeight:700,color:cor(m.score)}}>{m.score}</span>)
+            :fmtIndicador(k,m)}</td>)}
+          {comPontos&&<td style={{...celula,textAlign:"right"}}>{m.pontos?<button onClick={()=>setAberto(aberto===m.id?null:m.id)} style={{border:"none",background:"none",cursor:"pointer",fontFamily:MONO,fontWeight:700,color:C.greenDeep,textDecoration:"underline dotted",fontSize:13}}>{m.pontos.total}</button>:<span style={{color:C.faint}} title="fora da pontuação">—</span>}</td>}
+        </tr>
+        {aberto===m.id&&m.pontos&&<tr><td colSpan={2+visiveis.length+1} style={{padding:"6px 10px 10px",background:C.surface,fontSize:11.5,color:C.sub}}>
+          {m.pontos.partes.map(p=><span key={p.indicador} style={{marginRight:14}}>{nomeDe(p.indicador)}: {p.valor} × {String(p.peso).replace(".",",")} = <b style={{color:p.pontos<0?C.hot:C.ink}}>{p.pontos}</b></span>)}
+        </td></tr>}
+        </React.Fragment>)}</tbody>
       </table>
     </div>}
+    {config&&d&&<ConfigPontuacao acoes={acoes} indicadores={inds} equipe={d0.equipe} isMobile={isMobile} aoFechar={()=>setConfig(false)} aoSalvar={()=>setRecarga(n=>n+1)}/>}
   </div>;
 }
 
@@ -22842,7 +22868,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
      Equipe e Campanhas logo abaixo. "visao" era a aba antiga que continha os
      números; quem a tinha guardada cai no Funil. */
   const [abaGuardada,setAba]=usarEscolha("painel.aba","funil");
-  const aba=["funil","equipe","campanhas","relatorios"].includes(abaGuardada)?abaGuardada:"funil";
+  const aba=["funil","campanhas","relatorios"].includes(abaGuardada)?abaGuardada:"funil";
   // Fatia aberta na rosca. Zera quando o filtro muda: a etapa escolhida pode
   // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
   const [fatia,setFatia]=useState(null);
@@ -22946,7 +22972,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         </div>}
 
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-          {[["funil","Funil"],["relatorios","Relatórios"],["equipe","Equipe"],["campanhas","Campanhas"]].map(([k,t])=>
+          {[["funil","Funil"],["relatorios","Relatórios"],["campanhas","Campanhas"]].map(([k,t])=>
             <button key={k} onClick={()=>setAba(k)}
               style={{fontSize:12,fontWeight:600,padding:"7px 14px",borderRadius:999,border:"none",cursor:"pointer",
                 background:aba===k?C.greenDeep:C.card,color:aba===k?"#fff":C.sub}}>{t}</button>)}
@@ -25434,6 +25460,9 @@ function ListaDoSdr({titulo,itens,aguardando,isMobile,abrirConversa,aoFechar}){
 }
 
 function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}){
+  const [resumoCols,setResumoCols]=useState(()=>{try{const v=JSON.parse(localStorage.getItem("conhub:relatorio.resumo")||"[]");return Array.isArray(v)?v:[];}catch(e){return [];}});
+  const salvarResumo=(v)=>{setResumoCols(v);try{localStorage.setItem("conhub:relatorio.resumo",JSON.stringify(v));}catch(e){}};
+  const [editResumo,setEditResumo]=useState(false);
   // Nota aberta de alguém da equipe: {m, componentes}.
   const [nota,setNota]=useState(null);
   // Relatório de reunião do corretor selecionado, aberto em tela cheia.
@@ -25512,6 +25541,8 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
         org={org} isMobile={isMobile} aoFechar={()=>setParaReuniao(false)}/>}
       <BlocoAtendimento linhas={dados.atendimento} isMobile={isMobile}/>
       {(pickable||session.role==="sdr")&&<IndicadoresSdr acoes={acoes} periodo={periodo} tick={tick} isMobile={isMobile} abrirConversa={podeSupervisionar(session)?abrirConversa:null}/>}
+      {/* CETRO 17: depois do SDR vem o Score com a equipe, e por último o relatório de cada pessoa. */}
+      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} soIds={verIds} gestor={podeGerir(session)} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
       {/* No celular a faixa QUEBRA em linhas em vez de rolar para o lado. */}
       {pickable&&dados.atendentes.length>0&&<div style={{display:"flex",gap:8,marginBottom:16,
         ...(isMobile?{flexWrap:"wrap"}:{overflowX:"auto",paddingBottom:4})}}>
@@ -25551,22 +25582,27 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
           </div>
         </div>
 
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-          <Metric n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>
-          <Metric n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>
-          <Metric n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>
-          {/* Agendamento e visita SEPARADOS (07/11/2026, pedido do Fernando):
-              os que ele levou a cada etapa no período — pular direto para
-              mais adiante também conta. */}
-          <Metric n="calendar" label="Agendamentos" value={linha.agendados??0} sub="levou ao agendamento" accent="#3B7BC4"/>
-          <Metric n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>
-          <Metric n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>
-          <Metric n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>
-          {/* Leads que saíram da mão dele por repasse manual — ao lado de
-              "Recebidos" porque é a mesma pergunta, olhada do outro lado. */}
-          <Metric n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro}
-            sub="repasse manual no período" accent={C.hot}/>
-        </div>
+        {(()=>{
+          /* O resumo é configurável por quem olha (CETRO 17.4) — não mexe nos pesos do Score nem nas metas. */
+          const todos=[
+            ["recebidos",<Metric key="recebidos" n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>],
+            ["atendidos",<Metric key="atendidos" n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>],
+            ["qualificados",<Metric key="qualificados" n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>],
+            ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="levou ao agendamento" accent="#3B7BC4"/>],
+            ["visitas",<Metric key="visitas" n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>],
+            ["vendas",<Metric key="vendas" n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>],
+            ["perdidos",<Metric key="perdidos" n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>],
+            ["perdidos_outro",<Metric key="perdidos_outro" n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro} sub="repasse manual no período" accent={C.hot}/>],
+          ];
+          const nomes={recebidos:"Recebidos",atendidos:"Atendidos",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro"};
+          const vis=resumoCols.length?resumoCols:todos.map(t=>t[0]);
+          return <React.Fragment>
+            <div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+              <button onClick={()=>setEditResumo(x=>!x)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>{editResumo?"Pronto":"Escolher indicadores do resumo"}</button></div>
+            {editResumo&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>{todos.map(([k])=>{const on=vis.includes(k); return <button key={k} onClick={()=>salvarResumo(on?vis.filter(x=>x!==k):[...vis,k])}
+              style={{border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,borderRadius:999,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{nomes[k]}</button>;})}</div>}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>{todos.filter(([k])=>vis.includes(k)).map(([,el])=>el)}</div>
+          </React.Fragment>;})()}
         <AvisoPulados itens={pulosDaLinha(linha)}/>
 
         {/* ONDE ESTÃO OS LEADS DELE AGORA, no funil de verdade. As barras que
@@ -25603,9 +25639,6 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             </React.Fragment>;})()}
         </div>}
       </React.Fragment>}
-      {/* O score por último: é a comparação entre os corretores, lida depois
-          de ver o que cada um fez. */}
-      {pickable&&<ScoreEquipe acoes={acoes} isMobile={isMobile} periodo={periodo} tick={tick} soIds={verIds} aoAbrirDetalhe={(m,c)=>setNota({m,componentes:c})}/>}
       {/* O ponto das atendentes (28/10/2026): é registro de presença, e o que
           se abre esta tela para ver é o desempenho. */}
       <PontoDaEquipe acoes={acoes} isMobile={isMobile} ehGestor={podeGerir(session)}/>

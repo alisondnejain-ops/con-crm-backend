@@ -87,7 +87,7 @@ const contarLigacoes = (...a) => momentosDeLigacao(...a).length;
    MENSAGEM DE GENTE = enviada, e não por disparo, automação nem pelo
    Autoatendimento. Com uma pessoa no filtro, só as que ELA escreveu
    (`from_user_id`) — a digitada no celular não tem autor e conta só para a casa. */
-function msgsDeGente(orgId, filtros, de, ate) {
+export function msgsDeGente(orgId, filtros, de, ate) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
   const where = [p.sql, "m.direction = 'out'", "m.created_at BETWEEN ? AND ?", semDisparo("m."),
@@ -124,7 +124,7 @@ const porLeadDia = (pares) => {
 /* LEADS TRABALHADOS: quem a pessoa abordou — mandou mensagem ou ligou (o
    clique no Ligar do CRM). Mudar a etapa sem falar com o cliente não é
    abordar. Ligação feita fora do CRM, direto no celular, o sistema não vê. */
-function trabalhados(orgId, filtros, de, ate) {
+export function trabalhados(orgId, filtros, de, ate) {
   return porLeadDia([...msgsDeGente(orgId, filtros, de, ate), ...ligacoesComLead(orgId, filtros, de, ate)]);
 }
 
@@ -132,7 +132,7 @@ function trabalhados(orgId, filtros, de, ate) {
    mensagem, é o cliente escrevendo depois de uma mensagem da equipe (com uma
    pessoa no filtro, depois de uma mensagem DELA) — o "oi" de quem chega
    sozinho não é resposta a ninguém. Uma por lead por dia. */
-function faladas(orgId, filtros, de, ate) {
+export function faladas(orgId, filtros, de, ate) {
   const { responsavel, ...resto } = filtros || {};
   const p = peneira(orgId, resto);
   const quem = condPessoa(filtros);
