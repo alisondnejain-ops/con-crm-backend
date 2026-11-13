@@ -97,6 +97,10 @@ export function gatilhoLimpo(g) {
     out.linha = l === "casa" ? "casa" : /^[\w-]{1,80}$/.test(l) ? l : "";
   }
   out.parar_ao_responder = !!g?.parar_ao_responder;
+  /* 13/11/2026 (o follow-up do Bruno, no Reserva): um fluxo de "sem resposta"
+     existe justamente para continuar depois que o corretor escreveu e o
+     cliente ficou calado. Ligado, a mensagem da equipe não para o fluxo. */
+  out.continuar_se_equipe = !!g?.continuar_se_equipe;
   return out;
 }
 

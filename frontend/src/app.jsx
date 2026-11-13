@@ -2233,7 +2233,7 @@ function ConCRM(){
     tirarDaMensagem:(id)=>api(`/config/mensagens/${id}/midia`,{method:"DELETE"}),
     enviarArquivoPronto:(leadId,mid)=>api(`/leads/${leadId}/pronta/${mid}`,{method:"POST",body:{}}),
     fluxosDaConversa:(leadId)=>api(`/leads/${leadId}/fluxos`),
-    mandarFluxo:(leadId,fluxoId,parar)=>api(`/leads/${leadId}/fluxos`,{method:"POST",body:{fluxo_id:fluxoId,parar_ao_responder:parar}}),
+    mandarFluxo:(leadId,fluxoId,parar,pararEquipe=true)=>api(`/leads/${leadId}/fluxos`,{method:"POST",body:{fluxo_id:fluxoId,parar_ao_responder:parar,parar_se_equipe:pararEquipe}}),
     pararFluxo:(leadId,execId)=>api(`/leads/${leadId}/fluxos/${execId}`,{method:"DELETE"}),
     // Toda leitura da tela de Conexão (inclusive a de 3 em 3s do QR Code)
     // atualiza o selo do topo — antes ele só era lido ao entrar no sistema.
@@ -4441,6 +4441,9 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile,acoes}){
     <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.parar_ao_responder} onChange={e=>muda({parar_ao_responder:e.target.checked})} style={{marginTop:3}}/>
       <span>Parar o fluxo quando o cliente responder <span style={{color:C.faint}}>— depois de receber a primeira mensagem do fluxo. Quem está num bloco que espera resposta segue o caminho da resposta.</span></span></label>
+    <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
+      <input type="checkbox" checked={!!g.continuar_se_equipe} onChange={e=>muda({continuar_se_equipe:e.target.checked})} style={{marginTop:3}}/>
+      <span>Continuar mesmo se alguém da equipe escrever <span style={{color:C.faint}}>— para follow-up de quem não respondeu. Desligado, o fluxo para assim que alguém da equipe manda mensagem pelo CRM.</span></span></label>
     {g.tipo&&g.tipo!=="manual"&&<label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,color:C.ink,lineHeight:1.45,cursor:"pointer"}}>
       <input type="checkbox" checked={!!g.reentrada} onChange={e=>muda({reentrada:e.target.checked})} style={{marginTop:3}}/>
       <span>O mesmo lead pode entrar de novo <span style={{color:C.faint}}>— depois de terminar, e com pelo menos 1 hora entre uma vez e outra. Desligado, cada lead passa por esta automação uma vez só.</span></span></label>}
@@ -15752,31 +15755,50 @@ function usarFluxoConversa(lead,acoes){
   const id=lead&&lead.id;
   const ler=React.useCallback(()=>{ if(!id) return; acoes.fluxosDaConversa(id).then(setD).catch(()=>setD(null)); },[id,acoes]);
   useEffect(()=>{ setD(null); setAberto(false); ler(); const t=setInterval(ler,60000); return()=>clearInterval(t); },[id]);
+  // Mensagem nova na conversa (a equipe escreveu, o fluxo mandou, o cliente respondeu): relê o estado.
+  const ultima=lead&&lead.lastAt;
+  useEffect(()=>{ if(ultima) ler(); },[ultima]);
   const podeMandar=!!(d&&d.liberado&&d.fluxos&&d.fluxos.length);
   return {d,setD,aberto,setAberto,ler,podeMandar,leadId:id};
 }
+/* O que a faixa diz de cada fluxo rodando (13/11/2026): o estado de verdade,
+   não só "rodando" — um fluxo parado parecia andar. */
+function estadoDoFluxo(x){
+  const quando=(ms)=>{ const d=new Date(ms), h=new Date(); const amanha=new Date(h.getFullYear(),h.getMonth(),h.getDate()+1);
+    const hora=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    if(d.toDateString()===h.toDateString()) return `hoje às ${hora}`;
+    if(d.toDateString()===amanha.toDateString()) return `amanhã às ${hora}`;
+    return `${d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})} às ${hora}`; };
+  if(x.atrasada) return {texto:`atrasado: a próxima mensagem devia ter saído ${quando(x.proxima_em)}`,quente:true};
+  if(x.espera_ate) return {texto:`esperando o cliente responder até ${quando(x.espera_ate)}`};
+  if(x.proxima_em&&x.proxima_em>Date.now()+60000) return {texto:`próxima mensagem ${quando(x.proxima_em)}`};
+  return {texto:"mandando agora"};
+}
 function FaixaFluxo({fx,acoes,isMobile}){
-  const [esc,setEsc]=useState(""); const [parar,setParar]=useState(true);
+  const [esc,setEsc]=useState(""); const [parar,setParar]=useState(true); const [pararEquipe,setPararEquipe]=useState(true);
   const [ocupado,setOcupado]=useState(false); const [erro,setErro]=useState("");
-  useEffect(()=>{setEsc("");setParar(true);setErro("");},[fx.leadId]);
+  useEffect(()=>{setEsc("");setParar(true);setPararEquipe(true);setErro("");},[fx.leadId]);
   if(!fx.d) return null;
   const rodando=fx.d.em_andamento||[];
   const escolhido=(fx.d.fluxos||[]).find(f=>f.id===esc);
   async function mandar(){
     if(!escolhido||ocupado) return; setOcupado(true); setErro("");
-    try{ fx.setD(await acoes.mandarFluxo(fx.leadId,escolhido.id,parar)); fx.setAberto(false); setEsc(""); }
+    try{ fx.setD(await acoes.mandarFluxo(fx.leadId,escolhido.id,parar,pararEquipe)); fx.setAberto(false); setEsc(""); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   async function parar_(execId){
     setErro(""); try{ fx.setD(await acoes.pararFluxo(fx.leadId,execId)); }catch(e){ setErro(e.message); }
   }
   return <React.Fragment>
-    {rodando.map(x=><div key={x.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.coolSoft||C.surface,
-      border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"7px 54px 7px 10px":"7px 10px",marginBottom:8,fontSize:12}}>
-      <Icon n="branch" size={13} color={C.greenDeep}/>
-      <span style={{flex:1,minWidth:140,color:C.sub}}>Fluxo <b style={{color:C.ink}}>{x.nome}</b> rodando{x.para_se_responder?" · para se o cliente responder":""}. Se você escrever, ele para.</span>
+    {rodando.map(x=>{ const st=estadoDoFluxo(x); return <div key={x.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:st.quente?C.hotSoft||"#fdecea":(C.coolSoft||C.surface),
+      border:`1px solid ${st.quente?C.hot+"55":C.line}`,borderRadius:10,padding:"7px 60px 7px 10px",marginBottom:8,fontSize:12}}>
+      <Icon n="branch" size={13} color={st.quente?C.hot:C.greenDeep}/>
+      <span style={{flex:1,minWidth:140,color:C.sub,lineHeight:1.45}}>Fluxo <b style={{color:C.ink}}>{x.nome}</b> · <span style={{color:st.quente?C.hot:C.ink,fontWeight:600}}>{st.texto}</span>
+        {" · "}{x.enviadas} enviada{x.enviadas===1?"":"s"}
+        <br/><span style={{color:C.faint,fontSize:11}}>{[x.para_se_responder?"para se o cliente responder":null,x.para_se_equipe?"para se alguém da equipe escrever":"continua mesmo se a equipe escrever"].filter(Boolean).join(" · ")}</span>
+        {x.ultimo_erro&&<><br/><span style={{color:C.hot,fontSize:11}}>Última tentativa falhou: {x.ultimo_erro}</span></>}</span>
       <button onClick={()=>parar_(x.id)} style={{border:`1px solid ${C.hot}44`,background:C.card,color:C.hot,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button>
-    </div>)}
+    </div>;})}
     {fx.aberto&&<div style={{border:`1px solid ${C.green}55`,background:C.card,borderRadius:12,padding:12,marginBottom:8}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
         <Icon n="branch" size={14} color={C.greenDeep}/>
@@ -15802,6 +15824,9 @@ function FaixaFluxo({fx,acoes,isMobile}){
           <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.sub,marginBottom:8,cursor:"pointer"}}>
             <input type="checkbox" checked={parar} onChange={e=>setParar(e.target.checked)} style={{accentColor:C.green}}/>
             Parar o fluxo quando o cliente responder</label>
+          <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.sub,marginBottom:8,cursor:"pointer"}}>
+            <input type="checkbox" checked={pararEquipe} onChange={e=>setPararEquipe(e.target.checked)} style={{accentColor:C.green}}/>
+            Parar o fluxo se alguém da equipe escrever <span style={{color:C.faint}}>(desmarque para follow-up)</span></label>
           <button onClick={mandar} disabled={!escolhido||ocupado}
             style={{background:escolhido?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:escolhido?"pointer":"default"}}>
             {ocupado?"Mandando…":"Mandar para o cliente"}</button>
