@@ -11454,8 +11454,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         Achar um lead pelo nome é o gesto mais repetido do quadro — esse campo
         não pode custar um clique a mais. Os outros filtros abertos empurrariam
         as colunas para baixo e sobraria meia coluna visível. */}
-    <div style={{display:"flex",flexDirection:"column",gap:9,padding:isMobile?"12px 12px 0":"26px 32px 0",flexShrink:0}}>
-      {!isMobile&&<CabecalhoTela isMobile={isMobile} eyebrow={mostrarDono?undefined:"MEU WORKSPACE"} titulo="Cada oportunidade, no seu próximo passo." sub="Cards com contexto e ficha completa do lead."/>}
+    {/* Sem o cabeçalho grande (13/11/2026, pedido do Ali com print): no
+        notebook ele comia ~130px das colunas e sobravam dois cards por coluna.
+        O caminho "Conta / Funil" do topo já diz onde se está. */}
+    <div style={{display:"flex",flexDirection:"column",gap:9,padding:isMobile?"12px 12px 0":"14px 20px 0",flexShrink:0}}>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{position:"relative",flex:1,minWidth:isMobile?"100%":220}}>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex"}}>
@@ -11648,7 +11650,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     </div>
 
     <div onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={aoSoltar}
-    style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:"16px 32px 20px",
+    style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:"12px 20px 14px",
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
     <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*226}}>
