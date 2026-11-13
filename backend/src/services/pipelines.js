@@ -363,6 +363,14 @@ export function editarEtapa(orgId, id, dados) {
       return { erro: "Escolha o que acontece quando o prazo vence." };
   }
 
+  /* "Avisar antes" precisa ser menor que o prazo (CETRO 24.2) — senão o card
+     fica âmbar desde o primeiro minuto e o aviso deixa de avisar. */
+  {
+    const prazo = dados.sla_minutes !== undefined ? dados.sla_minutes : atual.sla_minutes;
+    const aviso = dados.warning_before_minutes !== undefined ? dados.warning_before_minutes : atual.warning_before_minutes;
+    if (prazo && aviso && Number(aviso) >= Number(prazo)) return { erro: "O aviso precisa vir antes do prazo vencer (menor que o prazo)." };
+  }
+
   let automacao = null;
   if (dados.automation_config !== undefined) {
     const v = validarAutomacao(orgId, atual.pipeline_id, dados.automation_config);
