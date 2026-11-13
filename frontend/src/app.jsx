@@ -10879,6 +10879,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   useEffect(()=>{setEditando(null);setErroEdicao("");},[sel&&sel.id]);
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact; // ficha não cabe fixa ao lado
+  const [fichaAberta,setFichaAberta]=useState(false); // gaveta da ficha no computador
   // Finalizado sai da caixa de entrada, mas continua acessível pelo filtro —
   // é assim que o corretor reabre um atendimento que encerrou sem querer.
   const filtrosAtivos=[fEtapa,fPrio,fTag,fSit,de,ate].filter(Boolean).length;
@@ -10940,7 +10941,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   usarAberturaDeFora(sel,isMobile,setPane);
   const showList=!isMobile||pane==="lista";
   const showChat=!!sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
-  const showFicha=!!sel&&(fichaPorBotao?pane==="ficha":true);
+  const showFicha=!!sel&&(fichaPorBotao?pane==="ficha":fichaAberta);
   const seloCorretor=(label,valor,setar,opcoes)=><select value={valor} onChange={e=>setar(e.target.value)}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
@@ -11006,10 +11007,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               :{pessoal:false,texto:"imobiliária"}}/>}</div></div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:7,flexShrink:0}}>
-          <BotaoLigar tel={sel.tel} compacto={isMobile} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
+          <BotaoLigar tel={sel.tel} compacto={isMobile||fichaAberta} leadId={sel.id} acoes={acoes} nome={sel.nome}/>
+          {!fichaPorBotao&&<BotaoFicha lead={sel} aberta={fichaAberta} aoClicar={()=>setFichaAberta(v=>!v)}/>}
+          {/* Com a gaveta aberta o selo sai: o número já está ao lado do telefone e no topo. */}
           {fichaPorBotao
-            ?<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer"}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>
-            :<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>
+            ?<BotaoFicha lead={sel} aoClicar={()=>setPane("ficha")}/>
+            :!fichaAberta&&<div style={{color:conecta.connected?C.green:C.faint,background:conecta.connected?C.greenSoft:C.coolSoft,fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,display:"flex",alignItems:"center",gap:4}}><Icon n={conecta.connected?"wifi":"wifioff"} size={12}/>
               {/* Qual número, e não "o número": com a linha pessoal ligada, o
                   selo dizendo "da imobiliária" numa conversa que sai pelo
                   celular do corretor seria a tela afirmando o contrário do que
@@ -11106,12 +11109,13 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
     </div>}
     {!isMobile&&!sel&&<div style={{flex:1,background:C.surface}}/>}
-    {showFicha&&simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:fichaPorBotao?"100%":undefined}}>
+    {showFicha&&simulando&&<div style={{width:fichaPorBotao?"100%":300,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,minHeight:0,height:fichaPorBotao?"100%":undefined}}>
       <Simulacao lead={sel} acoes={acoes} isMobile={fichaPorBotao} aoFechar={()=>setSimulando(false)}/>
     </div>}
-    {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":264,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
+    {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":300,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
       <div style={{padding:16}}>
         {fichaPorBotao&&<div style={{marginBottom:10}}>{backBtn(()=>setPane("chat"),"Voltar para a conversa")}</div>}
+        {!fichaPorBotao&&<TopoDaGavetaFicha aoFechar={()=>setFichaAberta(false)}/>}
 
         {/* Mesma ordem da ficha da supervisão (CETRO 08). */}
         <NomeDoLead lead={sel} acoes={acoes}/>
@@ -14562,6 +14566,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
 
   const isCompact=useIsCompact();
   const fichaPorBotao=isMobile||isCompact;
+  const [fichaAberta,setFichaAberta]=useState(false); // gaveta da ficha no computador
   const corretoresDisponiveis=pessoas.filter(p=>p.role==="corretor"&&p.available);
   // Aplicados sobre o resultado já filtrado pelo servidor. "Aguardando" é o
   // cliente esperando resposta — o mesmo sinal vermelho da caixa de entrada.
@@ -14583,7 +14588,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   usarAberturaDeFora(sel,isMobile,setPane);
   const mostrarLista=!isMobile||pane==="lista";
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
-  const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":true);
+  const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":fichaAberta);
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
@@ -14656,7 +14661,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
             {!isMobile&&<SeloDaLinha linha={linhas.rotulo(sel.canalId)} grande/>}</div>
         </div>
         <BotaoLigar tel={sel.tel} compacto leadId={sel.id} acoes={acoes} nome={sel.nome}/>
-        {fichaPorBotao&&<button onClick={()=>setPane("ficha")} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}><Icon n="star" size={13} color={prioDe(sel.prio).c} fill={prioDe(sel.prio).c}/> Ficha</button>}
+        <BotaoFicha lead={sel} aberta={!fichaPorBotao&&fichaAberta} aoClicar={fichaPorBotao?()=>setPane("ficha"):()=>setFichaAberta(v=>!v)}/>
       </div>
       {/* A supervisão não mexe na caixa alheia: quem está olhando controla o que
           é dele. Lead na fila também entra — não é de ninguém, então não há aviso
@@ -14703,7 +14708,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
     </div>)}
 
     {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} session={session} corretoresDisponiveis={corretoresDisponiveis}
-      aoVoltar={fichaPorBotao?()=>setPane("chat"):null} largura={fichaPorBotao?"100%":300}/>}
+      aoVoltar={fichaPorBotao?()=>setPane("chat"):null} aoFechar={fichaPorBotao?null:()=>setFichaAberta(false)} largura={fichaPorBotao?"100%":300}/>}
   </div>;
 }
 
@@ -15466,7 +15471,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
   </div>;
 }
 
-function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
+function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,largura}){
   const proximoDaVez=usarProximoDaVez(acoes,lead.id,true,lead.catracaId);
   const [simulando,setSimulando]=useState(false);
   /* AS ETAPAS DO FUNIL DESTE LEAD, buscadas AQUI — antes do `if(simulando)
@@ -15496,6 +15501,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,largura}){
   return <div style={{width:largura,flex:aoVoltar?1:"none",flexShrink:0,borderLeft:aoVoltar?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
     <div style={{padding:16}}>
       {/* Sem o título "Ficha do lead": o nome logo abaixo já diz de quem é. */}
+      {aoFechar&&<TopoDaGavetaFicha aoFechar={aoFechar}/>}
       {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",marginBottom:10}}><Icon n="chevron" size={17}/></button>}
 
       {/* A ORDEM DO CAPÍTULO 08 (CETRO, 13/11/2026): quem é e com quem está;
@@ -25962,6 +25968,23 @@ const dataHoje=()=>{const t=new Date().toLocaleDateString("pt-BR",{weekday:"long
 /* O Atender no layout do protótipo: cabeçalho da tela e as três colunas
    dentro de um cartão com borda. No celular, a tela inteira continua sendo
    da conversa — o cabeçalho tomaria o espaço que falta. */
+/* A ficha do lead fica ENGAVETADA no computador (13/11/2026, pedido do Ali:
+   "só abre a ficha se quem tiver atendendo clicar"): a conversa ocupa a largura
+   que sobra, e o botão "Ficha" abre a gaveta ao lado dela, sem esconder a
+   conversa. Começa fechada a cada vez que a tela abre; trocar de lead mantém a
+   escolha de quem está atendendo. No celular e na tela média continua o botão
+   que troca a conversa pela ficha, porque ao lado não cabe. */
+function BotaoFicha({lead,aberta,aoClicar}){
+  return <button onClick={aoClicar} aria-pressed={!!aberta} title={aberta?"Fechar a ficha do lead":"Abrir a ficha do lead"}
+    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${aberta?C.green+"66":C.line}`,background:aberta?C.greenSoft:C.surface,color:aberta?C.greenDeep||C.ink:C.sub,fontSize:12,fontWeight:600,padding:"7px 12px",borderRadius:10,cursor:"pointer",flexShrink:0}}>
+    <Icon n="star" size={13} color={prioDe(lead.prio).c} fill={prioDe(lead.prio).c}/> Ficha</button>;
+}
+function TopoDaGavetaFicha({aoFechar}){
+  return <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+    <span style={{fontSize:11,fontWeight:700,letterSpacing:".06em",color:C.faint,textTransform:"uppercase"}}>Ficha do lead</span>
+    <button onClick={aoFechar} aria-label="Fechar a ficha" title="Fechar a ficha" style={{width:30,height:30,borderRadius:9,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="x" size={15}/></button>
+  </div>;
+}
 function MolduraAtender({isMobile,corretor,children}){
   if(isMobile) return children;
   /* Sem o cabeçalho grande (13/11/2026, pedido do Ali com print): no notebook
