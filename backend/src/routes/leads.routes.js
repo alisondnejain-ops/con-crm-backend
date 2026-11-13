@@ -38,6 +38,7 @@ import { catracaAtiva, pegarProximoDoLead } from "../services/catracas.js";
 import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { corpoParaIA } from "../services/leitura-midia.js";
+import { simularPronto, simularLancamento } from "../services/simulador.js";
 
 const r = Router();
 r.use(authRequired);
@@ -91,7 +92,7 @@ const parse = (l) => l && ({ ...l, qual: JSON.parse(l.qual_json || "{}"), unread
 const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "created_at", "first_resp_at",
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
   "last_interaction_at", "custom_fields", "campaign_name", "adset_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
-  "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct",
+  "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct", "sale_commission_value", "sale_produto_id", "sale_unidade_id", "sale_moeda",
   "sugestao_etapa", "aguarda_contato", "catraca_id", "valor_negociacao"];
 const enxuto = (l) => {
   const o = {};
@@ -1609,10 +1610,49 @@ r.post("/:id/simulacao/ler", async (req, res) => {
 
 const numero = (v) => { const n = Number(v); return isFinite(n) && n >= 0 ? n : null; };
 
+/* A conta sem gravar: a tela pede enquanto a pessoa digita, para mostrar o
+   mesmo número que vai ser gravado. */
+r.post("/:id/simulacao/calcular", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const b = req.body || {};
+  const r2 = b.tipo === "lancamento" ? simularLancamento(b.premissas || {}) : simularPronto(b.premissas || {});
+  if (r2.erro) return res.status(400).json({ error: r2.erro });
+  res.json(r2);
+});
 r.post("/:id/simulacao", async (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
   const b = req.body || {};
+  /* SIMULAÇÃO CALCULADA (CETRO 13): o servidor refaz a conta e grava
+     premissas + resultado; o que a tela mostrou não é confiado. */
+  if (b.tipo === "pronto" || b.tipo === "lancamento") {
+    const premissas = b.premissas || {};
+    const r2 = b.tipo === "pronto" ? simularPronto(premissas) : simularLancamento(premissas);
+    if (r2.erro) return res.status(400).json({ error: r2.erro });
+    let produtoId = null, unidadeId = null;
+    if (b.produto_id) {
+      const p = db.prepare("SELECT id FROM produtos WHERE id = ? AND org_id = ?").get(String(b.produto_id), req.user.org_id);
+      if (!p) return res.status(404).json({ error: "Imóvel não encontrado." });
+      produtoId = p.id;
+      if (b.unidade_id) {
+        const u = db.prepare("SELECT id FROM produto_unidades WHERE id = ? AND produto_id = ?").get(String(b.unidade_id), p.id);
+        if (!u) return res.status(404).json({ error: "Unidade não encontrada neste imóvel." });
+        unidadeId = u.id;
+      }
+    }
+    const moeda = premissas.moeda === "USD" ? "USD" : "BRL";
+    const id = "sim_" + randomUUID();
+    db.prepare(`INSERT INTO simulacoes (id,lead_id,org_id,user_id,valor_imovel,entrada,subsidio,financiado,prazo_meses,parcela,juros_aa,renda,
+      modalidade,observacoes,origem,tipo,sistema,moeda,produto_id,unidade_id,premissas_json,resultado_json,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, lead.id, req.user.org_id, req.user.id,
+      r2.preco, r2.tipo === "pronto" ? r2.entrada : null, r2.tipo === "pronto" ? r2.subsidio : null,
+      r2.tipo === "pronto" ? r2.financiado : r2.saldo_financiar, r2.prazo_meses || null,
+      r2.tipo === "pronto" ? r2.parcela_inicial : null, r2.juros_aa ?? null, r2.renda ?? null,
+      null, (b.observacoes || "").trim().slice(0, 400) || null, "calculada", r2.tipo, r2.sistema || null, moeda,
+      produtoId, unidadeId, JSON.stringify(premissas).slice(0, 8000), JSON.stringify(r2), Date.now());
+    return res.json({ ok: true, simulacao: db.prepare("SELECT * FROM simulacoes WHERE id = ?").get(id), resultado: r2 });
+  }
   if (numero(b.parcela) == null && numero(b.valor_imovel) == null)
     return res.status(400).json({ error: "Informe ao menos o valor do imóvel ou a parcela." });
 
@@ -1914,13 +1954,26 @@ r.patch("/:id/temperatura", (req, res) => {
 // venda. Registrar a venda também move o lead para a etapa "Venda" — as duas
 // coisas andam juntas.
 r.patch("/:id/venda", (req, res) => {
-  const { valor, data, imovel, comissao } = req.body || {};
+  const { valor, data, imovel, comissao, comissao_valor, produto_id, unidade_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  const fotoVenda = (l) => ({ valor: l.sale_value, data: l.sale_date, imovel: l.sale_property, comissao_pct: l.sale_commission_pct,
+    comissao_valor: l.sale_commission_value, produto_id: l.sale_produto_id, unidade_id: l.sale_unidade_id });
+  const auditar = (tipo, antes, depois) => db.prepare(`INSERT INTO venda_eventos (id,org_id,lead_id,user_id,tipo,antes_json,depois_json,created_at)
+    VALUES (?,?,?,?,?,?,?,?)`).run("ve_" + randomUUID(), lead.org_id, lead.id, req.user.id, tipo, antes ? JSON.stringify(antes) : null,
+    depois ? JSON.stringify(depois) : null, Date.now());
+  // A unidade vendida por ESTA venda volta a ficar disponível quando a venda sai.
+  const soltarUnidade = (uid) => { if (uid) db.prepare("UPDATE produto_unidades SET status='disponivel', updated_at=? WHERE id=? AND status='vendido'").run(Date.now(), uid); };
 
-  // Valor vazio desfaz o registro (correção de engano).
+  // Valor vazio desfaz o registro (correção de engano). A auditoria fica.
   if (valor === null || valor === "") {
-    db.prepare("UPDATE leads SET sale_value=NULL, sale_date=NULL, sale_property=NULL, sale_commission_pct=NULL WHERE id=?").run(lead.id);
+    if (!lead.sale_date) return res.json({ ok: true, removido: true });
+    db.transaction(() => {
+      auditar("cancelamento", fotoVenda(lead), null);
+      soltarUnidade(lead.sale_unidade_id);
+      db.prepare(`UPDATE leads SET sale_value=NULL, sale_date=NULL, sale_property=NULL, sale_commission_pct=NULL, sale_commission_value=NULL,
+        sale_produto_id=NULL, sale_unidade_id=NULL, sale_moeda=NULL WHERE id=?`).run(lead.id);
+    })();
     return res.json({ ok: true, removido: true });
   }
   // Mesmo tratamento do catálogo: aceita 285000 e "285.000,50" sem virar 285.
@@ -1950,8 +2003,45 @@ r.patch("/:id/venda", (req, res) => {
       return res.status(400).json({ error: "A comissão deve ser um percentual entre 0 e 100." });
   }
 
-  db.prepare("UPDATE leads SET sale_value=?, sale_date=?, sale_property=?, sale_commission_pct=? WHERE id=?")
-    .run(v, quando, (imovel || "").trim() || null, comissaoPct, lead.id);
+  /* Imóvel e unidade do CATÁLOGO (CETRO 13.3): o título do imóvel vira o
+     texto da venda quando ninguém escreveu outro. */
+  let produto = null, unidade = null;
+  if (produto_id) {
+    produto = db.prepare("SELECT id, titulo, moeda FROM produtos WHERE id = ? AND org_id = ?").get(String(produto_id), lead.org_id);
+    if (!produto) return res.status(404).json({ error: "Imóvel não encontrado no catálogo." });
+    if (unidade_id) {
+      unidade = db.prepare("SELECT id, identificacao, bloco, status, moeda FROM produto_unidades WHERE id = ? AND produto_id = ?").get(String(unidade_id), produto.id);
+      if (!unidade) return res.status(404).json({ error: "Unidade não encontrada neste imóvel." });
+      if (unidade.status === "vendido" && lead.sale_unidade_id !== unidade.id)
+        return res.status(409).json({ error: `A unidade ${unidade.identificacao} já está vendida.` });
+    }
+  }
+  // Comissão em VALOR: convertida para o percentual, que é o que o VGC soma.
+  let comissaoValor = null;
+  if (comissao_valor !== undefined && comissao_valor !== null && comissao_valor !== "") {
+    comissaoValor = numeroBR(comissao_valor);
+    if (comissaoValor == null || comissaoValor < 0 || comissaoValor > v) return res.status(400).json({ error: "Comissão em valor inválida (entre zero e o valor da venda)." });
+    comissaoPct = Math.round(comissaoValor / v * 1e6) / 1e4;
+  } else if (comissaoPct != null) comissaoValor = Math.round(v * comissaoPct) / 100;
+  const textoImovel = (imovel || "").trim() || (produto ? produto.titulo + (unidade ? ` · ${unidade.bloco ? unidade.bloco + " " : ""}${unidade.identificacao}` : "") : null);
+  const moedaVenda = (unidade?.moeda || produto?.moeda) === "USD" ? "USD" : "BRL";
+  const depois = { valor: v, data: quando, imovel: textoImovel, comissao_pct: comissaoPct, comissao_valor: comissaoValor,
+    produto_id: produto?.id || null, unidade_id: unidade?.id || null };
+  /* Dois cliques no Salvar: a mesma venda de novo não move a etapa outra vez
+     nem cria outro evento de auditoria. */
+  const antes = fotoVenda(lead);
+  if (lead.sale_date && antes.valor === depois.valor && antes.data === depois.data && (antes.produto_id || null) === depois.produto_id
+    && (antes.unidade_id || null) === depois.unidade_id && (antes.comissao_pct ?? null) === (depois.comissao_pct ?? null) && (antes.imovel || null) === depois.imovel)
+    return res.json({ ok: true, repetida: true, stage: lead.stage });
+  db.transaction(() => {
+    auditar(lead.sale_date ? "alteracao" : "registro", lead.sale_date ? antes : null, depois);
+    if (lead.sale_unidade_id && lead.sale_unidade_id !== depois.unidade_id) soltarUnidade(lead.sale_unidade_id);
+    if (unidade) db.prepare("UPDATE produto_unidades SET status='vendido', updated_at=? WHERE id=?").run(Date.now(), unidade.id);
+    db.prepare(`UPDATE leads SET sale_value=?, sale_date=?, sale_property=?, sale_commission_pct=?, sale_commission_value=?,
+      sale_produto_id=?, sale_unidade_id=?, sale_moeda=? WHERE id=?`)
+      .run(v, quando, textoImovel, comissaoPct, comissaoValor, depois.produto_id, depois.unidade_id, moedaVenda, lead.id);
+  })();
+  if (lead.sale_date) return res.json({ ok: true, alterada: true, stage: lead.stage });
   // A etapa vai junto, mas pelo caminho que deixa rastro — registrar venda é a
   // mudança de etapa que mais importa no histórico.
   /* Funil sem etapa chamada "Venda" (o do ambiente interno fecha em

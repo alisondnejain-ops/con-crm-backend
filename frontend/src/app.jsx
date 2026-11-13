@@ -266,7 +266,8 @@ function adaptLead(l,anterior){
     // Quando este lead caiu na mão de quem está com ele. Diferente da data de
     // entrada: o lead pode ter chegado em junho e ter sido repassado hoje.
     assignedAt:l.assigned_at!==undefined?l.assigned_at:(anterior?anterior.assignedAt:null),
-    venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property,comissao:l.sale_commission_pct??null}:null,
+    venda:l.sale_value?{valor:l.sale_value,data:l.sale_date,imovel:l.sale_property,comissao:l.sale_commission_pct??null,
+      comissao_valor:l.sale_commission_value??null,produto_id:l.sale_produto_id||null,unidade_id:l.sale_unidade_id||null,moeda:l.sale_moeda||"BRL"}:null,
     // Valor em negociação (30/10/2026): o VGV em aberto — não é venda.
     negociacao:l.valor_negociacao!==undefined?(l.valor_negociacao||null):(anterior?anterior.negociacao:null),
     // As mensagens só chegam ao abrir a conversa; preservamos as já carregadas.
@@ -1881,7 +1882,8 @@ function ConCRM(){
     googleDesconectar:()=>api("/google",{method:"DELETE"}),
     marcarTarefa:(id,feito)=>api(`/tarefas/${id}`,{method:"PATCH",body:{feito}}).then(r=>{recarregar();return r;}),
     apagarTarefa:(id)=>api(`/tarefas/${id}`,{method:"DELETE"}).then(r=>{recarregar();return r;}),
-    registrarVenda:acao((leadId,dados)=>api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados})),
+    // Sem o envelope `acao`: o erro (unidade já vendida, valor inválido) precisa chegar ao formulário da venda.
+    registrarVenda:async(leadId,dados)=>{ const r=await api(`/leads/${leadId}/venda`,{method:"PATCH",body:dados}); await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
     transferir:atribuir((leadId,userId)=>api("/distribution/transfer",{method:"POST",body:{lead_id:leadId,user_id:userId}})),
     proximo:atribuir((leadId)=>api("/distribution/next",{method:"POST",body:{lead_id:leadId}})),
     permissoesDisponiveis:()=>api("/auth/permissoes"),
@@ -1941,6 +1943,10 @@ function ConCRM(){
     simulacoes:(leadId)=>api(`/leads/${leadId}/simulacoes`),
     lerPrint:(leadId,base64,mime)=>api(`/leads/${leadId}/simulacao/ler`,{method:"POST",body:{base64,mime}}),
     salvarSimulacao:acao((leadId,dados)=>api(`/leads/${leadId}/simulacao`,{method:"POST",body:dados})),
+    metasConversao:(pid,uid)=>api(`/painel/metas-conversao/${pid}${uid?"?user_id="+encodeURIComponent(uid):""}`),
+    salvarMetasConversao:(pid,dados)=>api(`/painel/metas-conversao/${pid}`,{method:"PUT",body:dados}),
+    calcularSimulacao:(leadId,dados)=>api(`/leads/${leadId}/simulacao/calcular`,{method:"POST",body:dados}),
+    gravarSimulacaoCalculada:(leadId,dados)=>api(`/leads/${leadId}/simulacao`,{method:"POST",body:dados}),
     enviarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}/enviar`,{method:"POST"})),
     apagarSimulacao:acao((leadId,simId)=>api(`/leads/${leadId}/simulacao/${simId}`,{method:"DELETE"})),
     salvarQualificacao:acao((leadId,campos)=>api(`/leads/${leadId}/qualificacao`,{method:"PATCH",body:campos})),
@@ -11156,37 +11162,45 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
 }
 
 /* ===== REGISTRO DE VENDA (pedido do Ali: valor, data e qual imóvel) ===== */
-function FichaVenda({lead,onSalvar,lado,aoAbrir}){
+function FichaVenda({lead,onSalvar,lado,aoAbrir,acoes}){
   const v=lead.venda;
   // No ambiente interno do CETRO a venda é uma assinatura, não um imóvel.
   const interna=contaInterna();
   const [aberto,setAberto]=useState(false);
-  const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:"",comissao:""});
-  const [erro,setErro]=useState("");
+  const [f,setF]=useState({valor:"",data:new Date().toISOString().slice(0,10),imovel:"",comissao:"",comissao_valor:"",modoCom:"pct",produto_id:"",unidade_id:""});
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const [produtos,setProdutos]=useState([]); const [unidades,setUnidades]=useState([]);
   useEffect(()=>{ setAberto(false); setErro("");
     setF({valor:v?String(v.valor):"",data:v&&v.data?new Date(v.data).toISOString().slice(0,10):new Date().toISOString().slice(0,10),
-      imovel:v&&v.imovel||"",comissao:v&&v.comissao!=null?String(v.comissao):""});
+      imovel:v&&v.imovel||"",comissao:v&&v.comissao!=null?String(v.comissao):"",comissao_valor:v&&v.comissao_valor!=null?v.comissao_valor:"",modoCom:"pct",
+      produto_id:v&&v.produto_id||"",unidade_id:v&&v.unidade_id||""});
   },[lead.id]);
+  // Catálogo e unidades (CETRO 13.3): a venda aponta o imóvel e a unidade de verdade.
+  useEffect(()=>{ if(!aberto||interna||!acoes||!acoes.produtos) return; acoes.produtos({}).then(r=>setProdutos(Array.isArray(r)?r:[])).catch(()=>{}); },[aberto]);
+  useEffect(()=>{ setUnidades([]); const p=produtos.find(x=>x.id===f.produto_id); if(!p||!p.unidades_resumo||!acoes) return;
+    acoes.unidadesProduto(p.id).then(r=>setUnidades((r.unidades||[]).filter(u=>u.status!=="vendido"||u.id===f.unidade_id))).catch(()=>{}); },[f.produto_id,produtos.length]);
 
   useEffect(()=>{ if(aoAbrir) aoAbrir(aberto); },[aberto]);
   async function salvar(){
+    if(salvando) return;   // dois cliques não registram duas vezes (o servidor também confere)
     const valor=numeroBR(f.valor);
     if(!valor||valor<=0) return setErro("Informe o valor da venda.");
-    if(f.comissao){
-      const c=numeroBR(f.comissao);
-      if(c==null||c<0||c>100) return setErro("A comissão deve ser um percentual entre 0 e 100.");
-    }
-    setErro(""); await onSalvar({valor,data:f.data,imovel:f.imovel,comissao:f.comissao||undefined}); setAberto(false);
+    let comissao, comissao_valor;
+    if(f.modoCom==="valor"&&f.comissao_valor!==""){ comissao_valor=numeroBR(f.comissao_valor); if(comissao_valor==null||comissao_valor<0||comissao_valor>valor) return setErro("A comissão em valor precisa ficar entre zero e o valor da venda."); }
+    else if(f.comissao){ const c=numeroBR(f.comissao); if(c==null||c<0||c>100) return setErro("A comissão deve ser um percentual entre 0 e 100."); comissao=f.comissao; }
+    setErro(""); setSalvando(true);
+    try{ await onSalvar({valor,data:f.data,imovel:f.imovel,comissao,comissao_valor,produto_id:f.produto_id||undefined,unidade_id:f.unidade_id||undefined}); setAberto(false); }
+    catch(e){ setErro(e.message||"Não consegui salvar a venda."); } finally{ setSalvando(false); }
   }
 
   if(v&&!aberto) return <div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginTop:14}}>
     <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:8}}><Icon n="check" size={13} color={C.greenMid}/> Venda registrada</div>
-    <div style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700}}>{fmtMoeda(v.valor)}</div>
+    <div style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:19,fontWeight:700}}>{fmtValorMoeda(v.valor,v.moeda)}</div>
     <div style={{color:C.sub,fontSize:11.5,marginTop:4}}>{v.imovel||(interna?"Plano não informado":"Imóvel não informado")} · {fmtData(v.data)}</div>
     {/* Comissão é opcional — sem ela, some do VGC do painel de indicadores em
         vez de virar 0% inventado, e a tela diz isso em vez de fingir zero. */}
     {!interna&&<div style={{color:C.sub,fontSize:11.5,marginTop:2}}>
-      {v.comissao!=null?<React.Fragment>Comissão {v.comissao}% · {fmtMoeda(v.valor*v.comissao/100)}</React.Fragment>:"Comissão não informada"}
+      {v.comissao!=null?<React.Fragment>Comissão {String(v.comissao).replace(".",",")}% · {fmtValorMoeda(v.comissao_valor??v.valor*v.comissao/100,v.moeda)}</React.Fragment>:"Comissão não informada"}
     </div>}
     <button onClick={()=>setAberto(true)} style={{marginTop:8,border:"none",background:"transparent",color:C.greenMid,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Editar registro</button>
   </div>;
@@ -11201,17 +11215,34 @@ function FichaVenda({lead,onSalvar,lado,aoAbrir}){
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Data da venda</label>
     <input type="date" value={f.data} onChange={e=>setF({...f,data:e.target.value})}
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
-    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{interna?"Qual plano":"Qual imóvel"}</label>
+    {!interna&&produtos.length>0&&<React.Fragment>
+      <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Imóvel do catálogo</label>
+      <select value={f.produto_id} onChange={e=>{const p=produtos.find(x=>x.id===e.target.value); setF({...f,produto_id:e.target.value,unidade_id:"",valor:f.valor||(p&&p.valor)||""});}}
+        style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
+        <option value="">Sem vínculo com o catálogo</option>{produtos.map(p=><option key={p.id} value={p.id}>{p.titulo}</option>)}</select>
+      {unidades.length>0&&<select aria-label="Unidade vendida" value={f.unidade_id} onChange={e=>{const u=unidades.find(x=>x.id===e.target.value); setF({...f,unidade_id:e.target.value,valor:u&&u.preco?u.preco:f.valor});}}
+        style={{width:"100%",margin:"0 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
+        <option value="">Unidade (opcional)</option>{unidades.map(u=><option key={u.id} value={u.id}>{u.bloco?u.bloco+" · ":""}{u.identificacao} · {fmtValorMoeda(u.preco,u.moeda)}</option>)}</select>}
+    </React.Fragment>}
+    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{interna?"Qual plano":"Qual imóvel (texto)"}</label>
     <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder={interna?"Ex.: Essencial semestral":"Ex.: Jardim Amazonas — Casa 14"}
       style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
     {!interna&&<React.Fragment>
-    <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Comissão desta venda (%) — opcional</label>
-    <input type="number" min="0" max="100" step="0.1" value={f.comissao} onChange={e=>setF({...f,comissao:e.target.value})} placeholder="Ex.: 5"
-      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+    <div style={{display:"flex",alignItems:"center",gap:8}}><label style={{color:C.faint,fontSize:10.5,fontWeight:600,flex:1}}>Comissão desta venda — opcional</label>
+      {[["pct","%"],["valor","R$"]].map(([m,t])=><button key={m} type="button" onClick={()=>setF({...f,modoCom:m})} style={{border:`1px solid ${f.modoCom===m?C.green:C.line}`,background:f.modoCom===m?C.greenSoft:C.surface,color:f.modoCom===m?C.greenDeep:C.sub,borderRadius:7,padding:"3px 9px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>{t}</button>)}</div>
+    {f.modoCom==="pct"
+      ?<input type="number" min="0" max="100" step="0.1" value={f.comissao} onChange={e=>setF({...f,comissao:e.target.value})} placeholder="Ex.: 5"
+        style={{width:"100%",margin:"3px 0 4px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+      :<div style={{margin:"3px 0 4px"}}><CampoMoeda valor={f.comissao_valor} onChange={x=>setF({...f,comissao_valor:x})} placeholder="15.000,00"/></div>}
+    <div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>{(()=>{const val=numeroBR(f.valor); if(!val) return "O valor da venda entra no VGV; a comissão, no VGC — nunca somadas.";
+      if(f.modoCom==="pct"&&numeroBR(f.comissao)!=null) return `= ${fmtMoeda(val*numeroBR(f.comissao)/100)} (VGC)`;
+      if(f.modoCom==="valor"&&numeroBR(f.comissao_valor)!=null) return `= ${String(Math.round(numeroBR(f.comissao_valor)/val*10000)/100).replace(".",",")}% do valor (VGC)`;
+      return "O valor da venda entra no VGV; a comissão, no VGC — nunca somadas.";})()}</div>
+    <div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>A venda conta para quem está com o lead{lead.assignedName?`: ${lead.assignedName}`:""}. Para creditar outra pessoa, repasse o lead antes.</div>
     </React.Fragment>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:6}}>
-      <button onClick={salvar} style={{flex:1,background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+      <button onClick={salvar} disabled={salvando} style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
       <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
     </div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>{interna?<React.Fragment>Ao salvar, o lead vai para a etapa de ganho do funil e entra no seu relatório.</React.Fragment>:<React.Fragment>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</React.Fragment>}</div>
@@ -15568,7 +15599,7 @@ function SimulacaoEVenda({lead,acoes,aoSimular}){
       <Icon n="chart" size={14}/> Simulação
     </button>}
     <div style={{flex:cheia?"1 1 100%":"1 1 100px",minWidth:0,marginTop:cheia?-14:0}}>
-      <FichaVenda lead={lead} lado={!cheia} aoAbrir={setVendaAberta} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
+      <FichaVenda lead={lead} acoes={acoes} lado={!cheia} aoAbrir={setVendaAberta} onSalvar={(d)=>acoes.registrarVenda(lead.id,d)}/>
     </div>
   </div>;
 }
@@ -17160,6 +17191,100 @@ function CamposPersonalizadosDoLead({lead,acoes,session}){
    cumpre — é o tipo de erro que não se desfaz pedindo desculpa. */
 const moedaBR=(v)=>v==null||v===""?"":Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
 
+/* O SIMULADOR DO CETRO (capítulo 13): imóvel pronto (SAC/Price) e
+   lançamento/loteamento (componentes + fase de obra). A conta é sempre a do
+   servidor (`/simulacao/calcular`); a tela só pede enquanto a pessoa digita e
+   mostra o erro com a frase dele — nada é truncado em silêncio. */
+const COMPONENTES_SIM=[["sinal","Sinal",true],["entrada_adicional","Entrada adicional",true],["mensais","Mensais",true],["reforcos","Reforços",true],["chaves","Chaves",false],["financiar","Saldo a financiar",false]];
+function SimuladorCalculado({lead,acoes,isMobile,aoGravar}){
+  const [tipo,setTipo]=useState("pronto");
+  const [produtos,setProdutos]=useState([]); const [produtoId,setProdutoId]=useState(""); const [unidades,setUnidades]=useState([]); const [unidadeId,setUnidadeId]=useState("");
+  const [pr,setPr]=useState({preco:"",entrada:"",subsidio:"",prazo_meses:"360",juros_aa:"10",renda:"",sistema:"sac",moeda:"BRL"});
+  const [la,setLa]=useState({preco:"",moeda:"BRL",durante:"",apos:"",c:{}});
+  const [res,setRes]=useState(null); const [erro,setErro]=useState(""); const [gravando,setGravando]=useState(false); const [ok,setOk]=useState("");
+  useEffect(()=>{acoes.produtos({disponivel:"1"}).then(r=>setProdutos(Array.isArray(r)?r:[])).catch(()=>{});},[]);
+  useEffect(()=>{setUnidades([]);setUnidadeId(""); if(!produtoId) return;
+    const p=produtos.find(x=>x.id===produtoId); if(!p) return;
+    if(p.unidades_resumo) acoes.unidadesProduto(p.id).then(r=>setUnidades((r.unidades||[]).filter(u=>u.status==="disponivel"))).catch(()=>{});
+    if(p.categoria==="empreendimento"||p.categoria==="loteamento") setTipo("lancamento");
+    if(p.valor){ setPr(x=>({...x,preco:p.valor,moeda:p.moeda||"BRL"})); setLa(x=>({...x,preco:p.valor,moeda:p.moeda||"BRL"})); }
+  },[produtoId]);
+  useEffect(()=>{ if(!unidadeId) return; const u=unidades.find(x=>x.id===unidadeId); if(!u) return;
+    const c={}; if(u.fluxo) for(const [k] of COMPONENTES_SIM) if(u.fluxo[k]) c[k]={pct:String(u.fluxo[k].pct),qtd:u.fluxo[k].qtd?String(u.fluxo[k].qtd):""};
+    setLa(x=>({...x,preco:u.preco||x.preco,moeda:u.moeda||"BRL",c:Object.keys(c).length?c:x.c})); setPr(x=>({...x,preco:u.preco||x.preco,moeda:u.moeda||"BRL"}));
+  },[unidadeId]);
+  const premissas=tipo==="pronto"?{...pr,preco:numeroBR(pr.preco),entrada:numeroBR(pr.entrada),subsidio:numeroBR(pr.subsidio),prazo_meses:numeroBR(pr.prazo_meses),juros_aa:numeroBR(pr.juros_aa),renda:numeroBR(pr.renda)}
+    :{preco:numeroBR(la.preco),moeda:la.moeda,componentes:Object.fromEntries(Object.entries(la.c).map(([k,v])=>[k,{pct:numeroBR(v.pct),qtd:numeroBR(v.qtd)}])),
+      obra:la.durante!==""||la.apos!==""?{durante:numeroBR(la.durante),apos:numeroBR(la.apos)}:undefined};
+  const chave=JSON.stringify([tipo,premissas]);
+  useEffect(()=>{setOk(""); const t=setTimeout(()=>{ if(!premissas.preco){setRes(null);setErro("");return;}
+    acoes.calcularSimulacao(lead.id,{tipo,premissas}).then(r=>{setRes(r);setErro("");}).catch(e=>{setRes(null);setErro(e.message);}); },350); return()=>clearTimeout(t);},[chave]);
+  async function gravar(){ setGravando(true); setErro("");
+    try{ await acoes.gravarSimulacaoCalculada(lead.id,{tipo,premissas,produto_id:produtoId||null,unidade_id:unidadeId||null}); setOk("Simulação salva no lead e na linha do tempo."); aoGravar&&aoGravar(); }
+    catch(e){setErro(e.message);} finally{setGravando(false);} }
+  const mo=tipo==="pronto"?pr.moeda:la.moeda; const din=(v)=>fmtValorMoeda(v,mo);
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none",fontFamily:FONT};
+  const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
+  const cx=(t,el)=><div style={{flex:"1 1 130px",minWidth:0}}>{rot(t)}{el}</div>;
+  const comp=(k,campo,v)=>setLa(x=>({...x,c:{...x.c,[k]:{...(x.c[k]||{}),[campo]:v}}}));
+  const somaComp=COMPONENTES_SIM.reduce((a,[k])=>a+(numeroBR(la.c[k]?.pct)||0),0);
+  return <div>
+    <div style={{display:"flex",gap:6,marginBottom:10}}>
+      {[["pronto","Imóvel pronto"],["lancamento","Lançamento / loteamento"]].map(([v,t])=><button key={v} onClick={()=>{setTipo(v);
+          if(v==="lancamento"&&!la.preco&&pr.preco) setLa(x=>({...x,preco:pr.preco,moeda:pr.moeda})); if(v==="pronto"&&!pr.preco&&la.preco) setPr(x=>({...x,preco:la.preco,moeda:la.moeda}));}}
+        style={{flex:1,padding:"9px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",border:`1px solid ${tipo===v?C.green:C.line}`,background:tipo===v?C.greenSoft:C.surface,color:tipo===v?C.greenDeep:C.sub}}>{t}</button>)}
+    </div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:9,marginBottom:10}}>
+      {cx("Imóvel do catálogo",<select value={produtoId} onChange={e=>setProdutoId(e.target.value)} style={ent}><option value="">Sem imóvel vinculado</option>{produtos.map(p=><option key={p.id} value={p.id}>{p.titulo}</option>)}</select>)}
+      {unidades.length>0&&cx("Unidade",<select value={unidadeId} onChange={e=>setUnidadeId(e.target.value)} style={ent}><option value="">Escolher…</option>{unidades.map(u=><option key={u.id} value={u.id}>{u.bloco?u.bloco+" · ":""}{u.identificacao} · {fmtValorMoeda(u.preco,u.moeda)}</option>)}</select>)}
+    </div>
+    {tipo==="pronto"?<React.Fragment>
+      <div style={{display:"flex",flexWrap:"wrap",gap:9,marginBottom:10}}>
+        {cx("Moeda",<select value={pr.moeda} onChange={e=>setPr({...pr,moeda:e.target.value})} style={ent}><option value="BRL">R$</option><option value="USD">US$</option></select>)}
+        {cx("Preço",<CampoMoeda moeda={pr.moeda} valor={pr.preco} onChange={v=>setPr({...pr,preco:v})} isMobile={isMobile}/>)}
+        {cx("Entrada",<CampoMoeda moeda={pr.moeda} valor={pr.entrada} onChange={v=>setPr({...pr,entrada:v})} isMobile={isMobile}/>)}
+        {cx("Subsídio (opcional)",<CampoMoeda moeda={pr.moeda} valor={pr.subsidio} onChange={v=>setPr({...pr,subsidio:v})} isMobile={isMobile}/>)}
+        {cx("Prazo (meses)",<input value={pr.prazo_meses} onChange={e=>setPr({...pr,prazo_meses:e.target.value.replace(/\D/g,"")})} inputMode="numeric" style={ent}/>)}
+        {cx("Juros ao ano (%)",<input value={pr.juros_aa} onChange={e=>setPr({...pr,juros_aa:e.target.value})} inputMode="decimal" style={ent}/>)}
+        {cx("Renda mensal",<CampoMoeda moeda={pr.moeda} valor={pr.renda} onChange={v=>setPr({...pr,renda:v})} placeholder="opcional" isMobile={isMobile}/>)}
+        {cx("Sistema",<select value={pr.sistema} onChange={e=>setPr({...pr,sistema:e.target.value})} style={ent}><option value="sac">SAC (parcela cai)</option><option value="price">Price (parcela fixa)</option></select>)}
+      </div>
+      {res&&res.tipo==="pronto"&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,fontSize:13,color:C.sub,lineHeight:1.8}}>
+        <div>Valor financiado: <b style={{color:C.ink}}>{din(res.financiado)}</b> · juros ao mês {String(res.juros_am).replace(".",",")}%</div>
+        <div>Parcela inicial: <b style={{color:C.greenDeep,fontSize:16}}>{din(res.parcela_inicial)}</b>{res.parcela_final!=null&&<span> · última {din(res.parcela_final)}</span>}</div>
+        {res.amortizacao!=null&&<div>Amortização {din(res.amortizacao)} + juros iniciais {din(res.juros_iniciais)}</div>}
+        <div>Comprometimento da renda: <b style={{color:res.comprometimento>30?C.hot:C.ink}}>{res.comprometimento==null?"renda não informada":String(res.comprometimento).replace(".",",")+"%"}</b></div>
+      </div>}
+    </React.Fragment>:<React.Fragment>
+      <div style={{display:"flex",flexWrap:"wrap",gap:9,marginBottom:10}}>
+        {cx("Moeda",<select value={la.moeda} onChange={e=>setLa({...la,moeda:e.target.value})} style={ent}><option value="BRL">R$</option><option value="USD">US$</option></select>)}
+        {cx("Preço da unidade",<CampoMoeda moeda={la.moeda} valor={la.preco} onChange={v=>setLa({...la,preco:v})} isMobile={isMobile}/>)}
+        {cx("Durante a obra (%)",<input value={la.durante} onChange={e=>setLa({...la,durante:e.target.value})} inputMode="decimal" placeholder="40" style={ent}/>)}
+        {cx("Após a obra (%)",<input value={la.apos} onChange={e=>setLa({...la,apos:e.target.value})} inputMode="decimal" placeholder="60" style={ent}/>)}
+      </div>
+      {COMPONENTES_SIM.map(([k,t,q])=>{const it=res&&res.itens&&res.itens.find(x=>x.chave===k);
+        return <div key={k} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 62px 62px",gap:8,alignItems:"center",marginBottom:6}}>
+          <span style={{fontSize:12.5,color:C.sub}}>{t}</span>
+          <input aria-label={t+" %"} value={la.c[k]?.pct||""} onChange={e=>comp(k,"pct",e.target.value)} inputMode="decimal" placeholder="%" style={ent}/>
+          {q?<input aria-label={t+" parcelas"} value={la.c[k]?.qtd||""} onChange={e=>comp(k,"qtd",e.target.value.replace(/\D/g,""))} inputMode="numeric" placeholder="nº" style={ent}/>:<span/>}
+          {it&&<span style={{fontSize:12,color:C.faint,gridColumn:"1 / -1",marginTop:-3}}>{`${din(it.total)}${it.qtd?` · ${it.qtd}x de ${din(it.parcela)}`:""}`}</span>}
+        </div>;})}
+      <div style={{fontSize:12,fontWeight:700,margin:"4px 0 8px",color:Math.abs(somaComp-100)<0.01?C.greenDeep:C.hot}}>Componentes: {String(Math.round(somaComp*100)/100).replace(".",",")}%{Math.abs(somaComp-100)<0.01?" ✓":" — precisam fechar em 100%"}</div>
+      {res&&res.tipo==="lancamento"&&<div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:11,padding:12,fontSize:13,color:C.sub,lineHeight:1.8}}>
+        <div>Saldo a financiar: <b style={{color:C.ink}}>{din(res.saldo_financiar)}</b></div>
+        {res.obra&&<div>Pela fase: durante a obra {res.obra.componentes_durante}% · após {res.obra.componentes_apos}%{res.obra.diferenca!==0
+          ?<b style={{color:C.hot}}> — os componentes não batem com {res.obra.durante}/{res.obra.apos} (diferença de {Math.abs(res.obra.diferenca)} pontos). Ajuste sinal/mensais/reforços (obra) ou chaves/saldo (após).</b>
+          :<b style={{color:C.greenDeep}}> ✓ confere com {res.obra.durante}/{res.obra.apos}</b>}</div>}
+        {res.residuo_arredondamento!==0&&<div>Arredondamento das parcelas: {din(res.residuo_arredondamento)} (fica na última parcela).</div>}
+      </div>}
+    </React.Fragment>}
+    {erro&&<div style={{fontSize:12.5,color:C.hot,background:C.hotSoft,borderRadius:9,padding:"9px 11px",marginTop:10}}>{erro}</div>}
+    {ok&&<div style={{fontSize:12.5,color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"9px 11px",marginTop:10}}>{ok}</div>}
+    <div style={{color:C.faint,fontSize:11,margin:"10px 0",lineHeight:1.45}}>É simulação: não inclui seguros, tarifas nem correção, e não é aprovação de crédito.</div>
+    <button onClick={gravar} disabled={gravando||!res} style={{width:"100%",background:gravando||!res?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:14,fontWeight:600,cursor:gravando||!res?"default":"pointer"}}>{gravando?"Salvando…":"Salvar simulação no lead"}</button>
+  </div>;
+}
+
 function Simulacao({lead,acoes,isMobile,aoFechar}){
   const [d,setD]=useState(null);
   const [form,setForm]=useState({valor_imovel:"",entrada:"",subsidio:"",financiado:"",prazo_meses:"",parcela:"",juros_aa:"",renda:"",modalidade:"",observacoes:""});
@@ -17168,6 +17293,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
   const [salvando,setSalvando]=useState(false);
   const [aviso,setAviso]=useState(null);
   const [confianca,setConfianca]=useState(null);
+  const [modo,setModo]=useState("calcular");
   const arq=useRef(null);
 
   const recarregar=()=>acoes.simulacoes(lead.id).then(setD).catch(()=>{});
@@ -17241,6 +17367,11 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>Simulação — {first(lead.nome)}</span>
       </div>
 
+      <div style={{display:"flex",gap:6,marginBottom:12,borderBottom:`1px solid ${C.line}`}}>
+        {[["calcular","Calcular"],["registrar","Registrar a do banco"]].map(([v,t])=><button key={v} onClick={()=>setModo(v)}
+          style={{border:"none",background:"none",padding:"8px 4px",fontSize:13.5,fontWeight:700,cursor:"pointer",color:modo===v?C.greenDeep:C.faint,borderBottom:`2px solid ${modo===v?C.green:"transparent"}`}}>{t}</button>)}
+      </div>
+      {modo==="calcular"?<SimuladorCalculado lead={lead} acoes={acoes} isMobile={isMobile} aoGravar={recarregar}/>:<React.Fragment>
       <input ref={arq} type="file" accept="image/*" onChange={escolherPrint} style={{display:"none"}}/>
       <button onClick={()=>arq.current.click()} disabled={lendo}
         style={{width:"100%",border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:11,
@@ -17286,13 +17417,16 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
           padding:"13px",fontSize:14,fontWeight:600,cursor:salvando||!preenchido?"default":"pointer"}}>
         {salvando?"Registrando…":"Registrar simulação"}
       </button>
+      </React.Fragment>}
 
       {d&&d.simulacoes.length>0&&<div style={{marginTop:18}}>
         <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8}}>Simulações deste lead</div>
         {d.simulacoes.map(s=><div key={s.id} style={{border:`1px solid ${C.line}`,borderRadius:11,padding:11,marginBottom:8}}>
           <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
-            <span style={{color:C.ink,fontSize:13.5,fontWeight:700,fontFamily:MONO}}>{moedaBR(s.parcela)||"—"}</span>
-            <span style={{color:C.faint,fontSize:11}}>por mês</span>
+            {s.tipo==="lancamento"
+              ?<span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Fluxo de {fmtValorMoeda(s.valor_imovel,s.moeda)}</span>
+              :<React.Fragment><span style={{color:C.ink,fontSize:13.5,fontWeight:700,fontFamily:MONO}}>{s.moeda==="USD"?fmtValorMoeda(s.parcela,"USD"):(moedaBR(s.parcela)||"—")}</span>
+              <span style={{color:C.faint,fontSize:11}}>por mês</span></React.Fragment>}
             {s.enviada_em
               ?<span style={{marginLeft:"auto",color:C.greenMid,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}><Icon n="check" size={11}/> enviada</span>
               :<span style={{marginLeft:"auto",color:C.faint,fontSize:10.5}}>não enviada</span>}
@@ -17302,7 +17436,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
               s.subsidio&&`subsídio ${moedaBR(s.subsidio)}`,s.prazo_meses&&`${s.prazo_meses} meses`].filter(Boolean).join(" · ")}
           </div>
           <div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
-            {new Date(s.created_at).toLocaleString("pt-BR")}{s.origem==="print"?" · lida do print":""}
+            {new Date(s.created_at).toLocaleString("pt-BR")}{s.origem==="print"?" · lida do print":""}{s.tipo==="lancamento"?" · lançamento":s.tipo==="pronto"?` · calculada (${s.sistema==="price"?"Price":"SAC"})`:""}{s.moeda==="USD"?" · US$":""}
           </div>
           <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap"}}>
             <button onClick={()=>acoes.enviarSimulacao(lead.id,s.id).then(recarregar)}
@@ -21243,7 +21377,8 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
   const t=d.total;
   const metricas=[["Investimento",dinheiro(t.investimento)],["Impressões",inteiro(t.impressoes)],["Alcance",inteiro(t.alcance)],
     ["Cliques",inteiro(t.cliques)],["Leads (Meta)",inteiro(t.leads_meta)],["Leads no CRM",inteiro(t.leads_crm)],
-    ["Custo por lead",dinheiro(t.custo_por_lead)],["Vendas",inteiro(t.vendas)],["Custo por venda",dinheiro(t.custo_por_venda)]];
+    ["Custo por lead",dinheiro(t.custo_por_lead)],["Qualificados",inteiro(t.qualificados)],["Custo por qualificado",t.qualificados?dinheiro(t.custo_por_qualificado):"Sem base"],
+    ["Vendas",inteiro(t.vendas)],["Custo por venda",dinheiro(t.custo_por_venda)],["VGV",t.vgv?fmtMoeda(t.vgv):"—"]];
   return <div style={cartao}>
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:7,flex:"1 1 auto"}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
@@ -21261,15 +21396,15 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
     </div>
     {d.campanhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma campanha com veiculação neste período.</div>:
     <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:720}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
         <thead><tr style={{color:C.faint,textAlign:"left"}}>
-          {["Campanha","Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Vendas","Custo/venda"].map(h=>
+          {["Campanha","Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Qualif.","Custo/qualif.","Vendas","Custo/venda","VGV"].map(h=>
             <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
         </tr></thead>
         <tbody>{d.campanhas.map(c=><tr key={c.campaign_id||c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
           <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}</td>
           {[dinheiro(c.investimento),inteiro(c.impressoes),inteiro(c.alcance),inteiro(c.cliques),inteiro(c.leads_meta),inteiro(c.leads_crm),
-            dinheiro(c.custo_por_lead),inteiro(c.vendas),dinheiro(c.custo_por_venda)].map((v,i)=>
+            dinheiro(c.custo_por_lead),inteiro(c.qualificados),c.qualificados?dinheiro(c.custo_por_qualificado):"Sem base",inteiro(c.vendas),dinheiro(c.custo_por_venda),c.vgv?fmtMoeda(c.vgv):"—"].map((v,i)=>
             <td key={i} style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.sub}}>{v}</td>)}
         </tr>)}</tbody>
       </table>
@@ -22426,8 +22561,60 @@ function legendaDoFunil(c,ganho){
   </React.Fragment>;
 }
 
-function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa,impressao,titulo}){
+/* Uma taxa do cone num bloco próprio (CETRO 16.2/16.4): número grande, a
+   base embaixo e a meta. Abaixo da meta: vermelho com "abaixo"; na meta ou
+   acima: verde com "na meta"; sem meta ou sem base: neutro, escrito. */
+function BlocoDeTaxa({rotulo,taxa,base,meta,conteudo,estreito}){
+  const temMeta=meta!=null&&meta!==undefined, semBase=taxa==null;
+  const estado=semBase?"neutro":!temMeta?"neutro":taxa+1e-9>=meta?"ok":"abaixo";
+  const cor=estado==="ok"?C.greenDeep:estado==="abaixo"?C.hot:C.ink;
+  const fundo=estado==="ok"?C.greenSoft:estado==="abaixo"?C.hotSoft:C.surface;
+  return <div style={{background:fundo,border:`1px solid ${estado==="ok"?C.green+"55":estado==="abaixo"?C.hot+"44":C.line}`,borderRadius:10,padding:estreito?"6px 8px":"8px 11px",minWidth:0}}>
+    {rotulo&&<div style={{color:C.faint,fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>}
+    <div style={{fontFamily:DISPLAY,fontSize:estreito?15:18,fontWeight:700,color:cor,lineHeight:1.2}}>{conteudo||fmtTaxa(taxa)}</div>
+    {base&&<div style={{color:C.sub,fontSize:10.5}}>{base}</div>}
+    {conteudo!=="—"&&<div style={{fontSize:10.5,color:estado==="neutro"?C.faint:cor,fontWeight:600}}>
+      {semBase?"Sem base":!temMeta?"Sem meta":`${estado==="ok"?"✓ na meta":"▼ abaixo"} · meta ${String(meta).replace(".",",")}%`}</div>}
+  </div>;
+}
+
+/* A engrenagem do cone (CETRO 16.4): as duas metas de cada etapa, da
+   operação ou de uma pessoa, independentes. Só o gestor grava. */
+function MetasDeConversao({pipelineId,linhas,acoes,aoFechar,aoSalvar,isMobile}){
+  const [pessoas,setPessoas]=useState([]); const [quem,setQuem]=useState("");
+  const [v,setV]=useState({}); const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false); const [ok,setOk]=useState("");
+  useEffect(()=>{acoes.equipe().then(r=>{const l=Array.isArray(r)?r:(r&&r.users)||[]; setPessoas(l.filter(p=>p.status==="ativo"&&(p.role==="corretor"||p.role==="sdr")));}).catch(()=>{});},[]);
+  useEffect(()=>{ setOk(""); acoes.metasConversao(pipelineId,quem).then(r=>{const m=quem?r.pessoa||{}:r.operacao||{}; const o={};
+    for(const l of linhas){const x=m[l.id]; o[l.id]={anterior:x&&x.origem!=="operacao"||!quem?(x?.anterior??""):"",acumulada:x&&x.origem!=="operacao"||!quem?(x?.acumulada??""):""};} setV(o);}).catch(e=>setErro(e.message)); },[quem]);
+  async function salvar(){ setSalvando(true); setErro("");
+    try{ await acoes.salvarMetasConversao(pipelineId,{user_id:quem||"",metas:linhas.map(l=>({stage_id:l.id,anterior:v[l.id]?.anterior===""?null:v[l.id]?.anterior,acumulada:v[l.id]?.acumulada===""?null:v[l.id]?.acumulada}))});
+      setOk("Metas salvas."); aoSalvar&&aoSalvar(); }catch(e){setErro(e.message);} finally{setSalvando(false);} }
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 8px",color:C.ink,outline:"none"};
+  return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:90,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:isMobile?"100%":560,maxHeight:"88vh",overflowY:"auto",padding:18}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><b style={{flex:1,color:C.ink,fontSize:15}}>Metas de conversão</b>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.sub}}><Icon n="x" size={18}/></button></div>
+      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>Cada etapa tem duas metas independentes: a da etapa anterior e a acumulada desde a entrada. Ficam fora das metas de atividade do Painel.</div>
+      <select value={quem} onChange={e=>setQuem(e.target.value)} style={{...ent,marginBottom:10}}>
+        <option value="">Toda a operação</option>{pessoas.map(p=><option key={p.id} value={p.id}>{p.name||p.nome}</option>)}</select>
+      {quem&&<div style={{color:C.faint,fontSize:11,marginBottom:8}}>Em branco, a pessoa segue a meta da operação.</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px",gap:8,alignItems:"center"}}>
+        <span style={{color:C.faint,fontSize:10.5,fontWeight:700}}>ETAPA</span><span style={{color:C.faint,fontSize:10.5,fontWeight:700}}>DA ANTERIOR</span><span style={{color:C.faint,fontSize:10.5,fontWeight:700}}>ACUMULADA</span>
+        {linhas.map((l,i)=><React.Fragment key={l.id}>
+          <span style={{fontSize:13,color:C.ink}}>{l.name}</span>
+          {i===0?<span style={{color:C.faint,fontSize:12}}>—</span>:<input aria-label={`Meta da anterior ${l.name}`} value={v[l.id]?.anterior??""} onChange={e=>setV({...v,[l.id]:{...v[l.id],anterior:e.target.value}})} inputMode="decimal" placeholder="%" style={ent}/>}
+          {i===0?<span style={{color:C.faint,fontSize:12}}>100%</span>:<input aria-label={`Meta acumulada ${l.name}`} value={v[l.id]?.acumulada??""} onChange={e=>setV({...v,[l.id]:{...v[l.id],acumulada:e.target.value}})} inputMode="decimal" placeholder="%" style={ent}/>}
+        </React.Fragment>)}
+      </div>
+      {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:10}}>{erro}</div>}
+      {ok&&<div style={{color:C.greenDeep,fontSize:12.5,marginTop:10}}>{ok}</div>}
+      <button onClick={salvar} disabled={salvando} style={{marginTop:12,width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar metas"}</button>
+    </div></div>;
+}
+
+function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa,impressao,titulo,gestor,aoMudarMetas}){
   const [conf,setConf]=useState(null);   // {etapa,conjunto,titulo}
+  const [metasAbertas,setMetasAbertas]=useState(false);
   const c=dados;
   if(!c) return <div style={{color:C.faint,fontSize:12.5}}>Carregando o funil de conversão…</div>;
   if(c.erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"10px 12px"}}>{c.erro}</div>;
@@ -22435,7 +22622,8 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
   const pedir=(etapa,conjunto,tituloConf)=>{ if(!impressao&&acoes) setConf({etapa,conjunto,titulo:tituloConf}); };
 
   const cabecalho=<div style={{marginBottom:10}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
+    <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>{titulo||"Funil de conversão"}{c.pipeline?` · ${c.pipeline}`:""}</div>
+      {gestor&&!impressao&&pipelineId&&<button onClick={()=>setMetasAbertas(true)} title="Metas de conversão" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Icon n="gear" size={13}/>Metas</button>}</div>
     {/* Uma linha (28/10/2026, limpeza): o parágrafo inteiro sobre a base
         repetia a legenda do fim do quadro, que agora abre em "Como ler". */}
     {/* O topo (28/10/2026): a MESMA turma do começo ao fim — dos que chegaram
@@ -22511,38 +22699,43 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
           <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{l.name}{l.papel==="entrada"&&<span style={{color:C.faint,fontWeight:500}}> · início</span>}</span>
         </div>
         <div style={{marginTop:8}}>{degrau(l,"100%")}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:7}}>
+          {l.anterior?<BlocoDeTaxa estreito rotulo="Da etapa anterior" taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.anterior.vieram} de ${l.anterior.chegaram}`}/>
+            :<BlocoDeTaxa estreito rotulo="Da etapa anterior" taxa={null} conteudo="—" base="primeira etapa"/>}
+          <BlocoDeTaxa estreito rotulo="Desde a entrada" taxa={l.desde_entrada} meta={l.papel==="entrada"?null:l.meta?.acumulada} base={`${l.chegaram} de ${c.base}`}/>
+        </div>
         <div style={{display:"flex",gap:14,marginTop:7,flexWrap:"wrap"}}>
-          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Da etapa anterior</div>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{anteriorDe(l)}</div></div>
-          <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Desde a entrada</div>
-            <div style={{fontFamily:MONO,color:C.ink,fontSize:13,fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</div></div>
           <div><div style={{color:C.faint,fontSize:9.5,textTransform:"uppercase",letterSpacing:.4}}>Chegaram</div>
             <div style={{fontSize:13}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></div></div>
         </div>
         {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:6,display:"flex",flexDirection:"column",gap:2}}>{detalhes(l)}</div>}
       </div>)}
     </div>
-    :<table style={{width:"100%",borderCollapse:"collapse"}}>
-      <thead><tr style={{borderBottom:`1px solid ${C.line}`}}>
-        {["Etapa","","Da etapa anterior","Desde a entrada","Chegaram"].map((h,i)=>
-          <th key={i} style={{padding:"6px 8px",fontSize:10,fontWeight:700,color:C.faint,textTransform:"uppercase",
-            letterSpacing:.4,textAlign:i>1?"right":"left",whiteSpace:"nowrap"}}>{h}</th>)}
-      </tr></thead>
-      <tbody>{linhas.map(l=><tr key={l.id} style={{borderBottom:`1px solid ${C.line}`,verticalAlign:"top"}}>
-        <td style={{padding:"8px 8px",fontSize:12,color:C.ink}}>
-          <div style={{display:"flex",alignItems:"center",gap:7}}>
-            <span style={{width:9,height:9,borderRadius:3,background:corDaEtapa(l,l.name),flexShrink:0}}/>
-            <b>{l.name}</b>{l.papel==="entrada"&&<span style={{color:C.faint,fontSize:11}}>início do processo comercial</span>}
+    :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr)",gap:10}}>
+        <span style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>Etapa · chegaram</span>
+        <span style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>Da etapa anterior</span>
+        <span style={{color:C.faint,fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>Desde a entrada</span>
+      </div>
+      {linhas.map((l,i)=>{
+        /* A largura da faixa é desenho da jornada (cone), não escala de área. */
+        const larg=linhas.length>1?100-i*(45/(linhas.length-1)):100;
+        const final=l.status_type==="ganho";
+        return <div key={l.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr)",gap:10,alignItems:"stretch"}}>
+          <div>
+            <div style={{width:larg+"%",margin:"0 auto",minHeight:impressao?34:44,background:final?C.gold:i%2?C.greenMid:C.green,color:"#fff",
+              clipPath:"polygon(0 0,100% 0,96% 100%,4% 100%)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 14px",boxSizing:"border-box",textAlign:"center"}}>
+              <b style={{fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.name}</b>
+              <span style={{fontFamily:DISPLAY,fontSize:15,fontWeight:700}}>{impressao?l.chegaram:<NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} cor="#fff" tit={`Chegaram a ${l.name}`}/>}</span>
+            </div>
+            {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.45,marginTop:4,textAlign:"center",display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
           </div>
-          {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:11,lineHeight:1.5,marginTop:4,paddingLeft:16,display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
-        </td>
-        <td style={{padding:"9px 8px",width:"28%",minWidth:120}}>{degrau(l,"100%")}</td>
-        <td style={{padding:"8px 8px",fontSize:12.5,textAlign:"right",whiteSpace:"nowrap"}}>{anteriorDe(l,true)}</td>
-        <td style={{padding:"8px 8px",fontSize:12.5,fontFamily:MONO,color:C.ink,textAlign:"right",fontWeight:700}}>{fmtTaxa(l.desde_entrada)}</td>
-        <td style={{padding:"8px 8px",fontSize:13,textAlign:"right"}}>
-          <NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto={l.papel==="entrada"?"base":"chegaram"} tit={`Chegaram a ${l.name}`}/></td>
-      </tr>)}</tbody>
-    </table>;
+          {l.anterior?<BlocoDeTaxa taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.anterior.vieram} de ${l.anterior.chegaram} · de ${l.anterior.name}`}
+              conteudo={c.etapa_pulada_conta||impressao?null:anteriorDe(l)}/>
+            :<BlocoDeTaxa taxa={null} conteudo="—" base="primeira etapa"/>}
+          <BlocoDeTaxa taxa={l.desde_entrada} meta={i===0?null:l.meta?.acumulada} base={`${l.chegaram} de ${c.base}`}/>
+        </div>;})}
+    </div>;
 
   const grupos=(c.por_responsavel||[]);
   const ultimo=linhas[linhas.length-1];
@@ -22573,6 +22766,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       </details>}
     {conf&&<ConferenciaDoFunil acoes={acoes} pipelineId={pipelineId} filtros={filtros} conf={conf} isMobile={isMobile}
       abrirConversa={abrirConversa} aoFechar={()=>setConf(null)}/>}
+    {metasAbertas&&<MetasDeConversao pipelineId={pipelineId} linhas={linhas} acoes={acoes} isMobile={isMobile} aoFechar={()=>setMetasAbertas(false)} aoSalvar={aoMudarMetas}/>}
   </div>;
 }
 
@@ -22637,6 +22831,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   const [d,setD]=useState(null);
   const [op,setOp]=useState(null);
   const [funil,setFunil]=useState(null);
+  const [recargaMetas,setRecargaMetas]=useState(0);
   const [camp,setCamp]=useState(null);
   const [equipe,setEquipe]=useState(null);
   const [erro,setErro]=useState("");
@@ -22667,7 +22862,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
     acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil({...r,pipeline_pedido:pipe}))
       .catch(e=>vivo&&setFunil({erro:e.message,pipeline_pedido:pipe}));
     return()=>{vivo=false;};
-  },[JSON.stringify(f),op&&op.pipelines.length,tick]);
+  },[JSON.stringify(f),op&&op.pipelines.length,tick,recargaMetas]);
   // A fatia aberta só fecha quando o FILTRO muda, não na atualização automática.
   useEffect(()=>{setFatia(null);},[JSON.stringify(f)]);
 
@@ -22767,7 +22962,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         {aba==="funil"&&funil&&!funil.erro&&<React.Fragment>
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
             <FunilDeConversao dados={funil.conversao} pipelineId={funil.pipeline_pedido} filtros={f}
-              acoes={acoes} isMobile={isMobile} abrirConversa={abrirConversa}/>
+              acoes={acoes} isMobile={isMobile} abrirConversa={abrirConversa} gestor={podeGerir(session)} aoMudarMetas={()=>setRecargaMetas(n=>n+1)}/>
           </div>
 
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
@@ -22853,6 +23048,25 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
               </tr>)}</tbody>
             </table>
           </div>
+          {/* Por ORIGEM (CETRO 16.6): cada lead na origem de entrada, a venda
+              conta na origem do lead — o total é a soma das linhas. */}
+          {(camp.por_origem||[]).length>0&&<div style={{marginTop:16}}>
+            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4}}>Por origem</div>
+            <div style={{color:C.faint,fontSize:11.5,marginBottom:9}}>Leads que entraram no período, pela origem de entrada; qualificados e vendas são desses leads.</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:460}}>
+                <thead><tr style={{color:C.faint}}>{["Origem","Leads","Qualif.","%","Vendas","VGV"].map(h=><th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Origem"?"left":"right"}}>{h}</th>)}</tr></thead>
+                <tbody>{[...camp.por_origem,{...camp.total_origem,origem:"Total",_total:true}].map(o=><tr key={o.origem} style={{borderTop:`1px solid ${C.line}`,fontWeight:o._total?700:400}}>
+                  <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{o.origem}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink}}>{o.leads}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{o.qualificados}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(o.taxa_qualificacao,"%")}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:o.vendas?C.greenDeep:C.faint}}>{o.vendas}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:o.vgv?C.greenDeep:C.faint}}>{o.vgv?fmtMoeda(o.vgv):"—"}{o.vendas_em_dolar?<span style={{color:C.faint,fontWeight:400}}> + {o.vendas_em_dolar} em US$</span>:null}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>}
           {/* Os disparos em massa do período (27/09/2026). O lead que nasce
               respondendo a um disparo já aparece na tabela de cima, com o
               nome do disparo como campanha; aqui fica o resto — quantos ele
@@ -25499,7 +25713,8 @@ function LinhaKpis({kpis,isMobile,escolha}){
   const cards=lista.map((c,i)=>{
     const comp=kpis[c.k];
     const valor=c.fmt==="dinheiro"?dinheiro(comp.atual):c.fmt==="pct"?pctBR(comp.atual):naoDisp(comp.atual);
-    const sub=c.k==="vgc"?(comp.cobertura&&comp.cobertura.total?`${comp.cobertura.com_comissao} de ${comp.cobertura.total} venda(s) com comissão`:"nenhuma venda no período"):null;
+    const sub=c.k==="vgc"?(comp.cobertura&&comp.cobertura.total?`${comp.cobertura.com_comissao} de ${comp.cobertura.total} venda(s) com comissão`:"nenhuma venda no período")
+      :c.k==="vgv"&&comp.em_dolar?`+ ${comp.em_dolar.quantidade} venda(s) em dólar (${fmtValorMoeda(comp.em_dolar.vgv,"USD")}), fora da soma`:null;
     return {key:c.k,label:rotulo(c),valor,comp,sub,ajuda:c.ajuda,destaque:i===0};
   });
   /* Quatro por linha no computador e dois no celular: o cartão de destaque

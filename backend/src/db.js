@@ -2897,3 +2897,28 @@ db.exec(`CREATE TABLE IF NOT EXISTS produto_unidades (
   updated_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_unidades_produto ON produto_unidades(produto_id, ordem);`);
+
+/* SIMULAÇÃO E VENDA DO CETRO (capítulo 13, 13/11/2026): a simulação calculada
+   guarda o tipo, o sistema, a moeda, o imóvel/unidade e as premissas e o
+   resultado inteiros; a venda guarda o imóvel e a unidade do catálogo e o
+   valor da comissão, e cada registro/alteração/cancelamento fica em
+   `venda_eventos` (auditoria — nada é apagado). */
+{
+  const s = db.prepare("PRAGMA table_info(simulacoes)").all().map(c => c.name);
+  for (const [c, t] of [["tipo", "TEXT"], ["sistema", "TEXT"], ["moeda", "TEXT"], ["produto_id", "TEXT"], ["unidade_id", "TEXT"],
+    ["premissas_json", "TEXT"], ["resultado_json", "TEXT"]]) if (!s.includes(c)) db.exec(`ALTER TABLE simulacoes ADD COLUMN ${c} ${t}`);
+  const l = db.prepare("PRAGMA table_info(leads)").all().map(c => c.name);
+  for (const [c, t] of [["sale_produto_id", "TEXT"], ["sale_unidade_id", "TEXT"], ["sale_commission_value", "REAL"], ["sale_moeda", "TEXT"]])
+    if (!l.includes(c)) db.exec(`ALTER TABLE leads ADD COLUMN ${c} ${t}`);
+}
+db.exec(`CREATE TABLE IF NOT EXISTS venda_eventos (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, lead_id TEXT NOT NULL, user_id TEXT, tipo TEXT NOT NULL,
+  antes_json TEXT, depois_json TEXT, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_venda_eventos_lead ON venda_eventos(lead_id, created_at);`);
+
+/* METAS DE CONVERSÃO (CETRO 16.4, 13/11/2026): por etapa do funil, as duas
+   colunas do cone — "da etapa anterior" e "desde a entrada" — independentes.
+   user_id '' é a meta da operação (mesmo sentinela de `metas`). */
+db.exec(`CREATE TABLE IF NOT EXISTS metas_conversao (
+  org_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, stage_id TEXT NOT NULL, user_id TEXT NOT NULL DEFAULT '',
+  anterior_pct REAL, acumulada_pct REAL, updated_at INTEGER, PRIMARY KEY (org_id, pipeline_id, stage_id, user_id));`);
