@@ -20700,6 +20700,56 @@ function PermissoesDoCorretor({u,acoes,aoSalvar,aoFechar}){
   </div>;
 }
 
+/* A ESTRUTURA DA EQUIPE (CETRO 23): começa vazia; a operação cria os níveis
+   que tem. Cada pessoa fica num nível e escolhe-se se ela entra nos
+   indicadores. Nível não dá permissão: é agrupamento e filtro. */
+function EstruturaDaEquipe({isMobile,ehGestor}){
+  const [d,setD]=useState(null), [erro,setErro]=useState(""), [novo,setNovo]=useState(null), [editando,setEditando]=useState(null);
+  const carregar=()=>api("/estrutura").then(r=>{setD(r);esquecerEstrutura(r);}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const fazer=async(fn)=>{setErro(""); try{ const r=await fn(); setD(r); esquecerEstrutura(r); setNovo(null); setEditando(null);}catch(e){setErro(e.message);} };
+  if(!d) return null;
+  const tipoNome={diretoria:"Diretoria",gerencia:"Gerência",subgerencia:"Subgerência",equipe:"Equipe",outro:"Outro"};
+  const ent={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 9px",color:C.ink,outline:"none"};
+  const papel={adm:"gestor(a)",sdr:"atendente",corretor:"corretor(a)"};
+  const form=(v,set,salvar,cancelar)=><div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",margin:"6px 0"}}>
+    <input autoFocus aria-label="Nome do nível" value={v.nome} onChange={e=>set({...v,nome:e.target.value})} placeholder="Ex.: Gerência Petrolina" style={{...ent,flex:"1 1 180px"}}/>
+    <select aria-label="Tipo do nível" value={v.tipo||""} onChange={e=>set({...v,tipo:e.target.value})} style={ent}><option value="">Tipo (opcional)</option>{d.tipos.map(t=><option key={t} value={t}>{tipoNome[t]}</option>)}</select>
+    <select aria-label="Fica dentro de" value={v.pai_id||""} onChange={e=>set({...v,pai_id:e.target.value})} style={ent}><option value="">No topo</option>{d.niveis.filter(n=>n.id!==v.id).map(n=><option key={n.id} value={n.id}>dentro de {n.nome}</option>)}</select>
+    <button onClick={salvar} style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"8px 12px",fontWeight:700,cursor:"pointer"}}>Salvar</button>
+    <button onClick={cancelar} style={{background:"none",border:"none",color:C.faint,cursor:"pointer"}}>cancelar</button></div>;
+  const arvore=(pai,nivelProf)=>d.niveis.filter(n=>(n.pai_id||null)===pai).map(n=><div key={n.id} style={{marginLeft:nivelProf?16:0,borderLeft:nivelProf?`2px solid ${C.line}`:"none",paddingLeft:nivelProf?10:0,marginTop:8}}>
+    {editando&&editando.id===n.id?form(editando,setEditando,()=>fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"PATCH",body:editando})),()=>setEditando(null))
+      :<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><b style={{color:C.ink,fontSize:13.5}}>{n.nome}</b>{n.tipo&&<span style={{color:C.faint,fontSize:11.5}}>{tipoNome[n.tipo]}</span>}
+        <span style={{color:C.faint,fontSize:11.5,whiteSpace:"nowrap"}}>· {n.membros.length} pessoa(s)</span>
+        {ehGestor&&<span style={{marginLeft:"auto",display:"flex",gap:10,whiteSpace:"nowrap"}}>
+          <button onClick={()=>setNovo({nome:"",tipo:"",pai_id:n.id})} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,cursor:"pointer"}}>+ nível abaixo</button>
+          <button onClick={()=>setEditando({id:n.id,nome:n.nome,tipo:n.tipo||"",pai_id:n.pai_id||""})} style={{border:"none",background:"none",color:C.sub,fontSize:12,cursor:"pointer"}}>editar</button>
+          <button onClick={()=>{if(window.confirm(`Apagar o nível "${n.nome}"? Quem está nele fica sem nível.`)) fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"DELETE"}));}} style={{border:"none",background:"none",color:C.hot,fontSize:12,cursor:"pointer"}}>apagar</button></span>}</div>}
+    {arvore(n.id,nivelProf+1)}
+  </div>);
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><Icon n="users" size={14} color={C.green}/> Estrutura da equipe</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>Crie só os níveis que a operação tem (uma gerência e corretores; diretoria, gerência e corretores…). O nível serve para agrupar e filtrar — não dá permissão. Nos filtros de pessoas, marcar um nível marca todo mundo dele e dos níveis abaixo.</div>
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
+    {!d.niveis.length&&!novo&&<div style={{color:C.sub,fontSize:12.5}}>Nenhum nível criado.</div>}
+    {arvore(null,0)}
+    {novo&&form(novo,setNovo,()=>fazer(()=>api("/estrutura/niveis",{method:"POST",body:novo})),()=>setNovo(null))}
+    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{marginTop:10,border:`1px solid ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{d.niveis.length?"+ Novo nível no topo":"Criar primeiro nível"}</button>}
+    <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:6}}>Pessoas</div>
+      {d.pessoas.map(p=><div key={p.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"6px 0",borderTop:`1px solid ${C.line}`}}>
+        <span style={{flex:"1 1 160px",fontSize:13,color:C.ink}}>{p.name} <span style={{color:C.faint,fontSize:11.5}}>· {papel[p.role]||p.role}</span></span>
+        <select aria-label={`Nível de ${p.name}`} disabled={!ehGestor} value={p.nivel_id||""} onChange={e=>fazer(()=>api(`/estrutura/pessoas/${p.id}`,{method:"PATCH",body:{nivel_id:e.target.value||null}}))} style={ent}>
+          <option value="">Sem nível</option>{d.niveis.map(n=><option key={n.id} value={n.id}>{n.nome}</option>)}</select>
+        <select aria-label={`Indicadores de ${p.name}`} disabled={!ehGestor} value={p.participa_indicadores==null?"":String(p.participa_indicadores)} onChange={e=>fazer(()=>api(`/estrutura/pessoas/${p.id}`,{method:"PATCH",body:{participa_indicadores:e.target.value===""?null:e.target.value==="1"}}))} style={ent}>
+          <option value="">Indicadores: automático</option><option value="1">Sempre nos indicadores</option><option value="0">Fora dos indicadores</option></select>
+      </div>)}
+      <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>Automático: corretor entra; gestor entra quando atendeu no período. "Sempre" serve para quem dirige e também produz. Entrar nos indicadores não dá acesso aos dados de ninguém.</div>
+    </div>
+  </div>;
+}
+
 function Equipe({acoes,session,org,isMobile,versao}){
   const [users,setUsers]=useState(null);
   const [erro,setErro]=useState("");
@@ -20830,6 +20880,8 @@ function Equipe({acoes,session,org,isMobile,versao}){
           <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
         </div>
       </div>
+
+      {org&&org.tipo!=="autonomo"&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)}/>}
 
       {/* Corrigir o TIPO da conta (só master) — pedido do Ali: cliente se
           cadastrou como imobiliária sendo corretor autônomo, ou vice-versa. */}
@@ -26089,7 +26141,26 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
    UNIÃO dentro da dimensão (Blanca OU Sil). Vazio = todos os autorizados.
    `comFila` oferece "Na fila, sem dono". */
 const donosDoValor=(v)=>String(v||"").split(",").map(x=>x.trim()).filter(Boolean);
+/* A estrutura da equipe (CETRO 23) para os filtros: guardada por conta, buscada
+   uma vez. Quem não supervisiona recebe 403 e fica sem os níveis. */
+const ESTRUTURA_CACHE={conta:null,dados:null,pedido:null};
+function usarEstrutura(){
+  const [d,setD]=useState(ESTRUTURA_CACHE.conta===PAIS_CONTA_DE?ESTRUTURA_CACHE.dados:null);
+  useEffect(()=>{ if(ESTRUTURA_CACHE.conta===PAIS_CONTA_DE&&ESTRUTURA_CACHE.dados){setD(ESTRUTURA_CACHE.dados);return;}
+    if(!ESTRUTURA_CACHE.pedido||ESTRUTURA_CACHE.conta!==PAIS_CONTA_DE){ ESTRUTURA_CACHE.conta=PAIS_CONTA_DE; ESTRUTURA_CACHE.pedido=api("/estrutura").catch(()=>null); }
+    let vivo=true; ESTRUTURA_CACHE.pedido.then(r=>{ESTRUTURA_CACHE.dados=r; if(vivo) setD(r);}); return()=>{vivo=false;}; },[]);
+  return d;
+}
+const esquecerEstrutura=(novo)=>{ESTRUTURA_CACHE.dados=novo||null; if(!novo) ESTRUTURA_CACHE.pedido=null;};
+function membrosDoNivel(est,id){
+  if(!est) return [];
+  const ids=new Set([id]); let mudou=true;
+  while(mudou){mudou=false; for(const n of est.niveis) if(n.pai_id&&ids.has(n.pai_id)&&!ids.has(n.id)){ids.add(n.id);mudou=true;}}
+  return est.niveis.filter(n=>ids.has(n.id)).flatMap(n=>n.membros);
+}
+
 function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotuloTodos="Toda a equipe"}){
+  const est=usarEstrutura();
   const [aberto,setAberto]=useState(false);
   const ref=useRef(null);
   const sel=donosDoValor(valor);
@@ -26115,6 +26186,14 @@ function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotu
         <input type="checkbox" checked={!sel.length} onChange={()=>mudar(undefined)} style={{accentColor:C.green,width:16,height:16}}/>
         {rotuloTodos}
       </label>
+      {/* Níveis da estrutura (CETRO 23): marcar um nível marca as pessoas dele e dos níveis abaixo. */}
+      {est&&est.niveis&&est.niveis.length>0&&<div style={{borderBottom:`1px solid ${C.line}`,marginBottom:4,paddingBottom:4}}>
+        {est.niveis.map(n=>{const ms=membrosDoNivel(est,n.id).filter(id=>pessoas.some(p=>p.id===id)); if(!ms.length) return null;
+          const todos=ms.every(id=>sel.includes(id));
+          return <label key={n.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 9px",borderRadius:8,cursor:"pointer",fontSize:isMobile?14:12,color:C.sub}}>
+            <input type="checkbox" checked={todos} onChange={()=>{const n2=todos?sel.filter(x=>!ms.includes(x)):[...new Set([...sel,...ms])]; mudar(n2.join(",")||undefined);}} style={{accentColor:C.green,width:16,height:16}}/>
+            <span style={{flex:1}}><b style={{color:C.ink}}>{n.nome}</b> · {ms.length} pessoa(s)</span></label>;})}
+      </div>}
       {opcoes.map(p=><label key={p.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:8,
         cursor:"pointer",fontSize:isMobile?14.5:12.5,color:C.ink,background:sel.includes(p.id)?C.greenSoft:"transparent"}}>
         <input type="checkbox" checked={sel.includes(p.id)} onChange={()=>alternar(p.id)} style={{accentColor:C.green,width:16,height:16}}/>

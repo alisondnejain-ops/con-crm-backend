@@ -445,11 +445,17 @@ export const COMPONENTES_DO_SCORE = COMPONENTES.map(({ chave, rotulo, peso, como
    gestor que só gerencia continua fora, senão o ranking ganharia uma linha
    "sem dados" para cada um. A atendente continua no bloco próprio dela. */
 export function equipeDeAtendimento(orgId, de, ate, eventos = null) {
+  /* Participação nos indicadores (CETRO 23.2, `users.participa_indicadores`):
+     nulo = a regra de sempre; 1 = sempre entra (o diretor que também produz);
+     0 = nunca entra. */
   const corretores = db.prepare(
-    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo'${semMaster("u")}`
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='corretor' AND u.status='ativo' AND COALESCE(u.participa_indicadores,1)=1${semMaster("u")}`
   ).all(orgId);
+  corretores.push(...db.prepare(
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role<>'corretor' AND u.status='ativo' AND u.participa_indicadores=1${semMaster("u")}`
+  ).all(orgId));
   const gestores = db.prepare(
-    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='adm' AND u.status='ativo'${semMaster("u")}`
+    `SELECT u.id,u.name,u.role FROM users u WHERE u.org_id=? AND u.role='adm' AND u.status='ativo' AND u.participa_indicadores IS NULL${semMaster("u")}`
   ).all(orgId);
   if (gestores.length) {
     const ev = eventos || eventosDeAtribuicao(orgId);
