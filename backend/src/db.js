@@ -2676,6 +2676,8 @@ addLeadCol("prazo_repasse_em", "INTEGER");
   const c = db.prepare("PRAGMA table_info(marketing_execucoes)").all().map(x => x.name);
   if (!c.includes("parar_ao_responder")) db.exec("ALTER TABLE marketing_execucoes ADD COLUMN parar_ao_responder INTEGER");
   if (!c.includes("iniciado_por")) db.exec("ALTER TABLE marketing_execucoes ADD COLUMN iniciado_por TEXT");
+  // 13/11/2026: o fluxo para quando alguém da equipe escreve? Nulo = segue o gatilho (padrão: para).
+  if (!c.includes("parar_se_equipe")) db.exec("ALTER TABLE marketing_execucoes ADD COLUMN parar_se_equipe INTEGER");
 }
 addLeadCol("valor_negociacao", "REAL"); // valor em negociação (30/10/2026, lista do Fernando): o VGV em aberto
 addLeadCol("catraca_voltas", "INTEGER"); // quantas vezes a catraca tirou este lead de alguém por falta de resposta

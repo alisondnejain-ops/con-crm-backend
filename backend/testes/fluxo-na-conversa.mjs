@@ -126,6 +126,36 @@ await caso("5. Sem parar ao responder: segue; e parar pela conversa encerra", as
   r = await chamar(tG, `/leads/${lead}/fluxos/${r.d.em_andamento[0].id}`, "DELETE");
   assert.equal(r.status, 200); assert.equal(r.d.em_andamento.length, 0);
 });
+await caso("6a. Alguém da equipe escreveu: o fluxo para NA HORA, e a faixa diz o estado", async () => {
+  let r = await chamar(tM, `/leads/${lead}/fluxos`, "POST", { fluxo_id: fluxo });
+  assert.equal(r.status, 200, JSON.stringify(r.d));
+  assert.equal(r.d.em_andamento[0].para_se_equipe, true, "padrão: para se a equipe escrever");
+  const antes = envios.length;
+  await processarDisparos({ agora: Date.now() + 1000 });
+  assert.equal(envios.length, antes + 1);
+  r = await chamar(tM, `/leads/${lead}/fluxos`);
+  const x = r.d.em_andamento[0];
+  assert.equal(x.enviadas, 1); assert.ok(x.proxima_em > Date.now() + 3600000, "a próxima é depois da espera de 1 dia");
+  assert.equal(x.atrasada, false);
+  r = await chamar(tM, `/leads/${lead}/messages`, "POST", { text: "Oi Joana, tudo bem?" });
+  assert.ok(r.status < 300, JSON.stringify(r.d));
+  r = await chamar(tM, `/leads/${lead}/fluxos`);
+  assert.equal(r.d.em_andamento.length, 0, "parou assim que a corretora escreveu");
+  assert.equal(db.prepare("SELECT estado FROM marketing_execucoes WHERE id = ?").get(x.id).estado, "assumida");
+});
+await caso("6b. Follow-up que continua mesmo com a equipe escrevendo", async () => {
+  let r = await chamar(tM, `/leads/${lead}/fluxos`, "POST", { fluxo_id: fluxo, parar_se_equipe: false });
+  assert.equal(r.status, 200, JSON.stringify(r.d));
+  assert.equal(r.d.em_andamento[0].para_se_equipe, false);
+  const antes = envios.length;
+  await processarDisparos({ agora: Date.now() + 1000 });
+  await chamar(tM, `/leads/${lead}/messages`, "POST", { text: "Joana, conseguiu ver?" });
+  r = await chamar(tM, `/leads/${lead}/fluxos`);
+  assert.equal(r.d.em_andamento.length, 1, "continua depois da mensagem da corretora");
+  await processarDisparos({ agora: Date.now() + 2 * 86400000 });
+  assert.equal(envios.length, antes + 3, "a mensagem da corretora e as duas do fluxo saíram");
+  assert.ok(envios.slice(-1)[0].texto.includes("Segue de pé"));
+});
 await caso("6. Quem pediu para sair não recebe", async () => {
   db.prepare("INSERT INTO marketing_bloqueio (org_id, telefone, motivo, criado_em) VALUES (?,?,?,?)").run(org, fone, "pediu", Date.now());
   const r = await chamar(tM, `/leads/${lead}/fluxos`, "POST", { fluxo_id: fluxo });
