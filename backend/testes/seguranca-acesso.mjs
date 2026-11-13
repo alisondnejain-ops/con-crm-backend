@@ -208,7 +208,7 @@ try {
   assert.equal(r.b.sem_codigo, true); assert.equal(r.b.saldo_ms, 4 * 3600000);
   let tLivre = r.b.token;
   await new Promise(res => setTimeout(res, 300));
-  assert.match(saida, /e-mail para gestorab@teste\.com não enviado\. Assunto: ConHub: entrada do suporte/, "a gestão é avisada");
+  assert.match(saida, /e-mail para gestorab@teste\.com não enviado\. Assunto: CETRO: entrada do suporte/, "a gestão é avisada");
   const ultima = db.prepare("SELECT * FROM acessos_master WHERE org_id = ? ORDER BY inicio DESC LIMIT 1").get(orgB);
   assert.equal(ultima.sem_codigo, 1);
   const uso = () => db.prepare("SELECT COALESCE(SUM(usado_ms),0) n FROM acesso_livre_uso WHERE org_id = ?").get(orgB).n;
