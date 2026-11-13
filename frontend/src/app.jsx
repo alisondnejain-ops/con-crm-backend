@@ -1561,7 +1561,7 @@ const COLORS=["#0E8F6E","#3B7BC4","#C8912B","#7A5AD6","#B0463A","#0C6B52"];
 // As sete cores do funil de atividade da tela de entrada (08/09/2026) — as
 // MESMAS de CORES_TAG no servidor (services/tags.js), reaproveitadas em vez
 // de validar uma paleta nova para mais um gráfico de sete séries.
-const PALETA_FUNIL=["#0E8F6E","#D97706","#2563EB","#DB2777","#65A30D","#7C3AED","#0891B2","#57534E"];
+const PALETA_FUNIL=["#34845d","#b9964f","#677ea1","#9a729c","#7a9e51","#8b81a9","#559b9e","#466151"];
 // Converte o usuário que veio do backend no formato que as telas usam (inicial, cor).
 /* As permissões individuais (31/10/2026): acréscimos que o gestor dá a um
    corretor. Quem decide é o servidor; aqui só mostra ou esconde o botão. */
@@ -8641,22 +8641,16 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     /* Disparos e Fluxos só existem para a conta que o CETRO liberou; sem a
        ferramenta, o grupo Marketing fica só com Formulários. */
     .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item)
-    /* Com catraca de produto ativa, "Catraca" vira grupo: Configurações (a
-       tela de sempre) e uma tela por catraca. Sem nenhuma, continua um item
-       só — um grupo de um filho seria um clique a mais por nada. */
-    .map(item=>{
-      const ativas=item[0]==="catraca"&&catracasMenu?(catracasMenu.catracas||[]).filter(c=>c.ativa):[];
-      if(!ativas.length) return item;
-      return [item[0],item[1],item[2],item[3],[["catraca","ajustes","Configurações da catraca"],
-        ["catraca:principal","transfer","Catraca principal"],
-        ...ativas.map(c=>["catraca:"+c.id,"letra:"+c.nome,c.nome])]];
-    });
+    /* As catracas de produto moram em ABAS dentro da tela da Catraca
+       (13/11/2026, layout do protótipo CETRO): o item do menu é um só. */
+    ;
   /* A ORDEM QUE A PESSOA ESCOLHEU (05/10/2026): o Claude reorganiza o menu de
      quem pede — só a posição, os nomes continuam vindo daqui. Por último,
      depois de todos os filtros: o que a pessoa não pode ver não volta por
      estar na lista dela. */
   NAV.splice(0,NAV.length,...ordenarMenu(NAV,session.menu_ordem));
   const sozinho=!!(org&&org.tipo==="autonomo");
+  ORG_ATUAL.nome=(org&&org.nome)||"";
   const TITLES={dashboard:(sozinho||role==="corretor")?"Meu painel":"Painel da equipe",conversas:"Conversas da equipe",relatorios:"Operação · Relatórios",equipe:"Equipe e aprovações",gestao:"Operação · Visão geral",conexao:"Conexão do WhatsApp",config:"Configurações",base:"Base de leads",catraca:"Catraca de distribuição",atendimento:sozinho?"Atendimento":supervisor?"Atendimento da equipe":"Atendimento",imoveis:"Imóveis e terrenos",conta:"Minha conta",funil:sozinho?"Meu funil":supervisor?"Funil da equipe":"Meu funil",disp:"Minha disponibilidade",produtividade:temPerm(session,"ver_relatorios_equipe")?"Relatórios da equipe":"Minha produtividade",mensagens:"Mensagens prontas",plantao:"Escala de plantão",lotes:"Lotes do empreendimento",marketing:"Marketing · Disparos em massa",formularios:"Marketing · Formulários",fluxos:"Marketing · Fluxos",redes:"Marketing · Redes sociais",suporte:"Suporte aos clientes"};
   /* Dentro do sistema o título segue a tela aberta, e leva o nome da
      imobiliária junto: o master trabalha com várias abas, uma por cliente, e
@@ -8687,9 +8681,12 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
       org={org&&org.nome} marca={marcaDe(org)} papel={roleLabel} nome={first(session.name)} session={session}
       irParaCasa={()=>setView(NAV[0][0])} sair={()=>setSession(null)}/>}
     <main style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0}}>
-      <header style={{background:"rgba(251,252,249,.94)",borderBottom:`1px solid ${C.line}`,height:isMobile?52:66,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
+      <header style={{background:"rgba(251,252,249,.94)",borderBottom:`1px solid ${C.line}`,height:isMobile?52:72,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 14px":"0 20px",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-          <div style={{minWidth:0}}>{!isMobile&&<div style={{fontSize:10,fontWeight:700,letterSpacing:1.4,textTransform:"uppercase",color:"#7C9486",marginBottom:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{[(org&&org.nome)||"",new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})].filter(Boolean).join(" · ")}</div>}<h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:19,letterSpacing:-.3,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1></div>
+          <div style={{minWidth:0}}>{isMobile?<h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:15.5,letterSpacing:-.3,fontWeight:700,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{TITLES[view]}</h1>
+            :<div style={{display:"flex",alignItems:"center",gap:12,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+              <span style={{color:"#8a978d"}}>{(org&&org.nome)||"Workspace"}</span><span style={{color:"#c2ccc4"}}>/</span>
+              <span style={{color:C.ink,fontWeight:700}}>{TITLES[view]}</span></div>}</div>
           {/* Em qual imobiliária o master está agora, e o caminho de volta ao
               hub. Trabalhando em várias contas parecidas, saber ONDE se está é
               o que evita mandar mensagem pelo cliente errado. */}
@@ -8773,7 +8770,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
           <div style={{maxWidth:1100,margin:"0 auto"}}><MensagensAutomaticas acoes={acoes} session={session} isMobile={isMobile}/></div></div>}
         {/* Gestor e atendente. Só o gestor mexe no horário de encerramento da
             prontidão — é regra da casa, não da operação do dia. */}
-        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
+        {supervisor&&view==="catraca"&&<Catraca {...{fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,leads,openLead,podeConfigurarExpediente:podeGerir(session),podeEditarCatracas:podeGerir(session)}}/>}
         {supervisor&&view.startsWith("catraca:")&&<TelaDaCatraca key={view} id={view.slice(8)} {...{leads,pessoas,toggleAvail,acoes,isMobile,openLead}}
           catracas={catracasMenu} podeEditar={podeGerir(session)} irParaConfig={()=>setView("catraca")}/>}
         {/* Gestor e atendente compartilham as telas de supervisão. */}
@@ -13186,66 +13183,153 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   </div>;
 }
 
-function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente,podeEditarCatracas}){
+/* PEÇAS DA CATRACA NO LAYOUT DO PROTÓTIPO (13/11/2026): só aparência. */
+function KpiCatraca({rotulo,valor,sub,isMobile}){
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,boxShadow:SOMBRA,padding:isMobile?"14px 15px":"19px 20px",minWidth:0}}>
+    <div style={{color:"#7c8b7d",fontSize:11,marginBottom:isMobile?8:12}}>{rotulo}</div>
+    <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?22:28,fontWeight:800,letterSpacing:-1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{valor}</div>
+    {sub&&<div style={{color:"#8b978d",fontSize:10.5,marginTop:isMobile?8:12,lineHeight:1.4}}>{sub}</div>}
+  </div>;
+}
+function ChipsDisponibilidade({gente,toggleAvail,vazio}){
+  return <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+    {!gente.length&&<span style={{color:C.faint,fontSize:12}}>{vazio}</span>}
+    {gente.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on).catch(()=>{})} title={on?"Disponível — clique para tirar":"Indisponível — clique para marcar"}
+      style={{display:"flex",alignItems:"center",gap:10,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"6px 12px 6px 6px",cursor:"pointer"}}>
+      <span style={{width:28,height:28,borderRadius:"50%",background:C.greenSoft,color:C.greenMid,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{b.ini}</span>
+      <span style={{color:C.ink,fontSize:12.5}}>{first(b.name)}</span>
+      <span style={{width:34,height:19,borderRadius:999,background:on?C.green:"#dfe5df",position:"relative",flexShrink:0,transition:"background .15s"}}>
+        <span style={{position:"absolute",top:2,left:on?17:2,width:15,height:15,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.2)",transition:"left .15s"}}/></span>
+    </button>;})}
+  </div>;
+}
+function LinhaCaptura({nome,sub,etiqueta,principal,outros,aoAbrir,ocupado,isMobile}){
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:8,padding:isMobile?"12px 13px":"14px 16px",display:"flex",alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:10,background:C.card}}>
+    <button onClick={aoAbrir} disabled={!aoAbrir} style={{flex:1,minWidth:0,border:"none",background:"transparent",padding:0,textAlign:"left",cursor:aoAbrir?"pointer":"default"}}>
+      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
+      <div style={{color:C.faint,fontSize:11,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
+    </button>
+    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:isMobile?"flex-start":"flex-end"}}>
+      {etiqueta&&<span style={{background:C.greenSoft,color:"#47805b",borderRadius:4,padding:"5px 8px",fontSize:10,fontWeight:600}}>{etiqueta}</span>}
+      {principal&&<button onClick={principal.aoClicar} disabled={principal.desligado||ocupado} style={{...BOTAO_PRIMARIO,padding:"8px 12px",fontSize:11.5,opacity:principal.desligado?.5:1,cursor:principal.desligado?"default":"pointer"}}>{principal.rotulo}</button>}
+      {outros}
+    </div>
+  </div>;
+}
+function ChipPessoa({p,aoClicar,ocupado}){
+  return <button onClick={aoClicar} disabled={ocupado} title={`Passar para ${p.name}`} style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}>
+    <Avatar ini={p.ini} color={p.color} size={22}/><span style={{color:C.ink,fontSize:11.5}}>{first(p.name)}</span></button>;
+}
+
+function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfigurarExpediente,podeEditarCatracas,leads,openLead}){
   const novos=[...fila].sort((a,b)=>ordemTemp(a.prio)-ordemTemp(b.prio));
   const brokers=pessoas, disp=disponiveis;
   const transfer=(leadId,uid)=>acoes.transferir(leadId,uid);
   const catracaNext=(leadId)=>acoes.proximo(leadId);
   const catracas=usarCatracas(acoes);
-  const nomeDaCatraca=(id)=>id&&catracas?((catracas.catracas.find(c=>c.id===id)||{}).nome||null):null;
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  const [aba,setAba]=useState("visao");
+  const [editando,setEditando]=useState(null);   // id, "nova" ou null
+  const [relatorio,setRelatorio]=useState(null);  // null, "todas", "principal" ou o id
+  const [verDesativadas,setVerDesativadas]=useState(false);
+  const corretores=brokers.filter(b=>b.role==="corretor");
+  const lista=(catracas&&catracas.catracas)||[];
+  const ativas=lista.filter(c=>c.ativa), desativadas=lista.filter(c=>!c.ativa);
+  const nomes=Object.fromEntries(lista.map(c=>[c.id,c.nome]));
+  const nomeDaCatraca=(id)=>id?(nomes[id]||null):null;
+  const nomeDe=(id)=>(brokers.find(p=>p.id===id)||{}).name||"";
+  const principalFila=catracas&&catracas.principal?catracas.principal.fila.filter(x=>x.posicao):[];
+  const proxPrincipal=principalFila[0]||null;
+  async function recarregar(){ esquecerCatracas(); try{ guardarCatracas(await acoes.catracas()); }catch(e){} }
+  async function salvar(id,dados){
+    if(id==="nova") await acoes.criarCatraca(dados); else await acoes.editarCatraca(id,dados);
+    setEditando(null); await recarregar();
+  }
+  async function apagar(c){ const r=await acoes.apagarCatraca(c.id); setEditando(null); if(aba===c.id) setAba("visao"); await recarregar(); return r; }
+  const caixaNova={nome:"",entrega:"atendente",membros:[],ativa:true,canais:{whatsapp:false,portal:false,site:false,formularios:[]},pipeline_id:null,stage_id:null};
+  const abaValida=aba==="visao"||aba==="principal"||ativas.some(c=>c.id===aba);
+  const abaAtual=abaValida?aba:"visao";
+
+  const botaoPeq={...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5};
+  const cartao=(c)=>{
+    if(c&&editando===c.id) return <div key={c.id} style={{gridColumn:"1 / -1"}}><EditorDeCatraca inicial={c} pessoas={corretores} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
+      onSalvar={(x)=>salvar(c.id,x)} onCancelar={()=>setEditando(null)} onApagar={()=>apagar(c)}/></div>;
+    const ehPrincipal=!c;
+    const prox=ehPrincipal?proxPrincipal:(c.ativa&&c.fila?c.fila.proximo:null);
+    const linha=ehPrincipal?"Todos os corretores · recebe o lead que não é de nenhuma catraca de produto"
+      :<>Recebe: {resumoDosCanais(c.canais)} · Aciona em: {c.etapa?(c.etapa.ok?`${c.etapa.funil} › ${c.etapa.nome}`:<span style={{color:C.hot}}>etapa apagada</span>):"nenhuma etapa"}</>;
+    return <div key={ehPrincipal?"principal":c.id} style={{background:c&&!c.ativa?C.surface:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?15:22,minWidth:0}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?16:18,fontWeight:700,letterSpacing:-.3,minWidth:0}}>{ehPrincipal?"Catraca principal":c.nome}</div>
+        <span style={{background:c&&!c.ativa?C.amberSoft:C.greenSoft,color:c&&!c.ativa?C.amber:"#47805b",borderRadius:4,padding:"5px 8px",fontSize:10,fontWeight:600,flexShrink:0}}>
+          {c&&!c.ativa?"Desativada":"Ativa"}</span>
+      </div>
+      <div style={{color:C.faint,fontSize:11,marginTop:12,lineHeight:1.5}}>{linha}</div>
+      <div style={{color:prox?C.greenMid:C.amber,fontSize:11.5,marginTop:6}}>
+        {c&&!c.ativa?"Desativada — os leads dela vão pela principal."
+          :prox?<>É a vez de <b>{prox.name}</b>{ehPrincipal?` · ${novos.length} na fila`:` · ${c.leads_abertos} em aberto`}</>
+          :c&&!c.membros.length?"Sem corretores — os leads vão pela principal."
+          :"Ninguém disponível agora."}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
+        {(ehPrincipal||c.ativa)&&<button onClick={()=>setAba(ehPrincipal?"principal":c.id)} style={botaoPeq}>Abrir catraca</button>}
+        {!ehPrincipal&&podeEditarCatracas&&<button onClick={()=>setEditando(c.id)} style={botaoPeq}>Configurar</button>}
+        <button onClick={()=>setRelatorio(ehPrincipal?"principal":c.id)} style={botaoPeq}>Relatório</button>
+      </div>
+    </div>;
+  };
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
-      {/* A FILA DA VEZ, numerada.
+      <CabecalhoTela isMobile={isMobile} titulo="Distribuição sob controle." sub="Origens opcionais, etapas e participantes definidos por catraca."
+        acoes={<>{lista.length>0&&<button onClick={()=>setRelatorio("todas")} style={BOTAO_SECUNDARIO}>Comparar catracas</button>}
+          {podeEditarCatracas&&<button onClick={()=>{setAba("visao");setEditando("nova");}} style={BOTAO_PRIMARIO}>+ Criar catraca</button>}</>}/>
+      <AbasLinha ativa={abaAtual} aoMudar={(k)=>{setAba(k);setEditando(null);}}
+        abas={[["visao","Visão geral"],["principal","Catraca principal"],...ativas.map(c=>[c.id,c.nome])]}/>
 
-          Pedido do Ali: dá para saber quem é o próximo antes de transferir. A
-          ordem vem do servidor, calculada pela MESMA função que a
-          transferência usa — número na tela que o botão não cumpre é pior do
-          que número nenhum. */}
-      {/* Ordem (03/10/2026, pedido do Ali): criar e ver as catracas primeiro;
-          os clientes esperando ficam recolhidos mais abaixo. */}
-      <CatracasDeProduto acoes={acoes} isMobile={isMobile} pessoas={brokers.filter(b=>b.role==="corretor")} podeEditar={!!podeEditarCatracas} versao={disp.length}/>
-      <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal={!!(catracas&&catracas.catracas.some(c=>c.ativa))}/>
-
-      {/* roster de disponibilidade */}
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:8}}><Icon n="users" size={15} color={C.green}/> Disponíveis hoje ({disp.length}/{brokers.length})</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {brokers.length===0&&<span style={{color:C.faint,fontSize:12}}>Ninguém cadastrado ainda — mande o link de cadastro para a equipe.</span>}
-          {brokers.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on).catch(()=>{})} style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
-            <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span><Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
+      {abaAtual==="visao"&&<>
+        {editando==="nova"&&<div style={{marginBottom:18}}><EditorDeCatraca inicial={caixaNova} pessoas={corretores} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
+          onSalvar={(x)=>salvar("nova",x)} onCancelar={()=>setEditando(null)}/></div>}
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:18,marginBottom:18}}>
+          {cartao(null)}
+          {ativas.map(cartao)}
+          {verDesativadas&&desativadas.map(cartao)}
         </div>
-        <div style={{color:C.faint,fontSize:11,marginTop:8}}>Clique para marcar quem falou com você e está pronto para atender. Só quem está verde entra na catraca.</div>
-      </div>
+        {!ativas.length&&podeEditarCatracas&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12,marginBottom:18}}>
+          Nenhuma catraca de produto ainda — todos os leads usam a catraca principal. Crie uma para separar os leads de um empreendimento.</div>}
+        {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
+          fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"0 0 18px"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
+        <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
+        <div style={{marginBottom:16}}><HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/></div>
+      </>}
 
-      <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
+      {abaAtual==="principal"&&<>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))",gap:18,marginBottom:18}}>
+          <KpiCatraca isMobile={isMobile} rotulo="Catraca selecionada" valor="Principal" sub="Todos os corretores · o lead que não é de nenhuma catraca de produto"/>
+          <KpiCatraca isMobile={isMobile} rotulo="Esperando corretor" valor={novos.length} sub={FILA_POR_ETAPA?"na primeira etapa do funil, sem corretor ter falado":"leads na fila, sem dono"}/>
+          <KpiCatraca isMobile={isMobile} rotulo="Próximo da vez" valor={proxPrincipal?first(proxPrincipal.name):"Ninguém"} sub={proxPrincipal?"entre os participantes disponíveis":"marque quem está disponível abaixo"}/>
+        </div>
+        <div style={{marginBottom:18}}><PainelCartao isMobile={isMobile} titulo="Disponibilidade da equipe" sub={`${disp.length} de ${brokers.length} disponíveis hoje · só quem está ligado entra na catraca`}>
+          <ChipsDisponibilidade gente={brokers} toggleAvail={toggleAvail} vazio="Ninguém cadastrado ainda — mande o link de cadastro para a equipe."/>
+        </PainelCartao></div>
+        <FilaDaVez acoes={acoes} isMobile={isMobile} versao={disp.length} principal/>
+        <PainelCartao isMobile={isMobile} titulo="Leads aguardando captura" sub="Depois de capturado, o lead deixa de estar na fila."
+          acao={<button onClick={()=>setRelatorio("principal")} style={botaoPeq}>Relatório desta catraca</button>}>
+          {!novos.length&&<div style={{textAlign:"center",padding:24,color:C.faint,fontSize:12.5,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={22} color={C.green}/><div style={{color:C.ink,fontWeight:600,marginTop:6}}>Fila zerada</div>Os leads novos caem aqui automaticamente.</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {novos.map(l=>{const age=Date.now()-l.createdAt;
+              return <LinhaCaptura key={l.id} isMobile={isMobile} nome={l.nome} aoAbrir={openLead?()=>openLead(l.id):null}
+                sub={`${l.status||"Na fila"} · ${fmtAge(age)} na fila${l.assignedTo?` · com ${first(l.assignedName||nomeDe(l.assignedTo)||"corretor")}, sem falar ainda`:""}`}
+                etiqueta={[nomeDaCatraca(l.catracaId),l.prio?prioDe(l.prio).label:null].filter(Boolean).join(" · ")||fmtTel(l.tel)}
+                principal={{rotulo:proxPrincipal?`Capturar para ${first(proxPrincipal.name)}`:"Ninguém disponível",desligado:!disp.length,aoClicar:()=>catracaNext(l.id)}}
+                outros={disp.filter(b=>!proxPrincipal||b.id!==proxPrincipal.id).map(b=><ChipPessoa key={b.id} p={b} aoClicar={()=>transfer(l.id,b.id)}/>)}/>;})}
+          </div>
+        </PainelCartao>
+      </>}
 
-      {/* Histórico logo abaixo do roster: é aqui que a atendente confere se
-          quem está verde se prontificou hoje ou ficou de ontem. */}
-      <div style={{marginBottom:16}}>
-        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
-      </div>
+      {abaAtual!=="visao"&&abaAtual!=="principal"&&<TelaDaCatraca key={abaAtual} id={abaAtual} catracas={catracas} leads={leads||[]} pessoas={brokers}
+        toggleAvail={toggleAvail} acoes={acoes} isMobile={isMobile} openLead={openLead} podeEditar={!!podeEditarCatracas} embutido
+        aoRelatorio={()=>setRelatorio(abaAtual)} irParaConfig={()=>setAba("visao")}/>}
 
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <div><div style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>{novos.length} lead(s) na fila</div><div style={{color:C.faint,fontSize:12}}>{FILA_POR_ETAPA?"Na primeira etapa do funil comercial, sem nenhum corretor ter falado com o cliente ainda.":"Transfira manualmente para quem está disponível."}</div></div>
-      </div>
-      {novos.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:40,textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={30} color={C.green}/><div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:8}}>Fila zerada</div><div style={{color:C.faint,fontSize:12,marginTop:4}}>Novos leads da campanha caem aqui automaticamente.</div></div>}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {novos.map(l=>{const age=Date.now()-l.createdAt;
-          return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={38}/>
-              <div style={{minWidth:0,flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</span>{l.prio&&<Pill c={prioDe(l.prio).c} bg={prioDe(l.prio).bg}>{prioDe(l.prio).label}</Pill>}{nomeDaCatraca(l.catracaId)&&<Pill c={C.greenDeep} bg={C.greenSoft}>{nomeDaCatraca(l.catracaId)}</Pill>}{l.assignedTo&&<Pill c={C.amber} bg={C.amberSoft}>com {first(l.assignedName||"corretor")}, sem falar ainda</Pill>}</div><div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)} · {l.lastBody||"sem mensagem"}</div></div>
-              <div style={{display:"flex",alignItems:"center",gap:4,marginRight:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/><span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
-              {/* no celular o botão desce para a linha de baixo, em largura total */}
-              {!isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:12,fontWeight:600,padding:"8px 12px",borderRadius:10,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}><Icon n="transfer" size={14}/> Próximo</button>}
-            </div>
-            {isMobile&&<button onClick={()=>catracaNext(l.id)} disabled={!disp.length} style={{width:"100%",marginTop:10,background:disp.length?C.greenDeep:C.coolSoft,color:disp.length?"#fff":C.faint,border:"none",cursor:disp.length?"pointer":"default",fontSize:13,fontWeight:600,padding:"11px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> Passar para o próximo</button>}
-            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.line}`,flexWrap:"wrap"}}>
-              <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Transferir para:</span>
-              {disp.length?disp.map(b=><button key={b.id} onClick={()=>transfer(l.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11.5}}>Ninguém disponível — marque um atendente acima.</span>}
-            </div>
-          </div>;})}
-      </div>
+      {relatorio&&<RelatorioDasCatracas acoes={acoes} isMobile={isMobile} inicial={relatorio} onFechar={()=>setRelatorio(null)}/>}
     </div>
   </div>;
 }
@@ -13261,19 +13345,18 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
    vão ser entregues por ela. Lead que já está com um corretor só entra na
    contagem. Na principal, só o lead sem dono e sem catraca — com a atendente,
    na principal, é a caixa inteira dela, e isso é a tela de Atender. */
-function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,openLead,podeEditar,irParaConfig}){
+function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,openLead,podeEditar,irParaConfig,embutido,aoRelatorio}){
   const principal=id==="principal";
   const [editando,setEditando]=useState(false);
   const [ocupado,setOcupado]=useState(null);
   const [erro,setErro]=useState("");
+  const [relatorio,setRelatorio]=useState(false);
   if(!catracas) return <div style={{padding:30,color:C.faint,fontSize:13,textAlign:"center"}}>Carregando…</div>;
   const c=principal?null:(catracas.catracas||[]).find(x=>x.id===id);
-  const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:16};
-  const moldura=(filhos)=><div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}><div style={{maxWidth:1200,margin:"0 auto"}}>{filhos}</div></div>;
-  if(!principal&&!c) return moldura(<div style={caixa}>
-    <div style={{color:C.ink,fontSize:14,fontWeight:600}}>Esta catraca não existe mais.</div>
-    <button onClick={irParaConfig} style={{marginTop:10,border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Ir para Configurações da catraca</button>
-  </div>);
+  const moldura=(filhos)=>embutido?<>{filhos}</>:<div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}><div style={{maxWidth:1200,margin:"0 auto"}}>
+    <CabecalhoTela isMobile={isMobile} titulo={principal?"Catraca principal":(c?c.nome:"Catraca")} sub="Quem é a vez, quem está disponível e os leads esperando corretor."/>{filhos}</div></div>;
+  if(!principal&&!c) return moldura(<PainelCartao isMobile={isMobile} titulo="Esta catraca não existe mais.">
+    <button onClick={irParaConfig} style={BOTAO_PRIMARIO}>Voltar às catracas</button></PainelCartao>);
   const corretores=pessoas.filter(p=>p.role==="corretor");
   const membros=principal?corretores:corretores.filter(p=>c.membros.includes(p.id));
   const disponiveis=membros.filter(p=>p.available);
@@ -13294,81 +13377,39 @@ function TelaDaCatraca({id,catracas,leads,pessoas,toggleAvail,acoes,isMobile,ope
     await acoes.editarCatraca(c.id,dados);
     esquecerCatracas(); guardarCatracas(await acoes.catracas()); setEditando(false);
   }
+  const botaoPeq={...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5};
+  const prox=naFila[0]||null;
   return moldura(<>
-    <div style={caixa}>
-      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-        <Icon n="transfer" size={16} color={C.green}/>
-        <span style={{fontFamily:DISPLAY,color:C.ink,fontSize:16,fontWeight:700}}>{principal?"Catraca principal":c.nome}</span>
-        {!principal&&<span style={{color:C.sub,fontSize:10.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:999,padding:"2px 8px"}}>
-          {c.entrega==="corretor"?"direto ao corretor":"passa pela atendente"}</span>}
-        {!principal&&podeEditar&&!editando&&<button onClick={()=>setEditando(true)} style={{marginLeft:"auto",border:`1px solid ${C.line}`,background:C.card,color:C.sub,
-          borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
-      </div>
-      <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.5}}>
-        {principal?"Todos os corretores. Recebe o lead que não é de nenhuma catraca de produto."
-          :<><b style={{fontWeight:600}}>Recebe:</b> {resumoDosCanais(c.canais)} · <b style={{fontWeight:600}}>Aciona em:</b> {c.etapa?(c.etapa.ok?`${c.etapa.funil} › ${c.etapa.nome}`:<span style={{color:C.hot}}>etapa apagada ou desativada</span>):"nenhuma etapa"}</>}
-      </div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,minmax(0,1fr))",gap:18,marginBottom:18}}>
+      <KpiCatraca isMobile={isMobile} rotulo="Catraca selecionada" valor={principal?"Principal":c.nome}
+        sub={principal?"Todos os corretores":<>{c.entrega==="corretor"?"Direto ao corretor":"Passa pela atendente"} · Aciona em: {c.etapa?(c.etapa.ok?`${c.etapa.funil} / ${c.etapa.nome}`:"etapa apagada"):"nenhuma etapa"}</>}/>
+      <KpiCatraca isMobile={isMobile} rotulo="Esperando corretor" valor={esperando.length} sub={principal?"sem dono, fora de catraca de produto":`${comCorretor} já com corretor`}/>
+      <KpiCatraca isMobile={isMobile} rotulo="Próximo da vez" valor={prox?first(prox.name):"Ninguém"}
+        sub={!principal&&!c.ativa?"catraca desativada — vai pela principal":prox?"entre os participantes disponíveis":membros.length?"ninguém desta catraca disponível — vai pela principal":"sem corretores — vai pela principal"}/>
     </div>
-    {editando&&<EditorDeCatraca inicial={c} pessoas={corretores} isMobile={isMobile} acoes={acoes}
+    {editando&&<div style={{marginBottom:18}}><EditorDeCatraca inicial={c} pessoas={corretores} isMobile={isMobile} acoes={acoes}
       nomesDasCatracas={Object.fromEntries((catracas.catracas||[]).map(x=>[x.id,x.nome]))}
-      onSalvar={salvar} onCancelar={()=>setEditando(false)}/>}
-
-    <div style={caixa}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>De quem é a vez</div>
-      {!principal&&!c.ativa&&<div style={{color:C.amber,fontSize:12}}>Catraca desativada — os leads dela vão pela principal.</div>}
-      {filaDaVez&&!naFila.length&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>
-        {principal?"Nenhum corretor disponível hoje — o repasse não tem para quem ir.":membros.length?"Ninguém desta catraca está disponível — o repasse vai pela principal.":"Sem corretores nesta catraca — os leads dela vão pela principal."}</div>}
-      {naFila.map((p,i)=><div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:i===0?C.greenSoft:"transparent",
-        border:`1px solid ${i===0?C.green+"55":"transparent"}`,borderRadius:11,padding:isMobile?"9px 10px":"7px 10px",marginBottom:4}}>
-        <span style={{fontFamily:MONO,fontSize:13,fontWeight:700,color:i===0?C.greenDeep:C.faint,minWidth:20,textAlign:"right"}}>{p.posicao}º</span>
-        <Avatar ini={initials(p.name)} color={i===0?C.green:C.cool} size={26}/>
-        <span style={{color:C.ink,fontSize:12.5,fontWeight:i===0?700:500,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
-        {i===0&&<span style={{background:C.green,color:"#fff",borderRadius:999,padding:"3px 10px",fontSize:10.5,fontWeight:700,flexShrink:0}}>é a vez</span>}
-      </div>)}
-    </div>
-
-    <div style={caixa}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Disponíveis hoje ({disponiveis.length}/{membros.length})</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {!membros.length&&<span style={{color:C.faint,fontSize:12}}>Nenhum corretor nesta catraca.{podeEditar?" Escolha em Editar.":""}</span>}
-        {membros.map(b=>{const on=b.available;return <button key={b.id} onClick={()=>toggleAvail(b.id,on).catch(()=>{})} style={{display:"flex",alignItems:"center",gap:8,
-          border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:999,padding:"5px 12px 5px 5px",cursor:"pointer"}}>
-          <Avatar ini={b.ini} color={b.color} size={26}/><span style={{color:C.ink,fontSize:12.5,fontWeight:600}}>{first(b.name)}</span>
-          <Icon n={on?"toggleOn":"toggleOff"} size={18} color={on?C.green:C.faint}/></button>;})}
+      onSalvar={salvar} onCancelar={()=>setEditando(false)}/></div>}
+    <div style={{marginBottom:18}}><PainelCartao isMobile={isMobile} titulo="Disponibilidade da equipe"
+      sub={<>Participantes {principal?"da catraca principal":"desta catraca"} · {!principal&&<>recebe: {resumoDosCanais(c.canais)} · </>}a disponibilidade vale para todas as catracas da pessoa</>}
+      acao={!principal&&podeEditar&&!editando?<button onClick={()=>setEditando(true)} style={{...BOTAO_PRIMARIO,padding:"8px 12px",fontSize:11.5}}>Editar participantes e origens</button>:null}>
+      <ChipsDisponibilidade gente={membros} toggleAvail={toggleAvail} vazio={`Nenhum corretor nesta catraca.${podeEditar?" Escolha em Editar participantes.":""}`}/>
+      {naFila.length>1&&<div style={{color:C.faint,fontSize:11,marginTop:12}}>Ordem da vez: {naFila.map(p=>`${p.posicao}º ${first(p.name)}`).join(" · ")}</div>}
+    </PainelCartao></div>
+    <PainelCartao isMobile={isMobile} titulo="Leads aguardando captura" sub="Depois de capturado, o lead deixa de estar na fila."
+      acao={<button onClick={()=>aoRelatorio?aoRelatorio():setRelatorio(true)} style={botaoPeq}>Relatório desta catraca</button>}>
+      {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
+      {!esperando.length&&<div style={{textAlign:"center",padding:24,color:C.faint,fontSize:12.5,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={22} color={C.green}/><div style={{color:C.ink,fontWeight:600,marginTop:6}}>Nenhum lead esperando</div></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {esperando.map(l=>{const age=Date.now()-l.createdAt;
+          return <LinhaCaptura key={l.id} isMobile={isMobile} nome={l.nome} aoAbrir={openLead?()=>openLead(l.id):null} ocupado={!!ocupado}
+            sub={`${l.status||"Lead"} · ${fmtAge(age)} na fila · ${l.assignedTo?`com ${first(nomeDe(l.assignedTo))}`:"sem dono"}`}
+            etiqueta={l.origem||fmtTel(l.tel)}
+            principal={{rotulo:prox?`Capturar para ${first(prox.name)}`:"Passar para o próximo",desligado:!naFila.length&&!principal&&!disponiveis.length,aoClicar:()=>repassar(l.id)}}
+            outros={disponiveis.filter(b=>!prox||b.id!==prox.id).map(b=><ChipPessoa key={b.id} p={b} ocupado={!!ocupado} aoClicar={()=>repassar(l.id,b.id)}/>)}/>;})}
       </div>
-      <div style={{color:C.faint,fontSize:11,marginTop:8}}>A disponibilidade é uma só: vale para todas as catracas da pessoa.</div>
-    </div>
-
-    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:10}}>
-      <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>{esperando.length} esperando corretor</span>
-      {!principal&&<span style={{color:C.faint,fontSize:12}}>· {comCorretor} já com corretor</span>}
-    </div>
-    {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
-    {!esperando.length&&<div style={{...caixa,textAlign:"center",padding:30,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="check" size={26} color={C.green}/>
-      <div style={{color:C.ink,fontSize:13.5,fontWeight:600,marginTop:6}}>Nenhum lead esperando</div></div>}
-    <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      {esperando.map(l=>{const age=Date.now()-l.createdAt;
-        return <div key={l.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:12}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <Avatar ini={initials(l.nome)} color={prioDe(l.prio).c} size={36}/>
-            <button onClick={()=>openLead(l.id)} style={{minWidth:0,flex:1,border:"none",background:"transparent",padding:0,textAlign:"left",cursor:"pointer"}}>
-              <div style={{color:C.ink,fontSize:13.5,fontWeight:600}}>{l.nome}</div>
-              <div style={{color:C.faint,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {l.assignedTo?`com ${first(nomeDe(l.assignedTo))}`:"na fila"}{l.status?` · ${l.status}`:""}</div>
-            </button>
-            <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}><Icon n="timer" size={13} color={ageColor(age)}/>
-              <span style={{color:ageColor(age),fontFamily:MONO,fontSize:12,fontWeight:600}}>{fmtAge(age)}</span></div>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.line}`,flexWrap:"wrap"}}>
-            <button onClick={()=>repassar(l.id)} disabled={!!ocupado||!naFila.length&&!principal&&!disponiveis.length}
-              style={{background:C.greenDeep,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,padding:isMobile?"9px 12px":"6px 11px",borderRadius:9,display:"flex",alignItems:"center",gap:6}}>
-              <Icon n="transfer" size={13}/>{naFila[0]?`Passar para ${first(naFila[0].name)}`:"Passar para o próximo"}</button>
-            {disponiveis.filter(b=>!naFila[0]||b.id!==naFila[0].id).map(b=><button key={b.id} onClick={()=>repassar(l.id,b.id)} disabled={!!ocupado} title={`Passar para ${b.name}`}
-              style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,borderRadius:999,padding:"3px 10px 3px 3px",cursor:"pointer"}}>
-              <Avatar ini={b.ini} color={b.color} size={22}/><span style={{color:C.ink,fontSize:12,fontWeight:500}}>{first(b.name)}</span></button>)}
-          </div>
-        </div>;})}
-    </div>
+    </PainelCartao>
+    {relatorio&&<RelatorioDasCatracas acoes={acoes} isMobile={isMobile} inicial={id} onFechar={()=>setRelatorio(false)}/>}
   </>);
 }
 
@@ -25886,9 +25927,10 @@ const variacaoTexto=(v)=>v===null?"sem período anterior":v>0?`+${pctBR(v)}`:v<0
 
 function KpiCard({label,valor,comp,sub,isMobile,span,destaque}){
   const txt=String(valor??"—");
-  return <div style={{background:destaque?`linear-gradient(135deg,${C.greenMid},${C.greenDeep})`:C.card,border:destaque?"none":`1px solid ${C.line}`,boxShadow:SOMBRA,borderRadius:16,padding:isMobile?"13px 14px":"16px 18px",minWidth:0,gridColumn:span?`span ${span}`:undefined}}>
-    <div style={{color:destaque?"rgba(255,255,255,.75)":C.sub,fontSize:12,fontWeight:600,marginBottom:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
-    <NumeroQueCabe texto={txt} max={isMobile?21:25} min={12} style={{color:destaque?"#fff":C.ink,fontFamily:DISPLAY,fontWeight:700,letterSpacing:-.5,lineHeight:1.15}}/>
+  return <div style={{position:"relative",overflow:"hidden",background:destaque?"linear-gradient(120deg,#164e37,#0c362b)":C.card,border:`1px solid ${destaque?"#256344":C.line}`,boxShadow:SOMBRA,borderRadius:10,padding:isMobile?"14px 15px":"19px 20px",minHeight:isMobile?96:122,boxSizing:"border-box",minWidth:0,gridColumn:span?`span ${span}`:undefined}}>
+    {destaque&&<span aria-hidden="true" style={{position:"absolute",width:130,height:130,border:"1px solid #80b59826",borderRadius:"50%",right:-32,bottom:-68,boxShadow:"0 0 0 18px #80b59806,0 0 0 37px #80b59805"}}/>}
+    <div style={{color:destaque?"#afcab7":"#7c8b7d",fontSize:11,marginBottom:isMobile?8:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+    <NumeroQueCabe texto={txt} max={isMobile?22:28} min={12} style={{color:destaque?"#fff":C.ink,fontFamily:DISPLAY,fontWeight:800,letterSpacing:-1,lineHeight:1.15}}/>
     <div style={{display:"flex",alignItems:"center",gap:4,marginTop:6,minHeight:14}}>
       {comp&&<React.Fragment>
         {comp.variacao_pct!==null&&<span style={{display:"inline-flex",transform:comp.variacao_pct<0?"scaleY(-1)":undefined}}>
@@ -25920,8 +25962,57 @@ const KPIS_CATALOGO=[
   {k:"faladas",label:"Pessoas faladas",ajuda:"Pessoas que atenderam a ligação ou responderam a uma mensagem da equipe, uma por dia.",fmt:"numero"},
   {k:"propostas",label:"Propostas",ajuda:"Leads que chegaram à etapa de proposta no período.",fmt:"numero"},
 ];
-const KPIS_PADRAO=["vgv","ticket_medio","vgc","vendas","leads","lead_em_venda_pct","visitas"];
+const KPIS_PADRAO=["vgv","vgc","ticket_medio","vendas","lead_em_venda_pct","leads","qualificados","visitas"];
 let KPIS_ESCOLHA=null; // o que a pessoa acabou de salvar, até a sessão ser relida
+
+/* ===== O LAYOUT DO PROTÓTIPO CETRO (13/11/2026) =====
+   Peças de aparência só: cabeçalho grande da tela (eyebrow, título e linha de
+   apoio, ações à direita), abas sublinhadas, faixa de aviso discreta e o
+   cartão de painel com título e subtítulo. Nenhuma regra mora aqui. */
+const ORG_ATUAL={nome:""};
+const dataHoje=()=>{const t=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});return t.charAt(0).toUpperCase()+t.slice(1);};
+function CabecalhoTela({titulo,sub,acoes,isMobile,eyebrow}){
+  const ey=eyebrow||(ORG_ATUAL.nome?`OPERAÇÃO · ${ORG_ATUAL.nome}`:"MEU WORKSPACE");
+  return <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"flex-start",
+    justifyContent:"space-between",gap:isMobile?12:20,marginBottom:isMobile?16:22}}>
+    <div style={{minWidth:0}}>
+      <div style={{textTransform:"uppercase",fontSize:10,fontWeight:800,letterSpacing:1.6,color:"#729180",marginBottom:7}}>{ey}</div>
+      <h1 style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?23:30,fontWeight:800,letterSpacing:-.8,margin:0,lineHeight:1.15}}>{titulo}</h1>
+      {sub&&<div style={{marginTop:7,fontSize:12.5,color:C.faint}}>{sub}</div>}
+    </div>
+    {acoes&&<div style={{display:"flex",gap:8,flexWrap:"wrap",flexShrink:0}}>{acoes}</div>}
+  </div>;
+}
+const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green},#06663f)`,color:"#fff",borderRadius:8,padding:"10px 16px",
+  fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:"0 3px 0 #0a4a30, 0 6px 14px rgba(8,122,80,.18)",display:"inline-flex",alignItems:"center",gap:6};
+const BOTAO_SECUNDARIO={border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:8,padding:"9px 14px",
+  fontSize:12,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6};
+function AbasLinha({abas,ativa,aoMudar}){
+  return <div style={{display:"flex",gap:4,borderBottom:`1px solid ${C.line}`,marginBottom:22,overflowX:"auto",flexShrink:0}}>
+    {abas.map(([k,n,extra])=><button key={k} onClick={()=>aoMudar(k)} style={{padding:"12px 16px",background:"transparent",border:"none",
+      borderBottom:`2px solid ${ativa===k?C.green:"transparent"}`,color:ativa===k?C.greenMid:"#7c8b7d",fontSize:12,fontWeight:ativa===k?700:500,
+      whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>{n}{extra}</button>)}
+  </div>;
+}
+function FaixaAviso({texto,detalhe,acao,aoClicar,quente}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",
+    border:`1px solid ${quente?C.hot+"40":"#dce6d6"}`,background:quente?C.hotSoft:"#eef3e8",borderRadius:9,padding:"11px 15px",marginBottom:22,color:"#56724d",fontSize:12}}>
+    <span><b style={{color:quente?C.hot:"#254f32"}}>{texto}</b>{detalhe?<> · {detalhe}</>:null}</span>
+    {acao&&<button onClick={aoClicar} style={{...BOTAO_SECUNDARIO,padding:"6px 11px",fontSize:11.5}}>{acao} <Icon n="chevron" size={12}/></button>}
+  </div>;
+}
+function PainelCartao({titulo,sub,chip,acao,children,isMobile,estilo}){
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22,boxSizing:"border-box",...(estilo||{})}}>
+    {(titulo||acao||chip)&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:isMobile?14:19}}>
+      <div style={{minWidth:0}}>
+        {titulo&&<div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?15.5:17.5,fontWeight:700,letterSpacing:-.3}}>{titulo}</div>}
+        {sub&&<div style={{fontSize:11,color:C.faint,marginTop:4,lineHeight:1.45}}>{sub}</div>}
+      </div>
+      {acao}{chip&&<span style={{background:C.greenSoft,color:"#47805b",borderRadius:4,padding:"5px 8px",fontSize:10,fontWeight:600,flexShrink:0}}>{chip}</span>}
+    </div>}
+    {children}
+  </div>;
+}
 
 function LinhaKpis({kpis,isMobile,escolha}){
   const interna=contaInterna();
@@ -25941,7 +26032,7 @@ function LinhaKpis({kpis,isMobile,escolha}){
   const col=isMobile?2:4;
   const sobra=(cards.length+1)%col;
   return <div style={{display:"grid",gridTemplateColumns:`repeat(${col},minmax(0,1fr))`,gap:9}}>
-    {cards.map((c,i)=><KpiCard key={c.key} {...c} isMobile={isMobile} span={i===0&&(sobra===0||isMobile)?2:undefined}/>)}
+    {cards.map((c,i)=><KpiCard key={c.key} {...c} isMobile={isMobile} span={i===0&&isMobile&&sobra===0?2:undefined}/>)}
   </div>;
 }
 
@@ -25987,12 +26078,9 @@ function ProximosPassos({d,openLead,isMobile}){
   const [info,setInfo]=useState(false);
   const [todos,setTodos]=useState(false);
   const itens=d?(todos?d.itens:d.itens.slice(0,6)):[];
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?13:16,height:"100%",boxSizing:"border-box"}}>
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,fontFamily:DISPLAY,flex:1}}>Próximos passos</div>
-      <button onClick={()=>setInfo(v=>!v)} aria-label="Como a lista é montada" aria-expanded={info}
-        style={{width:22,height:22,borderRadius:"50%",border:`1px solid ${C.line}`,background:C.surface,color:C.sub,fontSize:12,fontWeight:700,cursor:"pointer",lineHeight:1}}>i</button>
-    </div>
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Próximos passos" sub="O que precisa de atenção primeiro"
+    acao={<button onClick={()=>setInfo(v=>!v)} aria-label="Como a lista é montada" aria-expanded={info}
+        style={{width:24,height:24,borderRadius:"50%",border:`1px solid ${C.line}`,background:C.greenSoft,color:C.greenMid,fontSize:12,fontWeight:700,cursor:"pointer",lineHeight:1,flexShrink:0}}>i</button>}>
     {info&&<div style={{background:C.surface,borderRadius:10,padding:"8px 10px",color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:10}}>
       Primeiro, atividades vencidas; depois, leads com prazo da etapa vencido. Dentro de cada grupo, o mais atrasado em cima.</div>}
     {!d?<div style={{color:C.faint,fontSize:12.5}}>Carregando…</div>
@@ -26000,12 +26088,14 @@ function ProximosPassos({d,openLead,isMobile}){
     :<React.Fragment>
       <div style={{color:C.faint,fontSize:11,marginBottom:6}}>{d.tarefas_vencidas} tarefa(s) vencida(s) · {d.prazos_vencidos} prazo(s) de etapa vencido(s)</div>
       {itens.map(it=><button key={it.lead_id+it.tipo} onClick={()=>openLead&&openLead(it.lead_id)}
-        style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"flex-start",padding:"9px 0",border:"none",borderTop:`1px solid ${C.line}`,background:"transparent",cursor:"pointer"}}>
-        <span style={{width:8,height:8,borderRadius:"50%",marginTop:5,flexShrink:0,background:it.tipo==="tarefa"?C.hot:C.amber}}/>
+        style={{width:"100%",textAlign:"left",display:"flex",gap:12,alignItems:"center",padding:"12px 0 12px 14px",border:"none",borderLeft:`3px solid ${C.gold}`,borderBottom:`1px solid ${C.line}`,background:"transparent",cursor:"pointer"}}>
+        <span style={{width:32,height:32,borderRadius:"50%",flexShrink:0,background:C.greenSoft,color:C.greenMid,fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{initials(it.nome||"?")}</span>
         <span style={{flex:1,minWidth:0}}>
-          <span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nome||fmtTel(it.telefone)}</span>
+          <span style={{display:"flex",alignItems:"baseline",gap:6,minWidth:0}}>
+            <span style={{color:it.tipo==="tarefa"?C.hot:C.amber,fontSize:10,flexShrink:0}}>{it.tipo==="tarefa"?"Atividade vencida":"Prazo da etapa vencido"}</span>
+            <span style={{color:C.ink,fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.nome||fmtTel(it.telefone)}</span></span>
           <span style={{display:"block",color:C.sub,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            {it.tipo==="tarefa"?"Tarefa vencida":"Prazo da etapa"} · {it.descricao}{it.quantas>1?` (+${it.quantas-1})`:""}{it.tambem_prazo?" · também prazo da etapa":""}</span>
+            {it.descricao}{it.quantas>1?` (+${it.quantas-1})`:""}{it.tambem_prazo?" · também prazo da etapa":""}</span>
           {it.responsavel&&<span style={{display:"block",color:C.faint,fontSize:10.5}}>com {it.responsavel}{it.etapa?` · ${it.etapa}`:""}</span>}
         </span>
         <span style={{color:it.tipo==="tarefa"?C.hot:C.amber,fontSize:11.5,fontWeight:700,flexShrink:0}}>há {fmtMin(it.atraso_min)}</span>
@@ -26013,7 +26103,9 @@ function ProximosPassos({d,openLead,isMobile}){
       {d.itens.length>6&&<button onClick={()=>setTodos(v=>!v)} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:700,cursor:"pointer",padding:"6px 0 0"}}>
         {todos?"Mostrar menos":`Ver todos (${d.total})`}</button>}
     </React.Fragment>}
-  </div>;
+    <div style={{background:"#eef3e8",border:"1px solid #dce6d6",borderRadius:8,padding:"12px 14px",color:"#56724d",fontSize:11.5,lineHeight:1.5,marginTop:16}}>
+      Cada próximo passo tem um responsável e uma data. Nenhum lead fica para trás.</div>
+  </PainelCartao>;
 }
 
 /* Os nomes que mudam no ambiente interno do CETRO: lá não há visita ao
@@ -26034,12 +26126,12 @@ function MetaCard({item}){
   const fmt=(v)=>ehDinheiro?fmtMoeda(v):naoDisp(v);
   const cor=pct==null?C.faint:pct>=100?C.green:pct>=60?C.amber:C.hot;
   const falta=meta==null?null:Math.max(meta-realizado,0);
-  return <div style={{background:C.surface,borderRadius:11,padding:"10px 12px",minWidth:0}}>
-    <div style={{display:"flex",justifyContent:"space-between",fontSize:11.5,color:C.sub,fontWeight:600,gap:6}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:"15px 17px",minWidth:0}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"#7c8b7d",gap:6}}>
       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome}</span>
       <span style={{color:pct!=null&&pct>=100?C.gold:cor,fontWeight:700,flexShrink:0}}>{pct==null?"":pctBR(pct)}</span>
     </div>
-    <div style={{color:meta==null?C.faint:C.ink,fontFamily:DISPLAY,fontWeight:700,fontSize:meta==null?12:17,margin:"3px 0 6px",letterSpacing:-.3}}>
+    <div style={{color:meta==null?C.faint:C.ink,fontFamily:DISPLAY,fontWeight:700,fontSize:meta==null?12.5:18,margin:"12px 0 8px",letterSpacing:-.3}}>
       {meta==null?"Meta não definida":fmt(meta)}</div>
     <div style={{height:6,borderRadius:99,background:C.line,overflow:"hidden",marginBottom:6}}>
       <div style={{height:"100%",width:(pct==null?0:Math.min(100,pct))+"%",background:cor,borderRadius:99}}/>
@@ -26052,15 +26144,12 @@ function MetaCard({item}){
 }
 
 function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?13:16,height:"100%",boxSizing:"border-box"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:8,flexWrap:"wrap"}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700,fontFamily:DISPLAY}}>Metas de {mesLegivel(metas.mes)}</div>
-      {podeConfigurar&&<button onClick={onConfigurar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Configurar metas</button>}
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,minmax(0,1fr))",gap:9}}>
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Metas do período" sub={`O caminho entre o trabalho de hoje e o resultado de ${mesLegivel(metas.mes)}`}
+    acao={podeConfigurar?<button onClick={onConfigurar} style={{...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5}}><Icon n="ajustes" size={13}/> Configurar metas</button>:null}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,minmax(0,1fr))",gap:10}}>
       {metas.itens.map(m=><MetaCard key={m.campo} item={m}/>)}
     </div>
-  </div>;
+  </PainelCartao>;
 }
 
 /* Funil de ATIVIDADE — quanta ação aconteceu no período (ligações, contatos,
@@ -26090,30 +26179,27 @@ function AvisoPulados({itens}){
 
 function FunilAtividadeViz({passos,isMobile}){
   const max=Math.max(1,...passos.map(p=>p.valor));
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Funil de atividade</div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>
-      Quanto se trabalhou no período. Trabalhados, faladas e qualificadas contam pessoas; o resto conta ações — não é conversão (essa fica em Operação → Funil).
-    </div>
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Funil de atividades" sub="Produção no período · pessoas e ações registradas" chip="Atividade">
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {passos.map((p,i)=>{
         const largura=Math.max(6,Math.round((p.valor/max)*100));
         return <div key={p.id} style={{display:"flex",alignItems:"center",gap:isMobile?6:10}}>
-          <div style={{width:isMobile?72:120,flexShrink:0,fontSize:11,color:C.sub,fontWeight:600,textAlign:"right",lineHeight:1.2}}>{p.nome}</div>
+          <div style={{width:isMobile?78:124,flexShrink:0,fontSize:11.5,color:C.ink,lineHeight:1.2}}>{p.nome}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{height:isMobile?22:26,borderRadius:7,background:PALETA_FUNIL[i%PALETA_FUNIL.length],opacity:.88,
               width:largura+"%",minWidth:30,display:"flex",alignItems:"center",justifyContent:"flex-end",padding:"0 8px"}}>
               <span style={{color:"#fff",fontFamily:MONO,fontSize:12,fontWeight:700}}>{p.valor}</span>
             </div>
           </div>
-          <div style={{width:isMobile?58:120,flexShrink:0,textAlign:"right",fontSize:10,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
-            {i===0?"—":<React.Fragment><div title="sobre o passo anterior">{pctBR(p.taxa_sequencial)} {isMobile?"ant.":"do anterior"}</div><div title="sobre os leads trabalhados">{pctBR(p.taxa_sobre_leads)} {isMobile?"trab.":"dos trabalhados"}</div></React.Fragment>}
+          <div style={{width:isMobile?44:56,flexShrink:0,textAlign:"right",fontSize:10.5,color:C.faint,fontFamily:MONO,lineHeight:1.35}}>
+            {i===0?"base":<span title={`${pctBR(p.taxa_sequencial)} do passo anterior · ${pctBR(p.taxa_sobre_leads)} dos leads trabalhados`}>{pctBR(p.taxa_sobre_leads)}</span>}
           </div>
         </div>;
       })}
     </div>
     <AvisoPulados itens={passos.map(p=>({...p,nome:rotuloDaConta(p.id,p.nome)}))}/>
-  </div>;
+    <div style={{color:C.faint,fontSize:10.5,marginTop:14}}>As barras registram volume de trabalho. A conversão comercial está no funil em cone, em Operação.</div>
+  </PainelCartao>;
 }
 
 const CHAVES_SERIE=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"],["faladas","Pessoas faladas"],["qualificadas","Qualificadas"],
@@ -26121,15 +26207,13 @@ const CHAVES_SERIE=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"
 
 function SerieBarrasEmpilhadas({serie,isMobile}){
   const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));
-  const altura=isMobile?110:150;
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,fontFamily:DISPLAY}}>Ritmo de produção — últimos 14 dias</div>
-    <div style={{height:11}}/>
-    <div style={{display:"flex",alignItems:"flex-end",gap:isMobile?3:6,height:altura+22,overflowX:"auto",paddingBottom:2}}>
+  const altura=isMobile?120:250;
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Ritmo da operação" sub="Atividades registradas nos últimos 14 dias" chip="14 dias">
+    <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:isMobile?3:5,height:altura+22,paddingBottom:2}}>
       {serie.map((d,i)=>{
         const total=CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0);
         const alturaTotal=total?Math.max(2,Math.round((total/maxTotal)*altura)):0;
-        return <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,width:isMobile?15:24}}>
+        return <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:"1 1 0",minWidth:0,maxWidth:isMobile?18:22}}>
           <div style={{width:"100%",height:altura,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
             <div title={`${d.rotulo}: ${CHAVES_SERIE.map(([k,n])=>`${rotuloDaConta(k,n)} ${d[k]||0}`).join(" · ")}`}
               style={{height:alturaTotal,width:"100%",borderRadius:"3px 3px 0 0",overflow:"hidden",display:"flex",flexDirection:"column-reverse"}}>
@@ -26146,7 +26230,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
         <span style={{color:C.sub,fontSize:10.5}}>{rotuloDaConta(k,n)}</span>
       </div>)}
     </div>
-  </div>;
+  </PainelCartao>;
 }
 
 /* SELETOR DE VÁRIAS PESSOAS (CETRO 04.1, 13/11/2026). Uma, duas, várias ou
@@ -26394,39 +26478,42 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
 
   const semCorretor=supervisor&&!sozinho&&!(pessoas||[]).some(p=>p.role==="corretor");
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1440,margin:"0 auto"}}>
       {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>{setMetasModal(false);
         acoes.painelGeral(f).then(setDGeral).catch(()=>{});}}/>}
 
-      <div style={{marginBottom:14}}>
+      <CabecalhoTela isMobile={isMobile} eyebrow={supervisor?undefined:"MEU WORKSPACE"}
+        titulo={supervisor?"Sua operação, em perspectiva.":"Seu próximo resultado começa aqui."}
+        sub={`${dataHoje()} · ${supervisor?"uma visão clara do que move suas vendas.":"acompanhe seu trabalho e as próximas oportunidades."}`}
+        acoes={supervisor?<button onClick={()=>setView("relatorios")} style={BOTAO_SECUNDARIO}><Icon n="chart" size={14}/> Relatório</button>:null}/>
+      <div style={{marginBottom:18}}>
         <FiltrosPainelGeral f={f} setF={setF} op={op} supervisor={supervisor} isMobile={isMobile}/>
       </div>
       {erroGeral&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erroGeral}</div>}
 
       {/* O que precisa de ação vem antes dos números. */}
-      {supervisor&&fila.length>0&&<button onClick={()=>setView("conversas")} style={{width:"100%",textAlign:"left",background:C.hotSoft,border:`1px solid ${C.hot}40`,borderRadius:12,padding:12,marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-        <Icon n="flame" size={18} color={C.hot}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>{fila.length} lead(s) na fila {FILA_POR_ETAPA?"aguardando um corretor pegar":"aguardando distribuição"}.</span><Icon n="chevron" size={15} color={C.hot}/>
-      </button>}
-      {semCorretor&&<button onClick={()=>setView("equipe")} style={{width:"100%",textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}}>
-        <Icon n="userplus" size={18} color={C.greenMid}/><span style={{color:C.ink,fontSize:13,fontWeight:500,flex:1}}>Nenhum corretor na equipe ainda. Convide pelo link de cadastro.</span><Icon n="chevron" size={15} color={C.faint}/>
-      </button>}
+      {supervisor&&fila.length>0&&<FaixaAviso texto={`${fila.length} ${fila.length===1?"oportunidade aguarda":"oportunidades aguardam"} captura`}
+        detalhe={FILA_POR_ETAPA?"na primeira etapa do funil comercial":"aguardando distribuição"} acao="Ver agora" aoClicar={()=>setView("catraca")}/>}
+      {semCorretor&&<FaixaAviso texto="Nenhum corretor na equipe ainda" detalhe="convide pelo link de cadastro" acao="Abrir Equipe" aoClicar={()=>setView("equipe")}/>}
 
       {!dGeral?<div style={{color:C.faint,fontSize:13,padding:"18px 0",display:"flex",alignItems:"center",gap:8}}><Icon n="loader" size={15} spin/> Carregando os indicadores…</div>
       :<React.Fragment>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
-          <div style={{color:C.faint,fontSize:11.5}}>Indicadores do período · comparados ao período anterior de mesma duração</div>
-          <button onClick={()=>setEscolhendo(true)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:14}}>
+          <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:isMobile?16:18,fontWeight:700,letterSpacing:-.3}} title="Comparados ao período anterior de mesma duração">Indicadores do painel</div>
+          <button onClick={()=>setEscolhendo(true)} style={{...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5}}>
             <Icon n="sliders" size={13}/> Escolher indicadores</button>
         </div>
-        <div style={{marginBottom:16}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile} escolha={escolha}/></div>
+        <div style={{marginBottom:18}}><LinhaKpis kpis={dGeral.kpis} isMobile={isMobile} escolha={escolha}/></div>
         {escolhendo&&<EscolherIndicadores escolha={escolha} aoSalvar={salvarEscolha} aoFechar={()=>setEscolhendo(false)} isMobile={isMobile}/>}
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"minmax(0,1.55fr) minmax(0,1fr)",gap:12,marginBottom:16,alignItems:"stretch"}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"minmax(0,1.65fr) minmax(260px,1fr)",gap:18,marginBottom:18,alignItems:"stretch"}}>
           <LinhaMetas metas={dGeral.metas} isMobile={isMobile} podeConfigurar={podeGerir(session)} onConfigurar={()=>setMetasModal(true)}/>
           <ProximosPassos d={proximos} openLead={openLead} isMobile={isMobile}/>
         </div>
-        <div style={{marginBottom:16}}><FunilAtividadeViz passos={dGeral.funil_atividade} isMobile={isMobile}/></div>
-        <div style={{marginBottom:16}}><SerieBarrasEmpilhadas serie={dGeral.serie} isMobile={isMobile}/></div>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"minmax(0,1.65fr) minmax(260px,1fr)",gap:18,marginBottom:18,alignItems:"stretch"}}>
+          <FunilAtividadeViz passos={dGeral.funil_atividade} isMobile={isMobile}/>
+          <SerieBarrasEmpilhadas serie={dGeral.serie} isMobile={isMobile}/>
+        </div>
       </React.Fragment>}
 
       {supervisor&&<PainelRecomendacoes acoes={acoes} openLead={openLead} isMobile={isMobile}/>}
