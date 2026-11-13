@@ -1,7 +1,8 @@
 import { Router } from "express";
 import db, { emLotes } from "../db.js";
-import { authRequired, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
+import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
+import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
 import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
@@ -365,8 +366,19 @@ r.get("/score", (req, res) => {
   const dias = Math.min(365, Math.max(7, Number(req.query.dias) || 90));
   const periodo = temIntervalo ? { de: de ?? (ate - dias * 86400000), ate } : dias;
   const equipe = ranking(req.user.org_id, periodo);
+  /* Os indicadores que faltavam para os 19 (CETRO 17.2) e a pontuação livre. */
+  const per = typeof periodo === "object" ? periodo : { de: Date.now() - dias * 86400000, ate: Date.now() };
+  const extras = extrasDaEquipe(req.user.org_id, equipe.map(m => m.id), per.de, Math.min(per.ate, Date.now()));
+  const pontos = configDePontos(req.user.org_id);
+  for (const m of equipe) {
+    Object.assign(m, extras[m.id] || {});
+    m.participa = !pontos.participantes || pontos.participantes.includes(m.id);
+    m.pontos = pontos.ligada && m.participa ? pontosDe(m, pontos.pesos) : null;
+  }
 
   res.json({
+    indicadores: INDICADORES.map(([chave, nome, unidade, pontuavel]) => ({ chave, nome, unidade, pontuavel })),
+    pontuacao: pontos,
     dias,
     periodo: typeof periodo === "object" ? periodo : { de: Date.now() - dias * 86400000, ate: Date.now() },
     // A régua vai junto: relatório de reunião sem a definição de cada número
@@ -374,6 +386,17 @@ r.get("/score", (req, res) => {
     componentes: COMPONENTES_DO_SCORE,
     equipe,
   });
+});
+
+/* A pontuação livre (CETRO 17.3): lê quem vê o score; grava o gestor. */
+r.get("/score/pontos", (req, res) => {
+  if (!veRelatoriosDaEquipe(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  res.json({ ...configDePontos(req.user.org_id), indicadores: INDICADORES.map(([chave, nome, unidade, pontuavel]) => ({ chave, nome, unidade, pontuavel })) });
+});
+r.put("/score/pontos", roles("adm"), (req, res) => {
+  const r2 = salvarPontos(req.user.org_id, req.user.id, req.body || {});
+  if (r2.erro) return res.status(400).json({ error: r2.erro });
+  res.json(r2);
 });
 
 // Para quem mandar este lead. Vale só enquanto ele não está com um corretor —
