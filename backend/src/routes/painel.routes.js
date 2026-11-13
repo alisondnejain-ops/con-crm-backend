@@ -11,7 +11,8 @@
    A exceção é `/funil/:pipelineId`, e o porquê está escrito lá embaixo. */
 
 import { Router } from "express";
-import { authRequired, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
+import { authRequired, roles, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
+import { metasDoFunil, salvarMetas } from "../services/metas-conversao.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo, listaDeDonos, pessoasDoFiltro } from "../services/painel.js";
 import { conferenciaDoFunil } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
@@ -77,7 +78,25 @@ r.get("/funil/:pipelineId", (req, res) => {
   if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
   const d = funil(req.user.org_id, pid, f);
   if (d.erro) return res.status(404).json({ error: d.erro });
+  // Metas do cone: de uma pessoa quando o filtro é UMA pessoa (herda a da operação), senão a da operação.
+  if (d.conversao && d.conversao.linhas) {
+    const metas = metasDoFunil(req.user.org_id, pid, typeof f.responsavel === "string" && f.responsavel !== "sem" ? f.responsavel : "");
+    for (const l of d.conversao.linhas) l.meta = metas[l.id] || null;
+  }
   res.json(d);
+});
+
+/* As metas de conversão do cone (CETRO 16.4): lê quem supervisiona; grava o gestor. */
+r.get("/metas-conversao/:pipelineId", soGestao, (req, res) => {
+  const pid = pipelineDe(req); if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
+  res.json({ pipeline_id: pid, operacao: metasDoFunil(req.user.org_id, pid, ""),
+    pessoa: req.query.user_id ? metasDoFunil(req.user.org_id, pid, String(req.query.user_id)) : null });
+});
+r.put("/metas-conversao/:pipelineId", roles("adm"), (req, res) => {
+  const pid = pipelineDe(req); if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
+  const r2 = salvarMetas(req.user.org_id, pid, (req.body || {}).user_id || "", (req.body || {}).metas);
+  if (r2.erro) return res.status(r2.status || 400).json({ error: r2.erro });
+  res.json(r2);
 });
 
 /* CONFERÊNCIA DE UM NÚMERO DO FUNIL DE CONVERSÃO (01/10/2026): quem está por

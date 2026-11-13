@@ -284,7 +284,7 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
     resolvidos: fechados.length,
     vendas: vendas.length,
     vendas_da_coorte: vendasDaCoorte.length,
-    valor_vendido: vendas.reduce((s, l) => s + (l.sale_value || 0), 0),
+    valor_vendido: vendas.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0),
     perdidos: perdidos.length,
     perda: pct(perdidos.length, fechados.length),
     /* AGENDADOS E VISITAS (07/11/2026): os que ELE fez chegar ao agendamento e

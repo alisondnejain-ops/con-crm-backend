@@ -82,6 +82,16 @@ export function linhaDoTempo(lead) {
 
   if (lead.sale_date)
     add(lead.sale_date, "venda", "Venda registrada", { valor: lead.sale_value || null, detalhe: lead.sale_property || "" });
+
+  // Simulações (CETRO 13): a calculada diz o tipo; a registrada da Caixa, o valor.
+  for (const sm of db.prepare("SELECT tipo, sistema, valor_imovel, parcela, user_id, created_at FROM simulacoes WHERE lead_id = ? ORDER BY created_at").all(lead.id))
+    add(sm.created_at, "simulacao", sm.tipo === "lancamento" ? "Simulação de lançamento" : sm.tipo === "pronto" ? `Simulação de financiamento (${sm.sistema === "price" ? "Price" : "SAC"})` : "Simulação registrada",
+      { quem: nomeDe(pessoas, sm.user_id), valor: sm.valor_imovel || null });
+  // Alteração e cancelamento de venda ficam no histórico, mesmo quando a venda saiu.
+  try {
+    for (const v of db.prepare("SELECT tipo, user_id, created_at FROM venda_eventos WHERE lead_id = ? AND tipo <> 'registro' ORDER BY created_at").all(lead.id))
+      add(v.created_at, "venda", v.tipo === "cancelamento" ? "Venda cancelada" : "Venda alterada", { quem: nomeDe(pessoas, v.user_id) });
+  } catch {}
   if (lead.closed_at) add(lead.closed_at, "finalizado", "Atendimento finalizado");
 
   ev.sort((a, b) => b.quando - a.quando);

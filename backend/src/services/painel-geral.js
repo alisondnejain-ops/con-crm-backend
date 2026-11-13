@@ -210,19 +210,22 @@ const contarLeads = (...a) => momentosDeLeads(...a).length;
 
 function vendasDoPeriodo(orgId, filtros, de, ate) {
   const p = peneira(orgId, filtros);
-  return db.prepare(`SELECT sale_value, sale_commission_pct, sale_date FROM leads l
+  return db.prepare(`SELECT sale_value, sale_commission_pct, sale_date, sale_moeda FROM leads l
     WHERE ${p.sql} AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, de, ate);
 }
 
 function somaVendas(orgId, filtros, de, ate) {
   const vendas = vendasDoPeriodo(orgId, filtros, de, ate);
-  const vgv = vendas.reduce((s, v) => s + (v.sale_value || 0), 0);
+  const vgv = vendas.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0);
   // VGC só soma vendas COM comissão preenchida — a régua de sempre: número
   // que ninguém mediu não vira zero, e aqui vira "de fora da conta", com a
   // cobertura escrita ao lado para não parecer que a conta está certa.
-  const comComissao = vendas.filter(v => v.sale_commission_pct != null);
+  const comComissao = vendas.filter(v => v.sale_commission_pct != null && v.sale_moeda !== "USD");
   const vgc = comComissao.reduce((s, v) => s + (v.sale_value * v.sale_commission_pct) / 100, 0);
-  return { quantidade: vendas.length, vgv, vgc, vgc_com_comissao: comComissao.length };
+  // Venda em dólar conta como venda, mas nunca entra somada ao VGV em real (moeda não se converte).
+  const emDolar = vendas.filter(v => v.sale_moeda === "USD");
+  return { quantidade: vendas.length, vgv, vgc, vgc_com_comissao: comComissao.length,
+    em_dolar: emDolar.length ? { quantidade: emDolar.length, vgv: emDolar.reduce((s, v) => s + (v.sale_value || 0), 0) } : null };
 }
 
 /* ===== SÉRIE DIÁRIA (para a barra empilhada "Análise de funil") =====
@@ -308,14 +311,16 @@ export function visaoGeral(orgId, filtros = {}) {
   const visitasAtual = distintos(alcances(orgId, filtros, periodo.de, periodo.ate, "visita", ctx));
   const visitasAnterior = distintos(alcances(orgId, filtros, anterior.de, anterior.ate, "visita", ctx));
 
-  const ticketAtual = vAtual.quantidade ? Math.round(vAtual.vgv / vAtual.quantidade) : null;
-  const ticketAnterior = vAnterior.quantidade ? Math.round(vAnterior.vgv / vAnterior.quantidade) : null;
+  // Ticket em real: divide só pelas vendas em real (a em dólar não está no VGV).
+  const emReal = (v) => v.quantidade - (v.em_dolar?.quantidade || 0);
+  const ticketAtual = emReal(vAtual) ? Math.round(vAtual.vgv / emReal(vAtual)) : null;
+  const ticketAnterior = emReal(vAnterior) ? Math.round(vAnterior.vgv / emReal(vAnterior)) : null;
 
   const kpis = {
-    vgv: comparativo(vAtual.vgv, vAnterior.vgv),
+    vgv: { ...comparativo(vAtual.vgv, vAnterior.vgv), em_dolar: vAtual.em_dolar },
     ticket_medio: comparativo(ticketAtual, ticketAnterior),
     vgc: { ...comparativo(vAtual.vgc, vAnterior.vgc),
-      cobertura: { com_comissao: vAtual.vgc_com_comissao, total: vAtual.quantidade } },
+      cobertura: { com_comissao: vAtual.vgc_com_comissao, total: emReal(vAtual) } },
     vendas: comparativo(vAtual.quantidade, vAnterior.quantidade),
     leads: comparativo(leadsAtual, leadsAnterior),
     // "Lead em venda": das duas populações (leads que ENTRARAM no período,

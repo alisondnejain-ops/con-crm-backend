@@ -210,7 +210,7 @@ r.get("/", (req, res) => {
       // misturaria gente de meses diferentes e daria percentual sem sentido.
       conversao: pct(meus.filter(l => l.stage === "Venda").length, meus.length),
       vendas_da_coorte: meus.filter(l => l.stage === "Venda").length,
-      valor_vendido: vendas.reduce((s, l) => s + (l.sale_value || 0), 0),
+      valor_vendido: vendas.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0),
       por_etapa: porEtapa,
       por_dia,
       plantao: {
@@ -235,7 +235,7 @@ r.get("/", (req, res) => {
     leads: leads.length,
     na_fila: leads.filter(l => !l.assigned_to).length,
     vendas: vendasDoPeriodo.length,
-    valor_vendido: vendasDoPeriodo.reduce((s, l) => s + (l.sale_value || 0), 0),
+    valor_vendido: vendasDoPeriodo.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0),
   } : null;
 
   /* ===== ATENDIMENTO (a atendente) =====

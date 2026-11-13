@@ -17,6 +17,7 @@
 import db from "../db.js";
 import { fechar, abrir } from "./cofre.js";
 import { graph } from "./meta.js";
+import { qualificadosNoPeriodo } from "./sdr-funil.js";
 
 db.exec(`CREATE TABLE IF NOT EXISTS meta_anuncios (
   org_id TEXT PRIMARY KEY,
@@ -201,29 +202,36 @@ export async function desempenho(orgId, periodo, { atualizar = false } = {}) {
    reserva — lead antigo pode ter só o nome). Leads e vendas do CRM são da
    coorte do período, a mesma régua da tabela de Campanhas logo abaixo. */
 function montar(orgId, linha, periodo, dados) {
-  const leads = db.prepare(`SELECT campaign_id, campaign_name, sale_value FROM leads
+  // Qualificado comercial: a mesma régua da tabela de Campanhas e da Visão geral.
+  const qualif = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
+  const leads = db.prepare(`SELECT id, campaign_id, campaign_name, sale_value, sale_moeda FROM leads
     WHERE org_id = ? AND created_at BETWEEN ? AND ? AND (campaign_id IS NOT NULL OR campaign_name IS NOT NULL)`)
     .all(orgId, periodo.de, periodo.ate);
   const doCrm = (id, nome) => {
     const daqui = leads.filter(l => (id && l.campaign_id === id) || (!l.campaign_id && nome && l.campaign_name === nome));
     const vendas = daqui.filter(l => l.sale_value != null);
-    return { leads_crm: daqui.length, vendas: vendas.length, vgv: vendas.reduce((s, l) => s + (l.sale_value || 0), 0) };
+    return { leads_crm: daqui.length, qualificados: daqui.filter(l => qualif.has(l.id)).length, vendas: vendas.length,
+      vgv: vendas.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0) };
   };
   const linhas = dados.campanhas.map(c => {
     const m = daMeta(c);
     const crm = doCrm(String(c.campaign_id || ""), c.campaign_name);
     return { campaign_id: c.campaign_id || null, campanha: c.campaign_name || "(sem nome)", ...m, ...crm,
-      custo_por_lead: divide(m.investimento, crm.leads_crm), custo_por_venda: divide(m.investimento, crm.vendas) };
+      custo_por_lead: divide(m.investimento, crm.leads_crm), custo_por_qualificado: divide(m.investimento, crm.qualificados),
+      custo_por_venda: divide(m.investimento, crm.vendas) };
   }).sort((a, b) => (b.investimento || 0) - (a.investimento || 0));
   const totalMeta = dados.conta ? daMeta(dados.conta) : daMeta({});
   const leadsCrm = linhas.reduce((s, l) => s + l.leads_crm, 0);
   const vendas = linhas.reduce((s, l) => s + l.vendas, 0);
+  const qualificados = linhas.reduce((s, l) => s + l.qualificados, 0);
+  const vgv = linhas.reduce((s, l) => s + l.vgv, 0);
   return {
     conta: { id: linha.conta_id, nome: linha.conta_nome, moeda: linha.moeda },
     periodo: { since: dados.since, until: dados.until },
     lido_em: dados.em,
-    total: { ...totalMeta, leads_crm: leadsCrm, vendas,
-      custo_por_lead: divide(totalMeta.investimento, leadsCrm), custo_por_venda: divide(totalMeta.investimento, vendas) },
+    total: { ...totalMeta, leads_crm: leadsCrm, qualificados, vendas, vgv,
+      custo_por_lead: divide(totalMeta.investimento, leadsCrm), custo_por_qualificado: divide(totalMeta.investimento, qualificados),
+      custo_por_venda: divide(totalMeta.investimento, vendas) },
     campanhas: linhas,
   };
 }

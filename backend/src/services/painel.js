@@ -280,7 +280,7 @@ export function painel(orgId, filtros = {}) {
   /* VENDA CONTA PELA DATA DA VENDA, não pela entrada do lead. Foi o furo
      corrigido em 10/08/2026: venda fechada hoje de um lead de junho não
      aparecia em "esta semana". */
-  const vendas = db.prepare(`SELECT l.id, l.sale_value FROM leads l WHERE ${p.sql}
+  const vendas = db.prepare(`SELECT l.id, l.sale_value, l.sale_moeda FROM leads l WHERE ${p.sql}
     AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, periodo.de, periodo.ate);
 
   return {
@@ -308,9 +308,9 @@ export function painel(orgId, filtros = {}) {
     },
     vendas: {
       quantidade: vendas.length,
-      vgv: vendas.reduce((s, v) => s + (v.sale_value || 0), 0),
+      vgv: vendas.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0),
       ticket_medio: vendas.length
-        ? Math.round(vendas.reduce((s, v) => s + (v.sale_value || 0), 0) / vendas.length) : null,
+        ? Math.round(vendas.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0) / vendas.length) : null,
     },
     /* `atividades` (a equipe) saiu daqui em 25/09/2026: a tela já busca pela
        rota /painel/equipe e jogava esta cópia fora — a conta mais pesada do
@@ -484,9 +484,39 @@ export function campanhas(orgId, filtros = {}) {
       primeira_resposta_mediana_min: tempos.mediana,
       taxa_resposta_cliente: respostaDoCliente(g.leads).taxa,
       vendas: vendidos.length,
-      vgv: vendidos.reduce((s, v) => s + (v.sale_value || 0), 0),
+      vgv: vendidos.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0),
     };
   }).sort((a, b) => b.leads - a.leads);
+
+  /* POR ORIGEM (CETRO 16.6): cada lead numa origem só — a de ENTRADA — e a
+     venda conta na origem do lead, nunca em duas. Mesma coorte e mesma régua
+     de qualificado das campanhas, e o total é a soma das linhas. */
+  const origemDe = (l) => {
+    const src = String(l.source || "").toLowerCase(), o = String(l.origem || "").toLowerCase();
+    if (src === "meta" || l.campaign_id || /an[uú]ncio|meta/.test(o)) return "Meta Ads";
+    if (src === "site" || o === "site" || /site/.test(o)) return "Site";
+    if (src === "portal" || /portal|zap|viva|olx|chaves/.test(o)) return "Portais";
+    if (src === "disparo" || l.platform === "disparo" || o === "disparo") return "Disparo";
+    if (l.import_id) return "Planilha importada";
+    if (src === "manual" || /manual|cadastr/.test(o)) return "Cadastro na mão";
+    if (src === "whatsapp" || /whats/.test(o) || (!src && !o)) return "WhatsApp";
+    return l.origem || "Outras";
+  };
+  const porOrigemMap = new Map();
+  for (const l of leads) {
+    const k = origemDe(l);
+    if (!porOrigemMap.has(k)) porOrigemMap.set(k, { origem: k, leads: 0, qualificados: 0, vendas: 0, vgv: 0, vendas_em_dolar: 0 });
+    const g = porOrigemMap.get(k);
+    g.leads++;
+    if (qualificadosDaCasa.has(l.id)) g.qualificados++;
+    if (l.sale_value != null) { g.vendas++; if (l.sale_moeda === "USD") g.vendas_em_dolar++; else g.vgv += l.sale_value || 0; }
+  }
+  const porOrigem = [...porOrigemMap.values()].map(g => ({ ...g, taxa_qualificacao: pct(g.qualificados, g.leads) }))
+    .sort((a, b) => b.leads - a.leads);
+  const totalOrigem = porOrigem.reduce((t, g) => ({ leads: t.leads + g.leads, qualificados: t.qualificados + g.qualificados,
+    vendas: t.vendas + g.vendas, vgv: t.vgv + g.vgv, vendas_em_dolar: t.vendas_em_dolar + g.vendas_em_dolar }),
+    { leads: 0, qualificados: 0, vendas: 0, vgv: 0, vendas_em_dolar: 0 });
+  totalOrigem.taxa_qualificacao = pct(totalOrigem.qualificados, totalOrigem.leads);
 
   const comAtribuicao = leads.filter(l => l.campaign_name).length;
   /* Os disparos em massa do período, ao lado das campanhas. São da CASA —
@@ -498,6 +528,7 @@ export function campanhas(orgId, filtros = {}) {
   return {
     periodo,
     campanhas: linhas,
+    por_origem: porOrigem, total_origem: totalOrigem,
     disparos,
     /* Honestidade sobre a cobertura: dizer que 4 de 300 leads têm campanha é o
        que impede alguém de ler este painel como se fosse a operação inteira. */
