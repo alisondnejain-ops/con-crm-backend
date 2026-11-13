@@ -46,13 +46,16 @@ export const ACOES = ["marcar", "proximo_corretor", "atendente", "tarefa"];
    áudio do Fernando); nula segue a da conta. 'tarefa' não tira o lead de
    ninguém: cria para o dono a tarefa "falar com o cliente", que aparece
    atrasada na caixa e no funil — é o "prazo vencido vira tarefa" da lista. */
-const acaoDaEtapa = (cfg, l) => ACOES.includes(l.etapa_prazo_acao) ? l.etapa_prazo_acao : cfg.acao;
+/* 'etapas' (CETRO 24.1) só vale como padrão da CONTA: "configurar
+   individualmente nas etapas" — sem ação própria, a etapa só marca. */
+const acaoDaEtapa = (cfg, l) => ACOES.includes(l.etapa_prazo_acao) ? l.etapa_prazo_acao : (cfg.acao === "etapas" ? "marcar" : cfg.acao);
+const ACOES_CONTA = [...ACOES, "etapas"];
 export const PADRAO_MAX = 2;
 
 export function configDoPrazo(orgId) {
   const o = db.prepare("SELECT prazo_acao, prazo_max_repasses, tipo FROM orgs WHERE id = ?").get(orgId) || {};
   return {
-    acao: ACOES.includes(o.prazo_acao) ? o.prazo_acao : "marcar",
+    acao: ACOES_CONTA.includes(o.prazo_acao) ? o.prazo_acao : "marcar",
     max_repasses: o.prazo_max_repasses || PADRAO_MAX,
     // A conta de um corretor só não tem para onde mandar o lead.
     disponivel: o.tipo !== "autonomo",
@@ -63,7 +66,7 @@ export function definirConfigDoPrazo(orgId, { acao, max_repasses } = {}) {
   const atual = configDoPrazo(orgId);
   if (!atual.disponivel) return { erro: "Na conta de corretor autônomo não há para quem passar o lead." };
   const a = acao === undefined ? atual.acao : acao;
-  if (!ACOES.includes(a)) return { erro: "Escolha o que acontece quando o prazo vence." };
+  if (!ACOES_CONTA.includes(a)) return { erro: "Escolha o que acontece quando o prazo vence." };
   let m = max_repasses === undefined ? atual.max_repasses : Number(max_repasses);
   if (!Number.isInteger(m) || m < 1 || m > 10) return { erro: "O número de repasses seguidos vai de 1 a 10." };
   db.prepare("UPDATE orgs SET prazo_acao = ?, prazo_max_repasses = ? WHERE id = ?").run(a, m, orgId);

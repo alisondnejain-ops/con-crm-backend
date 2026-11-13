@@ -20938,7 +20938,20 @@ const ACOES_PRAZO=[
    etapa X tem que ter a sua consequência"). Usado na engrenagem da coluna do
    Funil e em Configurações → Funis e etapas, para as duas telas nunca
    divergirem. Vazio = segue o padrão da conta (Configurações → Atendimento). */
+const ACOES_PRAZO_CONTA=[...ACOES_PRAZO,["etapas","Configurar individualmente nas etapas do funil","Cada etapa decide a sua consequência; a que não tiver escolha própria só marca. Trocar o padrão nunca apaga as escolhas das etapas."]];
 const UNIDADES_PRAZO=[["min",1,"minutos"],["h",60,"horas"],["d",1440,"dias"]];
+/* Duração com unidade (CETRO 24.2): número + minutos/horas/dias; guarda em minutos. Vazio = sem valor. */
+function CampoDuracao({minutos,aoSalvar,estilo,rotulo}){
+  const [p,setP]=useState(()=>prazoEmPartes(minutos));
+  useEffect(()=>{setP(prazoEmPartes(minutos));},[minutos]);
+  const salvar=(np)=>{const n=Number(String(np.n).replace(",",".")); const fator=(UNIDADES_PRAZO.find(u=>u[0]===np.u)||[0,1])[1];
+    aoSalvar(np.n===""||!isFinite(n)||n<=0?null:Math.round(n*fator));};
+  return <div style={{display:"flex",gap:6}}>
+    <input aria-label={rotulo} value={p.n} onChange={e=>setP({...p,n:e.target.value.replace(/[^0-9,.]/g,"")})} onBlur={()=>salvar(p)} inputMode="decimal" placeholder="—" style={{...estilo,flex:1,minWidth:0}}/>
+    <select aria-label={`${rotulo} — unidade`} value={p.u} onChange={e=>{const np={...p,u:e.target.value}; setP(np); if(np.n!=="") salvar(np);}} style={{...estilo,flex:"0 0 92px"}}>
+      {UNIDADES_PRAZO.map(([v,,t])=><option key={v} value={v}>{t}</option>)}</select>
+  </div>;
+}
 const prazoEmPartes=(m)=>{ if(!m) return {n:"",u:"h"};
   if(m%1440===0) return {n:String(m/1440),u:"d"}; if(m%60===0) return {n:String(m/60),u:"h"}; return {n:String(m),u:"min"}; };
 function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
@@ -20948,7 +20961,7 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
   const [padrao,setPadrao]=useState(null);
   useEffect(()=>{ acoes.prazoVencido().then(p=>setPadrao(p.acao)).catch(()=>{}); },[]);
-  const nomeDe=(v)=>(ACOES_PRAZO.find(x=>x[0]===v)||[])[1]||"Só marcar em coral";
+  const nomeDe=(v)=>(ACOES_PRAZO_CONTA.find(x=>x[0]===v)||[])[1]||"Só marcar em coral";
   async function salvar(){
     setErro(""); setSalvando(true);
     const mult=(UNIDADES_PRAZO.find(x=>x[0]===u)||[0,1])[1];
@@ -21137,7 +21150,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
           :<span style={{color:"#8a6d1f"}}>Nenhuma etapa tem prazo ainda — defina em <button onClick={()=>irParaAba("funis")} style={{border:"none",background:"none",padding:0,color:C.greenMid,fontWeight:600,cursor:"pointer",textDecoration:"underline",fontSize:11.5}}>Funis e etapas</button>.</span>}
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:7}}>
-        {ACOES_PRAZO.map(([v,t,d])=>{
+        {ACOES_PRAZO_CONTA.map(([v,t,d])=>{
           const sel=prazo.acao===v;
           return <button key={v} onClick={()=>!sel&&mudarPrazo({acao:v})} aria-pressed={sel}
             style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",padding:"10px 12px",borderRadius:11,cursor:"pointer",fontFamily:FONT,
@@ -22023,6 +22036,8 @@ function RoboConfig({acoes,session,isMobile}){
   const [ensino,setEnsino]=useState(null);
   const [limEnsino,setLimEnsino]=useState(100);
   const [novaLinha,setNovaLinha]=useState("");
+  /* Orientação por áudio (CETRO 26.5): vira TEXTO no campo para revisar antes de Ensinar — nada é salvo direto do áudio. */
+  const vozOrient=usarDitado(LEITURA_MIDIA.audio?(t)=>setNovaLinha(v=>(v&&!/\s$/.test(v)?v+" ":v)+t):null);
   const [erro,setErro]=useState("");
   const [salvando,setSalvando]=useState(false);
   const ehAdm=podeGerir(session);
@@ -22261,10 +22276,13 @@ function RoboConfig({acoes,session,isMobile}){
           style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
             border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
             color:C.ink,outline:"none",resize:"vertical"}}/>
+        {vozOrient.ligado&&<div style={{alignSelf:"flex-start"}}><BotaoDitado voz={vozOrient} ocupado={salvando}/></div>}
         <button onClick={ensinar} disabled={!novaLinha.trim()||salvando}
           style={{alignSelf:"flex-start",background:novaLinha.trim()?C.greenDeep:C.faint,color:"#fff",
             border:"none",borderRadius:9,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
             fontWeight:700,cursor:novaLinha.trim()?"pointer":"default"}}>Ensinar</button>
+        {vozOrient.erro&&<div style={{width:"100%",fontSize:11.5,color:C.hot}}>{vozOrient.erro} Escreva a orientação no campo.</div>}
+        {vozOrient.ligado&&<div style={{width:"100%",fontSize:11,color:C.faint}}>Pode falar a orientação no microfone: ela vira texto aqui para você revisar antes de Ensinar.</div>}
         {novaLinha.length>400&&<div style={{width:"100%",fontSize:11,color:novaLinha.trim().length>500?C.hot:C.faint}}>
           {novaLinha.trim().length} de 500 letras{novaLinha.trim().length>500?" — para descrever um produto, use as Fichas de produto.":""}</div>}
       </div>
@@ -23736,16 +23754,12 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
       </div>
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        <div style={{flex:"1 1 130px"}}>
-          {rot("Prazo sem interação","Em minutos. Vazio = esta etapa não é medida.")}
-          <input value={f.sla_minutes??""} onChange={e=>setF({...f,sla_minutes:e.target.value})}
-            onBlur={e=>salvar({sla_minutes:e.target.value===""?null:Number(e.target.value)})}
-            inputMode="numeric" placeholder="ex.: 60" style={entrada}/></div>
-        <div style={{flex:"1 1 130px"}}>
-          {rot("Avisar antes","Minutos antes de vencer.")}
-          <input value={f.warning_before_minutes??""} onChange={e=>setF({...f,warning_before_minutes:e.target.value})}
-            onBlur={e=>salvar({warning_before_minutes:e.target.value===""?null:Number(e.target.value)})}
-            inputMode="numeric" placeholder="ex.: 15" style={entrada}/></div>
+        <div style={{flex:"1 1 190px"}}>
+          {rot("Prazo sem interação","Vazio = esta etapa não é medida (a etapa continua existindo).")}
+          <CampoDuracao rotulo="Prazo sem interação" minutos={f.sla_minutes} estilo={entrada} aoSalvar={(m)=>{setF({...f,sla_minutes:m});salvar({sla_minutes:m});}}/></div>
+        <div style={{flex:"1 1 190px"}}>
+          {rot("Avisar antes","Quanto antes de vencer o card fica âmbar. Vazio = a 3/4 do prazo.")}
+          <CampoDuracao rotulo="Avisar antes" minutos={f.warning_before_minutes} estilo={entrada} aoSalvar={(m)=>{setF({...f,warning_before_minutes:m});salvar({warning_before_minutes:m});}}/></div>
         <div style={{flex:"1 1 130px"}}>
           {rot("Tipo de desfecho","Ganho e perdido fecham o atendimento.")}
           <select value={f.status_type||"aberto"} onChange={e=>salvar({status_type:e.target.value})} style={entrada}>
