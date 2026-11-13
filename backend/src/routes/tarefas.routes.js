@@ -40,7 +40,8 @@ const doLead = (id) => db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 
 export const listar = (leadId) => db.prepare(`
   SELECT t.id, t.titulo, t.quando, t.feito_em, t.user_id, u.name AS de_quem,
-    t.google_event_id IS NOT NULL AS na_agenda, t.google_meet AS meet, t.google_erro AS agenda_erro
+    t.google_event_id IS NOT NULL AS na_agenda, t.google_meet AS meet, t.google_erro AS agenda_erro,
+    t.cadencia_passo_id IS NOT NULL AS da_cadencia, t.criterio, t.instrucao, t.concluida_por, t.evidencia
   FROM tarefas t LEFT JOIN users u ON u.id = t.user_id
   WHERE t.lead_id = ? ORDER BY t.feito_em IS NOT NULL, t.quando ASC`).all(leadId);
 
@@ -83,7 +84,14 @@ rt.patch("/:id", (req, res) => {
   if (!podeVerLead(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
 
   const campos = [], valores = [];
-  if (req.body?.feito !== undefined) { campos.push("feito_em = ?"); valores.push(req.body.feito ? Date.now() : null); }
+  if (req.body?.feito !== undefined) {
+    campos.push("feito_em = ?"); valores.push(req.body.feito ? Date.now() : null);
+    /* A conclusão à mão fica registrada como tal, com quem marcou (CETRO 10):
+       numa tarefa da cadência é o que separa "o sistema viu a ligação" de
+       "alguém disse que ligou". */
+    campos.push("concluida_por = ?", "concluida_user = ?", "evidencia = ?");
+    valores.push(req.body.feito ? "manual" : null, req.body.feito ? req.user.id : null, req.body.feito ? "marcada à mão" : null);
+  }
   if (req.body?.titulo !== undefined) {
     const titulo = String(req.body.titulo).replace(/\s+/g, " ").trim().slice(0, 120);
     if (!titulo) return res.status(400).json({ error: "Escreva o que precisa ser feito." });
@@ -120,7 +128,8 @@ export function tarefasAbertasPorLead(orgId, ids = null) {
     ? emLotes(ids, (m, lote) => db.prepare(sql(`AND lead_id IN (${m})`)).all(orgId, ...lote))
     : db.prepare(sql("")).all(orgId);
   const linhas = ler((f) => `
-    SELECT lead_id, COUNT(*) AS abertas, MIN(quando) AS proxima, MAX(quando) AS ultima
+    SELECT lead_id, COUNT(*) AS abertas, MIN(quando) AS proxima,
+      MAX(CASE WHEN cadencia_passo_id IS NULL THEN quando END) AS ultima
     FROM tarefas WHERE org_id = ? AND feito_em IS NULL ${f}
     GROUP BY lead_id`);
   const titulos = ler((f) => `
@@ -135,7 +144,8 @@ export function tarefasAbertasPorLead(orgId, ids = null) {
     atrasada: l.proxima < Date.now(),
     // Há alguma marcada para agora ou depois? É o que segura o prazo da etapa
     // (`slaDoLead` com `segura`) — a mesma régua do repasse por prazo vencido.
-    futura: l.ultima >= Date.now(),
+    // A tarefa da CADÊNCIA não segura o prazo (CETRO 10): só a marcada por alguém.
+    futura: l.ultima != null && l.ultima >= Date.now(),
   }]));
 }
 

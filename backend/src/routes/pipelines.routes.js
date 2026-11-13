@@ -21,6 +21,8 @@ import {
   criarDoTemplate, pipelinePadrao, TEMPLATES,
 } from "../services/pipelines.js";
 import { templatesDaConta } from "../services/templates.js";
+import { passosDaEtapa, salvarCadencia, extrairCadencia, CRITERIOS, MAX_PASSOS } from "../services/cadencias.js";
+import { lerDocx, lerXlsx, lerCSV } from "../services/xlsx.js";
 
 const r = Router();
 r.use(authRequired);
@@ -128,6 +130,46 @@ r.post("/:id/duplicar", soGestao, (req, res) =>
 r.delete("/:id", soGestao, (req, res) => ok(res, apagarPipeline(req.user.org_id, req.params.id)));
 
 /* ===== ETAPAS ===== */
+/* ===== TAREFAS WORKFLOW — A CADÊNCIA DA ETAPA (CETRO 10, 13/11/2026) =====
+   Ler é de quem supervisiona; gravar e importar também (é a régua da etapa).
+   A importação LÊ o documento e devolve os passos para revisão — nada é
+   gravado antes do Salvar. */
+// Planilha: uma linha por passo; a coluna do dia pode vir só com o número.
+const planilhaEmLinhas = (linhas) => linhas.map(l => { const c = l.map(x => String(x || "").trim()).filter(Boolean);
+  if (/^\d{1,2}$/.test(c[0] || "")) c[0] = "Dia " + c[0]; return c.join(" — "); }).join("\n");
+const etapaDaConta = (req) => db.prepare("SELECT id, name FROM pipeline_stages WHERE id = ? AND org_id = ?").get(req.params.etapaId, req.user.org_id);
+
+r.get("/etapas/:etapaId/cadencia", soGestao, (req, res) => {
+  if (!etapaDaConta(req)) return res.status(404).json({ error: "Etapa não encontrada." });
+  res.json({ passos: passosDaEtapa(req.user.org_id, req.params.etapaId), criterios: CRITERIOS, max: MAX_PASSOS });
+});
+
+r.put("/etapas/:etapaId/cadencia", soGestao, (req, res) => {
+  const out = salvarCadencia(req.user.org_id, req.params.etapaId, req.body?.passos);
+  if (out.erro) return res.status(out.erro === "Etapa não encontrada." ? 404 : 400).json({ error: out.erro });
+  res.json(out);
+});
+
+r.post("/etapas/:etapaId/cadencia/extrair", soGestao, (req, res) => {
+  if (!etapaDaConta(req)) return res.status(404).json({ error: "Etapa não encontrada." });
+  let texto = String(req.body?.texto || "");
+  const nome = String(req.body?.nome || "").toLowerCase();
+  if (!texto && req.body?.arquivo) {
+    const buf = Buffer.from(String(req.body.arquivo).replace(/^data:[^,]*,/, ""), "base64");
+    try {
+      if (nome.endsWith(".docx")) texto = lerDocx(buf);
+      else if (nome.endsWith(".xlsx")) texto = planilhaEmLinhas(lerXlsx(buf));
+      else if (nome.endsWith(".csv")) texto = planilhaEmLinhas(lerCSV(buf.toString("utf8")));
+      else if (nome.endsWith(".txt") || nome.endsWith(".md")) texto = buf.toString("utf8");
+      else return res.status(415).json({ error: "Envie .docx, .txt, .csv ou .xlsx. PDF: copie o texto e cole no campo." });
+    } catch (e) { return res.status(422).json({ error: e.message || "Não consegui ler o arquivo." }); }
+  }
+  if (!texto.trim()) return res.status(400).json({ error: "Cole o texto da cadência ou escolha um arquivo." });
+  const r1 = extrairCadencia(texto);
+  if (!r1.passos.length) return res.status(422).json({ error: "Não achei nenhum passo. Escreva um por linha começando com \"Dia 1\", \"Dia 2\"…", ...r1 });
+  res.json(r1);
+});
+
 
 r.post("/:id/etapas", soGestao, (req, res) =>
   ok(res, criarEtapa(req.user.org_id, req.params.id, req.body || {})));

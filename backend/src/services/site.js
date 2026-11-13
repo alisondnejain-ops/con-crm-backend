@@ -26,6 +26,11 @@ import { marcaDaOrg } from "./marca.js";
 import { situacao } from "./assinatura.js";
 import { railwayPronto, cadastrarDominio, estadoDoDominio } from "./railway.js";
 
+const unidadesPublicas = (produtoId) => db.prepare(`SELECT identificacao, tipologia, bloco, area, moeda, preco FROM produto_unidades
+  WHERE produto_id = ? AND status = 'disponivel' ORDER BY ordem, created_at LIMIT 200`).all(produtoId)
+  .map(u => ({ identificacao: u.identificacao, tipologia: u.tipologia, bloco: u.bloco, area: u.area > 0 ? u.area : null,
+    moeda: u.moeda === "USD" ? "USD" : "BRL", preco: u.preco > 0 ? u.preco : null }));
+
 /* ===== CONFIGURAÇÃO ===== */
 
 export const FRASE_PADRAO = "Encontre o imóvel certo para você";
@@ -467,6 +472,9 @@ export function publico(p) {
     terreno: p.metragem > 0 ? p.metragem : null,
     descricao: (p.descricao || "").trim() || null,   // a PÚBLICA — nunca `observacoes`
     modalidade: !aluguel && p.modalidade ? p.modalidade : null,
+    moeda: p.moeda === "USD" ? "USD" : "BRL",
+    // Unidades disponíveis (empreendimento/loteamento), só os campos públicos — nunca o fluxo.
+    unidades: unidadesPublicas(p.id),
     local: localDe(p),
     // Só para os dados do Google (schema.org): bairro, cidade e UF já aparecem
     // na página — nada aqui é mais do que o visitante já vê.
@@ -585,14 +593,31 @@ function gtmBody(cfg) {
   return `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${esc(cfg.gtm_id)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>`;
 }
 
-const moeda = (v) => {
+/* Moeda é metadado do preço (BRL ou USD): nunca há conversão, só a forma de escrever. */
+const moeda = (v, cur = "BRL") => {
   if (v == null) return "";
   const inteiro = Math.abs(v - Math.round(v)) < 0.005;
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: inteiro ? 0 : 2, maximumFractionDigits: inteiro ? 0 : 2 }).format(v);
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: cur === "USD" ? "USD" : "BRL", minimumFractionDigits: inteiro ? 0 : 2, maximumFractionDigits: inteiro ? 0 : 2 }).format(v);
 };
 const numero = (v) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(v);
-const precoDe = (i) => (i.valor ? moeda(i.valor) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
-const precoTexto = (i) => (i.valor ? moeda(i.valor) + (i.finalidade === "aluguel" ? "/mês" : "") : "Valor sob consulta");
+const precoDe = (i) => (i.valor ? moeda(i.valor, i.moeda) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
+const precoTexto = (i) => (i.valor ? moeda(i.valor, i.moeda) + (i.finalidade === "aluguel" ? "/mês" : "") : "Valor sob consulta");
+
+/* As unidades disponíveis de um empreendimento/loteamento (CETRO 12.4). Só o
+   público: identificação, tipologia, bloco, área e preço na moeda da unidade.
+   O fluxo de pagamento NÃO vai ao site — condição comercial é conversa. Estilo
+   inline e cores herdadas, para servir nos temas claro e escuro dos modelos. */
+function secaoUnidades(i) {
+  const us = i.unidades || [];
+  if (!us.length) return "";
+  const linhas = us.map(u => `<tr><td style="padding:10px 8px;border-top:1px solid rgba(127,127,127,.25)"><b>${esc(u.identificacao)}</b>${u.bloco ? `<br><small style="opacity:.7">${esc(u.bloco)}</small>` : ""}</td>
+    <td style="padding:10px 8px;border-top:1px solid rgba(127,127,127,.25)">${esc(u.tipologia || "")}</td>
+    <td style="padding:10px 8px;border-top:1px solid rgba(127,127,127,.25);white-space:nowrap">${u.area ? numero(u.area) + " m²" : ""}</td>
+    <td style="padding:10px 8px;border-top:1px solid rgba(127,127,127,.25);text-align:right;white-space:nowrap"><b>${u.preco ? moeda(u.preco, u.moeda) : "Consulte"}</b></td></tr>`).join("");
+  return `<div class="secao unidades"><h2>Unidades disponíveis</h2><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:15px">
+    <thead><tr style="text-align:left;opacity:.7;font-size:13px"><th style="padding:6px 8px">Unidade</th><th style="padding:6px 8px">Tipologia</th><th style="padding:6px 8px">Área</th><th style="padding:6px 8px;text-align:right">Preço</th></tr></thead>
+    <tbody>${linhas}</tbody></table></div></div>`;
+}
 
 function telefoneLegivel(n) {
   const d = String(n || "").replace(/^55/, "");
@@ -929,7 +954,7 @@ export function dadosDoImovel(ctx, i, url) {
         ...(i.lugar.cidade ? { addressLocality: i.lugar.cidade } : {}),
         ...(i.lugar.uf ? { addressRegion: i.lugar.uf } : {}), addressCountry: "BR" } } : {}) } } : {}),
     offers: { "@type": "Offer", availability: "https://schema.org/InStock", businessFunction: i.finalidade === "aluguel" ? "http://purl.org/goodrelations/v1#LeaseOut" : "http://purl.org/goodrelations/v1#Sell",
-      ...(i.valor ? { price: Number(i.valor), priceCurrency: "BRL" } : {}),
+      ...(i.valor ? { price: Number(i.valor), priceCurrency: i.moeda === "USD" ? "USD" : "BRL" } : {}),
       seller: { "@type": "RealEstateAgent", name: org.name } },
   };
 }
@@ -960,7 +985,7 @@ export const resumoDoImovel = (i) =>
   [precoTexto(i), caracteristicas(i, true).map(([, v, r]) => `${v}${r ? " " + r : ""}`).join(", "), i.local.curta].filter(Boolean).join(" · ");
 /* O evento do Pixel ao abrir um imóvel. */
 export const pixelDoImovel = (i) =>
-  `fbq('track','ViewContent',{content_ids:['${esc(i.codigo)}'],content_name:${JSON.stringify(i.titulo).replace(/</g, "\\u003c")},content_type:'product'${i.valor ? `,value:${Number(i.valor)},currency:'BRL'` : ""}});`;
+  `fbq('track','ViewContent',{content_ids:['${esc(i.codigo)}'],content_name:${JSON.stringify(i.titulo).replace(/</g, "\\u003c")},content_type:'product'${i.valor ? `,value:${Number(i.valor)},currency:'${i.moeda === "USD" ? "USD" : "BRL"}'` : ""}});`;
 
 export function paginaPortal(ctx, query) {
   const { org, cfg, base } = ctx;
@@ -1063,6 +1088,7 @@ export function paginaImovel(ctx, i) {
       <div class="preco-cel"><div class="preco">${precoDe(i)}</div>${custos ? `<div class="custos">${custos}</div>` : ""}</div>
       ${ficha ? `<div class="ficha">${ficha}</div>` : ""}
       ${i.descricao ? `<div class="secao"><h2>Sobre o imóvel</h2><p class="texto">${esc(i.descricao)}</p></div>` : ""}
+      ${secaoUnidades(i)}
       ${i.video ? `<div class="secao"><h2>Vídeo</h2><video class="video" src="${esc(i.video)}" controls preload="metadata" playsinline></video></div>` : ""}
     </article>
     <aside class="lateral">
@@ -1141,7 +1167,7 @@ export function paginaPausada(ctx) {
    daqui, um lugar só. Um modelo que reescrevesse o Pixel ou o caminho do
    imóvel divergiria do Clássico no primeiro conserto. */
 export const pecas = { imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
-  telefoneLegivel, wa, caracteristicas, ICO, FAIXAS };
+  telefoneLegivel, wa, caracteristicas, ICO, FAIXAS, secaoUnidades };
 
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====
    O mapa que o Google lê para achar cada imóvel: a página inicial e todo

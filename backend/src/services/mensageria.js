@@ -32,6 +32,7 @@ import { mensagemDoSuporte } from "./suporte.js";
 import { guardarMidiaRecebida } from "./midia.js";
 import { lerAoChegar } from "./leitura-midia.js";
 import { atender, pararPorGente } from "./robo.js";
+import { acaoDaCadencia, clienteRespondeu } from "./cadencias.js";
 import { avisarDoLead } from "./push.js";
 import { linhaSoltaDoLead, podeAvisarLinhaSolta } from "./linha-solta.js";
 import { advanceStage } from "../routes/messages.routes.js";
@@ -322,6 +323,12 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
   // (Só acontece na Uazapi — na Meta, `fromMe` nunca é true.)
   if (fromMe && !doDisparo && !lead.first_resp_at)
     db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
+
+  /* Cadência da etapa (CETRO 10): mensagem digitada no celular é mensagem
+     enviada; o cliente respondendo depois de alguém da equipe é conversa
+     efetiva. Nunca lança. */
+  if (fromMe && !doDisparo) acaoDaCadencia(lead.id, "mensagem", { evidencia: "mensagem enviada pelo WhatsApp" });
+  if (!fromMe) clienteRespondeu(lead.id);
 
   // Cliente voltou a falar: atendimento finalizado reabre sozinho, senão a
   // mensagem cairia numa conversa escondida e ninguém responderia.

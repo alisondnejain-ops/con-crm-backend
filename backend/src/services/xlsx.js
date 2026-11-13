@@ -156,3 +156,18 @@ export function lerCSV(texto) {
     return campos.map(c => c.trim());
   });
 }
+
+/* O TEXTO DE UM .docx (13/11/2026, cadências por etapa — CETRO 10): o Word
+   também é um ZIP, e o texto mora em word/document.xml. Cada parágrafo
+   (<w:p>) vira uma linha; tabulação e quebra viram espaço/linha. Sem
+   formatação — quem lê é o extrator da cadência, que só quer as frases. */
+export function lerDocx(buffer) {
+  let zip;
+  try { zip = arquivosDoZip(buffer); } catch { throw new Error("Arquivo não parece um .docx válido."); }
+  const b = zip.get("word/document.xml");
+  if (!b) throw new Error("Arquivo não parece um .docx válido.");
+  const xml = b.toString("utf8")
+    .replace(/<w:tab\/>/g, " ").replace(/<w:br[^>]*\/>/g, "\n")
+    .replace(/<\/w:p>/g, "\n");
+  return desescapa(semTags(xml)).split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+}

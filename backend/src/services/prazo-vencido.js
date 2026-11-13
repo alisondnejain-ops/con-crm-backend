@@ -98,7 +98,7 @@ export function vencidosParaAgir(orgId, agora = Date.now(), limite = 50) {
     WHERE l.org_id = ? AND l.closed_at IS NULL AND l.sale_date IS NULL
       AND s.sla_minutes > 0 AND s.is_active = 1 AND COALESCE(s.status_type, 'aberto') NOT IN ('ganho', 'perdido')
       AND u.role = 'corretor' AND u.status = 'ativo'`).all(orgId);
-  const tarefaFutura = db.prepare("SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? LIMIT 1");
+  const tarefaFutura = db.prepare("SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? AND cadencia_passo_id IS NULL LIMIT 1");
   const fora = [];
   for (const l of linhas) {
     if (acaoDaEtapa(cfg, l) === "marcar") continue;

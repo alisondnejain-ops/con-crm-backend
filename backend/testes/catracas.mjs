@@ -310,7 +310,7 @@ try {
   const sp = r.body.id;
   r = await A.get("/distribution/catracas");
   let cSp = r.body.catracas.find((c) => c.id === sp);
-  assert.deepEqual(cSp.canais, { whatsapp: false, portal: true, site: true, formularios: ["F5"], linhas: [] });
+  assert.deepEqual(cSp.canais, { whatsapp: false, portal: true, site: true, formularios: ["F5"], linhas: [], campanhas: [], anuncios: [], imoveis: [] });
   assert.equal(cSp.etapa.nome, qualificado.name);
   assert.equal(cSp.etapa.ok, true);
 

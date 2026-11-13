@@ -25,14 +25,14 @@
      "perdidos para outro corretor", que é só repasse feito por uma pessoa. */
 import db from "../db.js";
 import { trocarResponsavel } from "./movimento.js";
-import { filaDaCatraca, marcarQueRecebeuNoLead } from "./catracas.js";
+import { filaDaCatraca, marcarQueRecebeuNoLead, gestorDaConta } from "./catracas.js";
 import { avisar } from "./push.js";
 import { etapasDoComercial } from "./marcos.js";
 
 const PADRAO_VOLTAS = 2;
 
 export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
-  const linhas = db.prepare(`SELECT l.*, c.nome catraca_nome, c.tempo_resposta_min, c.max_voltas, u.name dono_nome
+  const linhas = db.prepare(`SELECT l.*, c.nome catraca_nome, c.tempo_resposta_min, c.max_voltas, c.tempo_acao, u.name dono_nome
     FROM leads l JOIN catracas c ON c.id = l.catraca_id AND c.org_id = l.org_id
     JOIN users u ON u.id = l.assigned_to
     JOIN catraca_membros m ON m.catraca_id = c.id AND m.user_id = l.assigned_to
@@ -58,6 +58,18 @@ export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
 export async function agirSemResposta(orgId, agora = Date.now()) {
   const feitos = [];
   for (const l of semRespostaParaAgir(orgId, agora)) {
+    /* O QUE FAZER QUANDO VENCE (CETRO 11.4): "aguardar" avisa o próprio
+       corretor e deixa o lead com ele; "notificar" avisa o gestor e também não
+       tira o lead. Os dois avisam UMA vez (as voltas vão ao teto). */
+    if (l.tempo_acao === "aguardar" || l.tempo_acao === "notificar") {
+      db.prepare("UPDATE leads SET catraca_voltas = ? WHERE id = ?").run(l.max_voltas || PADRAO_VOLTAS, l.id);
+      const alvo = l.tempo_acao === "aguardar" ? l.assigned_to : gestorDaConta(orgId);
+      if (alvo) avisar(alvo, { titulo: l.tempo_acao === "aguardar" ? "Cliente esperando você" : "Lead sem atendimento",
+        corpo: l.tempo_acao === "aguardar" ? `${l.name} — ninguém falou com o cliente em ${l.tempo_resposta_min} min.`
+          : `${l.name} está com ${l.dono_nome} há ${l.tempo_resposta_min} min sem conversa (catraca ${l.catraca_nome}).`, leadId: l.id }).catch(() => {});
+      feitos.push({ lead_id: l.id, acao: l.tempo_acao });
+      continue;
+    }
     const f = filaDaCatraca(orgId, l.catraca_id);
     const proximo = f && (f.fila || []).filter(p => p.posicao && p.id !== l.assigned_to)
       .sort((a, b) => a.posicao - b.posicao)[0];

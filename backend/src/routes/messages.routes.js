@@ -8,6 +8,7 @@ import { salvar, limiteBytes, bytesDoArquivo, bytesParaBaixar, ehVideo, ehDocume
 import { garantirH264 } from "../services/video.js";
 import { pararPorGente } from "../services/robo.js";
 import { canalDoLead } from "../services/canais.js";
+import { acaoDaCadencia } from "../services/cadencias.js";
 import { aoFalarComOCliente } from "../services/movimento.js";
 import { agendar, cancelar, listarDoLead } from "../services/agendadas.js";
 import { fluxosParaConversa, mandarFluxoNaConversa, pararFluxoNaConversa } from "../services/disparo.js";
@@ -113,7 +114,7 @@ export async function enviarTextoDoCrm({ user, lead, text, citada = null }) {
 
   // primeira resposta do atendente -> marca tempo de 1ª resposta
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id); acaoDaCadencia(lead.id, "mensagem", { userId: user.id, evidencia: "mensagem enviada pelo CRM" });   // gente atendeu: o robô sai desta conversa
 
   advanceStage(lead.id);
 }
@@ -344,7 +345,7 @@ r.post("/:id/anexo", async (req, res) => {
 
   for (const m of enviados) gravarSaida(lead, req.user, firstName, m);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id); acaoDaCadencia(lead.id, "mensagem", { userId: req.user.id, evidencia: "mensagem enviada pelo CRM" });   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: enviados.length });
 });
@@ -400,7 +401,7 @@ r.post("/:id/pronta/:mid", async (req, res) => {
     return res.status(502).json({ error: "Falha ao enviar pelo WhatsApp", detail: e.message });
   }
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id); acaoDaCadencia(lead.id, "mensagem", { userId: req.user.id, evidencia: "mensagem enviada pelo CRM" });
   res.json({ ok: true });
 });
 
@@ -491,7 +492,7 @@ r.post("/:id/anexo/video", express.raw({ limit: `${LIMITE_VIDEO_MB + 5}mb`, type
 
   gravarSaida(lead, req.user, firstName, resultado);
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id); acaoDaCadencia(lead.id, "mensagem", { userId: req.user.id, evidencia: "mensagem enviada pelo CRM" });   // gente atendeu: o robô sai desta conversa
   advanceStage(lead.id);
   res.json({ ok: true, enviados: 1, convertido });
 });
@@ -564,7 +565,7 @@ r.post("/:id/localizacao", async (req, res) => {
     VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName,
       `📍 Localização enviada (https://maps.google.com/?q=${lat},${lon})`, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id); acaoDaCadencia(lead.id, "mensagem", { userId: req.user.id, evidencia: "mensagem enviada pelo CRM" });   // gente atendeu: o robô sai desta conversa
   res.json({ ok: true });
 });
 
@@ -598,7 +599,7 @@ export async function enviarArquivoDoCrm({ user, lead, url, mime, nome = "", leg
     file: url, bytes: bytes || undefined, mime, caption: leg || undefined, signedBy: leg ? firstName : undefined, docName });
   gravarSaida(lead, user, firstName, { url, mime, nome, legenda: leg, wa_id: envio?.messageid || null });
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(Date.now(), lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id);
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, user.id); acaoDaCadencia(lead.id, "mensagem", { userId: user.id, evidencia: "mensagem enviada pelo CRM" });
   if (f === "audio" && String(legenda || "").trim()) await enviarTextoDoCrm({ user, lead, text: String(legenda).trim() });
 }
 
@@ -710,7 +711,7 @@ r.post("/:id/produto", async (req, res) => {
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at,canal_id)
     VALUES (?,?,?,?,?,?,?,?)`).run("m_" + randomUUID(), lead.id, "out", req.user.id, firstName, registro, now, linhaDo(lead));
   if (!lead.first_resp_at) db.prepare("UPDATE leads SET first_resp_at = ? WHERE id = ?").run(now, lead.id);
-  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id);   // gente atendeu: o robô sai desta conversa
+  pararPorGente(lead.id); aoFalarComOCliente(lead.id, req.user.id); acaoDaCadencia(lead.id, "mensagem", { userId: req.user.id, evidencia: "mensagem enviada pelo CRM" });   // gente atendeu: o robô sai desta conversa
   // Guarda como imóvel de interesse, se ainda não houver outro marcado.
   if (!lead.produto_id) db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(p.id, lead.id);
 

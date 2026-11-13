@@ -280,6 +280,8 @@ function adaptLead(l,anterior){
     sugestaoEtapa:l.sugestao_etapa!==undefined?l.sugestao_etapa:(anterior?anterior.sugestaoEtapa:null),
     // Estado do robô do fora-do-expediente neste lead. Só a supervisão recebe.
     robo:l.robo!==undefined?l.robo:(anterior?anterior.robo:null),
+    // Imóvel de interesse (vem ao abrir a ficha): {id,titulo,valor,finalidade,status}.
+    produto:l.produto!==undefined?l.produto:(anterior?anterior.produto:null),
     // Observações do lead: só chegam ao abrir a conversa.
     obs:l.observacoes!==undefined?l.observacoes:(anterior?anterior.obs:null),
     /* Por qual linha esta conversa sai, e se quem está olhando pode trocar.
@@ -2124,6 +2126,8 @@ function ConCRM(){
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
     // A foto vai para o primeiro lugar — é a capa no site e a que leva a legenda no WhatsApp.
     capaProduto:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}/capa`,{method:"POST"}),
+    unidadesProduto:(id)=>api(`/produtos/${id}/unidades`),
+    salvarUnidades:(id,unidades)=>api(`/produtos/${id}/unidades`,{method:"PUT",body:{unidades}}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
     // Minha conta: qualquer alteração precisa refletir na sessão na hora — é o
     // nome e a foto que aparecem no topo e assinam as mensagens.
@@ -2383,6 +2387,9 @@ function ConCRM(){
     apagarPipeline:(id)=>api(`/pipelines/${id}`,{method:"DELETE"}),
     criarEtapa:(id,dados)=>api(`/pipelines/${id}/etapas`,{method:"POST",body:dados}),
     editarEtapa:(etapaId,dados)=>api(`/pipelines/etapas/${etapaId}`,{method:"PATCH",body:dados}),
+    cadencia:(etapaId)=>api(`/pipelines/etapas/${etapaId}/cadencia`),
+    salvarCadencia:(etapaId,passos)=>api(`/pipelines/etapas/${etapaId}/cadencia`,{method:"PUT",body:{passos}}),
+    extrairCadencia:(etapaId,dados)=>api(`/pipelines/etapas/${etapaId}/cadencia/extrair`,{method:"POST",body:dados}),
     apagarEtapa:(etapaId)=>api(`/pipelines/etapas/${etapaId}`,{method:"DELETE"}),
     ordenarEtapas:(id,ids)=>api(`/pipelines/${id}/etapas/ordem`,{method:"POST",body:{ids}}),
     camposPersonalizados:()=>api("/pipelines/campos/lista"),
@@ -10623,8 +10630,11 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    fichas — que é exatamente o que a recusa existe para impedir. */
 function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
   const supervisor=podeSupervisionar(session);
-  const [f,setF]=useState({nome:"",telefone:"",pais:PAIS_CONTA,stage_id:"",assigned_to:"",observacao:""});
+  const [f,setF]=useState({nome:"",telefone:"",email:"",pais:PAIS_CONTA,stage_id:"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
+  // Catracas de produto, para "entregar ao próximo da catraca" (CETRO 09.3).
+  const catD=usarCatracas(acoes,supervisor);
+  const catracas=((catD&&catD.catracas)||[]).filter(c=>c.ativa!==false);
   const [equipe,setEquipe]=useState([]);
   const [erro,setErro]=useState(null);   // {texto, leadId}
   const [salvando,setSalvando]=useState(false);
@@ -10647,6 +10657,7 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
     try{
       const lead=await acoes.criarLead({
         nome:f.nome.trim(), telefone:f.telefone.trim(), pais:f.pais,
+        email:f.email.trim()||undefined,
         stage_id:f.stage_id||undefined,
         observacao:f.observacao.trim()||undefined,
         ...(supervisor?{assigned_to:f.assigned_to}:{}),
@@ -10702,7 +10713,11 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
           <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
             É por ele que a conversa do WhatsApp vai cair nesta mesma ficha.</div></div>
 
-        <div>{rotulo("Etapa em que ele está")}
+        <div>{rotulo("E-mail (opcional)")}
+          <input value={f.email} onChange={e=>setF({...f,email:e.target.value})} type="email" inputMode="email"
+            placeholder="nome@exemplo.com" style={entrada}/></div>
+
+        <div>{rotulo("Funil e etapa")}
           <select value={f.stage_id} onChange={e=>setF({...f,stage_id:e.target.value})} style={{...entrada,cursor:"pointer"}}>
             <option value="">Começo do funil</option>
             {funis.map(p=><optgroup key={p.id} label={p.name}>
@@ -10723,6 +10738,11 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
                 grande demais para ficar num vazio que pode significar as
                 duas coisas. */}
             <option value="fila">Ninguém ainda — deixar na fila</option>
+            {/* Ou o próximo disponível de uma catraca — a vez anda (CETRO 09.3). */}
+            <optgroup label="Próximo disponível da catraca">
+              <option value="catraca:principal">Catraca principal</option>
+              {catracas.map(c=><option key={c.id} value={"catraca:"+c.id}>{c.nome}</option>)}
+            </optgroup>
           </select></div>}
 
         <div>{rotulo("Observações gerais")}
@@ -11267,10 +11287,10 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
      mostraria um resultado que não é o que a pessoa deixou na tela. */
   const [onde,setOnde]=usarEscolha("funil.buscarEm","tudo");
   const [ocultar,setOcultar]=usarContatoOculto();
-  const [f,setF]=useState({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
+  const [f,setF]=useState({dono:"",prioridade:"",tag:"",situacao:"",origem:"",de:"",ate:""});
   const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
-  const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.situacao,f.de,f.ate].filter(Boolean).length;
+  const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.situacao,f.origem,f.de,f.ate].filter(Boolean).length;
 
   /* SÓ OS LEADS DESTE FUNIL.
 
@@ -11309,6 +11329,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       // radar, e sem esta opção não haveria como listá-los.
       // Várias pessoas (e/ou a fila) — união dentro da dimensão (CETRO 04.1).
       {const donos=donosDoValor(f.dono); if(donos.length&&!donos.includes(l.assignedTo||"fila")) return false;}
+      // Origem (canal de aquisição) — CETRO 09.1.
+      if(f.origem&&(l.origem||"")!==f.origem) return false;
       if(f.prioridade&&l.prio!==f.prioridade) return false;
       // Filtrar por tag é a razão de a tag existir: é daqui que sai o
       // "mostre os investidores" que ninguém conseguia perguntar ao CRM.
@@ -11323,7 +11345,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   // Alguma coluna tem valor em negociação? Então todas reservam a linha, para não desalinhar.
   const algumaNegociacao=visiveis.some(l=>!l.venda&&l.negociacao);
 
-  const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",de:"",ate:""});
+  const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",origem:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
       border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
@@ -11568,6 +11590,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               que promete uma peneira que não existe. */}
           {!!tagsDaCasa.length&&selo("Tag",f.tag,"tag",tagsDaCasa.map(t=>({v:t.id,t:t.nome})))}
           {selo("Situação",f.situacao,"situacao",SITUACOES)}
+          {(()=>{const os=[...new Set(leads.map(l=>l.origem).filter(Boolean))].sort();
+            return os.length>1?selo("Origem",f.origem,"origem",os.map(o=>({v:o,t:o}))):null;})()}
           {filtrosAtivos>0&&<button onClick={limpar}
             style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,
               cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
@@ -11633,7 +11657,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
         {alvo&&alvo!==arrasto.de?"soltar em "+alvo:"arraste até uma etapa"}</div>
     </div>}
-    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar}
+    {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar} session={session}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
     {engrenagem&&<PrazoDaEtapaModal etapa={engrenagem} acoes={acoes} isMobile={isMobile}
       aoFechar={()=>setEngrenagem(null)} aoSalvo={()=>reverFunis&&reverFunis()}/>}
@@ -11652,10 +11676,46 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
    marcadas, e um botão do WhatsApp para ir à conversa quando a decisão for
    falar com o cliente. Sem sair do quadro é possível olhar dez leads parados
    em sequência — que é justamente o que se faz no funil. */
-function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar}){
+/* A FICHA COMPLETA DO LEAD, EM ABAS (CETRO 09.2, 13/11/2026): Lead, Dados,
+   Imóveis, Perfil de busca, Histórico e WhatsApp. Não é uma segunda base:
+   todas as abas usam os MESMOS componentes da ficha do Atender, lendo o
+   mesmo lead. A etapa continua sendo mudada no Atender (ou arrastando o
+   card) — duas telas oferecendo a mesma decisão é como um lead é movido duas
+   vezes. */
+const lead_semImovel=()=>contaInterna();
+// O valor em negociação também na aba Imóveis da ficha completa.
+function QualificacaoValorNegociacao({lead,acoes}){
+  if(lead.venda) return null;
+  return <div style={{marginBottom:12}}><CampoQual rotulo="Valor em negociação" valor={lead.negociacao?fmtMoeda(lead.negociacao):"—"} icone="trend"
+    onSalvar={(novo)=>acoes.salvarNegociacao(lead.id,novo)}/></div>;
+}
+/* A conversa na ficha completa: só leitura, as últimas mensagens, com o botão
+   do rodapé levando ao Atender para responder. */
+function ConversaSoLeitura({lead,isMobile}){
+  const ref=useRef(null);
+  const msgs=(lead.msgs||[]).slice(-60);
+  useEffect(()=>{ if(ref.current) ref.current.scrollTop=ref.current.scrollHeight; },[lead.id,msgs.length]);
+  if(!msgs.length) return <div style={{color:C.faint,fontSize:12.5}}>Nenhuma mensagem trocada ainda.</div>;
+  return <div ref={ref} style={{display:"flex",flexDirection:"column",gap:6,background:C.surface,borderRadius:12,padding:10}}>
+    {(lead.msgs||[]).length>60&&<div style={{color:C.faint,fontSize:11,textAlign:"center"}}>Mostrando as últimas 60 — a conversa inteira fica no Atender.</div>}
+    {msgs.map((m,i)=>m.from==="system"
+      ?<div key={m.id||i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:10.5,padding:"3px 10px",borderRadius:12,textAlign:"center"}}>{m.text}</div>
+      :<div key={m.id||i} style={{alignSelf:m.from==="corretor"?"flex-end":"flex-start",maxWidth:isMobile?"88%":"76%",
+        background:m.from==="corretor"?"#E3F1E8":C.card,border:`1px solid ${m.from==="corretor"?C.green+"2E":C.line}`,borderRadius:13,padding:"6px 10px",fontSize:12.5,color:C.ink}}>
+        {m.from==="corretor"&&<div style={{fontSize:10,fontWeight:700,color:C.greenMid}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
+        {m.apagadaEm?<i style={{color:C.faint}}>Mensagem apagada</i>:<TextoDaMensagem texto={m.text||(m.midia?"[arquivo]":"")}/>}
+        <div style={{color:C.faint,fontSize:9.5,textAlign:"right",marginTop:1}}>{fmtTarefa(m.at)}</div>
+      </div>)}
+  </div>;
+}
+
+const ABAS_FICHA=[["lead","Lead"],["dados","Dados"],["imoveis","Imóveis"],["perfil","Perfil de busca"],["historico","Histórico"],["whatsapp","WhatsApp"]];
+function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,session}){
   const alturaBarra=usarAlturaDaBarra();
   const l=leads.find(x=>x.id===leadId);
-  useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); },[leadId]);
+  const [aba,setAba]=useState("lead");
+  const [simulando,setSimulando]=useState(false);
+  useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); setAba("lead"); setSimulando(false); },[leadId]);
   if(!l) return null;
 
   /* `maxHeight:100%` em vez de 90vh: a caixa de fora JÁ tem a altura certa da
@@ -11671,7 +11731,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar})
        cima de quem. */
     paddingBottom:isMobile?alturaBarra:20}}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,
-      width:"100%",maxWidth:520,maxHeight:"100%",display:"flex",flexDirection:"column",minHeight:0}}>
+      width:"100%",maxWidth:760,maxHeight:"100%",height:isMobile?"100%":"min(860px,100%)",display:"flex",flexDirection:"column",minHeight:0}}>
 
       <div style={{padding:isMobile?"14px 15px 10px":"16px 18px 12px",borderBottom:`1px solid ${C.line}`,
         display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -11687,16 +11747,62 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar})
           width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
       </div>
 
+      {/* As abas rolam de lado no celular em vez de quebrar em duas linhas. */}
+      <div role="tablist" style={{display:"flex",gap:2,padding:isMobile?"0 10px":"0 14px",borderBottom:`1px solid ${C.line}`,
+        overflowX:"auto",flexShrink:0}}>
+        {ABAS_FICHA.map(([k,t])=><button key={k} role="tab" aria-selected={aba===k} onClick={()=>{setAba(k);setSimulando(false);}}
+          style={{border:"none",background:"transparent",padding:isMobile?"11px 10px":"10px 11px",cursor:"pointer",whiteSpace:"nowrap",
+            fontSize:12.5,fontWeight:aba===k?700:500,color:aba===k?C.greenDeep:C.sub,
+            borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,marginBottom:-1}}>{t}</button>)}
+      </div>
+
       <div style={{flex:1,overflowY:"auto",padding:isMobile?"12px 15px":"14px 18px",minHeight:0}}>
         {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
-          <Icon n="loader" size={14} spin/> Buscando a conversa…</div>}
-        {/* A etapa lida pela IA NÃO entra aqui, a pedido do Ali: ela mora na
-            ficha do lead. Aqui o popup responde "o que está acontecendo com
-            este cliente"; mudar a etapa dele é decisão de quem está atendendo,
-            no lugar onde se atende. Duas telas oferecendo a mesma decisão é
-            como o mesmo lead acaba movido duas vezes. */}
-        <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
-        <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
+          <Icon n="loader" size={14} spin/> Buscando o lead…</div>}
+        {aba==="lead"&&<React.Fragment>
+          <ResponsavelDoLead lead={l} session={session}/>
+          <OrigemDoLead lead={l}/>
+          <TemperaturaDoLead lead={l} acoes={acoes}/>
+          <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
+          <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
+          <Observacoes lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+          <TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+        </React.Fragment>}
+        {aba==="dados"&&<React.Fragment>
+          <NomeDoLead lead={l} acoes={acoes}/>
+          {ocultar?<div style={{color:C.faint,fontSize:12,marginBottom:10}}>Telefone e e-mail escondidos (o olho do Funil está fechado).</div>
+            :<React.Fragment><TelefoneDoLead lead={l} acoes={acoes}/>
+              {l.email&&<div style={{color:C.sub,fontSize:12,margin:"-4px 0 10px",overflowWrap:"anywhere"}}>{l.email}</div>}</React.Fragment>}
+          {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
+            <CamposPersonalizadosDoLead lead={l} acoes={acoes} session={session}/>
+          </div>
+        </React.Fragment>}
+        {aba==="imoveis"&&(simulando
+          ?<Simulacao lead={l} acoes={acoes} isMobile={isMobile} aoFechar={()=>setSimulando(false)}/>
+          :<React.Fragment>
+            <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
+              <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}}>Imóvel de interesse</div>
+              {l.produto
+                ?<div style={{color:C.ink,fontSize:13,fontWeight:600}}>{l.produto.titulo}
+                  {l.produto.valor?<span style={{color:C.sub,fontWeight:500}}> · {fmtMoeda(l.produto.valor)}{l.produto.finalidade==="aluguel"?"/mês":""}</span>:null}</div>
+                :<div style={{color:C.faint,fontSize:12}}>Nenhum ainda. O primeiro imóvel enviado pela conversa fica marcado aqui.</div>}
+              {/* Os imóveis enviados ao cliente, pelo registro da conversa. */}
+              {(()=>{const env=(l.msgs||[]).filter(m=>/^\[Imóvel enviado\]/.test(m.text||""));
+                return env.length?<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
+                  <div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Enviados na conversa</div>
+                  {env.slice(-8).reverse().map(m=><div key={m.id} style={{color:C.sub,fontSize:11.5}}>{String(m.text).replace(/^\[Imóvel enviado\]\s*/,"")}<span style={{color:C.faint}}> · {fmtTarefa(m.at)}</span></div>)}
+                </div>:null;})()}
+            </div>
+            {!lead_semImovel()&&<QualificacaoValorNegociacao lead={l} acoes={acoes}/>}
+            <SimulacaoEVenda lead={l} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
+          </React.Fragment>)}
+        {aba==="perfil"&&(contaInterna()
+          ?<div style={{color:C.faint,fontSize:12}}>Esta conta não usa o perfil de busca de imóvel.</div>
+          :<FichaDoCliente lead={l} acoes={acoes} titulo="Perfil de busca" todasAbertas
+            secoes={["Interesse","Motivação","Imóvel desejado","Capacidade de investimento","Prazo"]}/>)}
+        {aba==="historico"&&<LinhaDoTempo lead={l} acoes={acoes} isMobile={isMobile} abertaDeInicio/>}
+        {aba==="whatsapp"&&<ConversaSoLeitura lead={l} isMobile={isMobile}/>}
       </div>
 
       {/* O botão do WhatsApp é a saída para a ação: li o que a IA disse, agora
@@ -11770,6 +11876,7 @@ function GoogleAgenda({acoes,session,isMobile}){
   </div>;
 }
 
+const CRITERIOS_CADENCIA={mensagem:"Mensagem enviada",ligacao:"Ligação realizada",conversa:"Conversa efetiva",manual:"Marcar à mão"};
 function TarefasDoLead({lead,acoes,isMobile}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
@@ -11827,10 +11934,17 @@ function TarefasDoLead({lead,acoes,isMobile}){
               {t.de_quem?` · ${first(t.de_quem)}`:""}
               {t.na_agenda?" · na agenda":""}
             </div>
+            {/* Tarefa da cadência da etapa (CETRO 10): diz o que a conclui sozinha. */}
+            {t.da_cadencia?<div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:3}}>
+              <span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,padding:"1px 6px",borderRadius:999}}>cadência</span>
+              <span style={{color:C.faint,fontSize:10}}>{t.criterio&&t.criterio!=="manual"?`conclui sozinha com: ${CRITERIOS_CADENCIA[t.criterio]||t.criterio}`:"marcar à mão"}</span>
+            </div>:null}
+            {t.instrucao&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.4,marginTop:3,whiteSpace:"pre-wrap"}}>{t.instrucao}</div>}
             {t.meet&&<a href={t.meet} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>Entrar no Meet</a>}
           </div>
-          <button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
-            aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>
+          {/* A da cadência não se apaga: sai sozinha quando o lead deixa a etapa. */}
+          {!t.da_cadencia&&<button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
+            aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>}
         </div>;})}
     </div>
 
@@ -11853,8 +11967,11 @@ function TarefasDoLead({lead,acoes,isMobile}){
     </div>}
     {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
 
-    {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`}}>
-      {feitas.length} tarefa(s) já feita(s){feitas[0]?`, a última: ${feitas[feitas.length-1].titulo}`:""}
+    {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3}}>
+      <span>{feitas.length} tarefa(s) já feita(s)</span>
+      {/* As últimas, com a origem da conclusão: o sistema viu ou alguém marcou. */}
+      {[...feitas].sort((a,b)=>b.feito_em-a.feito_em).slice(0,3).map(t=><span key={t.id} style={{color:C.sub}}>
+        ✓ {t.titulo}<span style={{color:C.faint}}> · {fmtTarefa(t.feito_em)}{t.concluida_por?` · ${t.concluida_por==="manual"?"marcada à mão":"concluída: "+(t.evidencia||CRITERIOS_CADENCIA[t.concluida_por]||t.concluida_por)}`:""}</span></span>)}
     </div>}
 
     {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{erro}</div>}
@@ -11940,7 +12057,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
   const tar=l.tarefas;
   const linha=(icone,texto,cor)=><div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
     <Icon n={icone} size={9} color={cor||C.faint}/>
-    <span style={{color:cor||C.faint,fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>
+    <span title={typeof texto==="string"?texto:undefined} style={{color:cor||C.faint,fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>
   </div>;
 
   return <div
@@ -11981,7 +12098,9 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
           usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
       {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
 
-      {linha("msg", l.lastAt?`falou ${fmtQuando(l.lastAt)}`:"sem conversa", urgencia)}
+      {/* "Falou" é a ÚLTIMA INTERAÇÃO de verdade (CETRO 09.1): mensagem de
+          gente ou ligação — disparo e automação não contam. */}
+      {(()=>{const t=l.ultimaInteracao||l.lastAt; return linha("msg", t?`falou ${fmtQuando(t)}`:"sem conversa", urgencia);})()}
       {l.negociacao&&!l.venda&&linha("trend", `${fmtMoedaCurta(l.negociacao)} em negociação`, C.greenDeep)}
 
       {/* O cronômetro, escrito. A faixa colorida diz QUE está atrasado; esta
@@ -12812,8 +12931,24 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const [ficha,setFicha]=useState(inicial.ia_produto_id||null);
   const fichas=usarFichasIA(acoes);
   // Tempo para pegar o lead (30/10/2026): vazio desliga.
-  const [tempo,setTempo]=useState(inicial.tempo_resposta_min?String(inicial.tempo_resposta_min):"");
+  const [tempo,setTempo]=useState(()=>{const m=inicial.tempo_resposta_min; if(!m) return "";
+    return String(m%1440===0?m/1440:m%60===0?m/60:m);});
   const [voltas,setVoltas]=useState(inicial.max_voltas||2);
+  /* CETRO 11 (13/11/2026): filtros específicos, destino quando ninguém está
+     disponível, o que fazer quando o prazo vence e o lead repetido. */
+  const [campanhasF,setCampanhasF]=useState((can0.campanhas||[]).join("\n"));
+  const [anunciosF,setAnunciosF]=useState((can0.anuncios||[]).join("\n"));
+  const [imoveisF,setImoveisF]=useState(()=>new Set(can0.imoveis||[]));
+  const [catalogo,setCatalogo]=useState([]);
+  useEffect(()=>{ if(!acoes||!acoes.produtos) return; let vivo=true;
+    acoes.produtos({}).then(r=>vivo&&setCatalogo((r.produtos||r||[]).filter(p=>p.status!=="recusado"))).catch(()=>{});
+    return()=>{vivo=false;}; },[]);
+  const [fallback,setFallback]=useState(inicial.fallback||"");
+  const [tempoAcao,setTempoAcao]=useState(inicial.tempo_acao||"proximo");
+  const t0=inicial.tempo_resposta_min||0;
+  const [unidade,setUnidade]=useState(t0&&t0%1440===0?"dias":t0&&t0%60===0?"horas":"minutos");
+  const [repetido,setRepetido]=useState(inicial.repetido||"atual");
+  const [repEtapa,setRepEtapa]=useState(inicial.repetido_stage_id||"");
   const {pipelines}=usarPipelines(acoes,true);
   const [ocupado,setOcupado]=useState(false), [erro,setErro]=useState(""), [confirmar,setConfirmar]=useState(false);
   const novo=!inicial.id;
@@ -12833,10 +12968,15 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const etapaEscolhida=etapasP.find(e=>e.id===etapa);
   async function salvar(){
     if(pipe&&!etapa){ setErro("Escolha a etapa do funil que aciona a catraca — ou deixe o funil em branco."); return; }
+    if(repetido==="etapa"&&!repEtapa){ setErro("Escolha a etapa para onde vai o lead repetido."); return; }
     setOcupado(true); setErro("");
     try{ await onSalvar({nome,entrega,membros,...(novo?{}:{ativa}),
-      canais:{...canais,formularios:[...ligados],linhas:[...numeros]},pipeline_id:pipe||null,stage_id:etapa||null,
-      tempo_resposta_min:tempo.trim()===""?null:Number(tempo),max_voltas:Number(voltas),
+      canais:{...canais,formularios:[...ligados],linhas:[...numeros],
+        campanhas:campanhasF.split("\n").map(x=>x.trim()).filter(Boolean),
+        anuncios:anunciosF.split(/[\n,;\s]+/).map(x=>x.trim()).filter(Boolean),imoveis:[...imoveisF]},
+      pipeline_id:pipe||null,stage_id:etapa||null,
+      tempo_resposta_min:tempo.trim()===""?null:Number(tempo)*(unidade==="dias"?1440:unidade==="horas"?60:1),max_voltas:Number(voltas),
+      fallback:fallback||null,tempo_acao:tempoAcao,repetido,repetido_stage_id:repetido==="etapa"?(repEtapa||null):null,
       ...(fichas&&fichas.length?{ia_produto_id:ficha||null}:{})}); esquecerFichas(); }
     catch(e){ setErro(e.message); setOcupado(false); }
   }
@@ -12888,6 +13028,25 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       </div>}
     </>}
 
+    {/* FILTROS ESPECÍFICOS (CETRO 11.1): restringem a um item; vazio não
+        significa "todos". */}
+    <div style={{...rotulo,marginTop:12}}>Filtros específicos (opcional)</div>
+    <div style={{color:C.faint,fontSize:11,lineHeight:1.45,marginBottom:6}}>
+      Para pegar só uma parte de um canal. Quando um lead bate em mais de uma catraca, vale a mais específica: <b>anúncio</b>, depois <b>formulário</b>, <b>campanha</b>, <b>imóvel</b> e, por último, o canal inteiro. Na mesma faixa, as catracas se revezam. Em branco, o filtro não pega nada sozinho.</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:8}}>
+      <label style={{color:C.sub,fontSize:11.5}}>Campanhas do Meta (nome ou ID, uma por linha)
+        <textarea value={campanhasF} onChange={e=>setCampanhasF(e.target.value)} rows={3} style={{...caixa,cursor:"text",marginTop:4,resize:"vertical"}}/></label>
+      <label style={{color:C.sub,fontSize:11.5}}>Anúncios (ID do anúncio, um por linha)
+        <textarea value={anunciosF} onChange={e=>setAnunciosF(e.target.value)} rows={3} style={{...caixa,cursor:"text",marginTop:4,resize:"vertical"}}/></label>
+    </div>
+    {catalogo.length>0&&<React.Fragment>
+      <div style={{color:C.sub,fontSize:11.5,marginTop:8}}>Imóveis (lead de portal ou do site interessado neste imóvel){imoveisF.size?` · ${imoveisF.size}`:""}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:180,overflowY:"auto",marginTop:4}}>
+        {catalogo.slice(0,200).map(p=>marca(imoveisF.has(p.id),()=>setImoveisF(s=>{const n=new Set(s);n.has(p.id)?n.delete(p.id):n.add(p.id);return n;}),
+          p.titulo,[p.bairro,p.cidade].filter(Boolean).join(", ")||null,"i"+p.id))}
+      </div>
+    </React.Fragment>}
+
     <div style={rotulo}>Etapa que aciona a catraca</div>
     <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8}}>
       <select aria-label="Funil da catraca" value={pipe} onChange={e=>{setPipe(e.target.value);setEtapa("");}} style={caixa}>
@@ -12916,12 +13075,28 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       {opcao("corretor","Direto ao corretor",etapaEscolhida?`Já nasce em ${etapaEscolhida.name}, com o próximo disponível desta catraca. Sem ninguém disponível, vai para a atendente.`:"O próximo disponível desta catraca recebe. Sem ninguém disponível, vai para a atendente.")}
     </div>
 
+    {/* DESTINO ALTERNATIVO (CETRO 11.3): nunca aponta para outra catraca. */}
+    <div style={{...rotulo,marginTop:10}}>Se ninguém da catraca estiver disponível</div>
+    <select aria-label="Destino alternativo" value={fallback} onChange={e=>setFallback(e.target.value)} style={caixa}>
+      <option value="">Como sempre (nascimento: atendente da vez · repasse: catraca principal)</option>
+      <option value="principal">Catraca principal</option>
+      <option value="atendente">Atendente da vez</option>
+      <option value="gestor">Gestor</option>
+      <option value="fila">Aguardar na fila, sem dono</option>
+    </select>
+    {!membros.length&&<div style={{color:C.amber,fontSize:11.5,marginTop:5}}>Sem corretor na catraca, todo lead vai para o destino acima.</div>}
+
     <div style={rotulo}>Tempo para pegar o lead</div>
     <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
       <input aria-label="Minutos para pegar o lead" value={tempo} onChange={e=>setTempo(e.target.value.replace(/\D/g,"").slice(0,4))}
         inputMode="numeric" placeholder="desligado" style={{...caixa,width:110,flex:"0 0 auto"}}/>
-      <span style={{color:C.sub,fontSize:12}}>minutos</span>
-      {tempo.trim()!==""&&<React.Fragment>
+      <select aria-label="Unidade do tempo" value={unidade} onChange={e=>setUnidade(e.target.value)} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
+        <option value="minutos">minutos</option><option value="horas">horas</option><option value="dias">dias</option></select>
+      {tempo.trim()!==""&&<select aria-label="Ao vencer" value={tempoAcao} onChange={e=>setTempoAcao(e.target.value)} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
+        <option value="proximo">passa ao próximo disponível</option>
+        <option value="aguardar">fica e avisa o corretor</option>
+        <option value="notificar">fica e avisa o gestor</option></select>}
+      {tempo.trim()!==""&&tempoAcao==="proximo"&&<React.Fragment>
         <span style={{color:C.sub,fontSize:12}}>· no máximo</span>
         <select aria-label="Voltas" value={voltas} onChange={e=>setVoltas(Number(e.target.value))} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
           {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}</select>
@@ -12929,8 +13104,26 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       </React.Fragment>}
     </div>
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
-      {tempo.trim()!==""?<>O corretor desta catraca que não mandar mensagem nem ligar para o cliente em <b>{tempo} min</b> perde o lead para o próximo disponível dela. Vale para os leads entregues depois de ligar — ninguém perde o que já tinha.</>
-        :"Em branco, o lead fica com quem recebeu, sem tempo."}</div>
+      {tempo.trim()!==""?<>Conta de quando o lead chegou ao corretor até a primeira mensagem ou ligação dele. Vencido: {tempoAcao==="proximo"?"o lead vai para o próximo disponível desta catraca":tempoAcao==="aguardar"?"o lead fica e o corretor é avisado (uma vez)":"o lead fica e o gestor é avisado (uma vez)"}. Lead já pego não é tirado. Não é o prazo da etapa nem a cadência de tarefas.</>
+        :"Em branco, sem prazo para pegar: o lead fica com quem recebeu."}</div>
+
+    {/* LEAD REPETIDO (CETRO 11.5). */}
+    <div style={rotulo}>Lead repetido (a mesma pessoa voltou por esta catraca)</div>
+    <select aria-label="Lead repetido" value={repetido} onChange={e=>setRepetido(e.target.value)} style={caixa}>
+      <option value="atual">Manter com quem está (padrão)</option>
+      <option value="origem">Voltar ao corretor de origem</option>
+      <option value="gestor">Encaminhar ao gestor</option>
+      <option value="etapa">Mover para uma etapa e avisar o gestor</option>
+    </select>
+    {repetido==="etapa"&&<select aria-label="Etapa do lead repetido" value={repEtapa} onChange={e=>setRepEtapa(e.target.value)} style={{...caixa,marginTop:6}}>
+      <option value="">Escolha a etapa…</option>
+      {ativosP.map(p=><optgroup key={p.id} label={p.name}>{(p.stages||[]).filter(e=>e.is_active!==false&&e.is_active!==0).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>)}
+    </select>}
+    <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
+      {repetido==="origem"?"Volta ao primeiro corretor que o lead teve — mas não desfaz um repasse feito por alguém ou pelo prazo. Lead com venda nunca muda de mão."
+        :repetido==="gestor"?"O gestor recebe o lead e um aviso no celular."
+        :repetido==="etapa"?"O lead muda de etapa (pela regra de sempre) e o gestor é avisado; o dono não muda."
+        :"O lead continua com quem já atende — o mais seguro: lead de um corretor não volta para a roleta."}</div>
 
     <div style={rotulo}>Corretores ({membros.length})</div>
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
@@ -15319,14 +15512,17 @@ const FICHA_SECOES=[
   ["Capacidade de investimento","trend",[["Renda familiar","renda"],["Entrada disponível","entrada"],["Parcela pretendida","parcela"],["Valor máximo","valor_max"],["FGTS","fgts"],["Financiamento","financiamento"],["Situação","situacao"],["Restrição CPF","cpf"]]],
   ["Prazo","calendar",[["Prazo para comprar","prazo"]]],
 ];
-function FichaDoCliente({lead,acoes}){
-  const [aberta,setAberta]=useState(()=>new Set(["Capacidade de investimento"]));
+function FichaDoCliente({lead,acoes,secoes,titulo="Ficha do cliente",todasAbertas=false}){
+  const [aberta,setAberta]=useState(()=>new Set(todasAbertas?FICHA_SECOES.map(x=>x[0]):["Capacidade de investimento"]));
+  const lista=secoes?FICHA_SECOES.filter(([t])=>secoes.includes(t)):FICHA_SECOES;
   const q=lead.qual||{};
   const vazio=(v)=>!v||v==="—";
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,overflow:"hidden"}}>
     <div style={{padding:"9px 11px",background:C.surface,color:C.ink,fontSize:12.5,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
-      <Icon n="lista" size={13} color={C.greenMid}/> Ficha do cliente</div>
-    {FICHA_SECOES.map(([titulo,ic,campos])=>{const on=aberta.has(titulo);
+      <Icon n="lista" size={13} color={C.greenMid}/> {titulo}
+      {/* Progresso de preenchimento (CETRO 09.2). */}
+      <span style={{marginLeft:"auto",color:C.faint,fontSize:10.5,fontWeight:500}}>{(()=>{const cs=lista.flatMap(x=>x[2]);const ch=cs.filter(([,k])=>!vazio(q[k])).length;return `${ch}/${cs.length} preenchidos`;})()}</span></div>
+    {lista.map(([titulo,ic,campos])=>{const on=aberta.has(titulo);
       const cheios=campos.filter(([,k])=>!vazio(q[k])).length;
       return <div key={titulo} style={{borderTop:`1px solid ${C.line}`}}>
         <button onClick={()=>setAberta(a=>{const n=new Set(a);n.has(titulo)?n.delete(titulo):n.add(titulo);return n;})}
@@ -15384,9 +15580,9 @@ function SimulacaoEVenda({lead,acoes,aoSimular}){
    alguém precisa do histórico inteiro. A mais recente em cima. */
 const ICONE_EVENTO={entrada:"userplus",etapa:"columns",dono:"transfer",ligacao:"phone",tarefa:"calendar",tarefa_feita:"check",
   observacao:"msg",tag:"lista",mensagem:"msg",venda:"trend",finalizado:"check"};
-function LinhaDoTempo({lead,acoes,isMobile}){
-  const [aberta,setAberta]=useState(false); const [d,setD]=useState(null); const [erro,setErro]=useState("");
-  useEffect(()=>{ setAberta(false); setD(null); setErro(""); },[lead.id]);
+function LinhaDoTempo({lead,acoes,isMobile,abertaDeInicio=false}){
+  const [aberta,setAberta]=useState(abertaDeInicio); const [d,setD]=useState(null); const [erro,setErro]=useState("");
+  useEffect(()=>{ setAberta(abertaDeInicio); setD(null); setErro(""); },[lead.id]);
   useEffect(()=>{ if(aberta&&!d) acoes.linhaDoTempo(lead.id).then(setD).catch(e=>setErro(e.message)); },[aberta,lead.id]);
   const quando=(ms)=>new Date(ms).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,background:C.card}}>
@@ -18679,13 +18875,117 @@ const SITUACAO_PRODUTO={
   // terminal própria, mesma cor (as duas fecham o negócio do mesmo jeito).
   alugado:{t:"Alugado",c:C.greenDeep,bg:C.greenSoft},
   inativo:{t:"Inativo",c:C.faint,bg:C.coolSoft},
+  reservado:{t:"Reservado",c:"#8a6d1f",bg:C.amberSoft},
 };
 const LIMITE_MIDIA={casa:{foto:10,video:1},terreno:{foto:4,video:1}};
+/* Imóveis do CETRO (capítulo 12): espelho das listas de routes/produtos.routes.js. */
+const CATEGORIAS_IMOVEL={empreendimento:"Empreendimento",loteamento:"Loteamento",terreno:"Terreno",pronto:"Imóvel pronto",casa:"Casa",apartamento:"Apartamento",comercial:"Comercial",rural:"Rural"};
+const ESTAGIOS_IMOVEL={lancamento:"Lançamento",construcao:"Em construção",pronto:"Pronto"};
+const COM_UNIDADES_IMOVEL=new Set(["empreendimento","loteamento"]);
+const SITUACOES_UNIDADE={disponivel:"Disponível",reservado:"Reservado",vendido:"Vendido",alugado:"Alugado",indisponivel:"Indisponível"};
+const PARTES_FLUXO=[["sinal","Sinal",true],["mensais","Mensais",true],["reforcos","Reforços",true],["chaves","Chaves",false],["financiar","Saldo a financiar",false]];
+const fmtValorMoeda=(v,m)=>v==null||v===""?"—":Number(v).toLocaleString("pt-BR",{style:"currency",currency:m==="USD"?"USD":"BRL",maximumFractionDigits:2});
+
+/* As unidades de um empreendimento/loteamento, cada uma com o próprio preço,
+   moeda e fluxo. O total dos percentuais é mostrado ao vivo, mas quem confere
+   (100% e quantidade ≥ 1) e grava é o servidor. Adicionar uma não apaga a
+   anterior; nada é salvo antes do botão. */
+function UnidadesDoImovel({produtoId,acoes,isMobile,moedaPadrao}){
+  const [lista,setLista]=useState(null), [aberta,setAberta]=useState(null);
+  const [erro,setErro]=useState(""), [ok,setOk]=useState(""), [salvando,setSalvando]=useState(false), [mudou,setMudou]=useState(false);
+  useEffect(()=>{let vivo=true; acoes.unidadesProduto(produtoId).then(r=>{if(vivo)setLista(r.unidades||[]);}).catch(e=>vivo&&setErro(e.message)); return()=>{vivo=false;};},[produtoId]);
+  const ent={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 10px",fontSize:14,color:C.ink,fontFamily:FONT};
+  const rot=(t)=><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
+  const mexer=(i,patch)=>{setLista(l=>l.map((u,k)=>k===i?{...u,...patch}:u)); setMudou(true); setOk("");};
+  const mexerFluxo=(i,k,v)=>{setLista(l=>l.map((u,n)=>n===i?{...u,fluxo_form:{...(u.fluxo_form||formDoFluxo(u.fluxo)),[k]:v}}:u)); setMudou(true); setOk("");};
+  function formDoFluxo(fl){const o={}; if(fl) for(const [k] of PARTES_FLUXO) if(fl[k]){o[k+"_pct"]=fl[k].pct; if(fl[k].qtd) o[k+"_qtd"]=fl[k].qtd;} return o;}
+  function adicionar(){setLista(l=>[...l,{identificacao:"",tipologia:"",bloco:"",area:"",status:"disponivel",moeda:moedaPadrao||"BRL",preco:"",aluguel:"",fluxo_form:{}}]); setAberta((lista||[]).length); setMudou(true); setOk("");}
+  async function salvar(){
+    setErro(""); setOk(""); setSalvando(true);
+    try{
+      const corpo=lista.map(u=>({id:u.id,identificacao:u.identificacao,tipologia:u.tipologia,bloco:u.bloco,area:numeroBR(u.area),status:u.status,moeda:u.moeda,
+        preco:u.preco===""?null:u.preco,aluguel:u.aluguel===""?null:u.aluguel,fluxo:u.fluxo_form?Object.fromEntries(Object.entries(u.fluxo_form).map(([k,v])=>[k,numeroBR(v)])):formDoFluxo(u.fluxo)}));
+      const r=await acoes.salvarUnidades(produtoId,corpo); setLista(r.unidades||[]); setMudou(false);
+      setOk(`${r.resumo.total} unidade(s) salva(s) · ${r.resumo.disponiveis} disponível(is).`);
+    }catch(e){setErro(e.message);} finally{setSalvando(false);}
+  }
+  if(lista===null) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando unidades…"}</div>;
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,background:C.surface}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
+      <div style={{fontWeight:700,color:C.ink,fontSize:14}}>Unidades e fluxo de pagamento <span style={{color:C.faint,fontWeight:500}}>· {lista.length}</span></div>
+      <button type="button" onClick={adicionar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>+ Unidade</button>
+    </div>
+    {!lista.length&&<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Cada unidade ou lote tem identificação, tipologia, área, preço, moeda e o próprio fluxo (sinal, mensais, reforços, chaves e saldo a financiar). As disponíveis aparecem no site, sem o fluxo.</div>}
+    {lista.map((u,i)=>{
+      const fl=u.fluxo_form||formDoFluxo(u.fluxo);
+      const soma=PARTES_FLUXO.reduce((a,[k])=>a+(numeroBR(fl[k+"_pct"])||0),0);
+      const preco=Number(u.preco)||0;
+      const abertaAqui=aberta===i;
+      return <div key={u.id||"n"+i} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:10,marginTop:8}}>
+        <button type="button" onClick={()=>setAberta(abertaAqui?null:i)} style={{all:"unset",cursor:"pointer",display:"flex",gap:8,alignItems:"center",width:"100%",boxSizing:"border-box"}}>
+          <b style={{color:C.ink,fontSize:13.5,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.identificacao||"Nova unidade"}{u.bloco?` · ${u.bloco}`:""}{u.tipologia?` · ${u.tipologia}`:""}</b>
+          <span style={{fontSize:12,color:C.sub,whiteSpace:"nowrap"}}>{SITUACOES_UNIDADE[u.status]||u.status} · {fmtValorMoeda(u.preco,u.moeda)}</span>
+          <span style={{display:"flex",transform:abertaAqui?"rotate(90deg)":"none"}}><Icon n="chevron" size={14}/></span>
+        </button>
+        {abertaAqui&&<div style={{display:"flex",flexDirection:"column",gap:9,marginTop:10}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:8}}>
+            <div>{rot("Identificação")}<input value={u.identificacao} onChange={e=>mexer(i,{identificacao:e.target.value})} placeholder="Apto 101 / Lote 12" style={ent}/></div>
+            <div>{rot("Bloco / quadra")}<input value={u.bloco||""} onChange={e=>mexer(i,{bloco:e.target.value})} placeholder="Bloco A" style={ent}/></div>
+            <div>{rot("Tipologia")}<input value={u.tipologia||""} list="tipologias-unidade" onChange={e=>mexer(i,{tipologia:e.target.value})} placeholder="2 quartos" style={ent}/></div>
+            <div>{rot("Área (m²)")}<input value={u.area??""} onChange={e=>mexer(i,{area:e.target.value})} inputMode="decimal" placeholder="62" style={ent}/></div>
+            <div>{rot("Situação")}<select value={u.status} onChange={e=>mexer(i,{status:e.target.value})} style={ent}>{Object.entries(SITUACOES_UNIDADE).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
+            <div>{rot("Moeda")}<select value={u.moeda} onChange={e=>mexer(i,{moeda:e.target.value})} style={ent}><option value="BRL">R$</option><option value="USD">US$</option></select></div>
+            <div>{rot("Preço")}<CampoMoeda moeda={u.moeda} valor={u.preco} onChange={v=>mexer(i,{preco:v})} isMobile={isMobile}/></div>
+            <div>{rot("Aluguel (mês)")}<CampoMoeda moeda={u.moeda} valor={u.aluguel} onChange={v=>mexer(i,{aluguel:v})} placeholder="opcional" isMobile={isMobile}/></div>
+          </div>
+          <div style={{fontWeight:700,fontSize:12.5,color:C.ink,marginTop:4}}>Fluxo de pagamento</div>
+          {PARTES_FLUXO.map(([k,t,temQtd])=>{
+            const pct=numeroBR(fl[k+"_pct"]), q=numeroBR(fl[k+"_qtd"]);
+            const valor=preco&&pct?preco*pct/100:null;
+            return <div key={k} style={{display:"grid",gridTemplateColumns:isMobile?"1fr 64px 64px":"140px 80px 80px 1fr",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:12.5,color:C.sub}}>{t}</span>
+              <input aria-label={`${t} %`} value={fl[k+"_pct"]??""} onChange={e=>mexerFluxo(i,k+"_pct",e.target.value)} inputMode="decimal" placeholder="%" style={ent}/>
+              {temQtd?<input aria-label={`${t} parcelas`} value={fl[k+"_qtd"]??""} onChange={e=>mexerFluxo(i,k+"_qtd",e.target.value)} inputMode="numeric" placeholder="nº" style={ent}/>:<span/>}
+              <span style={{fontSize:12,color:C.faint,gridColumn:isMobile?"1 / -1":"auto"}}>{valor?`${fmtValorMoeda(valor,u.moeda)}${temQtd&&q>0?` · ${q}x de ${fmtValorMoeda(valor/q,u.moeda)}`:""}`:""}</span>
+            </div>;})}
+          <div style={{fontSize:12,fontWeight:700,color:soma===0?C.faint:Math.abs(soma-100)<0.01?C.greenDeep:C.hot}}>
+            {soma===0?"Sem fluxo informado.":`Total: ${String(Math.round(soma*100)/100).replace(".",",")}%${Math.abs(soma-100)<0.01?" ✓":" — precisa fechar em 100%"}`}</div>
+          <button type="button" onClick={()=>{setLista(l=>l.filter((_,k)=>k!==i)); setAberta(null); setMudou(true); setOk("");}} style={{alignSelf:"flex-start",border:"none",background:"none",color:C.hot,fontSize:12,fontWeight:600,cursor:"pointer",padding:0}}>Tirar esta unidade</button>
+        </div>}
+      </div>;})}
+    <datalist id="tipologias-unidade">{["Studio","1 quarto","2 quartos","3 quartos","4 quartos","Garden","Cobertura","Lote"].map(t=><option key={t} value={t}/>)}</datalist>
+    {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:8}}>{erro}</div>}
+    {ok&&<div style={{color:C.greenDeep,fontSize:12.5,marginTop:8}}>{ok}</div>}
+    {(mudou||lista.length>0)&&<button type="button" disabled={salvando||!mudou} onClick={salvar} style={{marginTop:10,width:"100%",border:"none",borderRadius:10,padding:"10px",fontWeight:700,fontSize:13.5,cursor:mudou?"pointer":"default",
+      background:mudou?C.green:C.line,color:mudou?"#fff":C.faint}}>{salvando?"Salvando…":mudou?"Salvar unidades":"Unidades salvas"}</button>}
+  </div>;
+}
+
+/* A lista das unidades na ficha do imóvel, só leitura: situação, preço e o fluxo calculado. */
+function UnidadesSoLeitura({produtoId,acoes}){
+  const [us,setUs]=useState(null); const [aberta,setAberta]=useState(null);
+  useEffect(()=>{acoes.unidadesProduto(produtoId).then(r=>setUs(r.unidades||[])).catch(()=>setUs([]));},[produtoId]);
+  if(!us||!us.length) return null;
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6}}>Unidades ({us.filter(u=>u.status==="disponivel").length} disponíveis de {us.length})</div>
+    {us.map((u,i)=>{const sit=SITUACOES_UNIDADE[u.status]||u.status;
+      return <div key={u.id} style={{borderTop:i?`1px solid ${C.line}`:"none",padding:"8px 0"}}>
+        <button type="button" onClick={()=>setAberta(aberta===i?null:i)} disabled={!u.fluxo} style={{all:"unset",cursor:u.fluxo?"pointer":"default",display:"flex",gap:8,width:"100%",alignItems:"center"}}>
+          <span style={{flex:1,minWidth:0,fontSize:13,color:C.ink,fontWeight:600}}>{u.identificacao}{u.bloco?` · ${u.bloco}`:""}<span style={{color:C.faint,fontWeight:500}}>{u.tipologia?` · ${u.tipologia}`:""}{u.area?` · ${u.area} m²`:""}</span></span>
+          <span style={{fontSize:11.5,color:u.status==="disponivel"?C.greenDeep:C.faint,fontWeight:600}}>{sit}</span>
+          <span style={{fontSize:13,fontWeight:700,color:C.ink,whiteSpace:"nowrap"}}>{fmtValorMoeda(u.preco,u.moeda)}</span>
+        </button>
+        {aberta===i&&u.fluxo&&<div style={{marginTop:6,fontSize:12,color:C.sub,lineHeight:1.7}}>
+          {PARTES_FLUXO.filter(([k])=>u.fluxo[k]).map(([k,t])=>{const x=u.fluxo[k]; return <div key={k}>{t}: {String(x.pct).replace(".",",")}%{x.valor!=null?` · ${fmtValorMoeda(x.valor,u.moeda)}`:""}{x.qtd?` em ${x.qtd}x${x.parcela!=null?` de ${fmtValorMoeda(x.parcela,u.moeda)}`:""}`:""}</div>;})}
+        </div>}
+      </div>;})}
+  </div>;
+}
 
 function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   // Mesmo caso das conversas: filtro escolhido é trabalho da pessoa, e voltar
   // do segundo plano não pode desfazê-lo.
-  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""});
+  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""});
   const [busca,setBusca]=usarEscolha("imoveis.busca","");
   const [lista,setLista]=useState(null);
   const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
@@ -18697,7 +18997,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [portais,setPortais]=useState(false);
   const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
-  const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status].filter(Boolean).length;
+  const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel].filter(Boolean).length;
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{acoes.produtoOpcoes().then(setOpcoes).catch(()=>{});},[recarga]);
@@ -18706,7 +19006,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.produtos(params).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
     return()=>{vivo=false;};
-  },[f.q,f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,recarga]);
+  },[f.q,f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel,recarga]);
 
   const atualizar=()=>setRecarga(r=>r+1);
   const decidir=async(p,status)=>{ setErro("");
@@ -18773,12 +19073,16 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
-          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:""})}
+          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""})}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
           <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</span>
         </div>
         {filtrosAbertos&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {campo("Casa ou terreno",f.tipo,"tipo",[{v:"casa",t:"Casas"},{v:"terreno",t:"Terrenos"}])}
+          {campo("Tipo do imóvel",f.categoria,"categoria",Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=>({v,t})))}
+          {campo("Estágio",f.estagio,"estagio",Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=>({v,t})))}
+          {campo("Moeda",f.moeda,"moeda",[{v:"BRL",t:"Real (R$)"},{v:"USD",t:"Dólar (US$)"}])}
+          {campo("Área",f.area_min,"area_min",[50,80,120,200,360,500].map(v=>({v,t:`${v} m² ou mais`})))}
+          {campo("Disponibilidade",f.disponivel,"disponivel",[{v:"1",t:"Só disponíveis"}])}
           {/* Venda ou aluguel (21/09/2026, pedido do Ali: a captação só tinha
               venda). Mesmo lugar dos outros filtros — sem filtro, os dois
               catálogos aparecem juntos, do jeito que sempre apareceram. */}
@@ -18804,7 +19108,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
               {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
-              <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.tipo==="casa"?"Casa":"Terreno"}</span>
+              <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno")}{p.estagio?` · ${ESTAGIOS_IMOVEL[p.estagio]}`:""}</span>
               {/* Aluguel ganha selo — venda é o padrão do catálogo desde
                   sempre, e "sem selo = venda" é a mesma régua de "sem
                   temperatura = sem pastilha": marcar o padrão gastaria a
@@ -18817,7 +19121,8 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               <div style={{color:C.faint,fontSize:11.5}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")||"sem localização"}</div>
               {p.tipo==="casa"&&<div style={{color:C.sub,fontSize:11.5}}>{[p.quartos&&`${p.quartos} quarto(s)`,p.banheiros&&`${p.banheiros} banheiro(s)`,p.metragem&&`${p.metragem} m²`].filter(Boolean).join(" · ")}</div>}
               {p.tipo==="terreno"&&p.metragem&&<div style={{color:C.sub,fontSize:11.5}}>{p.metragem} m²</div>}
-              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
+              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.unidades_resumo&&p.valor?"a partir de ":""}{p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
+              {p.unidades_resumo&&p.unidades_resumo.total>0&&<div style={{color:C.sub,fontSize:11.5}}>{p.unidades_resumo.disponiveis} de {p.unidades_resumo.total} unidade(s) disponível(is)</div>}
               <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
                 {p.publicar_portais&&<Pill c={p.portal&&p.portal.pronto?C.greenDeep:C.amber} bg={p.portal&&p.portal.pronto?C.greenSoft:C.amberSoft}>{p.portal&&p.portal.pronto?"nos portais":"portais: falta dado"}</Pill>}
@@ -18849,7 +19154,7 @@ function numeroBR(v){
 /* Campo de dinheiro. A pessoa digita só os números e o campo formata sozinho —
    é como todo app brasileiro faz, e elimina a dúvida de onde vai ponto ou vírgula.
    Guardamos centavos internamente para não depender de como foi digitado. */
-function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
+function CampoMoeda({valor,onChange,placeholder="0,00",isMobile,moeda="BRL"}){
   const texto=valor===null||valor===undefined||valor===""?""
     :Number(valor).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
   function digitou(e){
@@ -18857,7 +19162,7 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile}){
     onChange(digitos===""?"":Number(digitos)/100);
   }
   return <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"0 11px"}}>
-    <span style={{color:C.faint,fontSize:14,fontWeight:600,flexShrink:0}}>R$</span>
+    <span style={{color:C.faint,fontSize:14,fontWeight:600,flexShrink:0}}>{moeda==="USD"?"US$":"R$"}</span>
     <input value={texto} onChange={digitou} inputMode="numeric" placeholder={placeholder}
       style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:16,padding:"10px 0",color:C.ink,fontFamily:MONO,fontWeight:600}}/>
   </div>;
@@ -19515,8 +19820,9 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
 }
 
 function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,supervisor}){
-  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda",exibir_endereco:produto.exibir_endereco||"bairro"}:{
-    tipo:"casa",finalidade:"venda",titulo:"",formato:"empreendimento",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
+  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda",exibir_endereco:produto.exibir_endereco||"bairro",
+    categoria:produto.categoria||"casa",moeda:produto.moeda||"BRL",estagio:produto.estagio||"",proprietario:produto.proprietario||"",entrega:produto.entrega||""}:{
+    tipo:"casa",categoria:"casa",estagio:"",moeda:"BRL",area_min:"",area_max:"",proprietario:"",entrega:"",finalidade:"venda",titulo:"",formato:"solta",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
     cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
     // Portais (24/09/2026): o que os portais pedem e o catálogo interno não tinha.
     publicar_portais:false,descricao:"",uf:"",cep:"",numero_end:"",complemento:"",vagas:"",suites:"",area_util:"",
@@ -19529,6 +19835,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   // A foto que o tratamento automático acha claramente melhor que a capa (só sugere).
   const [capaSugerida,setCapaSugerida]=useState(produto?produto.capa_sugerida||null:null);
   const [id,setId]=useState(produto?produto.id:null);
+  const [categoriaSalva,setCategoriaSalva]=useState(produto?produto.categoria:null);
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
   const [subindo,setSubindo]=useState(false); const [progresso,setProgresso]=useState("");
   const set=(k)=>(e)=>setF({...f,[k]:e.target.type==="checkbox"?e.target.checked:e.target.value});
@@ -19542,8 +19849,9 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
         metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct),
         vagas:numeroBR(f.vagas), suites:numeroBR(f.suites), area_util:numeroBR(f.area_util),
-        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu)}, id);
-      setId(salvo.id); setF({...salvo,modalidade:salvo.modalidade||"",exibir_endereco:salvo.exibir_endereco||"bairro"}); setPortal(salvo.portal||null);
+        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu), area_min:numeroBR(f.area_min), area_max:numeroBR(f.area_max)}, id);
+      setId(salvo.id); setCategoriaSalva(salvo.categoria); setF({...salvo,modalidade:salvo.modalidade||"",exibir_endereco:salvo.exibir_endereco||"bairro",
+        estagio:salvo.estagio||"",proprietario:salvo.proprietario||"",entrega:salvo.entrega||""}); setPortal(salvo.portal||null);
       if(!id) setErro(""); // agora dá para enviar as fotos
       return salvo.id;
     }catch(e){ setErro(e.message); return null; }
@@ -19651,26 +19959,25 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
     <div style={{maxWidth:640,margin:"0 auto"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-        <button onClick={()=>aoFechar(false)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
+        <button onClick={()=>aoFechar(!!id)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
         <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{id?"Editar produto":"Cadastrar produto"}</div>
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,whiteSpace:"pre-line",lineHeight:1.5}}>{erro}</div>}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:13}}>
+        {/* O tipo de cadastro (CETRO 12.2): cada um abre os campos certos.
+            Casa/terreno do banco são derivados disso no servidor. */}
         <div>
-          {rotulo("O que é")}
-          <div style={{display:"flex",gap:8}}>
-            {[["casa","Casa"],["terreno","Terreno"]].map(([v,t])=>
-              <button key={v} onClick={()=>setF({...f,tipo:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
-                border:`1px solid ${f.tipo===v?C.green:C.line}`,background:f.tipo===v?C.greenSoft:C.surface,color:f.tipo===v?C.greenDeep:C.sub}}>{t}</button>)}
+          {rotulo("Tipo do imóvel")}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:7}}>
+            {Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=>{
+              const on=f.categoria===v;
+              return <button key={v} type="button" onClick={()=>setF({...f,categoria:v,tipo:["terreno","loteamento"].includes(v)?"terreno":"casa",formato:v==="empreendimento"?"empreendimento":"solta"})}
+                style={{padding:"10px 6px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+                  border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
           </div>
         </div>
 
-        {/* Venda ou aluguel (21/09/2026, pedido do Ali: "acrescente a opção
-            de casa para alugar... lá só tem casa pra vender"). Mesmo desenho
-            do seletor de tipo, logo acima — é a mesma categoria de decisão
-            (o que este cadastro É), só que nasce em "Venda" porque é o que
-            o catálogo sempre foi antes de hoje. */}
         <div>
           {rotulo("Venda ou aluguel")}
           <div style={{display:"flex",gap:8}}>
@@ -19680,18 +19987,27 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
           </div>
         </div>
 
-        {f.tipo==="casa"&&<div>
-          {rotulo("Empreendimento ou casa solta")}
-          <div style={{display:"flex",gap:8}}>
-            {[["empreendimento","Empreendimento"],["solta","Casa solta"]].map(([v,t])=>
-              <button key={v} onClick={()=>setF({...f,formato:v})} style={{flex:1,padding:"9px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
-                border:`1px solid ${f.formato===v?C.green:C.line}`,background:f.formato===v?C.greenSoft:C.surface,color:f.formato===v?C.greenDeep:C.sub}}>{t}</button>)}
-          </div>
-        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>{rotulo("Estágio da obra")}
+            <select value={f.estagio||""} onChange={set("estagio")} style={entrada}>
+              <option value="">Não informado</option>
+              {Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=><option key={v} value={v}>{t}</option>)}
+            </select></div>
+          <div>{rotulo("Moeda do preço")}
+            <select value={f.moeda||"BRL"} onChange={set("moeda")} style={entrada}>
+              <option value="BRL">Real (R$)</option><option value="USD">Dólar (US$)</option>
+            </select></div>
+        </div>
+        {f.moeda==="USD"&&<div style={{color:C.faint,fontSize:11.5,marginTop:-6}}>A moeda só muda como o preço é escrito — nada é convertido, e valores em dólar não somam com os em real.</div>}
 
         <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
 
-        <div>{rotulo(f.finalidade==="aluguel"?"Valor do aluguel (mensal)":"Valor do imóvel")}<CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={f.finalidade==="aluguel"?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
+        <div>{rotulo(f.finalidade==="aluguel"?"Valor do aluguel (mensal)":COM_UNIDADES_IMOVEL.has(f.categoria)?"Valor a partir de":"Valor do imóvel")}<CampoMoeda moeda={f.moeda} valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={f.finalidade==="aluguel"?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
+        {COM_UNIDADES_IMOVEL.has(f.categoria)&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
+          <div>{rotulo("Área mínima (m²)")}<input value={f.area_min??""} onChange={set("area_min")} inputMode="decimal" placeholder="45" style={entrada}/></div>
+          <div>{rotulo("Área máxima (m²)")}<input value={f.area_max??""} onChange={set("area_max")} inputMode="decimal" placeholder="120" style={entrada}/></div>
+          <div>{rotulo("Entrega prevista")}<input value={f.entrega||""} onChange={set("entrega")} placeholder="Dez/2027" style={entrada}/></div>
+        </div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div>{rotulo("Condomínio (mensal)")}<CampoMoeda valor={f.condominio} onChange={v=>setF({...f,condominio:v})} placeholder="opcional" isMobile={isMobile}/></div>
           <div>{rotulo("IPTU (anual)")}<CampoMoeda valor={f.iptu} onChange={v=>setF({...f,iptu:v})} placeholder="opcional" isMobile={isMobile}/></div>
@@ -19708,6 +20024,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         </div>
 
         {f.tipo==="casa"&&<div>{rotulo("Construtora")}<input value={f.construtor||""} onChange={set("construtor")} placeholder="Nome da construtora" style={entrada}/></div>}
+        {!COM_UNIDADES_IMOVEL.has(f.categoria)&&<div>{rotulo("Proprietário (interno)")}<input value={f.proprietario||""} onChange={set("proprietario")} placeholder="Nome do proprietário — não vai ao site nem ao cliente" style={entrada}/></div>}
 
         <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
           <div>{rotulo("Cidade")}<input value={f.cidade||""} onChange={set("cidade")} placeholder="Petrolina" style={entrada}/></div>
@@ -19723,7 +20040,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
           <div>{rotulo("Complemento")}<input value={f.complemento||""} onChange={set("complemento")} placeholder="Quadra, lote, bloco" style={entrada}/></div>
         </div>
         <div>
-          {rotulo("Link do Google Maps")}
+          {rotulo("Link de geolocalização")}
           <input value={f.maps_url||""} onChange={set("maps_url")} placeholder="https://maps.app.goo.gl/..." style={entrada}/>
           <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Abra o local no Maps, toque em Compartilhar e cole o link aqui. Vira um botão clicável na ficha.</div>
         </div>
@@ -19765,6 +20082,13 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         </div>
 
         <div>{rotulo("Observações")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Prazo de entrega, condições, o que for útil ao cliente" style={{...entrada,resize:"vertical"}}/></div>
+
+        {COM_UNIDADES_IMOVEL.has(f.categoria)&&(id&&categoriaSalva===f.categoria
+          ?<UnidadesDoImovel produtoId={id} acoes={acoes} isMobile={isMobile} moedaPadrao={f.moeda}/>
+          :<div style={{color:C.faint,fontSize:12.5,border:`1px dashed ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{flex:"1 1 200px"}}>As unidades e o fluxo de pagamento são cadastrados depois de salvar como {CATEGORIAS_IMOVEL[f.categoria]}.</span>
+            <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
+          </div>)}
 
         <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
 
@@ -19843,8 +20167,12 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       {videos.map(m=><video key={m.id} src={m.url} controls style={{width:"100%",borderRadius:12,marginBottom:12,background:"#000"}}/>)}
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:"4px 14px 14px",marginBottom:12}}>
-        {linha(p.finalidade==="aluguel"?"Aluguel":"Valor",p.valor?fmtMoeda(p.valor)+(p.finalidade==="aluguel"?"/mês":""):null)}
-        {linha("Tipo",p.tipo==="casa"?(p.formato==="empreendimento"?"Casa em empreendimento":"Casa solta"):"Terreno")}
+        {linha(p.finalidade==="aluguel"?"Aluguel":p.unidades_resumo?"A partir de":"Valor",p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):null)}
+        {linha("Tipo",CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno"))}
+        {linha("Estágio",ESTAGIOS_IMOVEL[p.estagio]||null)}
+        {linha("Entrega prevista",p.entrega)}
+        {linha("Área",p.area_min||p.area_max?[p.area_min,p.area_max].filter(Boolean).join(" a ")+" m²":null)}
+        {(supervisor||meu||p.captador_id===session?.id)&&linha("Proprietário",p.proprietario)}
         {linha("Quartos",p.quartos)}
         {linha("Banheiros",p.banheiros)}
         {linha("Terreno",p.metragem?`${p.metragem} m²`:null)}
@@ -19857,8 +20185,9 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
 
       {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer"
         style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,textDecoration:"none",background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenMid,borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:12}}>
-        <Icon n="pin" size={16}/> Abrir no Google Maps
+        <Icon n="pin" size={16}/> Abrir a localização
       </a>}
+      {p.unidades_resumo&&p.unidades_resumo.total>0&&<div style={{marginBottom:12}}><UnidadesSoLeitura produtoId={p.id} acoes={acoes}/></div>}
 
       {/* O link do site: é o que o corretor manda ao cliente. Só com o imóvel
           disponível — o de um vendido abriria "não está mais disponível". */}
@@ -19890,6 +20219,9 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
                da gestão, então ele confirma antes. A regra mora no servidor. */
             if(!supervisor&&!window.confirm(`Marcar "${p.titulo}" como ${p.finalidade==="aluguel"?"alugado":"vendido"}?\n\nEle sai do catálogo, do site e dos portais. Para desfazer, só a gestão.`)) return;
             aoMudarSituacao(p,p.finalidade==="aluguel"?"alugado":"vendido");aoFechar();}} style={{flex:1,minWidth:130,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.finalidade==="aluguel"?"Marcar como alugado":"Marcar como vendido"}</button>}
+        {/* Reservado (CETRO 12): sai do site e dos portais, continua no catálogo da equipe com o selo. */}
+        {supervisor&&(p.status==="ativo"||p.status==="reservado")&&<button onClick={()=>{aoMudarSituacao(p,p.status==="reservado"?"ativo":"reservado");aoFechar();}}
+          style={{flex:1,minWidth:130,background:C.card,color:"#8a6d1f",border:`1px solid ${C.amber}88`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>{p.status==="reservado"?"Liberar reserva":"Marcar como reservado"}</button>}
       </div>
       {/* Excluir é só da gestão, e fica separado do resto para não ser clicado sem querer. */}
       {supervisor&&<div style={{borderTop:`1px solid ${C.line}`,marginTop:16,paddingTop:14}}>
@@ -23165,6 +23497,9 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           Apagar</button>
       </div>
 
+      {/* Tarefas workflow da etapa (CETRO 10). */}
+      <CadenciaDaEtapa etapaId={etapa.id} acoes={acoes} isMobile={isMobile}/>
+
       {/* DESATIVAR x APAGAR, dito na hora em que a diferença importa. */}
       {confirmar&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:11}}>
         <div style={{color:C.hot,fontSize:12,fontWeight:700,marginBottom:4}}>Apagar "{etapa.name}"?</div>
@@ -23182,6 +23517,98 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
               padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
+    </div>}
+  </div>;
+}
+
+/* TAREFAS WORKFLOW DA ETAPA (CETRO 10, 13/11/2026). A cadência de trabalho
+   HUMANO de quem recebe o lead nesta etapa: "dia 1 ligar, dia 2 mandar a
+   apresentação". Ao entrar na etapa, cada passo vira uma tarefa do lead, que
+   conclui sozinha quando o sistema vê a ação certa (mensagem enviada,
+   ligação registrada, conversa de verdade). Importar LÊ o documento e mostra
+   os passos para revisar; nada é gravado antes do Salvar. */
+function CadenciaDaEtapa({etapaId,acoes,isMobile}){
+  const [aberta,setAberta]=useState(false);
+  const [passos,setPassos]=useState(null);
+  const [gravado,setGravado]=useState("[]");
+  const [estado,setEstado]=useState("");
+  const [importando,setImportando]=useState(false);
+  const [texto,setTexto]=useState("");
+  const [aviso,setAviso]=useState("");
+  const arq=useRef(null);
+  const ler=()=>acoes.cadencia(etapaId).then(r=>{setPassos(r.passos);setGravado(JSON.stringify(r.passos));}).catch(e=>setEstado("erro:"+e.message));
+  useEffect(()=>{setPassos(null);if(aberta)ler();},[etapaId,aberta]);
+  const mudou=passos&&JSON.stringify(passos)!==gravado;
+  const campo={boxSizing:"border-box",fontSize:isMobile?16:12,border:`1px solid ${C.line}`,background:C.card,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0};
+  const mudar=(i,k,v)=>setPassos(ps=>ps.map((p,j)=>j===i?{...p,[k]:v}:p));
+  async function salvar(){
+    setEstado("salvando");
+    try{ const r=await acoes.salvarCadencia(etapaId,passos.map(p=>({...p,dia:Number(p.dia),hora:p.hora||null})));
+      setPassos(r.passos);setGravado(JSON.stringify(r.passos));setEstado("salvo");setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);}
+    catch(e){setEstado("erro:"+e.message);}
+  }
+  async function extrair(dados){
+    setEstado("lendo");setAviso("");
+    try{ const r=await acoes.extrairCadencia(etapaId,dados);
+      setPassos(ps=>[...(ps||[]),...r.passos.map(p=>({...p,id:null,ativo:true}))]);
+      setAviso(`${r.passos.length} passo(s) lido(s) do documento${r.ignoradas?` · ${r.ignoradas} linha(s) de cabeçalho ignorada(s)`:""}${r.cortados?` · ${r.cortados} acima do limite ficaram de fora`:""}. Confira e salve.`);
+      setImportando(false);setTexto("");setEstado("");}
+    catch(e){setEstado("erro:"+e.message);}
+  }
+  function escolher(e){
+    const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+    if(f.size>700*1024) return setEstado("erro:Arquivo grande demais (até 700 KB). Copie o texto e cole no campo.");
+    const r=new FileReader(); r.onload=()=>extrair({arquivo:String(r.result),nome:f.name}); r.readAsDataURL(f);
+  }
+  const n=passos?passos.filter(p=>p.ativo!==false).length:null;
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:10,background:C.card}}>
+    <button type="button" onClick={()=>setAberta(a=>!a)} style={{width:"100%",display:"flex",alignItems:"center",gap:7,background:"none",border:"none",padding:"9px 11px",cursor:"pointer",textAlign:"left"}}>
+      <Icon n="calendar" size={13} color={C.greenMid}/>
+      <span style={{flex:1,color:C.ink,fontSize:12,fontWeight:700}}>Tarefas workflow (cadência){n!=null?` · ${n} passo(s)`:""}</span>
+      <span style={{display:"inline-flex",transform:aberta?"rotate(90deg)":"none"}}><Icon n="chevron" size={11} color={C.faint}/></span>
+    </button>
+    {aberta&&<div style={{padding:"0 11px 11px",display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>Ao entrar nesta etapa, cada passo vira uma tarefa do lead. Dia 1 é o dia da entrada. A tarefa conclui sozinha com a ação certa; "conversa efetiva" só com ligação atendida ou resposta do cliente. Sair da etapa tira o que ficou em aberto. Não segura o prazo da etapa.</div>
+      {!passos&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
+      {passos&&passos.length===0&&!importando&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum passo ainda.</div>}
+      {passos&&passos.map((p,i)=><div key={p.id||"n"+i} style={{border:`1px solid ${C.line}`,borderRadius:9,padding:8,background:p.ativo===false?C.surface:C.card,display:"flex",flexDirection:"column",gap:6,opacity:p.ativo===false?.6:1}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <label style={{display:"flex",alignItems:"center",gap:4,color:C.faint,fontSize:11}}>Dia
+            <input type="number" min={1} max={90} value={p.dia} onChange={e=>mudar(i,"dia",e.target.value)} style={{...campo,width:58}}/></label>
+          <label style={{display:"flex",alignItems:"center",gap:4,color:C.faint,fontSize:11}}>às
+            <input type="time" value={p.hora||""} onChange={e=>mudar(i,"hora",e.target.value||null)} style={{...campo,width:isMobile?110:96}}/></label>
+          <select value={p.criterio} onChange={e=>mudar(i,"criterio",e.target.value)} style={{...campo,flex:"1 1 150px"}} aria-label="Como conclui">
+            {Object.entries(CRITERIOS_CADENCIA).map(([k,t])=><option key={k} value={k}>{k==="manual"?"Concluir à mão":"Conclui com: "+t}</option>)}
+          </select>
+          <button type="button" onClick={()=>setPassos(ps=>ps.filter((_,j)=>j!==i))} title="Tirar o passo" aria-label="Tirar o passo"
+            style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:15,padding:"0 4px"}}>×</button>
+        </div>
+        <input value={p.acao} maxLength={120} onChange={e=>mudar(i,"acao",e.target.value)} placeholder="Ação (ex.: Ligar para o cliente)" style={{...campo,width:"100%"}}/>
+        <textarea value={p.instrucao||""} maxLength={600} rows={2} onChange={e=>mudar(i,"instrucao",e.target.value)} placeholder="Instrução para o corretor (opcional)" style={{...campo,width:"100%",resize:"vertical",fontFamily:FONT}}/>
+      </div>)}
+      {importando&&<div style={{border:`1px dashed ${C.green}66`,borderRadius:9,padding:9,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{color:C.ink,fontSize:11.5,fontWeight:700}}>Importar de um documento</div>
+        <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Um passo por linha, começando com "Dia 1", "Dia 2"… (o horário, se houver, na mesma linha). As linhas seguintes viram a instrução. Aceita .docx, .txt, .csv e .xlsx — PDF: copie o texto e cole.</div>
+        <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={5} placeholder={"Dia 1 - Ligar para o cliente às 10h\nApresente-se e confirme o interesse.\nDia 2 - Enviar a apresentação"} style={{...campo,width:"100%",fontFamily:FONT,resize:"vertical"}}/>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <button type="button" disabled={estado==="lendo"} onClick={()=>extrair({texto})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{estado==="lendo"?"Lendo…":"Ler o texto"}</button>
+          <input ref={arq} type="file" accept=".docx,.txt,.md,.csv,.xlsx" onChange={escolher} style={{display:"none"}}/>
+          <button type="button" onClick={()=>arq.current&&arq.current.click()} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Escolher arquivo</button>
+          <button type="button" onClick={()=>{setImportando(false);setTexto("");}} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer"}}>cancelar</button>
+        </div>
+      </div>}
+      {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11,borderRadius:8,padding:"6px 9px"}}>{aviso}</div>}
+      {passos&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <button type="button" onClick={()=>setPassos(ps=>[...ps,{id:null,dia:(ps.length?Math.max(...ps.map(x=>Number(x.dia)||1))+1:1),hora:null,acao:"",instrucao:"",criterio:"manual",ativo:true}])}
+          style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Passo</button>
+        {!importando&&<button type="button" onClick={()=>setImportando(true)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Importar de documento</button>}
+        <span style={{flex:1}}/>
+        {mudou&&<button type="button" onClick={()=>{setPassos(JSON.parse(gravado));setAviso("");}} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer"}}>Descartar</button>}
+        <button type="button" disabled={!mudou||estado==="salvando"} onClick={salvar}
+          style={{background:mudou?C.green:C.line,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:mudou?"pointer":"default"}}>{estado==="salvando"?"Salvando…":"Salvar cadência"}</button>
+      </div>}
+      {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600}}>Salvo. Vale para quem entrar na etapa daqui em diante.</div>}
+      {estado.startsWith("erro:")&&<div style={{color:C.hot,fontSize:11.5}}>{estado.slice(5)}</div>}
     </div>}
   </div>;
 }

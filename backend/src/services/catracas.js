@@ -30,6 +30,27 @@ import { randomUUID } from "node:crypto";
 import db from "../db.js";
 import { semMaster } from "../auth.js";
 import { filaDaVez, montarFila, pegarProximo, marcarQueRecebeu } from "./rodizio.js";
+import { proximoAtendente } from "./catraca.js";
+
+/* ===== QUANDO NINGUÉM DA CATRACA ESTÁ DISPONÍVEL (CETRO 11.3) =====
+   `fallback`: 'principal' (a catraca de sempre), 'atendente' (a atendente da
+   vez), 'gestor' (o primeiro gestor ativo), 'fila' (ninguém: aguarda na fila).
+   Nulo = o de antes — no nascimento a atendente da vez, no repasse a
+   principal. Nunca aponta para outra catraca, então não há laço possível. */
+export const FALLBACKS = ["principal", "atendente", "gestor", "fila"];
+export const ACOES_TEMPO = ["proximo", "aguardar", "notificar"];
+export const REPETIDOS = ["atual", "origem", "gestor", "etapa"];
+export function gestorDaConta(orgId) {
+  return db.prepare(`SELECT id FROM users u WHERE u.org_id = ? AND u.role = 'adm' AND u.status = 'ativo'${semMaster("u")}
+    ORDER BY u.created_at LIMIT 1`).get(orgId)?.id || null;
+}
+function reservaDaCatraca(orgId, c, padrao) {
+  const f = (c && c.fallback) || padrao;
+  if (f === "fila") return { userId: null, fila: true, via: "fila" };
+  if (f === "gestor") return { userId: gestorDaConta(orgId), via: "gestor" };
+  if (f === "atendente") return { userId: proximoAtendente(orgId), via: "atendente" };
+  return { userId: pegarProximo(orgId), via: "principal" };
+}
 
 export class ErroCatraca extends Error {
   constructor(status, mensagem) { super(mensagem); this.status = status; }
@@ -94,7 +115,9 @@ export function pegarProximoDoLead(orgId, lead) {
       return { userId: proximo.id, catraca: resumo(c), reserva: false };
     }
   }
-  return { userId: pegarProximo(orgId), catraca: null, reserva: !!c, catraca_do_lead: resumo(c) };
+  if (!c) return { userId: pegarProximo(orgId), catraca: null, reserva: false, catraca_do_lead: null };
+  const r = reservaDaCatraca(orgId, c, "principal");
+  return { userId: r.userId, catraca: null, reserva: true, via: r.via, catraca_do_lead: resumo(c) };
 }
 
 /* Corretor escolhido a dedo também move a vez (regra de 25/08/2026), e na
@@ -136,7 +159,7 @@ export function pegarDaCatraca(orgId, catracaId) {
    contingência —, com o id da linha em `ref`. "whatsapp" continua sendo o
    número da imobiliária. Uma linha escolhida numa catraca passa a mandar o lead
    que nasce nela para a catraca, e não para o dono da linha. */
-export const CANAIS = ["whatsapp", "portal", "site", "formulario", "linha"];
+export const CANAIS = ["whatsapp", "portal", "site", "formulario", "linha", "campanha", "anuncio", "imovel"];
 
 /* De que canal o lead veio. Nulo = nenhum que uma catraca escolha: a linha
    pessoal de um corretor (o cliente escolheu a pessoa), o disparo (já é
@@ -211,8 +234,26 @@ const entregou = (c) => db.prepare("UPDATE catracas SET ultima_entrega_em = ? WH
    "direto ao corretor", quem o recebe na hora. Devolve
    { catraca, dono } — dono nulo = a regra de sempre (atendente da vez), com o
    lead lembrando a catraca para o repasse dela. Sem catraca: { null, null }. */
-export function catracaNoNascimento(orgId, canal) {
-  const lista = catracasDoCanal(orgId, canal);
+/* PRECEDÊNCIA POR ESPECIFICIDADE (CETRO 11.6): o anúncio específico ganha do
+   formulário, que ganha da campanha, que ganha do imóvel, que ganha do canal
+   inteiro (WhatsApp, portais, site, número). Vale o nível MAIS específico
+   que tiver catraca; dentro dele, elas se revezam. Um evento nunca é
+   repartido duas vezes: uma catraca só recebe o lead. */
+export function catracasDoLeadNovo(orgId, canal, extras = {}) {
+  const niveis = [
+    extras.ad_id && { canal: "anuncio", ref: String(extras.ad_id) },
+    canal && canal.canal === "formulario" ? canal : null,
+    extras.campaign_id && { canal: "campanha", ref: String(extras.campaign_id) },
+    extras.campaign_name && { canal: "campanha", ref: String(extras.campaign_name) },
+    extras.produto_id && { canal: "imovel", ref: String(extras.produto_id) },
+    canal && canal.canal !== "formulario" ? canal : null,
+  ].filter(Boolean);
+  for (const n of niveis) { const l = catracasDoCanal(orgId, n); if (l.length) return l; }
+  return [];
+}
+
+export function catracaNoNascimento(orgId, canal, extras = {}) {
+  const lista = catracasDoLeadNovo(orgId, canal, extras);
   if (!lista.length) return { catraca: null, dono: null };
   for (const c of lista.filter(c => c.entrega === "corretor")) {
     const dono = pegarDaCatraca(orgId, c.id);
@@ -222,6 +263,11 @@ export function catracaNoNascimento(orgId, canal) {
      atendente"): o lead lembra a primeira da vez, preferindo a que passa pela
      atendente — é ela quem vai repassar. */
   const c = lista.find(c => c.entrega === "atendente") || lista[0];
+  // "Direto ao corretor" sem ninguém: o destino alternativo, se foi escolhido.
+  if (c.entrega === "corretor" && c.fallback) {
+    const r = reservaDaCatraca(orgId, c, "atendente");
+    return { catraca: c, dono: r.userId, fila: !!r.fila, via: r.via };
+  }
   return { catraca: c, dono: null };
 }
 
@@ -241,6 +287,12 @@ export function catracaDaEtapa(orgId, lead, stageId) {
   for (const c of lista) {
     const userId = pegarDaCatraca(orgId, c.id);
     if (userId) { entregou(c); return { catraca: resumo(c), userId }; }
+  }
+  // Destino alternativo escolhido (fora "aguardar na fila"): entrega a ele.
+  const c0 = lista[0];
+  if (c0.fallback && c0.fallback !== "fila") {
+    const r = reservaDaCatraca(orgId, c0, "principal");
+    if (r.userId) return { catraca: resumo(c0), userId: r.userId, reserva: r.via };
   }
   return { catraca: resumo(lista[0]), ninguem: true };
 }
@@ -270,6 +322,8 @@ export function listar(orgId) {
       ...canaisDe(c.id),
       pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null, ia_produto_id: c.ia_produto_id || null,
       tempo_resposta_min: c.tempo_resposta_min || null, max_voltas: c.max_voltas || 2,
+      fallback: c.fallback || null, tempo_acao: c.tempo_acao || "proximo",
+      repetido: c.repetido || "atual", repetido_stage_id: c.repetido_stage_id || null,
       /* A etapa escolhida, com nomes; `etapa_invalida` quando foi apagada ou
          desativada depois — a catraca deixa de ser acionada e a tela avisa. */
       etapa: c.stage_id ? (() => { const e = etapa.get(c.stage_id, orgId); return e ? { funil: e.funil, nome: e.etapa, ok: !!e.ok } : { ok: false }; })() : null,
@@ -313,7 +367,9 @@ function canaisDe(catracaId) {
   const tem = (k) => linhas.some(l => l.canal === k);
   const formularios = linhas.filter(l => l.canal === "formulario").map(l => l.ref);
   const numeros = linhas.filter(l => l.canal === "linha").map(l => l.ref);
-  return { canais: { whatsapp: tem("whatsapp"), portal: tem("portal"), site: tem("site"), formularios, linhas: numeros }, formularios: formularios.length };
+  const de = (k) => linhas.filter(l => l.canal === k).map(l => l.ref);
+  return { canais: { whatsapp: tem("whatsapp"), portal: tem("portal"), site: tem("site"), formularios, linhas: numeros,
+    campanhas: de("campanha"), anuncios: de("anuncio"), imoveis: de("imovel") }, formularios: formularios.length };
 }
 function canaisValidos(c) {
   if (c == null) return null;
@@ -323,7 +379,14 @@ function canaisValidos(c) {
   if (ids.some(id => !/^[\w-]{1,64}$/.test(id))) throw new ErroCatraca(400, "Formulário inválido.");
   const linhas = [...new Set((Array.isArray(c.linhas) ? c.linhas : []).map(x => String(x || "").trim()).filter(Boolean))];
   if (linhas.some(id => !/^[\w-]{1,80}$/.test(id))) throw new ErroCatraca(400, "Número de WhatsApp inválido.");
-  return { whatsapp: !!c.whatsapp, portal: !!c.portal, site: !!c.site, formularios: ids, linhas };
+  // Filtros específicos (CETRO 11.1): campanha (id ou nome), anúncio (id) e imóvel do catálogo.
+  const lista = (k, re, msg) => { const v = [...new Set((Array.isArray(c[k]) ? c[k] : []).map(x => String(x || "").trim()).filter(Boolean))];
+    if (v.length > 50) throw new ErroCatraca(400, "No máximo 50 itens em cada filtro.");
+    if (v.some(x => !re.test(x))) throw new ErroCatraca(400, msg); return v; };
+  return { whatsapp: !!c.whatsapp, portal: !!c.portal, site: !!c.site, formularios: ids, linhas,
+    campanhas: lista("campanhas", /^.{1,120}$/, "Campanha inválida."),
+    anuncios: lista("anuncios", /^[\w-]{1,64}$/, "Anúncio inválido (use o ID do anúncio)."),
+    imoveis: lista("imoveis", /^[\w-]{1,64}$/, "Imóvel inválido.") };
 }
 function gravarCanais(orgId, catracaId, c) {
   db.prepare("DELETE FROM catraca_canais WHERE catraca_id = ?").run(catracaId);
@@ -336,12 +399,19 @@ function gravarCanais(orgId, catracaId, c) {
     if (!ok) throw new ErroCatraca(400, "Um dos números escolhidos não é desta conta.");
     ins.run(catracaId, orgId, "linha", id);
   }
+  for (const v of c.campanhas || []) ins.run(catracaId, orgId, "campanha", v);
+  for (const v of c.anuncios || []) ins.run(catracaId, orgId, "anuncio", v);
+  for (const v of c.imoveis || []) {
+    if (!db.prepare("SELECT 1 FROM produtos WHERE id = ? AND org_id = ?").get(v, orgId))
+      throw new ErroCatraca(400, "Um dos imóveis escolhidos não é desta conta.");
+    ins.run(catracaId, orgId, "imovel", v);
+  }
 }
 /* Tempo para pegar o lead: vazio desliga; de 1 minuto a 24 horas. */
 function tempoValido(v) {
   if (v === null || v === "" || v === undefined || Number(v) === 0) return null;
   const n = Number(v);
-  if (!Number.isInteger(n) || n < 1 || n > 1440) throw new ErroCatraca(400, "O tempo para pegar o lead vai de 1 minuto a 24 horas.");
+  if (!Number.isInteger(n) || n < 1 || n > 10080) throw new ErroCatraca(400, "O tempo para pegar o lead vai de 1 minuto a 7 dias.");
   return n;
 }
 function voltasValidas(v) {
@@ -367,7 +437,7 @@ function gravarMembros(orgId, catracaId, ids) {
   for (const id of ids) ins.run(catracaId, id, orgId, agora);
 }
 
-export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas } = {}) {
+export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas, fallback, tempo_acao, repetido, repetido_stage_id } = {}) {
   if (ehAutonomo(orgId)) throw new ErroCatraca(403, "Conta de corretor autônomo não tem catraca.");
   const n = nomeValido(nome);
   nomeLivre(orgId, n);
@@ -384,10 +454,11 @@ export function criar(orgId, userId, { nome, entrega, membros = [], canais, pipe
   })();
   if (ia_produto_id) editar(orgId, id, { ia_produto_id });
   if (tempo_resposta_min !== undefined || max_voltas !== undefined) editar(orgId, id, { tempo_resposta_min, max_voltas });
+  if (fallback !== undefined || tempo_acao !== undefined || repetido !== undefined) editar(orgId, id, { fallback, tempo_acao, repetido, repetido_stage_id });
   return id;
 }
 
-export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas } = {}) {
+export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais, pipeline_id, stage_id, ia_produto_id, tempo_resposta_min, max_voltas, fallback, tempo_acao, repetido, repetido_stage_id } = {}) {
   const c = db.prepare("SELECT * FROM catracas WHERE id = ? AND org_id = ?").get(String(catracaId), orgId);
   if (!c) throw new ErroCatraca(404, "Catraca não encontrada.");
   const campos = {};
@@ -404,6 +475,23 @@ export function editar(orgId, catracaId, { nome, entrega, ativa, membros, canais
     if (!campos.tempo_resposta_min) campos.tempo_desde = null;
   }
   if (max_voltas !== undefined) campos.max_voltas = voltasValidas(max_voltas);
+  if (fallback !== undefined) {
+    if (fallback && !FALLBACKS.includes(fallback)) throw new ErroCatraca(400, "Destino alternativo inválido.");
+    campos.fallback = fallback || null;
+  }
+  if (tempo_acao !== undefined) {
+    if (tempo_acao && !ACOES_TEMPO.includes(tempo_acao)) throw new ErroCatraca(400, "Ação do prazo inválida.");
+    campos.tempo_acao = tempo_acao && tempo_acao !== "proximo" ? tempo_acao : null;
+  }
+  if (repetido !== undefined) {
+    if (repetido && !REPETIDOS.includes(repetido)) throw new ErroCatraca(400, "Política de lead repetido inválida.");
+    campos.repetido = repetido && repetido !== "atual" ? repetido : null;
+    if (repetido === "etapa") {
+      const e = repetido_stage_id && db.prepare("SELECT id FROM pipeline_stages WHERE id = ? AND org_id = ? AND COALESCE(is_active,1) = 1").get(String(repetido_stage_id), orgId);
+      if (!e) throw new ErroCatraca(400, "Escolha a etapa para onde vai o lead repetido.");
+      campos.repetido_stage_id = e.id;
+    } else campos.repetido_stage_id = null;
+  }
   /* A ficha de produto que a IA usa com os leads desta catraca (08/10/2026). */
   if (ia_produto_id !== undefined) {
     if (ia_produto_id && !db.prepare("SELECT 1 FROM ia_produtos WHERE id = ? AND org_id = ?").get(String(ia_produto_id), orgId))

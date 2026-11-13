@@ -8,6 +8,35 @@ import { pendencias } from "../services/portais.js";
 import { guardarFotoTratada, apagarArquivosDaMidia } from "../services/fotos-imovel.js";
 import { sugestaoDeCapa } from "../services/fotos.js";
 import { caminhoDoImovel } from "../services/site.js";
+import { unidadesDo, salvarUnidades, resumoDasUnidades, MOEDAS } from "../services/unidades.js";
+
+/* O TIPO DE CADASTRO (CETRO 12.2, 13/11/2026). `categoria` é o que a tela
+   escolhe; `tipo` (casa/terreno, com CHECK no banco) e `formato` continuam
+   sendo gravados, DERIVADOS dela, porque o resto do sistema (site, portais,
+   limites de mídia, relatórios) os lê. Cadastro antigo, sem categoria, é
+   lido pelo tipo/formato de sempre. Estágio da obra é outra dimensão. */
+export const CATEGORIAS = { empreendimento: "Empreendimento", loteamento: "Loteamento", terreno: "Terreno", pronto: "Imóvel pronto",
+  casa: "Casa", apartamento: "Apartamento", comercial: "Comercial", rural: "Rural" };
+export const ESTAGIOS = { lancamento: "Lançamento", construcao: "Em construção", pronto: "Pronto" };
+const COM_UNIDADES = new Set(["empreendimento", "loteamento"]);
+export function categoriaDe(p) {
+  if (p.categoria && CATEGORIAS[p.categoria]) return p.categoria;
+  if (p.tipo === "terreno") return "terreno";
+  return p.formato === "empreendimento" ? "empreendimento" : "casa";
+}
+function derivarTipo(b, anterior) {
+  // Cliente antigo que manda só tipo/formato: a categoria segue o tipo.
+  const veioCategoria = b.categoria !== undefined && b.categoria !== null && b.categoria !== "";
+  if (!veioCategoria) {
+    if (anterior && b.tipo === anterior.tipo && (b.formato ?? null) === (anterior.formato ?? null)) b.categoria = categoriaDe(anterior);
+    else b.categoria = categoriaDe({ tipo: b.tipo, formato: b.formato });
+    return null;
+  }
+  if (!CATEGORIAS[b.categoria]) return "Escolha o tipo do imóvel.";
+  if (["terreno", "loteamento"].includes(b.categoria)) { b.tipo = "terreno"; b.formato = null; }
+  else { b.tipo = "casa"; b.formato = b.categoria === "empreendimento" ? "empreendimento" : "solta"; }
+  return null;
+}
 
 const r = Router();
 r.use(authRequired);
@@ -43,6 +72,9 @@ function comValores(p) {
   return {
     ...p,
     morar_bem: !!p.morar_bem,   // mantido para não quebrar cadastro antigo
+    categoria: categoriaDe(p),
+    moeda: MOEDAS.includes(p.moeda) ? p.moeda : "BRL",
+    unidades_resumo: COM_UNIDADES.has(categoriaDe(p)) ? resumoDasUnidades(p.id) : null,
     modalidade: p.modalidade || null,
     publicar_portais: !!p.publicar_portais,
     midias,
@@ -64,14 +96,27 @@ function comValores(p) {
 // grupo de WhatsApp para saber o que está disponível.
 // Filtros: ?q= ?tipo=casa|terreno ?cidade= ?bairro= ?quartos= ?valor_max= ?status=
 r.get("/", (req, res) => {
-  const { q, tipo, finalidade, cidade, bairro, quartos, valor_min, valor_max, morar_bem, modalidade, captador, status } = req.query;
+  const { q, tipo, finalidade, cidade, bairro, quartos, valor_min, valor_max, morar_bem, modalidade, captador, status,
+    categoria, estagio, moeda, area_min, area_max, disponivel } = req.query;
   const where = ["p.org_id = ?"], args = [req.user.org_id];
 
   // Quem não supervisiona só vê o que já foi aprovado — mais o que ele mesmo enviou.
   if (supervisiona(req.user)) { if (status) { where.push("p.status = ?"); args.push(status); } }
-  else { where.push("(p.status = 'ativo' OR p.created_by = ?)"); args.push(req.user.id); }
+  else { where.push("(p.status IN ('ativo','reservado') OR p.created_by = ?)"); args.push(req.user.id); }
+  // Só disponível: publicado e não reservado (o catálogo do corretor também vê o reservado, para não oferecer duas vezes).
+  if (disponivel === "1") where.push("p.status = 'ativo'");
 
   if (tipo) { where.push("p.tipo = ?"); args.push(tipo); }
+  if (categoria && CATEGORIAS[categoria]) {
+    // Cadastro antigo não tem categoria: casa/terreno/empreendimento vêm do tipo e do formato.
+    const leg = { terreno: "(p.categoria IS NULL AND p.tipo = 'terreno')", empreendimento: "(p.categoria IS NULL AND p.tipo = 'casa' AND p.formato = 'empreendimento')",
+      casa: "(p.categoria IS NULL AND p.tipo = 'casa' AND COALESCE(p.formato,'') <> 'empreendimento')" }[categoria];
+    where.push(`(p.categoria = ?${leg ? " OR " + leg : ""})`); args.push(categoria);
+  }
+  if (estagio && ESTAGIOS[estagio]) { where.push("p.estagio = ?"); args.push(estagio); }
+  if (moeda && MOEDAS.includes(moeda)) { where.push("COALESCE(p.moeda,'BRL') = ?"); args.push(moeda); }
+  if (area_min) { where.push("COALESCE(p.area_max, p.area_util, p.metragem) >= ?"); args.push(Number(area_min)); }
+  if (area_max) { where.push("COALESCE(p.area_min, p.area_util, p.metragem) <= ?"); args.push(Number(area_max)); }
   if (finalidade) { where.push("p.finalidade = ?"); args.push(finalidade); }
   if (cidade) { where.push("p.cidade LIKE ?"); args.push(`%${cidade}%`); }
   if (bairro) { where.push("p.bairro LIKE ?"); args.push(`%${bairro}%`); }
@@ -96,7 +141,8 @@ r.get("/", (req, res) => {
 r.get("/opcoes", (req, res) => {
   const lista = (campo) => db.prepare(`SELECT DISTINCT ${campo} v FROM produtos WHERE org_id=? AND ${campo} IS NOT NULL AND ${campo} <> '' ORDER BY ${campo}`)
     .all(req.user.org_id).map(x => x.v);
-  res.json({ cidades: lista("cidade"), bairros: lista("bairro"), split: SPLIT, armazenamento: modoArmazenamento() });
+  res.json({ cidades: lista("cidade"), bairros: lista("bairro"), split: SPLIT, armazenamento: modoArmazenamento(),
+    categorias: CATEGORIAS, estagios: ESTAGIOS, moedas: MOEDAS });
 });
 
 r.get("/:id", (req, res) => {
@@ -149,6 +195,13 @@ function gravarCamposPortal(id, b, user, anterior = 0) {
   });
 }
 
+function gravarCamposCetro(id, b) {
+  db.prepare(`UPDATE produtos SET categoria=?, estagio=?, moeda=?, area_min=?, area_max=?, proprietario=?, entrega=? WHERE id=?`).run(
+    b.categoria, ESTAGIOS[b.estagio] ? b.estagio : null, MOEDAS.includes(b.moeda) ? b.moeda : "BRL",
+    numero(b.area_min), numero(b.area_max), limpar(b.proprietario) ? String(b.proprietario).trim().slice(0, 120) : null,
+    limpar(b.entrega) ? String(b.entrega).trim().slice(0, 40) : null, id);
+}
+
 function validar(b) {
   if (!["casa", "terreno"].includes(b.tipo)) return "Escolha se é casa ou terreno.";
   if (b.finalidade && !["venda", "aluguel"].includes(b.finalidade)) return "Escolha se é venda ou aluguel.";
@@ -156,8 +209,12 @@ function validar(b) {
   if (b.tipo === "casa" && !["empreendimento", "solta"].includes(b.formato))
     return "Para casa, informe se é empreendimento ou casa solta.";
   if (!limpar(b.cidade)) return "Informe a cidade.";
+  if (b.estagio && !ESTAGIOS[b.estagio]) return "Estágio da obra inválido.";
+  if (b.moeda && !MOEDAS.includes(b.moeda)) return "Moeda inválida (BRL ou USD).";
+  for (const c of ["area_min", "area_max"]) if (b[c] != null && b[c] !== "" && (numero(b[c]) == null || numero(b[c]) < 0)) return "Área inválida.";
+  if (numero(b.area_min) != null && numero(b.area_max) != null && numero(b.area_min) > numero(b.area_max)) return "A área mínima é maior que a máxima.";
   if (b.valor != null && b.valor !== "" && numero(b.valor) == null) return "Valor inválido.";
-  if (b.maps_url && !/^https?:\/\//i.test(b.maps_url)) return "O link do Maps precisa começar com https://";
+  if (b.maps_url && !/^https?:\/\//i.test(b.maps_url)) return "O link de geolocalização precisa começar com https://";
   if (limpar(b.uf) && !/^[A-Za-z]{2}$/.test(String(b.uf).trim())) return "Estado (UF) são duas letras, ex.: PE.";
   if (limpar(b.cep) && String(b.cep).replace(/\D/g, "").length !== 8) return "O CEP tem 8 números.";
   if (limpar(b.descricao) && String(b.descricao).trim().length > 3000) return "A descrição do anúncio passa de 3000 caracteres — os portais cortam o resto.";
@@ -167,8 +224,8 @@ function validar(b) {
 // Cadastro. Corretor entra como aguardando aprovação; gestor e atendente já
 // publicam direto — foi a regra que a operação pediu.
 r.post("/", (req, res) => {
-  const b = req.body || {};
-  const erro = validar(b);
+  const b = { ...(req.body || {}) };
+  const erro = derivarTipo(b) || validar(b);
   if (erro) return res.status(400).json({ error: erro });
 
   const captador = b.captador_id
@@ -196,6 +253,7 @@ r.post("/", (req, res) => {
     created_by: req.user.id, created_at: Date.now(),
   });
   gravarCamposPortal(id, b, req.user);
+  gravarCamposCetro(id, b);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(id)));
 });
 
@@ -213,7 +271,9 @@ r.patch("/:id", (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Você não pode editar este produto." });
   const b = { ...p, ...req.body };
-  const erro = validar(b);
+  if (req.body.categoria === undefined && req.body.tipo === undefined) b.categoria = categoriaDe(p);
+  else if (req.body.categoria === undefined) b.categoria = undefined;
+  const erro = derivarTipo(b, p) || validar(b);
   if (erro) return res.status(400).json({ error: erro });
 
   // Transferir a captação: o UPDATE não gravava captador nenhum, então trocar o
@@ -241,6 +301,7 @@ r.patch("/:id", (req, res) => {
     comissao_pct: numero(b.comissao_pct), observacoes: limpar(b.observacoes),
   });
   gravarCamposPortal(p.id, b, req.user, p.publicar_portais);
+  gravarCamposCetro(p.id, b);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
 });
 
@@ -257,7 +318,7 @@ export function corretorPodeFechar(user, p, status) {
 
 // Aprovação do produto enviado por corretor; supervisão muda qualquer situação.
 r.post("/:id/status", (req, res) => {
-  const permitidos = ["ativo", "recusado", "vendido", "alugado", "inativo"];
+  const permitidos = ["ativo", "reservado", "recusado", "vendido", "alugado", "inativo"];
   const { status } = req.body || {};
   if (!permitidos.includes(status)) return res.status(400).json({ error: "Situação inválida." });
   if (!supervisiona(req.user)) {
@@ -276,11 +337,29 @@ r.post("/:id/status", (req, res) => {
 
 // Apagar do catálogo é só de gestor e atendente. O corretor pode cadastrar e
 // corrigir o que enviou, mas tirar produto do ar é decisão da gestão.
+/* UNIDADES (CETRO 12.4): só de empreendimento e loteamento. Lê quem vê o
+   imóvel; grava quem pode editar o cadastro. A lista vai INTEIRA. */
+r.get("/:id/unidades", (req, res) => {
+  const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!p) return res.status(404).json({ error: "Produto não encontrado" });
+  res.json({ unidades: unidadesDo(p.id), resumo: resumoDasUnidades(p.id) });
+});
+r.put("/:id/unidades", (req, res) => {
+  const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!p) return res.status(404).json({ error: "Produto não encontrado" });
+  if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Você não pode editar este produto." });
+  if (!COM_UNIDADES.has(categoriaDe(p))) return res.status(409).json({ error: "Unidades existem só em empreendimento e loteamento." });
+  const r2 = salvarUnidades(req.user.org_id, p.id, (req.body || {}).unidades);
+  if (r2.erro) return res.status(400).json({ error: r2.erro });
+  res.json({ ok: true, unidades: r2.unidades, resumo: resumoDasUnidades(p.id) });
+});
+
 r.delete("/:id", roles("adm", "sdr"), (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!p) return res.status(404).json({ error: "Produto não encontrado" });
   for (const m of db.prepare("SELECT chave, variantes FROM produto_midias WHERE produto_id=?").all(p.id)) apagarArquivosDaMidia(m);
   db.prepare("DELETE FROM produto_midias WHERE produto_id=?").run(p.id);
+  db.prepare("DELETE FROM produto_unidades WHERE produto_id=?").run(p.id);
   db.prepare("DELETE FROM produtos WHERE id=?").run(p.id);
   res.json({ ok: true });
 });

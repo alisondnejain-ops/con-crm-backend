@@ -23,6 +23,7 @@ import { randomUUID } from "crypto";
 import db, { emLotes } from "../db.js";
 import { etapaPorId, etapaPorNome, pipelinePadrao } from "./pipelines.js";
 import { dispararGatilho } from "./automacoes.js";
+import { entrarNaCadencia } from "./cadencias.js";
 
 export const MOTIVOS = {
   mao: "mudança na mão",
@@ -113,6 +114,9 @@ export function moverEtapa({ leadId, para, paraEtapaId = null, motivo = "mao", u
         lead.assigned_to, lead.assigned_to, userId, motivo, quando);
   });
   aplicar();
+  /* A cadência de tarefas da etapa (CETRO 10): sai o que estava em aberto da
+     etapa anterior e nascem os passos desta. Mudança em massa só limpa. */
+  entrarNaCadencia(leadId, { criar: gatilhos, entrada: quando });
   if (gatilhos && destino) dispararGatilho(lead.org_id, "etapa", { leadId, ref: destino.id });
   return true;
 }
@@ -291,12 +295,12 @@ export function slaDoLead(etapa, lead, agora = Date.now(), segura = false) {
    chama `slaDoLead` numa lista passa `comTarefa.has(l.id)`. */
 export function leadsComTarefaFutura(orgId, agora = Date.now()) {
   return new Set(db.prepare(
-    "SELECT DISTINCT lead_id FROM tarefas WHERE org_id = ? AND feito_em IS NULL AND quando >= ?")
+    "SELECT DISTINCT lead_id FROM tarefas WHERE org_id = ? AND feito_em IS NULL AND quando >= ? AND cadencia_passo_id IS NULL")
     .all(orgId, agora).map(r => r.lead_id));
 }
 
 export const temTarefaFutura = (leadId, agora = Date.now()) => !!db.prepare(
-  "SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? LIMIT 1").get(leadId, agora);
+  "SELECT 1 FROM tarefas WHERE lead_id = ? AND feito_em IS NULL AND quando >= ? AND cadencia_passo_id IS NULL LIMIT 1").get(leadId, agora);
 
 // Desde quando cada lead está na etapa atual. Um SELECT só para a lista
 // inteira: uma consulta por card deixaria o funil lento com a base crescendo.

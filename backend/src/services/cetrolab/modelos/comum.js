@@ -158,7 +158,7 @@ ${corpo}
 }
 
 export const fotoOu = (u, alt, lazy, sizes = "(max-width: 700px) 100vw, 50vw") => u ? imgFoto(u, { alt, lazy, sizes }) : `<div class="sem-foto">${ICO.casa}</div>`;
-export const precoDe = (i) => (i.valor ? moeda(i.valor) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
+export const precoDe = (i) => (i.valor ? moeda(i.valor, i.moeda) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
 export const linhaInfo = (i) => [
   i.quartos ? `${i.quartos} ${i.quartos > 1 ? "qts" : "qt"}` : "",
   i.area_util ? `${numero(i.area_util)} m²` : i.terreno ? `${numero(i.terreno)} m²` : "",
@@ -193,6 +193,7 @@ export function paginaImovel(ctx, i, tema = "claro") {
       <h1>${esc(i.titulo)}</h1>
       ${specs ? `<div class="specs">${specs}</div>` : ""}
       ${i.descricao ? `<div class="secao"><h2>SOBRE O IMÓVEL</h2><p class="texto">${esc(i.descricao)}</p></div>` : ""}
+      ${pecas.secaoUnidades(i)}
       ${i.video ? `<div class="secao"><h2>VÍDEO</h2><video src="${esc(i.video)}" controls preload="metadata" playsinline></video></div>` : ""}
     </article>
     <aside class="lateral">

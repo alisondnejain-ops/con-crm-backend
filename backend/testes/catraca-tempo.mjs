@@ -82,7 +82,7 @@ console.log("Tempo para pegar o lead, por catraca");
 await caso("1. Só o gestor configura, dentro da régua", async () => {
   r = await req(tMarina, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 10 });
   assert.equal(r.status, 403);
-  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 5000 });
+  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 20000 });
   assert.equal(r.status, 400);
   r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { max_voltas: 0 });
   assert.equal(r.status, 400);

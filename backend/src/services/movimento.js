@@ -283,6 +283,9 @@ export function trocarResponsavel(lead, novoUserId, quemMandou, motivo = "mao", 
     if (atual.assigned_to) db.prepare(`UPDATE mensagens_agendadas SET status = 'cancelada',
         motivo = 'Cancelada: o lead passou para outra pessoa antes do horário.'
       WHERE lead_id = ? AND user_id = ? AND status = 'pendente'`).run(atual.id, atual.assigned_to);
+    // As tarefas da cadência em aberto são trabalho da etapa: vão com o lead.
+    db.prepare(`UPDATE tarefas SET user_id = ? WHERE lead_id = ? AND cadencia_passo_id IS NOT NULL AND feito_em IS NULL`)
+      .run(novoUserId || null, atual.id);
   });
   aplicar();
 

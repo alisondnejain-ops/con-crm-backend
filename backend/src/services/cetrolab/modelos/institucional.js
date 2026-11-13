@@ -280,7 +280,7 @@ const tipoTexto = (i) => {
   const base = i.tipo === "terreno" ? "Terreno" : i.empreendimento ? "Empreendimento" : "Casa";
   return i.tipo !== "terreno" && i.quartos ? `${base} ${i.quartos} ${i.quartos > 1 ? "quartos" : "quarto"}` : base;
 };
-const precoDe = (i) => (i.valor ? moeda(i.valor) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
+const precoDe = (i) => (i.valor ? moeda(i.valor, i.moeda) + (i.finalidade === "aluguel" ? "<small>/mês</small>" : "") : "Consulte");
 const icoCod = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 9v6M12 9v6M16 9v6"/></svg>';
 
 function cartao(ctx, i) {
@@ -497,6 +497,7 @@ export function paginaImovel(ctx, i) {
       ${i.local.linha ? `<div class="onde">${esc(i.local.linha)}</div>` : ""}
       ${specs ? `<div class="specs">${specs}</div>` : ""}
       ${i.descricao ? `<section class="bloco"><h2>Sobre o imóvel</h2><p class="texto">${esc(i.descricao)}</p></section>` : ""}
+      ${pecas.secaoUnidades(i).replace('class="secao unidades"', 'class="bloco unidades"')}
       ${i.video ? `<section class="bloco"><h2>Vídeo</h2><video src="${esc(i.video)}" controls preload="metadata" playsinline></video></section>` : ""}
     </article>
     <aside class="lateral">

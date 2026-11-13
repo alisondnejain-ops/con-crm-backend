@@ -7,6 +7,7 @@
    quem recebe o lead e em que funil ele nasce iam divergir — é a armadilha
    que este projeto já documentou com as seis rotas de repasse. */
 
+import { entrarNaCadencia } from "./cadencias.js";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { proximoAtendente } from "./catraca.js";
@@ -46,12 +47,12 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, texto = "", quando = 
   const vez = pelaLinha ? daLinha
     : ehPessoal || veioDoDisparo ? { catraca: null, dono: null }
     : catracaNoNascimento(orgId, { canal: doSite ? "site" : "whatsapp", ref: "" });
-  const dono = ehPessoal && !pelaLinha ? canal.user_id : (vez.dono || proximoAtendente(orgId));
+  const dono = ehPessoal && !pelaLinha ? canal.user_id : (vez.dono || (vez.fila ? null : proximoAtendente(orgId)));
   /* O FUNIL DE ENTRADA É O DE QUEM RECEBE, e não o padrão da casa. Os
      leads que caem na atendente pertencem ao funil de pré-atendimento;
      os do corretor, ao comercial. A catraca "direto ao corretor" com etapa
      faz o lead nascer nela. */
-  const entrada = (vez.dono && vez.catraca.stage_id && etapaDeEntrada(orgId, vez.catraca.stage_id)) || entradaDe(orgId, dono);
+  const entrada = (vez.dono && !vez.via && vez.catraca.stage_id && etapaDeEntrada(orgId, vez.catraca.stage_id)) || entradaDe(orgId, dono);
   db.prepare(`INSERT INTO leads (id,org_id,name,phone,origem,priority,qual_json,stage,assigned_to,created_at,
               pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,canal_id,assigned_at,platform,campaign_name,catraca_id)
     VALUES (?,?,?,?,?,NULL,'{}',?,?,?, ?,?,?,?, 'whatsapp',?,?,?,?,?)`)
@@ -63,6 +64,7 @@ export function nascerLeadDoWhatsapp({ canal, phone, nome, texto = "", quando = 
     ehDisparo ? "respondeu a um disparo — foi para a atendente da vez" :
     vez.dono ? `direto ao corretor pela catraca ${vez.catraca.nome}` :
     dono ? "para a atendente da vez" : "sem atendente ativa — ficou na fila do SDR (a IA cobre, se estiver ligada)"}`);
+  entrarNaCadencia(id, { entrada: quando });   // a cadência da etapa em que nasceu (CETRO 10)
   // Quem nasce respondendo a um disparo já está num fluxo: não entra no "lead novo".
   if (!veioDoDisparo) dispararGatilho(orgId, "lead_novo", { leadId: id, origem: "whatsapp", linha: canal.tipo === "imobiliaria" ? "casa" : canal.id });
   return db.prepare("SELECT * FROM leads WHERE id = ?").get(id);

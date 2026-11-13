@@ -33,6 +33,8 @@ import { previaTemperatura, limparTemperatura, previaEtapaIA, rodarEtapaIA,
 import { tarefasAbertasPorLead, listar as listarTarefas } from "./tarefas.routes.js";
 
 import { canalDoUsuario, canalPorId, canalDaCasa } from "../services/canais.js";
+import { acaoDaCadencia, entrarNaCadencia } from "../services/cadencias.js";
+import { catracaAtiva, pegarProximoDoLead } from "../services/catracas.js";
 import { entradaPadrao, entradaDe } from "../services/pipelines.js";
 import { avisar, configurado as pushConfigurado, inscricoesDe } from "../services/push.js";
 import { corpoParaIA } from "../services/leitura-midia.js";
@@ -264,6 +266,9 @@ r.post("/", (req, res) => {
      e um lead com telefone "123" é um lead com quem ninguém consegue falar,
      que entraria no funil e no relatório contando como atendimento. Por isso a
      conferência do tamanho fica NESTA rota, e não dentro da função. */
+  // E-mail é opcional; se veio, precisa ter cara de e-mail (CETRO 09.3).
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim()))
+    return res.status(400).json({ error: "Esse e-mail não parece válido." });
   const problemaNoTelefone = validarTelefone(phone);
   if (problemaNoTelefone) return res.status(400).json({ error: problemaNoTelefone });
 
@@ -305,10 +310,22 @@ r.post("/", (req, res) => {
      novo nasce com dono, senão fica parado esperando alguém reparar nele. Para
      deixá-lo sem dono é preciso dizer isso, escolhendo "fila". */
   let dono = req.user.id;
+  let catracaEscolhida = undefined;   // undefined = não foi pela catraca
   if (supervisiona(req.user)) {
     const escolha = String(assigned_to === undefined || assigned_to === null ? "" : assigned_to).trim();
-    dono = escolha === "fila" ? null : (escolha || req.user.id);
-    if (dono) {
+    /* PELA CATRACA (CETRO 09.3): "catraca:principal" ou "catraca:<id>" — o
+       próximo disponível dela recebe, e a vez anda. Ninguém disponível é
+       recusa explícita: lead "entregue à catraca" sem dono seria lead parado. */
+    if (escolha.startsWith("catraca:")) {
+      const cid = escolha.slice(8);
+      const c = cid === "principal" ? null : catracaAtiva(req.user.org_id, cid);
+      if (cid !== "principal" && !c) return res.status(400).json({ error: "Essa catraca não existe ou está desativada." });
+      const vez = pegarProximoDoLead(req.user.org_id, { catraca_id: c ? c.id : null });
+      if (!vez.userId || (c && vez.reserva))
+        return res.status(409).json({ error: `Ninguém disponível na catraca ${c ? c.nome : "principal"} agora. Escolha uma pessoa ou deixe na fila.` });
+      dono = vez.userId; catracaEscolhida = c ? c.id : null;
+    } else dono = escolha === "fila" ? null : (escolha || req.user.id);
+    if (dono && catracaEscolhida === undefined) {
       const u = db.prepare(`SELECT id FROM users u WHERE u.id = ? AND u.org_id = ? AND u.status = 'ativo'${semMaster("u")}`)
         .get(dono, req.user.org_id);
       if (!u) return res.status(400).json({ error: "Escolha alguém da equipe que esteja ativo." });
@@ -340,6 +357,8 @@ r.post("/", (req, res) => {
         // agora afundaria atrás dos antigos por causa da ordem.
         dono ? agora : null,
         pipelineId, stageId, agora, agora);
+    entrarNaCadencia(id, { entrada: agora });   // a cadência da etapa em que nasceu (CETRO 10)
+    if (catracaEscolhida) db.prepare("UPDATE leads SET catraca_id = ? WHERE id = ?").run(catracaEscolhida, id);
 
     /* A OBSERVAÇÃO ENTRA COMO OBSERVAÇÃO, e não como mensagem da conversa.
 
@@ -1243,6 +1262,11 @@ r.get("/:id", (req, res) => {
     // instante em que a conversa abre, e não uma requisição depois.
     observacoes: observacoesDoLead(lead.id),
     tags: tagsDoLead(lead.id),
+    /* O imóvel de interesse (a aba Imóveis da ficha completa, CETRO 09.2):
+       só o que é público do catálogo — título, código e valor. */
+    produto: (() => { try { const p = lead.produto_id ? db.prepare(
+      "SELECT id, titulo, valor, finalidade, status FROM produtos WHERE id = ? AND org_id = ?").get(lead.produto_id, lead.org_id) : null;
+      return p || null; } catch { return null; } })(),
     /* POR QUAL NÚMERO ESTA CONVERSA SAI, e se quem está olhando pode mudar.
 
        Vai junto do lead, não numa requisição depois, pelo mesmo motivo da
@@ -1513,6 +1537,7 @@ r.post("/:id/ligacao", (req, res) => {
   db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at) VALUES (?,?,?,?)")
     .run(id, lead.id, req.user.id, Date.now());
   aoFalarComOCliente(lead.id, req.user.id);   // a etapa "ao pegar, mover para" (07/11/2026)
+  acaoDaCadencia(lead.id, "ligacao", { userId: req.user.id, evidencia: "ligação registrada no Ligar" });
   // Devolve o id: é com ele que a tela grava, logo depois, o que aconteceu.
   res.json({ ok: true, ligacao_id: id });
 });
@@ -1548,6 +1573,8 @@ r.patch("/:id/ligacao/:ligId", (req, res) => {
 
   db.prepare("UPDATE ligacoes SET resultado=?, obs=?, respondido_em=? WHERE id=?")
     .run(resultado, String(obs || "").trim().slice(0, 300) || null, Date.now(), lig.id);
+  // Ligação atendida é conversa efetiva (CETRO 10); tentativa sem resposta não é.
+  if (resultado === "falou") acaoDaCadencia(lead.id, "conversa", { userId: req.user.id, evidencia: "ligação atendida" });
   res.json({ ok: true, rotulo: RESULTADOS[resultado] });
 });
 

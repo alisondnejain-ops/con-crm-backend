@@ -2826,3 +2826,74 @@ db.exec(`CREATE TABLE IF NOT EXISTS leads_retirados (
   const u = db.prepare("PRAGMA table_info(users)").all().map(x => x.name);
   if (!u.includes("painel_kpis")) db.exec("ALTER TABLE users ADD COLUMN painel_kpis TEXT");
 }
+
+/* TAREFAS WORKFLOW — CADÊNCIA POR ETAPA (CETRO 10, 13/11/2026). Os passos de
+   trabalho humano de cada etapa ("dia 1: ligar", "dia 2: mandar a
+   apresentação"); ao entrar na etapa viram tarefas do lead, com o critério que
+   as conclui sozinhas. Só ADD COLUMN e tabela nova. */
+db.exec(`CREATE TABLE IF NOT EXISTS cadencia_passos (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  stage_id TEXT NOT NULL,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  dia INTEGER NOT NULL,
+  hora TEXT,
+  acao TEXT NOT NULL,
+  instrucao TEXT,
+  criterio TEXT NOT NULL DEFAULT 'manual',
+  ativo INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_cadencia_etapa ON cadencia_passos(org_id, stage_id);`);
+{
+  const cols = db.prepare("PRAGMA table_info(tarefas)").all().map(c => c.name);
+  for (const [c, t] of [["cadencia_passo_id", "TEXT"], ["cadencia_stage_id", "TEXT"], ["cadencia_entrada", "INTEGER"],
+    ["criterio", "TEXT"], ["instrucao", "TEXT"], ["janela_inicio", "INTEGER"], ["concluida_por", "TEXT"],
+    ["evidencia", "TEXT"], ["concluida_user", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE tarefas ADD COLUMN ${c} ${t}`);
+  // A mesma entrada na etapa nunca cria o mesmo passo duas vezes.
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tarefas_cadencia ON tarefas(lead_id, cadencia_passo_id, cadencia_entrada)
+    WHERE cadencia_passo_id IS NOT NULL`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tarefas_cad_aberta ON tarefas(lead_id, criterio) WHERE cadencia_passo_id IS NOT NULL AND feito_em IS NULL");
+}
+
+/* CATRACA COMPLETA (CETRO 11, 13/11/2026): destino quando ninguém está
+   disponível, o que fazer quando o prazo para pegar vence e a política de
+   lead repetido. Nulo = o comportamento de antes. */
+{
+  const cols = db.prepare("PRAGMA table_info(catracas)").all().map(c => c.name);
+  for (const [c, t] of [["fallback", "TEXT"], ["tempo_acao", "TEXT"], ["repetido", "TEXT"], ["repetido_stage_id", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE catracas ADD COLUMN ${c} ${t}`);
+}
+
+/* IMÓVEIS DO CETRO (capítulo 12, 13/11/2026): o tipo de cadastro
+   (empreendimento, loteamento, terreno, pronto, casa, apartamento, comercial,
+   rural) mora em `categoria` — `tipo` (casa/terreno) continua existindo e é
+   derivado dela, porque tem CHECK no banco e o resto do sistema o lê. Estágio
+   da obra é OUTRA dimensão. Moeda é metadado do preço (sem conversão). As
+   unidades de empreendimento e loteamento têm o próprio preço, moeda e fluxo. */
+{
+  const cols = db.prepare("PRAGMA table_info(produtos)").all().map(c => c.name);
+  for (const [c, t] of [["categoria", "TEXT"], ["estagio", "TEXT"], ["moeda", "TEXT DEFAULT 'BRL'"], ["area_min", "REAL"],
+    ["area_max", "REAL"], ["proprietario", "TEXT"], ["entrega", "TEXT"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE produtos ADD COLUMN ${c} ${t}`);
+}
+db.exec(`CREATE TABLE IF NOT EXISTS produto_unidades (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  produto_id TEXT NOT NULL,
+  identificacao TEXT NOT NULL,
+  tipologia TEXT,
+  bloco TEXT,
+  area REAL,
+  status TEXT NOT NULL DEFAULT 'disponivel',
+  moeda TEXT NOT NULL DEFAULT 'BRL',
+  preco REAL,
+  aluguel REAL,
+  fluxo_json TEXT,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_unidades_produto ON produto_unidades(produto_id, ordem);`);

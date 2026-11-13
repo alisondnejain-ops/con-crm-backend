@@ -20,6 +20,8 @@
    descrição, sem bairro) o portal recusa ou publica mal — e a imobiliária só
    descobre olhando o portal. Aqui ele fica FORA do arquivo, e a tela de
    Portais diz exatamente o que falta em cada um. */
+import { entrarNaCadencia } from "./cadencias.js";
+import { aplicarRepetido } from "./repetido.js";
 import { marcarFormulario } from "./so-formulario.js";
 import { randomBytes, randomUUID } from "crypto";
 import db from "../db.js";
@@ -493,20 +495,23 @@ export function receberLead(orgId, dados) {
          catraca para o repasse dela. */
       const canal = dados.canal !== undefined ? dados.canal
         : formulario ? (anuncio.form_id ? { canal: "formulario", ref: String(anuncio.form_id) } : null) : { canal: "portal", ref: "" };
-      const vez = catracaNoNascimento(orgId, canal);
+      // Filtros específicos da catraca (CETRO 11.1): anúncio, campanha e imóvel.
+      const vez = catracaNoNascimento(orgId, canal, formulario
+        ? { ad_id: anuncio.ad_id, campaign_id: anuncio.campaign_id, campaign_name: anuncio.campaign_name }
+        : { produto_id: produto ? produto.id : null });
       const catraca = vez.catraca;
       /* `rodizio` (formulário do site com "corretor da vez"): sem catraca que
          entregue direto, o próximo corretor DISPONÍVEL hoje recebe e a vez
          anda. Ninguém disponível: a regra de sempre (atendente da vez, ou a
          fila). */
       const doRodizio = !vez.dono && dados.rodizio ? pegarProximo(orgId) : null;
-      const dono = vez.dono || doRodizio || proximoAtendente(orgId);
+      const dono = vez.dono || doRodizio || (vez.fila ? null : proximoAtendente(orgId));
       /* O funil: o do formulário escolhido no gatilho do fluxo manda; senão a
          etapa da catraca que entregou direto ao corretor; senão o funil de
          quem recebe, como sempre. */
       const entrada = (dados.entrada && etapaDeEntrada(orgId, dados.entrada))
         || (formulario && entradaDoFormulario(orgId, anuncio.form_id))
-        || (vez.dono && catraca.stage_id && etapaDeEntrada(orgId, catraca.stage_id))
+        || (vez.dono && !vez.via && catraca.stage_id && etapaDeEntrada(orgId, catraca.stage_id))
         || entradaDe(orgId, dono);
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at,catraca_id)
@@ -522,6 +527,7 @@ export function receberLead(orgId, dados) {
           adset_id = ?, adset_name = ?, ad_id = ?, ad_name = ?, form_id = ?, form_name = ? WHERE id = ?`)
         .run(externo || null, anuncio.platform, anuncio.campaign_id, anuncio.campaign_name, anuncio.adset_id, anuncio.adset_name,
              anuncio.ad_id, anuncio.ad_name, anuncio.form_id, anuncio.form_name, id);
+      entrarNaCadencia(id, { entrada: agora });   // a cadência da etapa em que nasceu (CETRO 10)
       lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
     } else if (formulario) {
       /* A mesma pessoa preencheu de novo: as respostas novas completam o que
@@ -544,6 +550,16 @@ export function receberLead(orgId, dados) {
   /* Os gatilhos dos fluxos (services/automacoes.js): o lead novo e o
      formulário preenchido — este, também quando a pessoa já era lead e
      preencheu de novo. Depois da transação: a automação lê o lead gravado. */
+  /* LEAD REPETIDO (CETRO 11.5): a mesma pessoa voltou por um canal de uma
+     catraca. A política da catraca decide; o padrão é manter quem está. */
+  if (!novo) {
+    const canalR = dados.canal !== undefined ? dados.canal
+      : formulario ? (anuncio.form_id ? { canal: "formulario", ref: String(anuncio.form_id) } : null) : { canal: "portal", ref: "" };
+    const r = aplicarRepetido(orgId, lead, canalR, formulario
+      ? { ad_id: anuncio.ad_id, campaign_id: anuncio.campaign_id, campaign_name: anuncio.campaign_name }
+      : { produto_id: produto ? produto.id : null });
+    if (r) lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(lead.id);
+  }
   if (novo) dispararGatilho(orgId, "lead_novo", { leadId: lead.id, origem: dados.origemGatilho || (formulario ? "formulario" : "portal") });
   if (formulario && anuncio.form_id) dispararGatilho(orgId, "formulario", { leadId: lead.id, ref: String(anuncio.form_id) });
 
