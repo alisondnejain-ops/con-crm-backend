@@ -318,5 +318,39 @@ await caso("14. Asaas: fatura apagada volta a aceitar; estorno tira os meses", a
   assert.equal(db.prepare("SELECT COUNT(*) n FROM pagamentos WHERE org_id = ?").get(pa.org_criada_id).n, 0);
 });
 
+await caso("15. Contrato anexado: a página mostra, o PDF abre, sem aceite não paga, e o aceite fica gravado", async () => {
+  const pdf = Buffer.from("%PDF-1.4\n% contrato de teste\n%%EOF");
+  const ruim = await api("u_master", "POST", "/orgs/propostas", { cliente: "Casa Contrato", total: "14.400", parcelas: 12, meses: 12,
+    provedor: "asaas", contrato: { nome: "contrato.pdf", base64: Buffer.from("não é pdf").toString("base64") } });
+  assert.equal(ruim.status, 400, "arquivo que não é PDF é recusado");
+  const r = await api("u_master", "POST", "/orgs/propostas", { cliente: "Casa Contrato", total: "14.400", parcelas: 12, meses: 12,
+    provedor: "asaas", contrato: { nome: "Contrato CETRO.pdf", base64: pdf.toString("base64") } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const cod = codigoDe(r.body.proposta.link);
+  const pag = await api(null, "GET", `/publico/proposta/${cod}`);
+  assert.equal(pag.body.contrato.nome, "Contrato CETRO.pdf");
+  assert.match(pag.body.contrato.hash, /^[0-9a-f]{64}$/);
+  const arq = await fetch(BASE + pag.body.contrato.url);
+  assert.equal(arq.status, 200); assert.equal(arq.headers.get("content-type"), "application/pdf");
+  assert.equal(Buffer.from(await arq.arrayBuffer()).toString(), pdf.toString(), "o PDF volta igual");
+  const antes = asaasPagamentos.length;
+  const sem = await api(null, "POST", `/publico/proposta/${cod}/asaas`, { ...novoCliente("contrato@x.com"), cpfCnpj: "12345678000190" });
+  assert.equal(sem.status, 400); assert.equal(sem.body.contrato, true);
+  const outra = await api(null, "POST", `/publico/proposta/${cod}/asaas`, { ...novoCliente("contrato@x.com"), cpfCnpj: "12345678000190",
+    aceite_contrato: true, contrato_hash: "0".repeat(64) });
+  assert.equal(outra.status, 400, "aceite de outra versão do contrato é recusado");
+  assert.equal(asaasPagamentos.length, antes, "nenhuma fatura sem o aceite");
+  const ok = await api(null, "POST", `/publico/proposta/${cod}/asaas`, { ...novoCliente("contrato@x.com"), cpfCnpj: "12345678000190",
+    aceite_contrato: true, contrato_hash: pag.body.contrato.hash });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  assert.match(asaasPagamentos.at(-1).description, /conforme contrato aceito/);
+  const row = db.prepare("SELECT * FROM propostas WHERE id = ?").get(r.body.proposta.id);
+  assert.ok(row.contrato_aceite_em && row.contrato_aceite_nome === "Fernanda Souza" && row.contrato_aceite_email === "contrato@x.com");
+  const hub = await api("u_master", "GET", "/orgs/propostas");
+  const naLista = hub.body.propostas.find(p => p.id === r.body.proposta.id);
+  assert.equal(naLista.contrato_aceite.nome, "Fernanda Souza");
+  assert.equal(await (await fetch(`${BASE}/publico/proposta/${codigoDe(P1.link)}/contrato`)).status, 404, "proposta sem contrato: 404");
+});
+
 console.log(falhas ? `\n${falhas} caso(s) falharam.` : "\nOK — a proposta personalizada.");
 process.exit(falhas ? 1 : 0);

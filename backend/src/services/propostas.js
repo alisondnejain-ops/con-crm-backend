@@ -52,7 +52,7 @@
 
    NÃO CONFERIDO CONTRA O PAGAR.ME DE VERDADE (a mesma ressalva de
    services/pagarme.js): o pedido é o mesmo do anual da tabela. */
-import { randomUUID, randomBytes } from "crypto";
+import { randomUUID, randomBytes, createHash } from "crypto";
 export const PROVEDORES_DA_PROPOSTA = ["pagarme", "asaas"];
 import db from "../db.js";
 import { registrarPagamento, apagarPagamento } from "./assinatura.js";
@@ -107,16 +107,36 @@ export function lerEntrada(corpo = {}) {
     .filter(r => RECURSOS_DA_PROPOSTA.includes(r) && ehRecurso(r));
   const provedor = corpo.provedor == null || corpo.provedor === "" ? "pagarme" : String(corpo.provedor);
   if (!PROVEDORES_DA_PROPOSTA.includes(provedor)) throw new ErroProposta(400, "Escolha por onde cobrar: Pagar.me ou Asaas.");
+  const contrato = lerContrato(corpo.contrato);
   let orgId = texto(corpo.org_id, 60) || null;
   if (orgId && !db.prepare("SELECT 1 FROM orgs WHERE id = ?").get(orgId))
     throw new ErroProposta(400, "A conta escolhida não existe.");
   return {
-    cliente, total, parcelas, meses, acessos, dias, itens, recursos, orgId, provedor,
+    cliente, total, parcelas, meses, acessos, dias, itens, recursos, orgId, provedor, contrato,
     titulo: texto(corpo.titulo, 80) || `Plano CETRO · ${meses === 12 ? "anual" : meses + " meses"}`,
     contato_nome: texto(corpo.contato_nome, 80) || null,
     contato_email: texto(corpo.contato_email, 120).toLowerCase() || null,
     mensagem: texto(corpo.mensagem, 400) || null,
   };
+}
+
+/* ===== O CONTRATO DA PROPOSTA (16/11/2026) =====
+   Pedido do Ali: o cliente precisa entender que paga de acordo com o contrato.
+   O master anexa o PDF ao criar a proposta; a página mostra o contrato e só
+   deixa pagar com "li e aceito" marcado. O aceite é gravado com a impressão
+   digital do arquivo — se alguém trocar o PDF depois, a prova continua
+   apontando para o que foi aceito, e a página manda o hash que leu (aceitar
+   uma versão e pagar outra é recusado). Opcional: sem contrato, nada muda. */
+const MAX_CONTRATO = 5 * 1024 * 1024;
+export function lerContrato(c) {
+  if (!c || !c.base64) return null;
+  const bytes = Buffer.from(String(c.base64).replace(/^data:[^,]*,/, ""), "base64");
+  if (!bytes.length) return null;
+  if (bytes.length > MAX_CONTRATO) throw new ErroProposta(400, "O contrato passa de 5 MB. Gere o PDF de novo, menor.");
+  if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") throw new ErroProposta(400, "O contrato precisa ser um arquivo PDF.");
+  let nome = texto(c.nome, 120).replace(/[^\w .()-]/g, "_") || "contrato.pdf";
+  if (!/\.pdf$/i.test(nome)) nome += ".pdf";
+  return { bytes, nome, hash: createHash("sha256").update(bytes).digest("hex") };
 }
 
 export function criarProposta(corpo, porUserId) {
@@ -131,6 +151,8 @@ export function criarProposta(corpo, porUserId) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'aberta',?,?,?)`)
     .run(id, codigo, e.orgId, e.cliente, e.titulo, e.contato_nome, e.contato_email, e.mensagem, e.total, e.parcelas, e.meses,
       e.acessos, JSON.stringify(e.itens), JSON.stringify(e.recursos), agora + e.dias * DIA, porUserId || null, agora, e.provedor);
+  if (e.contrato) db.prepare("UPDATE propostas SET contrato_pdf = ?, contrato_nome = ?, contrato_hash = ? WHERE id = ?")
+    .run(e.contrato.bytes, e.contrato.nome, e.contrato.hash, id);
   return lerProposta(id);
 }
 
@@ -164,7 +186,24 @@ export function paraPagina(p) {
     meses: p.meses, acessos: p.acessos, itens: json(p.itens_json, []), recursos: json(p.recursos_json, []),
     valida_ate: p.valida_ate, estado: estadoDe(p), conta_existente: !!p.org_id, conta_nome: org ? org.name : null,
     provedor: p.provedor || "pagarme",
+    contrato: p.contrato_hash ? { nome: p.contrato_nome, hash: p.contrato_hash, url: `/publico/proposta/${p.codigo}/contrato` } : null,
   };
+}
+
+/* Grava o aceite do contrato. Devolve {erro} quando a proposta tem contrato e
+   o pagamento não veio com o aceite da MESMA versão. */
+export function conferirAceite(p, corpo) {
+  if (!p.contrato_hash) return {};
+  if (corpo?.aceite_contrato !== true) return { erro: "Leia o contrato e marque “Li e aceito o contrato” para continuar." };
+  if (String(corpo?.contrato_hash || "") !== p.contrato_hash)
+    return { erro: "O contrato desta proposta mudou depois que a página abriu. Recarregue a página e leia a versão atual." };
+  return {};
+}
+export function gravarAceite(p, { ip, navegador, nome, email }) {
+  if (!p.contrato_hash) return;
+  db.prepare(`UPDATE propostas SET contrato_aceite_em = ?, contrato_aceite_ip = ?, contrato_aceite_ua = ?,
+      contrato_aceite_nome = ?, contrato_aceite_email = ? WHERE id = ?`)
+    .run(Date.now(), String(ip || "").slice(0, 80), String(navegador || "").slice(0, 300), nome || null, email || null, p.id);
 }
 
 /* Para o hub. */
@@ -176,10 +215,13 @@ export function paraHub(p, base) {
     org_criada_id: p.org_criada_id, org_criada_nome: criada ? criada.name : null, created_at: p.created_at,
     paga_em: p.paga_em, pagador: p.pagador_nome ? { nome: p.pagador_nome, email: p.pagador_email } : null,
     erro: p.ultimo_erro || null,
+    contrato_aceite: p.contrato_aceite_em ? { em: p.contrato_aceite_em, nome: p.contrato_aceite_nome, email: p.contrato_aceite_email, ip: p.contrato_aceite_ip } : null,
   };
 }
 
-export const listarPropostas = () => db.prepare("SELECT * FROM propostas ORDER BY created_at DESC LIMIT 100").all();
+/* A lista não carrega o PDF de cada proposta (só a ficha da proposta precisa). */
+const colunasDaLista = () => db.prepare("PRAGMA table_info(propostas)").all().map(c => c.name).filter(n => n !== "contrato_pdf").join(",");
+export const listarPropostas = () => db.prepare(`SELECT ${colunasDaLista()} FROM propostas ORDER BY created_at DESC LIMIT 100`).all();
 
 export function cancelarProposta(id) {
   const p = lerProposta(id);
