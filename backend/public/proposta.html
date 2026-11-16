@@ -77,6 +77,10 @@
   .linha{display:flex;gap:10px}
   .linha .field{flex:1}
   .secao{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#0C6B52;font-weight:700;margin:20px 0 10px}
+  .contrato{border:1px solid #D6E2DD;border-radius:12px;padding:12px 13px;margin:0 0 15px;background:#FBFDFC}
+  .contrato a{color:#0C6B52;font-weight:700;font-size:13.5px;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+  .contrato label{display:flex;gap:9px;align-items:flex-start;margin:10px 0 0;font-size:13px;color:#1D2A2E;font-weight:500;cursor:pointer;line-height:1.45}
+  .contrato input{width:18px;height:18px;margin:1px 0 0;flex:none;accent-color:#0E8F6E}
   .nota{font-size:12.5px;color:#4A5A55;background:#F0FAF6;border:1px solid #BFE3D8;border-radius:12px;padding:11px 13px;line-height:1.5;margin:-4px 0 15px}
   .cadeado{display:flex;gap:7px;font-size:11.5px;color:#8A93A0;line-height:1.5;margin-top:10px}
   @media (max-width:760px){
@@ -163,6 +167,10 @@
       </div>
       <div class="field"><label for="doc" id="docLabel">CPF ou CNPJ do titular do cartão</label><input id="doc" inputmode="numeric" placeholder="só números"/></div>
       <div class="nota" id="notaLimite"></div>
+      <div class="contrato" id="contratoBloco" style="display:none">
+        <a id="contratoLink" href="#" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><span>Ler o contrato (PDF)</span></a>
+        <label><input type="checkbox" id="contratoAceite"/><span>Li e aceito o contrato. Este pagamento é feito de acordo com ele.</span></label>
+      </div>
       <button id="go">Pagar</button>
       <div class="cadeado">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
@@ -267,6 +275,11 @@
       btn.textContent = "Ir para o pagamento · " + parcelaTexto();
       $("cadeadoTexto").textContent = "O cartão é digitado na página segura do Asaas, que abre ao clicar. O CETRO não recebe os dados do cartão.";
     }
+    if (P.contrato) {
+      $("contratoBloco").style.display = "block";
+      $("contratoLink").href = API + P.contrato.url;
+      $("contratoLink").querySelector("span").textContent = "Ler o contrato (PDF) · " + P.contrato.nome;
+    }
     if (P.conta_existente) $("conta").style.display = "none";
     else {
       $("marca").value = P.cliente;
@@ -309,6 +322,10 @@
     if (enviando || !P) return;
     limpar();
     var body = { cpfCnpj: $("doc").value };
+    if (P.contrato) {
+      if (!$("contratoAceite").checked) return erro("Leia o contrato e marque “Li e aceito o contrato” para continuar.");
+      body.aceite_contrato = true; body.contrato_hash = P.contrato.hash;
+    }
     if (!P.conta_existente) {
       body.nome = $("name").value.trim(); body.email = $("email").value.trim();
       body.telefone = phone.value.trim(); body.pais = tel.pais();

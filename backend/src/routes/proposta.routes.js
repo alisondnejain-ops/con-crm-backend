@@ -16,7 +16,7 @@ import { ipDe } from "../seguranca.js";
 import {
   propostaPorCodigo, paraPagina, estadoDe, parcelaDe, travarParaPagar, destravar,
   marcarProcessando, confirmarProposta, lerProposta, cancelarRecorrentes, nascerConta,
-  marcarAguardandoAsaas, conferirAsaas,
+  marcarAguardandoAsaas, conferirAsaas, conferirAceite, gravarAceite,
 } from "../services/propostas.js";
 
 const r = Router();
@@ -73,6 +73,16 @@ r.get("/publico/proposta/:codigo", async (req, res) => {
   });
 });
 
+/* O contrato da proposta, para ler antes de pagar. Mesma porta do link (quem
+   tem o código lê); abre no navegador, não fica em cache. */
+r.get("/publico/proposta/:codigo/contrato", (req, res) => {
+  const p = propostaPorCodigo(req.params.codigo);
+  if (!p || !p.contrato_pdf) return res.status(404).json({ error: "Esta proposta não tem contrato anexado." });
+  res.set({ "Content-Type": "application/pdf", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": `inline; filename="${String(p.contrato_nome || "contrato.pdf").replace(/"/g, "")}"` });
+  res.send(Buffer.from(p.contrato_pdf));
+});
+
 /* ===== QUEM PAGA, CONFERIDO =====
    Conta existente: os dados são os do dono da conta. Conta nova: nome,
    e-mail, WhatsApp e senha do responsável — a mesma conferência do cadastro
@@ -112,6 +122,8 @@ r.post("/publico/proposta/:codigo/asaas", async (req, res) => {
   const estado = estadoDe(p);
   if (estado === "aguardando" && p.asaas_fatura) return res.json({ ok: true, fatura: p.asaas_fatura, aguardando: true });
   if (estado !== "aberta") { const e = ESTADOS[estado] || ESTADOS.cancelada; return res.status(e.status).json(e); }
+  const aceite = conferirAceite(p, req.body);
+  if (aceite.erro) return res.status(400).json({ error: aceite.erro, contrato: true });
   if (!passou(ipDe(req)))
     return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o CETRO." });
   if (!podeCobrarAsaas())
@@ -125,12 +137,14 @@ r.post("/publico/proposta/:codigo/asaas", async (req, res) => {
     const e = ESTADOS[estadoDe(lerProposta(p.id))] || ESTADOS.pagando;
     return res.status(e.status).json(e);
   }
+  gravarAceite(p, { ip: ipDe(req), navegador: req.get("user-agent"), nome: quem.pagador.nome, email: quem.pagador.email });
   let cliente, cobranca;
   try {
     cliente = quem.org && quem.org.asaas_customer_id
       ? { id: quem.org.asaas_customer_id }
       : await asaas.criarCliente({ nome: quem.pagador.nome, cpfCnpj: doc, email: quem.pagador.email, telefone: quem.pagador.telefone });
-    const descricao = `CETRO — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`.slice(0, 250);
+    const descricao = (`CETRO — ${p.titulo} · ${p.cliente} (${p.parcelas}x de ${reais(parcelaDe(p.total, p.parcelas))})`
+      + (p.contrato_hash ? " · conforme contrato aceito na proposta" : "")).slice(0, 250);
     cobranca = await asaas.criarParcelamento({ clienteId: cliente.id, parcelas: p.parcelas, total: p.total,
       vencimento: hojeBrasilia(), descricao, referencia: "proposta:" + p.id });
   } catch (e) {
@@ -157,6 +171,8 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
   if (!p) return res.status(404).json({ error: "Proposta não encontrada. Confira o link que você recebeu." });
   const estado = estadoDe(p);
   if (estado !== "aberta") { const e = ESTADOS[estado] || ESTADOS.cancelada; return res.status(e.status).json(e); }
+  const aceite = conferirAceite(p, req.body);
+  if (aceite.erro) return res.status(400).json({ error: aceite.erro, contrato: true });
   if (!passou(ipDe(req)))
     return res.status(429).json({ error: "Muitas tentativas seguidas deste computador. Espere uma hora ou fale com o CETRO." });
   if (!podeCobrar())
@@ -176,6 +192,7 @@ r.post("/publico/proposta/:codigo/pagar", async (req, res) => {
     const e = ESTADOS[estadoDe(lerProposta(p.id))] || ESTADOS.pagando;
     return res.status(e.status).json(e);
   }
+  gravarAceite(p, { ip: ipDe(req), navegador: req.get("user-agent"), nome: quem.pagador.nome, email: quem.pagador.email });
 
   const orgId = orgExistente ? orgExistente.id : "org_" + randomUUID().slice(0, 8);
   const pagador = quem.pagador;

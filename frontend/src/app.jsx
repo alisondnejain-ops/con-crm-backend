@@ -8184,7 +8184,7 @@ const ESTADO_PROPOSTA={aberta:["Aguardando pagamento",C.amber],pagando:["Pagando
 function valorDigitado(v){ let t=String(v||"").replace(/[^\d.,]/g,""); if(!t) return NaN;
   if(t.includes(",")) t=t.replace(/\./g,"").replace(",","."); else if(/^\d{1,3}(\.\d{3})+$/.test(t)) t=t.replace(/\./g,""); return Number(t); }
 function PropostasNoHub({isMobile,contas}){
-  const vazio={cliente:"",titulo:"",total:"",parcelas:12,meses:12,acessos:"",itens:"",recursos:[],validade_dias:7,org_id:"",contato_nome:"",contato_email:"",mensagem:"",provedor:""};
+  const vazio={cliente:"",titulo:"",total:"",parcelas:12,meses:12,acessos:"",itens:"",recursos:[],validade_dias:7,org_id:"",contato_nome:"",contato_email:"",mensagem:"",provedor:"",contrato:null};
   const [d,setD]=useState(null);
   const [f,setF]=useState(vazio);
   const [abrir,setAbrir]=useState(false);
@@ -8203,6 +8203,15 @@ function PropostasNoHub({isMobile,contas}){
   const total=valorDigitado(f.total), parcelas=Number(f.parcelas)||1;
   const parcela=Number.isFinite(total)&&total>0?Math.round(total*100/parcelas)/100:null;
   const quebrada=parcela!=null&&Math.abs(parcela*parcelas-total)>0.009;
+  /* O contrato vai junto da proposta: o cliente lê e marca "li e aceito" antes de pagar. */
+  function escolherContrato(arq){
+    if(!arq) return muda("contrato",null);
+    if(!/\.pdf$/i.test(arq.name)&&arq.type!=="application/pdf") return setErro("O contrato precisa ser um PDF.");
+    if(arq.size>5*1024*1024) return setErro("O contrato passa de 5 MB.");
+    const leitor=new FileReader();
+    leitor.onload=()=>{ setErro(""); muda("contrato",{nome:arq.name,base64:String(leitor.result).split(",")[1]||""}); };
+    leitor.readAsDataURL(arq);
+  }
   async function criar(){
     setErro(""); setOcupado(true);
     try{
@@ -8284,6 +8293,13 @@ function PropostasNoHub({isMobile,contas}){
         {campo("Responsável (opcional, já vem preenchido)",<input value={f.contato_nome} onChange={e=>muda("contato_nome",e.target.value)} style={entrada}/>)}
         {campo("E-mail do responsável (opcional)",<input value={f.contato_email} onChange={e=>muda("contato_email",e.target.value)} inputMode="email" style={entrada}/>)}
       </div>}
+      {campo("Contrato (PDF, opcional) — o cliente lê e aceita antes de pagar",
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <label style={{...entrada,width:"auto",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,color:C.greenDeep,fontWeight:600}}>
+            <input type="file" accept="application/pdf,.pdf" style={{display:"none"}} onChange={e=>{escolherContrato(e.target.files&&e.target.files[0]);e.target.value="";}}/>
+            {f.contrato?"Trocar o PDF":"Anexar o contrato"}</label>
+          {f.contrato&&<span style={{fontSize:12.5,color:C.ink,wordBreak:"break-all"}}>{f.contrato.nome} <button type="button" onClick={()=>muda("contrato",null)} style={{border:"none",background:"none",color:C.hot,cursor:"pointer",fontSize:12}}>tirar</button></span>}
+        </div>,"1 1 100%")}
       {campo("Recado no alto da página (opcional)",<input value={f.mensagem} onChange={e=>muda("mensagem",e.target.value)} placeholder="Conforme combinado na reunião de hoje." style={entrada}/>,"1 1 100%")}
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <button disabled={ocupado} onClick={criar} style={{...botaoVerde,opacity:ocupado?.6:1}}>{ocupado?"Criando…":"Criar e gerar o link"}</button>
@@ -8301,6 +8317,8 @@ function PropostasNoHub({isMobile,contas}){
             </div>
             <div style={{fontSize:11.5,color:cor,fontWeight:700,marginTop:3}}>● {rotulo}
               <span style={{color:C.faint,fontWeight:500}}>{p.estado==="paga"&&p.paga_em?` em ${new Date(p.paga_em).toLocaleDateString("pt-BR")}`:p.estado==="aberta"?` · vale até ${new Date(p.valida_ate).toLocaleDateString("pt-BR")}`:""}</span></div>
+            {p.contrato&&<div style={{fontSize:11.5,color:p.contrato_aceite?C.greenDeep:C.sub,marginTop:3}}>
+              {p.contrato_aceite?`Contrato aceito por ${p.contrato_aceite.nome||"o pagador"} em ${new Date(p.contrato_aceite.em).toLocaleString("pt-BR")}`:`Contrato anexado: ${p.contrato.nome} · ainda não aceito`}</div>}
             {p.erro&&p.estado!=="paga"&&<div style={{fontSize:11.5,color:C.hot,marginTop:3}}>Última tentativa: {p.erro}</div>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>

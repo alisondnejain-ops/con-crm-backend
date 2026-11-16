@@ -2651,6 +2651,17 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_propostas_pedido ON propostas(pedido_id)
   addPropCol("asaas_parcelamento_id", "TEXT");
   addPropCol("asaas_fatura", "TEXT");
   addPropCol("cadastro_json", "TEXT");
+  /* Contrato anexado à proposta (16/11/2026): o PDF fica no banco (é a prova do
+     que foi aceito, não vai para armazenamento público), com a impressão
+     digital, e o aceite de quem pagou — hora, IP, navegador e nome. */
+  addPropCol("contrato_pdf", "BLOB");
+  addPropCol("contrato_nome", "TEXT");
+  addPropCol("contrato_hash", "TEXT");
+  addPropCol("contrato_aceite_em", "INTEGER");
+  addPropCol("contrato_aceite_ip", "TEXT");
+  addPropCol("contrato_aceite_ua", "TEXT");
+  addPropCol("contrato_aceite_nome", "TEXT");
+  addPropCol("contrato_aceite_email", "TEXT");
 }
 db.exec("CREATE INDEX IF NOT EXISTS idx_propostas_asaas ON propostas(asaas_parcelamento_id)");
 
