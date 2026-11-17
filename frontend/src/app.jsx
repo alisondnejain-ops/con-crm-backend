@@ -412,7 +412,11 @@ function usarPipelines(acoes,session){
       .catch(e=>setErro(e.message));
   },[]);
   useEffect(()=>{if(session) rever();},[session&&session.id,TOKEN,rever]);
-  return {dados:d,rever,erro,
+  /* `carregado`: a lista já chegou (ou a busca falhou). Antes disso a tela
+     não pode desenhar a lista reserva `STAGES` — ela é o funil original da
+     Conecta, e era isso que aparecia "de relance" ao recarregar em qualquer
+     outra conta (17/11/2026). */
+  return {dados:d,rever,erro,carregado:!!d||!!erro,
     pipelines:(d&&d.pipelines)||[],
     padrao:(d&&d.padrao)||null,
     templates:(d&&d.templates)||[]};
@@ -436,12 +440,16 @@ const corDaEtapa=(etapa,nome)=>(etapa&&etapa.color)||STAGE_C[nome]||"#64748B";
    antes de existir pipeline configurável), cai para `STAGES` — o
    comportamento de sempre, não um quadro vazio. */
 function usarEtapasDoLead(lead,acoes,session){
-  const {pipelines}=usarPipelines(acoes,session);
+  const {pipelines,carregado}=usarPipelines(acoes,session);
   // `lead` pode ser nulo aqui (nenhuma conversa aberta ainda) — o hook
   // precisa ser chamado do mesmo jeito em toda renderização; só o valor
   // devolvido muda quando não há lead.
   const pipe=lead?pipelines.find(p=>p.id===lead.pipelineId):null;
-  return (pipe&&pipe.stages&&pipe.stages.length)?pipe.stages:STAGES.map(n=>({id:null,name:n}));
+  if(pipe&&pipe.stages&&pipe.stages.length) return pipe.stages;
+  // Enquanto a lista não chega, só a etapa em que o lead já está — nunca as
+  // 11 etapas fixas, que são as da Conecta.
+  if(!carregado) return lead&&lead.status?[{id:lead.stageId||null,name:lead.status}]:[];
+  return STAGES.map(n=>({id:null,name:n}));
 }
 
 /* AS ETAPAS PARA O FILTRO "ETAPA" DAS CONVERSAS (30/09/2026, print da
@@ -11336,7 +11344,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
 
      Se a busca dos funis falhar, as colunas caem para as etapas de sempre. Um
      kanban vazio parece base perdida — e é a primeira coisa que a pessoa vê. */
-  const {pipelines,padrao,templates,rever:reverFunis}=usarPipelines(acoes,session);
+  const {pipelines,padrao,templates,rever:reverFunis,carregado:funisCarregados}=usarPipelines(acoes,session);
   // Campos personalizados marcados "no card" — ver CardFunil.
   const camposCard=usarCamposPersonalizados(acoes,session).filter(c=>c.show_on_card);
   const [pipeSel,setPipeSel]=usarEscolha("funil.pipeline","");
@@ -11352,7 +11360,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const pipeAtual=pipelines.find(p=>p.id===pipeSel)||pipelines.find(p=>p.id===padrao)||pipelines[0]||null;
   const colunas2=pipeAtual&&pipeAtual.stages&&pipeAtual.stages.length
     ? pipeAtual.stages
-    : STAGES.map(n=>({id:null,name:n,color:STAGE_C[n]}));
+    : funisCarregados?STAGES.map(n=>({id:null,name:n,color:STAGE_C[n]})):[];
 
   /* OS FILTROS DO KANBAN.
 
@@ -11706,6 +11714,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     style={{flex:1,minHeight:0,overflowX:"auto",overflowY:"hidden",padding:isMobile?12:"12px 20px 14px",
       // Durante o arrasto a rolagem trava: senão a tela corre junto com o dedo.
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
+    {!funisCarregados&&<div style={{display:"flex",alignItems:"center",gap:8,color:C.faint,fontSize:13,padding:"18px 4px"}}>
+      <Icon n="loader" size={14} spin/> Carregando o funil…</div>}
     <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*226}}>
       {colunas2.map(col=>{const st=col.name;
         /* Casa pelo VINCULO quando os dois lados o têm, e pelo nome quando
