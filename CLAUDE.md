@@ -1509,6 +1509,8 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
 - **O funil da Conecta "de relance" ao recarregar** (17/11/2026, vídeo do Ali; `carregado` em `usarPipelines`, `Funil`, `usarEtapasDoLead` em `app.jsx`). Enquanto a lista de funis da conta não chegava do servidor, o Funil desenhava a lista reserva `STAGES` — que é o funil original da Conecta (Lead, Atendimento, Pasta, Aprovação…) — e trocava pelo funil certo um instante depois. Em toda conta, a cada recarga. Agora, até a lista chegar, o quadro diz "Carregando o funil…", e o seletor de etapa da conversa mostra só a etapa em que o lead já está. `STAGES` continua como reserva **só quando a busca falha**. Conferido no navegador com a resposta atrasada de propósito.
 
+- **"Repassados ao corretor" saiu dos Indicadores do SDR** (17/11/2026, pedido do Ali: *"não é uma métrica que é analisada por um gestor… gera confusão"*; `IndicadoresSdr`/`SdrConsolidado` em `app.jsx`). Saiu das caixas por pessoa (atendente e IA), do quadro consolidado, da coluna "Ao corretor" do "Por origem" e da tabela por atendente. **Só a tela mudou**: o servidor continua calculando `repassados_ao_corretor` em `GET /reports/sdr` (os testes conferem), então volta a aparecer mexendo só no `app.jsx`. Conferido no navegador.
+
 ## Pedidos em aberto: a lista do Fernando (28/10/2026)
 
 O Fernando (que opera o ConHub como "Cetro") mandou ~50 pedidos num documento. A análise feita com o Ali, item a item contra o código, está aqui para não se perder. **Status atualizado conforme cada um for feito.**

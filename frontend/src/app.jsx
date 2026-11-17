@@ -25627,7 +25627,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido, qualificado e repassado.</div>
+      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido e quem foi qualificado.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
       Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
@@ -25638,7 +25638,6 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
         {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Destes leads, os que passaram do funil de SDR para o comercial ou ganharam a etiqueta de qualificado no período, sobre os que chegaram")}
-        {caixa("foram ao corretor",a.repassados_ao_corretor,"Destes leads, os que foram entregues a um corretor no período, por qualquer caminho")}
         {caixa("perdidos",a.perdidos,"Movidos pelo sistema para uma etapa de perda depois da IA")}
       </div>:<div style={grade}>
         {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
@@ -25646,7 +25645,6 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois")}
         {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela qualificou — moveu para a etapa de qualificação, passou do funil de SDR para o comercial ou etiquetou como qualificado —, sobre os recebidos")}
-        {caixa("repassados ao corretor",a.repassados_ao_corretor)}
         {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
       </div>}
     </div>)}
@@ -25654,12 +25652,11 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"6px 0 4px"}}>Por origem</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:420}}>
-          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th>{!isMobile&&<th style={th}>Ao corretor</th>}</tr></thead>
+          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th></tr></thead>
           <tbody>{d.por_origem.map(o=><tr key={o.origem}>
             <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{o.origem}</td>
             <td style={td}>{o.recebidos}</td><td style={td}>{o.contatados}</td>
             <td style={td}>{o.qualificados} <span style={{color:C.faint}}>· {pctBR(o.taxa_qualificacao)}</span></td>
-            {!isMobile&&<td style={td}>{o.repassados_ao_corretor}</td>}
           </tr>)}</tbody>
         </table>
       </div>
@@ -25688,7 +25685,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
   const th={textAlign:"left",color:C.faint,fontSize:10.5,fontWeight:700,padding:"6px 6px",textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap"};
   const td={padding:"7px 6px",fontSize:12.5,color:C.ink,borderTop:`1px solid ${C.line}`,whiteSpace:"nowrap"};
   const titulos={chegaram:"Chegaram no período",aguardando_agora:"Aguardando na fila agora",contatados:"Contatados",responderam:"Responderam",
-    pre_qualificados:"Pré-qualificados (saíram do SDR)",repassados_ao_corretor:"Repassados a um corretor",perdidos:"Perdidos no SDR"};
+    pre_qualificados:"Pré-qualificados (saíram do SDR)",perdidos:"Perdidos no SDR"};
   const atendentes=(d.por_pessoa||[]).filter(a=>!a.ia);
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,marginBottom:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
@@ -25706,19 +25703,17 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
       {caixa(null,"1ª resposta (mediana)",tempo(c.primeira_resposta_mediana_min),null,"Da entrada no funil de SDR até a primeira mensagem da casa")}
       {caixa("responderam","responderam",c.responderam,conta(c.responderam,c.contatados),"Dos contatados, quantos clientes escreveram depois da primeira mensagem")}
       {caixa("pre_qualificados","pré-qualificados",c.pre_qualificados,conta(c.pre_qualificados,c.chegaram),"Dos que chegaram, quantos saíram do funil de SDR para outro funil (fora de etapa de perda). Etiqueta não conta")}
-      {caixa("repassados_ao_corretor","repassados ao corretor",c.repassados_ao_corretor,conta(c.repassados_ao_corretor,c.chegaram),"Dos que chegaram, quantos foram entregues a um corretor, por qualquer caminho")}
       {caixa("perdidos","perdidos no SDR",c.perdidos,conta(c.perdidos,c.chegaram),"Dos que chegaram, quantos foram para uma etapa de perda do funil de SDR")}
     </div>
     {c.por_origem.length>0&&<React.Fragment>
       <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"14px 0 4px"}}>Por origem</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:420}}>
-          <thead><tr><th style={th}>Origem</th><th style={th}>Cheg.</th><th style={th}>Contat.</th><th style={th}>Pré-qualif.</th>{!isMobile&&<th style={th}>Ao corretor</th>}</tr></thead>
+          <thead><tr><th style={th}>Origem</th><th style={th}>Cheg.</th><th style={th}>Contat.</th><th style={th}>Pré-qualif.</th></tr></thead>
           <tbody>{c.por_origem.map(o=><tr key={o.origem}>
             <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{o.origem}</td>
             <td style={td}>{o.chegaram}</td><td style={td}>{o.contatados}</td>
             <td style={td}>{o.pre_qualificados} <span style={{color:C.faint}}>de {o.chegaram} · {pctBR(o.taxa_pre_qualificacao)}</span></td>
-            {!isMobile&&<td style={td}>{o.repassados_ao_corretor}</td>}
           </tr>)}</tbody>
         </table>
       </div>
@@ -25727,10 +25722,10 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
       <summary style={{color:C.sub,fontSize:12,fontWeight:600,cursor:"pointer"}}>O que cada atendente fez ({atendentes.length})</summary>
       <div style={{overflowX:"auto",marginTop:6}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:460}}>
-          <thead><tr><th style={th}>Atendente</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th><th style={th}>Ao corretor</th></tr></thead>
+          <thead><tr><th style={th}>Atendente</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th></tr></thead>
           <tbody>{atendentes.map(a=><tr key={a.id}>
             <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{a.nome}</td>
-            <td style={td}>{a.recebidos}</td><td style={td}>{a.contatados}</td><td style={td}>{a.qualificados}</td><td style={td}>{a.repassados_ao_corretor}</td>
+            <td style={td}>{a.recebidos}</td><td style={td}>{a.contatados}</td><td style={td}>{a.qualificados}</td>
           </tr>)}</tbody>
         </table>
       </div>
