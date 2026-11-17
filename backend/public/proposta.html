@@ -352,7 +352,7 @@
       if (data.pago_sem_conta) return estado("Pagamento recebido", data.error, false, false);
       if (!res.ok || !data.ok) return erro(data.error || "Não foi possível concluir o pagamento agora.");
       cartaoEl.value = ""; cvvEl.value = "";
-      if (data.token) { try { localStorage.setItem("concrm_token", data.token); } catch (e) {} }
+      if (data.token) { try { localStorage.setItem("concrm_token", data.token); sessionStorage.setItem("concrm_token", data.token); sessionStorage.removeItem("conhub_org"); } catch (e) {} }
       if (data.pago) {
         estado("Pagamento aprovado!", data.conta_nova ? "A conta da " + P.cliente + " está liberada. Entrando no CETRO…" : "A conta está liberada. Obrigado!", true, true);
         if (data.token) setTimeout(function(){ location.href = "/app"; }, 1800);

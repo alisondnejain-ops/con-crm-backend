@@ -395,7 +395,7 @@
       if (!res.ok || !data.token) return erro(data.error || "Não foi possível criar a conta agora.");
       // O cartão não fica nem na memória da página.
       cartaoEl.value = ""; cvvEl.value = "";
-      try { localStorage.setItem("concrm_token", data.token); } catch (e) {}
+      try { localStorage.setItem("concrm_token", data.token); sessionStorage.setItem("concrm_token", data.token); sessionStorage.removeItem("conhub_org"); } catch (e) {}
       if (data.aviso) { try { sessionStorage.setItem("conhub_aviso_cadastro", data.aviso); } catch (e) {} }
       btn.textContent = "Tudo certo — entrando…";
       location.href = "/app";

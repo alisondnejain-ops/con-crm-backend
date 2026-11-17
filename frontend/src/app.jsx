@@ -106,8 +106,24 @@ const contaInterna=()=>TIPO_CONTA==="interna";
    "Enviar imóvel") e entra o espelho de lotes. Ligado pelo master. */
 let EMPREENDIMENTO=false;
 const contaEmpreendimento=()=>EMPREENDIMENTO;
-try{ TOKEN=localStorage.getItem(STORE); }catch(e){}
-function setToken(t){ TOKEN=t; try{ t?localStorage.setItem(STORE,t):localStorage.removeItem(STORE); }catch(e){} }
+/* O CRACHÁ É DA ABA, NÃO DO NAVEGADOR (17/11/2026, relato do Ali: "entro na
+   VJ e aparecem os funis da Conecta"). Ficava só no localStorage, que é UM
+   para todas as abas: o master com a VJ numa aba e a Conecta na outra
+   trocava o crachá das duas — a aba da VJ, ao recarregar ou trocar de tela
+   por um caminho que recarrega, abria a Conecta. Agora cada aba guarda o seu
+   no sessionStorage (sobrevive ao recarregar, não vaza para outra aba) e o
+   localStorage fica só como o crachá de quem abre uma aba NOVA. A escolha
+   da conta no hub (`STORE_ORG`, abaixo) segue a mesma regra. */
+const lerDaAba=(chave)=>{
+  try{ const s=sessionStorage.getItem(chave); if(s!==null) return s||null; }catch(e){}
+  try{ return localStorage.getItem(chave); }catch(e){ return null; }
+};
+const gravarNaAba=(chave,v)=>{
+  try{ sessionStorage.setItem(chave,v||""); }catch(e){}
+  try{ v?localStorage.setItem(chave,v):localStorage.removeItem(chave); }catch(e){}
+};
+TOKEN=lerDaAba(STORE);
+function setToken(t){ TOKEN=t; gravarNaAba(STORE,t); }
 /* AS CONTAS DA MESMA PESSOA (11/11/2026): o servidor manda, no login e no
    /auth/me, as contas em que esta pessoa está ativa (mesmo e-mail). Com mais
    de uma, aparece "Trocar de conta". Trocar pede um crachá novo ao servidor
@@ -153,8 +169,8 @@ function TrocarDeConta({escuro,compacto}){
    que logo depois do login ainda é a de origem dele, e o hub nunca apareceria.
    Com ela, recarregar mantém onde ele estava trabalhando. */
 const STORE_ORG="conhub_org";
-const orgEscolhida=()=>{ try{ return localStorage.getItem(STORE_ORG); }catch(e){ return null; } };
-const marcarOrg=(id)=>{ try{ id?localStorage.setItem(STORE_ORG,id):localStorage.removeItem(STORE_ORG); }catch(e){} };
+const orgEscolhida=()=>lerDaAba(STORE_ORG);
+const marcarOrg=(id)=>gravarNaAba(STORE_ORG,id);
 
 async function api(path,{method="GET",body}={}){
   let res;
@@ -384,9 +400,18 @@ const LINEAR=["Lead","Atendimento","Pasta","Aprovação","Agendamento","Visita",
 function usarPipelines(acoes,session){
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
-  const rever=React.useCallback(()=>acoes.pipelines()
-    .then(setD).catch(e=>setErro(e.message)),[acoes]);
-  useEffect(()=>{if(session) rever();},[session,rever]);
+  /* Busca UMA vez por conta aberta (17/11/2026). `acoes` é recriado a cada
+     desenho da tela, e com ele nas dependências a lista de funis era pedida
+     de novo a cada desenho — dezenas de vezes por minuto. A resposta que
+     chegar depois de trocar o crachá (outra conta) é descartada. */
+  const acoesRef=useRef(acoes); acoesRef.current=acoes;
+  const rever=React.useCallback(()=>{
+    const crachaDoPedido=TOKEN;
+    return acoesRef.current.pipelines()
+      .then(r=>{ if(TOKEN===crachaDoPedido) setD(r); })
+      .catch(e=>setErro(e.message));
+  },[]);
+  useEffect(()=>{if(session) rever();},[session&&session.id,TOKEN,rever]);
   return {dados:d,rever,erro,
     pipelines:(d&&d.pipelines)||[],
     padrao:(d&&d.padrao)||null,
@@ -17104,7 +17129,14 @@ function TagsDoLead({lead,acoes,session,isMobile}){
    aberta seria uma volta ao servidor só para saber o que já sabíamos. */
 function usarCamposPersonalizados(acoes,session){
   const [lista,setLista]=useState([]);
-  useEffect(()=>{if(session) acoes.camposPersonalizados().then(r=>setLista(r.campos||[])).catch(()=>{});},[session,acoes]);
+  // Uma vez por conta aberta (ver `usarPipelines`): com `acoes` nas
+  // dependências, pedia de novo a cada desenho da tela.
+  const acoesRef=useRef(acoes); acoesRef.current=acoes;
+  useEffect(()=>{
+    if(!session) return;
+    const cracha=TOKEN;
+    acoesRef.current.camposPersonalizados().then(r=>{ if(TOKEN===cracha) setLista(r.campos||[]); }).catch(()=>{});
+  },[session&&session.id,TOKEN]);
   return lista;
 }
 
