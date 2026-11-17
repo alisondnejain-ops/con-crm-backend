@@ -41,7 +41,7 @@ for (const s of ["", "-wal", "-shm"]) { try { fs.unlinkSync(process.env.DB_PATH 
 let modo = "paid";
 const pedidos = [], cancelados = [];
 const cobrancas = new Map();
-const asaasClientes = [], asaasPagamentos = [], asaasPorId = new Map();
+const asaasClientes = [], asaasPagamentos = [], asaasPorId = new Map(), asaasApagados = [];
 let n = 0;
 const mock = http.createServer((req, res) => {
   let corpo = ""; req.on("data", c => (corpo += c));
@@ -59,6 +59,7 @@ const mock = http.createServer((req, res) => {
         asaasPorId.set(pg.id, pg); return ok(pg);
       }
       if (req.method === "GET" && u.startsWith("/payments/")) return ok(asaasPorId.get(u.split("/")[2]) || {});
+      if (req.method === "DELETE" && u.startsWith("/installments/")) { asaasApagados.push(u.split("/")[2]); return ok({ deleted: true }); }
       res.writeHead(404); return res.end("{}");
     }
     if (req.method === "POST" && req.url === "/customers") return ok({ id: "cus_" + (++n), ...j });
@@ -350,6 +351,30 @@ await caso("15. Contrato anexado: a página mostra, o PDF abre, sem aceite não 
   const naLista = hub.body.propostas.find(p => p.id === r.body.proposta.id);
   assert.equal(naLista.contrato_aceite.nome, "Fernanda Souza");
   assert.equal(await (await fetch(`${BASE}/publico/proposta/${codigoDe(P1.link)}/contrato`)).status, 404, "proposta sem contrato: 404");
+});
+
+await caso("16. Apagar e cancelar: paga não apaga, fatura aberta cancela no Asaas, cancelada some", async () => {
+  const r = await api("u_master", "POST", "/orgs/propostas", { cliente: "Casa Apagar", total: "1.200", parcelas: 12, meses: 12, provedor: "asaas" });
+  const id = r.body.proposta.id, cod = codigoDe(r.body.proposta.link);
+  const neg = await api("u_cli", "DELETE", `/orgs/propostas/${id}`);
+  assert.equal(neg.status, 403, "só o master apaga");
+  const g = await api(null, "POST", `/publico/proposta/${cod}/asaas`, { ...novoCliente("apagar@x.com"), cpfCnpj: "12345678000190" });
+  assert.equal(g.status, 201, JSON.stringify(g.body));
+  const comFatura = await api("u_master", "DELETE", `/orgs/propostas/${id}`);
+  assert.equal(comFatura.status, 409, "com fatura aberta, cancela antes");
+  const row = db.prepare("SELECT asaas_parcelamento_id FROM propostas WHERE id = ?").get(id);
+  const c = await api("u_master", "POST", `/orgs/propostas/${id}/cancelar`);
+  assert.equal(c.status, 200, JSON.stringify(c.body)); assert.equal(c.body.proposta.estado, "cancelada");
+  assert.ok(asaasApagados.includes(row.asaas_parcelamento_id), "a fatura foi cancelada no Asaas");
+  const d = await api("u_master", "DELETE", `/orgs/propostas/${id}`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM propostas WHERE id = ?").get(id).n, 0);
+  assert.equal((await api(null, "GET", `/publico/proposta/${cod}`)).status, 404, "o link deixa de abrir");
+  const paga = db.prepare("SELECT id FROM propostas WHERE status = 'paga' LIMIT 1").get();
+  assert.ok(paga, "há uma proposta paga dos casos anteriores");
+  assert.equal((await api("u_master", "DELETE", `/orgs/propostas/${paga.id}`)).status, 409, "paga não se apaga");
+  const aberta = await api("u_master", "POST", "/orgs/propostas", { cliente: "Casa Aberta", total: "500", parcelas: 1, meses: 1 });
+  assert.equal((await api("u_master", "DELETE", `/orgs/propostas/${aberta.body.proposta.id}`)).status, 200, "aberta nunca paga se apaga direto");
 });
 
 console.log(falhas ? `\n${falhas} caso(s) falharam.` : "\nOK — a proposta personalizada.");

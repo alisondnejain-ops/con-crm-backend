@@ -143,6 +143,7 @@ export const criarCobrancaAvulsa = ({ clienteId, valor, vencimento, descricao, r
 export const linhaDoBoleto = (pagamentoId) => chamar(`/payments/${pagamentoId}/identificationField`);
 export const lerPagamento = (pagamentoId) => chamar(`/payments/${pagamentoId}`);
 export const apagarPagamentoAsaas = (pagamentoId) => chamar(`/payments/${pagamentoId}`, { metodo: "DELETE" });
+export const apagarParcelamentoAsaas = (parcelamentoId) => chamar(`/installments/${parcelamentoId}`, { metodo: "DELETE" });
 
 export const cobrancasDaAssinatura = (assinaturaId) =>
   chamar(`/subscriptions/${assinaturaId}/payments`);

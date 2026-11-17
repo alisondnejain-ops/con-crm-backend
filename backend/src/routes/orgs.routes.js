@@ -29,7 +29,7 @@ import { provedorDe, PROVEDORES, temCobrancaNoAsaas, pagarmePadrao } from "../se
 import { pagarmeConfigurado, ambientePagarme } from "../services/pagarme.js";
 import { cancelarTudoNoPagarme, cancelarBoletosAbertos } from "./assinatura.routes.js";
 import { codigoLivre } from "../services/codigo.js";
-import { criarProposta, listarPropostas, paraHub, cancelarProposta, ErroProposta, cancelarRecorrentes } from "../services/propostas.js";
+import { criarProposta, listarPropostas, paraHub, cancelarProposta, apagarProposta, ErroProposta, cancelarRecorrentes } from "../services/propostas.js";
 import { planosCetrolab, salvarPlano as salvarPlanoCetrolab, PUBLICOS as PUBLICOS_CETROLAB } from "../services/cetrolab/planos.js";
 import { criarAmbienteInterno, TIPO_INTERNO } from "../services/interno.js";
 import { situacaoDosCreditos, ajustarPeloMaster, configDosCreditos, salvarConfigDosCreditos } from "../services/ia-creditos.js";
@@ -146,8 +146,12 @@ r.post("/propostas", (req, res) => {
   try { res.status(201).json({ proposta: paraHub(criarProposta(req.body || {}, req.user.id), baseDoCrm(req)) }); }
   catch (e) { if (e instanceof ErroProposta) return res.status(e.status).json({ error: e.message }); throw e; }
 });
-r.post("/propostas/:id/cancelar", (req, res) => {
-  try { res.json({ proposta: paraHub(cancelarProposta(req.params.id), baseDoCrm(req)) }); }
+r.post("/propostas/:id/cancelar", async (req, res) => {
+  try { res.json({ proposta: paraHub(await cancelarProposta(req.params.id), baseDoCrm(req)) }); }
+  catch (e) { if (e instanceof ErroProposta) return res.status(e.status).json({ error: e.message }); throw e; }
+});
+r.delete("/propostas/:id", (req, res) => {
+  try { apagarProposta(req.params.id); res.json({ ok: true }); }
   catch (e) { if (e instanceof ErroProposta) return res.status(e.status).json({ error: e.message }); throw e; }
 });
 

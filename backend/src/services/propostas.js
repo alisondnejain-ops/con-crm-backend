@@ -223,12 +223,51 @@ export function paraHub(p, base) {
 const colunasDaLista = () => db.prepare("PRAGMA table_info(propostas)").all().map(c => c.name).filter(n => n !== "contrato_pdf").join(",");
 export const listarPropostas = () => db.prepare(`SELECT ${colunasDaLista()} FROM propostas ORDER BY created_at DESC LIMIT 100`).all();
 
-export function cancelarProposta(id) {
+/* CANCELAR (16/11/2026): a proposta aberta e também a que já tem a fatura do
+   Asaas gerada. Nesta, a fatura é apagada NO ASAAS antes — senão o cliente
+   ainda pagaria um link que o CETRO já deu por morto, e o dinheiro entraria sem
+   conta para liberar. Fatura que o Asaas diz já paga não é cancelada: o aviso
+   do pagamento está a caminho. */
+const ASAAS_SUMIU = (msg) => /404|not.?found|não encontrad|nao encontrad|removid|deleted/i.test(String(msg || ""));
+export async function cancelarProposta(id) {
   const p = lerProposta(id);
   if (!p) throw new ErroProposta(404, "Proposta não encontrada.");
-  if (!["aberta"].includes(p.status)) throw new ErroProposta(409, "Só a proposta ainda não paga pode ser cancelada.");
+  if (p.status === "aguardando") {
+    if (p.asaas_pagamento_id) {
+      let pg = null;
+      try { pg = await asaas.lerPagamento(p.asaas_pagamento_id); }
+      catch (e) { if (!ASAAS_SUMIU(e.message)) throw new ErroProposta(502, "Não consegui conferir a fatura no Asaas: " + e.message); }
+      if (pg && PAGO_ASAAS.has(pg.status))
+        throw new ErroProposta(409, "O Asaas diz que esta fatura já foi paga. Aguarde alguns minutos: a proposta vai aparecer como paga.");
+      try {
+        if (p.asaas_parcelamento_id) await asaas.apagarParcelamentoAsaas(p.asaas_parcelamento_id);
+        else await asaas.apagarPagamentoAsaas(p.asaas_pagamento_id);
+      } catch (e) {
+        if (!ASAAS_SUMIU(e.message)) throw new ErroProposta(502, "O Asaas não cancelou a fatura: " + String(e.message).replace(/^Asaas: /, "") + ". Nada foi mudado aqui.");
+      }
+    }
+    db.prepare("UPDATE propostas SET status = 'cancelada', cancelada_em = ? WHERE id = ? AND status = 'aguardando'").run(Date.now(), id);
+    return lerProposta(id);
+  }
+  if (p.status !== "aberta") throw new ErroProposta(409, "Só a proposta ainda não paga pode ser cancelada.");
   db.prepare("UPDATE propostas SET status = 'cancelada', cancelada_em = ? WHERE id = ? AND status = 'aberta'").run(Date.now(), id);
   return lerProposta(id);
+}
+
+/* APAGAR (16/11/2026, pedido do Ali: "só preciso ter a opção de apagar
+   propostas antigas"): só a que nunca recebeu dinheiro nem tem cobrança
+   andando — cancelada, vencida ou aberta. Paga, estornada, em análise ou com
+   fatura aberta não se apagam: são o registro de um dinheiro que se mexeu. */
+export function apagarProposta(id) {
+  const p = lerProposta(id);
+  if (!p) throw new ErroProposta(404, "Proposta não encontrada.");
+  const estado = estadoDe(p);
+  if (estado === "aguardando") throw new ErroProposta(409, "Esta proposta tem uma fatura do Asaas aberta. Cancele primeiro (a fatura é cancelada no Asaas) e depois apague.");
+  if (!["aberta", "cancelada", "vencida"].includes(estado))
+    throw new ErroProposta(409, "Proposta paga, em análise ou estornada não se apaga: é o registro do pagamento.");
+  const r = db.prepare("DELETE FROM propostas WHERE id = ? AND status IN ('aberta','cancelada')").run(id);
+  if (!r.changes) throw new ErroProposta(409, "A proposta mudou agora há pouco. Recarregue a lista.");
+  return true;
 }
 
 /* A TRAVA DO PAGAMENTO: só uma tentativa por vez. `aberta → pagando` no
