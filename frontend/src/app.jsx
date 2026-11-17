@@ -8219,8 +8219,14 @@ function PropostasNoHub({isMobile,contas}){
       setNova(r.proposta); setF(vazio); setAbrir(false); carregar();
     }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
-  async function cancelar(id){ if(!window.confirm("Cancelar esta proposta? O link deixa de aceitar pagamento.")) return;
-    try{ await api(`/orgs/propostas/${id}/cancelar`,{method:"POST"}); carregar(); }catch(e){ setErro(e.message); } }
+  async function cancelar(p){ if(!window.confirm(p.estado==="aguardando"
+      ?"Cancelar esta proposta? A fatura também é cancelada no Asaas, e o link deixa de aceitar pagamento."
+      :"Cancelar esta proposta? O link deixa de aceitar pagamento.")) return;
+    setErro("");
+    try{ await api(`/orgs/propostas/${p.id}/cancelar`,{method:"POST"}); carregar(); }catch(e){ setErro(e.message); } }
+  async function apagar(p){ if(!window.confirm(`Apagar a proposta “${p.titulo}” de ${p.cliente}? Ela some da lista e o link deixa de abrir. Não tem desfazer.`)) return;
+    setErro("");
+    try{ await api(`/orgs/propostas/${p.id}`,{method:"DELETE"}); if(nova&&nova.id===p.id) setNova(null); carregar(); }catch(e){ setErro(e.message); } }
   function copiar(link,id){ const ok=()=>{setCopiado(id);setTimeout(()=>setCopiado(""),2200);};
     if(navigator.clipboard) navigator.clipboard.writeText(link).then(ok).catch(()=>window.prompt("Copie o link:",link)); else window.prompt("Copie o link:",link); }
   const entrada={boxSizing:"border-box",width:"100%",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",fontFamily:"inherit"};
@@ -8324,7 +8330,8 @@ function PropostasNoHub({isMobile,contas}){
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {["aberta","pagando","processando","aguardando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
             <a href={p.link} target="_blank" rel="noopener" style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,textDecoration:"none"}}>Abrir</a>
-            {p.estado==="aberta"&&<button onClick={()=>cancelar(p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
+            {["aberta","aguardando"].includes(p.estado)&&<button onClick={()=>cancelar(p)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
+            {["aberta","cancelada","vencida"].includes(p.estado)&&<button onClick={()=>apagar(p)} title="Apagar esta proposta da lista" style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
           </div>
         </div>;})}
     </div>}
