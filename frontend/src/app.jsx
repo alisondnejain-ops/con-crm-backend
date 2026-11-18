@@ -22991,7 +22991,7 @@ function legendaDoFunil(c,ganho){
     A base são os leads que entraram no processo comercial no período{c.periodo?<React.Fragment>, acompanhados até {fmtCorte(c)}</React.Fragment>:null}; Inbox e triagem não entram.{" "}
     <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
     Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
-    {ganho&&<React.Fragment> <b>{ganho.name}</b> conta só quem tem a venda registrada (valor e data) até o corte — arrastar o card para a etapa não basta. As <b>vendas</b> do Painel contam a data da venda no período, de qualquer lead; aqui são só os leads desta base.</React.Fragment>}
+    {ganho&&<React.Fragment> <b>{ganho.name}</b> conta só quem teve a venda registrada (valor e data) dentro do período — arrastar o card para a etapa não basta, e o cliente que comprou antes e voltou a conversar não conta de novo. As <b>vendas</b> do Painel contam a data da venda no período, de qualquer lead; aqui são só os leads desta base.</React.Fragment>}
   </React.Fragment>;
 }
 

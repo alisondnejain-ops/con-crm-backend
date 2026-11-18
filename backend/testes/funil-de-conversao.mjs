@@ -241,10 +241,20 @@ const s15b = lead(F14, "Inbox", SET(11)); caminho(F14, s15b, ["Qualificado", "Pr
 mover(F14, s15b, "Venda", SET(15), "mao", true); // só arrastou para Venda
 const s15c = lead(F14, "Inbox", SET(11)); caminho(F14, s15c, ["Qualificado", "Proposta"], SET(12));
 db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(new Date(2026, 9, 5).getTime(), s15c); // venda depois do corte
+// Cliente que comprou em julho e voltou a conversar: posto de novo em Venda.
+const s15d = lead(F14, "Inbox", SET(11)); caminho(F14, s15d, ["Qualificado"], SET(12));
+db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(new Date(2026, 6, 3).getTime(), s15d);
+mover(F14, s15d, "Venda", SET(15));
 r = conv(F14);
-assert.equal(linha(r, "Venda").chegaram, 1, "só a venda registrada até o corte");
-assert.equal(linha(r, "Proposta").chegaram, 3, "quem foi arrastado continua tendo passado pela proposta");
-console.log("   3 na proposta · 1 venda registrada até o corte");
+assert.equal(linha(r, "Venda").chegaram, 1, "só a venda registrada no período");
+assert.equal(linha(r, "Proposta").chegaram, 3, "quem foi arrastado continua tendo passado pela proposta; o cliente antigo não");
+console.log("   3 na proposta · 1 venda registrada no período (venda de julho fica de fora)");
+// O mesmo para os marcos do Painel e do relatório: o cliente antigo não vira venda
+// nem proposta por voltar a "Venda"; quem vendeu agora conta.
+const { marcosDosLeads } = await import("../src/services/marcos.js");
+const mk15 = marcosDosLeads(org, [s15a, s15d]);
+assert.ok(mk15.get(s15a)[4] && mk15.get(s15a)[3], "venda no período alcança venda e proposta");
+assert.ok(!mk15.get(s15d)[4] && !mk15.get(s15d)[3], "cliente de julho não alcança venda nem proposta");
 
 console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
 const F16 = novoFunil("Donos");
