@@ -22980,7 +22980,7 @@ function legendaDoFunil(c,ganho){
     A base são os leads que entraram no processo comercial no período{c.periodo?<React.Fragment>, acompanhados até {fmtCorte(c)}</React.Fragment>:null}; Inbox e triagem não entram.{" "}
     <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
     Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
-    {ganho&&<React.Fragment> <b>{ganho.name}</b> aqui é quem chegou à etapa até o corte; as <b>vendas</b> do Painel contam a data da venda registrada no período, de qualquer lead — por isso os dois números podem ser diferentes.</React.Fragment>}
+    {ganho&&<React.Fragment> <b>{ganho.name}</b> conta só quem tem a venda registrada (valor e data) até o corte — arrastar o card para a etapa não basta. As <b>vendas</b> do Painel contam a data da venda no período, de qualquer lead; aqui são só os leads desta base.</React.Fragment>}
   </React.Fragment>;
 }
 
@@ -23088,7 +23088,6 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       tit={`Chegaram a ${l.name} sem passar por ${l.anterior.name}`}/> chegaram sem passar por {l.anterior.name}</span>);
     if(l.por_regra_automatica>0) itens.push(<span key="a" style={{color:"#8a6d1f"}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.por_regra_automatica} etapa={l.id} conjunto="automaticas"
       cor="#8a6d1f" tit={`${l.name}: só por regra automática`}/> só por regra automática, sem confirmação de uma pessoa</span>);
-    if(l.com_venda_registrada!==undefined) itens.push(<span key="v">{l.com_venda_registrada} com venda registrada</span>);
     return itens;
   };
 
