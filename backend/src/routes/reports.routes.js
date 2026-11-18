@@ -3,7 +3,7 @@ import db, { emLotes } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "../services/movimento.js";
@@ -206,10 +206,10 @@ r.get("/", (req, res) => {
       pulados: mk.pulados,
       perdidos: perdeu,
       vendas: vendas.length,
-      // Conversão é de COORTE: dos leads que entraram no período, quantos já
-      // viraram venda. Dividir as vendas do período pelos leads do período
-      // misturaria gente de meses diferentes e daria percentual sem sentido.
-      conversao: pct(meus.filter(l => l.stage === "Venda").length, meus.length),
+      // Vendas do período ÷ recebidos do período, com uma casa (regra do Ali,
+      // 18/11/2026; ver taxaConversao em services/score.js). Os dois números
+      // são as colunas Vendas e Recebidos da mesma linha.
+      conversao: taxaConversao(vendas.length, recebidosEventos.length),
       vendas_da_coorte: meus.filter(l => l.stage === "Venda").length,
       valor_vendido: vendas.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0),
       por_etapa: porEtapa,

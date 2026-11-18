@@ -80,6 +80,10 @@ for (const linha of tela.atendentes) {
   assert.equal(s.leads_perdidos_para_outro, linha.leads_perdidos_para_outro, `${linha.nome}: leads perdidos para outro corretor`);
   assert.equal(s.vendas, linha.vendas, `${linha.nome}: vendas`);
   assert.equal(s.conversao, linha.conversao, `${linha.nome}: conversão`);
+  // A regra do Ali (18/11/2026): vendas do período ÷ recebidos do período,
+  // os dois números da MESMA linha, com uma casa.
+  const esperada = linha.recebidos ? Math.round(linha.vendas / linha.recebidos * 1000) / 10 : 0;
+  assert.equal(linha.conversao, esperada, `${linha.nome}: conversão = vendas ÷ recebidos`);
   assert.equal(s.valor_vendido, linha.valor_vendido, `${linha.nome}: valor vendido`);
   assert.equal(s.resposta_min ?? 0, linha.primeira_resposta_mediana_min, `${linha.nome}: 1ª resposta`);
   // Desde 07/11/2026: agendados e visitas separados, pelos marcos da pessoa.
