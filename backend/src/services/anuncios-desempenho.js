@@ -198,6 +198,49 @@ export async function desempenho(orgId, periodo, { atualizar = false } = {}) {
   return montar(orgId, linha, periodo, dados);
 }
 
+/* POR QUE "LEADS (META)" E "LEADS NO CRM" DIFEREM (18/11/2026, pergunta do
+   Ali). Cada lead de formulário que o CRM recebeu no período fica em
+   `portais_leads`, e aqui se diz o que aconteceu com ele:
+   - a pessoa JÁ ERA lead: a Meta conta outro lead, o CRM soma uma observação
+     ao lead que existia (e ele não conta no período, nem nesta campanha);
+   - recusado: chegou sem telefone e sem e-mail, ou a busca na Meta falhou
+     (registrado a partir de 18/11/2026);
+   - apagado depois (conversa pessoal, LGPD) — o unido vai para quem ficou e
+     aparece como "já era lead";
+   - entrou sem a campanha (a Meta não deixou ler) ou com uma campanha de fora
+     desta conta de anúncios;
+   - o resto conta na coluna "Leads no CRM".
+   O que a Meta conta e nem chegou ao CRM sobra na diferença, e não tem como
+   ser conferido daqui: página não conectada no dia, aviso que a Meta não
+   mandou, ou o DIA — a Meta põe o lead no dia em que o anúncio foi visto, e
+   o CRM no dia em que o formulário chegou. Nada aqui é estimado: cada número
+   é uma contagem de linhas. */
+function conciliar(orgId, periodo, linhas, leadsMeta) {
+  const ids = new Set(linhas.map(l => l.campaign_id).filter(Boolean));
+  const nomes = new Set(linhas.map(l => l.campanha));
+  const rows = db.prepare(`SELECT p.lead_id, p.created_at, p.resultado, p.motivo,
+      l.id lid, l.created_at lcriado, l.campaign_id, l.campaign_name
+    FROM portais_leads p LEFT JOIN leads l ON l.id = p.lead_id
+    WHERE p.org_id = ? AND p.portal = 'Meta Ads' AND p.created_at BETWEEN ? AND ?`)
+    .all(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
+  const c = { chegaram: rows.length, ja_era_lead: 0, recusados: 0, apagados: 0, sem_campanha: 0, outra_conta: 0, contados: 0, motivos: {} };
+  for (const r of rows) {
+    if (r.resultado === "recusado" || !r.lead_id) {
+      c.recusados++;
+      const m = (r.motivo || "motivo não registrado").replace(/:.*/, "");
+      c.motivos[m] = (c.motivos[m] || 0) + 1;
+    } else if (!r.lid) c.apagados++;
+    else if (r.resultado === "repetido" || (r.resultado == null && r.lcriado < r.created_at - 120000) || r.lcriado < periodo.de) c.ja_era_lead++;
+    else if (!r.campaign_id && !r.campaign_name) c.sem_campanha++;
+    else if (!(r.campaign_id && ids.has(r.campaign_id)) && !(!r.campaign_id && nomes.has(r.campaign_name))) c.outra_conta++;
+    else c.contados++;
+  }
+  c.motivos = Object.entries(c.motivos).map(([motivo, n]) => ({ motivo, n })).sort((a, b) => b.n - a.n);
+  c.leads_meta = leadsMeta;
+  c.nao_chegaram = leadsMeta == null ? null : leadsMeta - rows.length;   // negativo: chegaram mais do que a Meta conta no período
+  return c;
+}
+
 /* Junta o número da Meta com o do CRM pela campanha (id primeiro, nome como
    reserva — lead antigo pode ter só o nome). Leads e vendas do CRM são da
    coorte do período, a mesma régua da tabela de Campanhas logo abaixo. */
@@ -225,7 +268,9 @@ function montar(orgId, linha, periodo, dados) {
   const vendas = linhas.reduce((s, l) => s + l.vendas, 0);
   const qualificados = linhas.reduce((s, l) => s + l.qualificados, 0);
   const vgv = linhas.reduce((s, l) => s + l.vgv, 0);
+  const conciliacao = conciliar(orgId, periodo, linhas, totalMeta.leads_meta);
   return {
+    conciliacao,
     conta: { id: linha.conta_id, nome: linha.conta_nome, moeda: linha.moeda },
     periodo: { since: dados.since, until: dados.until },
     lido_em: dados.em,

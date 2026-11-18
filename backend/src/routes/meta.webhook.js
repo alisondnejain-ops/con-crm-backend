@@ -3,7 +3,7 @@ import crypto, { randomUUID } from "crypto";
 import { segredoConfere, mascararTelefone } from "../seguranca.js";
 import db from "../db.js";
 import { buscarLead, paginaDoTokenAntigo } from "../services/meta.js";
-import { lerLead, receberLead } from "../services/portais.js";
+import { lerLead, receberLead, registrarRecusa } from "../services/portais.js";
 import { abrir } from "../services/cofre.js";
 import { comentariosDoAviso, comentarioRecebido } from "../services/redes-comentarios.js";
 
@@ -175,6 +175,9 @@ r.post("/meta", async (req, res) => {
             : "sem campanha (lead de teste ou fora de anúncio)");
         } catch (e) {
           console.error("[meta] erro ao buscar lead", leadgenId, e.message);
+          // Sem contato a recusa já foi registrada em receberLead; aqui só o erro da busca.
+          if (!/sem telefone e sem e-mail/.test(String(e.message)))
+            registrarRecusa(destino.orgId, "Meta Ads", leadgenId, "erro ao buscar o lead na Meta: " + String(e.message).slice(0, 150));
           registrar([pageId], "erro", String(e.message).slice(0, 200));
           if (destino.pagina) db.prepare("UPDATE meta_paginas SET ultimo_erro = ?, ultimo_erro_em = ? WHERE page_id = ?")
             .run(String(e.message).slice(0, 300), Date.now(), pageId);

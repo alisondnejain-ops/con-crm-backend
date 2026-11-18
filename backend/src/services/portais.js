@@ -437,6 +437,20 @@ function lerLeadDoFormulario(b) {
   };
 }
 
+/* Lead que chegou e NÃO entrou (sem contato, erro ao buscar na Meta): fica
+   registrado para a tela de desempenho contar. Sem o id do portal não há o
+   que registrar. Nunca lança — registrar não pode atrapalhar a entrada. */
+export function registrarRecusa(orgId, portal, externo, motivo, anuncio) {
+  if (!orgId || !externo) return;
+  try {
+    db.prepare(`INSERT INTO portais_leads (org_id,portal,externo_id,lead_id,created_at,resultado,motivo,campaign_id,campaign_name)
+        VALUES (?,?,?,NULL,?,'recusado',?,?,?)
+        ON CONFLICT(org_id,portal,externo_id) DO UPDATE SET motivo=excluded.motivo WHERE portais_leads.lead_id IS NULL`)
+      .run(orgId, portal, String(externo), Date.now(), String(motivo || "").slice(0, 200),
+           anuncio?.campaign_id || null, anuncio?.campaign_name || null);
+  } catch (e) { console.error("[portais] registrar recusa:", e.message); }
+}
+
 export function receberLead(orgId, dados) {
   /* O número escrito sem o código do país vale pelo país padrão da conta
      (services/pais-da-org.js). Com o código, ou na conta brasileira, sai o
@@ -449,10 +463,13 @@ export function receberLead(orgId, dados) {
      que entrar: é ele que mostra a quem está ligando a integração que ela
      funciona. Ele entra com o nome "Lead de teste da Meta" e é casado só
      pelo id da Meta, nunca por telefone. */
-  if (!telefone && !email && !dados.teste) return { ok: false, status: 400, erro: "O lead chegou sem telefone e sem e-mail — não há como falar com ele." };
+  if (!telefone && !email && !dados.teste) {
+    registrarRecusa(orgId, portal, externo, "sem telefone e sem e-mail", anuncio);
+    return { ok: false, status: 400, erro: "O lead chegou sem telefone e sem e-mail — não há como falar com ele." };
+  }
 
   if (externo) {
-    const ja = db.prepare("SELECT lead_id FROM portais_leads WHERE org_id = ? AND portal = ? AND externo_id = ?").get(orgId, portal, externo);
+    const ja = db.prepare("SELECT lead_id FROM portais_leads WHERE org_id = ? AND portal = ? AND externo_id = ? AND lead_id IS NOT NULL").get(orgId, portal, externo);
     if (ja) return { ok: true, repetido: true, lead_id: ja.lead_id };
   }
   // Lead da Meta gravado antes desta tabela existir (pelo webhook antigo).
@@ -543,8 +560,15 @@ export function receberLead(orgId, dados) {
     // no cartão de observações.
     db.prepare("INSERT INTO observacoes (id,org_id,lead_id,texto,autor_id,created_at) VALUES (?,?,?,?,NULL,?)")
       .run("o_" + randomUUID(), orgId, lead.id, texto, agora);
-    if (externo) db.prepare("INSERT OR IGNORE INTO portais_leads (org_id,portal,externo_id,lead_id,created_at) VALUES (?,?,?,?,?)")
-      .run(orgId, portal, externo, lead.id, agora);
+    /* Uma recusa anterior do mesmo lead (reenvio da Meta) é trocada pela
+       entrega; uma entrega nunca é trocada. */
+    if (externo) db.prepare(`INSERT INTO portais_leads (org_id,portal,externo_id,lead_id,created_at,resultado,motivo,campaign_id,campaign_name)
+        VALUES (?,?,?,?,?,?,NULL,?,?)
+        ON CONFLICT(org_id,portal,externo_id) DO UPDATE SET lead_id=excluded.lead_id, resultado=excluded.resultado, motivo=NULL,
+          campaign_id=excluded.campaign_id, campaign_name=excluded.campaign_name
+        WHERE portais_leads.lead_id IS NULL`)
+      .run(orgId, portal, externo, lead.id, agora, novo ? "novo" : "repetido",
+           formulario ? anuncio.campaign_id || null : null, formulario ? anuncio.campaign_name || null : null);
   })();
 
   /* Os gatilhos dos fluxos (services/automacoes.js): o lead novo e o
