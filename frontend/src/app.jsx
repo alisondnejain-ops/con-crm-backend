@@ -25507,7 +25507,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
       <div style={{color:C.sub,fontSize:11,lineHeight:1.65}}>
         <div><b>Leads recebidos</b> — entraram no período e estão com esta pessoa.</div>
         <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
-        <div><b>Conversão</b> — dos leads que <b>entraram</b> no período, quantos já viraram venda.</div>
+        <div><b>Conversão</b> — vendas fechadas no período ÷ leads recebidos no período (as duas colunas da mesma linha).</div>
         <div><b>Funil de conversão</b> — a base são os leads que <b>entraram no processo comercial</b> no período (Inbox e triagem não contam), atribuídos a quem estava com eles na entrada, acompanhados até o corte. <b>Desde a entrada</b> = chegaram à etapa ÷ base; <b>da etapa anterior</b> = dos que chegaram à etapa de cima, quantos chegaram a esta depois.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
         <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>

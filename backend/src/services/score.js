@@ -59,6 +59,14 @@ export const mediana = (arr) => {
 
    Enquanto forem duas funções, elas voltam a divergir na próxima mudança. */
 export const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+/* CONVERSÃO = VENDAS DO PERÍODO ÷ LEADS RECEBIDOS NO PERÍODO, com uma casa
+   (18/11/2026, regra do Ali: "recebeu 151 leads nesse mês, fez 2 vendas…
+   tudo acompanha o período que estamos filtrando"). Era a coorte — leads
+   que NASCERAM no período e ainda estão com a pessoa, na etapa chamada
+   "Venda" —, e não batia com as colunas Recebidos e Vendas da mesma tabela.
+   Sem lead recebido, 0 (não há base). Os dois números são os que a tabela
+   mostra; por isso a conta é sempre conferível de cabeça. */
+export const taxaConversao = (vendas, recebidos) => (recebidos ? Math.round((vendas / recebidos) * 1000) / 10 : 0);
 // Nota 0–100 entre dois limites, com o melhor podendo ser o menor valor.
 const nota = (valor, bom, ruim) => {
   if (valor == null) return null;
@@ -278,9 +286,9 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
     respondidos: primeiras.length,
     atendimento_min: mediana(tempos.atendimento),
     atendidos: tempos.atendidos,
-    // Nome idêntico ao da tela, e conta idêntica: dos leads que entraram no
-    // período, quantos já viraram venda.
-    conversao: pct(vendasDaCoorte.length, meus.length),
+    // Vendas do período ÷ recebidos do período (ver taxaConversao). Mesma
+    // conta da tela de Relatórios.
+    conversao: taxaConversao(vendas.length, recebidosEventos.length),
     resolvidos: fechados.length,
     vendas: vendas.length,
     vendas_da_coorte: vendasDaCoorte.length,
