@@ -26,6 +26,10 @@ const G = cli(await login("g@sp.com")), A = cli(await login("a@sp.com"));
 const agora = Date.now();
 const lead = (dono) => { const id = "l_" + randomUUID(); db.prepare("INSERT INTO leads (id,org_id,name,phone,assigned_to,stage,created_at,assigned_at) VALUES (?,?,?,?,?,?,?,?)").run(id, org, "C", "5587" + Math.floor(Math.random() * 1e9), dono, "Lead", agora - 3600e3, agora - 3600e3); return id; };
 const L1 = lead(ana), L2 = lead(ana); lead(bia);
+// "Na mão" segue o período: lead recebido há 90 dias continua com Ana, mas não
+// entra no mês; lead do mês que foi perdido também não está em aberto.
+{ const id = "l_" + randomUUID(); db.prepare("INSERT INTO leads (id,org_id,name,phone,assigned_to,stage,created_at,assigned_at) VALUES (?,?,?,?,?,?,?,?)").run(id, org, "Antigo", "5587" + Math.floor(Math.random() * 1e9), ana, "Lead", agora - 90 * 86400e3, agora - 90 * 86400e3); }
+lead(ana) && db.prepare("UPDATE leads SET stage='Perdido' WHERE id=(SELECT id FROM leads WHERE assigned_to=? ORDER BY rowid DESC LIMIT 1)").run(ana);
 for (const L of [L1, L2]) db.prepare("INSERT INTO messages (id,lead_id,direction,body,from_user_id,created_at) VALUES (?,?,?,?,?,?)").run("m_" + randomUUID(), L, "out", "oi", ana, agora - 1800e3);
 db.prepare("INSERT INTO messages (id,lead_id,direction,body,created_at) VALUES (?,?,?,?,?)").run("m_" + randomUUID(), L1, "in", "oi!", agora - 1700e3);
 db.prepare("INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,feito_em,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run("t_" + randomUUID(), org, L1, ana, ana, "Ligar", agora - 600e3, null, agora - 900e3);
