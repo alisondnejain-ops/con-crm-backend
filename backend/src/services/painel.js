@@ -454,39 +454,64 @@ export function campanhas(orgId, filtros = {}) {
      o quadro "Desempenho dos anúncios", logo acima, junta pelo id: a mesma
      campanha aparecia com 7 leads em cima e 3 embaixo. O nome mostrado é o
      do lead mais recente. */
-  const grupos = new Map();
-  for (const l of [...leads].sort((a, b) => b.created_at - a.created_at)) {
-    const chave = l.campaign_id ? "id:" + l.campaign_id : (l.campaign_name || l.origem || "(sem origem registrada)");
-    if (!grupos.has(chave)) grupos.set(chave, {
-      campanha: l.campaign_name || l.origem || "(sem origem registrada)", campaign_id: l.campaign_id || null, platform: l.platform || null,
-      leads: [], anuncios: new Set(),
-    });
-    const g = grupos.get(chave);
-    g.leads.push(l);
-    if (l.ad_name) g.anuncios.add(l.ad_name);
-  }
-
   /* QUALIFICADO: a mesma régua da Visão geral e do SDR — qualificado pelo
      SDR ou no comercial, entre a chegada e o fim do período. Antes era "a
      etapa de HOJE conta como conversão", e o mesmo lead deixava de contar ao
      ser perdido depois. */
   const qualificadosDaCasa = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
 
-  const linhas = [...grupos.values()].map(g => {
-    const tempos = temposDeResposta(g.leads);
-    const qualificados = g.leads.filter(l => qualificadosDaCasa.has(l.id)).length;
-    const vendidos = g.leads.filter(l => l.sale_value != null);
-    return {
-      campanha: g.campanha, campaign_id: g.campaign_id, platform: g.platform,
-      anuncios: g.anuncios.size,
-      leads: g.leads.length,
-      qualificados, taxa_qualificacao: pct(qualificados, g.leads.length),
-      primeira_resposta_mediana_min: tempos.mediana,
-      taxa_resposta_cliente: respostaDoCliente(g.leads).taxa,
-      vendas: vendidos.length,
-      vgv: vendidos.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0),
-    };
-  }).sort((a, b) => b.leads - a.leads);
+  /* Uma conta para os três níveis (campanha, conjunto, anúncio — 18/11/2026):
+     agrupado pelo ID quando existe, o nome mostrado é o do lead mais recente.
+     Conjunto e anúncio levam a campanha (e o anúncio, o conjunto) para a tela
+     filtrar. Lead sem conjunto/anúncio gravado não entra nesses dois níveis. */
+  /* O nome é o do lead mais recente QUE TEM nome: um lead que chegou só com
+     o id da campanha não pode renomear a campanha para a origem dele. */
+  const agrupar = (chaveDe, rotuloDe, extra, reserva) => {
+    const grupos = new Map();
+    for (const l of [...leads].sort((a, b) => b.created_at - a.created_at)) {
+      const chave = chaveDe(l); if (!chave) continue;
+      if (!grupos.has(chave)) grupos.set(chave, { nome: rotuloDe(l), platform: l.platform || null, leads: [], anuncios: new Set(), ...extra(l) });
+      const g = grupos.get(chave);
+      if (!g.nome && rotuloDe(l)) g.nome = rotuloDe(l);
+      for (const [k, v] of Object.entries(extra(l))) if (g[k] == null && v != null) g[k] = v;
+      g.leads.push(l);
+      if (l.ad_name) g.anuncios.add(l.ad_name);
+    }
+    return [...grupos.values()].map(g => {
+      const tempos = temposDeResposta(g.leads);
+      const qualificados = g.leads.filter(l => qualificadosDaCasa.has(l.id)).length;
+      const vendidos = g.leads.filter(l => l.sale_value != null);
+      const { leads: ls, anuncios, nome, ...resto } = g;
+      return {
+        ...resto, nome: nome || reserva(ls[0]), anuncios: anuncios.size,
+        leads: ls.length,
+        qualificados, taxa_qualificacao: pct(qualificados, ls.length),
+        primeira_resposta_mediana_min: tempos.mediana,
+        taxa_resposta_cliente: respostaDoCliente(ls).taxa,
+        vendas: vendidos.length,
+        vgv: vendidos.reduce((s, v) => s + (v.sale_moeda === "USD" ? 0 : (v.sale_value || 0)), 0),
+      };
+    }).sort((a, b) => b.leads - a.leads);
+  };
+  const daCampanha = (l) => ({ campaign_id: l.campaign_id || null, campanha: l.campaign_name || null });
+  const linhas = agrupar(
+    l => l.campaign_id ? "id:" + l.campaign_id : (l.campaign_name || l.origem || "(sem origem registrada)"),
+    l => l.campaign_name || null,
+    l => ({ campaign_id: l.campaign_id || null }),
+    l => l.origem || "(sem origem registrada)",
+  ).map(({ nome, ...r }) => ({ campanha: nome, ...r }));
+  const conjuntos = agrupar(
+    l => l.adset_id ? "id:" + l.adset_id : (l.adset_name ? "n:" + l.adset_name : null),
+    l => l.adset_name || null,
+    l => ({ adset_id: l.adset_id || null, ...daCampanha(l) }),
+    () => "(conjunto sem nome)",
+  );
+  const anuncios = agrupar(
+    l => l.ad_id ? "id:" + l.ad_id : (l.ad_name ? "n:" + l.ad_name : null),
+    l => l.ad_name || null,
+    l => ({ ad_id: l.ad_id || null, adset_id: l.adset_id || null, conjunto: l.adset_name || null, ...daCampanha(l) }),
+    () => "(anúncio sem nome)",
+  );
 
   /* POR ORIGEM (CETRO 16.6): cada lead numa origem só — a de ENTRADA — e a
      venda conta na origem do lead, nunca em duas. Mesma coorte e mesma régua
@@ -527,7 +552,7 @@ export function campanhas(orgId, filtros = {}) {
   if (filtros.campanha) disparos = disparos.filter(d => d.nome === filtros.campanha);
   return {
     periodo,
-    campanhas: linhas,
+    campanhas: linhas, conjuntos, anuncios,
     por_origem: porOrigem, total_origem: totalOrigem,
     disparos,
     /* Honestidade sobre a cobertura: dizer que 4 de 300 leads têm campanha é o

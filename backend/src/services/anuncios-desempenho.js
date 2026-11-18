@@ -153,12 +153,18 @@ function leadsDaMeta(actions, temLinha) {
   return 0;
 }
 
-const CAMPOS = "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpm,actions";
+const METRICAS = "spend,impressions,reach,clicks,ctr,cpm,actions";
+const CAMPOS_NIVEL = {
+  account: METRICAS,
+  campaign: "campaign_id,campaign_name," + METRICAS,
+  adset: "campaign_id,campaign_name,adset_id,adset_name," + METRICAS,
+  ad: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name," + METRICAS,
+};
 
 async function insights(token, contaId, nivel, since, until) {
   const lista = [];
   let r = await graph(`${contaId}/insights`, { token, params: {
-    level: nivel, fields: nivel === "account" ? "spend,impressions,reach,clicks,ctr,cpm,actions" : CAMPOS,
+    level: nivel, fields: CAMPOS_NIVEL[nivel],
     time_range: { since, until }, limit: 500 } });
   lista.push(...(r.data || []));
   for (let i = 0; i < 10 && r.paging?.next; i++) {
@@ -185,15 +191,19 @@ export async function desempenho(orgId, periodo, { atualizar = false } = {}) {
   const guardado = CACHE.get(chave);
   if (!atualizar && guardado && guardado.em > Date.now() - CACHE_MS) return montar(orgId, linha, periodo, guardado);
 
-  let conta, campanhas;
+  /* Os quatro níveis numa ida só (18/11/2026: conjuntos e anúncios). Lidos
+     juntos para os números das três abas serem da MESMA leitura. */
+  let conta, campanhas, conjuntos, anuncios;
   try {
-    [conta, campanhas] = await Promise.all([
+    [conta, campanhas, conjuntos, anuncios] = await Promise.all([
       insights(token, linha.conta_id, "account", since, until),
       insights(token, linha.conta_id, "campaign", since, until),
+      insights(token, linha.conta_id, "adset", since, until),
+      insights(token, linha.conta_id, "ad", since, until),
     ]);
   } catch (e) { throw traduzir(orgId, e); }
   db.prepare("UPDATE meta_anuncios SET ultimo_erro = NULL, ultimo_erro_em = NULL WHERE org_id = ?").run(orgId);
-  const dados = { em: Date.now(), since, until, conta: conta[0] || null, campanhas };
+  const dados = { em: Date.now(), since, until, conta: conta[0] || null, campanhas, conjuntos, anuncios };
   CACHE.set(chave, dados);
   return montar(orgId, linha, periodo, dados);
 }
@@ -247,11 +257,12 @@ function conciliar(orgId, periodo, linhas, leadsMeta) {
 function montar(orgId, linha, periodo, dados) {
   // Qualificado comercial: a mesma régua da tabela de Campanhas e da Visão geral.
   const qualif = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
-  const leads = db.prepare(`SELECT id, campaign_id, campaign_name, sale_value, sale_moeda FROM leads
+  const leads = db.prepare(`SELECT id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, sale_value, sale_moeda FROM leads
     WHERE org_id = ? AND created_at BETWEEN ? AND ? AND (campaign_id IS NOT NULL OR campaign_name IS NOT NULL)`)
     .all(orgId, periodo.de, periodo.ate);
-  const doCrm = (id, nome) => {
-    const daqui = leads.filter(l => (id && l.campaign_id === id) || (!l.campaign_id && nome && l.campaign_name === nome));
+  // Casa pelo id do nível; o nome só vale para lead antigo, sem o id gravado.
+  const doCrm = (id, nome, campoId = "campaign_id", campoNome = "campaign_name") => {
+    const daqui = leads.filter(l => (id && l[campoId] === id) || (!l[campoId] && nome && l[campoNome] === nome));
     const vendas = daqui.filter(l => l.sale_value != null);
     return { leads_crm: daqui.length, qualificados: daqui.filter(l => qualif.has(l.id)).length, vendas: vendas.length,
       vgv: vendas.reduce((s, l) => s + (l.sale_moeda === "USD" ? 0 : (l.sale_value || 0)), 0) };
@@ -263,6 +274,16 @@ function montar(orgId, linha, periodo, dados) {
       custo_por_lead: divide(m.investimento, crm.leads_crm), custo_por_qualificado: divide(m.investimento, crm.qualificados),
       custo_por_venda: divide(m.investimento, crm.vendas) };
   }).sort((a, b) => (b.investimento || 0) - (a.investimento || 0));
+  const nivel = (lista, campoId, campoNome, extra) => (lista || []).map(c => {
+    const m = daMeta(c);
+    const crm = doCrm(String(c[campoId] || ""), c[campoNome], campoId, campoNome);
+    return { id: c[campoId] || null, nome: c[campoNome] || "(sem nome)", ...extra(c), ...m, ...crm,
+      custo_por_lead: divide(m.investimento, crm.leads_crm), custo_por_qualificado: divide(m.investimento, crm.qualificados),
+      custo_por_venda: divide(m.investimento, crm.vendas) };
+  }).sort((a, b) => (b.investimento || 0) - (a.investimento || 0));
+  const conjuntos = nivel(dados.conjuntos, "adset_id", "adset_name", c => ({ campaign_id: c.campaign_id || null, campanha: c.campaign_name || null }));
+  const anuncios = nivel(dados.anuncios, "ad_id", "ad_name", c => ({ campaign_id: c.campaign_id || null, campanha: c.campaign_name || null,
+    adset_id: c.adset_id || null, conjunto: c.adset_name || null }));
   const totalMeta = dados.conta ? daMeta(dados.conta) : daMeta({});
   const leadsCrm = linhas.reduce((s, l) => s + l.leads_crm, 0);
   const vendas = linhas.reduce((s, l) => s + l.vendas, 0);
@@ -277,7 +298,7 @@ function montar(orgId, linha, periodo, dados) {
     total: { ...totalMeta, leads_crm: leadsCrm, qualificados, vendas, vgv,
       custo_por_lead: divide(totalMeta.investimento, leadsCrm), custo_por_qualificado: divide(totalMeta.investimento, qualificados),
       custo_por_venda: divide(totalMeta.investimento, vendas) },
-    campanhas: linhas,
+    campanhas: linhas, conjuntos, anuncios,
   };
 }
 
