@@ -289,8 +289,8 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
        services/marcos.js). */
     if (l.sale_date) for (const m of cfg.marcos) {
       if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
-      const lista = (chegadas.get(m.id) || []).filter(a => !(l.sale_date < a.t - 2 * 86400000));
-      if (lista.length) chegadas.set(m.id, lista); else chegadas.delete(m.id);
+      // Venda registrada fora do período: a mudança para "Vendido" não puxa nada.
+      if (l.sale_date < periodo.de || l.sale_date > corte) chegadas.delete(m.id);
     }
     if (inferir) {
       let menor = Infinity, origem = null;
@@ -408,6 +408,36 @@ function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
   return { chegaram: ids.length, entraram: entraram.size, taxa: taxa(entraram.size, ids.length) };
 }
 
+/* ===== AS VENDAS DO PERÍODO QUE NÃO SÃO DA BASE (18/11/2026) =====
+   Regra do Ali, para toda conta: a etapa de venda do funil mostra TODAS as
+   vendas registradas no período, de leads deste funil — a mesma conta das
+   vendas do Painel. A base (coorte) é de quem entrou no comercial no período,
+   e o lead que entrou antes e vendeu agora ficava de fora: a venda existia no
+   Painel e sumia do funil. Ela entra na contagem da etapa de venda (e na
+   lista ao clicar), com o dono de hoje como no Painel; as TAXAS continuam
+   sendo só da base, para nenhuma passar de 100%. */
+function etapaDeVenda(cfg) {
+  const vs = cfg.marcos.filter((m, i) => i > 0 && (m.status_type === "ganho" || /\bvend(a|ido)\b/i.test(String(m.name || ""))));
+  return vs.length ? vs[vs.length - 1] : null;
+}
+function vendasForaDaBase(orgId, pipelineId, c, filtros) {
+  const { cfg, periodo, corte, unidades } = c;
+  const venda = cfg && !cfg.sem_marcos ? etapaDeVenda(cfg) : null;
+  if (!venda || periodo.de > corte) return { venda, extras: [] };
+  const naBase = new Set(unidades.map(u => u.lead.id));
+  const { origem, source, campanha, campaign_id, produto_id } = filtros;
+  const p = peneira(orgId, { origem, source, campanha, campaign_id, produto_id });
+  const donos = listaDeDonos(filtros.responsavel);
+  const filtroDono = donos.length ? new Set(donos.map(x => x === "fila" ? null : x)) : null;
+  const extras = db.prepare(`SELECT l.id, l.name, l.created_at, l.stage, l.stage_id, l.assigned_to, l.sale_date, l.sale_value
+      FROM leads l WHERE ${p.sql} AND l.pipeline_id = ? AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`)
+    .all(...p.args, pipelineId, periodo.de, corte)
+    .filter(l => !naBase.has(l.id) && (!filtroDono || filtroDono.has(l.assigned_to || null)))
+    .map(l => ({ lead: l, entrada: null, fora_da_base: true, dono: { conhecido: true, id: l.assigned_to || null },
+      chegadas: new Map([[venda.id, [{ stage: venda.id, t: l.sale_date, motivo: "venda" }]]]), lacunas: 0 }));
+  return { venda, extras };
+}
+
 /* ===== A RESPOSTA PARA AS TELAS ===== */
 export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const c = calcular(orgId, pipelineId, filtros, agora);
@@ -438,6 +468,11 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     }
     return linha;
   });
+  const fora = vendasForaDaBase(orgId, pipelineId, c, filtros);
+  if (fora.venda) {
+    const lv = linhas.find(x => x.id === fora.venda.id);
+    if (lv) { lv.vendas_fora_da_base = fora.extras.length; lv.chegaram += fora.extras.length; }
+  }
 
   // Por dono na entrada. "Sem responsável" é a fila; desconhecido fica à parte.
   const nomes = new Map(db.prepare("SELECT id, name FROM users WHERE org_id = ?").all(orgId).map(u => [u.id, u.name]));
@@ -524,6 +559,10 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
       automaticas: (u) => chegou(u) && (u.chegadas.get(m.id) || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo)),
     }[conjunto];
     lista = unidades.filter(filtro);
+    if (conjunto === "chegaram") {
+      const fora = vendasForaDaBase(orgId, pipelineId, c, filtros);
+      if (fora.venda && fora.venda.id === m.id) lista = lista.concat(fora.extras);
+    }
   }
 
   lista = [...lista].sort((a, b) => (b.entrada || 0) - (a.entrada || 0));
