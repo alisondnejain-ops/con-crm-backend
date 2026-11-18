@@ -681,7 +681,25 @@ function usarEscolha(chave,inicial){
     catch(e){ return inicial; }
   });
   useEffect(()=>{ try{ sessionStorage.setItem(nome,JSON.stringify(v)); }catch(e){} },[nome,v]);
-  return [v,setV];
+  /* Duas telas abertas ao mesmo tempo com a mesma escolha (18/11/2026: a
+     Visão geral e os Relatórios dentro dela) precisam andar juntas. Cada uma
+     tinha o próprio estado, lido só ao abrir — trocar o período na Visão
+     geral não chegava aos Indicadores do SDR embutidos. Agora quem muda
+     avisa as outras. */
+  useEffect(()=>{
+    // Quem recebe não reavisa (setV puro), então não há laço.
+    const ouvir=(e)=>{ if(e.detail&&e.detail.nome===nome) setV(e.detail.v); };
+    window.addEventListener("conhub:escolha",ouvir);
+    return()=>window.removeEventListener("conhub:escolha",ouvir);
+  },[nome]);
+  const mudar=React.useCallback((novo)=>{
+    setV(atual=>{
+      const valor=typeof novo==="function"?novo(atual):novo;
+      setTimeout(()=>window.dispatchEvent(new CustomEvent("conhub:escolha",{detail:{nome,v:valor}})),0);
+      return valor;
+    });
+  },[nome]);
+  return [v,mudar];
 }
 /* ESCONDER O CONTATO DOS LEADS NO FUNIL (07/10/2026, pedido do Ali: "um
    olhinho ao lado da barra de pesquisa que cobre essas informações sensíveis
