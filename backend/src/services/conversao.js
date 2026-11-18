@@ -297,6 +297,21 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
       }
     }
 
+    /* A ETAPA DE VENDA CONTA PELA DATA DA VENDA REGISTRADA (18/11/2026,
+       pedido do Fernando). Arrastar o card para "Vendido" sem registrar a
+       venda não é venda — e o Painel, os relatórios e o VGV contam pela
+       `sale_date`. Aqui a etapa de ganho (ou com "venda"/"vendido" no nome)
+       vale só para o lead com venda registrada até o corte, na data da venda.
+       Roda DEPOIS da etapa pulada: quem foi arrastado para "Vendido" sem
+       venda continua contando como tendo passado pelas etapas de antes. */
+    for (const m of cfg.marcos) {
+      if (m.id === marcoEntrada) continue;
+      if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
+      const sd = l.sale_date;
+      if (sd && sd <= corte) chegadas.set(m.id, [{ stage: m.id, t: Math.max(sd, entrada.t), motivo: "venda" }]);
+      else chegadas.delete(m.id);
+    }
+
     base.unidades.push({
       lead: l, entrada: entrada.t, entrada_motivo: entrada.motivo, dono, chegadas,
       lacunas: lacunas.filter(t => t <= corte).length,
@@ -410,8 +425,6 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
       linha.por_regra_automatica = chegaram.filter(u =>
         (u.chegadas.get(m.id) || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo))).length;
     }
-    if (m.status_type === "ganho")
-      linha.com_venda_registrada = chegaram.filter(u => u.lead.sale_date && u.lead.sale_date <= corte).length;
     return linha;
   });
 

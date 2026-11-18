@@ -60,11 +60,14 @@ function lead(F, etapa, criado, dono = null) {
     F.e[etapa], F.id, dono, dono ? criado : null, criado, criado);
   return id;
 }
-function mover(F, id, etapa, t, motivo = "mao") {
+// Chegar em "Venda" no teste = registrar a venda (é o que a ficha faz); o
+// caso 15 confere o arrasto para a etapa SEM venda registrada.
+function mover(F, id, etapa, t, motivo = "mao", semVenda = false) {
   const l = db.prepare("SELECT stage, stage_id FROM leads WHERE id = ?").get(id);
   db.prepare(`INSERT INTO lead_etapas (id,org_id,lead_id,de,para,motivo,created_at,de_stage_id,para_stage_id,etapa_fonte)
     VALUES (?,?,?,?,?,?,?,?,?,'gravado')`).run("le_" + randomUUID(), F.o, id, l.stage, etapa, motivo, t, l.stage_id, F.e[etapa]);
   db.prepare("UPDATE leads SET stage = ?, stage_id = ?, stage_entered_at = ? WHERE id = ?").run(etapa, F.e[etapa], t, id);
+  if (etapa === "Venda" && !semVenda) db.prepare("UPDATE leads SET sale_value = COALESCE(sale_value, 100000), sale_date = COALESCE(sale_date, ?) WHERE id = ?").run(t, id);
 }
 const caminho = (F, id, etapas, t0) => etapas.forEach((e, i) => mover(F, id, e, t0 + (i + 1) * 3600000));
 function repassar(id, de, para, t) {
@@ -231,14 +234,17 @@ assert.equal(linha(r, "Agendamento").chegaram, 2);
 assert.equal(linha(r, "Agendamento").por_regra_automatica, 1);
 console.log("   2 chegaram · 1 só pela palavra-chave");
 
-console.log("15. Venda: chegar à etapa x venda registrada");
-const s15a = lead(F14, "Inbox", SET(11)); caminho(F14, s15a, ["Qualificado", "Venda"], SET(12));
-db.prepare("UPDATE leads SET sale_value = 300000, sale_date = ? WHERE id = ?").run(SET(14), s15a);
-const s15b = lead(F14, "Inbox", SET(11)); caminho(F14, s15b, ["Qualificado", "Venda"], SET(12));
+console.log("15. Venda: conta pela venda registrada, não por arrastar o card");
+const s15a = lead(F14, "Inbox", SET(11)); caminho(F14, s15a, ["Qualificado", "Proposta"], SET(12));
+mover(F14, s15a, "Venda", SET(15)); // registrou a venda
+const s15b = lead(F14, "Inbox", SET(11)); caminho(F14, s15b, ["Qualificado", "Proposta"], SET(12));
+mover(F14, s15b, "Venda", SET(15), "mao", true); // só arrastou para Venda
+const s15c = lead(F14, "Inbox", SET(11)); caminho(F14, s15c, ["Qualificado", "Proposta"], SET(12));
+db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(new Date(2026, 9, 5).getTime(), s15c); // venda depois do corte
 r = conv(F14);
-assert.equal(linha(r, "Venda").chegaram, 2);
-assert.equal(linha(r, "Venda").com_venda_registrada, 1);
-console.log("   2 na etapa Venda · 1 com venda registrada");
+assert.equal(linha(r, "Venda").chegaram, 1, "só a venda registrada até o corte");
+assert.equal(linha(r, "Proposta").chegaram, 3, "quem foi arrastado continua tendo passado pela proposta");
+console.log("   3 na proposta · 1 venda registrada até o corte");
 
 console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
 const F16 = novoFunil("Donos");
