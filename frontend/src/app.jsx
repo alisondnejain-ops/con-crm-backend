@@ -22988,10 +22988,11 @@ function NumeroConferivel({v,etapa,conjunto,tit,cor,peso=700,pedir,impressao}){
 
 function legendaDoFunil(c,ganho){
   return <React.Fragment>
-    A base são os leads que entraram no processo comercial no período{c.periodo?<React.Fragment>, acompanhados até {fmtCorte(c)}</React.Fragment>:null}; Inbox e triagem não entram.{" "}
-    <b>Desde a entrada</b>: chegaram à etapa ÷ base. <b>Da etapa anterior</b>: dos que chegaram à etapa de cima, quantos chegaram a esta depois.
-    Cada lead conta uma vez, pelo responsável que estava com ele ao entrar — repasse depois não muda isso.
-    {ganho&&<React.Fragment> <b>{ganho.name}</b> conta todas as vendas registradas (valor e data) dentro do período, de leads deste funil — a mesma conta das vendas do Painel. Arrastar o card para a etapa não basta, e o cliente que comprou antes e voltou a conversar não conta de novo. As taxas contam só os leads da base.</React.Fragment>}
+    Cada etapa conta os leads que <b>chegaram a ela</b> no período{c.periodo?<React.Fragment> (até {fmtCorte(c)})</React.Fragment>:null}, venham de quando vierem: quem entrou há três meses e foi qualificado nesta semana conta como qualificado nesta semana.
+    O primeiro degrau conta quem entrou no comercial no período (Inbox e triagem não entram). Cada lead conta uma vez por etapa — a primeira vez que chegou a ela —, e a etapa pulada conta como passada.{" "}
+    <b>Desde a entrada</b>: chegaram à etapa ÷ primeiro degrau. <b>Da etapa anterior</b>: chegaram à etapa ÷ chegaram à etapa de cima, no mesmo período — por serem leituras do período, podem passar de 100%.
+    Com uma pessoa no filtro, vale quem estava com o lead quando ele chegou à etapa.
+    {ganho&&<React.Fragment> <b>{ganho.name}</b> conta as vendas registradas (valor e data) dentro do período, pela data da venda — a mesma conta das vendas do Painel. Arrastar o card para a etapa não basta, e o cliente que comprou antes e voltou a conversar não conta de novo.</React.Fragment>}
   </React.Fragment>;
 }
 
@@ -23070,8 +23071,8 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       {" "}(<b style={{color:C.ink,fontFamily:MONO}}>{fmtTaxa(c.topo.taxa)}</b>)
     </div>}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
-      <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Base: entraram no processo comercial`}/> lead(s)</b> entraram
-      no comercial (<b>{c.entrada.name}</b> ou adiante) de {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}.
+      Cada etapa conta quem chegou a ela de {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)} — <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Entraram no comercial no período`}/></b> entraram
+      no comercial (<b>{c.entrada.name}</b> ou adiante) no período.
     </div>}
   </div>;
 
@@ -23099,7 +23100,6 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       tit={`Chegaram a ${l.name} sem passar por ${l.anterior.name}`}/> chegaram sem passar por {l.anterior.name}</span>);
     if(l.por_regra_automatica>0) itens.push(<span key="a" style={{color:"#8a6d1f"}}><NumeroConferivel pedir={pedir} impressao={impressao} v={l.por_regra_automatica} etapa={l.id} conjunto="automaticas"
       cor="#8a6d1f" tit={`${l.name}: só por regra automática`}/> só por regra automática, sem confirmação de uma pessoa</span>);
-    if(l.vendas_fora_da_base>0) itens.push(<span key="v">inclui {l.vendas_fora_da_base} venda(s) do período de leads que entraram no comercial antes — as taxas contam só a base</span>);
     return itens;
   };
 
@@ -23117,10 +23117,10 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
     if(!l.anterior) return <span style={{color:C.faint}}>—</span>;
     const taxa=<span style={{fontFamily:MONO,color:C.ink,fontWeight:700}}>{fmtTaxa(l.anterior.taxa)}</span>;
     if(c.etapa_pulada_conta) return <React.Fragment>
-      {impressao?taxa:<button onClick={()=>pedir(l.id,"vieram",`Vieram de ${l.anterior.name} para ${l.name}`)}
+      {impressao?taxa:<button onClick={()=>pedir(l.id,"chegaram",`Chegaram a ${l.name} no período`)}
         style={{background:"none",border:"none",padding:0,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}}>{taxa}</button>}
       {larga&&<div style={{color:C.faint,fontSize:10,marginTop:1}}>de {l.anterior.name}</div>}</React.Fragment>;
-    return <React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.vieram} etapa={l.id} conjunto="vieram" tit={`Vieram de ${l.anterior.name} para ${l.name}`}/>
+    return <React.Fragment><NumeroConferivel pedir={pedir} impressao={impressao} v={l.chegaram} etapa={l.id} conjunto="chegaram" tit={`Chegaram a ${l.name} no período`}/>
       <span style={{color:C.sub}}> de </span>
       <NumeroConferivel pedir={pedir} impressao={impressao} v={l.anterior.chegaram} etapa={l.id} conjunto="anterior" tit={`Chegaram a ${l.anterior.name}`}/>
       <span style={{color:C.sub}}> · </span>{taxa}
@@ -23135,7 +23135,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         </div>
         <div style={{marginTop:8}}>{degrau(l,"100%")}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:7}}>
-          {l.anterior?<BlocoDeTaxa estreito rotulo="Da etapa anterior" taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.anterior.vieram} de ${l.anterior.chegaram}`}/>
+          {l.anterior?<BlocoDeTaxa estreito rotulo="Da etapa anterior" taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.chegaram} de ${l.anterior.chegaram}`}/>
             :<BlocoDeTaxa estreito rotulo="Da etapa anterior" taxa={null} conteudo="—" base="primeira etapa"/>}
           <BlocoDeTaxa estreito rotulo="Desde a entrada" taxa={l.desde_entrada} meta={l.papel==="entrada"?null:l.meta?.acumulada} base={`${l.chegaram} de ${c.base}`}/>
         </div>
@@ -23165,7 +23165,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
             </div>
             {detalhes(l).length>0&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.45,marginTop:4,textAlign:"center",display:"flex",flexDirection:"column",gap:1}}>{detalhes(l)}</div>}
           </div>
-          {l.anterior?<BlocoDeTaxa taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.anterior.vieram} de ${l.anterior.chegaram} · de ${l.anterior.name}`}
+          {l.anterior?<BlocoDeTaxa taxa={l.anterior.taxa} meta={l.meta?.anterior} base={`${l.chegaram} de ${l.anterior.chegaram} · de ${l.anterior.name}`}
               conteudo={c.etapa_pulada_conta||impressao?null:anteriorDe(l)}/>
             :<BlocoDeTaxa taxa={null} conteudo="—" base="primeira etapa"/>}
           <BlocoDeTaxa taxa={l.desde_entrada} meta={i===0?null:l.meta?.acumulada} base={`${l.chegaram} de ${c.base}`}/>
@@ -25641,7 +25641,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         <div><b>Leads recebidos</b> — entraram no período e estão com esta pessoa.</div>
         <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
         <div><b>Conversão</b> — vendas fechadas no período ÷ leads recebidos no período (as duas colunas da mesma linha).</div>
-        <div><b>Funil de conversão</b> — a base são os leads que <b>entraram no processo comercial</b> no período (Inbox e triagem não contam), atribuídos a quem estava com eles na entrada, acompanhados até o corte. <b>Desde a entrada</b> = chegaram à etapa ÷ base; <b>da etapa anterior</b> = dos que chegaram à etapa de cima, quantos chegaram a esta depois.</div>
+        <div><b>Funil de conversão</b> — cada etapa conta os leads que <b>chegaram a ela no período</b>, venham de quando vierem; o primeiro degrau conta quem entrou no comercial no período, e a venda conta pela data em que foi registrada. <b>Desde a entrada</b> = chegaram à etapa ÷ primeiro degrau; <b>da etapa anterior</b> = chegaram à etapa ÷ chegaram à de cima, no mesmo período.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
         <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
         <div><b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>

@@ -193,6 +193,9 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
     .all(orgId, ...faixa, periodo.de, corte)) cand.add(r.lead_id);
   for (const r of db.prepare("SELECT id FROM leads WHERE org_id = ? AND created_at BETWEEN ? AND ?")
     .all(orgId, periodo.de, corte)) cand.add(r.id);
+  // Venda registrada no período, de lead deste funil.
+  for (const r of db.prepare("SELECT id FROM leads WHERE org_id = ? AND pipeline_id = ? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?")
+    .all(orgId, pipelineId, periodo.de, corte)) cand.add(r.id);
   if (periodo.de <= COBERTURA_ETAPAS)
     for (const r of db.prepare("SELECT id FROM leads WHERE org_id = ? AND created_at < ?").all(orgId, COBERTURA_ETAPAS))
       cand.add(r.id);
@@ -202,7 +205,7 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const { origem, source, campanha, campaign_id, produto_id } = filtros;
   const p = peneira(orgId, { origem, source, campanha, campaign_id, produto_id });
   const leads = emLotes([...cand], (m, lote) => db.prepare(
-    `SELECT l.id, l.name, l.created_at, l.stage, l.stage_id, l.assigned_to, l.sale_date, l.sale_value
+    `SELECT l.id, l.name, l.created_at, l.stage, l.stage_id, l.pipeline_id, l.assigned_to, l.sale_date, l.sale_value
      FROM leads l WHERE ${p.sql} AND l.id IN (${m})`).all(...p.args, ...lote));
   if (!leads.length) return base;
   const ids = leads.map(l => l.id);
@@ -225,73 +228,55 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const donosFiltro = listaDeDonos(filtros.responsavel);
   const filtroDono = donosFiltro.length ? new Set(donosFiltro.map(x => x === "fila" ? null : x)) : null;
   const inferir = !ehFunilDeSdr(orgId, pipelineId);
+  const noPeriodo = (t) => t !== null && t >= periodo.de && t <= corte;
+  const ehVenda = (m) => m.status_type === "ganho" || /\bvend(a|ido)\b/i.test(String(m.name || ""));
+  const marcoEntrada = cfg.marcos[0].id;
+  const ordem = new Map(cfg.marcos.map((m, i) => [m.id, i]));
+  const desconhecidos = new Set();
+
   for (const l of leads) {
     const evs = eventos.get(l.id) || [];
+    const trs = transfer.get(l.id) || [];
     /* Onde o lead começou: a etapa de origem da primeira mudança, ou a etapa
        atual quando ele nunca mudou. Lead anterior à cobertura começou "em
        data desconhecida, até 13/08/2026" — `t: null`. */
     const nasceuEm = evs.length ? evs[0].de_stage_id : l.stage_id;
     const alcances = [];
     if (nasceuEm) alcances.push({ stage: nasceuEm, t: l.created_at >= COBERTURA_ETAPAS ? l.created_at : null, motivo: "entrada" });
-    let lacunas = [];   // momentos de mudanças cuja etapa não se sabe
+    let lacunas = 0;
     for (const e of evs) {
       if (e.para_stage_id) alcances.push({ stage: e.para_stage_id, t: e.created_at, motivo: e.motivo });
-      else lacunas.push(e.created_at);
-    }
-    if (evs.length && !nasceuEm) lacunas.unshift(l.created_at >= COBERTURA_ETAPAS ? l.created_at : -Infinity);
-
-    const entrada = alcances.find(a => cfg.faixa.has(a.stage));
-    if (!entrada) continue;
-
-    /* Entrada sem data: não se sabe quando entrou (só que foi até 13/08).
-       Uma mudança de etapa desconhecida ANTES da entrada pode ter sido a
-       entrada de verdade: se todas as datas possíveis caem dentro do período,
-       o lead é da coorte (só a data exata fica incerta, e a lacuna é avisada);
-       se umas caem dentro e outras fora, não dá para dizer — "sem data". */
-    const noPeriodo = (t) => t >= periodo.de && t <= corte;
-    if (entrada.t === null) {
-      if (periodo.de <= COBERTURA_ETAPAS) base.semData.push({ lead: l });
-      continue;
-    }
-    const possiveis = [entrada.t, ...lacunas.filter(t => t <= entrada.t)];
-    const dentro = possiveis.filter(noPeriodo).length;
-    if (!dentro) continue;
-    if (dentro < possiveis.length) { base.semData.push({ lead: l }); continue; }
-
-    const dono = donoNaEntrada(l, transfer.get(l.id) || [], entrada.t);
-    if (filtroDono) {
-      if (!dono.conhecido) { base.donoDesconhecido.push({ lead: l, entrada: entrada.t }); continue; }
-      if (!filtroDono.has(dono.id || null)) continue;
+      else if (noPeriodo(e.created_at)) lacunas++;
     }
 
-    // As chegadas a cada marco entre a entrada e o corte.
+    // Todas as chegadas a cada marco, da vida inteira do lead, até o corte.
     const chegadas = new Map();
-    for (const a of alcances) {
-      if (a.t === null || a.t < entrada.t || a.t > corte) continue;
-      if (!chegadas.has(a.stage)) chegadas.set(a.stage, []);
-      chegadas.get(a.stage).push(a);
+    const entrada = alcances.find(a => cfg.faixa.has(a.stage));
+    if (entrada) {
+      for (const a of alcances) {
+        if (a.t === null || a.t > corte || !ordem.has(a.stage)) continue;
+        if (!chegadas.has(a.stage)) chegadas.set(a.stage, []);
+        chegadas.get(a.stage).push(a);
+      }
+      // A primeira entrada na faixa conta como chegada ao primeiro marco.
+      if (entrada.t !== null && entrada.t <= corte) {
+        const l0 = chegadas.get(marcoEntrada) || [];
+        if (!l0.some(a => a.t <= entrada.t)) chegadas.set(marcoEntrada, [{ stage: marcoEntrada, t: entrada.t, motivo: entrada.motivo, pela_entrada: true }, ...l0]);
+      }
+      if (entrada.t === null && periodo.de <= COBERTURA_ETAPAS) base.semData.push({ lead: l });
     }
-    // A entrada conta como chegada ao início do processo comercial.
-    const marcoEntrada = cfg.marcos[0].id;
-    if (!chegadas.has(marcoEntrada)) chegadas.set(marcoEntrada, [{ stage: marcoEntrada, t: entrada.t, motivo: entrada.motivo, pela_entrada: true }]);
 
-    /* A ETAPA PULADA CONTA COMO PASSADA (07/11/2026, pedido do Fernando) —
-       no funil comercial, não no de SDR. O lead que saiu de "Novo" direto
-       para "Agendamento" foi qualificado: chegar a um marco conta também os
-       marcos de antes que ele ainda não tinha alcançado, na mesma hora e com
-       o mesmo motivo do salto. Assim "da etapa anterior" nunca passa de 100%
-       e o "chegou sem passar pela anterior" deixa de existir aqui. No funil de
-       SDR as tentativas são independentes (quem respondeu na 2ª tentativa
-       não passou pela 3ª) e a conta continua a de antes. */
-    /* O cliente que já comprou e voltou (18/11/2026): pôr de novo em
-       "Vendido" quem tem a venda registrada antes não é venda nova — e não
-       empurra proposta, visita e agendamento por tabela (a mesma régua de
-       services/marcos.js). */
-    if (l.sale_date) for (const m of cfg.marcos) {
-      if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
-      // Venda registrada fora do período: a mudança para "Vendido" não puxa nada.
-      if (l.sale_date < periodo.de || l.sale_date > corte) chegadas.delete(m.id);
-    }
+    /* O cliente que já comprou e voltou (18/11/2026): pôr de novo em "Vendido"
+       quem tem a venda registrada FORA do período não é venda deste período —
+       e não empurra proposta, visita e agendamento por tabela. */
+    if (l.sale_date) for (const m of cfg.marcos)
+      if (m.id !== marcoEntrada && ehVenda(m) && !noPeriodo(l.sale_date)) chegadas.delete(m.id);
+
+    /* A ETAPA PULADA CONTA COMO PASSADA (07/11/2026) — no funil comercial. O
+       lead que saiu de "Novo" direto para "Agendamento" foi qualificado:
+       chegar a um marco conta também os de antes que ele ainda não tinha
+       alcançado, na hora do salto. No funil de SDR as tentativas são
+       independentes. */
     if (inferir) {
       let menor = Infinity, origem = null;
       for (let i = cfg.marcos.length - 1; i >= 0; i--) {
@@ -306,27 +291,54 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
       }
     }
 
-    /* A ETAPA DE VENDA CONTA PELA DATA DA VENDA REGISTRADA (18/11/2026,
-       pedido do Fernando). Arrastar o card para "Vendido" sem registrar a
-       venda não é venda — e o Painel, os relatórios e o VGV contam pela
-       `sale_date`. Aqui a etapa de ganho (ou com "venda"/"vendido" no nome)
-       vale só para o lead com venda registrada NO PERÍODO (do início até o
-       corte), na data da venda (18/11/2026, regra do Ali: o cliente que comprou
-       meses atrás e voltou a conversar não é venda deste período).
-       Roda DEPOIS da etapa pulada: quem foi arrastado para "Vendido" sem
-       venda continua contando como tendo passado pelas etapas de antes. */
+    /* VENDA PELA DATA DE REGISTRO (18/11/2026, regra do Ali): a etapa de venda
+       conta toda venda registrada no período, de lead deste funil, na data da
+       venda — arrastar o card sem registrar não é venda. */
     for (const m of cfg.marcos) {
-      if (m.id === marcoEntrada) continue;
-      if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
-      const sd = l.sale_date;
-      if (sd && sd >= periodo.de && sd <= corte) chegadas.set(m.id, [{ stage: m.id, t: Math.max(sd, entrada.t), motivo: "venda" }]);
+      if (m.id === marcoEntrada || !ehVenda(m)) continue;
+      if (l.sale_date && noPeriodo(l.sale_date) && (chegadas.size || l.pipeline_id === pipelineId))
+        chegadas.set(m.id, [{ stage: m.id, t: l.sale_date, motivo: "venda", venda: true }]);
       else chegadas.delete(m.id);
     }
 
+    /* CADA ETAPA PELA DATA EM QUE O LEAD CHEGOU NELA (18/11/2026, regra do Ali:
+       "somente a etapa Lead conta a data em que o cliente entrou; todas as
+       outras contam a data de entrada na etapa; a venda, a data de registro").
+       Conta a PRIMEIRA chegada do lead à etapa, quando ela cai no período —
+       quem entrou há três meses e foi qualificado nesta semana conta como
+       qualificado nesta semana. */
+    const contadas = new Map();
+    const nunca = new Set();
+    for (let i = 0; i < cfg.marcos.length; i++) {
+      const m = cfg.marcos[i];
+      const lista = chegadas.get(m.id) || [];
+      if (!lista.length) continue;
+      const pri = lista.reduce((a, b) => (b.t < a.t ? b : a));
+      if (!noPeriodo(pri.t)) continue;
+      let dono;
+      if (pri.venda) dono = { conhecido: true, id: l.assigned_to || null };
+      else dono = donoNaEntrada(l, trs, pri.t);
+      if (filtroDono) {
+        if (!dono.conhecido) { desconhecidos.add(l.id); continue; }
+        if (!filtroDono.has(dono.id || null)) continue;
+      }
+      contadas.set(m.id, { ...pri, todas: lista.filter(a => a.t === pri.t || noPeriodo(a.t)), dono });
+      if (i > 0) {
+        const ant = chegadas.get(cfg.marcos[i - 1].id) || [];
+        if (!ant.some(a => a.t <= pri.t)) nunca.add(m.id);
+      }
+    }
+    if (!contadas.size) continue;
+    const c0 = contadas.get(marcoEntrada);
     base.unidades.push({
-      lead: l, entrada: entrada.t, entrada_motivo: entrada.motivo, dono, chegadas,
-      lacunas: lacunas.filter(t => t <= corte).length,
+      lead: l, entrada: c0 ? c0.t : null, entrada_motivo: c0 ? c0.motivo : null,
+      dono: c0 ? c0.dono : (contadas.values().next().value.dono),
+      chegadas: contadas, nunca, lacunas,
     });
+  }
+  for (const id of desconhecidos) {
+    const l = leads.find(x => x.id === id);
+    if (l && !base.unidades.some(u => u.lead.id === id)) base.donoDesconhecido.push({ lead: l, entrada: null });
   }
   return base;
 }
@@ -343,16 +355,9 @@ function donoNaEntrada(l, trs, t) {
   return { conhecido: true, id: dono || null };
 }
 
-// Para cada unidade: chegou ao marco? quando, pela primeira vez?
-const primeira = (u, etapaId) => {
-  const c = u.chegadas.get(etapaId);
-  return c && c.length ? Math.min(...c.map(x => x.t)) : null;
-};
-const veioDaAnterior = (u, atual, anterior) => {
-  const t0 = primeira(u, anterior);
-  if (t0 === null) return false;
-  return (u.chegadas.get(atual) || []).some(x => x.t >= t0);
-};
+// Para cada unidade: chegou ao marco NO PERÍODO? quando?
+const primeira = (u, etapaId) => { const c = u.chegadas.get(etapaId); return c ? c.t : null; };
+const veioDaAnterior = (u, atual) => primeira(u, atual) !== null && !u.nunca.has(atual);
 const taxa = (parte, total) => (total ? (parte / total) * 100 : null);
 
 /* ===== O TOPO: DE TUDO QUE CHEGOU, QUANTO ENTROU NO PROCESSO COMERCIAL =====
@@ -408,43 +413,19 @@ function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
   return { chegaram: ids.length, entraram: entraram.size, taxa: taxa(entraram.size, ids.length) };
 }
 
-/* ===== AS VENDAS DO PERÍODO QUE NÃO SÃO DA BASE (18/11/2026) =====
-   Regra do Ali, para toda conta: a etapa de venda do funil mostra TODAS as
-   vendas registradas no período, de leads deste funil — a mesma conta das
-   vendas do Painel. A base (coorte) é de quem entrou no comercial no período,
-   e o lead que entrou antes e vendeu agora ficava de fora: a venda existia no
-   Painel e sumia do funil. Ela entra na contagem da etapa de venda (e na
-   lista ao clicar), com o dono de hoje como no Painel; as TAXAS continuam
-   sendo só da base, para nenhuma passar de 100%. */
-function etapaDeVenda(cfg) {
-  const vs = cfg.marcos.filter((m, i) => i > 0 && (m.status_type === "ganho" || /\bvend(a|ido)\b/i.test(String(m.name || ""))));
-  return vs.length ? vs[vs.length - 1] : null;
-}
-function vendasForaDaBase(orgId, pipelineId, c, filtros) {
-  const { cfg, periodo, corte, unidades } = c;
-  const venda = cfg && !cfg.sem_marcos ? etapaDeVenda(cfg) : null;
-  if (!venda || periodo.de > corte) return { venda, extras: [] };
-  const naBase = new Set(unidades.map(u => u.lead.id));
-  const { origem, source, campanha, campaign_id, produto_id } = filtros;
-  const p = peneira(orgId, { origem, source, campanha, campaign_id, produto_id });
-  const donos = listaDeDonos(filtros.responsavel);
-  const filtroDono = donos.length ? new Set(donos.map(x => x === "fila" ? null : x)) : null;
-  const extras = db.prepare(`SELECT l.id, l.name, l.created_at, l.stage, l.stage_id, l.assigned_to, l.sale_date, l.sale_value
-      FROM leads l WHERE ${p.sql} AND l.pipeline_id = ? AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`)
-    .all(...p.args, pipelineId, periodo.de, corte)
-    .filter(l => !naBase.has(l.id) && (!filtroDono || filtroDono.has(l.assigned_to || null)))
-    .map(l => ({ lead: l, entrada: null, fora_da_base: true, dono: { conhecido: true, id: l.assigned_to || null },
-      chegadas: new Map([[venda.id, [{ stage: venda.id, t: l.sale_date, motivo: "venda" }]]]), lacunas: 0 }));
-  return { venda, extras };
-}
-
 /* ===== A RESPOSTA PARA AS TELAS ===== */
 export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   const c = calcular(orgId, pipelineId, filtros, agora);
   if (c.erro) return c;
   const { cfg, unidades, periodo, corte } = c;
-  const n = unidades.length;
+  const base0 = unidades.filter(u => u.entrada !== null);
+  const n = base0.length;
 
+  /* CADA ETAPA PELO PERÍODO (18/11/2026): "chegaram" é quantos chegaram à
+     etapa no período, venham de quando vierem. "Desde a entrada" divide pelo
+     primeiro degrau do período e "da etapa anterior" pelo degrau de cima do
+     período — são leituras de VOLUME do período, e podem passar de 100% (uma
+     semana com muitos agendamentos de leads antigos). */
   const linhas = cfg.marcos.map((m, i) => {
     const chegaram = unidades.filter(u => primeira(u, m.id) !== null);
     const linha = {
@@ -458,52 +439,51 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     if (i > 0) {
       const ant = cfg.marcos[i - 1];
       const naAnterior = unidades.filter(u => primeira(u, ant.id) !== null);
-      const vieram = naAnterior.filter(u => veioDaAnterior(u, m.id, ant.id)).length;
-      linha.anterior = { id: ant.id, name: ant.name, chegaram: naAnterior.length, vieram, taxa: taxa(vieram, naAnterior.length) };
-      linha.sem_passar_pela_anterior = chegaram.filter(u => !veioDaAnterior(u, m.id, ant.id)).length;
-      // Chegou só por regra (palavra-chave, reanálise, automação) — nenhuma
-      // pessoa confirmou a passagem por esta etapa.
+      const vieram = chegaram.filter(u => veioDaAnterior(u, m.id)).length;
+      linha.anterior = { id: ant.id, name: ant.name, chegaram: naAnterior.length, vieram, taxa: taxa(chegaram.length, naAnterior.length) };
+      linha.sem_passar_pela_anterior = chegaram.length - vieram;
       linha.por_regra_automatica = chegaram.filter(u =>
-        (u.chegadas.get(m.id) || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo))).length;
+        (u.chegadas.get(m.id).todas || [u.chegadas.get(m.id)]).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo))).length;
     }
     return linha;
   });
-  const fora = vendasForaDaBase(orgId, pipelineId, c, filtros);
-  if (fora.venda) {
-    const lv = linhas.find(x => x.id === fora.venda.id);
-    if (lv) { lv.vendas_fora_da_base = fora.extras.length; lv.chegaram += fora.extras.length; }
-  }
 
-  // Por dono na entrada. "Sem responsável" é a fila; desconhecido fica à parte.
+  /* Por pessoa: quem estava com o lead quando ele chegou ao primeiro degrau
+     (base) e quando chegou ao último (a venda: o dono da venda, como no
+     Painel). "Sem responsável" é a fila. */
   const nomes = new Map(db.prepare("SELECT id, name FROM users WHERE org_id = ?").all(orgId).map(u => [u.id, u.name]));
   const grupos = new Map();
   const ultimo = cfg.marcos[cfg.marcos.length - 1];
-  for (const u of unidades) {
-    const chave = !u.dono.conhecido ? "desconhecido" : (u.dono.id || "sem");
+  const grupo = (dono) => {
+    const chave = !dono || !dono.conhecido ? "desconhecido" : (dono.id || "sem");
     if (!grupos.has(chave)) grupos.set(chave, {
       id: chave === "desconhecido" || chave === "sem" ? null : chave,
       grupo: chave === "desconhecido" ? "desconhecido" : chave === "sem" ? "sem_responsavel" : "pessoa",
-      nome: chave === "desconhecido" ? "Dono na entrada desconhecido"
+      nome: chave === "desconhecido" ? "Dono desconhecido"
         : chave === "sem" ? "Sem responsável" : (nomes.get(chave) || "Pessoa removida"),
       base: 0, chegaram_ao_ultimo: 0,
     });
-    const g = grupos.get(chave);
-    g.base++;
-    if (ultimo && primeira(u, ultimo.id) !== null) g.chegaram_ao_ultimo++;
+    return grupos.get(chave);
+  };
+  for (const u of unidades) {
+    const c0 = u.chegadas.get(cfg.marcos[0].id);
+    if (c0) grupo(c0.dono).base++;
+    const cu = ultimo && cfg.marcos.length > 1 ? u.chegadas.get(ultimo.id) : null;
+    if (cu) grupo(cu.dono).chegaram_ao_ultimo++;
   }
   const porResponsavel = [...grupos.values()].sort((a, b) => b.base - a.base);
 
-  const semDono = unidades.filter(u => !u.dono.conhecido).length;
+  const semDono = c.donoDesconhecido.length;
   const lacunas = unidades.filter(u => u.lacunas > 0).length;
   const avisos = [...cfg.avisos];
   if (periodo.de < COBERTURA_ETAPAS)
     avisos.push("O período começa antes de 14/08/2026, quando o histórico de etapas passou a ser gravado. Entradas anteriores aparecem como \"sem data\", fora da base.");
   if (c.semData.length)
-    avisos.push(`${c.semData.length} lead(s) podem ter entrado no período, mas a data da entrada não está no histórico — ficam fora da base.`);
+    avisos.push(`${c.semData.length} lead(s) entraram antes de 14/08/2026, sem a data no histórico — não contam no primeiro degrau.`);
   if (c.donoDesconhecido.length)
-    avisos.push(`${c.donoDesconhecido.length} lead(s) entraram antes de 02/09/2026, quando as trocas de dono passaram a ser registradas — não dá para dizer de quem eram na entrada, e ficam fora deste filtro.`);
+    avisos.push(`${c.donoDesconhecido.length} lead(s) avançaram antes de 02/09/2026, quando as trocas de dono passaram a ser registradas — não dá para dizer de quem eram, e ficam fora deste filtro.`);
   if (lacunas)
-    avisos.push(`${lacunas} lead(s) da base têm mudança de etapa sem a etapa identificada (histórico antigo): podem ter passado por etapas que a conta não enxerga.`);
+    avisos.push(`${lacunas} lead(s) têm mudança de etapa sem a etapa identificada (histórico antigo): podem ter passado por etapas que a conta não enxerga.`);
 
   return {
     pipeline_id: pipelineId, pipeline: c.pipeline.name, unidade: "lead",
@@ -544,7 +524,7 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
   let lista;
   if (conjunto === "sem_data") lista = c.semData.map(x => ({ lead: x.lead, entrada: null, dono: null }));
   else if (conjunto === "dono_desconhecido") lista = c.donoDesconhecido.map(x => ({ lead: x.lead, entrada: x.entrada, dono: { conhecido: false } }));
-  else if (conjunto === "base") lista = unidades;
+  else if (conjunto === "base") lista = unidades.filter(u => u.entrada !== null);
   else {
     const i = cfg.marcos.findIndex(m => m.id === etapa);
     if (i < 0) return { erro: "Esta etapa não é um marco do funil." };
@@ -554,18 +534,15 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
     const filtro = {
       chegaram: chegou,
       anterior: (u) => primeira(u, ant.id) !== null,
-      vieram: (u) => primeira(u, ant.id) !== null && veioDaAnterior(u, m.id, ant.id),
-      sem_anterior: (u) => chegou(u) && !veioDaAnterior(u, m.id, ant.id),
-      automaticas: (u) => chegou(u) && (u.chegadas.get(m.id) || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo)),
+      vieram: (u) => veioDaAnterior(u, m.id),
+      sem_anterior: (u) => chegou(u) && !veioDaAnterior(u, m.id),
+      automaticas: (u) => chegou(u) && (u.chegadas.get(m.id).todas || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo)),
     }[conjunto];
     lista = unidades.filter(filtro);
-    if (conjunto === "chegaram") {
-      const fora = vendasForaDaBase(orgId, pipelineId, c, filtros);
-      if (fora.venda && fora.venda.id === m.id) lista = lista.concat(fora.extras);
-    }
   }
 
-  lista = [...lista].sort((a, b) => (b.entrada || 0) - (a.entrada || 0));
+  const quando = (x) => (etapa && x.chegadas && primeira(x, etapa)) || x.entrada || 0;
+  lista = [...lista].sort((a, b) => quando(b) - quando(a));
   const por = Math.min(Math.max(Number(porPagina) || 50, 1), 200);
   const pg = Math.max(Number(pagina) || 1, 1);
   const fatia = lista.slice((pg - 1) * por, pg * por);
@@ -581,12 +558,13 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
     itens: fatia.map(x => {
       const atual = atuais.get(x.lead.id) || {};
       const chegouEm = etapa && x.chegadas ? primeira(x, etapa) : null;
+      const donoAli = (etapa && x.chegadas && x.chegadas.get(etapa) && x.chegadas.get(etapa).dono) || x.dono;
       return {
         id: x.lead.id, name: x.lead.name,
         entrou_em: x.entrada || null,
         chegou_em: chegouEm,
-        dono_na_entrada: x.dono && x.dono.conhecido
-          ? { id: x.dono.id, nome: x.dono.id ? (nomes.get(x.dono.id) || "Pessoa removida") : "Sem responsável" }
+        dono_na_entrada: donoAli && donoAli.conhecido
+          ? { id: donoAli.id, nome: donoAli.id ? (nomes.get(donoAli.id) || "Pessoa removida") : "Sem responsável" }
           : null,
         etapa_atual: (atual.stage_id && etapas.get(atual.stage_id)) || atual.stage || null,
         responsavel_atual: atual.assigned_to ? (nomes.get(atual.assigned_to) || null) : null,
