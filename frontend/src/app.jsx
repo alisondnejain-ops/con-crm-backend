@@ -26232,13 +26232,15 @@ const CAMPOS_META=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"]
 function MetaCard({item}){
   const {nome,meta,realizado,pct,campo}=item;
   const ehDinheiro=campo==="vgv";
-  const fmt=(v)=>ehDinheiro?fmtMoeda(v):naoDisp(v);
+  // Meta proporcional ao período pode ter fração (7,6): uma casa, com vírgula —
+  // nunca o 2.5999999 que a conta de ponto flutuante devolve.
+  const fmt=(v)=>ehDinheiro?fmtMoeda(Math.round(v||0)):v==null?naoDisp(v):Number(v).toLocaleString("pt-BR",{maximumFractionDigits:1});
   const cor=pct==null?C.faint:pct>=100?C.green:pct>=60?C.amber:C.hot;
-  const falta=meta==null?null:Math.max(meta-realizado,0);
+  const falta=meta==null?null:Math.max(Math.round((meta-realizado)*10)/10,0);
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:"15px 17px",minWidth:0}}>
     <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"#7c8b7d",gap:6}}>
       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome}</span>
-      <span style={{color:pct!=null&&pct>=100?C.gold:cor,fontWeight:700,flexShrink:0}}>{pct==null?"":pctBR(pct)}</span>
+      <span style={{color:pct!=null&&pct>=100?C.gold:cor,fontWeight:700,flexShrink:0}}>{pct==null?"":Math.round(pct)+"%"}</span>
     </div>
     <div style={{color:meta==null?C.faint:C.ink,fontFamily:DISPLAY,fontWeight:700,fontSize:meta==null?12.5:18,margin:"12px 0 8px",letterSpacing:-.3}}>
       {meta==null?"Meta não definida":fmt(meta)}</div>
