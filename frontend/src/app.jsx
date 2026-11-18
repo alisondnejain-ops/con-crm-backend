@@ -8096,8 +8096,10 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
 
   const embaixo=isMobile?(barra||0)+(view==="atendimento"?78:12):(view==="atendimento"?86:20);
   return <React.Fragment>
-    {!aberta&&<button onClick={()=>setAberta(true)} aria-label="Suporte" title="Precisa de ajuda? Fale com o suporte"
-      style={{position:"fixed",right:isMobile?12:20,bottom:embaixo,zIndex:70,width:isMobile?48:52,height:isMobile?48:52,borderRadius:"50%",
+    {/* No celular, na conversa, a bolha cobria as mensagens prontas e o
+        botão de enviar; ali o suporte fica nas outras telas. */}
+    {!aberta&&!(isMobile&&(view==="atendimento"||view==="conversas"))&&<button onClick={()=>setAberta(true)} aria-label="Suporte" title="Precisa de ajuda? Fale com o suporte"
+      style={{position:"fixed",right:isMobile?12:20,bottom:embaixo,zIndex:isMobile?15:70,width:isMobile?48:52,height:isMobile?48:52,borderRadius:"50%",
         border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",boxShadow:"0 8px 24px rgba(10,61,48,.28)",
         display:"flex",alignItems:"center",justifyContent:"center"}}>
       <Icon n="msg" size={isMobile?21:22}/>
@@ -10490,21 +10492,23 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
   const roda=(nome,fn)=>async()=>{ setOcupado(nome); try{ await fn(lead.id); } finally{ setOcupado(""); } };
   const pill=(chave,icone,texto,onClick,cor)=><button key={chave} onClick={onClick} disabled={!!ocupado}
     style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${cor?cor+"55":C.line}`,background:cor?cor+"12":C.card,
-      color:ocupado?C.faint:(cor||C.sub),fontSize:isMobile?12:11.5,fontWeight:600,padding:isMobile?"7px 12px":"5px 11px",
+      color:ocupado?C.faint:(cor||C.sub),fontSize:isMobile?12:11.5,fontWeight:600,padding:isMobile?"7px 11px":"5px 11px",
       borderRadius:999,cursor:ocupado?"default":"pointer",whiteSpace:"nowrap"}}>
     <Icon n={ocupado===chave?"loader":icone} size={12} spin={ocupado===chave}/>{texto}</button>;
 
   return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:isMobile?"8px 10px":"7px 16px",
     flexShrink:0}}>
-    <div style={{display:"flex",alignItems:"center",gap:7,overflowX:"auto"}}>
+    {/* No celular os botões quebram de linha e encurtam o nome: rolando de
+        lado, "Desligar a IA" e "Conversa pessoal" ficavam fora da tela. */}
+    <div style={{display:"flex",alignItems:"center",gap:isMobile?6:7,overflowX:isMobile?"visible":"auto",flexWrap:isMobile?"wrap":"nowrap"}}>
     {!soDoLead&&(lead.unread>0
-      ?pill("lida","check","Marcar como lida",roda("lida",acoes.marcarLida))
-      :pill("naolida","msg","Marcar como não lida",roda("naolida",acoes.marcarNaoLida)))}
+      ?pill("lida","check",isMobile?"Lida":"Marcar como lida",roda("lida",acoes.marcarLida))
+      :pill("naolida","msg",isMobile?"Não lida":"Marcar como não lida",roda("naolida",acoes.marcarNaoLida)))}
     {!soDoLead&&(lead.finalizado
-      ?pill("reabrir","spark","Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
+      ?pill("reabrir","spark",isMobile?"Reabrir":"Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
       :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep))}
-    {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?"Desligar a IA":"Ativar a IA",alternarIA,robo.ligado?null:C.green)}
-    {comPessoal&&pill("pessoal","user","Conversa pessoal",()=>setPessoal(true))}
+    {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?(isMobile?"Desligar IA":"Desligar a IA"):(isMobile?"Ativar IA":"Ativar a IA"),alternarIA,robo.ligado?null:C.green)}
+    {comPessoal&&pill("pessoal","user",isMobile?"Pessoal":"Conversa pessoal",()=>setPessoal(true))}
     {!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
     </div>
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
@@ -11872,7 +11876,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
 
       {/* As abas rolam de lado no celular em vez de quebrar em duas linhas. */}
       <div role="tablist" style={{display:"flex",gap:2,padding:isMobile?"0 10px":"0 14px",borderBottom:`1px solid ${C.line}`,
-        overflowX:"auto",flexShrink:0}}>
+        overflowX:isMobile?"visible":"auto",flexWrap:isMobile?"wrap":"nowrap",flexShrink:0}}>
         {ABAS_FICHA.map(([k,t])=><button key={k} role="tab" aria-selected={aba===k} onClick={()=>{setAba(k);setSimulando(false);}}
           style={{border:"none",background:"transparent",padding:isMobile?"11px 10px":"10px 11px",cursor:"pointer",whiteSpace:"nowrap",
             fontSize:12.5,fontWeight:aba===k?700:500,color:aba===k?C.greenDeep:C.sub,
@@ -16189,7 +16193,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
         onKeyDown={e=>{
           if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
           if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():enviar();}}}
-        rows={2} placeholder={colando?"Colando a imagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
+        rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
         style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
       <BotaoAgendar ag={ag} desligado={!!editando||!!colados.length} isMobile={isMobile}/>
       <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():enviar()}
@@ -20970,7 +20974,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
         <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
       </div>}
       {comBotoes&&<div style={{width:"100%",color:C.sub,fontSize:11.5,lineHeight:1.4}}>Confira a função antes de aprovar — dá para corrigir no seletor acima.</div>}
-      {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:0,alignItems:"center",flexWrap:"wrap"}}>
+      {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:isMobile?1:0,alignItems:"center",flexWrap:"wrap",minWidth:0,width:isMobile?"100%":"auto"}}>
         {/* Trocar a função vale em qualquer estado — inclusive antes de aprovar. */}
         {/* O banco guarda corretor/sdr/adm; o seletor fala corretor/atendente/gestor.
             Sem essa tradução, quem é sdr aparecia como "Corretor(a)" na caixinha. */}
@@ -26152,8 +26156,11 @@ const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green
 const BOTAO_SECUNDARIO={border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:8,padding:"9px 14px",
   fontSize:12,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6};
 function AbasLinha({abas,ativa,aoMudar}){
-  return <div style={{display:"flex",gap:4,borderBottom:`1px solid ${C.line}`,marginBottom:22,overflowX:"auto",flexShrink:0}}>
-    {abas.map(([k,n,extra])=><button key={k} onClick={()=>aoMudar(k)} style={{padding:"12px 16px",background:"transparent",border:"none",
+  /* No celular as abas QUEBRAM de linha: rolando de lado, metade delas ficava
+     fora da tela sem nada dizer que existiam (18/11/2026). */
+  const estreito=typeof window!=="undefined"&&window.innerWidth<=760;
+  return <div style={{display:"flex",gap:estreito?2:4,borderBottom:`1px solid ${C.line}`,marginBottom:22,overflowX:estreito?"visible":"auto",flexWrap:estreito?"wrap":"nowrap",flexShrink:0}}>
+    {abas.map(([k,n,extra])=><button key={k} onClick={()=>aoMudar(k)} style={{padding:estreito?"10px 10px":"12px 16px",background:"transparent",border:"none",
       borderBottom:`2px solid ${ativa===k?C.green:"transparent"}`,color:ativa===k?C.greenMid:"#7c8b7d",fontSize:12,fontWeight:ativa===k?700:500,
       whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>{n}{extra}</button>)}
   </div>;
