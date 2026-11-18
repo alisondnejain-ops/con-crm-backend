@@ -163,11 +163,25 @@ assert.equal(r.corte, SET(15));
 assert.equal(r.corte_no_fim_do_periodo, false);
 console.log("   agendamento do dia 25 fora · período aberto corta em agora");
 
-console.log("8. Quem entrou antes do período não é da coorte, mesmo avançando nele");
+console.log("8. Cada etapa conta pela data em que o lead chegou NELA (18/11/2026)");
 const a8 = lead(F7, "Inbox", SET(2)); mover(F7, a8, "Qualificado", SET(5)); mover(F7, a8, "Agendamento", SET(15));
 r = conv(F7);
-assert.equal(r.base, 1);
-console.log("   entrou dia 5: fora da coorte de 10 a 20");
+assert.equal(r.base, 1, "o primeiro degrau é de quem entrou no período");
+assert.equal(linha(r, "Agendamento").chegaram, 1, "entrou dia 5 e agendou dia 15: é agendamento do período");
+// O caso do Ali: chegou pelo anúncio dois meses antes e foi qualificado e agendado agora.
+const F8 = novoFunil("Antigo agendou");
+const a8b = lead(F8, "Inbox", new Date(2026, 6, 10).getTime());
+mover(F8, a8b, "Qualificado", SET(14)); mover(F8, a8b, "Agendamento", SET(16));
+r = conv(F8);
+assert.equal(linha(r, "Qualificado").chegaram, 1);
+assert.equal(linha(r, "Agendamento").chegaram, 1);
+// Já qualificado em agosto: no período só conta o agendamento.
+const a8c = lead(F8, "Inbox", new Date(2026, 7, 15).getTime());
+mover(F8, a8c, "Qualificado", new Date(2026, 7, 20).getTime()); mover(F8, a8c, "Agendamento", SET(17));
+r = conv(F8);
+assert.equal(linha(r, "Qualificado").chegaram, 1, "a qualificação de agosto não conta em setembro");
+assert.equal(linha(r, "Agendamento").chegaram, 2);
+console.log("   agendamento do período conta, venha o lead de quando vier");
 
 console.log("9. Sem base é \"sem base\"; base sem avanço é 0%");
 const F9 = novoFunil("Vazio");
@@ -271,14 +285,13 @@ mover(F15, v15b, "Venda", SET(18));
 r = conv(F15);
 assert.equal(r.base, 1, "só o v15b entrou no comercial no período");
 assert.equal(linha(r, "Venda").chegaram, 2, "as duas vendas do período aparecem");
-assert.equal(linha(r, "Venda").vendas_fora_da_base, 1);
-assert.equal(linha(r, "Proposta").chegaram, 1, "a venda lançada com data anterior não some com a proposta");
+assert.equal(linha(r, "Proposta").chegaram, 2, "as duas passaram pela proposta no período (o salto de agosto para Venda conta a proposta pulada)");
 assert.equal(conv(F15, { ...PERIODO, responsavel: marina }).linhas.find(l => l.name === "Venda").chegaram, 2, "filtrando a dona da venda");
 const conf15 = C.conferenciaDoFunil(org, F15.id, PERIODO, { etapa: F15.e.Venda, conjunto: "chegaram", supervisor: true }, AGORA);
 assert.equal(conf15.total, 2, "a lista ao clicar bate com o número");
 const { alcancesNoPeriodo } = await import("../src/services/marcos.js");
 assert.equal(alcancesNoPeriodo(org, [v15b], "proposta", SET(10), SET(20)).length, 1, "marcos: venda lançada com data anterior conta");
-console.log("   2 vendas no período (1 de lead de agosto) · taxas só da base");
+console.log("   2 vendas no período (1 de lead de agosto)");
 
 console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
 const F16 = novoFunil("Donos");
