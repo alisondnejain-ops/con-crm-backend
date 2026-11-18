@@ -283,6 +283,15 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
        e o "chegou sem passar pela anterior" deixa de existir aqui. No funil de
        SDR as tentativas são independentes (quem respondeu na 2ª tentativa
        não passou pela 3ª) e a conta continua a de antes. */
+    /* O cliente que já comprou e voltou (18/11/2026): pôr de novo em
+       "Vendido" quem tem a venda registrada antes não é venda nova — e não
+       empurra proposta, visita e agendamento por tabela (a mesma régua de
+       services/marcos.js). */
+    if (l.sale_date) for (const m of cfg.marcos) {
+      if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
+      const lista = (chegadas.get(m.id) || []).filter(a => !(l.sale_date < a.t - 2 * 86400000));
+      if (lista.length) chegadas.set(m.id, lista); else chegadas.delete(m.id);
+    }
     if (inferir) {
       let menor = Infinity, origem = null;
       for (let i = cfg.marcos.length - 1; i >= 0; i--) {
@@ -301,14 +310,16 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
        pedido do Fernando). Arrastar o card para "Vendido" sem registrar a
        venda não é venda — e o Painel, os relatórios e o VGV contam pela
        `sale_date`. Aqui a etapa de ganho (ou com "venda"/"vendido" no nome)
-       vale só para o lead com venda registrada até o corte, na data da venda.
+       vale só para o lead com venda registrada NO PERÍODO (do início até o
+       corte), na data da venda (18/11/2026, regra do Ali: o cliente que comprou
+       meses atrás e voltou a conversar não é venda deste período).
        Roda DEPOIS da etapa pulada: quem foi arrastado para "Vendido" sem
        venda continua contando como tendo passado pelas etapas de antes. */
     for (const m of cfg.marcos) {
       if (m.id === marcoEntrada) continue;
       if (m.status_type !== "ganho" && !/\bvend(a|ido)\b/i.test(String(m.name || ""))) continue;
       const sd = l.sale_date;
-      if (sd && sd <= corte) chegadas.set(m.id, [{ stage: m.id, t: Math.max(sd, entrada.t), motivo: "venda" }]);
+      if (sd && sd >= periodo.de && sd <= corte) chegadas.set(m.id, [{ stage: m.id, t: Math.max(sd, entrada.t), motivo: "venda" }]);
       else chegadas.delete(m.id);
     }
 

@@ -90,9 +90,19 @@ export function marcosDosLeads(orgId, ids, cls = null) {
     `SELECT lead_id, para_stage_id sid, para nome, user_id, created_at t FROM lead_etapas
      WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote));
   linhas.sort((a, b) => a.t - b.t);
+  /* O CLIENTE QUE JÁ COMPROU E VOLTOU (18/11/2026, regra do Ali): quem tem a
+     venda registrada antes e é posto de novo em "Vendido" não fez uma venda
+     nova — e não alcança proposta, visita, agendamento e qualificação por
+     tabela. A mudança para a etapa de venda só conta quando não há venda
+     registrada, ou quando a venda é do mesmo momento (até 2 dias antes). */
+  const vendaEm = new Map(emLotes(ids, (m, lote) => db.prepare(
+    `SELECT id, sale_date FROM leads WHERE org_id = ? AND id IN (${m}) AND sale_date IS NOT NULL`).all(orgId, ...lote))
+    .map(r => [r.id, r.sale_date]));
+  const VENDA = MARCOS.indexOf("venda"), FOLGA = 2 * 86400000;
   for (const r of linhas) {
     const k = c.deLinha(r.sid, r.nome);
     if (k < 0) continue;
+    if (k === VENDA && vendaEm.has(r.lead_id) && vendaEm.get(r.lead_id) < r.t - FOLGA) continue;
     if (!res.has(r.lead_id)) res.set(r.lead_id, new Array(MARCOS.length));
     const alc = res.get(r.lead_id);
     for (let j = 0; j <= k; j++)
