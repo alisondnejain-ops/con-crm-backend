@@ -794,6 +794,36 @@ function MostrarMais({total,mostrando,aoClicar,passo}){
     Mostrar mais {Math.min(resta,passo)} <span style={{color:C.faint,fontWeight:400}}>(faltam {resta})</span></button>;
 }
 
+/* A CONVERSA DESENHA SÓ AS ÚLTIMAS MENSAGENS (18/11/2026, a Conecta com
+   "Esta página não está respondendo" no Atender). A tela se redesenha algumas
+   vezes por segundo (os relógios da caixa), e cada vez redesenhava TODAS as
+   mensagens da conversa aberta: com uma conversa de 3 mil mensagens, eram ~200
+   ms parados a cada redesenho, e num computador mais simples o navegador
+   desistia. Agora ficam à vista as últimas 120; "Ver mensagens anteriores"
+   traz mais 120 sem tirar a pessoa do lugar em que estava lendo. Trocar de
+   conversa volta para as últimas. */
+const JANELA_MSGS=120;
+function usarJanelaDaConversa(sel,chatRef){
+  const [st,setSt]=useState({id:null,qtd:JANELA_MSGS});
+  const id=sel?sel.id:null;
+  const qtd=st.id===id?st.qtd:JANELA_MSGS;
+  const total=sel&&sel.msgs?sel.msgs.length:0;
+  const inicio=Math.max(0,total-qtd);
+  const mais=()=>{
+    const el=chatRef&&chatRef.current;
+    const doFim=el?el.scrollHeight-el.scrollTop:0;
+    setSt({id,qtd:qtd+JANELA_MSGS});
+    requestAnimationFrame(()=>{ if(el) el.scrollTop=el.scrollHeight-doFim; });
+  };
+  return {inicio,mais};
+}
+function VerAnteriores({janela}){
+  if(!janela.inicio) return null;
+  return <button onClick={janela.mais} style={{alignSelf:"center",border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
+    padding:"8px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
+    Ver mensagens anteriores <span style={{color:C.faint,fontWeight:400}}>({janela.inicio} mais antigas)</span></button>;
+}
+
 /* O seletor de período — o mesmo nas três telas. */
 function SeletorPeriodo({f,set,isMobile,estilo}){
   return <React.Fragment>
@@ -10875,6 +10905,7 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
 
 /* ===== ATENDIMENTO ===== */
 function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}){
+  const janela=usarJanelaDaConversa(sel,chatRef);
   // A pastilha da caixa — ver TopoDaCaixa (03/10/2026).
   const [vistaGuardada,setVista]=usarEscolha("atendimento.vista","todos");
   const vista=VISTAS_DA_CAIXA.includes(vistaGuardada)?vistaGuardada:"todos";
@@ -11119,7 +11150,9 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile} session={session} minhaLinha={minhaLinha}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
-        {sel.msgs.map((m,i)=>{
+        <VerAnteriores janela={janela}/>
+        {sel.msgs.slice(janela.inicio).map((m,j)=>{
+          const i=janela.inicio+j;
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           /* Aviso central (hoje: as ligações). `maxWidth` e a quebra de palavra
              não são enfeite: a observação da ligação vai até 300 caracteres e
@@ -14617,6 +14650,7 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
 }
 
 function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha}){
+  const janela=usarJanelaDaConversa(sel,chatRef);
   // A atendente abre na PRÓPRIA caixa (o que está com ela + a fila): ela também
   // atende, e ver a imobiliária inteira misturava o trabalho dela com a
   // supervisão — o lead repassado ao corretor continuava aparecendo. A visão
@@ -14773,7 +14807,9 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
-        {sel.msgs.map((m,i)=>{
+        <VerAnteriores janela={janela}/>
+        {sel.msgs.slice(janela.inicio).map((m,j)=>{
+          const i=janela.inicio+j;
           const abreDia=i===0||!mesmoDia(m.at,sel.msgs[i-1].at);
           // Ligação entra na mesma linha do tempo, como aviso central.
           if(m.from==="system")return <div key={i} style={{alignSelf:"center",background:C.amberSoft,color:"#8a6d1f",fontSize:11,fontWeight:600,padding:"4px 12px",borderRadius:14,margin:"2px 0",maxWidth:"92%",textAlign:"center",lineHeight:1.45,overflowWrap:"anywhere"}}>{m.text}</div>;
