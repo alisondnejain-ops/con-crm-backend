@@ -22989,8 +22989,8 @@ function NumeroConferivel({v,etapa,conjunto,tit,cor,peso=700,pedir,impressao}){
 function legendaDoFunil(c,ganho){
   return <React.Fragment>
     Cada etapa conta os leads que <b>chegaram a ela</b> no período{c.periodo?<React.Fragment> (até {fmtCorte(c)})</React.Fragment>:null}, venham de quando vierem: quem entrou há três meses e foi qualificado nesta semana conta como qualificado nesta semana.
-    O primeiro degrau conta quem entrou no comercial no período (Inbox e triagem não entram). Cada lead conta uma vez por etapa — a primeira vez que chegou a ela —, e a etapa pulada conta como passada.{" "}
-    <b>Desde a entrada</b>: chegaram à etapa ÷ primeiro degrau. <b>Da etapa anterior</b>: chegaram à etapa ÷ chegaram à etapa de cima, no mesmo período — por serem leituras do período, podem passar de 100%.
+    O primeiro degrau conta quem entrou no comercial no período (Inbox e triagem não entram). Cada lead conta uma vez por etapa, e quem chegou a uma etapa no período conta também nas de antes dela (menos o primeiro degrau): quem vendeu agora passou pela proposta deste período, mesmo que a proposta tenha sido feita antes. Por isso nenhuma etapa tem mais gente que a de cima.{" "}
+    <b>Desde a entrada</b>: chegaram à etapa ÷ primeiro degrau. <b>Da etapa anterior</b>: chegaram à etapa ÷ chegaram à etapa de cima, no mesmo período. Só a segunda etapa pode passar de 100% (quando muitos leads antigos avançam e poucos entram).
     Com uma pessoa no filtro, vale quem estava com o lead quando ele chegou à etapa.
     {ganho&&<React.Fragment> <b>{ganho.name}</b> conta as vendas registradas (valor e data) dentro do período, pela data da venda — a mesma conta das vendas do Painel. Arrastar o card para a etapa não basta, e o cliente que comprou antes e voltou a conversar não conta de novo.</React.Fragment>}
   </React.Fragment>;

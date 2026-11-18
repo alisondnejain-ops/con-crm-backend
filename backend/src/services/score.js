@@ -196,7 +196,18 @@ export function marcosDaPessoa(orgId, userId, de, ate, ctx = {}) {
   const ids = ctx.idsDoPeriodo || (ctx.idsDoPeriodo = candidatosDoPeriodo(orgId, "l.org_id = ?", [orgId], de, ate));
   const mapa = ctx.mapa || (ctx.mapa = marcosDosLeads(orgId, ids));
   const a = (k) => alcancesNoPeriodo(orgId, ids, k, de, ate, { quem: userId, mapa });
-  const q = a("qualificado"), g = a("agendado"), v = a("visita"), p = a("proposta");
+  /* Sem buraco (18/11/2026, a mesma régua do Painel e do funil de conversão):
+     a venda dele no período passou pela proposta, a proposta pela visita, e
+     assim por diante — cada degrau nunca tem menos que o de baixo. */
+  let acima = db.prepare("SELECT id lead, sale_date t FROM leads WHERE org_id=? AND assigned_to=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?")
+    .all(orgId, userId, de, ate).map(v => ({ ...v, user_id: userId, inferido: false }));
+  const r = {};
+  for (const k of ["proposta", "visita", "agendado", "qualificado"]) {
+    const lista = a(k), tem = new Set(lista.map(x => x.lead));
+    for (const x of acima) if (!tem.has(x.lead)) { tem.add(x.lead); lista.push({ ...x, inferido: true }); }
+    r[k] = lista; acima = lista;
+  }
+  const q = r.qualificado, g = r.agendado, v = r.visita, p = r.proposta;
   const pul = (x) => x.filter(y => y.inferido).length;
   return { qualificados: q.length, agendados: g.length, visitas: v.length, propostas: p.length,
     pulados: { qualificados: pul(q), agendados: pul(g), visitas: pul(v), propostas: pul(p) } };
