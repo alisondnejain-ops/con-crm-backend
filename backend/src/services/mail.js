@@ -201,3 +201,40 @@ export function senhaEmail({ name, link, horas = 24 }) {
 </div>`,
   };
 }
+
+/* E-mail de BOAS-VINDAS de quem pagou uma proposta pelo Asaas (18/11/2026,
+   relato do Ali: "passaram o cartão no Asaas, a conta foi criada, mas não
+   chegou o acesso do dono"). O pagamento acontece na fatura do Asaas, em
+   outra aba; a conta só nasce quando o Asaas confirma, e até aqui ninguém
+   avisava o dono. Ele criou a senha na página da proposta, então o e-mail não
+   leva link de senha: diz que a conta está pronta, com qual e-mail entrar, e
+   o caminho do "esqueci minha senha" para quem não lembra. */
+const escEmail = (s) => String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+export function boasVindasEmail({ name, email, link, orgName }) {
+  const first = escEmail((name || "").split(" ")[0] || "você");
+  const org = escEmail(orgName || "sua conta");
+  return {
+    subject: `${orgName || "CETRO"}: sua conta no CETRO está pronta`,
+    html: `
+<div style="font-family:Arial,Helvetica,sans-serif;background:#F4F6F5;padding:32px 16px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E6E9E7;border-radius:16px;overflow:hidden">
+    <div style="background:#0B2E24;padding:24px">
+      ${logoDoEmail(link)}
+      <div style="color:rgba(255,255,255,.6);font-size:11px;letter-spacing:.5px;margin-top:8px">${org.toUpperCase()}</div>
+    </div>
+    <div style="padding:28px">
+      <p style="color:#14181F;font-size:16px;margin:0 0 12px">Oi, ${first}! 👋</p>
+      <p style="color:#5A6472;font-size:14px;line-height:1.6;margin:0 0 20px">
+        O pagamento foi confirmado e a conta <b>${org}</b> no CETRO está pronta.
+        Entre com o e-mail <b>${escEmail(email)}</b> e a senha que você criou na página da proposta.
+      </p>
+      <a href="${link}" style="display:inline-block;background:#0E8F6E;color:#fff;font-size:15px;font-weight:600;text-decoration:none;padding:13px 26px;border-radius:12px">Entrar no CETRO</a>
+      <p style="color:#8A93A0;font-size:12px;line-height:1.6;margin:22px 0 0">
+        Não lembra a senha? Na tela de entrada, toque em <b>Esqueci minha senha</b> e crie outra.<br>
+        Endereço de entrada: <span style="color:#0C6B52;word-break:break-all">${link}</span>
+      </p>
+    </div>
+  </div>
+</div>`,
+  };
+}

@@ -8385,6 +8385,8 @@ function PropostasNoHub({isMobile,contas}){
               <span style={{color:C.faint,fontWeight:500}}>{p.estado==="paga"&&p.paga_em?` em ${new Date(p.paga_em).toLocaleDateString("pt-BR")}`:p.estado==="aberta"?` · vale até ${new Date(p.valida_ate).toLocaleDateString("pt-BR")}`:""}</span></div>
             {p.contrato&&<div style={{fontSize:11.5,color:p.contrato_aceite?C.greenDeep:C.sub,marginTop:3}}>
               {p.contrato_aceite?`Contrato aceito por ${p.contrato_aceite.nome||"o pagador"} em ${new Date(p.contrato_aceite.em).toLocaleString("pt-BR")}`:`Contrato anexado: ${p.contrato.nome} · ainda não aceito`}</div>}
+            {p.estado==="paga"&&p.org_criada_nome&&p.pagador?.email&&<div style={{fontSize:11.5,color:C.sub,marginTop:3}}>
+              O dono entra em <b>/app</b> com <b style={{color:C.ink}}>{p.pagador.email}</b> e a senha que criou na proposta. Esqueceu? “Esqueci minha senha”, ou Equipe → Nova senha.</div>}
             {p.erro&&p.estado!=="paga"&&<div style={{fontSize:11.5,color:C.hot,marginTop:3}}>Última tentativa: {p.erro}</div>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
