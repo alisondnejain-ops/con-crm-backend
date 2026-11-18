@@ -20718,8 +20718,8 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
 }
 
 /* ===== EQUIPE E APROVAÇÕES =====
-   Corretor entra direto pelo link. Atendente e gestor param aqui esperando
-   o aval — são papéis que enxergam a operação inteira. */
+   Todo cadastro pelo link para aqui esperando o aval da gestão — corretor
+   inclusive (PAPEIS em auth.js: quem entra vê conversa de cliente). */
 // Papel interno -> valor do formulário. Os dois nomes existem de propósito: o
 // banco herdou adm/sdr, e a equipe fala gestor/atendente.
 const PAPEL_PARA_FORM={corretor:"corretor",sdr:"atendente",adm:"gestor"};
@@ -21079,7 +21079,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
 
       <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><Icon n="link" size={14} color={C.green}/> Link de cadastro da equipe</div>
-        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Corretor entra direto; atendente e gestor aparecem aqui para você aprovar.</div>
+        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Cada cadastro aparece aqui para você aprovar antes de entrar.</div>
         <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
           <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
           <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
