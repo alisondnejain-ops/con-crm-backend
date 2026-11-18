@@ -21721,6 +21721,9 @@ function ContaDeAnuncios({acoes,isMobile,estado,cartao,botaoFace}){
    dá o custo por lead e o custo por venda. */
 function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
   const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [lendo,setLendo]=useState(false);
+  // Hooks antes de qualquer `return` (regra do React): o nível e o recorte.
+  const [nivel,setNivel]=usarEscolha("camp_meta_nivel","campanhas");
+  const [campanha,setCampanha]=useState(""); const [conjunto,setConjunto]=useState("");
   const ler=(atualizar)=>{
     setLendo(true); setErro("");
     acoes.desempenhoAnuncios(f,atualizar).then(setD).catch(e=>{setD(null);setErro(e.message);}).finally(()=>setLendo(false));
@@ -21757,21 +21760,36 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
         <div style={{color:C.ink,fontFamily:MONO,fontSize:15,fontWeight:700,marginTop:2,overflowWrap:"anywhere"}}>{v}</div>
       </div>)}
     </div>
-    {d.campanhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nenhuma campanha com veiculação neste período.</div>:
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
-        <thead><tr style={{color:C.faint,textAlign:"left"}}>
-          {["Campanha","Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Qualif.","Custo/qualif.","Vendas","Custo/venda","VGV"].map(h=>
-            <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
-        </tr></thead>
-        <tbody>{d.campanhas.map(c=><tr key={c.campaign_id||c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
-          <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}</td>
-          {[dinheiro(c.investimento),inteiro(c.impressoes),inteiro(c.alcance),inteiro(c.cliques),inteiro(c.leads_meta),inteiro(c.leads_crm),
-            dinheiro(c.custo_por_lead),inteiro(c.qualificados),c.qualificados?dinheiro(c.custo_por_qualificado):"Sem base",inteiro(c.vendas),dinheiro(c.custo_por_venda),c.vgv?fmtMoeda(c.vgv):"—"].map((v,i)=>
-            <td key={i} style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.sub}}>{v}</td>)}
-        </tr>)}</tbody>
-      </table>
-    </div>}
+    {(()=>{
+      // Três níveis, uma tabela por vez (18/11/2026). Campanha casa os leads
+      // do CRM pelo id da campanha; conjunto e anúncio, pelo id deles.
+      const ls={campanhas:d.campanhas.map(c=>({...c,nome:c.campanha})),conjuntos:d.conjuntos||[],anuncios:d.anuncios||[]};
+      const aba=ls[nivel]?nivel:"campanhas";
+      const linhas=aba==="campanhas"?ls.campanhas:recortar(ls[aba],campanha,conjunto);
+      const rotulo=aba==="conjuntos"?"Conjunto":aba==="anuncios"?"Anúncio":"Campanha";
+      return <React.Fragment>
+        <AbasDeNivel abas={[["campanhas","Campanhas",ls.campanhas.length],["conjuntos","Conjuntos",ls.conjuntos.length],["anuncios","Anúncios",ls.anuncios.length]]}
+          ativa={aba} aoMudar={k=>{setNivel(k);setCampanha("");setConjunto("");}}/>
+        <FiltroDeNivel linhas={ls[aba]} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile}/>
+        {linhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nada com veiculação neste período.</div>:
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
+            <thead><tr style={{color:C.faint,textAlign:"left"}}>
+              {[rotulo,"Investimento","Impressões","Alcance","Cliques","Leads (Meta)","Leads no CRM","Custo/lead","Qualif.","Custo/qualif.","Vendas","Custo/venda","VGV"].map(h=>
+                <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h===rotulo?"left":"right"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>{linhas.map((c,k)=><tr key={(c.id||c.campaign_id||"")+c.nome+k} style={{borderTop:`1px solid ${C.line}`}}>
+              {nomeDoNivel(aba==="campanhas"?{...c,platform:null}:c,aba)}
+              {[dinheiro(c.investimento),inteiro(c.impressoes),inteiro(c.alcance),inteiro(c.cliques),inteiro(c.leads_meta),inteiro(c.leads_crm),
+                dinheiro(c.custo_por_lead),inteiro(c.qualificados),c.qualificados?dinheiro(c.custo_por_qualificado):"Sem base",inteiro(c.vendas),dinheiro(c.custo_por_venda),c.vgv?fmtMoeda(c.vgv):"—"].map((v,i)=>
+                <td key={i} style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.sub}}>{v}</td>)}
+            </tr>)}</tbody>
+          </table>
+        </div>}
+        {aba!=="campanhas"&&<div style={{color:C.faint,fontSize:11,marginTop:7}}>
+          Leads no CRM por {aba==="conjuntos"?"conjunto":"anúncio"} só contam quem chegou com o {aba==="conjuntos"?"conjunto":"anúncio"} gravado (formulário e anúncio de WhatsApp).</div>}
+      </React.Fragment>;
+    })()}
     <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
       Investimento, impressões, alcance, cliques e leads (Meta) vêm da conta de anúncios. Leads no CRM e vendas são os que
       entraram no período por aquela campanha; o custo por lead e por venda divide o investimento por eles.</div>
@@ -23421,87 +23439,126 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
 
         {/* ===== CAMPANHAS ===== */}
         {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
-        {aba==="campanhas"&&camp&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:11}}>Campanhas e origem</div>
-          {/* A cobertura vem ANTES da tabela: sem ela, quatro linhas parecem a
-              operação inteira. */}
-          {camp.cobertura.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,
-            borderRadius:10,padding:"10px 12px",marginBottom:11}}>
-            <b>{camp.cobertura.com_campanha} de {camp.cobertura.total} leads</b> ({camp.cobertura.pct}%) têm campanha
-            gravada. {camp.cobertura.aviso}
-          </div>}
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
-              <thead><tr style={{color:C.faint,textAlign:"left"}}>
-                {["Campanha","Leads","Qualif.","%","1ª resp.","Respondeu","Vendas"].map(h=>
-                  <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Campanha"?"left":"right"}}>{h}</th>)}
-              </tr></thead>
-              <tbody>{camp.campanhas.map(c=><tr key={c.campanha} style={{borderTop:`1px solid ${C.line}`}}>
-                <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{c.campanha}
-                  {c.platform&&<span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{c.platform}</span>}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{c.leads}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.qualificados}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_qualificacao,"%")}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>
-                  {tempo(c.primeira_resposta_mediana_min)}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_resposta_cliente,"%")}</td>
-                <td style={{padding:"7px 8px",textAlign:"right",color:c.vendas?C.greenDeep:C.faint,fontWeight:c.vendas?700:400}}>
-                  {c.vendas}{c.vgv?` · ${fmtMoeda(c.vgv)}`:""}</td>
-              </tr>)}</tbody>
-            </table>
-          </div>
-          {/* Por ORIGEM (CETRO 16.6): cada lead na origem de entrada, a venda
-              conta na origem do lead — o total é a soma das linhas. */}
-          {(camp.por_origem||[]).length>0&&<div style={{marginTop:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4}}>Por origem</div>
-            <div style={{color:C.faint,fontSize:11.5,marginBottom:9}}>Leads que entraram no período, pela origem de entrada; qualificados e vendas são desses leads.</div>
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:460}}>
-                <thead><tr style={{color:C.faint}}>{["Origem","Leads","Qualif.","%","Vendas","VGV"].map(h=><th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Origem"?"left":"right"}}>{h}</th>)}</tr></thead>
-                <tbody>{[...camp.por_origem,{...camp.total_origem,origem:"Total",_total:true}].map(o=><tr key={o.origem} style={{borderTop:`1px solid ${C.line}`,fontWeight:o._total?700:400}}>
-                  <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{o.origem}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink}}>{o.leads}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{o.qualificados}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(o.taxa_qualificacao,"%")}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:o.vendas?C.greenDeep:C.faint}}>{o.vendas}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:o.vgv?C.greenDeep:C.faint}}>{o.vgv?fmtMoeda(o.vgv):"—"}{o.vendas_em_dolar?<span style={{color:C.faint,fontWeight:400}}> + {o.vendas_em_dolar} em US$</span>:null}</td>
-                </tr>)}</tbody>
-              </table>
-            </div>
-          </div>}
-          {/* Os disparos em massa do período (27/09/2026). O lead que nasce
-              respondendo a um disparo já aparece na tabela de cima, com o
-              nome do disparo como campanha; aqui fica o resto — quantos ele
-              alcançou, quantos responderam e o que veio de quem ele tocou. */}
-          {(camp.disparos||[]).length>0&&<div style={{marginTop:16}}>
-            <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4}}>Disparos em massa</div>
-            <div style={{color:C.faint,fontSize:11.5,marginBottom:9}}>Disparos com envio no período; os números são do disparo inteiro.</div>
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
-                <thead><tr style={{color:C.faint,textAlign:"left"}}>
-                  {["Disparo","Alcançados","Responderam","Saíram","Leads novos","Vendas de quem recebeu"].map(h=>
-                    <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Disparo"?"left":"right"}}>{h}</th>)}
-                </tr></thead>
-                <tbody>{camp.disparos.map(d=><tr key={d.id} style={{borderTop:`1px solid ${C.line}`}}>
-                  <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{d.nome}
-                    <span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{fmtData(d.criado_em)}</span></td>
-                  <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{d.alcancados}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.responderam}{d.alcancados?` · ${num(d.taxa_resposta,"%")}`:""}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.sairam}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.leads_novos}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:d.vendas?C.greenDeep:C.faint,fontWeight:d.vendas?700:400}}>
-                    {d.vendas}{d.vgv?` · ${fmtMoeda(d.vgv)}`:""}</td>
-                </tr>)}</tbody>
-              </table>
-            </div>
-          </div>}
-        </div>}
+        {aba==="campanhas"&&camp&&<CampanhasDoCrm camp={camp} isMobile={isMobile} num={num} tempo={tempo}/>}
       </React.Fragment>}
     </div>
   </div>;
 }
 
 
+
+/* As pastilhas de nível dos relatórios de campanha (18/11/2026): uma
+   pergunta por vez — campanha, conjunto ou anúncio — em vez de três tabelas
+   empilhadas. Cada pastilha diz quantas linhas tem. */
+function AbasDeNivel({abas,ativa,aoMudar}){
+  return <div role="tablist" style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+    {abas.filter(a=>a[2]!==false).map(([k,t,n])=><button key={k} role="tab" aria-selected={ativa===k} onClick={()=>aoMudar(k)}
+      style={{border:`1px solid ${ativa===k?C.green:C.line}`,background:ativa===k?C.greenSoft:C.card,color:ativa===k?C.greenDeep:C.sub,
+        borderRadius:999,padding:"6px 12px",minHeight:34,fontSize:12,fontWeight:ativa===k?700:500,cursor:"pointer"}}>
+      {t}{typeof n==="number"?<span style={{color:C.faint,fontWeight:500,marginLeft:5}}>{n}</span>:null}</button>)}
+  </div>;
+}
+/* Recorte por campanha (e por conjunto, nos anúncios): a lista de anúncios de
+   uma conta inteira passa de cem linhas, e a pergunta quase sempre é "dentro
+   DESTA campanha, qual anúncio trouxe lead". */
+function FiltroDeNivel({linhas,nivel,campanha,setCampanha,conjunto,setConjunto,isMobile}){
+  if(nivel==="campanhas") return null;
+  const camps=[...new Map(linhas.filter(l=>l.campanha).map(l=>[l.campaign_id||l.campanha,l.campanha])).entries()];
+  const conjs=nivel==="anuncios"?[...new Map(linhas.filter(l=>l.conjunto&&(!campanha||(l.campaign_id||l.campanha)===campanha)).map(l=>[l.adset_id||l.conjunto,l.conjunto])).entries()]:[];
+  const sel={minHeight:36,borderRadius:9,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:isMobile?"100%":300,width:isMobile?"100%":"auto"};
+  if(camps.length<2&&conjs.length<2) return null;
+  return <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+    {camps.length>1&&<select value={campanha} onChange={e=>{setCampanha(e.target.value);setConjunto("");}} style={sel}>
+      <option value="">Todas as campanhas</option>{camps.map(([k,n])=><option key={k} value={k}>{n}</option>)}</select>}
+    {conjs.length>1&&<select value={conjunto} onChange={e=>setConjunto(e.target.value)} style={sel}>
+      <option value="">Todos os conjuntos</option>{conjs.map(([k,n])=><option key={k} value={k}>{n}</option>)}</select>}
+  </div>;
+}
+const recortar=(linhas,campanha,conjunto)=>linhas.filter(l=>(!campanha||(l.campaign_id||l.campanha)===campanha)&&(!conjunto||(l.adset_id||l.conjunto)===conjunto));
+/* O nome da linha com o "de onde" embaixo: conjunto mostra a campanha;
+   anúncio mostra conjunto · campanha. */
+const nomeDoNivel=(l,nivel)=><td style={{padding:"7px 8px",color:C.ink,fontWeight:600,minWidth:150}}>
+  {nivel==="campanhas"?l.campanha:l.nome}
+  {l.platform&&nivel==="campanhas"&&<span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{l.platform}</span>}
+  {nivel!=="campanhas"&&<div style={{color:C.faint,fontWeight:400,fontSize:10.5,marginTop:1}}>{[nivel==="anuncios"?l.conjunto:null,l.campanha].filter(Boolean).join(" · ")||"campanha não informada"}</div>}
+</td>;
+
+/* "Campanhas e origem" (leads do CRM) em abas: Campanhas, Conjuntos,
+   Anúncios, Por origem e Disparos — antes tudo empilhado num cartão só. */
+function CampanhasDoCrm({camp,isMobile,num,tempo}){
+  const [nivel,setNivel]=usarEscolha("camp_crm_nivel","campanhas");
+  const [campanha,setCampanha]=useState(""); const [conjunto,setConjunto]=useState("");
+  const conjuntos=camp.conjuntos||[], anuncios=camp.anuncios||[], origem=camp.por_origem||[], disparos=camp.disparos||[];
+  const abas=[["campanhas","Campanhas",camp.campanhas.length],["conjuntos","Conjuntos",conjuntos.length],["anuncios","Anúncios",anuncios.length],
+    ["origem","Por origem",origem.length>0?origem.length:false],["disparos","Disparos",disparos.length>0?disparos.length:false]];
+  const aba=abas.some(a=>a[0]===nivel&&a[2]!==false)?nivel:"campanhas";
+  const base=aba==="conjuntos"?conjuntos:aba==="anuncios"?anuncios:camp.campanhas;
+  const linhas=aba==="campanhas"?base:recortar(base,campanha,conjunto);
+  const rotulo=aba==="conjuntos"?"Conjunto":aba==="anuncios"?"Anúncio":"Campanha";
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4}}>Campanhas e origem</div>
+    <div style={{color:C.faint,fontSize:11.5,marginBottom:10}}>Leads que entraram no período; qualificados e vendas são desses leads.</div>
+    {camp.cobertura.aviso&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.55,borderRadius:10,padding:"10px 12px",marginBottom:11}}>
+      <b>{camp.cobertura.com_campanha} de {camp.cobertura.total} leads</b> ({camp.cobertura.pct}%) têm campanha gravada. {camp.cobertura.aviso}</div>}
+    <AbasDeNivel abas={abas} ativa={aba} aoMudar={k=>{setNivel(k);setCampanha("");setConjunto("");}}/>
+    {(aba==="campanhas"||aba==="conjuntos"||aba==="anuncios")&&<React.Fragment>
+      <FiltroDeNivel linhas={base} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile}/>
+      {linhas.length===0?<div style={{color:C.sub,fontSize:12.5,padding:"6px 0"}}>
+        {aba==="campanhas"?"Nenhum lead no período.":`Nenhum lead do período tem ${aba==="conjuntos"?"o conjunto":"o anúncio"} gravado — só os de formulário e de anúncio de WhatsApp trazem.`}</div>:
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:560}}>
+          <thead><tr style={{color:C.faint,textAlign:"left"}}>
+            {[rotulo,"Leads","Qualif.","%","1ª resp.","Respondeu","Vendas"].map(h=>
+              <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h===rotulo?"left":"right"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{linhas.map((c,i)=><tr key={(c.ad_id||c.adset_id||c.campaign_id||"")+(c.nome||c.campanha)+i} style={{borderTop:`1px solid ${C.line}`}}>
+            {nomeDoNivel(c,aba)}
+            <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{c.leads}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{c.qualificados}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_qualificacao,"%")}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{tempo(c.primeira_resposta_mediana_min)}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(c.taxa_resposta_cliente,"%")}</td>
+            <td style={{padding:"7px 8px",textAlign:"right",color:c.vendas?C.greenDeep:C.faint,fontWeight:c.vendas?700:400}}>
+              {c.vendas}{c.vgv?` · ${fmtMoeda(c.vgv)}`:""}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+    </React.Fragment>}
+    {aba==="origem"&&<div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:460}}>
+        <thead><tr style={{color:C.faint}}>{["Origem","Leads","Qualif.","%","Vendas","VGV"].map(h=><th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Origem"?"left":"right"}}>{h}</th>)}</tr></thead>
+        <tbody>{[...origem,{...camp.total_origem,origem:"Total",_total:true}].map(o=><tr key={o.origem} style={{borderTop:`1px solid ${C.line}`,fontWeight:o._total?700:400}}>
+          <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{o.origem}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink}}>{o.leads}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{o.qualificados}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{num(o.taxa_qualificacao,"%")}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:o.vendas?C.greenDeep:C.faint}}>{o.vendas}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:o.vgv?C.greenDeep:C.faint}}>{o.vgv?fmtMoeda(o.vgv):"—"}{o.vendas_em_dolar?<span style={{color:C.faint,fontWeight:400}}> + {o.vendas_em_dolar} em US$</span>:null}</td>
+        </tr>)}</tbody>
+      </table>
+      <div style={{color:C.faint,fontSize:11,marginTop:7}}>Cada lead conta na origem por onde entrou; o total é a soma das linhas.</div>
+    </div>}
+    {aba==="disparos"&&<div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:520}}>
+        <thead><tr style={{color:C.faint,textAlign:"left"}}>
+          {["Disparo","Alcançados","Responderam","Saíram","Leads novos","Vendas de quem recebeu"].map(h=>
+            <th key={h} style={{padding:"6px 8px",fontWeight:600,textAlign:h==="Disparo"?"left":"right"}}>{h}</th>)}
+        </tr></thead>
+        <tbody>{disparos.map(d=><tr key={d.id} style={{borderTop:`1px solid ${C.line}`}}>
+          <td style={{padding:"7px 8px",color:C.ink,fontWeight:600}}>{d.nome}
+            <span style={{color:C.faint,fontWeight:400,fontSize:10,marginLeft:5}}>{fmtData(d.criado_em)}</span></td>
+          <td style={{padding:"7px 8px",textAlign:"right",fontFamily:MONO,color:C.ink,fontWeight:600}}>{d.alcancados}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.responderam}{d.alcancados?` · ${num(d.taxa_resposta,"%")}`:""}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.sairam}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:C.sub}}>{d.leads_novos}</td>
+          <td style={{padding:"7px 8px",textAlign:"right",color:d.vendas?C.greenDeep:C.faint,fontWeight:d.vendas?700:400}}>
+            {d.vendas}{d.vgv?` · ${fmtMoeda(d.vgv)}`:""}</td>
+        </tr>)}</tbody>
+      </table>
+      <div style={{color:C.faint,fontSize:11,marginTop:7}}>Disparos com envio no período; os números são do disparo inteiro.</div>
+    </div>}
+  </div>;
+}
 
 /* ===== QUEM ENTRA EM QUAL FUNIL =====
    (01/09/2026, relatado pelo Ali)

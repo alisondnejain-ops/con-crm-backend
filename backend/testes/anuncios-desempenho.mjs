@@ -52,6 +52,17 @@ const meta = http.createServer((req, res) => {
     ultimoPeriodo = JSON.parse(u.searchParams.get("time_range"));
     if (u.searchParams.get("level") === "account") return ok({ data: [{ spend: "300.50", impressions: "12000", reach: "8000",
       clicks: "340", ctr: "2.83", cpm: "25.04", actions: [{ action_type: "lead", value: "9" }, { action_type: "onsite_conversion.lead_grouped", value: "9" }] }] });
+    const lv = u.searchParams.get("level");
+    if (lv === "adset") return ok({ data: [
+      { campaign_id: "C1", campaign_name: "Casas Centro", adset_id: "S1", adset_name: "Centro 25-45", spend: "150", impressions: "6000", reach: "4000", clicks: "200",
+        actions: [{ action_type: "lead", value: "4" }] },
+      { campaign_id: "C1", campaign_name: "Casas Centro", adset_id: "S2", adset_name: "Centro amplo", spend: "50.50", impressions: "2000", reach: "1000", clicks: "40",
+        actions: [{ action_type: "lead", value: "2" }] },
+    ] });
+    if (lv === "ad") return ok({ data: [
+      { campaign_id: "C1", campaign_name: "Casas Centro", adset_id: "S1", adset_name: "Centro 25-45", ad_id: "A1", ad_name: "Vídeo fachada", spend: "150", impressions: "6000", reach: "4000", clicks: "200",
+        actions: [{ action_type: "lead", value: "4" }] },
+    ] });
     return ok({ data: [
       { campaign_id: "C1", campaign_name: "Casas Centro", spend: "200.50", impressions: "8000", reach: "5000", clicks: "240",
         actions: [{ action_type: "onsite_conversion.lead_grouped", value: "6" }] },
@@ -123,6 +134,7 @@ try {
   lead(orgA, "C1", "Casas Centro");
   lead(orgA, null, "Aluguel");
   lead(orgB, "C1", "Casas Centro");
+  db.prepare("UPDATE leads SET adset_id='S1', adset_name='Centro 25-45', ad_id='A1', ad_name='Vídeo fachada' WHERE org_id=? AND sale_value IS NOT NULL").run(orgA);
 
   caso("Sem o Facebook conectado, a tela diz o que fazer em vez de mostrar zero");
   let r = await A.get("/anuncios-meta/desempenho?periodo=mes");
@@ -173,6 +185,13 @@ try {
   assert.equal(c2.leads_crm, 1, "lead antigo casa pelo nome");
   assert.equal(c2.leads_meta, 0);
   assert.equal(c2.custo_por_venda, null, "sem venda é vazio, não zero");
+  // Conjuntos e anúncios: números da Meta por nível, CRM casado pelo id do nível
+  const s1 = r.body.conjuntos.find(x => x.id === "S1"), s2 = r.body.conjuntos.find(x => x.id === "S2");
+  assert.equal(s1.campanha, "Casas Centro");
+  assert.equal(s1.leads_meta, 4); assert.equal(s1.leads_crm, 1); assert.equal(s1.vendas, 1); assert.equal(s1.custo_por_lead, 150);
+  assert.equal(s2.leads_crm, 0); assert.equal(s2.custo_por_lead, null);
+  const a1 = r.body.anuncios.find(x => x.id === "A1");
+  assert.equal(a1.conjunto, "Centro 25-45"); assert.equal(a1.leads_crm, 1); assert.equal(a1.vgv, 300000);
 
   caso("Por que Meta e CRM diferem: cada lead que chegou é classificado, e a recusa fica registrada");
   const tok = "a".repeat(48);
@@ -208,12 +227,19 @@ try {
   assert.equal(db.prepare("SELECT resultado FROM portais_leads WHERE externo_id='LG3'").get().resultado, "novo");
   assert.equal((await ponte({ id: "LG3", full_name: "Sem contato", phone_number: "+5587991110003" })).status, 200, "reenvio de lead entregue continua repetido");
 
+  caso("A tabela do CRM (Campanhas e origem) também separa conjuntos e anúncios");
+  r = await A.get("/painel/campanhas?periodo=mes");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.conjuntos.map(x => [x.nome, x.leads, x.campanha]), [["Centro 25-45", 1, "Casas Centro"]], "só quem tem conjunto gravado");
+  assert.equal(r.body.anuncios[0].nome, "Vídeo fachada"); assert.equal(r.body.anuncios[0].conjunto, "Centro 25-45"); assert.equal(r.body.anuncios[0].vendas, 1);
+  assert.ok(r.body.campanhas.some(c => c.campanha === "Casas Centro"), "campanhas continuam com o campo de sempre: " + JSON.stringify(r.body.campanhas.map(c=>[c.campanha,c.leads])));
+
   caso("Guardado 15 minutos; 'Atualizar da Meta' lê de novo");
   const antes = chamadasInsights;
   await A.get("/anuncios-meta/desempenho?periodo=mes");
   assert.equal(chamadasInsights, antes);
   await A.get("/anuncios-meta/desempenho?periodo=mes&atualizar=1");
-  assert.equal(chamadasInsights, antes + 2);
+  assert.equal(chamadasInsights, antes + 4, "os quatro níveis numa leitura");
 
   caso("Só o gestor: a atendente não vê o dinheiro dos anúncios; outra conta não vê os números desta");
   assert.equal((await sdr.get("/anuncios-meta/desempenho?periodo=mes")).status, 403);
