@@ -12,9 +12,12 @@
      Abrir a conversa não conta: não há como saber se alguém leu.
    - Só corretor membro da catraca. Lead entregue a dedo a quem não é da
      catraca não é tirado: foi escolha de alguém, não da roda.
-   - No máximo `max_voltas` (padrão 2) vezes por lead. Depois, fica com quem
-     está — a catraca inteira já teve a chance, e girar para sempre seria
-     tirar o lead de todo mundo sem ninguém atender.
+   - VOLTA É UMA VOLTA COMPLETA NA RODA (18/11/2026, pedido do Fernando):
+     `max_voltas` = quantas vezes o lead pode passar por TODOS os corretores
+     da catraca. Era o número de passagens, e numa catraca de 30 corretores
+     "no máximo 10" parava no 10º. Com N membros ativos, o teto é
+     max_voltas × N passagens. Vazio ou 0 = sem limite (o padrão): à noite,
+     com a disponibilidade encerrada, ninguém recebe e o lead para sozinho.
    - Só lead entregue DEPOIS de o tempo ser ligado na catraca (`tempo_desde`):
      ligar não pode tirar de uma vez os leads antigos de todo mundo.
    - Ninguém mais disponível na catraca: fica, e tenta no minuto seguinte. À
@@ -29,7 +32,9 @@ import { filaDaCatraca, marcarQueRecebeuNoLead, gestorDaConta } from "./catracas
 import { avisar } from "./push.js";
 import { etapasDoComercial } from "./marcos.js";
 
-const PADRAO_VOLTAS = 2;
+const SEM_LIMITE = 1000000000; // marca "já avisou" do aguardar/notificar e o "sem limite"
+const membrosAtivos = `(SELECT COUNT(*) FROM catraca_membros cm JOIN users uu ON uu.id = cm.user_id
+  WHERE cm.catraca_id = c.id AND uu.role = 'corretor' AND uu.status = 'ativo')`;
 
 export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
   const linhas = db.prepare(`SELECT l.*, c.stage_id catraca_stage, c.nome catraca_nome, c.tempo_resposta_min, c.max_voltas, c.tempo_acao, u.name dono_nome
@@ -41,7 +46,8 @@ export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
       AND u.role = 'corretor' AND u.status = 'ativo'
       AND l.assigned_at >= COALESCE(c.tempo_desde, 0)
       AND l.assigned_at + c.tempo_resposta_min * 60000 <= ?
-      AND COALESCE(l.catraca_voltas, 0) < COALESCE(c.max_voltas, ${PADRAO_VOLTAS})
+      AND COALESCE(l.catraca_voltas, 0) < CASE WHEN COALESCE(c.max_voltas, 0) <= 0 THEN ${SEM_LIMITE}
+        ELSE c.max_voltas * MAX(1, ${membrosAtivos}) END
       AND NOT EXISTS (SELECT 1 FROM messages x WHERE x.lead_id = l.id AND x.direction = 'out'
         AND x.from_user_id = l.assigned_to AND x.created_at >= l.assigned_at)
       AND NOT EXISTS (SELECT 1 FROM ligacoes g WHERE g.lead_id = l.id
@@ -63,9 +69,9 @@ export async function agirSemResposta(orgId, agora = Date.now()) {
   for (const l of semRespostaParaAgir(orgId, agora)) {
     /* O QUE FAZER QUANDO VENCE (CETRO 11.4): "aguardar" avisa o próprio
        corretor e deixa o lead com ele; "notificar" avisa o gestor e também não
-       tira o lead. Os dois avisam UMA vez (as voltas vão ao teto). */
+       tira o lead. Os dois avisam UMA vez (as voltas vão à marca de "já avisou"). */
     if (l.tempo_acao === "aguardar" || l.tempo_acao === "notificar") {
-      db.prepare("UPDATE leads SET catraca_voltas = ? WHERE id = ?").run(l.max_voltas || PADRAO_VOLTAS, l.id);
+      db.prepare("UPDATE leads SET catraca_voltas = ? WHERE id = ?").run(SEM_LIMITE, l.id);
       const alvo = l.tempo_acao === "aguardar" ? l.assigned_to : gestorDaConta(orgId);
       if (alvo) avisar(alvo, { titulo: l.tempo_acao === "aguardar" ? "Cliente esperando você" : "Lead sem atendimento",
         corpo: l.tempo_acao === "aguardar" ? `${l.name} — ninguém falou com o cliente em ${l.tempo_resposta_min} min.`

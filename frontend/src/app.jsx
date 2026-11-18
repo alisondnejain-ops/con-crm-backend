@@ -13072,7 +13072,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   // Tempo para pegar o lead (30/10/2026): vazio desliga.
   const [tempo,setTempo]=useState(()=>{const m=inicial.tempo_resposta_min; if(!m) return "";
     return String(m%1440===0?m/1440:m%60===0?m/60:m);});
-  const [voltas,setVoltas]=useState(inicial.max_voltas||2);
+  const [voltas,setVoltas]=useState(inicial.max_voltas||0);
   /* CETRO 11 (13/11/2026): filtros específicos, destino quando ninguém está
      disponível, o que fazer quando o prazo vence e o lead repetido. */
   const [campanhasF,setCampanhasF]=useState((can0.campanhas||[]).join("\n"));
@@ -13236,14 +13236,14 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
         <option value="aguardar">fica e avisa o corretor</option>
         <option value="notificar">fica e avisa o gestor</option></select>}
       {tempo.trim()!==""&&tempoAcao==="proximo"&&<React.Fragment>
-        <span style={{color:C.sub,fontSize:12}}>· no máximo</span>
+        <span style={{color:C.sub,fontSize:12}}>·</span>
         <select aria-label="Voltas" value={voltas} onChange={e=>setVoltas(Number(e.target.value))} style={{...caixa,width:"auto",flex:"0 0 auto"}}>
-          {[1,2,3,4,5,6,7,8,9,10].map(n=><option key={n} value={n}>{n}</option>)}</select>
-        <span style={{color:C.sub,fontSize:12}}>{voltas===1?"volta":"voltas"} por lead</span>
+          <option value={0}>sem limite de voltas</option>
+          {[1,2,3,4,5,10,20].map(n=><option key={n} value={n}>no máximo {n} {n===1?"volta":"voltas"} pela equipe</option>)}</select>
       </React.Fragment>}
     </div>
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>
-      {tempo.trim()!==""?<>Conta de quando o lead chegou ao corretor até a primeira mensagem ou ligação dele. Vencido: {tempoAcao==="proximo"?"o lead vai para o próximo disponível desta catraca":tempoAcao==="aguardar"?"o lead fica e o corretor é avisado (uma vez)":"o lead fica e o gestor é avisado (uma vez)"}. Lead já pego não é tirado. Não é o prazo da etapa nem a cadência de tarefas.</>
+      {tempo.trim()!==""?<>Conta de quando o lead chegou ao corretor até a primeira mensagem ou ligação dele. Vencido: {tempoAcao==="proximo"?"o lead vai para o próximo disponível desta catraca":tempoAcao==="aguardar"?"o lead fica e o corretor é avisado (uma vez)":"o lead fica e o gestor é avisado (uma vez)"}. {tempoAcao==="proximo"&&<> Uma volta é passar por todos os corretores da catraca{voltas?"; depois, fica com quem está":"; sem limite, gira enquanto houver alguém disponível"}.</>} Lead já pego não é tirado. Não é o prazo da etapa nem a cadência de tarefas.</>
         :"Em branco, sem prazo para pegar: o lead fica com quem recebeu."}</div>
 
     {/* LEAD REPETIDO (CETRO 11.5). */}

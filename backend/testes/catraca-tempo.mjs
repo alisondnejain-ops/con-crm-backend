@@ -8,7 +8,7 @@
       para o próximo disponível da MESMA catraca, sem mudar de etapa.
    4. Quem falou com o cliente (mensagem ou ligação) fica com o lead.
    5. Lead com quem não é membro da catraca fica (foi escolha de alguém).
-   6. No máximo N voltas por lead.
+   6. No máximo N voltas completas pela equipe (0 = sem limite).
    7. Ninguém mais disponível: fica.
 
    Rodar:  npm run teste:catraca-tempo */
@@ -84,13 +84,13 @@ await caso("1. Só o gestor configura, dentro da régua", async () => {
   assert.equal(r.status, 403);
   r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 20000 });
   assert.equal(r.status, 400);
-  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { max_voltas: 0 });
+  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { max_voltas: 101 });
   assert.equal(r.status, 400);
-  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 10, max_voltas: 2 });
+  r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { tempo_resposta_min: 10, max_voltas: 1 });
   assert.equal(r.status, 200, await r.text());
   const lista = await (await req(tGestor, "GET", "/distribution/catracas")).json();
   const c = lista.catracas.find(x => x.id === catId);
-  assert.equal(c.tempo_resposta_min, 10); assert.equal(c.max_voltas, 2);
+  assert.equal(c.tempo_resposta_min, 10); assert.equal(c.max_voltas, 1);
 });
 
 // Entregues DEPOIS de ligar o tempo, 20 minutos atrás.
@@ -128,10 +128,24 @@ await caso("6. Antes do tempo, nada; depois, mais uma volta; no teto, fica", asy
   await agirSemResposta(org, chegou + 11 * M);
   assert.notEqual(donoDe(semFalar).assigned_to, rafael);
   assert.equal(donoDe(semFalar).catraca_voltas, 2);
+  // Uma volta = passar pelos 3 membros: a 3ª passagem ainda vale, a 4ª não.
+  let chegou2 = db.prepare("SELECT assigned_at FROM leads WHERE id=?").get(semFalar).assigned_at;
+  await agirSemResposta(org, chegou2 + 11 * M);
+  assert.equal(donoDe(semFalar).catraca_voltas, 3, "3 corretores na catraca: a volta tem 3 passagens");
   const dono = donoDe(semFalar).assigned_to;
-  const chegou2 = db.prepare("SELECT assigned_at FROM leads WHERE id=?").get(semFalar).assigned_at;
+  chegou2 = db.prepare("SELECT assigned_at FROM leads WHERE id=?").get(semFalar).assigned_at;
   await agirSemResposta(org, chegou2 + 60 * M);
-  assert.equal(donoDe(semFalar).assigned_to, dono, "duas voltas: fica");
+  assert.equal(donoDe(semFalar).assigned_to, dono, "uma volta completa pela equipe: fica");
+});
+await caso("6b. Sem limite: continua girando depois de uma volta inteira", async () => {
+  let r = await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { max_voltas: 0 });
+  assert.equal(r.status, 200);
+  const antes = donoDe(semFalar).assigned_to;
+  const chegou = db.prepare("SELECT assigned_at FROM leads WHERE id=?").get(semFalar).assigned_at;
+  await agirSemResposta(org, chegou + 60 * M);
+  assert.notEqual(donoDe(semFalar).assigned_to, antes);
+  assert.equal(donoDe(semFalar).catraca_voltas, 4);
+  await req(tGestor, "PATCH", "/distribution/catracas/" + catId, { max_voltas: 1 });
 });
 await caso("7. Ninguém mais disponível: fica", async () => {
   const sozinho = lead("Sozinho", marina, Date.now() + 2000);
