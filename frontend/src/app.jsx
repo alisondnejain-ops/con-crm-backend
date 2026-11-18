@@ -26253,7 +26253,7 @@ function MetaCard({item}){
 }
 
 function LinhaMetas({metas,isMobile,podeConfigurar,onConfigurar}){
-  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Metas do período" sub={`O caminho entre o trabalho de hoje e o resultado de ${mesLegivel(metas.mes)}`}
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Metas do período" sub={metas.proporcional?"Realizado no período do filtro · meta mensal proporcional aos dias do período":`O caminho entre o trabalho de hoje e o resultado de ${mesLegivel(metas.mes)}`}
     acao={podeConfigurar?<button onClick={onConfigurar} style={{...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5}}><Icon n="ajustes" size={13}/> Configurar metas</button>:null}>
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,minmax(0,1fr))",gap:10}}>
       {metas.itens.map(m=><MetaCard key={m.campo} item={m}/>)}
@@ -26317,7 +26317,7 @@ const CHAVES_SERIE=[["trabalhados","Leads trabalhados"],["ligacoes","Ligações"
 function SerieBarrasEmpilhadas({serie,isMobile}){
   const maxTotal=Math.max(1,...serie.map(d=>CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0)));
   const altura=isMobile?120:250;
-  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Ritmo da operação" sub="Atividades registradas nos últimos 14 dias" chip="14 dias">
+  return <PainelCartao isMobile={isMobile} estilo={{height:"100%"}} titulo="Ritmo da operação" sub={serie.length&&serie[0].rotulo.includes("–")?"Atividades do período, por semana":"Atividades do período, dia a dia"} chip={`${serie.length} ${serie.length&&serie[0].rotulo.includes("–")?"semanas":"dias"}`}>
     <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:isMobile?3:5,height:altura+22,paddingBottom:2}}>
       {serie.map((d,i)=>{
         const total=CHAVES_SERIE.reduce((s,[k])=>s+(d[k]||0),0);
@@ -26329,7 +26329,7 @@ function SerieBarrasEmpilhadas({serie,isMobile}){
               {total>0&&CHAVES_SERIE.map(([k],j)=><div key={k} style={{height:((d[k]||0)/total*100)+"%",background:PALETA_FUNIL[j],flexShrink:0}}/>)}
             </div>
           </div>
-          <div style={{fontSize:8.5,color:C.faint,marginTop:4,whiteSpace:"nowrap"}}>{(!isMobile||i%2===1)?d.rotulo:""}</div>
+          <div style={{fontSize:8.5,color:C.faint,marginTop:4,whiteSpace:"nowrap"}}>{(i%Math.max(1,Math.ceil(serie.length/(isMobile?7:14)))===0)?d.rotulo.split("–")[0]:""}</div>
         </div>;
       })}
     </div>

@@ -228,20 +228,26 @@ function somaVendas(orgId, filtros, de, ate) {
     em_dolar: emDolar.length ? { quantidade: emDolar.length, vgv: emDolar.reduce((s, v) => s + (v.sale_value || 0), 0) } : null };
 }
 
-/* ===== SÉRIE DIÁRIA (para a barra empilhada "Análise de funil") =====
+/* ===== SÉRIE (o gráfico "Ritmo de produção") =====
 
-   Sempre os últimos 14 dias terminando no fim do período escolhido (ou hoje,
-   o que vier primeiro) — é uma janela de tendência de granularidade fixa, não
-   o período inteiro do filtro. Trocar o período muda ONDE a janela termina,
-   não quantos dias ela mostra. */
+   Desde 18/11/2026 a série cobre O PERÍODO DO FILTRO (regra do Ali: todo
+   indicador segue o filtro), do início dele até o fim — ou hoje, se o fim
+   ainda não chegou. Uma barra por dia até 62 dias; acima disso, uma barra por
+   semana (90 barras de um dia não cabem numa tela). Sem período válido, os
+   últimos 14 dias, como era. */
 function serieDiaria(orgId, filtros, dias, periodo, eventos = null) {
   const fimBase = Math.min(periodo.ate, Date.now());
+  const rot = (t) => { const x = new Date(t); return `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}`; };
   const janelas = [];
-  for (let i = dias - 1; i >= 0; i--) {
-    const fimDia = new Date(fimBase - i * DIA); fimDia.setHours(23, 59, 59, 999);
-    const inicioDia = new Date(fimDia); inicioDia.setHours(0, 0, 0, 0);
-    janelas.push({ de: inicioDia.getTime(), ate: fimDia.getTime(),
-      rotulo: `${String(inicioDia.getDate()).padStart(2, "0")}/${String(inicioDia.getMonth() + 1).padStart(2, "0")}` });
+  let ini = new Date(periodo.de); ini.setHours(0, 0, 0, 0);
+  if (!(periodo.de > 0) || ini.getTime() > fimBase) { ini = new Date(fimBase - (dias - 1) * DIA); ini.setHours(0, 0, 0, 0); }
+  const totalDias = Math.round((fimBase - ini.getTime()) / DIA) + 1;
+  const passo = totalDias > 62 ? 7 : 1;
+  for (let t = ini.getTime(); t <= fimBase; ) {
+    const proximo = new Date(t); proximo.setDate(proximo.getDate() + passo);
+    const fim = Math.min(proximo.getTime() - 1, fimBase);
+    janelas.push({ de: t, ate: fim, rotulo: passo === 1 ? rot(t) : `${rot(t)}–${rot(fim)}` });
+    t = proximo.getTime();
   }
   const de = janelas[0].de, ate = janelas[janelas.length - 1].ate;
   // Distribui cada instante no seu dia. As janelas são contíguas e ordenadas.
@@ -448,7 +454,10 @@ export function salvarMeta(orgId, userId, mes, dados = {}) {
    cima mudasse, sem a meta em si ter mudado. */
 function realizadoDoMes(orgId, userId, mes) {
   const { de, ate } = limitesDoMes(mes);
-  const filtros = userId ? { responsavel: userId } : {};
+  return realizadoEntre(orgId, userId, de, ate);
+}
+function realizadoEntre(orgId, userId, de, ate) {
+  const filtros = !userId ? {} : Array.isArray(userId) ? { responsavel: userId.join(",") } : { responsavel: userId };
   /* As metas leem os MESMOS degraus do funil de atividades (07/11/2026):
      "Contatos" são as pessoas faladas (lead por dia) e as visitas e
      propostas são os marcos. Meta com outra conta mostraria uma barra que
@@ -496,6 +505,61 @@ export function metasComRealizado(orgId, userId, mes) {
         falta: alvo != null ? Math.max(alvo - realizado[campo], 0) : null,
         // Meta não definida é NULL, nunca 0% — a régua de sempre neste
         // painel: zero é um fato medido, não a ausência de meta.
+        pct: (alvo != null && alvo > 0) ? Math.round((realizado[campo] / alvo) * 1000) / 10 : null,
+      };
+    }),
+  };
+}
+
+/* METAS NO PERÍODO DO FILTRO (18/11/2026, regra do Ali: "tudo tem que estar
+   atrelado ao filtro do período"). A meta continua sendo cadastrada por MÊS;
+   no Painel ela vale proporcional aos dias do período escolhido: em "últimos
+   7 dias" de um mês de 30, a meta de 300 ligações vale 70; o mês em
+   andamento lido do dia 1 ("este mês") vale a meta inteira. Período que
+   atravessa dois meses soma o pedaço de cada um. O realizado é o do período,
+   com as MESMAS contas do funil de atividades logo abaixo. Mês sem meta não
+   entra na soma; nenhum mês com meta, o campo continua "não definida". */
+export function metasDoPeriodo(orgId, userId, de, ate) {
+  const metaDoMes = (mes) => {
+    if (!Array.isArray(userId)) return obterMeta(orgId, userId, mes);
+    const ms = userId.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
+    if (!ms.length) return null;
+    return Object.fromEntries(CAMPOS_META.map(c => {
+      const vs = ms.map(m => m[c]).filter(v => v != null);
+      return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
+    }));
+  };
+  const somas = Object.fromEntries(CAMPOS_META.map(c => [c, null]));
+  const meses = [];
+  let d = new Date(de); d = new Date(d.getFullYear(), d.getMonth(), 1);
+  while (d.getTime() <= ate) {
+    const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const lim = limitesDoMes(mes);
+    // O mês em andamento lido do dia 1 até hoje ("este mês", "este ano") vale
+    // a meta INTEIRA dele: é o mês que se está cumprindo, não um pedaço dele.
+    const inicioHoje = new Date(); inicioHoje.setHours(0, 0, 0, 0);
+    const mesEmAndamento = de <= lim.de && ate >= inicioHoje.getTime() && inicioHoje.getTime() >= lim.de && inicioHoje.getTime() <= lim.ate;
+    const fatia = mesEmAndamento ? 1 : (Math.min(ate, lim.ate) - Math.max(de, lim.de) + 1) / (lim.ate - lim.de + 1);
+    if (fatia > 0) {
+      meses.push(mes);
+      const m = metaDoMes(mes);
+      if (m) for (const c of CAMPOS_META) if (m[c] != null) somas[c] = (somas[c] || 0) + m[c] * fatia;
+    }
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  const realizado = realizadoEntre(orgId, userId, de, ate);
+  const interna = etapasDeContagem(orgId).realizada !== "Visita";
+  const nomeDe = (campo) => interna
+    ? ({ visitas_agendadas: "Demonstrações agendadas", visitas_realizadas: "Demonstrações feitas", vgv: "Vendas (valor)" }[campo] || NOMES_META[campo])
+    : NOMES_META[campo];
+  const arred = (c, v) => v == null ? null : (c !== "vgv" && v < 10) ? Math.round(v * 10) / 10 : Math.round(v);
+  return {
+    mes: meses[meses.length - 1] || mesAtual(), meses, de, ate, proporcional: true,
+    itens: CAMPOS_META.map(campo => {
+      const alvo = arred(campo, somas[campo]);
+      return {
+        campo, nome: nomeDe(campo), meta: alvo, realizado: realizado[campo],
+        falta: alvo != null ? Math.max(arred(campo, alvo - realizado[campo]), 0) : null,
         pct: (alvo != null && alvo > 0) ? Math.round((realizado[campo] / alvo) * 1000) / 10 : null,
       };
     }),
