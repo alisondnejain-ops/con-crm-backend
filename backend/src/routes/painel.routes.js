@@ -17,7 +17,7 @@ import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo, 
 import { conferenciaDoFunil } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
 import { proximosPassos } from "../services/proximos-passos.js";
-import { visaoGeral, metasComRealizado, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
+import { visaoGeral, metasDoPeriodo, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
 
 const r = Router();
 r.use(authRequired);
@@ -130,7 +130,7 @@ r.get("/geral", (req, res) => {
   const dados = visaoGeral(req.user.org_id, f);
   const pessoas = pessoasDoFiltro(f);
   const alvo = !pessoas ? null : pessoas.length === 1 ? pessoas[0] : pessoas;
-  dados.metas = metasComRealizado(req.user.org_id, alvo, mesAtual());
+  dados.metas = metasDoPeriodo(req.user.org_id, alvo, dados.periodo.de, dados.periodo.ate);
   res.json(dados);
 });
 

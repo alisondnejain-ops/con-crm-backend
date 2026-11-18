@@ -218,7 +218,7 @@ console.log(`   meta pessoal da Marina: ${r.status}`);
 assert.equal(r.status, 200);
 
 console.log("12. A Marina vê a PRÓPRIA meta (10 ligações), não a da operação (100)");
-r = await chamar(tMarina, "/painel/geral?periodo=hoje");
+r = await chamar(tMarina, "/painel/geral?periodo=mes");
 d = await r.json();
 const metaLig = d.metas.itens.find(i => i.campo === "ligacoes");
 console.log(`   meta=${metaLig.meta} realizado=${metaLig.realizado} pct=${metaLig.pct}`);
@@ -227,12 +227,29 @@ assert.equal(metaLig.realizado, 3, "as 3 ligações que ela fez este mês");
 assert.equal(metaLig.pct, 30);
 
 console.log("13. Meta não definida é null, nunca 0%");
-r = await chamar(tRafael, "/painel/geral?periodo=hoje");
+r = await chamar(tRafael, "/painel/geral?periodo=mes");
 d = await r.json();
 const metaLigRafael = d.metas.itens.find(i => i.campo === "ligacoes");
 console.log(`   Rafael (sem meta pessoal): meta=${metaLigRafael.meta} pct=${metaLigRafael.pct}`);
 assert.equal(metaLigRafael.meta, null);
 assert.equal(metaLigRafael.pct, null, "sem meta, o progresso é null, não 0%");
+
+console.log("13b. Período curto: a meta mensal vale proporcional aos dias do filtro");
+{
+  const h = new Date(); const ini = new Date(h.getFullYear(), h.getMonth(), 1);
+  const fimJanela = new Date(h.getFullYear(), h.getMonth(), 7);
+  if (fimJanela < new Date(h.getFullYear(), h.getMonth(), h.getDate())) {
+    const dIso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+    r = await chamar(tAli, `/painel/geral?de=${dIso(ini)}&ate=${dIso(fimJanela)}`);
+    d = await r.json();
+    const diasMes = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate();
+    const esperado = Math.round(100 * 7 / diasMes);
+    const lig = d.metas.itens.find(i => i.campo === "ligacoes");
+    console.log(`   7 dias de ${diasMes}: meta ${lig.meta} (esperado ${esperado})`);
+    assert.equal(lig.meta, esperado);
+    assert.equal(d.serie.length, 7, "o ritmo cobre os 7 dias do filtro");
+  } else console.log("   (pulado: o mês ainda não tem 7 dias completos)");
+}
 
 console.log("14. A gestão consulta a config com todo mundo lado a lado");
 r = await chamar(tAli, `/painel/metas?mes=${mesAtual}`);
