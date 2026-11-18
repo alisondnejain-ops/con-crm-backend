@@ -21719,7 +21719,7 @@ function ContaDeAnuncios({acoes,isMobile,estado,cartao,botaoFace}){
    (22/10/2026). Investimento, impressões, alcance, cliques e resultados vêm da
    conta de anúncios; leads e vendas são do CRM, pela mesma campanha — é o que
    dá o custo por lead e o custo por venda. */
-function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
+function DesempenhoDosAnuncios({acoes,f,isMobile,irPara,setPeriodo}){
   const [d,setD]=useState(null); const [erro,setErro]=useState(""); const [lendo,setLendo]=useState(false);
   // Hooks antes de qualquer `return` (regra do React): o nível e o recorte.
   const [nivel,setNivel]=usarEscolha("camp_meta_nivel","campanhas");
@@ -21770,7 +21770,7 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
       return <React.Fragment>
         <AbasDeNivel abas={[["campanhas","Campanhas",ls.campanhas.length],["conjuntos","Conjuntos",ls.conjuntos.length],["anuncios","Anúncios",ls.anuncios.length]]}
           ativa={aba} aoMudar={k=>{setNivel(k);setCampanha("");setConjunto("");}}/>
-        <FiltroDeNivel linhas={ls[aba]} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile}/>
+        <FiltroDeNivel linhas={ls[aba]} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile} f={f} setPeriodo={setPeriodo}/>
         {linhas.length===0?<div style={{color:C.sub,fontSize:12.5}}>Nada com veiculação neste período.</div>:
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
@@ -23438,8 +23438,8 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         </div>}
 
         {/* ===== CAMPANHAS ===== */}
-        {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara}/>}
-        {aba==="campanhas"&&camp&&<CampanhasDoCrm camp={camp} isMobile={isMobile} num={num} tempo={tempo}/>}
+        {aba==="campanhas"&&podeGerir(session)&&<DesempenhoDosAnuncios acoes={acoes} f={f} isMobile={isMobile} irPara={irPara} setPeriodo={set}/>}
+        {aba==="campanhas"&&camp&&<CampanhasDoCrm camp={camp} isMobile={isMobile} num={num} tempo={tempo} f={f} setPeriodo={set}/>}
       </React.Fragment>}
     </div>
   </div>;
@@ -23461,13 +23461,19 @@ function AbasDeNivel({abas,ativa,aoMudar}){
 /* Recorte por campanha (e por conjunto, nos anúncios): a lista de anúncios de
    uma conta inteira passa de cem linhas, e a pergunta quase sempre é "dentro
    DESTA campanha, qual anúncio trouxe lead". */
-function FiltroDeNivel({linhas,nivel,campanha,setCampanha,conjunto,setConjunto,isMobile}){
-  if(nivel==="campanhas") return null;
+/* O período fica aqui também (18/11/2026, pedido do Ali): é o MESMO período
+   da Visão geral — mudar aqui muda a página inteira, para os quadros nunca
+   olharem datas diferentes. */
+function FiltroDeNivel({linhas,nivel,campanha,setCampanha,conjunto,setConjunto,isMobile,f,setPeriodo}){
+  const periodo=f&&setPeriodo?<SeletorPeriodo f={f} set={setPeriodo} isMobile={isMobile}
+    estilo={{minHeight:36,borderRadius:9,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,width:isMobile?"100%":"auto"}}/>:null;
+  if(nivel==="campanhas") return periodo?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{periodo}</div>:null;
   const camps=[...new Map(linhas.filter(l=>l.campanha).map(l=>[l.campaign_id||l.campanha,l.campanha])).entries()];
   const conjs=nivel==="anuncios"?[...new Map(linhas.filter(l=>l.conjunto&&(!campanha||(l.campaign_id||l.campanha)===campanha)).map(l=>[l.adset_id||l.conjunto,l.conjunto])).entries()]:[];
   const sel={minHeight:36,borderRadius:9,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:isMobile?"100%":300,width:isMobile?"100%":"auto"};
-  if(camps.length<2&&conjs.length<2) return null;
+  if(camps.length<2&&conjs.length<2&&!periodo) return null;
   return <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+    {periodo}
     {camps.length>1&&<select value={campanha} onChange={e=>{setCampanha(e.target.value);setConjunto("");}} style={sel}>
       <option value="">Todas as campanhas</option>{camps.map(([k,n])=><option key={k} value={k}>{n}</option>)}</select>}
     {conjs.length>1&&<select value={conjunto} onChange={e=>setConjunto(e.target.value)} style={sel}>
@@ -23485,7 +23491,7 @@ const nomeDoNivel=(l,nivel)=><td style={{padding:"7px 8px",color:C.ink,fontWeigh
 
 /* "Campanhas e origem" (leads do CRM) em abas: Campanhas, Conjuntos,
    Anúncios, Por origem e Disparos — antes tudo empilhado num cartão só. */
-function CampanhasDoCrm({camp,isMobile,num,tempo}){
+function CampanhasDoCrm({camp,isMobile,num,tempo,f,setPeriodo}){
   const [nivel,setNivel]=usarEscolha("camp_crm_nivel","campanhas");
   const [campanha,setCampanha]=useState(""); const [conjunto,setConjunto]=useState("");
   const conjuntos=camp.conjuntos||[], anuncios=camp.anuncios||[], origem=camp.por_origem||[], disparos=camp.disparos||[];
@@ -23502,7 +23508,7 @@ function CampanhasDoCrm({camp,isMobile,num,tempo}){
       <b>{camp.cobertura.com_campanha} de {camp.cobertura.total} leads</b> ({camp.cobertura.pct}%) têm campanha gravada. {camp.cobertura.aviso}</div>}
     <AbasDeNivel abas={abas} ativa={aba} aoMudar={k=>{setNivel(k);setCampanha("");setConjunto("");}}/>
     {(aba==="campanhas"||aba==="conjuntos"||aba==="anuncios")&&<React.Fragment>
-      <FiltroDeNivel linhas={base} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile}/>
+      <FiltroDeNivel linhas={base} nivel={aba} campanha={campanha} setCampanha={setCampanha} conjunto={conjunto} setConjunto={setConjunto} isMobile={isMobile} f={f} setPeriodo={setPeriodo}/>
       {linhas.length===0?<div style={{color:C.sub,fontSize:12.5,padding:"6px 0"}}>
         {aba==="campanhas"?"Nenhum lead no período.":`Nenhum lead do período tem ${aba==="conjuntos"?"o conjunto":"o anúncio"} gravado — só os de formulário e de anúncio de WhatsApp trazem.`}</div>:
       <div style={{overflowX:"auto"}}>
