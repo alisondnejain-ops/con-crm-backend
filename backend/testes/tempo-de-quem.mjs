@@ -119,9 +119,10 @@ moverEtapa({ leadId: porGente, para: "Agendamento", motivo: "mao", userId: marin
 
 const { ranking } = await import("../src/services/score.js");
 const m = ranking(org, 365).find(x => x.id === marina);
-// Desde 07/11/2026: agendados são os marcos que ELA alcançou — a palavra-chave
-// (sem autor) não conta para ninguém.
-console.log(`   agendados por ela: ${m.visitas_agendadas}`);
-assert.equal(m.visitas_agendadas, 1, "só a que uma pessoa (ela) moveu");
+// Desde 18/11/2026: o marco é de quem ESTAVA com o lead quando ele chegou à
+// etapa (a régua do funil de conversão), seja quem for que moveu — os dois
+// leads são dela.
+console.log(`   agendados com ela: ${m.visitas_agendadas}`);
+assert.equal(m.visitas_agendadas, 2, "os dois leads estavam com ela");
 
 console.log("\nTudo certo ✅");

@@ -470,5 +470,24 @@ x = await get(tAli, `/painel/funil/comercial?${q}`);
 assert.equal(x.status, 200);
 assert.ok(x.d.pipeline_id);
 
+console.log("27. Cartão e funil dizem o mesmo: o marco é de quem estava com o lead (18/11/2026)");
+const bia = user(org, "Bia", "corretor");
+const F27 = novoFunil("Mesma régua");
+const l27 = lead(F27, "Inbox", SET(11), bia);
+mover(F27, l27, "Qualificado", SET(12)); mover(F27, l27, "Agendamento", SET(13));
+// Quem clicou foi o gestor (a atendente ou a gestão trabalhando o lead DELA).
+db.prepare("UPDATE lead_etapas SET user_id = ? WHERE lead_id = ?").run(ali, l27);
+const S = await import("../src/services/score.js");
+const de27 = new Date(2026, 8, 10).getTime(), ate27 = new Date(2026, 8, 20, 23, 59, 59).getTime();
+const mkBia = S.marcosDaPessoa(org, bia, de27, ate27), mkAli = S.marcosDaPessoa(org, ali, de27, ate27);
+r = conv(F27, { ...PERIODO, responsavel: bia });
+assert.equal(mkBia.qualificados, linha(r, "Qualificado").chegaram, "cartão de qualificados = etapa do funil");
+assert.equal(mkBia.agendados, linha(r, "Agendamento").chegaram, "cartão de agendamentos = etapa do funil");
+assert.equal(mkBia.qualificados, 1);
+assert.equal(mkAli.qualificados, 0, "quem só clicou não leva o marco");
+const fa27 = PG.visaoGeral(org, { ...PERIODO, pipeline_id: F27.id, responsavel: bia }).funil_atividade;
+assert.equal(fa27.find(x => x.id === "qualificadas").valor, 1, "Painel com a pessoa no filtro: a mesma régua");
+console.log("   Bia: 1 qualificado e 1 agendamento no cartão, no funil e no Painel · o gestor que clicou: 0");
+
 console.log("\nTudo certo ✅");
 process.exit(0);
