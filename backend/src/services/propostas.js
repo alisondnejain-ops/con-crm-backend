@@ -60,6 +60,7 @@ import { definirPeloMaster, ehRecurso } from "./recursos.js";
 import * as pagarme from "./pagarme.js";
 import * as asaas from "./asaas.js";
 import { codigoLivre } from "./codigo.js";
+import { sendMail, boasVindasEmail } from "./mail.js";
 const cancelarAsaas = asaas.cancelarAssinatura;
 
 export const RECURSOS_DA_PROPOSTA = ["autoatendimento", "marketing", "cetrolab"];
@@ -420,6 +421,7 @@ export async function confirmarAsaas(p, { valor = null, quando = Date.now() } = 
   const atual = lerProposta(p.id);
   if (!atual || atual.status !== "aguardando") return false;
   let orgId = atual.org_id;
+  let nasceu = null;
   if (!orgId) {
     const c = json(atual.cadastro_json, null);
     orgId = atual.org_criada_id || ("org_" + randomUUID().slice(0, 8));
@@ -428,6 +430,7 @@ export async function confirmarAsaas(p, { valor = null, quando = Date.now() } = 
         if (!c) throw new Error("o cadastro do responsável não ficou guardado");
         nascerConta({ orgId, nome: c.nome, email: c.email, telefone: c.telefone, marca: c.marca || atual.cliente,
           passHash: c.pass_hash, cobranca: "asaas", colunas: { asaas_customer_id: c.cliente_asaas || null } });
+        nasceu = { nome: c.nome, email: c.email, marca: c.marca || atual.cliente };
       } catch (e) {
         db.prepare("UPDATE propostas SET status = 'processando', ultimo_erro = ? WHERE id = ?")
           .run("Pagamento feito no Asaas, mas a conta não foi criada: " + e.message, atual.id);
@@ -446,8 +449,22 @@ export async function confirmarAsaas(p, { valor = null, quando = Date.now() } = 
   if (ok) {
     db.prepare("UPDATE propostas SET cadastro_json = NULL WHERE id = ?").run(atual.id);   // a senha não fica guardada à toa
     if (atual.org_id) await cancelarRecorrentesExceto(atual.org_id);
+    if (nasceu) avisarDono(nasceu);
   }
   return ok;
+}
+
+/* O dono da conta nova recebe por e-mail que a conta está pronta (18/11/2026):
+   ele pagou na fatura do Asaas, em outra aba, e até aqui nada dizia a ele que
+   já podia entrar. Nunca lança nem segura a confirmação; sem e-mail ligado no
+   servidor, fica só no log — e o hub continua mostrando com qual e-mail entra. */
+function avisarDono({ nome, email, marca }) {
+  const base = String(process.env.APP_URL || process.env.SITE_URL || "").replace(/\/+$/, "");
+  const link = (base || "https://www.conhubcrm.com.br") + "/app";
+  const m = boasVindasEmail({ name: nome, email, link, orgName: marca });
+  Promise.resolve().then(() => sendMail({ to: email, ...m }))
+    .then(r => { if (!r || !r.sent) console.log(`[proposta] conta pronta, e-mail de boas-vindas não saiu (entra com ${email.replace(/^(.).*(@.*)$/, "$1***$2")})`); })
+    .catch(e => console.error("[proposta] e-mail de boas-vindas falhou:", e.message));
 }
 
 /* Conta existente que paga a proposta pelo Asaas: a assinatura recorrente
