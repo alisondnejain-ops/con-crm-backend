@@ -321,7 +321,7 @@ export function listar(orgId) {
       leads_abertos: leads.get(orgId, c.id).n,
       ...canaisDe(c.id),
       pipeline_id: c.pipeline_id || null, stage_id: c.stage_id || null, ia_produto_id: c.ia_produto_id || null,
-      tempo_resposta_min: c.tempo_resposta_min || null, max_voltas: c.max_voltas || 2,
+      tempo_resposta_min: c.tempo_resposta_min || null, max_voltas: c.max_voltas || 0,
       fallback: c.fallback || null, tempo_acao: c.tempo_acao || "proximo",
       repetido: c.repetido || "atual", repetido_stage_id: c.repetido_stage_id || null,
       /* A etapa escolhida, com nomes; `etapa_invalida` quando foi apagada ou
@@ -415,9 +415,11 @@ function tempoValido(v) {
   return n;
 }
 function voltasValidas(v) {
+  // Voltas completas na roda; vazio ou 0 = sem limite.
+  if (v === null || v === "") return null;
   const n = Number(v);
-  if (!Number.isInteger(n) || n < 1 || n > 10) throw new ErroCatraca(400, "O número de voltas vai de 1 a 10.");
-  return n;
+  if (!Number.isInteger(n) || n < 0 || n > 100) throw new ErroCatraca(400, "O número de voltas vai de 0 (sem limite) a 100.");
+  return n || null;
 }
 
 /* A etapa que aciona: do funil escolhido, desta conta e ativa. Vazio tira. */
