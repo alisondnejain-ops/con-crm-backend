@@ -7,8 +7,8 @@
    - leads trabalhados, pessoas faladas e mensagens vêm das MESMAS funções do
      funil de atividades do Painel (painel-geral.js) — o número de uma pessoa
      aqui é o mesmo que o Painel mostra com ela no filtro;
-   - "na mão" é a CARTEIRA ATUAL (leads com ela agora, sem venda), não o que
-     ela recebeu no período;
+   - "na mão" (desde 18/11/2026) é dos recebidos no período, quantos
+     continuam com ela em aberto — segue o filtro, como o resto;
    - "atrasados" são os leads dela com tarefa vencida ou prazo da etapa
      vencido, a mesma conta dos Próximos passos;
    - tarefas criadas (por ela) e feitas (as dela, concluídas) no período.
@@ -17,7 +17,8 @@
    Score, conversão (%), 1ª resposta e fluidez (minutos) ficam de fora: somar
    minutos como se fossem ações não significa nada, e o Score não pontua a si
    mesmo. Coluna de consulta escolhida na tela não cria peso nenhum. */
-import db from "../db.js";
+import db, { emLotes } from "../db.js";
+import { eventosDeAtribuicao, recebidosEm } from "./movimento.js";
 import { trabalhados, faladas, msgsDeGente } from "./painel-geral.js";
 import { proximosPassos } from "./proximos-passos.js";
 
@@ -27,20 +28,33 @@ export const INDICADORES = [
   ["ligacoes", "Ligações", "ligações", true], ["trabalhados", "Leads trabalhados", "lead por dia", true], ["mensagens", "Mensagens", "mensagens", true],
   ["faladas", "Pessoas faladas", "lead por dia", true], ["qualificados", "Qualificados", "leads", true], ["visitas_agendadas", "Agendamentos", "leads", true],
   ["visitas_realizadas", "Visitas", "leads", true], ["propostas", "Propostas", "leads", true], ["vendas", "Vendas", "vendas", true],
-  ["na_mao", "Na mão", "carteira atual", true], ["tarefas_criadas", "Tarefas criadas", "tarefas", true], ["tarefas_feitas", "Tarefas feitas", "tarefas", true],
+  ["na_mao", "Na mão", "recebidos no período que continuam com a pessoa, em aberto", true], ["tarefas_criadas", "Tarefas criadas", "tarefas", true], ["tarefas_feitas", "Tarefas feitas", "tarefas", true],
   ["atrasados", "Leads atrasados", "leads agora", true], ["perdidos", "Perdidos", "leads", true],
 ];
 const PONTUAVEIS = new Set(INDICADORES.filter(i => i[3]).map(i => i[0]));
 
+/* "Na mão" segue o período (18/11/2026, regra do Ali): dos leads que a pessoa
+   RECEBEU no período (o mesmo "recebidos" da linha), quantos continuam com
+   ela, sem venda e fora de etapa de perda. Trocar o filtro muda o número. */
+function naMaoDoPeriodo(orgId, eventos, id, de, ate) {
+  const ids = recebidosEm(eventos, id, de, ate).map(e => e.lead_id);
+  return emLotes(ids, (marcas, lote) => db.prepare(`SELECT l.id FROM leads l
+      LEFT JOIN pipeline_stages s ON s.id = l.stage_id
+      WHERE l.org_id=? AND l.assigned_to=? AND l.sale_date IS NULL AND l.anonimizado_em IS NULL
+        AND COALESCE(s.status_type,'') <> 'perdido' AND COALESCE(l.stage,'') <> 'Perdido'
+        AND l.id IN (${marcas})`).all(orgId, id, ...lote)).length;
+}
+
 export function extrasDaEquipe(orgId, ids, de, ate) {
   const out = {};
+  const eventos = eventosDeAtribuicao(orgId);
   for (const id of ids) {
     const f = { responsavel: id };
     out[id] = {
       trabalhados: trabalhados(orgId, f, de, ate).length,
       faladas: faladas(orgId, f, de, ate).length,
       mensagens: msgsDeGente(orgId, f, de, ate).length,
-      na_mao: db.prepare("SELECT COUNT(*) n FROM leads WHERE org_id=? AND assigned_to=? AND sale_date IS NULL AND anonimizado_em IS NULL").get(orgId, id).n,
+      na_mao: naMaoDoPeriodo(orgId, eventos, id, de, ate),
       tarefas_criadas: db.prepare("SELECT COUNT(*) n FROM tarefas WHERE org_id=? AND criado_por=? AND created_at BETWEEN ? AND ?").get(orgId, id, de, ate).n,
       tarefas_feitas: db.prepare("SELECT COUNT(*) n FROM tarefas WHERE org_id=? AND user_id=? AND feito_em BETWEEN ? AND ?").get(orgId, id, de, ate).n,
       atrasados: proximosPassos(orgId, f, 0).total,
