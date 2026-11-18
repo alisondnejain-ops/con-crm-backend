@@ -1394,6 +1394,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS portais_leads (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (org_id, portal, externo_id)
 )`);
+/* O que aconteceu com cada lead que chegou (18/11/2026, "por que a Meta diz
+   262 e o CRM 239?"): virou lead novo, a pessoa já era lead, ou foi recusado
+   — e de qual campanha veio. É o que deixa a tela de desempenho explicar a
+   diferença em vez de só mostrá-la. Linha antiga fica com resultado nulo. */
+{
+  const c = db.prepare("PRAGMA table_info(portais_leads)").all().map(x => x.name);
+  for (const [n, t] of [["resultado", "TEXT"], ["motivo", "TEXT"], ["campaign_id", "TEXT"], ["campaign_name", "TEXT"]])
+    if (!c.includes(n)) db.exec(`ALTER TABLE portais_leads ADD COLUMN ${n} ${t}`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_portais_leads_org_data ON portais_leads (org_id, portal, created_at)");
+}
 
 /* O SITE DA IMOBILIÁRIA (24/09/2026): um portal próprio com o catálogo e uma
    página por imóvel, em /imoveis/<slug>. Tabela à parte e não colunas em

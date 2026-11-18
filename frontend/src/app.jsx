@@ -21771,6 +21771,43 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara}){
     <div style={{color:C.faint,fontSize:11,marginTop:9,lineHeight:1.5}}>
       Investimento, impressões, alcance, cliques e leads (Meta) vêm da conta de anúncios. Leads no CRM e vendas são os que
       entraram no período por aquela campanha; o custo por lead e por venda divide o investimento por eles.</div>
+    {d.conciliacao&&<PorQueDiferem c={d.conciliacao} crm={t.leads_crm} inteiro={inteiro}/>}
+  </div>;
+}
+
+/* "Por que a Meta diz 262 e o CRM 239?" (18/11/2026). Cada linha é uma
+   contagem dos leads de formulário que o CRM recebeu no período — nada é
+   estimado. O que sobra é o que a Meta conta e não chegou, que daqui não se
+   confere. */
+function PorQueDiferem({c,crm,inteiro}){
+  const [aberto,setAberto]=useState(false);
+  const linhas=[
+    ["Chegaram ao CRM no período",c.chegaram,true],
+    ["A pessoa já era lead (o formulário virou observação no lead que existia)",c.ja_era_lead],
+    ["Recusados",c.recusados],
+    ["Apagados depois (conversa pessoal, LGPD)",c.apagados],
+    ["Entraram sem a campanha (a Meta não deixou ler)",c.sem_campanha],
+    ["Entraram com campanha de outra conta de anúncios",c.outra_conta],
+    ["Viraram lead novo, com a campanha",c.contados,true],
+  ].filter(([,n,sempre])=>sempre||n>0);
+  const falta=c.nao_chegaram;
+  return <div style={{marginTop:12,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+    <button onClick={()=>setAberto(!aberto)} style={{border:"none",background:"transparent",padding:0,color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer",textAlign:"left"}}>
+      {aberto?"▾":"▸"} Por que “Leads (Meta)” ({inteiro(c.leads_meta)}) e “Leads no CRM” ({inteiro(crm)}) diferem</button>
+    {aberto&&<div style={{marginTop:9}}>
+      {linhas.map(([r,n,forte])=><div key={r} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"5px 0",borderBottom:`1px solid ${C.line}`,fontSize:12.5}}>
+        <span style={{color:forte?C.ink:C.sub,fontWeight:forte?600:400}}>{r}</span>
+        <span style={{fontFamily:MONO,color:C.ink,fontWeight:forte?700:500}}>{inteiro(n)}</span>
+      </div>)}
+      {c.motivos.length>0&&<div style={{color:C.faint,fontSize:11.5,marginTop:6}}>Recusados: {c.motivos.map(m=>`${m.motivo} (${m.n})`).join(" · ")}</div>}
+      {falta!=null&&falta>0&&<div style={{color:C.sub,fontSize:12,marginTop:9,lineHeight:1.55}}>
+        <b>{inteiro(falta)}</b> que a Meta conta não chegaram ao CRM no período. Daqui não dá para conferir um a um: pode ser
+        aviso que a Meta não mandou (página desconectada ou sem acesso a leads no dia), ou só o dia — a Meta põe o lead no dia
+        em que o anúncio foi visto, e o CRM no dia em que o formulário chegou.</div>}
+      {falta!=null&&falta<0&&<div style={{color:C.sub,fontSize:12,marginTop:9,lineHeight:1.55}}>
+        Chegaram {inteiro(-falta)} a mais do que a Meta conta no período — em geral é o dia: a Meta põe o lead no dia em que o anúncio foi visto.</div>}
+      <div style={{color:C.faint,fontSize:11,marginTop:7}}>Recusas passaram a ser registradas em 18/11/2026; antes disso elas não aparecem aqui.</div>
+    </div>}
   </div>;
 }
 

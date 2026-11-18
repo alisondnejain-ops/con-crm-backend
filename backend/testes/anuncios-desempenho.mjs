@@ -174,6 +174,40 @@ try {
   assert.equal(c2.leads_meta, 0);
   assert.equal(c2.custo_por_venda, null, "sem venda é vazio, não zero");
 
+  caso("Por que Meta e CRM diferem: cada lead que chegou é classificado, e a recusa fica registrada");
+  const tok = "a".repeat(48);
+  db.prepare("INSERT INTO portais_config (org_id,token_feed,token_leads,created_at) VALUES (?,?,?,?)").run(orgA, "b".repeat(48), tok, Date.now());
+  const ponte = (corpo) => fetch(url(`/webhooks/portais/${tok}?portal=meta`), { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+  // novo, com campanha desta conta
+  assert.equal((await ponte({ id: "LG1", full_name: "Ana", phone_number: "+5587991110001", campaign_id: "C1", campaign_name: "Casas Centro" })).status, 200);
+  // a mesma pessoa de novo, por outro formulário: vira observação, não lead
+  assert.equal((await ponte({ id: "LG2", full_name: "Ana", phone_number: "+5587991110001", campaign_id: "C1", campaign_name: "Casas Centro" })).status, 200);
+  // sem contato: recusado, e registrado
+  assert.equal((await ponte({ id: "LG3", full_name: "Sem contato", campaign_id: "C1" })).status, 400);
+  // sem campanha
+  assert.equal((await ponte({ id: "LG4", full_name: "Bia", phone_number: "+5587991110004" })).status, 200);
+  // apagado depois
+  await ponte({ id: "LG5", full_name: "Caio", phone_number: "+5587991110005", campaign_id: "C1" });
+  const apagar = db.prepare("SELECT lead_id FROM portais_leads WHERE externo_id='LG5'").get().lead_id;
+  db.prepare("DELETE FROM observacoes WHERE lead_id=?").run(apagar);
+  db.prepare("DELETE FROM leads WHERE id=?").run(apagar);
+  r = await A.get("/anuncios-meta/desempenho?periodo=mes&atualizar=1");
+  const k = r.body.conciliacao;
+  assert.equal(k.chegaram, 5);
+  assert.equal(k.ja_era_lead, 1, "a mesma pessoa duas vezes conta uma vez no CRM");
+  assert.equal(k.recusados, 1);
+  assert.deepEqual(k.motivos, [{ motivo: "sem telefone e sem e-mail", n: 1 }]);
+  assert.equal(k.sem_campanha, 1);
+  assert.equal(k.apagados, 1);
+  assert.equal(k.contados, 1);
+  assert.equal(k.leads_meta, 9);
+  assert.equal(k.nao_chegaram, 4, "o que a Meta conta e não chegou é só a diferença, nunca estimado");
+  // O reenvio do recusado, agora com telefone, entra e troca a recusa
+  assert.equal((await ponte({ id: "LG3", full_name: "Sem contato", phone_number: "+5587991110003", campaign_id: "C1" })).status, 200);
+  assert.equal(db.prepare("SELECT resultado FROM portais_leads WHERE externo_id='LG3'").get().resultado, "novo");
+  assert.equal((await ponte({ id: "LG3", full_name: "Sem contato", phone_number: "+5587991110003" })).status, 200, "reenvio de lead entregue continua repetido");
+
   caso("Guardado 15 minutos; 'Atualizar da Meta' lê de novo");
   const antes = chamadasInsights;
   await A.get("/anuncios-meta/desempenho?periodo=mes");
