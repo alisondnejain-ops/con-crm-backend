@@ -293,10 +293,15 @@ export function slaDoLead(etapa, lead, agora = Date.now(), segura = false) {
 /* Os leads com alguma tarefa em aberto marcada para AGORA ou depois. Uma
    consulta para a imobiliária inteira (índice idx_tarefas_abertas): quem
    chama `slaDoLead` numa lista passa `comTarefa.has(l.id)`. */
+/* Também segura o prazo a conversa em que a última palavra do cliente só
+   encerrou ("legal", "ok", 👍 ou "Não precisa responder" — 18/11/2026,
+   services/encerra.js): não há resposta devida, e o prazo vencendo ali sujava
+   a métrica de quem não deixou ninguém esperando. */
 export function leadsComTarefaFutura(orgId, agora = Date.now()) {
   return new Set(db.prepare(
-    "SELECT DISTINCT lead_id FROM tarefas WHERE org_id = ? AND feito_em IS NULL AND quando >= ? AND cadencia_passo_id IS NULL")
-    .all(orgId, agora).map(r => r.lead_id));
+    `SELECT DISTINCT lead_id FROM tarefas WHERE org_id = ? AND feito_em IS NULL AND quando >= ? AND cadencia_passo_id IS NULL
+     UNION SELECT id FROM leads WHERE org_id = ? AND conversa_encerrada_em IS NOT NULL`)
+    .all(orgId, agora, orgId).map(r => r.lead_id));
 }
 
 export const temTarefaFutura = (leadId, agora = Date.now()) => !!db.prepare(

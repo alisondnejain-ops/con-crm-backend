@@ -16,6 +16,7 @@
 import db from "../db.js";
 import { avisar } from "./push.js";
 import { semDisparo } from "./marca-disparo.js";
+import { naoEncerra } from "./encerra.js";
 
 export const PADRAO_MIN = 30;
 
@@ -43,8 +44,8 @@ export function definirMinutos(orgId, minutos) {
    em "Perdido" é cobrar o que não existe. */
 const SEM_RESPOSTA = `
   SELECT l.id, l.name, l.assigned_to, l.alerta_em,
-         (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_em,
-         (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
+         (SELECT m.created_at FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} AND ${naoEncerra("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_em,
+         (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} AND ${naoEncerra("m.")} ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
   FROM leads l
   WHERE l.org_id = ? AND l.assigned_to IS NOT NULL
     AND l.closed_at IS NULL

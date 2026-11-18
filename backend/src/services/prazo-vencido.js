@@ -110,6 +110,7 @@ export function vencidosParaAgir(orgId, agora = Date.now(), limite = 50) {
     const seguidos = l.prazo_repasse_em && (l.last_interaction_at || 0) <= l.prazo_repasse_em ? (l.prazo_repasses || 0) : 0;
     if (seguidos >= cfg.max_repasses) continue;
     if (tarefaFutura.get(l.id, agora)) continue;
+    if (l.conversa_encerrada_em) continue;   // o cliente só encerrou (services/encerra.js)
     fora.push({ ...l, seguidos, acao: acaoDaEtapa(cfg, l) });
     if (fora.length >= limite) break;
   }

@@ -274,6 +274,8 @@ function adaptLead(l,anterior){
     fluxoAtivo:l.fluxo_ativo!==undefined?(l.fluxo_ativo||null):(anterior?anterior.fluxoAtivo:null),
     qual:{...QUAL_VAZIA,...(l.qual||{})},
     unread:l.unread||0, lastBody:l.last_body, lastDirection:l.last_direction, lastAt:l.last_at,
+    // A última palavra do cliente só encerrou ("legal", 👍, ou "Não precisa responder").
+    conversaEncerrada:l.conversa_encerrada_em||null,
     // Pediu contato pelo anúncio ou portal e ninguém falou com ele ainda (ver esperandoContato).
     aguardaContato:l.aguarda_contato!==undefined?!!l.aguarda_contato:(anterior?anterior.aguardaContato:false),
     finalizado:!!l.closed_at, finalizadoEm:l.closed_at||null,
@@ -933,6 +935,9 @@ const passaNaEntrada=(l,entrada,campanha)=>{
 function cronometroDoLead(l,agora=Date.now(),{daChegada=false}={}){
   if(!l||l.finalizado) return null;
   const aPartir=(t)=>daChegada&&l.assignedAt?Math.max(t||0,l.assignedAt):t;
+  /* O cliente só encerrou ("legal", "ok", 👍 — 18/11/2026): ninguém está
+     esperando resposta, e o servidor também segura o prazo da etapa. */
+  if(l.conversaEncerrada&&!l.aguardaContato) return null;
   if(l.aguardaContato||(!l.firstRespAt&&l.lastDirection==="in"))
     return {rotulo:"sem resposta",titulo:"Lead novo: ninguém respondeu ainda",desde:aPartir(l.createdAt)};
   if(l.lastDirection==="in"&&l.lastAt)
@@ -2084,6 +2089,8 @@ function ConCRM(){
     reabrir:acao((leadId)=>api(`/leads/${leadId}/reabrir`,{method:"POST"})),
     marcarLida:acao((leadId)=>api(`/leads/${leadId}/read`,{method:"POST"})),
     marcarNaoLida:acao((leadId)=>api(`/leads/${leadId}/nao-lida`,{method:"POST"})),
+    // "Não precisa responder" (18/11/2026, services/encerra.js).
+    dispensarResposta:acao((leadId)=>api(`/leads/${leadId}/sem-resposta`,{method:"POST"})),
     equipe:()=>api("/auth/users"),
     // Mover em lote os leads de uma pessoa para outro funil. A prévia é
     // separada da aplicação: mexer em centenas de leads não se desfaz na mão.
@@ -10507,6 +10514,10 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
     {!soDoLead&&(lead.finalizado
       ?pill("reabrir","spark",isMobile?"Reabrir":"Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
       :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep))}
+    {/* "Não precisa responder" (18/11/2026): o cliente encerrou com algo que
+        a lista automática não reconhece. Não finaliza; fica gravado quem tocou. */}
+    {!soDoLead&&!lead.finalizado&&lead.lastDirection==="in"&&!lead.conversaEncerrada&&
+      pill("semresp","check","Não precisa responder",roda("semresp",acoes.dispensarResposta))}
     {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?(isMobile?"Desligar IA":"Desligar a IA"):(isMobile?"Ativar IA":"Ativar a IA"),alternarIA,robo.ligado?null:C.green)}
     {comPessoal&&pill("pessoal","user",isMobile?"Pessoal":"Conversa pessoal",()=>setPessoal(true))}
     {!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
@@ -12149,7 +12160,7 @@ const URGENCIA_VERMELHA=72*3600000; // três dias: parado
 function corDeUrgencia(l){
   if(l.finalizado||l.status==="Venda"||l.status==="Perdido") return null;
   // Tarefa marcada para o futuro: o lead está agendado, não parado (28/10/2026).
-  if(l.tarefas&&l.tarefas.futura) return null;
+  if((l.tarefas&&l.tarefas.futura)||l.conversaEncerrada) return null;
   const desde=Date.now()-(l.lastAt||l.createdAt);
   if(desde>=URGENCIA_VERMELHA) return C.hot;
   if(desde>=URGENCIA_AMBAR) return C.amber;

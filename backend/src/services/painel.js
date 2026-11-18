@@ -30,6 +30,7 @@ import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js
 import { slaDoLead, leadsComTarefaFutura } from "./etapas.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
+import { naoEncerra } from "./encerra.js";
 import { resumoDeDisparos } from "./disparo.js";
 import { configDoFunil, funilDeConversao } from "./conversao.js";
 import { qualificadosNoPeriodo } from "./sdr-funil.js";
@@ -341,7 +342,7 @@ export function atividades(orgId, periodo, filtros = {}) {
   /* "Esperando resposta" é a última mensagem ser do cliente — mesma
      definição do alerta.js. Duas definições para a mesma frase fariam dois
      números diferentes na mesma tela. */
-  const daCasa = db.prepare(`SELECT ${COLUNAS_PRAZO}, (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")}
+  const daCasa = db.prepare(`SELECT ${COLUNAS_PRAZO}, (SELECT m.direction FROM messages m WHERE m.lead_id = l.id AND ${semDisparo("m.")} AND ${naoEncerra("m.")}
       ORDER BY m.created_at DESC LIMIT 1) AS ultima_dir
     FROM leads l WHERE ${p.sql}`).all(...p.args);
   const porDono = new Map();
