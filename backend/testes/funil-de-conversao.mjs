@@ -181,6 +181,11 @@ mover(F8, a8c, "Qualificado", new Date(2026, 7, 20).getTime()); mover(F8, a8c, "
 r = conv(F8);
 assert.equal(linha(r, "Qualificado").chegaram, 1, "a qualificação de agosto não conta em setembro");
 assert.equal(linha(r, "Agendamento").chegaram, 2);
+// O funil de atividades do Painel segue a mesma régua.
+const PG = await import("../src/services/painel-geral.js");
+const fa8 = PG.visaoGeral(org, { ...PERIODO, pipeline_id: F8.id }).funil_atividade;
+assert.equal(fa8.find(x => x.id === "qualificadas").valor, 1, "Painel: qualificado do período");
+assert.equal(fa8.find(x => x.id === "visita_agendada").valor, 2, "Painel: agendamentos do período, de leads antigos");
 console.log("   agendamento do período conta, venha o lead de quando vier");
 
 console.log("9. Sem base é \"sem base\"; base sem avanço é 0%");
