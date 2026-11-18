@@ -247,6 +247,51 @@ function aplicarEtiquetas(leadId, etapa) {
   }
 }
 
+/* ===== A ROLETA DA ETAPA TAMBÉM DISTRIBUI O LEAD QUE NASCE NELA (18/11/2026) =====
+
+   Pedido do Fernando, decidido pelo Ali: "a roleta distribui o lead novo".
+   Até aqui o lead que NASCIA na etapa não passava pela automação dela (só o
+   que era MOVIDO para lá) — o dono vinha da catraca das atendentes, e a
+   roleta configurada em "Lead Novo" parecia não funcionar.
+
+   Vale quando a etapa de entrada manda entregar (roleta, catraca de produto
+   ou uma pessoa) e o lead ia nascer SEM DONO ou com uma ATENDENTE. Quem já
+   nasce com corretor (linha pessoal, catraca "direto ao corretor", corretor da
+   vez do site, autônomo) não é mexido. Ninguém disponível: fica como ia
+   nascer, sem aviso nenhum quebrando a entrada.
+
+   Devolve `{ dono, entrada }` ou null. Quem chama decide o resto (e devolve a
+   vez da atendente que não chegou a receber). O lead nasce na etapa da
+   roleta; se ela for de um funil de SDR, nasce no funil de quem recebeu — o
+   mesmo que acontece quando o lead é movido para lá e a roleta entrega. */
+export function roletaDaEntrada(orgId, entrada, { dono = null, catracaId = null } = {}) {
+  try {
+    if (!entrada?.stage_id) return null;
+    if (dono) {
+      const p = db.prepare("SELECT role FROM users WHERE id = ? AND org_id = ?").get(dono, orgId);
+      if (p && p.role !== "sdr") return null;
+    }
+    const cfg = etapaPorId(orgId, entrada.stage_id)?.automation_config || {};
+    if (!cfg.distribuir || cfg.limpar_responsavel) return null;
+    let novo = null;
+    if (cfg.distribuir === "rodizio" || cfg.distribuir === "catraca") {
+      const cat = cfg.distribuir === "catraca" && cfg.catraca_id
+        && db.prepare("SELECT 1 FROM catracas WHERE id = ? AND org_id = ? AND ativa = 1").get(cfg.catraca_id, orgId)
+        ? cfg.catraca_id : catracaId;
+      novo = pegarProximoDoLead(orgId, { org_id: orgId, catraca_id: cat }).userId;
+    } else {
+      novo = validarPessoa(orgId, cfg.distribuir);
+      if (novo) marcarQueRecebeuNoLead(orgId, { catraca_id: catracaId }, novo);
+    }
+    if (!novo || novo === dono) return null;
+    const final = ehFunilDeSdr(orgId, entrada.pipeline_id) ? entradaDe(orgId, novo) : entrada;
+    return { dono: novo, entrada: final };
+  } catch (e) {
+    console.error("[movimento] roleta no nascimento falhou:", e.message);
+    return null;
+  }
+}
+
 const validarPessoa = (orgId, userId) =>
   db.prepare("SELECT id FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'").get(userId, orgId)?.id || null;
 

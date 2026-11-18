@@ -29,6 +29,7 @@ import { proximoAtendente } from "./catraca.js";
 import { entradaDe } from "./pipelines.js";
 import { entradaDoFormulario } from "./formularios.js";
 import { catracaNoNascimento, etapaDeEntrada } from "./catracas.js";
+import { roletaDaEntrada } from "./movimento.js";
 import { pegarProximo } from "./rodizio.js";
 import { dispararGatilho } from "./automacoes.js";
 import { normalizePhone } from "./stages.js";
@@ -522,14 +523,25 @@ export function receberLead(orgId, dados) {
          anda. Ninguém disponível: a regra de sempre (atendente da vez, ou a
          fila). */
       const doRodizio = !vez.dono && dados.rodizio ? pegarProximo(orgId) : null;
-      const dono = vez.dono || doRodizio || (vez.fila ? null : proximoAtendente(orgId));
+      const vezAtendente = db.prepare("SELECT atendente_ultimo FROM orgs WHERE id = ?").get(orgId)?.atendente_ultimo ?? null;
+      let dono = vez.dono || doRodizio || (vez.fila ? null : proximoAtendente(orgId));
       /* O funil: o do formulário escolhido no gatilho do fluxo manda; senão a
          etapa da catraca que entregou direto ao corretor; senão o funil de
          quem recebe, como sempre. */
-      const entrada = (dados.entrada && etapaDeEntrada(orgId, dados.entrada))
+      let entrada = (dados.entrada && etapaDeEntrada(orgId, dados.entrada))
         || (formulario && entradaDoFormulario(orgId, anuncio.form_id))
         || (vez.dono && !vez.via && catraca.stage_id && etapaDeEntrada(orgId, catraca.stage_id))
         || entradaDe(orgId, dono);
+      /* A roleta da etapa em que ele nasce também distribui (18/11/2026,
+         services/movimento.js → roletaDaEntrada). A atendente que ia receber
+         volta a ser a próxima da vez. */
+      if (!vez.dono && !doRodizio) {
+        const r = roletaDaEntrada(orgId, entrada, { dono, catracaId: catraca ? catraca.id : null });
+        if (r) {
+          if (dono) db.prepare("UPDATE orgs SET atendente_ultimo = ? WHERE id = ?").run(vezAtendente, orgId);
+          dono = r.dono; entrada = r.entrada;
+        }
+      }
       db.prepare(`INSERT INTO leads (id,org_id,name,phone,email,origem,priority,qual_json,stage,assigned_to,created_at,
                   pipeline_id,stage_id,stage_entered_at,last_interaction_at,source,assigned_at,catraca_id)
         VALUES (?,?,?,?,?,?,NULL,?,?,?,?, ?,?,?,?, ?,?,?)`)

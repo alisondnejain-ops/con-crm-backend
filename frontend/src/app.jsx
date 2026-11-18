@@ -24129,7 +24129,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
             {resumo?<React.Fragment>Ao chegar aqui, o lead <b style={{color:C.sub}}>{resumo}</b>. </React.Fragment>:null}
             Vale quando alguém move o lead para esta etapa — na mão, no funil ou confirmando a sugestão da IA.
             {cfg.distribuir==="rodizio"&&" Na roleta só entra quem marcou disponibilidade; se ninguém estiver, o lead fica sem dono e quem moveu recebe o aviso."}
-            {indice===0&&" Lead novo que nasce nesta etapa não passa por aqui: o dono dele é decidido pela roleta das atendentes."}
+            {indice===0&&" Vale também para o lead novo que nasce nesta etapa: com a roleta (ou uma pessoa) aqui, ele vai direto para o corretor em vez da atendente da vez ou da fila."}
           </div>
           {/* AO PEGAR O LEAD (07/11/2026, pedido do Fernando: "quando o
               corretor coletar o lead na roleta, mover para LEAD"). */}
