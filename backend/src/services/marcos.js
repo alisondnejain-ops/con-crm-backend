@@ -97,9 +97,18 @@ export function marcosDosLeads(orgId, ids, cls = null) {
      comprou meses atrás e é posto de novo em "Vendido" não vira venda,
      proposta, visita nem agendamento de agora. Sem venda registrada, conta
      como antes. */
-  const vendaEm = new Map(emLotes(ids, (m, lote) => db.prepare(
-    `SELECT id, sale_date FROM leads WHERE org_id = ? AND id IN (${m}) AND sale_date IS NOT NULL`).all(orgId, ...lote))
-    .map(r => [r.id, r.sale_date]));
+  const vendaEm = new Map(), leadInfo = new Map(), trans = new Map();
+  for (const r of emLotes(ids, (m, lote) => db.prepare(
+    `SELECT id, sale_date, assigned_to, created_at FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote))) {
+    leadInfo.set(r.id, r);
+    if (r.sale_date) vendaEm.set(r.id, r.sale_date);
+  }
+  for (const t of emLotes(ids, (m, lote) => db.prepare(
+    `SELECT lead_id, from_user_id, to_user_id, created_at FROM lead_transfers
+     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
+    if (!trans.has(t.lead_id)) trans.set(t.lead_id, []);
+    trans.get(t.lead_id).push(t);
+  }
   const VENDA = MARCOS.indexOf("venda");
   for (const r of linhas) {
     const k = c.deLinha(r.sid, r.nome);
@@ -107,14 +116,32 @@ export function marcosDosLeads(orgId, ids, cls = null) {
     if (!res.has(r.lead_id)) { const a = new Array(MARCOS.length); a.venda = vendaEm.get(r.lead_id) || null; res.set(r.lead_id, a); }
     const alc = res.get(r.lead_id);
     for (let j = 0; j <= k; j++)
-      if (!alc[j]) alc[j] = { t: r.t, user_id: r.user_id || null, inferido: j < k, deVenda: k === VENDA };
+      if (!alc[j]) alc[j] = { t: r.t, user_id: r.user_id || null, dono: donoNoInstante(leadInfo.get(r.lead_id), trans.get(r.lead_id), r.t),
+        inferido: j < k, deVenda: k === VENDA };
   }
   return res;
 }
 
+/* QUEM ESTAVA COM O LEAD naquele instante (18/11/2026, pedido do Ali: "os
+   números precisam se igualar"). É a mesma régua do funil de conversão: o
+   marco conta para o dono do lead no momento em que ele chegou à etapa, não
+   para quem clicou — a atendente ou a gestão que move o lead de um corretor
+   está trabalhando o lead DELE. Antes de 02/09/2026 as trocas de dono não
+   eram todas registradas: dono anterior a isso é desconhecido (null) e não
+   conta para pessoa nenhuma. A troca de dono e a mudança de etapa da mesma
+   operação (até 2 s) valem como a mesma hora. */
+const COBERTURA_DONOS = new Date(2026, 8, 2).getTime();
+function donoNoInstante(l, trs = [], t) {
+  if (!l) return null;
+  if (t < COBERTURA_DONOS && l.created_at < COBERTURA_DONOS) return undefined;
+  let dono = trs.length ? trs[0].from_user_id : l.assigned_to;
+  for (const tr of trs) { if (tr.created_at <= t + 2000) dono = tr.to_user_id; else break; }
+  return dono || null;
+}
+
 /* Os leads que alcançaram um marco no período — um por lead. Com `quem`, só
-   os que ESTA pessoa fez avançar (o autor da mudança; o salto conta para
-   quem saltou). `ids` é o universo de leads (já peneirado pelos filtros). */
+   os que estavam com ESTA pessoa quando chegaram ao marco (`donoNoInstante`).
+   `ids` é o universo de leads (já peneirado pelos filtros). */
 export function alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem = null, cls = null, mapa = null } = {}) {
   const k = MARCOS.indexOf(marco);
   const m = mapa || marcosDosLeads(orgId, ids, cls);
@@ -125,8 +152,8 @@ export function alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem = null, cls
     const a = lista[k];
     if (!a || a.t < de || a.t > ate) continue;
     if (a.deVenda && lista.venda && (lista.venda < de || lista.venda > ate)) continue;
-    if (qs && !qs.has(a.user_id)) continue;
-    out.push({ lead: id, t: a.t, user_id: a.user_id, inferido: a.inferido });
+    if (qs && (a.dono === undefined || !qs.has(a.dono))) continue;
+    out.push({ lead: id, t: a.t, user_id: a.dono ?? null, autor: a.user_id, inferido: a.inferido });
   }
   return out;
 }

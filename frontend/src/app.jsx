@@ -23062,17 +23062,16 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       {gestor&&!impressao&&pipelineId&&<button onClick={()=>setMetasAbertas(true)} title="Metas de conversão" style={{...BOTAO_SECUNDARIO,padding:"7px 11px",fontSize:11.5}}><Icon n="gear" size={13}/>Metas de conversão</button>}</div>
     {/* Uma linha (28/10/2026, limpeza): o parágrafo inteiro sobre a base
         repetia a legenda do fim do quadro, que agora abre em "Como ler". */}
-    {/* O topo (28/10/2026): a MESMA turma do começo ao fim — dos que chegaram
-        no período, quantos já entraram no comercial deste funil. Não é a base
-        do funil dividida pelos que chegaram: são duas turmas diferentes. */}
-    {c.topo&&c.topo.chegaram>0&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
-      <b style={{color:C.ink}}>{c.topo.chegaram}</b> {c.topo.chegaram===1?"lead chegou":"leads chegaram"} no período ·{" "}
-      <b style={{color:C.ink}}>{c.topo.entraram}</b> {c.topo.entraram===1?"deles já entrou":"deles já entraram"} no comercial
-      {" "}(<b style={{color:C.ink,fontFamily:MONO}}>{fmtTaxa(c.topo.taxa)}</b>)
-    </div>}
+    {/* Uma linha só (18/11/2026, pedido do Ali: "os números precisam se
+        igualar"). O "118 deles já entraram" (a turma dos que chegaram, em
+        qualquer data) saiu: era um terceiro número sem par em nenhum cartão.
+        Ficam os dois que o leitor reconhece: os recebidos (o mesmo do cartão)
+        e quem entrou no comercial (a primeira etapa do funil). */}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
-      Cada etapa conta quem chegou a ela de {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)} — <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Entraram no comercial no período`}/></b> entraram
-      no comercial (<b>{c.entrada.name}</b> ou adiante) no período.
+      De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}:{" "}
+      {c.topo&&c.topo.chegaram>0&&<><b style={{color:C.ink}}>{c.topo.chegaram}</b> {c.topo.chegaram===1?"lead recebido":"leads recebidos"} · </>}
+      <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Entraram no comercial no período`}/></b> entraram
+      no comercial (<b>{c.entrada.name}</b> ou adiante). Cada etapa conta quem chegou a ela no período.
     </div>}
   </div>;
 
@@ -25548,7 +25547,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
         {numero("Qualificados",linha.qualificados??0,"no período")}
-        {numero("Agendamentos",linha.agendados??0,"levou ao agendamento")}
+        {numero("Agendamentos",linha.agendados??0,"chegaram ao agendamento")}
         {numero("Visitas",linha.visitas??0,"compareceram")}
         {numero("Vendas",linha.vendas,"fechadas no período")}
         {numero("Valor vendido",fmtMoeda(linha.valor_vendido),null)}
@@ -26030,7 +26029,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             ["recebidos",<Metric key="recebidos" n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>],
             ["atendidos",<Metric key="atendidos" n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>],
             ["qualificados",<Metric key="qualificados" n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>],
-            ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="levou ao agendamento" accent="#3B7BC4"/>],
+            ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="chegaram ao agendamento" accent="#3B7BC4"/>],
             ["visitas",<Metric key="visitas" n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>],
             ["vendas",<Metric key="vendas" n="check" label="Vendas" value={linha.vendas} sub={fmtMoeda(linha.valor_vendido)} accent={C.greenDeep}/>],
             ["perdidos",<Metric key="perdidos" n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>],

@@ -107,6 +107,6 @@ export function qualificadosNoPeriodo(orgId, de, ate, pre = null) {
   const ids = db.prepare("SELECT DISTINCT lead_id id FROM lead_etapas WHERE org_id = ? AND created_at BETWEEN ? AND ?")
     .all(orgId, de, ate).map(r => r.id);
   for (const a of alcancesNoPeriodo(orgId, ids, "qualificado", de, ate))
-    if (!res.has(a.lead) || res.get(a.lead).t > a.t) res.set(a.lead, { t: a.t, user_id: a.user_id });
+    if (!res.has(a.lead) || res.get(a.lead).t > a.t) res.set(a.lead, { t: a.t, user_id: a.autor ?? null });
   return res;
 }
