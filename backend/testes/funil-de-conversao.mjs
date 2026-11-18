@@ -252,9 +252,33 @@ console.log("   3 na proposta · 1 venda registrada no período (venda de julho 
 // O mesmo para os marcos do Painel e do relatório: o cliente antigo não vira venda
 // nem proposta por voltar a "Venda"; quem vendeu agora conta.
 const { marcosDosLeads } = await import("../src/services/marcos.js");
-const mk15 = marcosDosLeads(org, [s15a, s15d]);
-assert.ok(mk15.get(s15a)[4] && mk15.get(s15a)[3], "venda no período alcança venda e proposta");
-assert.ok(!mk15.get(s15d)[4] && !mk15.get(s15d)[3], "cliente de julho não alcança venda nem proposta");
+const { alcancesNoPeriodo: anp } = await import("../src/services/marcos.js");
+for (const k of ["venda", "proposta"]) {
+  assert.equal(anp(org, [s15a], k, SET(10), SET(20)).length, 1, "venda no período alcança " + k);
+  assert.equal(anp(org, [s15d], k, SET(10), SET(20)).length, 0, "cliente de julho não alcança " + k);
+}
+
+console.log("15b. A etapa de venda mostra TODA venda do período, mesmo de lead que entrou antes");
+const F15 = novoFunil("Vendas do mês");
+// Entrou no comercial em agosto (fora da base de setembro) e vendeu em 15/09.
+const v15a = lead(F15, "Inbox", new Date(2026, 7, 20).getTime(), marina);
+mover(F15, v15a, "Qualificado", new Date(2026, 7, 21).getTime());
+mover(F15, v15a, "Venda", SET(15));
+// Da base, venda registrada com data de dias antes (contrato assinado antes de lançar).
+const v15b = lead(F15, "Inbox", SET(11), marina); caminho(F15, v15b, ["Qualificado", "Proposta"], SET(11));
+db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(SET(12), v15b);
+mover(F15, v15b, "Venda", SET(18));
+r = conv(F15);
+assert.equal(r.base, 1, "só o v15b entrou no comercial no período");
+assert.equal(linha(r, "Venda").chegaram, 2, "as duas vendas do período aparecem");
+assert.equal(linha(r, "Venda").vendas_fora_da_base, 1);
+assert.equal(linha(r, "Proposta").chegaram, 1, "a venda lançada com data anterior não some com a proposta");
+assert.equal(conv(F15, { ...PERIODO, responsavel: marina }).linhas.find(l => l.name === "Venda").chegaram, 2, "filtrando a dona da venda");
+const conf15 = C.conferenciaDoFunil(org, F15.id, PERIODO, { etapa: F15.e.Venda, conjunto: "chegaram", supervisor: true }, AGORA);
+assert.equal(conf15.total, 2, "a lista ao clicar bate com o número");
+const { alcancesNoPeriodo } = await import("../src/services/marcos.js");
+assert.equal(alcancesNoPeriodo(org, [v15b], "proposta", SET(10), SET(20)).length, 1, "marcos: venda lançada com data anterior conta");
+console.log("   2 vendas no período (1 de lead de agosto) · taxas só da base");
 
 console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
 const F16 = novoFunil("Donos");

@@ -474,6 +474,13 @@ export function equipeDeAtendimento(orgId, de, ate, eventos = null) {
       if (recebidosEm(ev, g.id, de, ate).length || vendeu.get(orgId, g.id, de, ate) || ligou.get(g.id, de, ate))
         corretores.push(g);
   }
+  /* QUEM VENDEU SEMPRE APARECE (18/11/2026, regra do Ali: "toda venda do
+     período tem que aparecer"). A atendente que registrou uma venda no nome
+     dela ficava fora da tabela, e a soma por pessoa não fechava com o total. */
+  const vendeuNoPeriodo = db.prepare(`SELECT DISTINCT u.id,u.name,u.role FROM users u JOIN leads l ON l.assigned_to = u.id
+    WHERE u.org_id=? AND u.status='ativo' AND u.participa_indicadores IS NULL AND l.org_id=u.org_id
+      AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?${semMaster("u")}`).all(orgId, de, ate);
+  for (const v of vendeuNoPeriodo) if (!corretores.some(c => c.id === v.id)) corretores.push(v);
   return corretores.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 }
 
