@@ -277,6 +277,14 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
        chegar a um marco conta também os de antes que ele ainda não tinha
        alcançado, na hora do salto. No funil de SDR as tentativas são
        independentes. */
+    /* VENDA PELA DATA DE REGISTRO (18/11/2026, regra do Ali): a etapa de venda
+       conta toda venda registrada no período, de lead deste funil, na data da
+       venda. Vem ANTES da etapa pulada, para a venda puxar a proposta e o
+       resto mesmo quando a data lançada é anterior à mudança de etapa, ou
+       quando o card nunca foi arrastado para "Vendido". */
+    const temVenda = !!(l.sale_date && noPeriodo(l.sale_date) && (chegadas.size || l.pipeline_id === pipelineId));
+    if (temVenda) for (const m of cfg.marcos)
+      if (m.id !== marcoEntrada && ehVenda(m)) chegadas.set(m.id, [{ stage: m.id, t: l.sale_date, motivo: "venda", venda: true }]);
     if (inferir) {
       let menor = Infinity, origem = null;
       for (let i = cfg.marcos.length - 1; i >= 0; i--) {
@@ -291,15 +299,10 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
       }
     }
 
-    /* VENDA PELA DATA DE REGISTRO (18/11/2026, regra do Ali): a etapa de venda
-       conta toda venda registrada no período, de lead deste funil, na data da
-       venda — arrastar o card sem registrar não é venda. */
-    for (const m of cfg.marcos) {
-      if (m.id === marcoEntrada || !ehVenda(m)) continue;
-      if (l.sale_date && noPeriodo(l.sale_date) && (chegadas.size || l.pipeline_id === pipelineId))
-        chegadas.set(m.id, [{ stage: m.id, t: l.sale_date, motivo: "venda", venda: true }]);
-      else chegadas.delete(m.id);
-    }
+    // Sem venda registrada no período, a etapa de venda não conta (o arrasto
+    // sem registro já serviu, acima, para contar as etapas puladas).
+    for (const m of cfg.marcos)
+      if (m.id !== marcoEntrada && ehVenda(m) && !temVenda) chegadas.delete(m.id);
 
     /* CADA ETAPA PELA DATA EM QUE O LEAD CHEGOU NELA (18/11/2026, regra do Ali:
        "somente a etapa Lead conta a data em que o cliente entrou; todas as
@@ -327,6 +330,25 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
         const ant = chegadas.get(cfg.marcos[i - 1].id) || [];
         if (!ant.some(a => a.t <= pri.t)) nunca.add(m.id);
       }
+    }
+    /* O FUNIL DO PERÍODO NÃO TEM BURACO (18/11/2026, print do Ali: "cliente
+       que passou por proposta não aparece na etapa proposta"). No funil
+       comercial, o lead que chegou a uma etapa no período aparece também nas
+       etapas de antes dela no MESMO período (menos o primeiro degrau, que é
+       quem entrou): quem vendeu agora passou pela proposta deste funil, mesmo
+       que a proposta tenha sido feita antes. Assim cada etapa nunca tem menos
+       gente que a de baixo, e ninguém "chega sem passar pela anterior". */
+    if (inferir) {
+      let k = -1;
+      for (let i = cfg.marcos.length - 1; i > 0; i--) if (contadas.has(cfg.marcos[i].id)) { k = i; break; }
+      for (let j = k - 1; j >= 1; j--) {
+        const id = cfg.marcos[j].id;
+        if (contadas.has(id)) continue;
+        const acima = contadas.get(cfg.marcos[j + 1].id);
+        contadas.set(id, { stage: id, t: acima.t, motivo: acima.motivo, inferida: true, no_caminho: true, todas: [acima], dono: acima.dono });
+        nunca.delete(id);
+      }
+      for (let j = 1; j <= k; j++) nunca.delete(cfg.marcos[j].id);
     }
     if (!contadas.size) continue;
     const c0 = contadas.get(marcoEntrada);

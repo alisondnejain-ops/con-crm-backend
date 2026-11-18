@@ -184,7 +184,7 @@ assert.equal(linha(r, "Agendamento").chegaram, 2);
 // O funil de atividades do Painel segue a mesma régua.
 const PG = await import("../src/services/painel-geral.js");
 const fa8 = PG.visaoGeral(org, { ...PERIODO, pipeline_id: F8.id }).funil_atividade;
-assert.equal(fa8.find(x => x.id === "qualificadas").valor, 1, "Painel: qualificado do período");
+assert.equal(fa8.find(x => x.id === "qualificadas").valor, 2, "Painel: quem agendou no período passou pela qualificação do período (sem buraco)");
 assert.equal(fa8.find(x => x.id === "visita_agendada").valor, 2, "Painel: agendamentos do período, de leads antigos");
 console.log("   agendamento do período conta, venha o lead de quando vier");
 
@@ -297,6 +297,26 @@ assert.equal(conf15.total, 2, "a lista ao clicar bate com o número");
 const { alcancesNoPeriodo } = await import("../src/services/marcos.js");
 assert.equal(alcancesNoPeriodo(org, [v15b], "proposta", SET(10), SET(20)).length, 1, "marcos: venda lançada com data anterior conta");
 console.log("   2 vendas no período (1 de lead de agosto)");
+
+console.log("15c. O funil do período não tem buraco (print do Ali, Braço Externo)");
+const F15c = novoFunil("Sem buraco", { entrada: "Inbox" });
+// Cliente antigo: proposta em agosto, venda lançada em setembro com a data do contrato (antes de arrastar).
+const b1 = lead(F15c, "Inbox", new Date(2026, 6, 1).getTime(), marina);
+caminho(F15c, b1, ["Qualificado", "Proposta"], new Date(2026, 7, 20).getTime());
+db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(SET(12), b1);
+mover(F15c, b1, "Venda", SET(16));
+// Venda registrada sem o card nunca ter ido para "Venda".
+const b2 = lead(F15c, "Inbox", new Date(2026, 7, 1).getTime(), marina);
+caminho(F15c, b2, ["Qualificado", "Visita"], new Date(2026, 7, 10).getTime());
+db.prepare("UPDATE leads SET sale_value = 1, sale_date = ? WHERE id = ?").run(SET(14), b2);
+r = conv(F15c);
+const seq15c = ["Qualificado", "Agendamento", "Visita", "Proposta", "Negociação", "Venda"].map(n => linha(r, n).chegaram);
+console.log("   " + seq15c.join(" → "));
+assert.equal(linha(r, "Venda").chegaram, 2);
+assert.equal(linha(r, "Proposta").chegaram, 2, "quem vendeu no período passou pela proposta");
+for (let i = 1; i < seq15c.length; i++) assert.ok(seq15c[i] <= seq15c[i - 1], "nenhuma etapa com mais gente que a de cima");
+assert.equal(linha(r, "Venda").sem_passar_pela_anterior, 0);
+assert.ok(r.linhas.every(l => !l.anterior || l.anterior.taxa === null || l.anterior.taxa <= 100));
 
 console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
 const F16 = novoFunil("Donos");
