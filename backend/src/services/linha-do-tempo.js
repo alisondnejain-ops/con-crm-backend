@@ -80,6 +80,11 @@ export function linhaDoTempo(lead) {
   for (const r of roboOuAuto)
     add(r.t, "mensagem", r.from_name === "Atendimento automático" ? "O Autoatendimento falou com o cliente" : `Recebeu: ${r.from_name}`);
 
+  // "Não precisa responder" (services/encerra.js): quem tocou fica escrito.
+  for (const e of db.prepare(`SELECT encerra_por, encerra_em FROM messages WHERE lead_id = ? AND encerra = 2
+      AND encerra_em IS NOT NULL GROUP BY encerra_em, encerra_por`).all(lead.id))
+    add(e.encerra_em, "mensagem", "Marcou que a mensagem do cliente não precisa de resposta", { quem: nomeDe(pessoas, e.encerra_por) });
+
   if (lead.sale_date)
     add(lead.sale_date, "venda", "Venda registrada", { valor: lead.sale_value || null, detalhe: lead.sale_property || "" });
 

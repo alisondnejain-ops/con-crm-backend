@@ -1488,6 +1488,12 @@ addMsgCol("media_mime", "TEXT");  // image/jpeg, audio/ogg, application/pdf...
 addMsgCol("leitura", "TEXT");
 addMsgCol("leitura_em", "INTEGER");
 addMsgCol("leitura_erro", "TEXT");
+/* A mensagem do cliente que só ENCERRA a conversa ("legal", "ok", 👍) —
+   18/11/2026, services/encerra.js. 1 = reconhecida sozinha; 2 = alguém tocou
+   "Não precisa responder" (encerra_por = quem). Nula = espera resposta. */
+addMsgCol("encerra", "INTEGER");
+addMsgCol("encerra_por", "TEXT");
+addMsgCol("encerra_em", "INTEGER");
 addMsgCol("media_name", "TEXT");  // nome original, quando é documento
 /* O texto da mensagem que o CLIENTE respondeu, quando o WhatsApp o manda junto
    e a mensagem citada NÃO existe no CRM (anterior ao lead, ou mandada do
@@ -1636,6 +1642,23 @@ db.exec(`DROP TRIGGER IF EXISTS trg_msg_interacao;
   BEGIN
     UPDATE leads SET last_interaction_at = MAX(COALESCE(last_interaction_at, 0), NEW.created_at)
     WHERE id = NEW.lead_id;
+  END;`);
+/* A ÚLTIMA PALAVRA DA CONVERSA É UM "LEGAL" DO CLIENTE? (18/11/2026,
+   services/encerra.js). Acende quando chega mensagem do cliente marcada como
+   de fechamento; apaga com qualquer outra mensagem que não seja disparo ou
+   automação (o cliente voltou a falar, ou alguém respondeu). O botão "Não
+   precisa responder" acende na mão. Gatilho, e não as rotas, pela mesma razão
+   do trg_msg_interacao: são muitos caminhos que gravam mensagem. */
+addLeadCol("conversa_encerrada_em", "INTEGER");
+db.exec(`DROP TRIGGER IF EXISTS trg_msg_encerra;
+  CREATE TRIGGER trg_msg_encerra
+  AFTER INSERT ON messages
+  WHEN NOT (NEW.direction = 'out' AND NEW.from_user_id IS NULL
+    AND (COALESCE(NEW.from_name, '') LIKE 'Disparo%' OR COALESCE(NEW.from_name, '') LIKE 'Automação%'))
+  BEGIN
+    UPDATE leads SET conversa_encerrada_em = CASE WHEN NEW.direction = 'in' AND NEW.encerra IS NOT NULL THEN NEW.created_at ELSE NULL END
+    WHERE id = NEW.lead_id
+      AND (conversa_encerrada_em IS NOT NULL OR (NEW.direction = 'in' AND NEW.encerra IS NOT NULL));
   END;`);
 db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ligacao_interacao
   AFTER INSERT ON ligacoes BEGIN

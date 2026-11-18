@@ -25,6 +25,7 @@ import { leadPorTelefone } from "./telefone.js";
 import { completarAnuncioDoLead } from "./anuncios-desempenho.js";
 import db from "../db.js";
 import { nascerLeadDoWhatsapp } from "./lead-whatsapp.js";
+import { mensagemQueEncerra } from "./encerra.js";
 import { triarNumeroNovo } from "./triagem.js";
 import { barrarMensagem } from "./so-formulario.js";
 import { dispararGatilho } from "./automacoes.js";
@@ -270,15 +271,18 @@ export async function processarMensagemRecebida({ canal, evento, phone, texto, t
      já está gravado por um webhook irmão que chegou primeiro. */
   const idDaMensagem = "m_" + randomUUID();
   try {
-    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,reply_trecho,created_at,canal_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(idDaMensagem, lead.id, fromMe ? "out" : "in", null,
+    db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,media_url,media_mime,media_name,wa_id,reply_to,reply_trecho,created_at,canal_id,encerra)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(idDaMensagem, lead.id, fromMe ? "out" : "in", null,
         // Saiu do número de disparo sem passar pelo CRM: é o eco de um envio
         // do próprio disparo que chegou antes do registro dele.
         doDisparo ? (campanhaDoEco || ROTULO_DISPARO) : null, corpo,
         midia?.url || null, midia?.mime || null, midia?.nome || null, messageid || null, citadaLocal, trechoReserva, Date.now(),
         /* NULO É A LINHA DA CASA, aqui como em `leads.canal_id`. Uma
            convenção só nas duas colunas. */
-        linhaDaConversa);
+        linhaDaConversa,
+        /* "legal", "ok", 👍: a mensagem do cliente que só encerra a conversa
+           não deixa ninguém "esperando resposta" (services/encerra.js). */
+        !fromMe && mensagemQueEncerra(corpo, { mime: midia?.mime }) ? 1 : null);
   } catch (e) {
     if (e.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed.*wa_id/i.test(e.message)) {
       return lembrar({ em: Date.now(), evento, provider, resultado:

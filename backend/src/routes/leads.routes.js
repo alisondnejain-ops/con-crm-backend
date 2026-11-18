@@ -94,7 +94,7 @@ const CAMPOS_DA_LISTA = ["id", "name", "phone", "email", "priority", "origem", "
   "assigned_to", "assigned_name", "assigned_at", "stage", "stage_id", "pipeline_id", "canal_id", "stage_entered_at",
   "last_interaction_at", "custom_fields", "campaign_name", "adset_name", "ad_name", "form_name", "platform", "source", "unread", "last_direction", "last_at",
   "closed_at", "cutucado_em", "cutucado_recado", "sale_value", "sale_date", "sale_property", "sale_commission_pct", "sale_commission_value", "sale_produto_id", "sale_unidade_id", "sale_moeda",
-  "sugestao_etapa", "aguarda_contato", "catraca_id", "valor_negociacao"];
+  "sugestao_etapa", "aguarda_contato", "catraca_id", "valor_negociacao", "conversa_encerrada_em"];
 const enxuto = (l) => {
   const o = {};
   // Nulo vai como nulo, e não omitido: `adaptLead` lê "não veio" como "use o
@@ -189,7 +189,7 @@ r.get("/", (req, res) => {
   const agoraMs = Date.now();
   const lista = rows.map(l => ({
     ...enxuto(l),
-    sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs, !!(tarefas.get(l.id) || {}).futura) : null,
+    sla: l.stage_id ? slaDoLead(etapasDaCasa.get(l.stage_id), l, agoraMs, !!(tarefas.get(l.id) || {}).futura || !!l.conversa_encerrada_em) : null,
     // null quando o lead nunca mudou de etapa desde que o histórico existe. A
     // tela mostra "—": inventar a data de criação seria dizer que ele está ali
     // desde que entrou, o que muitas vezes é falso.
@@ -1505,6 +1505,26 @@ r.post("/:id/read", (req, res) => {
     return res.json({ ok: true, ignorado: "supervisão não marca como lida" });
   db.prepare("UPDATE leads SET last_read_at = ? WHERE id = ?").run(Date.now(), lead.id);
   res.json({ ok: true });
+});
+
+/* "NÃO PRECISA RESPONDER" (18/11/2026, pedido do Fernando; services/encerra.js).
+   Para o fechamento que a lista automática não reconhece ("perfeito, vou ver
+   com meu marido e te falo"): as mensagens do cliente desde a última resposta
+   de gente deixam de pedir resposta. Não finaliza o atendimento. Fica gravado
+   quem tocou (`encerra_por`) — a gestão confere se o botão esconde lead.
+   Quem pode: quem pode abrir a conversa. Responder ou o cliente escrever de
+   novo volta tudo ao normal (gatilho trg_msg_encerra). */
+r.post("/:id/sem-resposta", (req, res) => {
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Sem acesso a este lead" });
+  const ultimaResp = db.prepare(`SELECT MAX(created_at) t FROM messages WHERE lead_id = ? AND direction = 'out' AND ${semDisparo()}`).get(lead.id)?.t || 0;
+  const agora = Date.now();
+  const r1 = db.prepare(`UPDATE messages SET encerra = 2, encerra_por = ?, encerra_em = ?
+    WHERE lead_id = ? AND direction = 'in' AND created_at > ? AND encerra IS NULL`).run(req.user.id, agora, lead.id, ultimaResp);
+  if (!r1.changes && !db.prepare(`SELECT 1 FROM messages WHERE lead_id = ? AND direction = 'in' AND created_at > ?`).get(lead.id, ultimaResp))
+    return res.status(409).json({ error: "Não há mensagem do cliente esperando resposta nesta conversa." });
+  db.prepare("UPDATE leads SET conversa_encerrada_em = ? WHERE id = ?").run(agora, lead.id);
+  res.json({ ok: true, conversa_encerrada_em: agora });
 });
 
 // Marca como NÃO lida: abrir a conversa marca como lida sozinho, então sem isto

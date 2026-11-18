@@ -2,6 +2,7 @@ import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
+import { naoEncerra } from "./encerra.js";
 import { etapaNoInstante, etapasDoComercial, marcosDosLeads, alcancesNoPeriodo, candidatosDoPeriodo } from "./marcos.js";
 
 /* Score de performance e recomendação de direcionamento.
@@ -108,7 +109,7 @@ const nota = (valor, bom, ruim) => {
 export function temposDeResposta(leadIds, userId = null, desde = null, contar = null) {
   if (!leadIds.length) return [];
   const msgs = emLotes(leadIds, (marcas, lote) => db.prepare(
-    `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} ORDER BY lead_id, created_at`
+    `SELECT lead_id,direction,from_user_id,created_at FROM messages WHERE lead_id IN (${marcas}) AND ${semDisparo()} AND ${naoEncerra()} ORDER BY lead_id, created_at`
   ).all(...lote));
 
   const esperas = [];

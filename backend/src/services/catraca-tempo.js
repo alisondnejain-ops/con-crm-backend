@@ -32,7 +32,7 @@ import { etapasDoComercial } from "./marcos.js";
 const PADRAO_VOLTAS = 2;
 
 export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
-  const linhas = db.prepare(`SELECT l.*, c.nome catraca_nome, c.tempo_resposta_min, c.max_voltas, c.tempo_acao, u.name dono_nome
+  const linhas = db.prepare(`SELECT l.*, c.stage_id catraca_stage, c.nome catraca_nome, c.tempo_resposta_min, c.max_voltas, c.tempo_acao, u.name dono_nome
     FROM leads l JOIN catracas c ON c.id = l.catraca_id AND c.org_id = l.org_id
     JOIN users u ON u.id = l.assigned_to
     JOIN catraca_membros m ON m.catraca_id = c.id AND m.user_id = l.assigned_to
@@ -52,7 +52,10 @@ export function semRespostaParaAgir(orgId, agora = Date.now(), limite = 50) {
      ("Novo", "Lead" — antes do primeiro marco). O que já está em outra etapa
      não está esperando o primeiro atendimento. */
   const { entrada } = etapasDoComercial(orgId);
-  return linhas.filter(l => !l.stage_id || entrada.has(l.stage_id));
+  /* E na ETAPA DA PRÓPRIA CATRACA (18/11/2026, pedido do Fernando): a catraca
+     "Barra de Maragogi" que faz o lead nascer em "Tentativa 3" do SDR, com 5
+     minutos, roda nesses 5 minutos ali — a regra é da catraca específica. */
+  return linhas.filter(l => !l.stage_id || entrada.has(l.stage_id) || (l.catraca_stage && l.stage_id === l.catraca_stage));
 }
 
 export async function agirSemResposta(orgId, agora = Date.now()) {
