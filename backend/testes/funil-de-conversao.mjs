@@ -270,11 +270,11 @@ assert.equal(linha(r, "Proposta").chegaram, 3, "quem foi arrastado continua tend
 console.log("   3 na proposta · 1 venda registrada no período (venda de julho fica de fora)");
 // O mesmo para os marcos do Painel e do relatório: o cliente antigo não vira venda
 // nem proposta por voltar a "Venda"; quem vendeu agora conta.
-const { marcosDosLeads } = await import("../src/services/marcos.js");
-const { alcancesNoPeriodo: anp } = await import("../src/services/marcos.js");
-for (const k of ["venda", "proposta"]) {
-  assert.equal(anp(org, [s15a], k, SET(10), SET(20)).length, 1, "venda no período alcança " + k);
-  assert.equal(anp(org, [s15d], k, SET(10), SET(20)).length, 0, "cliente de julho não alcança " + k);
+// (Desde 20/11/2026 os marcos são a conta única do funil: `marcosDoPeriodo`.)
+{
+  const mp = C.marcosDoPeriodo(org, {}, SET(10), SET(20)).proposta.map(x => x.lead);
+  assert.ok(mp.includes(s15a), "venda no período alcança a proposta");
+  assert.ok(!mp.includes(s15d), "cliente de julho não alcança a proposta");
 }
 
 console.log("15b. A etapa de venda mostra TODA venda do período, mesmo de lead que entrou antes");
@@ -294,8 +294,7 @@ assert.equal(linha(r, "Proposta").chegaram, 2, "as duas passaram pela proposta n
 assert.equal(conv(F15, { ...PERIODO, responsavel: marina }).linhas.find(l => l.name === "Venda").chegaram, 2, "filtrando a dona da venda");
 const conf15 = C.conferenciaDoFunil(org, F15.id, PERIODO, { etapa: F15.e.Venda, conjunto: "chegaram", supervisor: true }, AGORA);
 assert.equal(conf15.total, 2, "a lista ao clicar bate com o número");
-const { alcancesNoPeriodo } = await import("../src/services/marcos.js");
-assert.equal(alcancesNoPeriodo(org, [v15b], "proposta", SET(10), SET(20)).length, 1, "marcos: venda lançada com data anterior conta");
+assert.ok(C.marcosDoPeriodo(org, {}, SET(10), SET(20)).proposta.some(x => x.lead === v15b), "marcos: venda lançada com data anterior conta");
 console.log("   2 vendas no período (1 de lead de agosto)");
 
 console.log("15c. O funil do período não tem buraco (print do Ali, Braço Externo)");

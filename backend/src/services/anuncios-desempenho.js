@@ -17,7 +17,7 @@
 import db from "../db.js";
 import { fechar, abrir } from "./cofre.js";
 import { graph } from "./meta.js";
-import { qualificadosNoPeriodo } from "./sdr-funil.js";
+import { marcosDoPeriodo } from "./conversao.js";
 
 db.exec(`CREATE TABLE IF NOT EXISTS meta_anuncios (
   org_id TEXT PRIMARY KEY,
@@ -256,7 +256,11 @@ function conciliar(orgId, periodo, linhas, leadsMeta) {
    coorte do período, a mesma régua da tabela de Campanhas logo abaixo. */
 function montar(orgId, linha, periodo, dados) {
   // Qualificado comercial: a mesma régua da tabela de Campanhas e da Visão geral.
-  const qualif = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
+  /* "Qualificados" tem UM sentido no sistema (20/11/2026): a etapa de
+     qualificação do comercial, pela conta única dos marcos — o mesmo número
+     do cartão, do Painel e do funil. A passagem pelo SDR é "pré-qualificado",
+     nos Indicadores do SDR. */
+  const qualif = new Set(marcosDoPeriodo(orgId, {}, periodo.de, Math.min(periodo.ate, Date.now())).qualificado.map(x => x.lead));
   const leads = db.prepare(`SELECT id, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name, sale_value, sale_moeda FROM leads
     WHERE org_id = ? AND created_at BETWEEN ? AND ? AND (campaign_id IS NOT NULL OR campaign_name IS NOT NULL)`)
     .all(orgId, periodo.de, periodo.ate);

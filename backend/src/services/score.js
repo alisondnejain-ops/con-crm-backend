@@ -3,7 +3,8 @@ import { semMaster } from "../auth.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { naoEncerra } from "./encerra.js";
-import { etapaNoInstante, etapasDoComercial, marcosDosLeads, alcancesNoPeriodo, candidatosDoPeriodo } from "./marcos.js";
+import { etapaNoInstante, etapasDoComercial } from "./marcos.js";
+import { marcosDoPeriodo, marcosDeQuem } from "./conversao.js";
 
 /* Score de performance e recomendação de direcionamento.
 
@@ -189,24 +190,14 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
   return { primeiras: esperas, atendidos, atendimento, etapas };
 }
 
-/* AGENDADOS E VISITAS DE UMA PESSOA NO PERÍODO: os marcos que ELA fez o lead
-   alcançar (com a etapa pulada contando — services/marcos.js). É o que
-   substitui o "visitas confirmadas 0/0", que ninguém entendia. */
+/* QUALIFICADOS, AGENDADOS, VISITAS E PROPOSTAS DE UMA PESSOA NO PERÍODO: a
+   conta ÚNICA dos marcos (`marcosDoPeriodo`, services/conversao.js) — a
+   mesma do funil de conversão e do Painel, para quem estava com o lead
+   quando ele chegou à etapa. */
 export function marcosDaPessoa(orgId, userId, de, ate, ctx = {}) {
-  const ids = ctx.idsDoPeriodo || (ctx.idsDoPeriodo = candidatosDoPeriodo(orgId, "l.org_id = ?", [orgId], de, ate));
-  const mapa = ctx.mapa || (ctx.mapa = marcosDosLeads(orgId, ids));
-  const a = (k) => alcancesNoPeriodo(orgId, ids, k, de, ate, { quem: userId, mapa });
-  /* Sem buraco (18/11/2026, a mesma régua do Painel e do funil de conversão):
-     a venda dele no período passou pela proposta, a proposta pela visita, e
-     assim por diante — cada degrau nunca tem menos que o de baixo. */
-  let acima = db.prepare("SELECT id lead, sale_date t FROM leads WHERE org_id=? AND assigned_to=? AND sale_value IS NOT NULL AND sale_date BETWEEN ? AND ?")
-    .all(orgId, userId, de, ate).map(v => ({ ...v, user_id: userId, inferido: false }));
+  const todos = marcosDoPeriodo(orgId, {}, de, ate);
   const r = {};
-  for (const k of ["proposta", "visita", "agendado", "qualificado"]) {
-    const lista = a(k), tem = new Set(lista.map(x => x.lead));
-    for (const x of acima) if (!tem.has(x.lead)) { tem.add(x.lead); lista.push({ ...x, inferido: true }); }
-    r[k] = lista; acima = lista;
-  }
+  for (const k of ["qualificado", "agendado", "visita", "proposta"]) r[k] = marcosDeQuem(todos[k], userId);
   const q = r.qualificado, g = r.agendado, v = r.visita, p = r.proposta;
   const pul = (x) => x.filter(y => y.inferido).length;
   return { qualificados: q.length, agendados: g.length, visitas: v.length, propostas: p.length,
@@ -318,7 +309,9 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
     propostas: mk.propostas,
     visitas: mk.agendados,
     visitas_confirmadas: mk.agendados,
-    visitas_pct: pct(mk.agendados, recebidosEventos.length),
+    /* No máximo 100% (20/11/2026): os agendamentos do período podem ser de
+       leads recebidos antes dele, e "133%" na tela parece defeito. */
+    visitas_pct: Math.min(100, pct(mk.agendados, recebidosEventos.length)),
     ligacoes: ligacoesPorUsuario[u.id] || 0,
     por_temperatura: porTemperatura,
   };
@@ -342,13 +335,13 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
    do mês, do estoque e de quantos leads entraram. */
 const COMPONENTES = [
   { chave: "conversao", rotulo: "Conversão", peso: 30, unidade: "%", bom: 8, ruim: 0,
-    como: "Dos leads que entraram no período, quantos já viraram venda. Mesma conta da tela de Relatórios.",
+    como: "Vendas fechadas no período ÷ leads recebidos no período. As mesmas colunas Vendas e Recebidos da tabela.",
     regua: "8% ou mais = 100. 0% = 0." },
   { chave: "resposta", rotulo: "Tempo da 1ª resposta", peso: 25, unidade: "min", bom: 5, ruim: 60,
     como: "Mediana do tempo entre o lead chegar na mão dele numa etapa de entrada do funil comercial (Novo, Lead, Atendimento — antes do primeiro marco) e a primeira mensagem dele. O lead pego no Inbox ou no funil de SDR conta para o SDR. Mediana, não média: um lead esquecido no fim de semana não pode definir o mês inteiro.",
     regua: "Até 5 min = 100. 60 min ou mais = 0." },
   { chave: "visitas", rotulo: "Leads que ele agendou", peso: 15, unidade: "%", bom: 40, ruim: 0,
-    como: "Dos leads recebidos no período, quantos ele levou ao agendamento no período — chegou à etapa de agendamento, ou pulou direto para visita, proposta ou venda. Ao lado aparecem quantos compareceram (chegaram à visita).",
+    como: "Agendamentos do período ÷ leads recebidos no período — a mesma coluna Agendamentos da tabela (chegou à etapa de agendamento, ou pulou direto para visita, proposta ou venda). Vai no máximo a 100%: um agendamento do período pode ser de lead recebido antes.",
     regua: "40% ou mais = 100. 0% = 0." },
   { chave: "perda", rotulo: "Perda", peso: 15, unidade: "%", bom: 0, ruim: 60,
     como: "Dos atendimentos já encerrados (venda ou perdido), quantos foram perdidos.",

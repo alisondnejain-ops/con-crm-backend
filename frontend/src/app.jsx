@@ -23109,7 +23109,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
       De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}:{" "}
       {c.topo&&c.topo.chegaram>0&&<><b style={{color:C.ink}}>{c.topo.chegaram}</b> {c.topo.chegaram===1?"lead recebido":"leads recebidos"} · </>}
       <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Entraram no comercial no período`}/></b> entraram
-      no comercial (<b>{c.entrada.name}</b> ou adiante). Cada etapa conta quem chegou a ela no período.
+      no comercial (<b>{c.entrada.name}</b> ou adiante){c.topo&&c.base>c.topo.chegaram?", inclusive leads recebidos antes do período":""}. Cada etapa conta quem chegou a ela no período.
     </div>}
   </div>;
 
@@ -23388,7 +23388,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           <Metric rot="Responderam à 1ª mensagem" v={num(d.atendimento.taxa_resposta_cliente,"%")}
             sub={d.atendimento.clientes_contatados?`${d.atendimento.clientes_responderam} de ${d.atendimento.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>
           <Metric rot="Qualificados" v={d.atendimento.qualificados??"—"}
-            sub={donosDoValor(f.responsavel).some(x=>x!=="fila")?(donosDoValor(f.responsavel).length>1?"que estas pessoas qualificaram no período":"que esta pessoa qualificou no período"):"pelo SDR ou no comercial, no período"}/>
+            sub={donosDoValor(f.responsavel).some(x=>x!=="fila")?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>
         </div>
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
@@ -25797,7 +25797,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido e quem foi qualificado.</div>
+      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido e quem foi pré-qualificado (passou ao comercial). "Qualificados", no resto do sistema, é a etapa de qualificação do comercial.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
       Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
@@ -25807,14 +25807,14 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
         {caixa("atendidos",a.contatados,"Leads em que a IA mandou a primeira mensagem dela no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
-        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Destes leads, os que passaram do funil de SDR para o comercial ou ganharam a etiqueta de qualificado no período, sobre os que chegaram")}
+        {caixa("pré-qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Destes leads, os que passaram do funil de SDR para o comercial ou ganharam a etiqueta de qualificado no período, sobre os que chegaram")}
         {caixa("perdidos",a.perdidos,"Movidos pelo sistema para uma etapa de perda depois da IA")}
       </div>:<div style={grade}>
         {caixa("recebidos",a.recebidos,"Leads que chegaram na mão dela no período")}
         {caixa("contatados",a.contatados,"Leads para os quais ela escreveu no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da chegada do lead até a primeira mensagem dela")}
         {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois")}
-        {caixa("qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela qualificou — moveu para a etapa de qualificação, passou do funil de SDR para o comercial ou etiquetou como qualificado —, sobre os recebidos")}
+        {caixa("pré-qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Leads que ela qualificou — moveu para a etapa de qualificação, passou do funil de SDR para o comercial ou etiquetou como qualificado —, sobre os recebidos")}
         {caixa("perdidos",a.perdidos,"Leads que ela moveu para uma etapa de perda")}
       </div>}
     </div>)}
@@ -25822,7 +25822,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"6px 0 4px"}}>Por origem</div>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:420}}>
-          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th></tr></thead>
+          <thead><tr><th style={th}>Origem</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Pré-qualif.</th></tr></thead>
           <tbody>{d.por_origem.map(o=><tr key={o.origem}>
             <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{o.origem}</td>
             <td style={td}>{o.recebidos}</td><td style={td}>{o.contatados}</td>
@@ -25892,7 +25892,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
       <summary style={{color:C.sub,fontSize:12,fontWeight:600,cursor:"pointer"}}>O que cada atendente fez ({atendentes.length})</summary>
       <div style={{overflowX:"auto",marginTop:6}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:isMobile?0:460}}>
-          <thead><tr><th style={th}>Atendente</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Qualif.</th></tr></thead>
+          <thead><tr><th style={th}>Atendente</th><th style={th}>Receb.</th><th style={th}>Contat.</th><th style={th}>Pré-qualif.</th></tr></thead>
           <tbody>{atendentes.map(a=><tr key={a.id}>
             <td style={{...td,whiteSpace:"normal",fontWeight:600}}>{a.nome}</td>
             <td style={td}>{a.recebidos}</td><td style={td}>{a.contatados}</td><td style={td}>{a.qualificados}</td>
@@ -25938,6 +25938,8 @@ function ListaDoSdr({titulo,itens,aguardando,isMobile,abrirConversa,aoFechar}){
 }
 
 function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}){
+  const {pipelines:todosFunis}=usarPipelines(acoes,session);
+  const variosFunis=todosFunis.filter(p=>p.is_active!==false&&p.type!=="sdr").length>1;
   const [resumoCols,setResumoCols]=useState(()=>{try{const v=JSON.parse(localStorage.getItem("conhub:relatorio.resumo")||"[]");return Array.isArray(v)?v:[];}catch(e){return [];}});
   const salvarResumo=(v)=>{setResumoCols(v);try{localStorage.setItem("conhub:relatorio.resumo",JSON.stringify(v));}catch(e){}};
   const [editResumo,setEditResumo]=useState(false);
@@ -25973,7 +25975,8 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
      pré-atendimento. Antes era sempre o padrão, que numa casa com o SDR como
      padrão mostrava ao corretor um funil em que ele não tem lead nenhum. */
   const papelSel=dados&&(dados.atendentes.find(a=>a.id===sel)||{}).papel;
-  const funilDoRelatorio=papelSel==="sdr"?funilPadrao:"comercial";
+  const [funilEscolhido,setFunilEscolhido]=useState("");
+  const funilDoRelatorio=papelSel==="sdr"?funilPadrao:(funilEscolhido||"comercial");
   useEffect(()=>{
     if(!sel||!funilDoRelatorio){setRosca(null);return;}
     let vivo=true;
@@ -26095,9 +26098,21 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
         {!rosca&&<div style={{color:C.faint,fontSize:12.5,marginBottom:16,display:"flex",gap:6,alignItems:"center"}}><Icon n="loader" size={13} spin/> carregando o funil…</div>}
         {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,
           padding:16,marginBottom:16}}>
+          {variosFunis&&papelSel!=="sdr"&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+            <select value={funilEscolhido} onChange={e=>setFunilEscolhido(e.target.value)} aria-label="Funil"
+              style={{border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:"100%"}}>
+              <option value="">Funil principal</option>
+              {todosFunis.filter(p=>p.is_active!==false&&p.type!=="sdr").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select></div>}
           <FunilDeConversao dados={rosca.conversao} pipelineId={rosca.pipeline_pedido}
             filtros={{...periodo,responsavel:linha.id}} acoes={acoes} isMobile={isMobile}
             abrirConversa={abrirConversa} titulo={`Funil de conversão de ${first(linha.nome)}`}/>
+          {/* Os cartões acima e este funil são a MESMA conta (20/11/2026);
+              com mais de um funil comercial na conta, os cartões somam todos
+              (sem repetir o lead) e o funil mostra um — a frase evita que a
+              diferença pareça erro. */}
+          {variosFunis&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:10}}>
+            Os cartões acima somam todos os funis comerciais de {first(linha.nome)}; este funil mostra um só. Troque o funil no seletor para ver os outros.</div>}
         </div>}
 
         {rosca&&!rosca.erro&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,

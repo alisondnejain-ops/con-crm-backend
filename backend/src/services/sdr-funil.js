@@ -22,7 +22,7 @@
    linha de uma atendente contar só o que ela fez. */
 import db, { emLotes } from "../db.js";
 import { ehFunilDeSdr } from "./pipelines.js";
-import { alcancesNoPeriodo } from "./marcos.js";
+import { marcosDoPeriodo } from "./conversao.js";
 
 export function preAtendimento(orgId, de, ate, { semEtiqueta = null } = {}) {
   /* Sem dizer, vale a régua da conta: com a fila por etapa ligada
@@ -104,9 +104,8 @@ export function preAtendimento(orgId, de, ate, { semEtiqueta = null } = {}) {
    para o mesmo período. Um por lead, no primeiro momento. */
 export function qualificadosNoPeriodo(orgId, de, ate, pre = null) {
   const res = new Map((pre || preAtendimento(orgId, de, ate)).qualificados);
-  const ids = db.prepare("SELECT DISTINCT lead_id id FROM lead_etapas WHERE org_id = ? AND created_at BETWEEN ? AND ?")
-    .all(orgId, de, ate).map(r => r.id);
-  for (const a of alcancesNoPeriodo(orgId, ids, "qualificado", de, ate))
-    if (!res.has(a.lead) || res.get(a.lead).t > a.t) res.set(a.lead, { t: a.t, user_id: a.autor ?? null });
+  // O "qualificado" do comercial é a conta única dos marcos (services/conversao.js).
+  for (const a of marcosDoPeriodo(orgId, {}, de, ate).qualificado)
+    if (!res.has(a.lead) || res.get(a.lead).t > a.t) res.set(a.lead, { t: a.t, user_id: a.user_id ?? null });
   return res;
 }

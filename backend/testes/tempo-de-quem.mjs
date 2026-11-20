@@ -110,6 +110,10 @@ assert.deepEqual(comDesde, [5], "os 10 minutos antes de ser dela não são dela"
 
 console.log("6. Visita só conta quando uma PESSOA colocou o lead ali");
 const { moverEtapa } = await import("../src/services/etapas.js");
+// Toda conta tem o funil padrão (o start cria — bootstrap.js); os números
+// de agendamento saem dele desde 20/11/2026 (a conta única dos marcos).
+const { garantirPipelinePadrao } = await import("../src/services/pipelines.js");
+garantirPipelinePadrao(org);
 const porPalavra = "l_" + randomUUID(), porGente = "l_" + randomUUID();
 for (const [id, nome] of [[porPalavra, "Pela palavra"], [porGente, "Pela pessoa"]])
   db.prepare("INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,created_at) VALUES (?,?,?,?,?,?,?)")
