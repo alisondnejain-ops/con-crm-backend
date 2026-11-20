@@ -245,7 +245,7 @@ let leadId;
   assert.ok(r.status === 200 || r.status === 201, r.status + " " + (r.body.error || ""));
   leadId = r.body.lead?.id || r.body.id;
   assert.ok(leadId);
-  const v = await api("u_bia", "PATCH", `/leads/${leadId}/venda`, { valor: "497", data: new Date().toISOString().slice(0, 10), imovel: "Essencial" });
+  const v = await api("u_bia", "PATCH", `/leads/${leadId}/venda`, { valor: "497", data: new Date().toLocaleDateString("sv-SE", { timeZone: "America/Recife" }), imovel: "Essencial" });
   assert.equal(v.status, 200);
   assert.equal(v.body.stage, "Cliente");
   const lead = db.prepare("SELECT stage, stage_id FROM leads WHERE id=?").get(leadId);

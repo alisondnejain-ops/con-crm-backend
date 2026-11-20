@@ -43,7 +43,7 @@ import { eventosDeAtribuicao } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { ASSINATURA_ROBO } from "./robo.js";
 import { listarPipelines, etapasDoPipeline } from "./pipelines.js";
-import { alcancesNoPeriodo, candidatosDoPeriodo, classificador, marcosDosLeads } from "./marcos.js";
+import { marcosDoPeriodo, marcosDeQuem } from "./conversao.js";
 
 const DIA = 86400000;
 
@@ -153,41 +153,15 @@ export function faladas(orgId, filtros, de, ate) {
    uma vez por lead, com a etapa pulada contando como passada. Qualificado é
    quem chegou ao "Atendimento qualificado" (ou pulou direto para mais adiante)
    num funil que não é de SDR — não a etiqueta do SDR, não a resposta à IA. */
-function alcancesCrus(orgId, filtros, de, ate, marco, ctx = {}) {
-  const { responsavel, ...resto } = filtros || {};
-  const p = peneira(orgId, resto);
-  const ids = candidatosDoPeriodo(orgId, p.sql, p.args, de, ate);
-  const cls = ctx.cls || classificador(orgId);
-  const chave = ids.join(",") ;
-  if (!ctx.mapas) ctx.mapas = new Map();
-  if (!ctx.mapas.has(chave)) ctx.mapas.set(chave, marcosDosLeads(orgId, ids, cls));
-  return alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem: condPessoa(filtros), mapa: ctx.mapas.get(chave) });
-}
-
-/* O FUNIL DO PERÍODO NÃO TEM BURACO (18/11/2026, a mesma regra do funil de
-   conversão): quem vendeu no período passou pela proposta, pela visita, pelo
-   agendamento e pela qualificação DESTE período, mesmo que essas etapas
-   tenham sido feitas antes — e assim por diante de cima para baixo. Cada
-   degrau nunca tem menos gente que o de baixo. Os acrescentados contam como
-   etapa pulada (aparecem em "contados porque o lead pulou a etapa"). */
-function alcances(orgId, filtros, de, ate, marco, ctx = {}) {
-  if (!ctx.semBuraco) ctx.semBuraco = new Map();
-  const chave = JSON.stringify([filtros || {}, de, ate]);
-  if (!ctx.semBuraco.has(chave)) {
-    const p = peneira(orgId, filtros || {});
-    let acima = db.prepare(`SELECT l.id lead, l.sale_date t, l.assigned_to user_id FROM leads l
-      WHERE ${p.sql} AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, de, ate)
-      .map(v => ({ ...v, inferido: false }));
-    const res = {};
-    for (const m of ["proposta", "visita", "agendado", "qualificado"]) {
-      const lista = alcancesCrus(orgId, filtros, de, ate, m, ctx);
-      const tem = new Set(lista.map(x => x.lead));
-      for (const a of acima) if (!tem.has(a.lead)) { tem.add(a.lead); lista.push({ lead: a.lead, t: a.t, user_id: a.user_id, inferido: true }); }
-      res[m] = lista; acima = lista;
-    }
-    ctx.semBuraco.set(chave, res);
-  }
-  return ctx.semBuraco.get(chave)[marco];
+/* QUALIFICADOS, AGENDADOS, VISITAS E PROPOSTAS: a conta ÚNICA dos marcos
+   (`marcosDoPeriodo`, services/conversao.js — a mesma do funil de
+   conversão, rodada em cada funil comercial). Um lead uma vez por marco no
+   período, para quem estava com ele quando chegou, sem buraco entre os
+   degraus. Os acrescentados pela etapa pulada vêm com `inferido`. */
+function alcances(orgId, filtros, de, ate, marco) {
+  const lista = marcosDoPeriodo(orgId, filtros || {}, de, ate)[marco] || [];
+  const donos = listaDeDonos(filtros && filtros.responsavel);
+  return marcosDeQuem(lista, donos.length ? donos : null);
 }
 
 /* A etapa que diz que o lead está qualificado, PARA O SDR: a "Lead

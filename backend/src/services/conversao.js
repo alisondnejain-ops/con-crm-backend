@@ -57,6 +57,8 @@
 import db, { emLotes } from "../db.js";
 import { etapasDoPipeline, pipelinePorId, ehFunilDeSdr } from "./pipelines.js";
 import { peneira, resolverPeriodo, recebidosDaPessoa, listaDeDonos } from "./painel.js";
+import { marcoDoNome, MARCOS } from "./marcos.js";
+import { ehInterna } from "./interno.js";
 
 /* Desde quando o histórico é completo. Um dia depois de cada recurso entrar,
    de propósito: o que entrou no meio do dia da publicação pode ter mudado
@@ -132,7 +134,17 @@ export function configDoFunil(orgId, pipelineId) {
   if (marcadaInativa)
     avisos.push(`A etapa marcada como início do processo comercial ("${marcadaInativa.name}") está desativada.`);
 
-  const conversao = ativas.filter(e => e.counts_as_conversion && e.status_type !== "perdido");
+  let conversao = ativas.filter(e => e.counts_as_conversion && e.status_type !== "perdido");
+  /* FUNIL SEM DEGRAU MARCADO (20/11/2026, unificação dos números): os
+     cartões do Painel e do relatório leem ESTE funil. Sem nenhuma etapa
+     marcada como conversão, vale o nome da etapa (qualificado, agendamento,
+     visita, proposta, venda — services/marcos.js), com aviso — senão o
+     funil diria "sem marcos" e os cartões ficariam em zero sem explicação. */
+  if (!conversao.length) {
+    conversao = ativas.filter(e => e.status_type !== "perdido" && marcoDoNome(e.name, { ganho: e.status_type === "ganho", interna: ehInterna(orgId) }) >= 0);
+    if (conversao.length)
+      avisos.push(`Nenhuma etapa deste funil está marcada como conversão: a conta usa as etapas pelo nome (${conversao.map(e => e.name).join(", ")}). Marque os degraus em Configurações → Funis e etapas.`);
+  }
   let entrada = ativas.find(e => e.entrada_comercial && e.status_type !== "perdido") || null;
   const configurada = !!entrada;
   if (!entrada && conversao.length) {
@@ -174,7 +186,7 @@ function calcular(orgId, pipelineId, filtros = {}, agora = Date.now()) {
   if (!pipeline) return { erro: "Funil não encontrado." };
   identificarEtapasDoHistorico(orgId);
 
-  const periodo = resolverPeriodo(filtros);
+  const periodo = filtros._periodo || resolverPeriodo(filtros);
   const corte = Math.min(periodo.ate, agora);
   const cfg = configDoFunil(orgId, pipelineId);
   const base = { pipeline, periodo, corte, cfg, unidades: [], semData: [], donoDesconhecido: [] };
@@ -596,4 +608,84 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
       };
     }),
   };
+}
+
+/* ===== OS MARCOS DO PERÍODO, PARA TODAS AS TELAS (20/11/2026) =====
+   Pedido do Ali: "tudo tem que estar unificado". Os cartões do relatório
+   (qualificados, agendamentos, visitas, propostas), o Painel, o funil de
+   atividades, o Score e a Visão geral contavam por uma conta própria
+   (services/marcos.js: etapa pelo nome, uma vez na vida do lead, sem o
+   nascimento), e o funil de conversão por outra. A Veronica tinha 20/11/6 nos
+   cartões e 22/13/8 no funil logo abaixo.
+
+   Agora existe UMA conta: a do funil de conversão (`calcular`), rodada em
+   cada funil comercial da conta (os de SDR ficam de fora). Cada etapa-degrau
+   do funil vira o marco do nome dela; o lead conta UMA vez por marco no
+   período (a primeira chegada entre os funis), para quem estava com ele
+   quando chegou. Por construção: com a pessoa num funil só, os cartões são
+   os números do funil; com vários funis, os cartões são a soma sem repetir o
+   lead. Quem vendeu no período passa por todos os marcos (sem buraco),
+   inclusive o lead que não está em funil comercial nenhum.
+
+   Devolve { qualificado, agendado, visita, proposta } → lista de
+   { lead, t, user_id, conhecido, inferido }, sem filtro de pessoa (quem chama
+   filtra). Guardado 30 s por conta+filtros+período, conferindo uma impressão
+   do banco: Painel, Score e relatório pedem a mesma coisa várias vezes. */
+const MEMO = new Map();
+function impressao(orgId) {
+  const a = db.prepare("SELECT COUNT(*) n, MAX(rowid) m FROM lead_etapas WHERE org_id = ?").get(orgId);
+  const b = db.prepare("SELECT COUNT(*) n, MAX(versao) v, SUM(COALESCE(sale_date,0)) s FROM leads WHERE org_id = ?").get(orgId);
+  const c = db.prepare("SELECT COUNT(*) n, MAX(rowid) m FROM lead_transfers WHERE org_id = ?").get(orgId);
+  return [a.n, a.m, b.n, b.v, b.s, c.n, c.m].join(":");
+}
+export function marcosDoPeriodo(orgId, filtros = {}, de, ate, agora = Date.now()) {
+  const { responsavel, periodo: _p, de: _d, ate: _a, ...resto } = filtros || {};
+  const chave = JSON.stringify([orgId, resto, de, ate]);
+  const imp = impressao(orgId);
+  const m = MEMO.get(chave);
+  if (m && m.imp === imp && agora - m.em < 30000) return m.res;
+
+  const interna = ehInterna(orgId);
+  const VENDA = MARCOS.indexOf("venda");
+  const melhor = MARCOS.map(() => new Map());   // marco → lead → registro
+  const pipes = (resto.pipeline_id ? [resto.pipeline_id]
+    : db.prepare("SELECT id FROM pipelines WHERE org_id = ? ORDER BY created_at").all(orgId).map(r => r.id))
+    .filter(pid => !ehFunilDeSdr(orgId, pid));
+  for (const pid of pipes) {
+    const c = calcular(orgId, pid, { ...resto, _periodo: { de, ate } }, agora);
+    if (c.erro || !c.unidades) continue;
+    const marcoDe = new Map(c.cfg.marcos.map(e => [e.id, marcoDoNome(e.name, { ganho: e.status_type === "ganho", interna })]));
+    for (const u of c.unidades)
+      for (const [sid, ch] of u.chegadas) {
+        const k = marcoDe.get(sid);
+        if (k === undefined || k < 0 || k === VENDA) continue;
+        const atual = melhor[k].get(u.lead.id);
+        if (atual && atual.t <= ch.t) continue;
+        melhor[k].set(u.lead.id, { lead: u.lead.id, t: ch.t, user_id: ch.dono?.id ?? null,
+          conhecido: !!ch.dono?.conhecido, inferido: !!(ch.inferida || ch.no_caminho) });
+      }
+  }
+  // Sem buraco entre os marcos (e para a venda de lead fora dos funis).
+  const p = peneira(orgId, resto);
+  let acima = db.prepare(`SELECT l.id lead, l.sale_date t, l.assigned_to user_id FROM leads l
+    WHERE ${p.sql} AND l.sale_value IS NOT NULL AND l.sale_date BETWEEN ? AND ?`).all(...p.args, de, Math.min(ate, agora))
+    .map(v => ({ ...v, conhecido: true, inferido: false }));
+  const res = {};
+  for (const nome of ["proposta", "visita", "agendado", "qualificado"]) {
+    const mapa = melhor[MARCOS.indexOf(nome)];
+    for (const x of acima) if (!mapa.has(x.lead)) mapa.set(x.lead, { ...x, inferido: true });
+    res[nome] = [...mapa.values()];
+    acima = res[nome];
+  }
+  MEMO.set(chave, { imp, em: agora, res });
+  if (MEMO.size > 300) MEMO.delete(MEMO.keys().next().value);
+  return res;
+}
+
+/* Os de uma pessoa (ou várias, ou a fila). Dono desconhecido (antes de
+   02/09/2026) não conta para pessoa nenhuma. */
+export function marcosDeQuem(lista, quem) {
+  if (!quem) return lista;
+  const qs = new Set((Array.isArray(quem) ? quem : [quem]).map(x => x === "fila" ? null : x));
+  return lista.filter(x => x.conhecido && qs.has(x.user_id ?? null));
 }

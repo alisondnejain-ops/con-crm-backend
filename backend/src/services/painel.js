@@ -32,9 +32,7 @@ import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { naoEncerra } from "./encerra.js";
 import { resumoDeDisparos } from "./disparo.js";
-import { configDoFunil, funilDeConversao } from "./conversao.js";
-import { qualificadosNoPeriodo } from "./sdr-funil.js";
-import { alcancesNoPeriodo, candidatosDoPeriodo } from "./marcos.js";
+import { configDoFunil, funilDeConversao, marcosDoPeriodo, marcosDeQuem } from "./conversao.js";
 
 const DIA = 86400000;
 
@@ -259,24 +257,15 @@ export function painel(orgId, filtros = {}) {
   const tempos = temposDeResposta(recebidos);
   const comDono = recebidos.filter(l => l.assigned_to).length;
 
-  /* QUALIFICADOS NO PERÍODO (07/11/2026, pedido do Fernando, ao lado de
-     recebidos / 1ª resposta / responderam). Com uma pessoa no filtro, os leads
-     que ELA qualificou — chegaram ao "Atendimento qualificado", ou ela pulou
-     direto para mais adiante (services/marcos.js). Para a casa, a régua de
-     Campanhas e do SDR (`qualificadosNoPeriodo`): qualificado pelo SDR ou
-     no comercial. Um por lead. */
+  /* QUALIFICADOS NO PERÍODO — a conta ÚNICA dos marcos (`marcosDoPeriodo`,
+     services/conversao.js, 20/11/2026): o mesmo número do Painel, do funil
+     de atividades e do relatório da pessoa. Antes a casa somava aqui também
+     a qualificação do SDR, e o "Qualificados" desta tela era outro número
+     com o mesmo nome do Painel. A qualificação do SDR continua nos
+     Indicadores do SDR, que é onde ela tem nome próprio. */
   const { responsavel: _r, ...semDono } = filtros || {};
-  const pq = peneira(orgId, semDono);
-  const qualificados = quem
-    ? alcancesNoPeriodo(orgId, candidatosDoPeriodo(orgId, pq.sql, pq.args, periodo.de, periodo.ate),
-        "qualificado", periodo.de, periodo.ate, { quem }).length
-    : (() => {
-        const q = qualificadosNoPeriodo(orgId, periodo.de, periodo.ate);
-        if (!q.size) return 0;
-        const dentro = new Set(emLotes([...q.keys()], (m, lote) => db.prepare(
-          `SELECT l.id FROM leads l WHERE ${p.sql} AND l.id IN (${m})`).all(...p.args, ...lote)).map(r => r.id));
-        return [...q.keys()].filter(id => dentro.has(id)).length;
-      })();
+  const qualificados = marcosDeQuem(marcosDoPeriodo(orgId, semDono, periodo.de, periodo.ate).qualificado,
+    listaDeDonos(filtros && filtros.responsavel).length ? listaDeDonos(filtros.responsavel) : null).length;
 
   /* VENDA CONTA PELA DATA DA VENDA, não pela entrada do lead. Foi o furo
      corrigido em 10/08/2026: venda fechada hoje de um lead de junho não
@@ -455,11 +444,11 @@ export function campanhas(orgId, filtros = {}) {
      o quadro "Desempenho dos anúncios", logo acima, junta pelo id: a mesma
      campanha aparecia com 7 leads em cima e 3 embaixo. O nome mostrado é o
      do lead mais recente. */
-  /* QUALIFICADO: a mesma régua da Visão geral e do SDR — qualificado pelo
-     SDR ou no comercial, entre a chegada e o fim do período. Antes era "a
-     etapa de HOJE conta como conversão", e o mesmo lead deixava de contar ao
-     ser perdido depois. */
-  const qualificadosDaCasa = qualificadosNoPeriodo(orgId, periodo.de, Math.min(periodo.ate, Date.now()));
+  /* "Qualificados" tem UM sentido no sistema (20/11/2026): a etapa de
+     qualificação do comercial, pela conta única dos marcos — o mesmo número
+     do cartão, do Painel e do funil. A passagem pelo SDR é "pré-qualificado",
+     nos Indicadores do SDR. */
+  const qualificadosDaCasa = new Set(marcosDoPeriodo(orgId, {}, periodo.de, Math.min(periodo.ate, Date.now())).qualificado.map(x => x.lead));
 
   /* Uma conta para os três níveis (campanha, conjunto, anúncio — 18/11/2026):
      agrupado pelo ID quando existe, o nome mostrado é o do lead mais recente.

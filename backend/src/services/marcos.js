@@ -2,7 +2,8 @@
    (07/11/2026, pedido do Fernando, decisão do Ali: "tenha essa sagacidade")
 
    Qualificado, agendado, visita, proposta e venda são MARCOS, e cada lead
-   alcança cada marco UMA VEZ só — "uma vez qualificado, sempre qualificado".
+   alcança cada marco UMA VEZ por período (a primeira chegada em cada funil
+   comercial; entre funis, conta uma vez).
 
    A ETAPA PULADA CONTA COMO PASSADA. O corretor que recebe o lead em "Novo"
    e o joga direto para "Agendamento" qualificou o lead — é óbvio que ele é
@@ -23,9 +24,9 @@
    "Atendimento frio", "Repique", "Compra futura", "Pasta" não são marcos e
    não implicam nada.
 
-   O NASCIMENTO NÃO CONTA. Lead importado direto em "Venda" ou criado numa
-   etapa adiantada não foi qualificado por ninguém no dia em que entrou no
-   CRM. Só as MUDANÇAS de etapa (lead_etapas) alcançam marcos.
+   O NASCIMENTO CONTA (20/11/2026, unificação): o lead que nasce direto numa
+   etapa-marco (catraca direto ao corretor, roleta, cadastro na mão) chegou
+   a ela — é a regra do funil de conversão, e agora a única.
 
    Limite conhecido: o Fernando também disse "a não ser que o cliente entre de
    novo como lead numa nova campanha". O lead é um só no CRM (o mesmo número
@@ -49,122 +50,13 @@ export function marcoDoNome(nome, { ganho = false, interna = false } = {}) {
   return -1;
 }
 
-/* Classificador da conta: id da etapa → marco, e um mapa por nome para as
-   linhas antigas do histórico, que só guardam o nome. Nome que existe também
-   num funil de SDR não serve sozinho (seria o "Lead qualificado" do SDR). */
-export function classificador(orgId) {
-  const interna = ehInterna(orgId);
-  const etapas = db.prepare(`SELECT s.id, s.name, s.status_type, s.pipeline_id FROM pipeline_stages s WHERE s.org_id = ?`).all(orgId);
-  const sdr = new Map();
-  const doSdr = (pid) => { if (!sdr.has(pid)) sdr.set(pid, ehFunilDeSdr(orgId, pid)); return sdr.get(pid); };
-  const porId = new Map(), porNome = new Map(), nomesSdr = new Set(), todos = new Set(etapas.map(e => e.name));
-  for (const e of etapas) {
-    if (doSdr(e.pipeline_id)) { nomesSdr.add(e.name); continue; }
-    const m = marcoDoNome(e.name, { ganho: e.status_type === "ganho", interna });
-    if (m < 0) continue;
-    porId.set(e.id, m);
-    if (!porNome.has(e.name) || porNome.get(e.name) === m) porNome.set(e.name, m); else porNome.set(e.name, -1);
-  }
-  for (const n of nomesSdr) porNome.delete(n);
-  return {
-    // Etapa com id: só ela decide (etapa de funil de SDR fica de fora).
-    deLinha: (sid, nome) => {
-      if (sid) return porId.has(sid) ? porId.get(sid) : -1;
-      const m = porNome.get(nome);
-      if (m !== undefined) return m;
-      // Nome que não é de etapa nenhuma da conta (conta sem funil configurável,
-      // histórico de etapa apagada): vale o nome.
-      return !nome || todos.has(nome) ? -1 : marcoDoNome(nome, { interna });
-    },
-  };
-}
-
-/* Os marcos alcançados por cada lead da lista, com quando e por quem — o
-   primeiro momento, com o salto preenchendo os de antes.
-   Devolve Map(lead → [ {t, user_id, inferido} | undefined ] por marco). */
-export function marcosDosLeads(orgId, ids, cls = null) {
-  const c = cls || classificador(orgId);
-  const res = new Map();
-  if (!ids.length) return res;
-  const linhas = emLotes(ids, (m, lote) => db.prepare(
-    `SELECT lead_id, para_stage_id sid, para nome, user_id, created_at t FROM lead_etapas
-     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote));
-  linhas.sort((a, b) => a.t - b.t);
-  /* O CLIENTE QUE JÁ COMPROU E VOLTOU (18/11/2026, regra do Ali): o marco que
-     vem de uma mudança para a etapa de venda leva a marca `deVenda`, e o lead
-     leva a data da venda registrada. `alcancesNoPeriodo` só conta esses
-     marcos quando a venda foi registrada no período perguntado — quem
-     comprou meses atrás e é posto de novo em "Vendido" não vira venda,
-     proposta, visita nem agendamento de agora. Sem venda registrada, conta
-     como antes. */
-  const vendaEm = new Map(), leadInfo = new Map(), trans = new Map();
-  for (const r of emLotes(ids, (m, lote) => db.prepare(
-    `SELECT id, sale_date, assigned_to, created_at FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote))) {
-    leadInfo.set(r.id, r);
-    if (r.sale_date) vendaEm.set(r.id, r.sale_date);
-  }
-  for (const t of emLotes(ids, (m, lote) => db.prepare(
-    `SELECT lead_id, from_user_id, to_user_id, created_at FROM lead_transfers
-     WHERE +org_id = ? AND lead_id IN (${m}) ORDER BY created_at, rowid`).all(orgId, ...lote))) {
-    if (!trans.has(t.lead_id)) trans.set(t.lead_id, []);
-    trans.get(t.lead_id).push(t);
-  }
-  const VENDA = MARCOS.indexOf("venda");
-  for (const r of linhas) {
-    const k = c.deLinha(r.sid, r.nome);
-    if (k < 0) continue;
-    if (!res.has(r.lead_id)) { const a = new Array(MARCOS.length); a.venda = vendaEm.get(r.lead_id) || null; res.set(r.lead_id, a); }
-    const alc = res.get(r.lead_id);
-    for (let j = 0; j <= k; j++)
-      if (!alc[j]) alc[j] = { t: r.t, user_id: r.user_id || null, dono: donoNoInstante(leadInfo.get(r.lead_id), trans.get(r.lead_id), r.t),
-        inferido: j < k, deVenda: k === VENDA };
-  }
-  return res;
-}
-
-/* QUEM ESTAVA COM O LEAD naquele instante (18/11/2026, pedido do Ali: "os
-   números precisam se igualar"). É a mesma régua do funil de conversão: o
-   marco conta para o dono do lead no momento em que ele chegou à etapa, não
-   para quem clicou — a atendente ou a gestão que move o lead de um corretor
-   está trabalhando o lead DELE. Antes de 02/09/2026 as trocas de dono não
-   eram todas registradas: dono anterior a isso é desconhecido (null) e não
-   conta para pessoa nenhuma. A troca de dono e a mudança de etapa da mesma
-   operação (até 2 s) valem como a mesma hora. */
-const COBERTURA_DONOS = new Date(2026, 8, 2).getTime();
-function donoNoInstante(l, trs = [], t) {
-  if (!l) return null;
-  if (t < COBERTURA_DONOS && l.created_at < COBERTURA_DONOS) return undefined;
-  let dono = trs.length ? trs[0].from_user_id : l.assigned_to;
-  for (const tr of trs) { if (tr.created_at <= t + 2000) dono = tr.to_user_id; else break; }
-  return dono || null;
-}
-
-/* Os leads que alcançaram um marco no período — um por lead. Com `quem`, só
-   os que estavam com ESTA pessoa quando chegaram ao marco (`donoNoInstante`).
-   `ids` é o universo de leads (já peneirado pelos filtros). */
-export function alcancesNoPeriodo(orgId, ids, marco, de, ate, { quem = null, cls = null, mapa = null } = {}) {
-  const k = MARCOS.indexOf(marco);
-  const m = mapa || marcosDosLeads(orgId, ids, cls);
-  const out = [];
-  const qs = quem ? new Set(Array.isArray(quem) ? quem : [quem]) : null;
-  for (const id of ids) {
-    const lista = m.get(id) || [];
-    const a = lista[k];
-    if (!a || a.t < de || a.t > ate) continue;
-    if (a.deVenda && lista.venda && (lista.venda < de || lista.venda > ate)) continue;
-    if (qs && (a.dono === undefined || !qs.has(a.dono))) continue;
-    out.push({ lead: id, t: a.t, user_id: a.dono ?? null, autor: a.user_id, inferido: a.inferido });
-  }
-  return out;
-}
-
-/* Os leads da peneira que tiveram alguma mudança de etapa no intervalo — os
-   únicos que podem ter alcançado um marco nele. Evita montar a linha do tempo
-   da base inteira para responder sobre um dia. */
-export function candidatosDoPeriodo(orgId, pSql, pArgs, de, ate) {
-  return db.prepare(`SELECT DISTINCT le.lead_id id FROM lead_etapas le JOIN leads l ON l.id = le.lead_id
-    WHERE le.org_id = ? AND ${pSql} AND le.created_at BETWEEN ? AND ?`).all(orgId, ...pArgs, de, ate).map(r => r.id);
-}
+/* A CONTA dos marcos no período (quem chegou, quando, para quem) mora em
+   services/conversao.js → `marcosDoPeriodo` desde 20/11/2026: é a mesma do
+   funil de conversão, e os cartões, o Painel, o Score e a Visão geral leem
+   de lá. Aqui fica só o que dá NOME ao marco de uma etapa (`marcoDoNome`) e
+   as consultas de etapa no instante. A conta antiga deste arquivo (etapa pelo
+   nome, uma vez na vida do lead, sem o nascimento) saiu: duas contas para o
+   mesmo número eram o que fazia o cartão e o funil discordarem. */
 
 /* ===== EM QUE ETAPA O LEAD ESTAVA NUM INSTANTE =====
    Pelo histórico: a última mudança até o instante (mais 2 segundos — a troca
