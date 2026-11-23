@@ -8841,7 +8841,8 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
           escala. Clicar leva para lá. */}
       {/* Na própria tela da escala a faixa já aparece lá dentro — repetir as
           duas seria dizer a mesma coisa duas vezes na mesma tela. */}
-      {view!=="plantao"&&plantao&&plantao.meu&&plantao.meu.faltam<=1&&
+      {/* No celular ele sai do Atender (23/11/2026): ali a altura é da conversa. */}
+      {view!=="plantao"&&!(isMobile&&(view==="atendimento"||view==="conversas"))&&plantao&&plantao.meu&&plantao.meu.faltam<=1&&
         <button onClick={()=>setView("plantao")} style={{border:"none",padding:isMobile?"0 14px":"0 20px",
           background:"transparent",cursor:"pointer",width:"100%",textAlign:"left",flexShrink:0,marginTop:10}}>
           <AvisoPlantao meu={plantao.meu} isMobile={isMobile} compacto/>
@@ -10512,7 +10513,8 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
   const [robo,setRobo]=usarRoboDoLead(lead);
   const [pessoal,setPessoal]=useState(false);
   const [erro,setErro]=useState("");
-  useEffect(()=>{ setPessoal(false); setErro(""); },[lead.id]);
+  const [mais,setMais]=useState(false);
+  useEffect(()=>{ setPessoal(false); setErro(""); setMais(false); },[lead.id]);
   // A IA só ganha botão quando a conta usa o Autoatendimento: botão de algo
   // que não está ligado em lugar nenhum não faz nada.
   const comIA=!!(robo&&robo.org_ativo);
@@ -10537,14 +10539,25 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
 
   return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:isMobile?"8px 10px":"7px 16px",
     flexShrink:0}}>
-    {/* No celular os botões quebram de linha e encurtam o nome: rolando de
-        lado, "Desligar a IA" e "Conversa pessoal" ficavam fora da tela. */}
+    {/* No celular cabe UMA linha (23/11/2026, print do Ali: cinco botões em
+        três linhas comiam a conversa). Fica à vista só Finalizar/Reabrir; o
+        resto abre em "Mais ações", logo abaixo. No computador, tudo à vista. */}
     <div style={{display:"flex",alignItems:"center",gap:isMobile?6:7,overflowX:isMobile?"visible":"auto",flexWrap:isMobile?"wrap":"nowrap"}}>
+    {isMobile&&!soDoLead&&(lead.finalizado
+      ?pill("reabrir","spark","Reabrir",roda("reabrir",acoes.reabrir),C.green)
+      :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep))}
+    {isMobile&&!soDoLead&&<button onClick={()=>setMais(v=>!v)}
+      style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:mais?C.surface:C.card,color:C.sub,
+        fontSize:12,fontWeight:600,padding:"7px 11px",borderRadius:999,cursor:"pointer",whiteSpace:"nowrap"}}>
+      <Icon n="mais" size={12}/>{mais?"Menos":"Mais ações"}{comIA&&robo.ligado&&!mais&&<span style={{color:C.green,fontWeight:700}}>· IA ligada</span>}</button>}
+    {isMobile&&!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0,flex:1}}>encerrado · em <b style={{color:C.sub}}>{lead.status}</b></span>}
+    </div>
+    {(!isMobile||soDoLead||mais)&&<div style={{display:"flex",alignItems:"center",gap:isMobile?6:7,overflowX:isMobile?"visible":"auto",flexWrap:isMobile?"wrap":"nowrap",marginTop:isMobile&&!soDoLead?6:0}}>
     {!soDoLead&&(lead.unread>0
       ?pill("lida","check",isMobile?"Lida":"Marcar como lida",roda("lida",acoes.marcarLida))
       :pill("naolida","msg",isMobile?"Não lida":"Marcar como não lida",roda("naolida",acoes.marcarNaoLida)))}
-    {!soDoLead&&(lead.finalizado
-      ?pill("reabrir","spark",isMobile?"Reabrir":"Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
+    {!isMobile&&!soDoLead&&(lead.finalizado
+      ?pill("reabrir","spark","Reabrir atendimento",roda("reabrir",acoes.reabrir),C.green)
       :pill("finalizar","check","Finalizar",roda("finalizar",acoes.finalizar),C.greenDeep))}
     {/* "Não precisa responder" (18/11/2026): o cliente encerrou com algo que
         a lista automática não reconhece. Não finaliza; fica gravado quem tocou. */}
@@ -10552,8 +10565,8 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
       pill("semresp","check","Não precisa responder",roda("semresp",acoes.dispensarResposta))}
     {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?(isMobile?"Desligar IA":"Desligar a IA"):(isMobile?"Ativar IA":"Ativar a IA"),alternarIA,robo.ligado?null:C.green)}
     {comPessoal&&pill("pessoal","user",isMobile?"Pessoal":"Conversa pessoal",()=>setPessoal(true))}
-    {!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
-    </div>
+    {!isMobile&&!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
+    </div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
     {pessoal&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:10,marginTop:8}}>
       <div style={{color:C.hot,fontSize:12.5,fontWeight:700,marginBottom:3}}>Tirar esta conversa do CRM?</div>
@@ -11124,9 +11137,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:12,minWidth:0}}>
           {isMobile&&backBtn(()=>setPane("lista"),"Voltar para a lista")}
           <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
-          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}><Icon n="phone" size={11}/>{fmtTel(sel.tel)}
+          <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4,flexWrap:isMobile?"nowrap":"wrap",whiteSpace:isMobile?"nowrap":undefined,overflow:"hidden"}}>{!isMobile&&<Icon n="phone" size={11}/>}<span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{fmtTel(sel.tel)}</span>
             {/* Responsável e linha (CETRO 07.2). */}
-            <span>· {sel.assignedTo===session.id?"com você":sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
+            {/* No celular, "com você" é óbvio na caixa do próprio corretor e cortava o telefone. */}
+            {!(isMobile&&sel.assignedTo===session.id)&&<span style={{flexShrink:0}}>· {sel.assignedTo===session.id?"com você":sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>}
             {/* No celular o cabeçalho é estreito e o selo era cortado: a linha
                 fica na faixa acima do campo, que diz a mesma coisa. */}
             {!isMobile&&<SeloDaLinha grande linha={sel.canal&&sel.canal.onde==="corretor"
@@ -14628,10 +14642,10 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     }catch(e){ setErro(e.message); }
     finally{ setOcupado(false); }
   };
-  return <div style={{padding:isMobile?"7px 12px":"7px 14px",borderTop:`1px solid ${C.line}`,
+  return <div style={{padding:isMobile?"4px 12px":"7px 14px",borderTop:`1px solid ${C.line}`,
     background:noMeu?C.greenSoft:C.surface,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-    <Icon n="whatsapp" size={13} color={noMeu?C.greenDeep:C.faint}/>
-    <span style={{fontSize:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
+    <Icon n="whatsapp" size={isMobile?12:13} color={noMeu?C.greenDeep:C.faint}/>
+    <span style={{fontSize:isMobile?11:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
       {noMeu
         ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{finalDe(canal.atual&&canal.atual.wa_number)} · sem assinatura</React.Fragment>
         :<React.Fragment>Sai pelo <b>WhatsApp {contaInterna()?"do CETRO":"da imobiliária"}</b>{finalDe(canal.casa_numero)}</React.Fragment>}
@@ -14639,7 +14653,7 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
       style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
         borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
-      {ocupado?"…":noMeu?"Voltar para o número da imobiliária":"Continuar no meu WhatsApp"}</button>}
+      {ocupado?"…":noMeu?(isMobile?"Voltar à imobiliária":"Voltar para o número da imobiliária"):(isMobile?"Usar meu WhatsApp":"Continuar no meu WhatsApp")}</button>}
     {!canal.pode_trocar&&canal.pode_voltar_casa&&<button disabled={ocupado} onClick={()=>trocar("imobiliaria")}
       title="A conversa volta a sair pelo número da imobiliária. Para o WhatsApp pessoal, só quem está com o lead leva."
       style={{background:C.card,border:`1px solid ${C.line}`,color:C.sub,
@@ -14789,8 +14803,8 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
         <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
-          <div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <span>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
+          <div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6,flexWrap:isMobile?"nowrap":"wrap",overflow:"hidden"}}>
+            <span style={isMobile?{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}:null}>{fmtTel(sel.tel)} · {sel.assignedName?"com "+first(sel.assignedName):"na fila"}</span>
             {/* Responsável e linha sempre juntos (CETRO 07.2): "com Blanca · Nº de Blanca". */}
             {!isMobile&&<SeloDaLinha linha={linhas.rotulo(sel.canalId)} grande/>}</div>
         </div>
@@ -15855,14 +15869,15 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
 
   return <div style={{background:meu?C.greenSoft:C.amberSoft,borderBottom:`1px solid ${meu?C.green+"33":C.amber+"33"}`,color:meu?C.greenDeep:"#8a6d1f",fontSize:11.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0}}>
     <Icon n={meu?"star":"users"} size={13}/>
-    <span style={{flex:1,minWidth:isMobile?"100%":160,lineHeight:1.4}}>
-      {meu?"Você assumiu esta negociação — o lead está na sua mão."
-          :lead.assignedName?`Em atendimento por ${lead.assignedName}.`
-          :"Este lead está na fila, sem atendente."}
+    {/* No celular é uma linha só, com o botão ao lado (23/11/2026). */}
+    <span style={{flex:1,minWidth:isMobile?0:160,lineHeight:1.4,...(isMobile?{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+      {meu?(isMobile?"Você assumiu este lead.":"Você assumiu esta negociação — o lead está na sua mão.")
+          :lead.assignedName?(isMobile?`Com ${first(lead.assignedName)}`:`Em atendimento por ${lead.assignedName}.`)
+          :(isMobile?"Na fila, sem atendente":"Este lead está na fila, sem atendente.")}
     </span>
     {meu
       ?<button onClick={()=>setDevolvendo(true)} style={{border:`1px solid ${C.green}55`,background:C.card,color:C.greenMid,fontSize:11.5,fontWeight:700,padding:"5px 11px",borderRadius:8,cursor:"pointer",flexShrink:0}}>Devolver</button>
-      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:8,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> Assumir negociação</button>}
+      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:8,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> {isMobile?"Assumir":"Assumir negociação"}</button>}
   </div>;
 }
 
