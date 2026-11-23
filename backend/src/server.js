@@ -32,7 +32,7 @@ import { expirarVencidas as expirarReservasDeLote, ligarModo as ligarModoEmpreen
 import db from "./db.js";
 import gruposRoutes from "./routes/grupos.routes.js";
 import { gestao as googleRoutes, retorno as googleRetorno } from "./routes/google.routes.js";
-import { paginas as sitePaginas, gestao as siteGestao, dominioProprio } from "./routes/site.routes.js";
+import { paginas as sitePaginas, gestao as siteGestao, dominioProprio, previas as sitePrevias } from "./routes/site.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import redesRoutes from "./routes/redes.routes.js";
 import { assistente as assistenteRoutes, suporte as suporteRoutes } from "./routes/assistente.routes.js";
@@ -367,6 +367,8 @@ app.get("/", (req, res) => servirApp(req, res));
    de qualquer roteador montado na raiz — se um deles um dia ganhar um
    `r.use(authRequired)`, o visitante do site não pode ser quem descobre. */
 app.use("/imoveis", sitePaginas);
+// A prévia de um modelo com imóveis de exemplo (services/cetrolab/demonstracao.js): pública, sem banco.
+app.use("/cetrolab/previa", sitePrevias);
 
 app.use("/", publicoRoutes);
 /* A proposta personalizada (10/11/2026): pública, antes do porteiro — quem

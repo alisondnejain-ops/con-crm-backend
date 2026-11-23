@@ -458,6 +458,8 @@ export function publico(p) {
     titulo: p.titulo,
     finalidade: aluguel ? "aluguel" : "venda",
     tipo: p.tipo === "terreno" ? "terreno" : "casa",
+    // O tipo do cadastro (casa, apartamento, terreno…) — o rótulo que o modelo Prime escreve no imóvel.
+    categoria: p.categoria || null,
     // Empreendimento é o que o cadastro chama de casa "empreendimento" (x casa
     // solta): é o que o modelo Institucional mostra como lançamento.
     empreendimento: p.tipo === "casa" && p.formato === "empreendimento",

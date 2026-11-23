@@ -86,7 +86,7 @@ try {
   assert.equal(s.modelo_no_ar, "classico");
   // Bairros primeiro (pedido do Ali), os premium juntos, o Clássico por último.
   assert.deepEqual(s.modelos.map(m => [m.id, m.disponivel]),
-    [["classico", true], ["bairros", false], ["institucional", false], ["editorial", false], ["lancamento", false]]);
+    [["classico", true], ["prime", false], ["bairros", false], ["institucional", false], ["editorial", false], ["lancamento", false]]);
   assert.equal(s.cetrolab.ativo, false);
   assert.equal(s.cetrolab_plano, null);
 
@@ -196,6 +196,20 @@ try {
   assert.equal(r.status, 200);
   assert.equal(r.body.modelo, "classico");
   assert.equal((await gestor.send("POST", "/site/modelo", { modelo: "inexistente" })).status, 400);
+
+  caso("Prévia com imóveis de exemplo: abre sem login, noindex, sem WhatsApp de verdade");
+  let pv = await pagina("/cetrolab/previa/chiabai");
+  assert.equal(pv.status, 200);
+  assert.ok(pv.html.includes('name="robots" content="noindex"'), "prévia nunca vai ao Google");
+  assert.ok(pv.html.includes("PRÉVIA DO MODELO PRIME"), "a faixa diz que é prévia");
+  assert.ok(!pv.html.includes("wa.me/"), "nenhum link manda mensagem de verdade");
+  const idPv = (pv.html.match(/\/cetrolab\/previa\/chiabai\/(demo\d+)\//) || [])[1];
+  assert.ok(idPv, "os cartões levam à página do imóvel da prévia");
+  pv = await pagina(`/cetrolab/previa/chiabai/${idPv}/x`);
+  assert.equal(pv.status, 200);
+  assert.ok(pv.html.includes("Quero visitar") && pv.html.includes("Fazer uma proposta"));
+  assert.equal((await pagina("/cetrolab/previa/chiabai?busca=1&bairro=Santa%20Paula%20I")).status, 200);
+  assert.equal((await pagina("/cetrolab/previa/nao-existe")).status, 404);
 
   console.log("\nTudo certo ✅");
 } catch (e) {
