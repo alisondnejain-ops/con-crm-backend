@@ -11,7 +11,8 @@ import {
   configDoSite, salvarSite, registrosDoSite, siteDoSlug, siteDoDominio, orgDoDominio, imovelDoSite, slugify, marcaDoSite, verificarDominio,
   paginaAviso, paginaInexistente, paginaPausada, sitemap, robots, FRASE_PADRAO,
 } from "../services/site.js";
-import { MODELOS, desenhar, escolherModelo, modeloEfetivo, podeUsarModelo } from "../services/cetrolab/index.js";
+import { MODELOS, desenhar, desenharModelo, escolherModelo, modeloEfetivo, podeUsarModelo } from "../services/cetrolab/index.js";
+import { contextoDaPrevia } from "../services/cetrolab/demonstracao.js";
 import { planoParaClientes } from "../services/cetrolab/planos.js";
 import { situacaoDoRecurso } from "../services/recursos.js";
 import { conteudoDoSite, salvarConteudo } from "../services/cetrolab/conteudo.js";
@@ -68,6 +69,24 @@ function paginaDoImovel(ctx, req, res) {
     return res.redirect(301, `${ctx.raiz}/${r.imovel.id}/${certo}${req.query.previa ? "?previa=" + encodeURIComponent(String(req.query.previa)) : ""}`);
   servir(res, desenhar(ctx, "imovel", r.imovel, req.query.previa));
 }
+
+/* ===== PRÉVIA COM IMÓVEIS DE EXEMPLO (23/11/2026) =====
+   /cetrolab/previa/<nome>: o modelo desenhado com os imóveis de exemplo de
+   services/cetrolab/demonstracao.js. Sem banco, sem conta, sempre noindex. */
+export const previas = Router();
+const servirPrevia = (res, html, status = 200) =>
+  res.status(status).type("html").set("Cache-Control", "no-cache").set("X-Robots-Tag", "noindex").send(html);
+previas.get("/:nome", (req, res) => {
+  const ctx = contextoDaPrevia(req.params.nome, baseDe(req));
+  if (!ctx) return servirPrevia(res, paginaInexistente(), 404);
+  servirPrevia(res, desenharModelo(ctx.modelo, ctx, "portal", req.query));
+});
+previas.get(["/:nome/:id", "/:nome/:id/:titulo"], (req, res) => {
+  const ctx = contextoDaPrevia(req.params.nome, baseDe(req));
+  const i = ctx && ctx.fonte.imovel(req.params.id);
+  if (!ctx || !i) return servirPrevia(res, paginaInexistente(), 404);
+  servirPrevia(res, desenharModelo(ctx.modelo, ctx, "imovel", i));
+});
 
 /* ===== O SITE NO DOMÍNIO DA IMOBILIÁRIA (04/10/2026) =====
 

@@ -27,6 +27,7 @@ import * as bairros from "./modelos/bairros.js";
 import * as editorial from "./modelos/editorial.js";
 import * as lancamento from "./modelos/lancamento.js";
 import * as institucional from "./modelos/institucional.js";
+import * as prime from "./modelos/prime.js";
 
 /* A ORDEM É A DA VITRINE (pedido do Ali, 12/10/2026): o Clássico primeiro — é o
    grátis, o que todo plano já tem, e precisa ser visto antes de tudo —; depois
@@ -37,6 +38,8 @@ import * as institucional from "./modelos/institucional.js";
 export const MODELOS = [
   { id: "classico", nome: "Clássico", premium: false,
     resumo: "A vitrine com busca por tipo, cidade, quartos e valor. O padrão, grátis em todo plano." },
+  { id: "prime", nome: "Prime", premium: true,
+    resumo: "Elegante e pensado para o celular: capa com a busca, atalhos em fotos, destaques, serviços (encomenda, financiamento, anuncie) e imóveis por região. Na página do imóvel, os pedidos de visita, proposta e informação." },
   { id: "bairros", nome: "Bairros", premium: true,
     resumo: "Claro e minimalista: a pessoa escolhe o bairro antes do imóvel e vê quanto custa morar em cada um." },
   { id: "institucional", nome: "Institucional", premium: true,
@@ -49,6 +52,7 @@ export const MODELOS = [
 const RENDER = {
   classico: { portal: portalClassico, imovel: imovelClassico },
   bairros: { portal: bairros.paginaPortal, imovel: bairros.paginaImovel },
+  prime: { portal: prime.paginaPortal, imovel: prime.paginaImovel },
   editorial: { portal: editorial.paginaPortal, imovel: editorial.paginaImovel },
   institucional: { portal: institucional.paginaPortal, imovel: institucional.paginaImovel },
   lancamento: { portal: lancamento.paginaPortal, imovel: lancamento.paginaImovel },
@@ -80,4 +84,11 @@ export function escolherModelo(orgId, id) {
     return { erro: `O modelo ${modelo(id).nome} faz parte do Cetrolab. Contrate a ferramenta para usá-lo.`, status: 402 };
   db.prepare("UPDATE sites SET modelo = ?, atualizado_em = ? WHERE org_id = ?").run(id === "classico" ? null : id, Date.now(), orgId);
   return { modelo: id };
+}
+
+/* Desenha um modelo escolhido, sem conferir conta nem ferramenta — só para a
+   prévia com imóveis de exemplo (services/cetrolab/demonstracao.js), que não
+   pertence a conta nenhuma e não vai para o Google. */
+export function desenharModelo(id, ctx, pagina, arg) {
+  return RENDER[ehModelo(id) ? id : "classico"][pagina](ctx, arg);
 }
