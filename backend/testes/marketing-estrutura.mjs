@@ -106,6 +106,26 @@ console.log(`   ${r.status} "${r.d.error}"`);
 assert.equal(r.status, 403);
 assert.equal((await chamar(tAliNaA, "/marketing")).d.termo.pode_aceitar, false);
 
+console.log("5b. Na conta que é DO master (gestor com o mesmo e-mail, ou titular), ele aceita");
+const orgPropria = novaOrg("Noiva Teste");
+const linhaAli = "u_" + randomUUID();
+db.prepare(`INSERT INTO users (id,org_id,name,email,pass_hash,role,available,created_at,status,master)
+  VALUES (?,?,?,?,?,'adm',1,?,'ativo',0)`).run(linhaAli, orgPropria, "Ali gestor", "ALI@mk.com", senha, Date.now());
+await chamar(tAli, `/orgs/${orgPropria}/marketing`, "POST", { liberado: true });
+const tAliNaPropria = (await chamar(tAli, `/orgs/${orgPropria}/entrar`, "POST", { codigo: codigoAtual(orgPropria).codigo })).d.token;
+assert.equal((await chamar(tAliNaPropria, "/marketing")).d.termo.pode_aceitar, true);
+r = await chamar(tAliNaPropria, "/marketing/termo", "POST", { aceito: true });
+assert.equal(r.status, 200, JSON.stringify(r.d));
+assert.equal(db.prepare("SELECT user_id FROM marketing_termos WHERE org_id = ?").get(orgPropria).user_id, linhaAli,
+  "o aceite fica no nome da linha de gestor dele nesta conta");
+const orgTitular = novaOrg("Conta do Ali");
+db.prepare("UPDATE orgs SET dono_user_id = ? WHERE id = ?").run(ali, orgTitular);
+await chamar(tAli, `/orgs/${orgTitular}/marketing`, "POST", { liberado: true });
+const tAliTitular = (await chamar(tAli, `/orgs/${orgTitular}/entrar`, "POST", { codigo: codigoAtual(orgTitular).codigo })).d.token;
+assert.equal((await chamar(tAliTitular, "/marketing/termo", "POST", { aceito: true })).status, 200);
+// E na conta do cliente continua barrado (o 5 acima), mesmo depois disto:
+assert.equal((await chamar(tAliNaA, "/marketing/termo", "POST", { aceito: true })).status, 403);
+
 console.log("6. A gestora aceita: fica registrado quem, quando, de onde e qual texto");
 assert.equal((await chamar(tGestora, "/marketing/termo", "POST", {})).status, 400, "sem marcar, não aceita");
 r = await chamar(tGestora, "/marketing/termo", "POST", { aceito: true });

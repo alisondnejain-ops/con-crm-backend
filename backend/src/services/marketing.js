@@ -119,12 +119,33 @@ export function exigirPronto(orgId, { termo = true } = {}) {
    qualquer conta pelo hub, e um aceite dele por um cliente não vincularia o
    cliente a nada — seria o CETRO assinando o próprio termo pelo outro lado.
    Na conta de origem dele (a casa dele) vale normalmente. */
+/* A EXCEÇÃO (23/11/2026, Ali na Noiva Blindada: "eu sou o principal gestor e
+   não consigo autorizar sozinho, essa estrutura é minha"): a conta que é DO
+   PRÓPRIO master. O master sempre entra pelo hub e nunca pela linha de gestor
+   que ele tem na conta, então a regra acima o barrava na conta dele. Vale quando
+   (a) ele é o titular da conta (`dono_user_id`), ou (b) a conta tem um gestor
+   ATIVO com o MESMO e-mail dele — é a mesma pessoa. No caso (b) o aceite fica
+   registrado no nome dessa linha de gestor. Conta de cliente não tem nenhum
+   dos dois, e a regra continua. */
+export function quemAceitaPeloMaster(orgId, eu) {
+  if (!eu?.master || eu.org_id === orgId) return null;
+  const org = db.prepare("SELECT dono_user_id FROM orgs WHERE id = ?").get(orgId);
+  if (org?.dono_user_id === eu.id) return eu;
+  return db.prepare(`SELECT id, name, email, role, org_id, master FROM users
+    WHERE org_id = ? AND lower(email) = lower(?) AND status = 'ativo' AND role = 'adm' AND id <> ?`)
+    .get(orgId, eu.email || "", eu.id) || null;
+}
+
 export function aceitarTermo(orgId, user, { ip, userAgent }) {
   exigirPronto(orgId, { termo: false });
-  const eu = db.prepare("SELECT id, name, email, role, org_id, master FROM users WHERE id = ?").get(user.id);
+  let eu = db.prepare("SELECT id, name, email, role, org_id, master FROM users WHERE id = ?").get(user.id);
   if (!eu) throw new ErroMarketing(401, "Sessão inválida.");
-  if (eu.master && eu.org_id !== orgId)
-    throw new ErroMarketing(403, "O aceite precisa ser feito pelo gestor desta imobiliária, não pelo CETRO.");
+  if (eu.master && eu.org_id !== orgId) {
+    const proprio = quemAceitaPeloMaster(orgId, eu);
+    if (!proprio)
+      throw new ErroMarketing(403, "O aceite precisa ser feito pelo gestor desta imobiliária, não pelo CETRO.");
+    eu = proprio;
+  }
   const linha = {
     id: "mt_" + randomUUID(), org_id: orgId, user_id: eu.id, user_nome: eu.name, user_email: eu.email,
     papel: eu.role, versao: TERMO_VERSAO, texto_hash: TERMO_HASH, ip: ip || null,
@@ -536,7 +557,7 @@ export function removerNumero(orgId) {
 // ===== ESTADO DA TELA =====
 export function estado(orgId, user) {
   const a = aceiteVigente(orgId);
-  const eu = db.prepare("SELECT master, org_id FROM users WHERE id = ?").get(user.id);
+  const eu = db.prepare("SELECT id, email, master, org_id FROM users WHERE id = ?").get(user.id);
   const ultimo = db.prepare("SELECT versao, aceito_em FROM marketing_termos WHERE org_id = ? ORDER BY aceito_em DESC LIMIT 1").get(orgId);
   return {
     liberado: liberado(orgId),
@@ -545,7 +566,7 @@ export function estado(orgId, user) {
       aceite: a ? { por: a.user_nome, email: a.user_email, em: a.aceito_em, ip: a.ip } : null,
       // Já aceitou uma versão anterior: a tela diz que o texto mudou.
       versao_anterior: !a && ultimo ? ultimo.versao : null,
-      pode_aceitar: !(eu?.master && eu.org_id !== orgId),
+      pode_aceitar: !(eu?.master && eu.org_id !== orgId) || !!quemAceitaPeloMaster(orgId, eu),
     },
     declaracao: DECLARACAO_LISTA,
     origens: Object.entries(ORIGENS).map(([id, o]) => ({ id, rotulo: o.rotulo, detalhe: !!o.detalhe, recusada: !!o.recusada })),
