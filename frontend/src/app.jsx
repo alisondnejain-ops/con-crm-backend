@@ -11791,6 +11791,17 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          {/* Atalhos com a MESMA régua do servidor (25/11/2026): "últimos 90
+              dias" é de hoje menos 90 dias até hoje, como na Visão geral —
+              digitar as datas na mão errava um dia e o total não batia. */}
+          {(()=>{const d0=new Date();d0.setHours(0,0,0,0);
+            const iso=(t)=>{const d=new Date(t);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+            const hoje=iso(d0.getTime()), mes=iso(new Date(d0.getFullYear(),d0.getMonth(),1).getTime());
+            const atalhos=[["Este mês",mes],["Últimos 90 dias",iso(d0.getTime()-90*86400000)]];
+            return atalhos.map(([t,de])=>{const on=f.de===de&&f.ate===hoje;
+              return <button key={t} onClick={()=>setF({...f,de:on?"":de,ate:on?"":hoje})}
+                style={{fontSize:11.5,fontWeight:600,borderRadius:999,padding:"5px 10px",cursor:"pointer",
+                  border:`1px solid ${on?C.green+"66":C.line}`,background:on?C.greenSoft:C.surface,color:on?C.green:C.sub}}>{t}</button>;});})()}
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
           <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
             style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
@@ -14785,6 +14796,17 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           </select>}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          {/* Atalhos com a MESMA régua do servidor (25/11/2026): "últimos 90
+              dias" é de hoje menos 90 dias até hoje, como na Visão geral —
+              digitar as datas na mão errava um dia e o total não batia. */}
+          {(()=>{const d0=new Date();d0.setHours(0,0,0,0);
+            const iso=(t)=>{const d=new Date(t);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+            const hoje=iso(d0.getTime()), mes=iso(new Date(d0.getFullYear(),d0.getMonth(),1).getTime());
+            const atalhos=[["Este mês",mes],["Últimos 90 dias",iso(d0.getTime()-90*86400000)]];
+            return atalhos.map(([t,de])=>{const on=f.de===de&&f.ate===hoje;
+              return <button key={t} onClick={()=>setF({...f,de:on?"":de,ate:on?"":hoje})}
+                style={{fontSize:11.5,fontWeight:600,borderRadius:999,padding:"5px 10px",cursor:"pointer",
+                  border:`1px solid ${on?C.green+"66":C.line}`,background:on?C.greenSoft:C.surface,color:on?C.green:C.sub}}>{t}</button>;});})()}
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
           <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
             style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
