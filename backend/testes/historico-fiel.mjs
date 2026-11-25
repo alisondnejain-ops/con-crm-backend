@@ -108,7 +108,10 @@ resp = await fetch(`${BASE}/reports?de=${ontemStr}&ate=${ontemStr}`, { headers: 
 d = await resp.json();
 marinaOntem = d.atendentes.find(a => a.id === marina);
 console.log(`   recebidos de Marina ontem (depois do repasse de hoje): ${marinaOntem.recebidos} (esperado: 1 — fiel ao que aconteceu)`);
-assert.equal(marinaOntem.recebidos, 1, "o relatório de um período já fechado não pode mudar quando o lead é repassado de novo depois");
+// REGRA NOVA (25/11/2026, decisão do Ali: "o número do Kanban tem que vir fiel no
+// relatório"): recebidos = leads que ESTÃO com a pessoa. O lead que foi para o
+// Rafael sai dos recebidos da Marina e aparece em "perdidos para outro".
+assert.equal(marinaOntem.recebidos, 0, "recebidos é o que está com ela — igual ao Kanban dela");
 
 console.log("1d. E o relatório de HOJE mostra Rafael com 1 recebido, e Marina com 1 PERDIDO");
 resp = await fetch(`${BASE}/reports?de=${hojeStr}&ate=${hojeStr}`, { headers: auth });

@@ -43,7 +43,9 @@ let r;
 await caso("1. Relatório da pessoa: perdidos por consequência = recebidos − atendidos, e quantos já saíram", async () => {
   r = await G("/reports");
   const a = r.body.atendentes.find(x => x.id === ana);
-  assert.equal(a.recebidos, 4); assert.equal(a.atendidos, 1);
+  // Recebidos = os que ESTÃO com ela (regra do Kanban, 25/11/2026): L3 foi para a Bia.
+  // Perdidos por consequência continua olhando quem passou por ela: L2, L3 e L4.
+  assert.equal(a.recebidos, 3); assert.equal(a.atendidos, 1);
   assert.equal(a.perdidos_consequencia, 3); assert.equal(a.perdidos_consequencia_saiu, 1);
   assert.equal(a.perdidos, 0, "Perdidos (etapa de perda) continua separado");
 });
@@ -55,7 +57,7 @@ await caso("2. Score traz a mesma conta e a coluna nova", async () => {
 });
 await caso("3. Visão geral: com a pessoa no filtro, o mesmo número; para a casa, mensagem de qualquer um da equipe", async () => {
   r = await G(`/painel?periodo=90dias&responsavel=${ana}`);
-  assert.equal(r.body.atendimento.atendidos, 1); assert.equal(r.body.atendimento.perdidos_consequencia, 3);
+  assert.equal(r.body.atendimento.atendidos, 1); assert.equal(r.body.atendimento.recebidos, 3);
   msg(L3, "out", bia, agora - 2 * 3600e3); // a Bia atendeu o L3: para a casa ele foi atendido
   r = await G("/painel?periodo=90dias");
   assert.equal(r.body.atendimento.recebidos, 4);

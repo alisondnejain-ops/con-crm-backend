@@ -110,4 +110,31 @@ assert.equal(c4, 6, "o lead sem funil conta no funil padrão, como no Kanban");
 assert.equal(PA.painel(org, { ...PERIODO, pipeline_id: OUTRO.id }).atendimento.recebidos, 2, "e não conta no outro funil");
 fechar({}, "Com lead sem funil");
 console.log("ok 4 — lead sem funil conta no funil padrão (Kanban = Visão geral = funil)");
+
+// 5. A REGRA DO KANBAN (25/11/2026): para CADA pessoa, "recebidos" é o que o
+// quadro dela mostra — leads que ESTÃO com ela, neste funil, que chegaram na
+// mão dela no período. Um lead que passou por ela e foi para outra pessoa não
+// conta; e conta para quem está com ele.
+const passou = "l_passou";
+db.prepare(`INSERT INTO leads (id,org_id,name,phone,stage,stage_id,pipeline_id,assigned_to,assigned_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+  .run(passou, org, "Passou pela Veronica", "5587990000888", "Novo", null, BRACO.id, joao, NO(3), NO(2));
+db.prepare(`INSERT INTO lead_transfers (id,org_id,lead_id,from_user_id,to_user_id,trigger_reason,created_at) VALUES (?,?,?,?,?,?,?)`)
+  .run("tr_passou1", org, passou, null, vero, "sem_resposta", NO(2) + 1000);
+db.prepare(`INSERT INTO lead_transfers (id,org_id,lead_id,from_user_id,to_user_id,trigger_reason,created_at) VALUES (?,?,?,?,?,?,?)`)
+  .run("tr_passou2", org, passou, vero, joao, "sem_resposta", NO(3));
+const { resolverPeriodo } = PA;
+const per = resolverPeriodo(PERIODO);
+for (const [nome, u] of [["Veronica", vero], ["Joao", joao]]) {
+  const kanban = db.prepare(`SELECT COUNT(*) n FROM leads WHERE org_id = ? AND assigned_to = ?
+    AND (pipeline_id = ? OR pipeline_id IS NULL) AND COALESCE(assigned_at, created_at) BETWEEN ? AND ?`).get(org, u, BRACO.id, per.de, per.ate).n;
+  const f = { ...PERIODO, pipeline_id: BRACO.id, responsavel: u };
+  const cartao = PA.painel(org, f).atendimento.recebidos;
+  const funil = C.funilDeConversao(org, BRACO.id, { ...PERIODO, responsavel: u }).topo.chegaram;
+  assert.equal(cartao, kanban, `${nome}: cartão ${cartao} ≠ Kanban ${kanban}`);
+  assert.equal(funil, kanban, `${nome}: funil ${funil} ≠ Kanban ${kanban}`);
+  const lista = C.conferenciaDoFunil(org, BRACO.id, { ...PERIODO, responsavel: u }, { conjunto: "recebidos", porPagina: 200, supervisor: true });
+  assert.ok(lista.itens.every(i => i.responsavel_atual === nome), `${nome}: a lista só tem lead que está com ${nome}`);
+  console.log(`   ${nome}: Kanban ${kanban} = cartão ${cartao} = funil ${funil}`);
+}
+console.log("ok 5 — por pessoa: Kanban = Visão geral = funil, sem lead de outro corretor");
 console.log("\ncontas-fecham: tudo certo");

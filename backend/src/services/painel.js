@@ -261,7 +261,7 @@ function atendidosDoPeriodo(orgId, { eventos, leads }) {
       (por.get(g.lead_id) || por.set(g.lead_id, []).get(g.lead_id)).push(g);
     let atendidos = 0; const primeiro = new Map();
     for (const e of eventos) {
-      const ts = (por.get(e.lead_id) || []).filter(m => m.u === e.user_id && m.t >= e.quando).map(m => m.t);
+      const ts = (por.get(e.lead_id) || []).filter(m => m.u === e.user_id && m.t >= (e.chegou ?? e.quando)).map(m => m.t);
       if (ts.length) { atendidos++; const t = Math.min(...ts); if (!primeiro.has(e.lead_id) || t < primeiro.get(e.lead_id)) primeiro.set(e.lead_id, t); }
     }
     return { recebidos: eventos.length, atendidos, responderam: responderamDepois(primeiro) };
