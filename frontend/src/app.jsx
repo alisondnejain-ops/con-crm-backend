@@ -11699,8 +11699,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             cartão "Leads recebidos" da Visão geral. O funil de conversão é
             outra pergunta (quem chegou a cada etapa no período). */}
         <span title={f.de||f.ate
-            ?"Leads que chegaram no período e estão neste funil — o mesmo número de \"Leads recebidos\" da Visão geral e dos Relatórios com o mesmo funil, a mesma pessoa e o mesmo período."
-            :"Leads que estão neste funil hoje, em todas as etapas. Ligue o período em Filtros para comparar com \"Leads recebidos\" da Visão geral."}
+            ?"Leads que chegaram no período e estão neste funil — o mesmo número de \"Oportunidades no Kanban\" da Visão geral e dos Relatórios com o mesmo funil, a mesma pessoa e o mesmo período."
+            :"Leads que estão neste funil hoje, em todas as etapas. Ligue o período em Filtros para comparar com \"Oportunidades no Kanban\" da Visão geral."}
           style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",cursor:"help"}}>
           {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}{f.de||f.ate?" · chegaram no período":" · hoje no funil"}</span>
       </div>
@@ -23617,7 +23617,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
         {(()=>{const a=d.atendimento;
           const comPessoa=donosDoValor(f.responsavel).some(x=>x!=="fila");
           const cards={
-            recebidos:<Metric key="recebidos" rot="Leads recebidos" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
+            recebidos:<Metric key="recebidos" rot="Oportunidades no Kanban" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
             /* Nomes sem sobreposição (25/11/2026, pedido do Ali): "Chegaram a
                <etapa>" é o primeiro degrau do funil de conversão logo abaixo
                (a mesma conta, o mesmo número); "Contatados" é quem recebeu
@@ -23634,7 +23634,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
             qualificados:<Metric key="qualificados" rot="Qualificados" v={a.qualificados??"—"}
               sub={comPessoa?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>,
           };
-          const nomes={recebidos:"Leads recebidos",etapa_inicial:"Chegaram à 1ª etapa do funil",atendidos:"Contatados",resposta:"Tempo da 1ª resposta",responderam:"Responderam",qualificados:"Qualificados"};
+          const nomes={recebidos:"Oportunidades no Kanban",etapa_inicial:"Chegaram à 1ª etapa do funil",atendidos:"Contatados",resposta:"Tempo da 1ª resposta",responderam:"Responderam",qualificados:"Qualificados"};
           const ordem=(cartoes&&cartoes.visao&&cartoes.visao.ordem)||Object.keys(cards);
           return <div>
             {podeGerir(session)&&!ordenando&&<div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
