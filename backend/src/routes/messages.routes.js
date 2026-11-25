@@ -746,6 +746,9 @@ r.patch("/:id/interesse", (req, res) => {
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVerLead(req.user, lead))
     return res.status(403).json({ error: "Este lead não está com você" });
+  // Só imóvel desta conta (25/11/2026: o campo passou a ser editável na ficha).
+  if (produto_id && !db.prepare("SELECT 1 FROM produtos WHERE id = ? AND org_id = ?").get(String(produto_id), lead.org_id))
+    return res.status(400).json({ error: "Imóvel não encontrado no catálogo." });
   db.prepare("UPDATE leads SET produto_id = ? WHERE id = ?").run(produto_id || null, lead.id);
   res.json({ ok: true });
 });
