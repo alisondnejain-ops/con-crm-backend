@@ -98,4 +98,16 @@ console.log("ok 2 — uma pessoa: a mesma conta fecha");
 
 fechar({ responsavel: [vero, joao].join(",") }, "Duas pessoas");
 console.log("ok 3 — várias pessoas: fecha");
+
+
+// 4. Lead SEM funil gravado: o Kanban o mostra no funil padrão; a conta também.
+db.prepare("UPDATE pipelines SET is_default = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE org_id = ?").run(BRACO.id, org);
+const semFunil = "l_semfunil";
+db.prepare(`INSERT INTO leads (id,org_id,name,phone,stage,assigned_to,created_at) VALUES (?,?,?,?,?,?,?)`)
+  .run(semFunil, org, "Sem funil", "5587990000999", "Novo", vero, NO(2));
+const c4 = PA.painel(org, { ...PERIODO, pipeline_id: BRACO.id }).atendimento.recebidos;
+assert.equal(c4, 6, "o lead sem funil conta no funil padrão, como no Kanban");
+assert.equal(PA.painel(org, { ...PERIODO, pipeline_id: OUTRO.id }).atendimento.recebidos, 2, "e não conta no outro funil");
+fechar({}, "Com lead sem funil");
+console.log("ok 4 — lead sem funil conta no funil padrão (Kanban = Visão geral = funil)");
 console.log("\ncontas-fecham: tudo certo");

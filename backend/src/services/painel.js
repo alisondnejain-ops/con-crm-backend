@@ -96,7 +96,16 @@ export const marcasSql = (n) => Array(n).fill("?").join(",");
 
 export function peneira(orgId, f = {}) {
   const where = ["l.org_id = ?"], args = [orgId];
-  if (f.pipeline_id) { where.push("l.pipeline_id = ?"); args.push(f.pipeline_id); }
+  /* O lead SEM funil gravado entra no funil padrão — a mesma regra do Kanban
+     (25/11/2026: o Kanban contava 1.332 e a Visão geral 1.325; a diferença
+     eram leads sem funil, que o quadro mostra no padrão e a conta descartava). */
+  if (f.pipeline_id) {
+    const padrao = db.prepare(`SELECT (is_default = 1 OR (SELECT COUNT(*) FROM pipelines WHERE org_id = ? AND is_active = 1) = 1) p
+      FROM pipelines WHERE id = ? AND org_id = ?`).get(orgId, f.pipeline_id, orgId)?.p;
+    if (padrao) where.push("(l.pipeline_id = ? OR l.pipeline_id IS NULL)");
+    else where.push("l.pipeline_id = ?");
+    args.push(f.pipeline_id);
+  }
   if (f.stage_id) { where.push("l.stage_id = ?"); args.push(f.stage_id); }
   const donos = listaDeDonos(f.responsavel);
   if (donos.length) {
