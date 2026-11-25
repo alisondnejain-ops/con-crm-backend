@@ -832,6 +832,7 @@ function SeletorPeriodo({f,set,isMobile,estilo}){
     {f.periodo==="custom"&&<React.Fragment>
       <input type="date" value={f.de||""} onChange={e=>set("de",e.target.value)} style={estilo}/>
       <input type="date" value={f.ate||""} onChange={e=>set("ate",e.target.value)} style={estilo}/>
+      {!f.de&&!f.ate&&<span style={{fontSize:11.5,color:C.amber,fontWeight:600,alignSelf:"center"}}>sem datas = últimos 30 dias</span>}
     </React.Fragment>}
   </React.Fragment>;
 }

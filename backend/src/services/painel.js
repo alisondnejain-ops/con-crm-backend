@@ -69,7 +69,10 @@ export function resolverPeriodo({ periodo, de, ate } = {}) {
       const inicio = de ? new Date(`${de}T00:00:00`).getTime() : t - 30 * DIA;
       const termino = ate ? new Date(`${ate}T23:59:59.999`).getTime() : fim(t);
       return { de: isFinite(inicio) ? inicio : t - 30 * DIA,
-               ate: isFinite(termino) ? termino : fim(t), rotulo: "período escolhido" };
+               ate: isFinite(termino) ? termino : fim(t),
+               // Sem data nenhuma, o período É "últimos 30 dias" — e a tela diz isso
+               // (25/11/2026: "Escolher datas" em branco parecia "desde sempre").
+               rotulo: !de && !ate ? "últimos 30 dias" : "período escolhido" };
     }
   }
 }

@@ -428,17 +428,48 @@ function recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte) {
   return [...set];
 }
 
+
+/* QUEM DOS RECEBIDOS CHEGOU AO COMERCIAL (25/11/2026, print do Ali: "333
+   recebidos · 99 chegaram a Lead · 234 não chegaram"). O primeiro degrau
+   responde UMA pergunta: dos leads recebidos no período, quantos já chegaram
+   à etapa Lead (ou depois dela) até o corte — não importa QUANDO nem com QUEM
+   estavam ao chegar. Antes a conta exigia que a chegada fosse no período e
+   com a pessoa do filtro, e o lead que a fila/IA pôs em Lead antes de passar
+   à Blanca aparecia como "não chegou", estando na coluna Lead do Kanban. */
+function entraramNoComercial(orgId, cfg, pipelineId, ids, corte) {
+  const ok = new Set();
+  if (!ids.length || cfg.sem_marcos) return ok;
+  const etapas = db.prepare("SELECT id, ordem, status_type FROM pipeline_stages WHERE org_id = ? AND pipeline_id = ?").all(orgId, pipelineId);
+  const posEntrada = etapas.find(e => e.id === cfg.entrada.id)?.ordem ?? 0;
+  const vale = new Set(etapas.filter(e => e.status_type !== "perdido" && (e.ordem ?? 0) >= posEntrada).map(e => e.id));
+  for (const id of cfg.faixa) vale.add(id);
+  if (!vale.size) return ok;
+  const lista = [...vale]; const marcas = lista.map(() => "?").join(",");
+  for (const r of emLotes(ids, (m, lote) => db.prepare(
+    `SELECT DISTINCT lead_id FROM lead_etapas WHERE +org_id = ? AND lead_id IN (${m}) AND para_stage_id IN (${marcas}) AND created_at <= ?`)
+    .all(orgId, ...lote, ...lista, corte))) ok.add(r.lead_id);
+  // Onde nasceu (a etapa de origem da primeira mudança, ou a atual se nunca mudou).
+  for (const r of emLotes(ids, (m, lote) => db.prepare(
+    `SELECT l.id, l.stage_id, l.sale_date, l.pipeline_id,
+       (SELECT e.de_stage_id FROM lead_etapas e WHERE e.lead_id = l.id ORDER BY e.created_at, e.rowid LIMIT 1) nasceu
+     FROM leads l WHERE l.org_id = ? AND l.id IN (${m})`).all(orgId, ...lote))) {
+    const nasceu = r.nasceu || r.stage_id;
+    if (nasceu && vale.has(nasceu)) ok.add(r.id);
+    if (r.sale_date && r.sale_date <= corte && r.pipeline_id === pipelineId) ok.add(r.id);
+  }
+  return ok;
+}
+
 function topoDoFunil(cfg, ids, base0, periodo, corte) {
   // Antes de 14/08/2026 não há histórico de etapas: quem entrou sem data fica
   // fora do degrau, e a conta não fecharia — sem a linha, em vez de subcontar.
   if (cfg.sem_marcos || periodo.de < COBERTURA_ETAPAS || periodo.de > corte) return null;
-  const recebidos = new Set(ids);
-  const entraram = base0.filter(u => recebidos.has(u.lead.id)).length;
+  const entraram = base0.size;
   return {
     chegaram: ids.length,
     entraram,
     ainda_nao: ids.length - entraram,
-    de_antes: base0.length - entraram,
+    de_antes: 0,
     taxa: taxa(entraram, ids.length),
   };
 }
@@ -455,9 +486,10 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
      agora não conta mais aqui. Antes de 14/08/2026 (sem histórico) fica a
      regra antiga. */
   const recIds = periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte)) : null;
-  const daCoorte = (u) => !recIds || recIds.has(u.lead.id);
-  const base0 = unidades.filter(u => u.entrada !== null && daCoorte(u));
-  const n = base0.length;
+  const base0 = recIds ? entraramNoComercial(orgId, cfg, pipelineId, [...recIds], corte)
+    : new Set(unidades.filter(u => u.entrada !== null).map(u => u.lead.id));
+  const daCoorte = (u) => base0.has(u.lead.id);
+  const n = base0.size;
 
   /* CADA ETAPA PELO PERÍODO (18/11/2026): "chegaram" é quantos chegaram à
      etapa no período, venham de quando vierem. "Desde a entrada" divide pelo
@@ -465,7 +497,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
      período — são leituras de VOLUME do período, e podem passar de 100% (uma
      semana com muitos agendamentos de leads antigos). */
   const linhas = cfg.marcos.map((m, i) => {
-    const chegaram = i === 0 ? base0 : unidades.filter(u => primeira(u, m.id) !== null);
+    const chegaram = i === 0 ? [...base0] : unidades.filter(u => primeira(u, m.id) !== null);
     const linha = {
       id: m.id, name: m.name, color: m.color, status_type: m.status_type,
       papel: i === 0 ? "entrada" : "marco",
@@ -476,7 +508,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     };
     if (i > 0) {
       const ant = cfg.marcos[i - 1];
-      const naAnterior = i === 1 ? base0 : unidades.filter(u => primeira(u, ant.id) !== null);
+      const naAnterior = i === 1 ? [...base0] : unidades.filter(u => primeira(u, ant.id) !== null);
       const vieram = chegaram.filter(u => veioDaAnterior(u, m.id)).length;
       linha.anterior = { id: ant.id, name: ant.name, chegaram: naAnterior.length, vieram, taxa: taxa(chegaram.length, naAnterior.length) };
       linha.sem_passar_pela_anterior = chegaram.length - vieram;
@@ -503,12 +535,16 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     });
     return grupos.get(chave);
   };
+  const comUnidade = new Set();
   for (const u of unidades) {
     const c0 = u.chegadas.get(cfg.marcos[0].id);
-    if (c0 && daCoorte(u)) grupo(c0.dono).base++;
+    if (daCoorte(u)) { comUnidade.add(u.lead.id); grupo(c0 ? c0.dono : u.dono).base++; }
     const cu = ultimo && cfg.marcos.length > 1 ? u.chegadas.get(ultimo.id) : null;
     if (cu) grupo(cu.dono).chegaram_ao_ultimo++;
   }
+  const faltam = [...base0].filter(id => !comUnidade.has(id));
+  for (const r of emLotes(faltam, (m, lote) => db.prepare(`SELECT assigned_to FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote)))
+    grupo({ conhecido: true, id: r.assigned_to || null }).base++;
   const porResponsavel = [...grupos.values()].sort((a, b) => b.base - a.base);
 
   const semDono = c.donoDesconhecido.length;
@@ -553,6 +589,14 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
    não bater com o número ao lado, e a conferência existe para isso. */
 export const CONJUNTOS = ["base", "recebidos", "ainda_nao", "de_antes", "chegaram", "anterior", "vieram", "sem_anterior", "automaticas", "sem_data", "dono_desconhecido"];
 
+function itensDosIds(orgId, ids, unidades) {
+  const porId = new Map(unidades.map(u => [u.lead.id, u]));
+  const sem = ids.filter(id => !porId.has(id));
+  const linhas = new Map(emLotes(sem, (m, lote) =>
+    db.prepare(`SELECT id, name, created_at FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote)).map(l => [l.id, l]));
+  return ids.map(id => porId.get(id) || (linhas.get(id) && { lead: linhas.get(id), entrada: null, dono: null, recebido_em: linhas.get(id).created_at })).filter(Boolean);
+}
+
 export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, conjunto = "base", pagina = 1, porPagina = 50, quem = null, supervisor = false } = {}, agora = Date.now()) {
   if (!CONJUNTOS.includes(conjunto)) return { erro: "Conjunto desconhecido." };
   const c = calcular(orgId, pipelineId, filtros, agora);
@@ -562,23 +606,17 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
   let lista;
   if (conjunto === "sem_data") lista = c.semData.map(x => ({ lead: x.lead, entrada: null, dono: null }));
   else if (conjunto === "dono_desconhecido") lista = c.donoDesconhecido.map(x => ({ lead: x.lead, entrada: x.entrada, dono: { conhecido: false } }));
-  else if (conjunto === "base") {
-    const rec = c.periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte)) : null;
-    lista = unidades.filter(u => u.entrada !== null && (!rec || rec.has(u.lead.id)));
-  }
-  else if (conjunto === "recebidos" || conjunto === "ainda_nao" || conjunto === "de_antes") {
-    const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
-    const rec = new Set(ids);
-    const base = unidades.filter(u => u.entrada !== null);
-    if (conjunto === "de_antes") lista = base.filter(u => !rec.has(u.lead.id));
-    else {
-      const naBase = new Map(base.map(u => [u.lead.id, u]));
-      const escolhidos = conjunto === "recebidos" ? ids : ids.filter(id => !naBase.has(id));
-      const semUnidade = escolhidos.filter(id => !naBase.has(id));
-      const linhas = new Map(emLotes(semUnidade, (m, lote) =>
-        db.prepare(`SELECT id, name, created_at FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote)).map(l => [l.id, l]));
-      lista = escolhidos.map(id => naBase.get(id) || (linhas.get(id) && { lead: linhas.get(id), entrada: null, dono: null, recebido_em: linhas.get(id).created_at })).filter(Boolean);
-    }
+  else if (["base", "recebidos", "ainda_nao", "de_antes"].includes(conjunto) || (conjunto === "chegaram" && etapa === cfg.marcos[0]?.id)) {
+    // O primeiro degrau: dos recebidos, quem chegou ao comercial (a mesma
+    // conta de funilDeConversao → entraramNoComercial).
+    const comCoorte = c.periodo.de >= COBERTURA_ETAPAS;
+    const ids = comCoorte ? recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte) : unidades.filter(u => u.entrada !== null).map(u => u.lead.id);
+    const entrou = comCoorte ? entraramNoComercial(orgId, cfg, pipelineId, ids, c.corte) : new Set(ids);
+    const escolhidos = conjunto === "de_antes" ? []
+      : conjunto === "recebidos" ? ids
+      : conjunto === "ainda_nao" ? ids.filter(id => !entrou.has(id))
+      : ids.filter(id => entrou.has(id));
+    lista = itensDosIds(orgId, escolhidos, unidades);
   }
   else {
     const i = cfg.marcos.findIndex(m => m.id === etapa);
@@ -594,10 +632,11 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
       automaticas: (u) => chegou(u) && (u.chegadas.get(m.id).todas || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo)),
     }[conjunto];
     lista = unidades.filter(filtro);
-    // O primeiro degrau é só dos recebidos no período (ver funilDeConversao).
-    if ((i === 0 && conjunto === "chegaram") || (i === 1 && conjunto === "anterior")) {
-      const rec = c.periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte)) : null;
-      if (rec) lista = lista.filter(u => rec.has(u.lead.id) && u.entrada !== null);
+    // A etapa de cima do segundo degrau é o primeiro degrau (ver acima).
+    if (i === 1 && conjunto === "anterior" && c.periodo.de >= COBERTURA_ETAPAS) {
+      const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
+      const entrou = entraramNoComercial(orgId, cfg, pipelineId, ids, c.corte);
+      lista = itensDosIds(orgId, ids.filter(id => entrou.has(id)), unidades);
     }
   }
 
