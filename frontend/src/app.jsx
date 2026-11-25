@@ -23235,7 +23235,7 @@ function NumeroConferivel({v,etapa,conjunto,tit,cor,peso=700,pedir,impressao}){
 function legendaDoFunil(c,ganho){
   return <React.Fragment>
     Cada etapa conta os leads que <b>chegaram a ela</b> no período{c.periodo?<React.Fragment> (até {fmtCorte(c)})</React.Fragment>:null}, venham de quando vierem: quem entrou há três meses e foi qualificado nesta semana conta como qualificado nesta semana.
-    O primeiro degrau conta quem entrou no comercial no período (Inbox e triagem não entram). Cada lead conta uma vez por etapa, e quem chegou a uma etapa no período conta também nas de antes dela (menos o primeiro degrau): quem vendeu agora passou pela proposta deste período, mesmo que a proposta tenha sido feita antes. Por isso nenhuma etapa tem mais gente que a de cima.{" "}
+    O primeiro degrau conta os leads recebidos no período (a mesma conta da Visão geral) que chegaram à primeira etapa comercial — quem foi recebido antes não entra nele. Cada lead conta uma vez por etapa, e quem chegou a uma etapa no período conta também nas de antes dela (menos o primeiro degrau): quem vendeu agora passou pela proposta deste período, mesmo que a proposta tenha sido feita antes. Por isso nenhuma etapa tem mais gente que a de cima.{" "}
     <b>Desde a entrada</b>: chegaram à etapa ÷ primeiro degrau. <b>Da etapa anterior</b>: chegaram à etapa ÷ chegaram à etapa de cima, no mesmo período. Só a segunda etapa pode passar de 100% (quando muitos leads antigos avançam e poucos entram).
     Com uma pessoa no filtro, vale quem estava com o lead quando ele chegou à etapa.
     {ganho&&<React.Fragment> <b>{ganho.name}</b> conta as vendas registradas (valor e data) dentro do período, pela data da venda — a mesma conta das vendas do Painel. Arrastar o card para a etapa não basta, e o cliente que comprou antes e voltou a conversar não conta de novo.</React.Fragment>}
@@ -23320,14 +23320,14 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         ainda não entraram + recebidos antes que entraram agora = degrau. */}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginTop:3}}>
       De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}. Cada etapa conta quem chegou a ela no período.
-      {c.topo&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",alignItems:"center",gap:"4px 8px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 11px",color:C.sub}}>
-        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.chegaram} conjunto="recebidos" tit="Leads recebidos no período"/></b> recebidos <span style={{color:C.faint}}>(o mesmo da Visão geral)</span></span>
-        <span style={{color:C.faint}}>−</span>
-        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.ainda_nao} conjunto="ainda_nao" tit="Recebidos que ainda não entraram no comercial"/></b> ainda não entraram no comercial</span>
-        <span style={{color:C.faint}}>+</span>
-        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.de_antes} conjunto="de_antes" tit="Recebidos antes do período que entraram no comercial agora"/></b> recebidos antes que entraram agora</span>
-        <span style={{color:C.faint}}>=</span>
-        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit="Entraram no comercial no período"/></b> em <b>{c.entrada.name}</b> ou adiante</span>
+      {/* Só os recebidos (25/11/2026, pedido do Ali: "o que nós queremos em
+          leads recebidos é o total de lead que veio no período"). A conta
+          "− ainda não entraram + recebidos antes" confundia mais do que
+          explicava e saiu. */}
+      {c.topo&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",alignItems:"center",gap:"4px 12px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 11px",color:C.sub}}>
+        <span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.chegaram} conjunto="recebidos" tit="Leads recebidos no período"/></b> leads recebidos no período <span style={{color:C.faint}}>(o mesmo da Visão geral)</span></span>
+        <span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Recebidos que chegaram a ${c.entrada.name}`}/></b> chegaram a <b>{c.entrada.name}</b></span>
+        {c.topo.ainda_nao>0&&<span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.ainda_nao} conjunto="ainda_nao" tit={`Recebidos que não chegaram a ${c.entrada.name}`}/></b> não chegaram <span style={{color:C.faint}}>(continuam antes de {c.entrada.name} ou foram perdidos antes dela)</span></span>}
       </div>}
     </div>}
   </div>;

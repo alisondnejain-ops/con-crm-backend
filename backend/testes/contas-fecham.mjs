@@ -80,8 +80,8 @@ const fechar = (filtros, nome) => {
   const cartao = PA.painel(org, { ...PERIODO, pipeline_id: BRACO.id, ...filtros }).atendimento.recebidos;
   assert.ok(f.topo, nome + ": tem topo");
   assert.equal(f.topo.chegaram, cartao, `${nome}: recebidos do funil = cartão da Visão geral`);
-  assert.equal(f.topo.chegaram - f.topo.ainda_nao + f.topo.de_antes, f.base, `${nome}: a conta fecha com o primeiro degrau`);
-  for (const [conj, v] of [["recebidos", f.topo.chegaram], ["ainda_nao", f.topo.ainda_nao], ["de_antes", f.topo.de_antes], ["base", f.base]]) {
+  assert.equal(f.topo.chegaram - f.topo.ainda_nao, f.base, `${nome}: recebidos − não chegaram = primeiro degrau`); assert.equal(f.linhas[0].chegaram, f.base);
+  for (const [conj, v] of [["recebidos", f.topo.chegaram], ["ainda_nao", f.topo.ainda_nao], ["base", f.base]]) {
     const lista = C.conferenciaDoFunil(org, BRACO.id, { ...PERIODO, ...filtros }, { conjunto: conj, supervisor: true });
     assert.equal(lista.total, v, `${nome}: a lista "${conj}" tem o mesmo número`);
   }
@@ -89,11 +89,11 @@ const fechar = (filtros, nome) => {
 };
 
 const casa = fechar({}, "Casa");
-assert.deepEqual([casa.topo.chegaram, casa.topo.ainda_nao, casa.topo.de_antes, casa.base], [5, 2, 1, 4]);
-console.log("ok 1 — casa: 5 recebidos − 2 em Novo + 1 de antes = 4 no primeiro degrau (outro funil fora)");
+assert.deepEqual([casa.topo.chegaram, casa.topo.ainda_nao, casa.base], [5, 2, 3]);
+console.log("ok 1 — casa: 5 recebidos, 3 chegaram a Lead, 2 em Novo; o recebido antes não entra (outro funil fora)");
 
 const v = fechar({ responsavel: vero }, "Veronica");
-assert.deepEqual([v.topo.chegaram, v.topo.ainda_nao, v.topo.de_antes, v.base], [3, 1, 1, 3]);
+assert.deepEqual([v.topo.chegaram, v.topo.ainda_nao, v.base], [3, 1, 2]);
 console.log("ok 2 — uma pessoa: a mesma conta fecha");
 
 fechar({ responsavel: [vero, joao].join(",") }, "Duas pessoas");

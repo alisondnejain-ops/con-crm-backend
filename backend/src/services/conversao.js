@@ -448,7 +448,15 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
   const c = calcular(orgId, pipelineId, filtros, agora);
   if (c.erro) return c;
   const { cfg, unidades, periodo, corte } = c;
-  const base0 = unidades.filter(u => u.entrada !== null);
+  /* O PRIMEIRO DEGRAU É DOS RECEBIDOS NO PERÍODO (25/11/2026, pedido do Ali:
+     "entrou quantos leads no período no funil, e quantos avançaram para a
+     etapa Lead?"). Regra de 18/11: só a primeira etapa conta pela data em que
+     o cliente entrou. O lead recebido antes do período que chegou à etapa
+     agora não conta mais aqui. Antes de 14/08/2026 (sem histórico) fica a
+     regra antiga. */
+  const recIds = periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte)) : null;
+  const daCoorte = (u) => !recIds || recIds.has(u.lead.id);
+  const base0 = unidades.filter(u => u.entrada !== null && daCoorte(u));
   const n = base0.length;
 
   /* CADA ETAPA PELO PERÍODO (18/11/2026): "chegaram" é quantos chegaram à
@@ -457,7 +465,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
      período — são leituras de VOLUME do período, e podem passar de 100% (uma
      semana com muitos agendamentos de leads antigos). */
   const linhas = cfg.marcos.map((m, i) => {
-    const chegaram = unidades.filter(u => primeira(u, m.id) !== null);
+    const chegaram = i === 0 ? base0 : unidades.filter(u => primeira(u, m.id) !== null);
     const linha = {
       id: m.id, name: m.name, color: m.color, status_type: m.status_type,
       papel: i === 0 ? "entrada" : "marco",
@@ -468,7 +476,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     };
     if (i > 0) {
       const ant = cfg.marcos[i - 1];
-      const naAnterior = unidades.filter(u => primeira(u, ant.id) !== null);
+      const naAnterior = i === 1 ? base0 : unidades.filter(u => primeira(u, ant.id) !== null);
       const vieram = chegaram.filter(u => veioDaAnterior(u, m.id)).length;
       linha.anterior = { id: ant.id, name: ant.name, chegaram: naAnterior.length, vieram, taxa: taxa(chegaram.length, naAnterior.length) };
       linha.sem_passar_pela_anterior = chegaram.length - vieram;
@@ -497,7 +505,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
   };
   for (const u of unidades) {
     const c0 = u.chegadas.get(cfg.marcos[0].id);
-    if (c0) grupo(c0.dono).base++;
+    if (c0 && daCoorte(u)) grupo(c0.dono).base++;
     const cu = ultimo && cfg.marcos.length > 1 ? u.chegadas.get(ultimo.id) : null;
     if (cu) grupo(cu.dono).chegaram_ao_ultimo++;
   }
@@ -524,7 +532,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     // Funil comercial: a etapa pulada conta como passada (ver `calcular`).
     etapa_pulada_conta: !ehFunilDeSdr(orgId, pipelineId),
     base: n,
-    topo: topoDoFunil(cfg, recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte), base0, periodo, corte),
+    topo: recIds ? topoDoFunil(cfg, [...recIds], base0, periodo, corte) : null,
     linhas,
     por_responsavel: porResponsavel,
     cobertura: {
@@ -554,7 +562,10 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
   let lista;
   if (conjunto === "sem_data") lista = c.semData.map(x => ({ lead: x.lead, entrada: null, dono: null }));
   else if (conjunto === "dono_desconhecido") lista = c.donoDesconhecido.map(x => ({ lead: x.lead, entrada: x.entrada, dono: { conhecido: false } }));
-  else if (conjunto === "base") lista = unidades.filter(u => u.entrada !== null);
+  else if (conjunto === "base") {
+    const rec = c.periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte)) : null;
+    lista = unidades.filter(u => u.entrada !== null && (!rec || rec.has(u.lead.id)));
+  }
   else if (conjunto === "recebidos" || conjunto === "ainda_nao" || conjunto === "de_antes") {
     const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
     const rec = new Set(ids);
@@ -583,6 +594,11 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
       automaticas: (u) => chegou(u) && (u.chegadas.get(m.id).todas || []).every(x => MOTIVOS_AUTOMATICOS.has(x.motivo)),
     }[conjunto];
     lista = unidades.filter(filtro);
+    // O primeiro degrau é só dos recebidos no período (ver funilDeConversao).
+    if ((i === 0 && conjunto === "chegaram") || (i === 1 && conjunto === "anterior")) {
+      const rec = c.periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte)) : null;
+      if (rec) lista = lista.filter(u => rec.has(u.lead.id) && u.entrada !== null);
+    }
   }
 
   const quando = (x) => (etapa && x.chegadas && primeira(x, etapa)) || x.entrada || x.recebido_em || 0;
