@@ -111,7 +111,9 @@ console.log(`   recebidos de Marina ontem (depois do repasse de hoje): ${marinaO
 // REGRA NOVA (25/11/2026, decisão do Ali: "o número do Kanban tem que vir fiel no
 // relatório"): recebidos = leads que ESTÃO com a pessoa. O lead que foi para o
 // Rafael sai dos recebidos da Marina e aparece em "perdidos para outro".
-assert.equal(marinaOntem.recebidos, 0, "recebidos é o que está com ela — igual ao Kanban dela");
+// No RELATÓRIO INDIVIDUAL, Recebidos é o total de oportunidades (o que está com
+// ela + o que passou e saiu): o lead que foi para o Rafael continua contando.
+assert.equal(marinaOntem.recebidos, 1, "o relatório individual conta também o lead que passou e saiu");
 
 console.log("1d. E o relatório de HOJE mostra Rafael com 1 recebido, e Marina com 1 PERDIDO");
 resp = await fetch(`${BASE}/reports?de=${hojeStr}&ate=${hojeStr}`, { headers: auth });

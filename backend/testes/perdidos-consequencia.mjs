@@ -45,9 +45,8 @@ await caso("1. Relatório da pessoa: perdidos por consequência = recebidos − 
   const a = r.body.atendentes.find(x => x.id === ana);
   // Recebidos = os que ESTÃO com ela (regra do Kanban, 25/11/2026): L3 foi para a Bia.
   // Perdidos por consequência continua olhando quem passou por ela: L2, L3 e L4.
-  assert.equal(a.recebidos, 3); assert.equal(a.atendidos, 1);
-  // Total de oportunidades = 3 que estão com ela + 1 que passou e saiu (L3).
-  assert.equal(a.oportunidades, 4); assert.equal(a.oportunidades_sairam, 1);
+  // Relatório individual: Recebidos = TODAS as oportunidades (3 com ela + L3, que passou e saiu).
+  assert.equal(a.recebidos, 4); assert.equal(a.atendidos, 1);
   assert.equal(a.perdidos_consequencia, 3); assert.equal(a.perdidos_consequencia_saiu, 1);
   assert.equal(a.perdidos, 0, "Perdidos (etapa de perda) continua separado");
 });
@@ -67,8 +66,7 @@ await caso("3. Visão geral: com a pessoa no filtro, o mesmo número; para a cas
 });
 await caso("4. Ordem dos cartões: padrão, só o gestor grava, vale para todos, volta ao padrão", async () => {
   r = await A("/reports/cartoes"); assert.equal(r.status, 200);
-  assert.equal(r.body.pessoa.ordem[0], "oportunidades");
-  assert.equal(r.body.pessoa.ordem[3], "perdidos_consequencia"); assert.equal(r.body.pessoa.personalizado, false);
+  assert.equal(r.body.pessoa.ordem[2], "perdidos_consequencia"); assert.equal(r.body.pessoa.personalizado, false);
   r = await A("/reports/cartoes", { method: "PUT", body: { pessoa: ["vendas"] } }); assert.equal(r.status, 403);
   r = await G("/reports/cartoes", { method: "PUT", body: { pessoa: ["atendidos", "recebidos", "xyz", "atendidos"] } });
   assert.equal(r.status, 200); assert.deepEqual(r.body.pessoa.ordem, ["atendidos", "recebidos"]);
