@@ -193,6 +193,7 @@ export function paginaImovel(ctx, i, tema = "claro") {
       <h1>${esc(i.titulo)}</h1>
       ${specs ? `<div class="specs">${specs}</div>` : ""}
       ${i.descricao ? `<div class="secao"><h2>SOBRE O IMÓVEL</h2><p class="texto">${esc(i.descricao)}</p></div>` : ""}
+      ${pecas.caracteristicasHtml(i)}
       ${pecas.secaoUnidades(i)}
       ${i.video ? `<div class="secao"><h2>VÍDEO</h2><video src="${esc(i.video)}" controls preload="metadata" playsinline></video></div>` : ""}
     </article>

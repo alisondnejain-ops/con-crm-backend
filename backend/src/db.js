@@ -2925,6 +2925,37 @@ CREATE INDEX IF NOT EXISTS idx_cadencia_etapa ON cadencia_passos(org_id, stage_i
     ["area_max", "REAL"], ["proprietario", "TEXT"], ["entrega", "TEXT"]])
     if (!cols.includes(c)) db.exec(`ALTER TABLE produtos ADD COLUMN ${c} ${t}`);
 }
+/* A FICHA DO IMÓVEL PARA QUALQUER ESTADO (25/11/2026, services/ficha-imovel.js).
+   Condições de pagamento viram LISTA (`pagamentos`, JSON) e o programa de um
+   estado ou cidade vira texto livre (`programa_local`) — antes eram três
+   modalidades fixas, uma delas só de Pernambuco. `modalidade` continua sendo
+   gravada, como o texto montado das duas, porque site, IA e mensagem a leem.
+   A cópia das modalidades antigas roda UMA vez, quando a coluna nasce. */
+{
+  const cols = db.prepare("PRAGMA table_info(produtos)").all().map(c => c.name);
+  const novaPagamentos = !cols.includes("pagamentos");
+  for (const [c, t] of [["pagamentos", "TEXT"], ["programa_local", "TEXT"], ["garantias", "TEXT"], ["caracteristicas", "TEXT"],
+    ["detalhes", "TEXT"], ["referencia", "TEXT"], ["andar", "INTEGER"], ["unidade_numero", "TEXT"], ["lavabos", "INTEGER"],
+    ["salas", "INTEGER"], ["area_total", "REAL"], ["ano_construcao", "INTEGER"], ["iptu_periodo", "TEXT"], ["video_url", "TEXT"],
+    ["tour_url", "TEXT"], ["chaves_local", "TEXT"], ["proprietario_tel", "TEXT"], ["exclusividade_ate", "TEXT"],
+    ["comissao_corretor_pct", "REAL"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE produtos ADD COLUMN ${c} ${t}`);
+  if (novaPagamentos) {
+    db.exec(`UPDATE produtos SET pagamentos = '["mcmv"]' WHERE modalidade = 'Minha Casa Minha Vida'`);
+    db.exec(`UPDATE produtos SET pagamentos = '["financiamento"]' WHERE modalidade = 'SBPE'`);
+    db.exec(`UPDATE produtos SET programa_local = 'Morar Bem PE' WHERE modalidade = 'Morar Bem PE' OR morar_bem = 1`);
+  }
+  /* A divisão da comissão era 45/55 escrita no código — a da Conecta. Agora é
+     da conta (padrão) e pode mudar por imóvel. As contas que já viam a divisão
+     (têm imóvel com comissão) ficam com os 55% de sempre; as novas começam sem
+     divisão até alguém dizer qual é. */
+  const o = db.prepare("PRAGMA table_info(orgs)").all().map(c => c.name);
+  if (!o.includes("comissao_corretor_pct")) {
+    db.exec("ALTER TABLE orgs ADD COLUMN comissao_corretor_pct REAL");
+    db.exec("UPDATE orgs SET comissao_corretor_pct = 55 WHERE id IN (SELECT DISTINCT org_id FROM produtos WHERE comissao_pct IS NOT NULL)");
+  }
+}
+
 db.exec(`CREATE TABLE IF NOT EXISTS produto_unidades (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,
