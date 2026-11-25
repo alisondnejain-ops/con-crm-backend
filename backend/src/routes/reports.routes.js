@@ -185,6 +185,16 @@ r.get("/", (req, res) => {
     return {
       id: u.id, nome: u.name, papel: u.role,
       recebidos: recebidosEventos.length,
+      /* TOTAL DE OPORTUNIDADES (25/11/2026, pedido do Ali com a Blanca: 177
+         no Kanban e 301 perdidos por consequência — "não estamos mais
+         visualizando o total de oportunidades que ela tinha"). Todo lead que
+         chegou na mão dela no período: os que ESTÃO com ela (recebidos, o
+         número do Kanban) + os que passaram por ela e já saíram. Um lead
+         conta uma vez. */
+      ...(() => { const ids = new Set(recebidosEventos.map(e => e.lead_id));
+        const comEla = ids.size;
+        for (const e of passagensEm(eventos, u.id, de, ate)) ids.add(e.lead_id);
+        return { oportunidades: ids.size, oportunidades_sairam: ids.size - comEla }; })(),
       /* Visível direto na tabela, não só no detalhe do score — pedido do
          Ali: "acrescentar a quantidade de leads que foram perdidos pelo
          corretor anterior em relação àquele mês". Só transferência manual
@@ -411,7 +421,7 @@ r.put("/score/pontos", roles("adm"), (req, res) => {
 export const CARTOES = {
   // "Perdidos por consequência" é só do relatório individual (25/11/2026, Ali).
   visao: ["recebidos", "etapa_inicial", "atendidos", "resposta", "responderam", "qualificados"],
-  pessoa: ["recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
+  pessoa: ["oportunidades", "recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
 };
 function cartoesDa(orgId) {
   let v = {};

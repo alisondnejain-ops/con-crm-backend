@@ -26322,12 +26322,16 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
              "Ordem dos cartões" e vale para toda a equipe. Era uma escolha de
              cada aparelho (CETRO 17.4). */
           const todos=[
-            ["recebidos",<Metric key="recebidos" n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>],
+            /* Tudo que chegou na mão dela no período: o que está com ela (o
+               número do Kanban) + o que passou por ela e já saiu. */
+            ["oportunidades",<Metric key="oportunidades" n="users" label="Total de oportunidades" value={linha.oportunidades??linha.recebidos} accent={C.greenDeep}
+              sub={`${linha.recebidos} no Kanban + ${linha.oportunidades_sairam||0} que já saíram da mão`}/>],
+            ["recebidos",<Metric key="recebidos" n="users" label="Oportunidades no Kanban" value={linha.recebidos} accent={C.cool} sub="estão com a pessoa · chegaram no período"/>],
             ["atendidos",<Metric key="atendidos" n="msg" label="Contatados" value={linha.atendidos} sub={linha.taxa_atendimento+"% dos recebidos · mensagem ou ligação dela"} accent={C.green}/>],
             /* Recebidos − Atendidos: o lead que chegou e ninguém escreveu. Não
                substitui "Perdidos" (o negócio que foi para a etapa de perda). */
             ["perdidos_consequencia",<Metric key="perdidos_consequencia" n="clock" label="Perdidos por consequência" value={linha.perdidos_consequencia??0}
-              sub={linha.perdidos_consequencia?`recebidos sem contato · ${linha.perdidos_consequencia_saiu||0} já saíram da mão`:"todos foram contatados"} accent={C.amber}/>],
+              sub={linha.perdidos_consequencia?`do total de oportunidades, sem contato dela · ${linha.perdidos_consequencia_saiu||0} já saíram da mão`:"todos foram contatados"} accent={C.amber}/>],
             ["qualificados",<Metric key="qualificados" n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>],
             ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="chegaram ao agendamento" accent="#3B7BC4"/>],
             ["visitas",<Metric key="visitas" n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>],
@@ -26335,7 +26339,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             ["perdidos",<Metric key="perdidos" n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>],
             ["perdidos_outro",<Metric key="perdidos_outro" n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro} sub="repasse manual no período" accent={C.hot}/>],
           ];
-          const nomes={recebidos:"Recebidos",atendidos:"Contatados",perdidos_consequencia:"Perdidos por consequência",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro corretor"};
+          const nomes={oportunidades:"Total de oportunidades",recebidos:"Oportunidades no Kanban",atendidos:"Contatados",perdidos_consequencia:"Perdidos por consequência",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro corretor"};
           const mapa=new Map(todos);
           const ordem=(cartoes&&cartoes.pessoa&&cartoes.pessoa.ordem)||todos.map(t=>t[0]);
           return <React.Fragment>

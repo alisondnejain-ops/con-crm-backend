@@ -1565,6 +1565,8 @@ Este arquivo é o contexto do projeto. Leia-o antes de agir. Fale português com
 
 - **O cartão "Leads recebidos" da Visão geral passou a se chamar "Oportunidades no Kanban"** (25/11/2026, pedido do Ali; `PainelGestao` em `app.jsx`). Só o nome do cartão e as dicas do Kanban que o citam. A conta é a mesma. Os outros nomes ("Leads recebidos" em Relatórios, Painel e no alto do funil) ficam para ser trocados aos poucos, como ele pediu.
 
+- **"Total de oportunidades" no relatório de cada pessoa** (25/11/2026, pedido do Ali com a Blanca: 177 no Kanban e 301 perdidos por consequência — *"não estamos mais visualizando o total de oportunidades que ela tinha"*; `oportunidades`/`oportunidades_sairam` em `GET /reports`, cartão novo e primeiro da lista `CARTOES.pessoa`). É todo lead que chegou na mão da pessoa no período: os que **estão com ela** (o cartão "Oportunidades no Kanban", que era "Recebidos" ali) **+ os que passaram por ela e já saíram** (`passagensEm`), cada lead uma vez. O subtítulo escreve a soma ("177 no Kanban + N que já saíram da mão"). **Não é 177 + 301**: parte dos perdidos por consequência ainda está com ela, esperando a primeira mensagem, e já está nos 177. "Perdidos por consequência" passa a dizer "do total de oportunidades, sem contato dela". Conta com ordem de cartões personalizada só vê o cartão novo depois de incluí-lo em "Ordem dos cartões". Teste: caso 1 de `npm run teste:perdidos-consequencia`.
+
 ## Pedidos em aberto: a lista do Fernando (28/10/2026)
 
 O Fernando (que opera o ConHub como "Cetro") mandou ~50 pedidos num documento. A análise feita com o Ali, item a item contra o código, está aqui para não se perder. **Status atualizado conforme cada um for feito.**
