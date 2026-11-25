@@ -23572,15 +23572,13 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           const cards={
             recebidos:<Metric key="recebidos" rot="Leads recebidos" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
             atendidos:<Metric key="atendidos" rot="Leads atendidos" v={a.atendidos??"—"} sub={a.atendidos==null?null:`${num(a.taxa_atendimento,"%")} dos recebidos · ${comPessoa?"mensagem de quem recebeu":"alguém da equipe escreveu"}`}/>,
-            perdidos_consequencia:<Metric key="perdidos_consequencia" rot="Perdidos por consequência" v={a.perdidos_consequencia??"—"} cor={a.perdidos_consequencia?C.amber:C.ink}
-              sub="recebidos sem mensagem nem ligação atendida — não é a etapa de perda"/>,
             resposta:<Metric key="resposta" rot="Tempo da 1ª resposta" v={tempo(a.primeira_resposta_mediana_min)} sub="mediana"/>,
             responderam:<Metric key="responderam" rot="Responderam à 1ª mensagem" v={num(a.taxa_resposta_cliente,"%")}
               sub={a.clientes_contatados?`${a.clientes_responderam} de ${a.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>,
             qualificados:<Metric key="qualificados" rot="Qualificados" v={a.qualificados??"—"}
               sub={comPessoa?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>,
           };
-          const nomes={recebidos:"Leads recebidos",atendidos:"Leads atendidos",perdidos_consequencia:"Perdidos por consequência",resposta:"Tempo da 1ª resposta",responderam:"Responderam à 1ª mensagem",qualificados:"Qualificados"};
+          const nomes={recebidos:"Leads recebidos",atendidos:"Leads atendidos",resposta:"Tempo da 1ª resposta",responderam:"Responderam à 1ª mensagem",qualificados:"Qualificados"};
           const ordem=(cartoes&&cartoes.visao&&cartoes.visao.ordem)||Object.keys(cards);
           return <div>
             {podeGerir(session)&&!ordenando&&<div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>

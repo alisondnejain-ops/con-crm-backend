@@ -408,7 +408,8 @@ r.put("/score/pontos", roles("adm"), (req, res) => {
    lista guardada é a ordem; chave desconhecida é descartada, e lista vazia
    volta ao padrão. */
 export const CARTOES = {
-  visao: ["recebidos", "atendidos", "perdidos_consequencia", "resposta", "responderam", "qualificados"],
+  // "Perdidos por consequência" é só do relatório individual (25/11/2026, Ali).
+  visao: ["recebidos", "atendidos", "resposta", "responderam", "qualificados"],
   pessoa: ["recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
 };
 function cartoesDa(orgId) {
