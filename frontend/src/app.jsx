@@ -23573,7 +23573,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
             recebidos:<Metric key="recebidos" rot="Leads recebidos" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
             atendidos:<Metric key="atendidos" rot="Leads atendidos" v={a.atendidos??"—"} sub={a.atendidos==null?null:`${num(a.taxa_atendimento,"%")} dos recebidos · ${comPessoa?"mensagem de quem recebeu":"alguém da equipe escreveu"}`}/>,
             perdidos_consequencia:<Metric key="perdidos_consequencia" rot="Perdidos por consequência" v={a.perdidos_consequencia??"—"} cor={a.perdidos_consequencia?C.amber:C.ink}
-              sub="recebidos sem nenhuma mensagem — não é a etapa de perda"/>,
+              sub="recebidos sem mensagem nem ligação atendida — não é a etapa de perda"/>,
             resposta:<Metric key="resposta" rot="Tempo da 1ª resposta" v={tempo(a.primeira_resposta_mediana_min)} sub="mediana"/>,
             responderam:<Metric key="responderam" rot="Responderam à 1ª mensagem" v={num(a.taxa_resposta_cliente,"%")}
               sub={a.clientes_contatados?`${a.clientes_responderam} de ${a.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>,
@@ -25781,7 +25781,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         {numero("Leads recebidos",linha.recebidos,"entraram no período")}
         {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
-        {numero("Perdidos por consequência",linha.perdidos_consequencia??0,"recebidos sem nenhuma mensagem")}
+        {numero("Perdidos por consequência",linha.perdidos_consequencia??0,"recebidos sem atendimento")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
         {numero("Qualificados",linha.qualificados??0,"no período")}
         {numero("Agendamentos",linha.agendados??0,"chegaram ao agendamento")}
@@ -25880,8 +25880,8 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         <div><b>Funil de conversão</b> — cada etapa conta os leads que <b>chegaram a ela no período</b>, venham de quando vierem; o primeiro degrau conta quem entrou no comercial no período, e a venda conta pela data em que foi registrada. <b>Desde a entrada</b> = chegaram à etapa ÷ primeiro degrau; <b>da etapa anterior</b> = chegaram à etapa ÷ chegaram à de cima, no mesmo período.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
         <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
-        <div><b>Perdidos por consequência</b> — dos leads recebidos no período, os que esta pessoa nunca escreveu depois de receber (Recebidos − Atendidos). É atendimento que não aconteceu; <b>Perdidos</b> continua sendo o lead movido para a etapa de perda.</div>
-        <div><b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
+        <div><b>Perdidos por consequência</b> — dos leads recebidos no período, os que esta pessoa não atendeu depois de receber — nem mensagem, nem ligação em que falou com o cliente (Recebidos − Atendidos). É atendimento que não aconteceu; <b>Perdidos</b> continua sendo o lead movido para a etapa de perda.</div>
+        <div><b>Atendidos</b> — mensagem desta pessoa ou ligação em que ela falou com o cliente (tentativa sem resposta não conta). <b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
         {(score&&score.componentes||[]).some(c=>c.comparativo)&&
           <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
       </div>

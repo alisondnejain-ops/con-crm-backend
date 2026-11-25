@@ -74,5 +74,17 @@ await caso("4. Ordem dos cartões: padrão, só o gestor grava, vale para todos,
   r = await G("/reports/cartoes", { method: "PUT", body: { pessoa: null } });
   assert.equal(r.body.pessoa.personalizado, false); assert.deepEqual(r.body.visao.ordem, ["qualificados", "recebidos"]);
 });
+await caso("5. Ligação conta só quando ela FALOU com o cliente", async () => {
+  const lig = (L, res) => db.prepare("INSERT INTO ligacoes (id,lead_id,user_id,created_at,resultado) VALUES (?,?,?,?,?)").run("g_" + randomUUID(), L, ana, agora - 3600e3, res);
+  lig(L4, "nao_atendeu");
+  r = await G("/reports"); let a = r.body.atendentes.find(x => x.id === ana);
+  assert.equal(a.atendidos, 1, "não atendeu não é atendimento"); assert.equal(a.perdidos_consequencia, 3);
+  lig(L2, "falou");
+  r = await G("/reports"); a = r.body.atendentes.find(x => x.id === ana);
+  assert.equal(a.atendidos, 2); assert.equal(a.perdidos_consequencia, 2);
+  r = await G("/reports/score?periodo=90dias"); assert.equal(r.body.equipe.find(x => x.id === ana).perdidos_consequencia, 2);
+  r = await G(`/painel?periodo=90dias&responsavel=${ana}`); assert.equal(r.body.atendimento.atendidos, 2);
+  r = await G("/painel?periodo=90dias"); assert.equal(r.body.atendimento.atendidos, 3);
+});
 console.log(falhas ? `\n${falhas} falha(s).` : "\nOK — perdidos por consequência e ordem dos cartões.");
 process.exit(falhas ? 1 : 0);

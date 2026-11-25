@@ -227,7 +227,8 @@ function respostaDoCliente(leads) {
 
 /* ATENDIDOS E PERDIDOS POR CONSEQUÊNCIA NA VISÃO GERAL (25/11/2026).
    A mesma régua do relatório de cada pessoa (temposDoCorretor): atendido é
-   o recebido que ganhou uma mensagem DEPOIS de chegar; o resto é perdido por
+   o recebido que ganhou uma mensagem, ou uma ligação em que se FALOU com o
+   cliente, DEPOIS de chegar; o resto é perdido por
    consequência (Recebidos − Atendidos).
    - Com pessoas no filtro: a mensagem tem de ser DE QUEM o recebeu, depois
      da chegada na mão dela — o número soma com o dos relatórios.
@@ -240,6 +241,10 @@ function atendidosDoPeriodo(orgId, { eventos, leads }) {
       `SELECT lead_id, from_user_id u, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id IS NOT NULL`).all(...lote));
     const por = new Map();
     for (const m of msgs) (por.get(m.lead_id) || por.set(m.lead_id, []).get(m.lead_id)).push(m);
+    // Ligação em que a pessoa falou com o cliente também conta (25/11/2026).
+    for (const g of emLotes(ids, (marcas, lote) => db.prepare(
+      `SELECT lead_id, user_id u, created_at t FROM ligacoes WHERE lead_id IN (${marcas}) AND resultado = 'falou'`).all(...lote)))
+      (por.get(g.lead_id) || por.set(g.lead_id, []).get(g.lead_id)).push(g);
     let atendidos = 0;
     for (const e of eventos) if ((por.get(e.lead_id) || []).some(m => m.u === e.user_id && m.t >= e.quando)) atendidos++;
     return { recebidos: eventos.length, atendidos };
@@ -249,6 +254,9 @@ function atendidosDoPeriodo(orgId, { eventos, leads }) {
     `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND ${semDisparo()}
        AND NOT (from_user_id IS NULL AND COALESCE(from_name,'') = '${ASSINATURA_ROBO}')`).all(...lote))
     .reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
+  for (const g of emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT lead_id, created_at t FROM ligacoes WHERE lead_id IN (${marcas}) AND resultado = 'falou'`).all(...lote)))
+    (primeira.get(g.lead_id) || primeira.set(g.lead_id, []).get(g.lead_id)).push(g.t);
   let atendidos = 0;
   for (const l of leads) if ((primeira.get(l.id) || []).some(t => t >= l.created_at)) atendidos++;
   return { recebidos: leads.length, atendidos };

@@ -173,12 +173,20 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
   const primeira = new Map(emLotes(ids, (marcas, lote) => db.prepare(
     `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id = ?
      ORDER BY created_at`).all(...lote, userId)).reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
+  const ligou = new Map(emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT lead_id, created_at t FROM ligacoes WHERE lead_id IN (${marcas}) AND user_id = ? AND resultado = 'falou'`).all(...lote, userId))
+    .reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
   const esperas = [];
   let atendidos = 0;
   const naoAtendidos = [];
   for (const e of recebidos) {
     const q = (primeira.get(e.lead_id) || []).find(t => t >= e.quando);
-    if (q != null) atendidos++; else naoAtendidos.push(e.lead_id);
+    /* Ligação em que ELE FALOU com o cliente (resultado "falou") também é
+       atendimento (25/11/2026, decisão do Ali). Tentativa, caixa postal e
+       "não atendeu" não contam. Só entra em Atendidos/Perdidos por
+       consequência — a 1ª resposta continua sendo a primeira mensagem. */
+    const falou = (ligou.get(e.lead_id) || []).some(t => t >= e.quando);
+    if (q != null || falou) atendidos++; else naoAtendidos.push(e.lead_id);
     if (q == null || !etapas.entrada.has(etapaEm(e.lead_id, e.quando))) continue;
     esperas.push((q - e.quando) / 60000);
   }
@@ -193,8 +201,8 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
 
 /* PERDIDOS POR CONSEQUÊNCIA (25/11/2026, pedido do Ali: "301 leads perdidos
    pela corretora que não receberam atendimento"). Dos leads que a pessoa
-   RECEBEU no período, os que ela nunca escreveu depois de receber — é
-   exatamente Recebidos − Atendidos, a mesma régua dos dois cartões, para os
+   RECEBEU no período, os que ela nunca escreveu nem falou por ligação
+   depois de receber — é exatamente Recebidos − Atendidos, a mesma régua dos dois cartões, para os
    três números fecharem na tela. NÃO substitui "Perdidos" (lead que foi para
    a etapa de perda): aquele é negócio que caiu, este é atendimento que não
    aconteceu. `saiu` = quantos desses já não estão com ela (repassados pela
