@@ -11495,6 +11495,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const visiveis=useMemo(()=>{
     const q=semAcento(busca.trim().toLowerCase());
     const digitos=busca.replace(/\D/g,"");
+    const porChegada=donosDoValor(f.dono).some(d=>d!=="fila")||!mostrarDono;
     const inicio=f.de?new Date(f.de+"T00:00:00").getTime():null;
     const fim=f.ate?new Date(f.ate+"T23:59:59").getTime():null;
     return doFunil.filter(l=>{
@@ -11520,7 +11521,11 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       // "mostre os investidores" que ninguém conseguia perguntar ao CRM.
       if(f.tag&&!(l.tags||[]).some(t=>t.id===f.tag)) return false;
       if(!passaNaSituacao(l,f.situacao)) return false;
-      const quando=l.createdAt||0;
+      /* A MESMA DATA DO RELATÓRIO (25/11/2026): com pessoa no filtro (ou no
+         quadro do próprio corretor), o período olha quando o lead chegou na
+         mão dela; sem pessoa, quando o lead entrou. É a regra de "Leads
+         recebidos" — o número daqui é o de lá. */
+      const quando=(porChegada&&l.assignedTo?(l.assignedAt||l.createdAt):l.createdAt)||0;
       if(inicio&&quando<inicio) return false;
       if(fim&&quando>fim) return false;
       return true;
@@ -11694,7 +11699,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             cartão "Leads recebidos" da Visão geral. O funil de conversão é
             outra pergunta (quem chegou a cada etapa no período). */}
         <span title={f.de||f.ate
-            ?"Leads que chegaram no período e estão neste funil hoje — o mesmo número de \"Leads recebidos\" da Visão geral com este funil e este período (o filtro de pessoa aqui é o responsável de hoje)."
+            ?"Leads que chegaram no período e estão neste funil — o mesmo número de \"Leads recebidos\" da Visão geral e dos Relatórios com o mesmo funil, a mesma pessoa e o mesmo período."
             :"Leads que estão neste funil hoje, em todas as etapas. Ligue o período em Filtros para comparar com \"Leads recebidos\" da Visão geral."}
           style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",cursor:"help"}}>
           {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}{f.de||f.ate?" · chegaram no período":" · hoje no funil"}</span>
@@ -26476,7 +26481,7 @@ const KPIS_CATALOGO=[
   {k:"ticket_medio",label:"Ticket médio",ajuda:"VGV dividido pela quantidade de vendas do período.",fmt:"dinheiro"},
   {k:"vendas",label:"Vendas",ajuda:"Quantidade de vendas registradas no período, pela data da venda.",fmt:"numero"},
   {k:"lead_em_venda_pct",label:"Conversão leads → vendas",ajuda:"Vendas do período divididas pelos leads recebidos no mesmo período.",fmt:"pct"},
-  {k:"leads",label:"Leads recebidos",ajuda:"Leads que chegaram no período (com uma pessoa no filtro, os que chegaram na mão dela).",fmt:"numero"},
+  {k:"leads",label:"Leads recebidos",ajuda:"Leads que chegaram no período. Com uma pessoa no filtro: os que estão com ela e chegaram a ela no período, o mesmo número do Funil com a pessoa e o período.",fmt:"numero"},
   {k:"qualificados",label:"Qualificados",ajuda:"Leads que passaram pela etapa de qualificação comercial no período, uma vez por lead.",fmt:"numero"},
   {k:"visitas",label:"Visitas realizadas",ajuda:"Visitas que aconteceram no período, separadas dos agendamentos.",fmt:"numero"},
   {k:"agendamentos",label:"Agendamentos",ajuda:"Leads que chegaram à etapa de agendamento no período.",fmt:"numero"},

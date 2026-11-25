@@ -77,7 +77,7 @@ const A = lead({ etapa: sdrNovo, pipe: sdrId, quando: t(60), source: "meta" });
 mover(A, sdrNovo, E["Novo"], t(120), ali);
 trocarResponsavel(A, blanca, ali, "mao");
 db.prepare("UPDATE lead_transfers SET created_at = ?, from_pipeline_id = ? WHERE lead_id = ?").run(t(120), sdrId, A);
-db.prepare("UPDATE leads SET stage_id = ?, pipeline_id = ? WHERE id = ?").run(E["Novo"], bxId, A);
+db.prepare("UPDATE leads SET stage_id = ?, pipeline_id = ?, assigned_at = ? WHERE id = ?").run(E["Novo"], bxId, t(120), A);
 // Blanca responde às 02:10 → 1ª resposta 10 min; pula de Novo para Agendamento às 03:00.
 msg(A, "out", t(130), blanca);
 msg(A, "in", t(135));
@@ -95,6 +95,7 @@ db.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at,canal_id)
 const C = lead({ dono: ezequiel, etapa: E["Proposta"], pipe: bxId, quando: t(10) });
 trocarResponsavel(C, blanca, ali, "mao");
 db.prepare("UPDATE lead_transfers SET created_at = ? WHERE lead_id = ?").run(t(300), C);
+db.prepare("UPDATE leads SET assigned_at = ? WHERE id = ?").run(t(300), C);
 msg(C, "out", t(400), blanca);
 
 // D: carteira passada em lote do Ezequiel para a Blanca — não conta.
@@ -110,7 +111,10 @@ const get = async (tk, c) => { const r = await fetch(BASE + c, { headers: { auth
   const d = await r.json(); assert.equal(r.status, 200, `${c}: ${JSON.stringify(d)}`); return d; };
 const tAli = await entrar("Ali");
 
-console.log("1. Recebidos da Blanca: A e C (não B da linha pessoal, não D do lote), igual em todas as telas");
+// REGRA NOVA (25/11/2026): recebidos = os leads que ESTÃO com a pessoa, como no
+// Kanban dela. B (linha pessoal) e D (lote) estão com a Blanca e aparecem no
+// quadro dela — contam, senão o relatório não bateria com o Kanban.
+console.log("1. Recebidos da Blanca: os 4 que estão com ela (A, B, C e D), igual em todas as telas");
 const rel = await get(tAli, "/reports?periodo=hoje");
 const lb = rel.atendentes.find(a => a.id === blanca);
 const eq = (await get(tAli, "/painel/equipe?periodo=hoje")).equipe.find(p => p.id === blanca);
@@ -118,7 +122,7 @@ const pg = await get(tAli, `/painel/geral?periodo=hoje&responsavel=${blanca}`);
 const op = await get(tAli, `/painel?periodo=hoje&responsavel=${blanca}`);
 const v = { relatorios: lb.recebidos, equipe: eq.recebidos_no_periodo, painel: pg.kpis.leads.atual, operacao: op.atendimento.recebidos };
 console.log("   " + JSON.stringify(v));
-for (const [k, x] of Object.entries(v)) assert.equal(x, 2, k);
+for (const [k, x] of Object.entries(v)) assert.equal(x, 4, k);
 
 console.log("2. Marcos: Novo → Agendamento conta qualificado E agendado para a Blanca; visita ainda 0");
 const passo = (id) => pg.funil_atividade.find(p => p.id === id).valor;

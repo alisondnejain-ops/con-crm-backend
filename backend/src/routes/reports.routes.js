@@ -3,10 +3,10 @@ import db, { emLotes } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequencia } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequenciaNoPeriodo } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
-import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "../services/movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm, passagensEm } from "../services/movimento.js";
 import { resolverPeriodo } from "../services/painel.js";
 import { indicadoresDoSdr } from "../services/sdr.js";
 import { filaPorEtapaLigada, sdrConsolidado } from "../services/fila-etapa.js";
@@ -196,7 +196,7 @@ r.get("/", (req, res) => {
       atendidos: atendidos.length,
       /* Recebidos − Atendidos (ver perdidosPorConsequencia em score.js).
          Ao lado de "Perdidos", que continua sendo o lead movido para perda. */
-      ...(() => { const pc = perdidosPorConsequencia(req.user.org_id, u.id, tempos.naoAtendidos);
+      ...(() => { const pc = perdidosPorConsequenciaNoPeriodo(req.user.org_id, u.id, eventos, de, ate, ctxTempos);
         return { perdidos_consequencia: pc.total, perdidos_consequencia_saiu: pc.saiu }; })(),
       taxa_atendimento: pct(atendidos.length, recebidosEventos.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
@@ -294,7 +294,8 @@ r.get("/", (req, res) => {
        que o relatório foi aberto — um lead devolvido à fila (sem dono agora)
        ou repassado de novo por engano desaparecia da conta, mesmo o repasse
        original tendo acontecido dentro do período pedido. */
-    const recebidosEventos = recebidosEm(eventos, u.id, de, ate);
+    // A atendente: quem PASSOU pela mão dela (o trabalho dela é passar adiante).
+    const recebidosEventos = passagensEm(eventos, u.id, de, ate);
     const repassadosEventos = noPeriodo(eventos.perdidos, u.id, de, ate);
     const naFila = leads.filter(l => !l.assigned_to);
     return {

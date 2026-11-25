@@ -319,21 +319,18 @@ for (let i = 1; i < seq15c.length; i++) assert.ok(seq15c[i] <= seq15c[i - 1], "n
 assert.equal(linha(r, "Venda").sem_passar_pela_anterior, 0);
 assert.ok(r.linhas.every(l => !l.anterior || l.anterior.taxa === null || l.anterior.taxa <= 100));
 
-console.log("16. A coorte é do dono na entrada; repasse depois não reescreve");
+console.log("16. O primeiro degrau é de quem ESTÁ com o lead (a regra do Kanban, 25/11/2026)");
 const F16 = novoFunil("Donos");
 const d16 = lead(F16, "Inbox", SET(11), marina); mover(F16, d16, "Qualificado", SET(12));
 repassar(d16, marina, rafael, SET(13));
 r = conv(F16);
-assert.equal(r.por_responsavel.find(g => g.id === marina).base, 1);
-assert.ok(!r.por_responsavel.find(g => g.id === rafael));
-assert.equal(conv(F16, { ...PERIODO, responsavel: marina }).base, 1);
-// O primeiro degrau é "dos recebidos, quantos já chegaram ao comercial" (25/11/2026):
-// o Rafael recebeu o lead já qualificado — conta para ele também.
+assert.equal(r.por_responsavel.find(g => g.id === rafael).base, 1);
+assert.ok(!(r.por_responsavel.find(g => g.id === marina) || {}).base);
+assert.equal(conv(F16, { ...PERIODO, responsavel: marina }).base, 0);
 assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 1);
-// A troca de dono na mesma operação da entrada (automação do SDR) é o dono.
 const d16b = lead(F16, "Inbox", SET(11), marina); mover(F16, d16b, "Qualificado", SET(12)); repassar(d16b, marina, rafael, SET(12) + 50);
 assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 2);
-console.log("   repassado depois: continua da Marina · na mesma operação: do Rafael");
+console.log("   repassado: conta para quem está com o lead, como no Kanban");
 // O print do Ali (333 recebidos · 99 chegaram a Lead): lead que a fila pôs em
 // Qualificado ANTES de chegar à pessoa conta no primeiro degrau dela.
 const F16c = novoFunil("Recebido já no comercial");
@@ -360,7 +357,7 @@ const g18 = lead(F18, "Inbox", AGO(20), marina); mover(F18, g18, "Qualificado", 
 const PAGO = { de: "2026-08-15", ate: "2026-08-31" };
 r = conv(F18, PAGO);
 assert.equal(r.base, 1);
-assert.equal(r.por_responsavel[0].grupo, "desconhecido");
+assert.equal(r.por_responsavel[0].grupo, "pessoa");
 assert.equal(conv(F18, { ...PAGO, responsavel: marina }).base, 1);  // está nos recebidos dela (25/11/2026)
 assert.equal(conv(F18, { ...PAGO, responsavel: marina }).cobertura.dono_desconhecido, 1);
 console.log("   entrou em 21/08: dono desconhecido, fora do filtro por pessoa, contado à parte");
@@ -467,8 +464,9 @@ assert.equal(x.d.total, 2);
 assert.ok(x.d.itens.some(i => i.id === d16b));
 assert.ok(x.d.itens.every(i => i.pode_abrir === true));
 x = await get(tAli, `/painel/funil/${F16.id}/conferencia?${q}&conjunto=base&responsavel=${marina}`);
-assert.equal(x.d.itens[0].id, d16);
-assert.equal(x.d.itens[0].responsavel_atual, "Rafael");
+assert.equal(x.d.total, 0, "a Marina não tem mais lead neste funil: nenhum lead de outro corretor na lista dela");
+x = await get(tAli, `/painel/funil/${F16.id}/conferencia?${q}&conjunto=base&responsavel=${rafael}`);
+assert.ok(x.d.itens.every(i => i.responsavel_atual === "Rafael"));
 x = await get(tAli, `/painel/funil/${F16.id}/conferencia?${q}&conjunto=xyz`);
 assert.equal(x.status, 400);
 

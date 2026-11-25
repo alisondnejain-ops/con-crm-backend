@@ -20,7 +20,7 @@
    a mesma conta sobre os leads que as atendentes receberam no período. */
 import db from "../db.js";
 import { semMaster } from "../auth.js";
-import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
+import { eventosDeAtribuicao, noPeriodo, passagensEm as recebidosEm } from "./movimento.js";
 import { etapasDeQualificacao } from "./painel-geral.js";
 import { mediana, pct } from "./score.js";
 import { preAtendimento, qualificadosNoPeriodo } from "./sdr-funil.js";

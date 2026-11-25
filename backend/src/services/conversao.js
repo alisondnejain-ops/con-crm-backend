@@ -538,7 +538,8 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
   const comUnidade = new Set();
   for (const u of unidades) {
     const c0 = u.chegadas.get(cfg.marcos[0].id);
-    if (daCoorte(u)) { comUnidade.add(u.lead.id); grupo(c0 ? c0.dono : u.dono).base++; }
+    // Base por pessoa = com quem o lead ESTÁ (a regra do Kanban, 25/11/2026).
+    if (daCoorte(u)) { comUnidade.add(u.lead.id); grupo({ conhecido: true, id: u.lead.assigned_to || null }).base++; }
     const cu = ultimo && cfg.marcos.length > 1 ? u.chegadas.get(ultimo.id) : null;
     if (cu) grupo(cu.dono).chegaram_ao_ultimo++;
   }

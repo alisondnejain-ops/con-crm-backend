@@ -1,6 +1,6 @@
 import db, { emLotes } from "../db.js";
 import { semMaster } from "../auth.js";
-import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
+import { eventosDeAtribuicao, noPeriodo, recebidosEm, passagensEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
 import { naoEncerra } from "./encerra.js";
 import { etapaNoInstante, etapasDoComercial } from "./marcos.js";
@@ -180,20 +180,20 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
   let atendidos = 0;
   const naoAtendidos = [];
   for (const e of recebidos) {
-    const q = (primeira.get(e.lead_id) || []).find(t => t >= e.quando);
+    const q = (primeira.get(e.lead_id) || []).find(t => t >= (e.chegou ?? e.quando));
     /* Ligação em que ELE FALOU com o cliente (resultado "falou") também é
        atendimento (25/11/2026, decisão do Ali). Tentativa, caixa postal e
        "não atendeu" não contam. Só entra em Atendidos/Perdidos por
        consequência — a 1ª resposta continua sendo a primeira mensagem. */
-    const falou = (ligou.get(e.lead_id) || []).some(t => t >= e.quando);
+    const falou = (ligou.get(e.lead_id) || []).some(t => t >= (e.chegou ?? e.quando));
     if (q != null || falou) atendidos++; else naoAtendidos.push(e.lead_id);
-    if (q == null || !etapas.entrada.has(etapaEm(e.lead_id, e.quando))) continue;
-    esperas.push((q - e.quando) / 60000);
+    if (q == null || !etapas.entrada.has(etapaEm(e.lead_id, e.chegou ?? e.quando))) continue;
+    esperas.push((q - (e.chegou ?? e.quando)) / 60000);
   }
   // A chegada mais recente de cada lead na mão dele, para a espera começar dali.
   const desde = new Map();
-  const chegadas = ctx.eventos ? ctx.eventos.recebidos.filter(e => e.user_id === userId && e.quando <= ate) : recebidos;
-  for (const e of chegadas) desde.set(e.lead_id, Math.max(desde.get(e.lead_id) || 0, e.quando));
+  const chegadas = ctx.eventos ? ctx.eventos.recebidos.filter(e => e.user_id === userId && (e.chegou ?? e.quando) <= ate) : recebidos;
+  for (const e of chegadas) desde.set(e.lead_id, Math.max(desde.get(e.lead_id) || 0, e.chegou ?? e.quando));
   const atendimento = temposDeResposta(minhas, userId, desde,
     (lead, t) => t >= de && t <= ate && etapas.comerciais.has(etapaEm(lead, t)));
   return { primeiras: esperas, atendidos, naoAtendidos, atendimento, etapas };
@@ -208,6 +208,15 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
    aconteceu. `saiu` = quantos desses já não estão com ela (repassados pela
    catraca, pela gestão, por prazo vencido) — o que de fato se perdeu; o resto
    ainda está na mão dela, esperando a primeira mensagem. */
+/* Desde 25/11/2026 "recebidos" é só o lead que ESTÁ com a pessoa (a regra do
+   Kanban). O lead que passou por ela sem contato e já saiu não está mais nos
+   recebidos — mas é justamente o perdido por consequência. Por isso esta
+   conta olha as PASSAGENS (todo lead que chegou na mão dela no período). */
+export function perdidosPorConsequenciaNoPeriodo(orgId, userId, eventos, de, ate, ctx = {}) {
+  if (!eventos || !eventos.passagens) return { total: 0, saiu: 0 };
+  const t = temposDoCorretor(orgId, userId, passagensEm(eventos, userId, de, ate), de, ate, { etapas: ctx.etapas });
+  return perdidosPorConsequencia(orgId, userId, t.naoAtendidos);
+}
 export function perdidosPorConsequencia(orgId, userId, naoAtendidos) {
   const ids = [...new Set(naoAtendidos || [])];
   if (!ids.length) return { total: 0, saiu: 0 };
@@ -315,7 +324,7 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
     respondidos: primeiras.length,
     atendimento_min: mediana(tempos.atendimento),
     atendidos: tempos.atendidos,
-    ...(() => { const pc = perdidosPorConsequencia(orgId, u.id, tempos.naoAtendidos);
+    ...(() => { const pc = perdidosPorConsequenciaNoPeriodo(orgId, u.id, eventos, de, ate, ctx);
       return { perdidos_consequencia: pc.total, perdidos_consequencia_saiu: pc.saiu }; })(),
     // Vendas do período ÷ recebidos do período (ver taxaConversao). Mesma
     // conta da tela de Relatórios.

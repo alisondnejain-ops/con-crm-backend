@@ -94,7 +94,8 @@ const movido = lead(blanca);
 let r = await pedir(tG, "POST", "/distribution/transfer", { lead_id: movido, user_id: sil });
 assert.equal(r.status, 200, JSON.stringify(r.d));
 const gB2 = k(await geral(tG, blanca)), gS2 = k(await geral(tG, sil)), gBS2 = k(await geral(tG, `${blanca},${sil}`));
-assert.equal(gB2.leads, gB.leads + 1);
+// Regra do Kanban (25/11/2026): o lead conta para quem ESTÁ com ele — a Sil.
+assert.equal(gB2.leads, gB.leads);
 assert.equal(gS2.leads, gS.leads + 1);
 assert.equal(gBS2.leads, gBS.leads + 1, "o lead repassado entre as duas contou duas vezes");
 

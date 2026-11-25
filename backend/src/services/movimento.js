@@ -509,7 +509,23 @@ export function eventosDeAtribuicao(orgId) {
 }
 function calcularEventosDeAtribuicao(orgId) {
   const fora = MOTIVOS_QUE_NAO_SAO_RECEBER.map(() => "?").join(",");
+  /* OS LEADS DA PESSOA SÃO OS DO KANBAN DELA (25/11/2026, regra do Ali: "se no
+     Kanban é registrado um número, esse número tem que vir fiel no relatório").
+     "Recebidos" de uma pessoa = leads que ESTÃO com ela e chegaram na mão dela
+     no período (`assigned_at`; sem ele, a entrada do lead) — exatamente o que
+     o Kanban mostra com a pessoa e o período no filtro (o Kanban usa a mesma
+     data quando há pessoa no filtro). Antes contava todo lead que PASSOU pela mão dela
+     (cada giro da catraca, cada repasse): o mesmo lead era "recebido" por dez
+     corretores, e o cartão não batia com quadro nenhum. `chegou` guarda quando
+     o lead ficou com ela, para os tempos de resposta contarem dali.
+     `passagens` é a lista antiga (quem passou pela mão de quem): só o
+     pré-atendimento a usa, porque o trabalho da atendente É passar adiante. */
   const recebidos = db.prepare(`
+    SELECT l.id AS lead_id, COALESCE(l.assigned_at, l.created_at) AS quando, l.assigned_to AS user_id,
+      COALESCE(l.assigned_at, l.created_at) AS chegou, 'com_ela' AS como
+    FROM leads l WHERE l.org_id = ? AND l.assigned_to IS NOT NULL
+    ORDER BY quando`).all(orgId);
+  const passagens = db.prepare(`
     SELECT l.id AS lead_id,
       CASE WHEN EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id)
         THEN l.created_at
@@ -543,12 +559,20 @@ function calcularEventosDeAtribuicao(orgId) {
     WHERE t.org_id = ? AND t.from_user_id IS NOT NULL
   `).all(orgId);
 
-  return { recebidos, perdidos };
+  for (const e of passagens) e.chegou = e.quando;
+  return { recebidos, passagens, perdidos };
 }
 
 /* Os leads que CHEGARAM na mão de uma pessoa no período — um por lead (o
    primeiro momento em que chegou). É a conta única de "recebidos": Relatórios,
    Painel, Operação (Equipe), Score e Indicadores do SDR leem daqui. */
+export function passagensEm(eventos, userId, de, ate) {
+  const vistos = new Set();
+  return noPeriodo(eventos.passagens, userId, de, ate).filter(e => {
+    if (vistos.has(e.lead_id)) return false;
+    vistos.add(e.lead_id); return true;
+  });
+}
 export function recebidosEm(eventos, userId, de, ate) {
   const vistos = new Set();
   return noPeriodo(eventos.recebidos, userId, de, ate).filter(e => {
