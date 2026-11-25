@@ -394,57 +394,53 @@ const primeira = (u, etapaId) => { const c = u.chegadas.get(etapaId); return c ?
 const veioDaAnterior = (u, atual) => primeira(u, atual) !== null && !u.nunca.has(atual);
 const taxa = (parte, total) => (total ? (parte / total) * 100 : null);
 
-/* ===== O TOPO: DE TUDO QUE CHEGOU, QUANTO ENTROU NO PROCESSO COMERCIAL =====
-   (28/10/2026, pedido do Fernando, no desenho que o Ali aprovou)
+/* ===== O TOPO: OS RECEBIDOS, E COMO ELES FECHAM COM O PRIMEIRO DEGRAU =====
+   (28/10/2026; refeito em 25/11/2026, pedido do Ali: "as contas não estão
+   batendo" — Visão geral 1.325 recebidos, funil 1.281)
 
-   O Fernando pediu uma coluna "sobre a etapa Lead". Dividir a base do funil
-   (quem ENTROU no comercial no período) pelos leads que CHEGARAM no período
-   mistura duas turmas — o lead que chegou em setembro e foi qualificado em
-   outubro está numa e não na outra — e podia passar de 100%.
+   Os recebidos do funil são EXATAMENTE os do cartão "Leads recebidos" da
+   Visão geral, com os mesmos filtros — inclusive o FUNIL (antes este topo
+   ignorava o funil escolhido e contava a conta inteira). A conta é a mesma
+   `coorte`: lead criado no período que está neste funil (para pessoas, o que
+   chegou na mão delas no período).
 
-   Aqui a turma é UMA só, do começo ao fim: os leads que chegaram no período
-   (para uma pessoa, os que chegaram NA MÃO dela), e destes quantos já
-   entraram na faixa comercial DESTE funil até o corte, em qualquer data.
-   Antes de 14/08/2026 não há histórico de etapas: período que começa antes
-   disso não ganha a linha (seria um número que subconta sem avisar). */
-function topoDoFunil(orgId, cfg, filtros, periodo, corte) {
-  if (cfg.sem_marcos || periodo.de < COBERTURA_ETAPAS || periodo.de > corte) return null;
+   O primeiro degrau é outra pergunta (quem ENTROU no comercial no período), e
+   por isso os dois números diferem. A diferença agora vem aberta, e fecha:
+     recebidos − ainda não entraram + recebidos antes que entraram agora
+       = primeiro degrau. */
+function recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte) {
   const { responsavel, origem, source, campanha, campaign_id, produto_id } = filtros || {};
   const donos = listaDeDonos(responsavel);
   const pessoas = donos.filter(x => x !== "fila");
-  const resto = { origem, source, campanha, campaign_id, produto_id };
-  let ids;
+  const resto = { pipeline_id: pipelineId, origem, source, campanha, campaign_id, produto_id };
   if (!donos.length) {
     const p = peneira(orgId, resto);
-    ids = db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`).all(...p.args, periodo.de, corte).map(r => r.id);
-  } else {
-    // Pessoas (uma ou várias) e/ou a fila — união (CETRO 04.1).
-    const set = new Set();
-    if (pessoas.length) for (const e of recebidosDaPessoa(orgId, pessoas, resto, periodo.de, corte)) set.add(e.lead_id);
-    if (donos.includes("fila")) {
-      const p = peneira(orgId, resto);
-      for (const r of db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ? AND l.assigned_to IS NULL`)
-        .all(...p.args, periodo.de, corte)) set.add(r.id);
-    }
-    ids = [...set];
+    return db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ?`).all(...p.args, periodo.de, corte).map(r => r.id);
   }
-  if (!ids.length) return { chegaram: 0, entraram: 0, taxa: null };
-  const faixa = [...cfg.faixa];
-  const naFaixa = (sid) => !!sid && cfg.faixa.has(sid);
-  const marcas = faixa.map(() => "?").join(",");
-  const entraram = new Set(emLotes(ids, (m, lote) => db.prepare(
-    `SELECT DISTINCT lead_id FROM lead_etapas WHERE +org_id = ? AND lead_id IN (${m})
-     AND para_stage_id IN (${marcas}) AND created_at <= ?`).all(orgId, ...lote, ...faixa, corte)).map(r => r.lead_id));
-  // Quem NASCEU numa etapa da faixa também entrou (a etapa de origem da
-  // primeira mudança, ou a etapa de hoje de quem nunca mudou).
-  for (const l of emLotes(ids, (m, lote) => db.prepare(
-    `SELECT l.id, l.stage_id, (SELECT de_stage_id FROM lead_etapas e WHERE e.lead_id = l.id ORDER BY e.created_at, e.rowid LIMIT 1) primeira_de,
-       (SELECT COUNT(*) FROM lead_etapas e WHERE e.lead_id = l.id) n
-     FROM leads l WHERE l.id IN (${m})`).all(...lote))) {
-    if (entraram.has(l.id)) continue;
-    if (l.n ? naFaixa(l.primeira_de) : naFaixa(l.stage_id)) entraram.add(l.id);
+  // Pessoas (uma ou várias) e/ou a fila — união (CETRO 04.1), como no cartão.
+  const set = new Set();
+  if (pessoas.length) for (const e of recebidosDaPessoa(orgId, pessoas, resto, periodo.de, corte)) set.add(e.lead_id);
+  if (donos.includes("fila")) {
+    const p = peneira(orgId, resto);
+    for (const r of db.prepare(`SELECT l.id FROM leads l WHERE ${p.sql} AND l.created_at BETWEEN ? AND ? AND l.assigned_to IS NULL`)
+      .all(...p.args, periodo.de, corte)) set.add(r.id);
   }
-  return { chegaram: ids.length, entraram: entraram.size, taxa: taxa(entraram.size, ids.length) };
+  return [...set];
+}
+
+function topoDoFunil(cfg, ids, base0, periodo, corte) {
+  // Antes de 14/08/2026 não há histórico de etapas: quem entrou sem data fica
+  // fora do degrau, e a conta não fecharia — sem a linha, em vez de subcontar.
+  if (cfg.sem_marcos || periodo.de < COBERTURA_ETAPAS || periodo.de > corte) return null;
+  const recebidos = new Set(ids);
+  const entraram = base0.filter(u => recebidos.has(u.lead.id)).length;
+  return {
+    chegaram: ids.length,
+    entraram,
+    ainda_nao: ids.length - entraram,
+    de_antes: base0.length - entraram,
+    taxa: taxa(entraram, ids.length),
+  };
 }
 
 /* ===== A RESPOSTA PARA AS TELAS ===== */
@@ -528,7 +524,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
     // Funil comercial: a etapa pulada conta como passada (ver `calcular`).
     etapa_pulada_conta: !ehFunilDeSdr(orgId, pipelineId),
     base: n,
-    topo: topoDoFunil(orgId, cfg, filtros, periodo, corte),
+    topo: topoDoFunil(cfg, recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte), base0, periodo, corte),
     linhas,
     por_responsavel: porResponsavel,
     cobertura: {
@@ -547,7 +543,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
    Quem está por trás de cada número: clicar em "6 de 8" lista os 8 e marca
    os 6. Sai do MESMO cálculo — uma lista montada com outra consulta poderia
    não bater com o número ao lado, e a conferência existe para isso. */
-export const CONJUNTOS = ["base", "chegaram", "anterior", "vieram", "sem_anterior", "automaticas", "sem_data", "dono_desconhecido"];
+export const CONJUNTOS = ["base", "recebidos", "ainda_nao", "de_antes", "chegaram", "anterior", "vieram", "sem_anterior", "automaticas", "sem_data", "dono_desconhecido"];
 
 export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, conjunto = "base", pagina = 1, porPagina = 50, quem = null, supervisor = false } = {}, agora = Date.now()) {
   if (!CONJUNTOS.includes(conjunto)) return { erro: "Conjunto desconhecido." };
@@ -559,6 +555,20 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
   if (conjunto === "sem_data") lista = c.semData.map(x => ({ lead: x.lead, entrada: null, dono: null }));
   else if (conjunto === "dono_desconhecido") lista = c.donoDesconhecido.map(x => ({ lead: x.lead, entrada: x.entrada, dono: { conhecido: false } }));
   else if (conjunto === "base") lista = unidades.filter(u => u.entrada !== null);
+  else if (conjunto === "recebidos" || conjunto === "ainda_nao" || conjunto === "de_antes") {
+    const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
+    const rec = new Set(ids);
+    const base = unidades.filter(u => u.entrada !== null);
+    if (conjunto === "de_antes") lista = base.filter(u => !rec.has(u.lead.id));
+    else {
+      const naBase = new Map(base.map(u => [u.lead.id, u]));
+      const escolhidos = conjunto === "recebidos" ? ids : ids.filter(id => !naBase.has(id));
+      const semUnidade = escolhidos.filter(id => !naBase.has(id));
+      const linhas = new Map(emLotes(semUnidade, (m, lote) =>
+        db.prepare(`SELECT id, name, created_at FROM leads WHERE org_id = ? AND id IN (${m})`).all(orgId, ...lote)).map(l => [l.id, l]));
+      lista = escolhidos.map(id => naBase.get(id) || (linhas.get(id) && { lead: linhas.get(id), entrada: null, dono: null, recebido_em: linhas.get(id).created_at })).filter(Boolean);
+    }
+  }
   else {
     const i = cfg.marcos.findIndex(m => m.id === etapa);
     if (i < 0) return { erro: "Esta etapa não é um marco do funil." };
@@ -575,7 +585,7 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
     lista = unidades.filter(filtro);
   }
 
-  const quando = (x) => (etapa && x.chegadas && primeira(x, etapa)) || x.entrada || 0;
+  const quando = (x) => (etapa && x.chegadas && primeira(x, etapa)) || x.entrada || x.recebido_em || 0;
   lista = [...lista].sort((a, b) => quando(b) - quando(a));
   const por = Math.min(Math.max(Number(porPagina) || 50, 1), 200);
   const pg = Math.max(Number(pagina) || 1, 1);

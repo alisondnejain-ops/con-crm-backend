@@ -159,7 +159,8 @@
     "teste:roleta-nascimento": "node testes/roleta-nascimento.mjs",
     "teste:conversa-encerrada": "node testes/conversa-encerrada.mjs",
     "teste:numeros-unicos": "node testes/numeros-unicos.mjs",
-    "teste:perdidos-consequencia": "node testes/perdidos-consequencia.mjs"
+    "teste:perdidos-consequencia": "node testes/perdidos-consequencia.mjs",
+    "teste:contas-fecham": "node testes/contas-fecham.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",

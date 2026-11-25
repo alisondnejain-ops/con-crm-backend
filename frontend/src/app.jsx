@@ -11687,8 +11687,16 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         {/* Quantos leads o quadro está mostrando. Com peneira ligada, o total
             das colunas deixa de ser o total da base, e sem este número ninguém
             percebe que está lendo um funil filtrado. */}
-        <span style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap"}}>
-          {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}</span>
+        {/* O que este total é (25/11/2026, "no kanban os números não batem"):
+            o quadro mostra onde os leads estão HOJE. Com o período ligado, são
+            os que chegaram no período e estão neste funil — a mesma conta do
+            cartão "Leads recebidos" da Visão geral. O funil de conversão é
+            outra pergunta (quem chegou a cada etapa no período). */}
+        <span title={f.de||f.ate
+            ?"Leads que chegaram no período e estão neste funil hoje — o mesmo número de \"Leads recebidos\" da Visão geral com este funil e este período (o filtro de pessoa aqui é o responsável de hoje)."
+            :"Leads que estão neste funil hoje, em todas as etapas. Ligue o período em Filtros para comparar com \"Leads recebidos\" da Visão geral."}
+          style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",cursor:"help"}}>
+          {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}{f.de||f.ate?" · chegaram no período":" · hoje no funil"}</span>
       </div>
       {/* ===== CRIAR UM FUNIL, SEM SAIR DO QUADRO =====
 
@@ -23283,11 +23291,22 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         qualquer data) saiu: era um terceiro número sem par em nenhum cartão.
         Ficam os dois que o leitor reconhece: os recebidos (o mesmo do cartão)
         e quem entrou no comercial (a primeira etapa do funil). */}
-    {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.55,marginTop:3}}>
-      De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}:{" "}
-      {c.topo&&c.topo.chegaram>0&&<><b style={{color:C.ink}}>{c.topo.chegaram}</b> {c.topo.chegaram===1?"lead recebido":"leads recebidos"} · </>}
-      <b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Entraram no comercial no período`}/></b> entraram
-      no comercial (<b>{c.entrada.name}</b> ou adiante){c.topo&&c.base>c.topo.chegaram?", inclusive leads recebidos antes do período":""}. Cada etapa conta quem chegou a ela no período.
+    {/* A conta que fecha (25/11/2026, pedido do Ali: "as contas não estão
+        batendo"). Os recebidos são os MESMOS do cartão "Leads recebidos" da
+        Visão geral, com o funil no filtro; o primeiro degrau é quem entrou no
+        comercial no período. A diferença vem aberta e soma: recebidos −
+        ainda não entraram + recebidos antes que entraram agora = degrau. */}
+    {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginTop:3}}>
+      De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}. Cada etapa conta quem chegou a ela no período.
+      {c.topo&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",alignItems:"center",gap:"4px 8px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 11px",color:C.sub}}>
+        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.chegaram} conjunto="recebidos" tit="Leads recebidos no período"/></b> recebidos <span style={{color:C.faint}}>(o mesmo da Visão geral)</span></span>
+        <span style={{color:C.faint}}>−</span>
+        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.ainda_nao} conjunto="ainda_nao" tit="Recebidos que ainda não entraram no comercial"/></b> ainda não entraram no comercial</span>
+        <span style={{color:C.faint}}>+</span>
+        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.de_antes} conjunto="de_antes" tit="Recebidos antes do período que entraram no comercial agora"/></b> recebidos antes que entraram agora</span>
+        <span style={{color:C.faint}}>=</span>
+        <span><b style={{color:C.ink}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit="Entraram no comercial no período"/></b> em <b>{c.entrada.name}</b> ou adiante</span>
+      </div>}
     </div>}
   </div>;
 
