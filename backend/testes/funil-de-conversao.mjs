@@ -173,13 +173,15 @@ const F8 = novoFunil("Antigo agendou");
 const a8b = lead(F8, "Inbox", new Date(2026, 6, 10).getTime());
 mover(F8, a8b, "Qualificado", SET(14)); mover(F8, a8b, "Agendamento", SET(16));
 r = conv(F8);
-assert.equal(linha(r, "Qualificado").chegaram, 1);
+// 25/11/2026: o primeiro degrau é só dos recebidos no período — quem chegou
+// pelo anúncio dois meses antes não entra nele; o agendamento conta.
+assert.equal(linha(r, "Qualificado").chegaram, 0);
 assert.equal(linha(r, "Agendamento").chegaram, 1);
 // Já qualificado em agosto: no período só conta o agendamento.
 const a8c = lead(F8, "Inbox", new Date(2026, 7, 15).getTime());
 mover(F8, a8c, "Qualificado", new Date(2026, 7, 20).getTime()); mover(F8, a8c, "Agendamento", SET(17));
 r = conv(F8);
-assert.equal(linha(r, "Qualificado").chegaram, 1, "a qualificação de agosto não conta em setembro");
+assert.equal(linha(r, "Qualificado").chegaram, 0, "a qualificação de agosto não conta em setembro");
 assert.equal(linha(r, "Agendamento").chegaram, 2);
 // O funil de atividades do Painel segue a mesma régua.
 const PG = await import("../src/services/painel-geral.js");
@@ -421,7 +423,7 @@ console.log(`   chegaram ${r.topo.chegaram} · entraram ${r.topo.entraram} · ${
 assert.equal(r.topo.chegaram, 10);
 assert.equal(r.topo.entraram, 4, "o que entrou depois do corte não conta; o que chegou antes não é desta turma");
 quase(r.topo.taxa, 40);
-assert.equal(r.base, 5, "a base do funil é outra turma (inclui quem chegou antes)");
+assert.equal(r.base, 4, "25/11/2026: o primeiro degrau é a mesma turma dos recebidos — o lead de antes não entra");
 const nasceuNaFaixa = lead(FT, "Qualificado", SET(15));
 r = C.funilDeConversao(orgTopo, FT.id, PERIODO, AGORA);
 assert.equal(r.topo.entraram, 5, "quem nasceu numa etapa do comercial já entrou");
