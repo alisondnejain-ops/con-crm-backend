@@ -145,10 +145,12 @@ assert.equal(operacaoCasa.atividades, undefined);
 
 console.log("7. \"Responderam à 1ª mensagem\" divide só por quem RECEBEU mensagem");
 // antigo: recebeu e respondeu · novoMarina: recebeu e não respondeu · novoRafael: nada enviado
-const msg = (lead, dir, quando) => db.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at)
-  VALUES (?,?,?,?,?)`).run("m_" + randomUUID(), lead, dir, "oi", quando);
-msg(antigo, "out", Date.now() - 60000); msg(antigo, "in", Date.now() - 30000);
-msg(novoMarina, "out", Date.now() - 60000);
+// 25/11/2026: "responderam" é dos CONTATADOS — com a Marina no filtro, a
+// mensagem tem de ser dela (a mesma régua do cartão Contatados).
+const msg = (lead, dir, quando) => db.prepare(`INSERT INTO messages (id,lead_id,direction,body,created_at,from_user_id)
+  VALUES (?,?,?,?,?,?)`).run("m_" + randomUUID(), lead, dir, "oi", quando, dir === "out" ? marina : null);
+msg(antigo, "out", Date.now() + 1000); msg(antigo, "in", Date.now() + 2000);
+msg(novoMarina, "out", Date.now() + 1000);
 // Filtrado pela Marina: os dois leads dela no período (o antigo repassado conta).
 const resp = (await get(tAli, `/painel?periodo=mes&responsavel=${marina}`)).atendimento;
 console.log(`   ${resp.clientes_responderam} de ${resp.clientes_contatados} · ${resp.taxa_resposta_cliente}%`);

@@ -409,7 +409,7 @@ r.put("/score/pontos", roles("adm"), (req, res) => {
    volta ao padrão. */
 export const CARTOES = {
   // "Perdidos por consequência" é só do relatório individual (25/11/2026, Ali).
-  visao: ["recebidos", "atendidos", "resposta", "responderam", "qualificados"],
+  visao: ["recebidos", "etapa_inicial", "atendidos", "resposta", "responderam", "qualificados"],
   pessoa: ["recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
 };
 function cartoesDa(orgId) {

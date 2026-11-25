@@ -241,8 +241,10 @@ function respostaDoCliente(leads) {
    consequência (Recebidos − Atendidos).
    - Com pessoas no filtro: a mensagem tem de ser DE QUEM o recebeu, depois
      da chegada na mão dela — o número soma com o dos relatórios.
-   - Para a casa: qualquer mensagem de gente (não disparo, automação nem o
-     Autoatendimento; a digitada no celular conta) depois de o lead entrar. */
+   - Para a casa: qualquer mensagem da casa — gente ou o Autoatendimento (a IA
+     é o SDR de várias contas); disparo e automação não contam — depois de o
+     lead entrar. Na tela o nome é "Contatados" (25/11/2026), o mesmo dos
+     Indicadores do SDR. */
 function atendidosDoPeriodo(orgId, { eventos, leads }) {
   if (eventos) {
     const ids = [...new Set(eventos.map(e => e.lead_id))];
@@ -254,21 +256,39 @@ function atendidosDoPeriodo(orgId, { eventos, leads }) {
     for (const g of emLotes(ids, (marcas, lote) => db.prepare(
       `SELECT lead_id, user_id u, created_at t FROM ligacoes WHERE lead_id IN (${marcas}) AND resultado = 'falou'`).all(...lote)))
       (por.get(g.lead_id) || por.set(g.lead_id, []).get(g.lead_id)).push(g);
-    let atendidos = 0;
-    for (const e of eventos) if ((por.get(e.lead_id) || []).some(m => m.u === e.user_id && m.t >= e.quando)) atendidos++;
-    return { recebidos: eventos.length, atendidos };
+    let atendidos = 0; const primeiro = new Map();
+    for (const e of eventos) {
+      const ts = (por.get(e.lead_id) || []).filter(m => m.u === e.user_id && m.t >= e.quando).map(m => m.t);
+      if (ts.length) { atendidos++; const t = Math.min(...ts); if (!primeiro.has(e.lead_id) || t < primeiro.get(e.lead_id)) primeiro.set(e.lead_id, t); }
+    }
+    return { recebidos: eventos.length, atendidos, responderam: responderamDepois(primeiro) };
   }
   const ids = leads.map(l => l.id);
   const primeira = new Map(emLotes(ids, (marcas, lote) => db.prepare(
-    `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND ${semDisparo()}
-       AND NOT (from_user_id IS NULL AND COALESCE(from_name,'') = '${ASSINATURA_ROBO}')`).all(...lote))
+    `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND ${semDisparo()}`).all(...lote))
     .reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
   for (const g of emLotes(ids, (marcas, lote) => db.prepare(
     `SELECT lead_id, created_at t FROM ligacoes WHERE lead_id IN (${marcas}) AND resultado = 'falou'`).all(...lote)))
     (primeira.get(g.lead_id) || primeira.set(g.lead_id, []).get(g.lead_id)).push(g.t);
-  let atendidos = 0;
-  for (const l of leads) if ((primeira.get(l.id) || []).some(t => t >= l.created_at)) atendidos++;
-  return { recebidos: leads.length, atendidos };
+  let atendidos = 0; const primeiro = new Map();
+  for (const l of leads) {
+    const ts = (primeira.get(l.id) || []).filter(t => t >= l.created_at);
+    if (ts.length) { atendidos++; primeiro.set(l.id, Math.min(...ts)); }
+  }
+  return { recebidos: leads.length, atendidos, responderam: responderamDepois(primeiro) };
+}
+
+/* "Responderam" é dos CONTATADOS (25/11/2026): o cliente escreveu depois do
+   primeiro contato que contou. Antes contava qualquer mensagem enviada, até
+   disparo, e o "X de Y" não batia com o cartão Contatados ao lado. */
+function responderamDepois(primeiro) {
+  const ids = [...primeiro.keys()];
+  if (!ids.length) return 0;
+  const vieram = new Set();
+  for (const r of emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT lead_id, MAX(created_at) t FROM messages WHERE lead_id IN (${marcas}) AND direction = 'in' GROUP BY lead_id`).all(...lote)))
+    if (r.t > primeiro.get(r.lead_id)) vieram.add(r.lead_id);
+  return vieram.size;
 }
 
 export const pct = (parte, total) => (total ? Math.round((parte / total) * 1000) / 10 : 0);
@@ -339,8 +359,8 @@ export function painel(orgId, filtros = {}) {
       primeira_resposta_mediana_min: tempos.mediana,
       primeira_resposta_media_min: tempos.media,
       taxa_primeira_resposta: pct(tempos.responderam, comDono),
-      ...(() => { const c = respostaDoCliente(recebidos);
-        return { taxa_resposta_cliente: c.taxa, clientes_contatados: c.contatados, clientes_responderam: c.responderam }; })(),
+      taxa_resposta_cliente: pct(at.responderam, at.atendidos),
+      clientes_contatados: at.atendidos, clientes_responderam: at.responderam,
     },
     sla: {
       vencidos, em_aviso: emAviso, sem_interacao: semInteracao,

@@ -14,7 +14,7 @@ import { Router } from "express";
 import { authRequired, roles, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
 import { metasDoFunil, salvarMetas } from "../services/metas-conversao.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo, listaDeDonos, pessoasDoFiltro } from "../services/painel.js";
-import { conferenciaDoFunil } from "../services/conversao.js";
+import { conferenciaDoFunil, funilDeConversao } from "../services/conversao.js";
 import { funilComercial } from "../services/pipelines.js";
 import { proximosPassos } from "../services/proximos-passos.js";
 import { visaoGeral, metasDoPeriodo, metasConfig, salvarMeta, mesAtual } from "../services/painel-geral.js";
@@ -39,7 +39,22 @@ const filtrosDe = (q) => ({
   campanha: q.campanha, campaign_id: q.campaign_id, produto_id: q.produto_id,
 });
 
-r.get("/", soGestao, (req, res) => res.json(painel(req.user.org_id, filtrosDe(req.query))));
+/* "Chegaram a <primeira etapa comercial>" na Visão geral (25/11/2026, pedido
+   do Ali: o cartão "Leads atendidos" se confundia com os "atendidos" de baixo,
+   e o que a gestão lê depois dos recebidos é quantos chegaram à etapa Lead).
+   É o primeiro degrau do funil de conversão — a mesma conta, do mesmo funil
+   (o do filtro, ou o comercial da casa), então os dois números são iguais. */
+r.get("/", soGestao, (req, res) => {
+  const f = filtrosDe(req.query);
+  const d = painel(req.user.org_id, f);
+  try {
+    const pid = f.pipeline_id || funilComercial(req.user.org_id)?.id;
+    const c = pid ? funilDeConversao(req.user.org_id, pid, f) : null;
+    if (c && !c.erro && c.entrada && c.topo)
+      d.atendimento.etapa_inicial = { etapa: c.entrada.name, funil: c.pipeline, chegaram: c.base, recebidos: c.topo.chegaram };
+  } catch (e) { console.error("[painel] etapa inicial:", e.message); }
+  res.json(d);
+});
 
 r.get("/opcoes", soGestao, (req, res) => res.json(opcoesDeFiltro(req.user.org_id)));
 
