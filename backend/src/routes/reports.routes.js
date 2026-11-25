@@ -3,7 +3,7 @@ import db, { emLotes } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequenciaNoPeriodo } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequencia } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm, passagensEm } from "../services/movimento.js";
@@ -131,7 +131,18 @@ r.get("/", (req, res) => {
        filtrar `leads.assigned_to` — que é o dono de AGORA e muda sozinho
        quando o lead é repassado de novo, apagando do relatório de um dia já
        fechado um atendimento que de fato aconteceu naquele dia. */
-    const recebidosEventos = recebidosEm(eventos, u.id, de, ate);
+    /* RECEBIDOS DO RELATÓRIO INDIVIDUAL = TODAS AS OPORTUNIDADES DA PESSOA NO
+       PERÍODO (25/11/2026, pedido do Ali com a Blanca: "eu não posso ter 301
+       perdas e 177 leads recebidos — isso deveria ser um funil"). Os leads
+       que ESTÃO com ela (o número do Kanban, que é o cartão da Visão geral)
+       MAIS os que passaram por ela e já saíram, cada lead uma vez. Assim
+       Recebidos ≥ Contatados e Recebidos − Contatados = Perdidos por
+       consequência. */
+    const recebidosEventos = (() => {
+      const comEla = recebidosEm(eventos, u.id, de, ate);
+      const vistos = new Set(comEla.map(e => e.lead_id));
+      return [...comEla, ...passagensEm(eventos, u.id, de, ate).filter(e => !vistos.has(e.lead_id))];
+    })();
     /* "PERDIDOS PARA OUTRO CORRETOR" — pedido novo do Ali (19/09/2026):
        "acrescentar a quantidade de leads que foram perdidos pelo corretor
        anterior... isso gera uma penalidade, uma diminuição no score dele".
@@ -185,16 +196,6 @@ r.get("/", (req, res) => {
     return {
       id: u.id, nome: u.name, papel: u.role,
       recebidos: recebidosEventos.length,
-      /* TOTAL DE OPORTUNIDADES (25/11/2026, pedido do Ali com a Blanca: 177
-         no Kanban e 301 perdidos por consequência — "não estamos mais
-         visualizando o total de oportunidades que ela tinha"). Todo lead que
-         chegou na mão dela no período: os que ESTÃO com ela (recebidos, o
-         número do Kanban) + os que passaram por ela e já saíram. Um lead
-         conta uma vez. */
-      ...(() => { const ids = new Set(recebidosEventos.map(e => e.lead_id));
-        const comEla = ids.size;
-        for (const e of passagensEm(eventos, u.id, de, ate)) ids.add(e.lead_id);
-        return { oportunidades: ids.size, oportunidades_sairam: ids.size - comEla }; })(),
       /* Visível direto na tabela, não só no detalhe do score — pedido do
          Ali: "acrescentar a quantidade de leads que foram perdidos pelo
          corretor anterior em relação àquele mês". Só transferência manual
@@ -206,7 +207,7 @@ r.get("/", (req, res) => {
       atendidos: atendidos.length,
       /* Recebidos − Atendidos (ver perdidosPorConsequencia em score.js).
          Ao lado de "Perdidos", que continua sendo o lead movido para perda. */
-      ...(() => { const pc = perdidosPorConsequenciaNoPeriodo(req.user.org_id, u.id, eventos, de, ate, ctxTempos);
+      ...(() => { const pc = perdidosPorConsequencia(req.user.org_id, u.id, tempos.naoAtendidos);
         return { perdidos_consequencia: pc.total, perdidos_consequencia_saiu: pc.saiu }; })(),
       taxa_atendimento: pct(atendidos.length, recebidosEventos.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
@@ -421,7 +422,7 @@ r.put("/score/pontos", roles("adm"), (req, res) => {
 export const CARTOES = {
   // "Perdidos por consequência" é só do relatório individual (25/11/2026, Ali).
   visao: ["recebidos", "etapa_inicial", "atendidos", "resposta", "responderam", "qualificados"],
-  pessoa: ["oportunidades", "recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
+  pessoa: ["recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
 };
 function cartoesDa(orgId) {
   let v = {};
