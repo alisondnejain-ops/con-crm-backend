@@ -26692,35 +26692,61 @@ function usarCartoes(acoes){
   return [v,salvar];
 }
 
-/* O editor: cada cartão numa linha, com ↑ ↓ para mudar a posição e a caixa
-   para mostrar ou esconder. Setas e não arrastar: no celular o dedo erra o
-   arrasto, e a seta funciona igual nos dois. Nada grava até "Salvar". */
+/* O editor: cada cartão numa linha, que se ARRASTA para mudar a posição
+   (pedido do Ali, 25/11/2026: "prefiro arrastando"), e a caixa para mostrar
+   ou esconder. O arrasto é por pointer events, e não pelo drag-and-drop do
+   HTML: aquele não funciona no toque do celular. Segura pela alça (⋮⋮) — o
+   resto da linha continua rolando a página normalmente no celular. Nada
+   grava até "Salvar". */
 function OrdenarCartoes({grupo,config,nomes,salvar,fechar}){
   const todos=(config&&config[grupo]&&config[grupo].todos)||Object.keys(nomes);
   const inicial=(config&&config[grupo]&&config[grupo].ordem)||todos;
   const [lista,setLista]=useState(()=>[...inicial,...todos.filter(k=>!inicial.includes(k))].map(k=>({k,on:inicial.includes(k)})));
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
-  const mover=(i,d)=>setLista(l=>{const j=i+d; if(j<0||j>=l.length) return l; const n=[...l]; [n[i],n[j]]=[n[j],n[i]]; return n;});
+  const [arrastando,setArrastando]=useState(null); // chave do cartão na mão
+  const [deslocY,setDeslocY]=useState(0);
+  const linhas=useRef({}); const inicio=useRef(null);
   const enviar=async(valor)=>{setErro(""); setSalvando(true);
     try{await salvar(grupo,valor); fechar();}catch(e){setErro(e.message);} finally{setSalvando(false);}};
-  const btn={border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"};
+  const pegar=(e,k)=>{e.preventDefault(); e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);
+    inicio.current={y:e.clientY}; setArrastando(k); setDeslocY(0);};
+  const mexer=(e)=>{ if(!arrastando||!inicio.current) return;
+    const dy=e.clientY-inicio.current.y; setDeslocY(dy);
+    // Troca de lugar quando o centro do cartão na mão passa do centro do vizinho.
+    setLista(l=>{const i=l.findIndex(x=>x.k===arrastando); const el=linhas.current[arrastando]; if(!el) return l;
+      const r=el.getBoundingClientRect(); const centro=r.top+r.height/2+dy;
+      const viz=dy>0?l[i+1]:l[i-1]; if(!viz) return l;
+      const rv=linhas.current[viz.k]&&linhas.current[viz.k].getBoundingClientRect(); if(!rv) return l;
+      const passou=dy>0?centro>rv.top+rv.height/2:centro<rv.top+rv.height/2; if(!passou) return l;
+      const n=[...l]; const j=dy>0?i+1:i-1; [n[i],n[j]]=[n[j],n[i]];
+      // A linha mudou de lugar: o ponto de partida anda junto, senão ela "pula".
+      inicio.current.y+= (dy>0?1:-1)*(rv.height+6); setDeslocY(e.clientY-inicio.current.y);
+      return n;});
+  };
+  const soltar=()=>{setArrastando(null); setDeslocY(0); inicio.current=null;};
   return <div className="nao-imprimir" style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Ordem dos cartões</div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.45,marginBottom:10}}>Vale para toda a equipe desta imobiliária. Use as setas para mudar a posição e a caixa para mostrar ou esconder.</div>
-    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-      {lista.map((x,i)=><div key={x.k} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 8px"}}>
-        <span style={{color:C.faint,fontSize:12,minWidth:18,textAlign:"right"}}>{x.on?lista.filter((y,j)=>y.on&&j<=i).length:"–"}</span>
-        <label style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,cursor:"pointer",color:x.on?C.ink:C.faint,fontSize:13,fontWeight:600}}>
-          <input type="checkbox" checked={x.on} onChange={()=>setLista(l=>l.map((y,j)=>j===i?{...y,on:!y.on}:y))}/>{nomes[x.k]||x.k}</label>
-        <button aria-label={`Subir ${nomes[x.k]}`} disabled={i===0} onClick={()=>mover(i,-1)} style={{...btn,opacity:i===0?.4:1}}>↑</button>
-        <button aria-label={`Descer ${nomes[x.k]}`} disabled={i===lista.length-1} onClick={()=>mover(i,1)} style={{...btn,opacity:i===lista.length-1?.4:1}}>↓</button>
-      </div>)}
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.45,marginBottom:10}}>Vale para toda a equipe desta imobiliária. Arraste pela alça para mudar a posição e use a caixa para mostrar ou esconder.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}} onPointerMove={mexer} onPointerUp={soltar} onPointerCancel={soltar}>
+      {lista.map((x,i)=>{const naMao=arrastando===x.k;
+        return <div key={x.k} ref={el=>{linhas.current[x.k]=el;}} style={{display:"flex",alignItems:"center",gap:8,background:C.card,
+          border:`1px solid ${naMao?C.green:C.line}`,borderRadius:10,padding:"6px 8px",position:"relative",zIndex:naMao?2:1,
+          transform:naMao?`translateY(${deslocY}px) scale(1.02)`:"none",boxShadow:naMao?"0 8px 24px rgba(10,45,36,.18)":"none",
+          transition:naMao?"box-shadow .15s":"transform .15s, box-shadow .15s",userSelect:"none"}}>
+          <span aria-label={`Arrastar ${nomes[x.k]}`} role="button" onPointerDown={e=>pegar(e,x.k)}
+            style={{touchAction:"none",cursor:naMao?"grabbing":"grab",padding:"6px 4px",color:C.faint,display:"flex",alignItems:"center"}}>
+            <svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor">{[3,9,15].map(y=><React.Fragment key={y}><circle cx="4" cy={y} r="1.6"/><circle cx="10" cy={y} r="1.6"/></React.Fragment>)}</svg>
+          </span>
+          <span style={{color:C.faint,fontSize:12,minWidth:16,textAlign:"right"}}>{x.on?lista.filter((y,j)=>y.on&&j<=i).length:"–"}</span>
+          <label style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,cursor:"pointer",color:x.on?C.ink:C.faint,fontSize:13,fontWeight:600,padding:"6px 0"}}>
+            <input type="checkbox" checked={x.on} onChange={()=>setLista(l=>l.map(y=>y.k===x.k?{...y,on:!y.on}:y))}/>{nomes[x.k]||x.k}</label>
+        </div>;})}
     </div>
     {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
     <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
       <button disabled={salvando} onClick={()=>enviar(lista.filter(x=>x.on).map(x=>x.k))} style={{...BOTAO_PRIMARIO}}>{salvando?"Salvando…":"Salvar"}</button>
       <button onClick={fechar} style={{...BOTAO_SECUNDARIO}}>Cancelar</button>
-      <button disabled={salvando} onClick={()=>enviar(null)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer",marginLeft:"auto"}}>voltar ao padrão</button>
+      <button disabled={salvando} onClick={()=>enviar(null)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>voltar ao padrão</button>
     </div>
   </div>;
 }
