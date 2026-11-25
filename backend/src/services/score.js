@@ -175,9 +175,10 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
      ORDER BY created_at`).all(...lote, userId)).reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
   const esperas = [];
   let atendidos = 0;
+  const naoAtendidos = [];
   for (const e of recebidos) {
     const q = (primeira.get(e.lead_id) || []).find(t => t >= e.quando);
-    if (q != null) atendidos++;
+    if (q != null) atendidos++; else naoAtendidos.push(e.lead_id);
     if (q == null || !etapas.entrada.has(etapaEm(e.lead_id, e.quando))) continue;
     esperas.push((q - e.quando) / 60000);
   }
@@ -187,7 +188,24 @@ export function temposDoCorretor(orgId, userId, recebidos, de, ate, ctx = {}) {
   for (const e of chegadas) desde.set(e.lead_id, Math.max(desde.get(e.lead_id) || 0, e.quando));
   const atendimento = temposDeResposta(minhas, userId, desde,
     (lead, t) => t >= de && t <= ate && etapas.comerciais.has(etapaEm(lead, t)));
-  return { primeiras: esperas, atendidos, atendimento, etapas };
+  return { primeiras: esperas, atendidos, naoAtendidos, atendimento, etapas };
+}
+
+/* PERDIDOS POR CONSEQUÊNCIA (25/11/2026, pedido do Ali: "301 leads perdidos
+   pela corretora que não receberam atendimento"). Dos leads que a pessoa
+   RECEBEU no período, os que ela nunca escreveu depois de receber — é
+   exatamente Recebidos − Atendidos, a mesma régua dos dois cartões, para os
+   três números fecharem na tela. NÃO substitui "Perdidos" (lead que foi para
+   a etapa de perda): aquele é negócio que caiu, este é atendimento que não
+   aconteceu. `saiu` = quantos desses já não estão com ela (repassados pela
+   catraca, pela gestão, por prazo vencido) — o que de fato se perdeu; o resto
+   ainda está na mão dela, esperando a primeira mensagem. */
+export function perdidosPorConsequencia(orgId, userId, naoAtendidos) {
+  const ids = [...new Set(naoAtendidos || [])];
+  if (!ids.length) return { total: 0, saiu: 0 };
+  const comEla = emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT id FROM leads WHERE org_id = ? AND assigned_to = ? AND id IN (${marcas})`).all(orgId, userId, ...lote)).length;
+  return { total: ids.length, saiu: ids.length - comEla };
 }
 
 /* QUALIFICADOS, AGENDADOS, VISITAS E PROPOSTAS DE UMA PESSOA NO PERÍODO: a
@@ -289,6 +307,8 @@ function metricas(orgId, u, leads, ligacoesPorUsuario, vendasDoPeriodo, eventos,
     respondidos: primeiras.length,
     atendimento_min: mediana(tempos.atendimento),
     atendidos: tempos.atendidos,
+    ...(() => { const pc = perdidosPorConsequencia(orgId, u.id, tempos.naoAtendidos);
+      return { perdidos_consequencia: pc.total, perdidos_consequencia_saiu: pc.saiu }; })(),
     // Vendas do período ÷ recebidos do período (ver taxaConversao). Mesma
     // conta da tela de Relatórios.
     conversao: taxaConversao(vendas.length, recebidosEventos.length),

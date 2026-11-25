@@ -30,6 +30,7 @@ import { etapasDoPipeline, listarPipelines, formatarEtapa } from "./pipelines.js
 import { slaDoLead, leadsComTarefaFutura } from "./etapas.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "./movimento.js";
 import { semDisparo } from "./marca-disparo.js";
+import { ASSINATURA_ROBO } from "./robo.js";
 import { naoEncerra } from "./encerra.js";
 import { resumoDeDisparos } from "./disparo.js";
 import { configDoFunil, funilDeConversao, marcosDoPeriodo, marcosDeQuem } from "./conversao.js";
@@ -224,6 +225,35 @@ function respostaDoCliente(leads) {
   return { contatados, responderam, taxa: pct(responderam, contatados) };
 }
 
+/* ATENDIDOS E PERDIDOS POR CONSEQUÊNCIA NA VISÃO GERAL (25/11/2026).
+   A mesma régua do relatório de cada pessoa (temposDoCorretor): atendido é
+   o recebido que ganhou uma mensagem DEPOIS de chegar; o resto é perdido por
+   consequência (Recebidos − Atendidos).
+   - Com pessoas no filtro: a mensagem tem de ser DE QUEM o recebeu, depois
+     da chegada na mão dela — o número soma com o dos relatórios.
+   - Para a casa: qualquer mensagem de gente (não disparo, automação nem o
+     Autoatendimento; a digitada no celular conta) depois de o lead entrar. */
+function atendidosDoPeriodo(orgId, { eventos, leads }) {
+  if (eventos) {
+    const ids = [...new Set(eventos.map(e => e.lead_id))];
+    const msgs = emLotes(ids, (marcas, lote) => db.prepare(
+      `SELECT lead_id, from_user_id u, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND from_user_id IS NOT NULL`).all(...lote));
+    const por = new Map();
+    for (const m of msgs) (por.get(m.lead_id) || por.set(m.lead_id, []).get(m.lead_id)).push(m);
+    let atendidos = 0;
+    for (const e of eventos) if ((por.get(e.lead_id) || []).some(m => m.u === e.user_id && m.t >= e.quando)) atendidos++;
+    return { recebidos: eventos.length, atendidos };
+  }
+  const ids = leads.map(l => l.id);
+  const primeira = new Map(emLotes(ids, (marcas, lote) => db.prepare(
+    `SELECT lead_id, created_at t FROM messages WHERE lead_id IN (${marcas}) AND direction='out' AND ${semDisparo()}
+       AND NOT (from_user_id IS NULL AND COALESCE(from_name,'') = '${ASSINATURA_ROBO}')`).all(...lote))
+    .reduce((acc, r) => { (acc.get(r.lead_id) || acc.set(r.lead_id, []).get(r.lead_id)).push(r.t); return acc; }, new Map()));
+  let atendidos = 0;
+  for (const l of leads) if ((primeira.get(l.id) || []).some(t => t >= l.created_at)) atendidos++;
+  return { recebidos: leads.length, atendidos };
+}
+
 export const pct = (parte, total) => (total ? Math.round((parte / total) * 1000) / 10 : 0);
 
 /* ===== O PAINEL ===== */
@@ -255,6 +285,9 @@ export function painel(orgId, filtros = {}) {
   }
 
   const tempos = temposDeResposta(recebidos);
+  const at = quem && !listaDeDonos(filtros.responsavel).includes("fila")
+    ? atendidosDoPeriodo(orgId, { eventos: recebidosDaPessoa(orgId, quem, filtros, periodo.de, periodo.ate, eventos) })
+    : atendidosDoPeriodo(orgId, { leads: recebidos });
   const comDono = recebidos.filter(l => l.assigned_to).length;
 
   /* QUALIFICADOS NO PERÍODO — a conta ÚNICA dos marcos (`marcosDoPeriodo`,
@@ -279,6 +312,9 @@ export function painel(orgId, filtros = {}) {
     filtros,
     atendimento: {
       recebidos: totalRecebidos,
+      atendidos: at.atendidos,
+      taxa_atendimento: pct(at.atendidos, at.recebidos),
+      perdidos_consequencia: at.recebidos - at.atendidos,
       qualificados,
       com_responsavel: comDono,
       na_fila: recebidos.filter(l => !l.assigned_to).length,

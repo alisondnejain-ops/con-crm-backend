@@ -1993,6 +1993,8 @@ function ConCRM(){
     // Objeto = o período compartilhado (atalho ou datas); número = ?dias= antigo.
     scorePontos:()=>api("/reports/score/pontos"),
     salvarScorePontos:(dados)=>api("/reports/score/pontos",{method:"PUT",body:dados}),
+    cartoes:()=>api("/reports/cartoes"),
+    salvarCartoes:(b)=>api("/reports/cartoes",{method:"PUT",body:b}),
     score:(p)=>api("/reports/score"+(p&&typeof p==="object"?`?${new URLSearchParams(Object.entries(p).filter(([,v])=>v))}`:p?`?dias=${p}`:"")),
     recomendacoes:()=>api("/reports/recomendacoes"),
     assinatura:()=>api("/assinatura"),
@@ -19075,7 +19077,7 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
    certos e descreviam pedaços diferentes do tempo — que é a pior forma de
    errar, porque ninguém desconfia. */
 /* As colunas visíveis do Score (CETRO 17.2) — escolha de quem olha, no aparelho. */
-const SCORE_COLUNAS_PADRAO=["score","conversao","recebidos","resposta_min","atendimento_min","visitas_agendadas","visitas_realizadas","vendas","ligacoes","perdidos"];
+const SCORE_COLUNAS_PADRAO=["score","conversao","recebidos","resposta_min","atendimento_min","visitas_agendadas","visitas_realizadas","vendas","ligacoes","perdidos","perdidos_consequencia"];
 function fmtIndicador(k,m){
   const v=m[k]; if(m.sem_dados&&k!=="na_mao") return "—";
   if(k==="conversao") return pctBR(v);
@@ -23479,6 +23481,8 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   const [d,setD]=useState(null);
   const [op,setOp]=useState(null);
   const [funil,setFunil]=useState(null);
+  const [cartoes,salvarCartoes]=usarCartoes(acoes);
+  const [ordenando,setOrdenando]=useState(false);
   const [recargaMetas,setRecargaMetas]=useState(0);
   const [camp,setCamp]=useState(null);
   const [equipe,setEquipe]=useState(null);
@@ -23557,15 +23561,33 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
       {!d&&!erro&&<div style={{color:C.faint,fontSize:13}}>Carregando…</div>}
 
       {d&&<React.Fragment>
-        {/* ===== OS TRÊS NÚMEROS DO ATENDIMENTO ===== */}
-        <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
-          <Metric rot="Leads recebidos" v={d.atendimento.recebidos} sub={`${d.atendimento.na_fila} na fila`}/>
-          <Metric rot="Tempo da 1ª resposta" v={tempo(d.atendimento.primeira_resposta_mediana_min)} sub="mediana"/>
-          <Metric rot="Responderam à 1ª mensagem" v={num(d.atendimento.taxa_resposta_cliente,"%")}
-            sub={d.atendimento.clientes_contatados?`${d.atendimento.clientes_responderam} de ${d.atendimento.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>
-          <Metric rot="Qualificados" v={d.atendimento.qualificados??"—"}
-            sub={donosDoValor(f.responsavel).some(x=>x!=="fila")?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>
-        </div>
+        {/* ===== OS NÚMEROS DO ATENDIMENTO =====
+            A ordem é da operação (25/11/2026): o gestor arruma em "Ordem dos
+            cartões" e toda a equipe vê igual. "Atendidos" e "Perdidos por
+            consequência" são a mesma régua do relatório de cada pessoa:
+            atendido é o recebido que ganhou mensagem depois de chegar; o
+            resto não recebeu atendimento nenhum (Recebidos − Atendidos). */}
+        {(()=>{const a=d.atendimento;
+          const comPessoa=donosDoValor(f.responsavel).some(x=>x!=="fila");
+          const cards={
+            recebidos:<Metric key="recebidos" rot="Leads recebidos" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
+            atendidos:<Metric key="atendidos" rot="Leads atendidos" v={a.atendidos??"—"} sub={a.atendidos==null?null:`${num(a.taxa_atendimento,"%")} dos recebidos · ${comPessoa?"mensagem de quem recebeu":"alguém da equipe escreveu"}`}/>,
+            perdidos_consequencia:<Metric key="perdidos_consequencia" rot="Perdidos por consequência" v={a.perdidos_consequencia??"—"} cor={a.perdidos_consequencia?C.amber:C.ink}
+              sub="recebidos sem nenhuma mensagem — não é a etapa de perda"/>,
+            resposta:<Metric key="resposta" rot="Tempo da 1ª resposta" v={tempo(a.primeira_resposta_mediana_min)} sub="mediana"/>,
+            responderam:<Metric key="responderam" rot="Responderam à 1ª mensagem" v={num(a.taxa_resposta_cliente,"%")}
+              sub={a.clientes_contatados?`${a.clientes_responderam} de ${a.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>,
+            qualificados:<Metric key="qualificados" rot="Qualificados" v={a.qualificados??"—"}
+              sub={comPessoa?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>,
+          };
+          const nomes={recebidos:"Leads recebidos",atendidos:"Leads atendidos",perdidos_consequencia:"Perdidos por consequência",resposta:"Tempo da 1ª resposta",responderam:"Responderam à 1ª mensagem",qualificados:"Qualificados"};
+          const ordem=(cartoes&&cartoes.visao&&cartoes.visao.ordem)||Object.keys(cards);
+          return <div>
+            {podeGerir(session)&&!ordenando&&<div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+              <button onClick={()=>setOrdenando(true)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>Ordem dos cartões</button></div>}
+            {ordenando&&<OrdenarCartoes grupo="visao" config={cartoes} nomes={nomes} salvar={salvarCartoes} fechar={()=>setOrdenando(false)}/>}
+            <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>{ordem.filter(k=>cards[k]).map(k=>cards[k])}</div>
+          </div>;})()}
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
         {/* Sem prazo em etapa nenhuma, os três primeiros números são zero
@@ -25759,6 +25781,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         {numero("Leads recebidos",linha.recebidos,"entraram no período")}
         {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
+        {numero("Perdidos por consequência",linha.perdidos_consequencia??0,"recebidos sem nenhuma mensagem")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
         {numero("Qualificados",linha.qualificados??0,"no período")}
         {numero("Agendamentos",linha.agendados??0,"chegaram ao agendamento")}
@@ -25857,6 +25880,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         <div><b>Funil de conversão</b> — cada etapa conta os leads que <b>chegaram a ela no período</b>, venham de quando vierem; o primeiro degrau conta quem entrou no comercial no período, e a venda conta pela data em que foi registrada. <b>Desde a entrada</b> = chegaram à etapa ÷ primeiro degrau; <b>da etapa anterior</b> = chegaram à etapa ÷ chegaram à de cima, no mesmo período.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
         <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
+        <div><b>Perdidos por consequência</b> — dos leads recebidos no período, os que esta pessoa nunca escreveu depois de receber (Recebidos − Atendidos). É atendimento que não aconteceu; <b>Perdidos</b> continua sendo o lead movido para a etapa de perda.</div>
         <div><b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
         {(score&&score.componentes||[]).some(c=>c.comparativo)&&
           <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
@@ -26116,8 +26140,7 @@ function ListaDoSdr({titulo,itens,aguardando,isMobile,abrirConversa,aoFechar}){
 function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}){
   const {pipelines:todosFunis}=usarPipelines(acoes,session);
   const variosFunis=todosFunis.filter(p=>p.is_active!==false&&p.type!=="sdr").length>1;
-  const [resumoCols,setResumoCols]=useState(()=>{try{const v=JSON.parse(localStorage.getItem("conhub:relatorio.resumo")||"[]");return Array.isArray(v)?v:[];}catch(e){return [];}});
-  const salvarResumo=(v)=>{setResumoCols(v);try{localStorage.setItem("conhub:relatorio.resumo",JSON.stringify(v));}catch(e){}};
+  const [cartoes,salvarCartoes]=usarCartoes(acoes);
   const [editResumo,setEditResumo]=useState(false);
   // Nota aberta de alguém da equipe: {m, componentes}.
   const [nota,setNota]=useState(null);
@@ -26241,10 +26264,16 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
         </div>
 
         {(()=>{
-          /* O resumo é configurável por quem olha (CETRO 17.4) — não mexe nos pesos do Score nem nas metas. */
+          /* A ORDEM DOS CARTÕES É DA OPERAÇÃO (25/11/2026): o gestor arruma em
+             "Ordem dos cartões" e vale para toda a equipe. Era uma escolha de
+             cada aparelho (CETRO 17.4). */
           const todos=[
             ["recebidos",<Metric key="recebidos" n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>],
             ["atendidos",<Metric key="atendidos" n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>],
+            /* Recebidos − Atendidos: o lead que chegou e ninguém escreveu. Não
+               substitui "Perdidos" (o negócio que foi para a etapa de perda). */
+            ["perdidos_consequencia",<Metric key="perdidos_consequencia" n="clock" label="Perdidos por consequência" value={linha.perdidos_consequencia??0}
+              sub={linha.perdidos_consequencia?`sem atendimento · ${linha.perdidos_consequencia_saiu||0} já saíram da mão`:"todos receberam atendimento"} accent={C.amber}/>],
             ["qualificados",<Metric key="qualificados" n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>],
             ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="chegaram ao agendamento" accent="#3B7BC4"/>],
             ["visitas",<Metric key="visitas" n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>],
@@ -26252,14 +26281,14 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             ["perdidos",<Metric key="perdidos" n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>],
             ["perdidos_outro",<Metric key="perdidos_outro" n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro} sub="repasse manual no período" accent={C.hot}/>],
           ];
-          const nomes={recebidos:"Recebidos",atendidos:"Atendidos",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro"};
-          const vis=resumoCols.length?resumoCols:todos.map(t=>t[0]);
+          const nomes={recebidos:"Recebidos",atendidos:"Atendidos",perdidos_consequencia:"Perdidos por consequência",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro corretor"};
+          const mapa=new Map(todos);
+          const ordem=(cartoes&&cartoes.pessoa&&cartoes.pessoa.ordem)||todos.map(t=>t[0]);
           return <React.Fragment>
-            <div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-              <button onClick={()=>setEditResumo(x=>!x)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>{editResumo?"Pronto":"Escolher indicadores do resumo"}</button></div>
-            {editResumo&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>{todos.map(([k])=>{const on=vis.includes(k); return <button key={k} onClick={()=>salvarResumo(on?vis.filter(x=>x!==k):[...vis,k])}
-              style={{border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub,borderRadius:999,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{nomes[k]}</button>;})}</div>}
-            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>{todos.filter(([k])=>vis.includes(k)).map(([,el])=>el)}</div>
+            {podeGerir(session)&&!editResumo&&<div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+              <button onClick={()=>setEditResumo(true)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>Ordem dos cartões</button></div>}
+            {editResumo&&<OrdenarCartoes grupo="pessoa" config={cartoes} nomes={nomes} salvar={salvarCartoes} fechar={()=>setEditResumo(false)}/>}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>{ordem.filter(k=>mapa.has(k)).map(k=>mapa.get(k))}</div>
           </React.Fragment>;})()}
         <AvisoPulados itens={pulosDaLinha(linha)}/>
 
@@ -26643,6 +26672,59 @@ const pulosDaLinha=(l)=>l&&l.pulados?[
   {nome:"Qualificados",valor:l.qualificados??0,pulados:l.pulados.qualificados},
   {nome:"Agendamentos",valor:l.agendados??0,pulados:l.pulados.agendados},
   {nome:"Visitas",valor:l.visitas??0,pulados:l.pulados.visitas}]:[];
+/* A ORDEM DOS CARTÕES É DA OPERAÇÃO (25/11/2026, pedido do Ali). Uma lista por
+   imobiliária, guardada no servidor (`/reports/cartoes`): o gestor arruma e
+   toda a equipe vê igual. Uma memória só por conta, para a Visão geral e o
+   relatório de cada pessoa lerem a mesma coisa sem pedir duas vezes. */
+let CARTOES_MEMO={org:null,v:null,pedido:null};
+const CARTOES_AVISO=new Set();
+function usarCartoes(acoes){
+  const org=TOKEN||"";
+  const [v,setV]=useState(()=>CARTOES_MEMO.org===org?CARTOES_MEMO.v:null);
+  useEffect(()=>{
+    const ouvir=(x)=>setV(x); CARTOES_AVISO.add(ouvir);
+    if(CARTOES_MEMO.org!==org){CARTOES_MEMO={org,v:null,pedido:null};}
+    if(CARTOES_MEMO.v) setV(CARTOES_MEMO.v);
+    else{ if(!CARTOES_MEMO.pedido) CARTOES_MEMO.pedido=acoes.cartoes().then(x=>{if(CARTOES_MEMO.org===org){CARTOES_MEMO.v=x;CARTOES_AVISO.forEach(f=>f(x));}}).catch(()=>{CARTOES_MEMO.pedido=null;});}
+    return()=>CARTOES_AVISO.delete(ouvir);
+  },[org]);
+  const salvar=async(grupo,lista)=>{const x=await acoes.salvarCartoes({[grupo]:lista}); CARTOES_MEMO={org,v:x,pedido:null}; CARTOES_AVISO.forEach(f=>f(x)); return x;};
+  return [v,salvar];
+}
+
+/* O editor: cada cartão numa linha, com ↑ ↓ para mudar a posição e a caixa
+   para mostrar ou esconder. Setas e não arrastar: no celular o dedo erra o
+   arrasto, e a seta funciona igual nos dois. Nada grava até "Salvar". */
+function OrdenarCartoes({grupo,config,nomes,salvar,fechar}){
+  const todos=(config&&config[grupo]&&config[grupo].todos)||Object.keys(nomes);
+  const inicial=(config&&config[grupo]&&config[grupo].ordem)||todos;
+  const [lista,setLista]=useState(()=>[...inicial,...todos.filter(k=>!inicial.includes(k))].map(k=>({k,on:inicial.includes(k)})));
+  const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
+  const mover=(i,d)=>setLista(l=>{const j=i+d; if(j<0||j>=l.length) return l; const n=[...l]; [n[i],n[j]]=[n[j],n[i]]; return n;});
+  const enviar=async(valor)=>{setErro(""); setSalvando(true);
+    try{await salvar(grupo,valor); fechar();}catch(e){setErro(e.message);} finally{setSalvando(false);}};
+  const btn={border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"};
+  return <div className="nao-imprimir" style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
+    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Ordem dos cartões</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.45,marginBottom:10}}>Vale para toda a equipe desta imobiliária. Use as setas para mudar a posição e a caixa para mostrar ou esconder.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {lista.map((x,i)=><div key={x.k} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 8px"}}>
+        <span style={{color:C.faint,fontSize:12,minWidth:18,textAlign:"right"}}>{x.on?lista.filter((y,j)=>y.on&&j<=i).length:"–"}</span>
+        <label style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8,cursor:"pointer",color:x.on?C.ink:C.faint,fontSize:13,fontWeight:600}}>
+          <input type="checkbox" checked={x.on} onChange={()=>setLista(l=>l.map((y,j)=>j===i?{...y,on:!y.on}:y))}/>{nomes[x.k]||x.k}</label>
+        <button aria-label={`Subir ${nomes[x.k]}`} disabled={i===0} onClick={()=>mover(i,-1)} style={{...btn,opacity:i===0?.4:1}}>↑</button>
+        <button aria-label={`Descer ${nomes[x.k]}`} disabled={i===lista.length-1} onClick={()=>mover(i,1)} style={{...btn,opacity:i===lista.length-1?.4:1}}>↓</button>
+      </div>)}
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
+    <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap",alignItems:"center"}}>
+      <button disabled={salvando} onClick={()=>enviar(lista.filter(x=>x.on).map(x=>x.k))} style={{...BOTAO_PRIMARIO}}>{salvando?"Salvando…":"Salvar"}</button>
+      <button onClick={fechar} style={{...BOTAO_SECUNDARIO}}>Cancelar</button>
+      <button disabled={salvando} onClick={()=>enviar(null)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer",marginLeft:"auto"}}>voltar ao padrão</button>
+    </div>
+  </div>;
+}
+
 function AvisoPulados({itens}){
   const partes=(itens||[]).filter(x=>x&&x.pulados>0).map(x=>`${x.pulados} de ${x.valor} ${x.nome.toLowerCase()}`);
   if(!partes.length) return null;

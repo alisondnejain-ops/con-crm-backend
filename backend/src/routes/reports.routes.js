@@ -3,7 +3,7 @@ import db, { emLotes } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
-import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa } from "../services/score.js";
+import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequencia } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
 import { eventosDeAtribuicao, noPeriodo, recebidosEm } from "../services/movimento.js";
@@ -194,6 +194,10 @@ r.get("/", (req, res) => {
          "Perdido") — este é sobre DONO, não sobre negócio. */
       leads_perdidos_para_outro: perdidosEventos.length,
       atendidos: atendidos.length,
+      /* Recebidos − Atendidos (ver perdidosPorConsequencia em score.js).
+         Ao lado de "Perdidos", que continua sendo o lead movido para perda. */
+      ...(() => { const pc = perdidosPorConsequencia(req.user.org_id, u.id, tempos.naoAtendidos);
+        return { perdidos_consequencia: pc.total, perdidos_consequencia_saiu: pc.saiu }; })(),
       taxa_atendimento: pct(atendidos.length, recebidosEventos.length),
       // Mediana em vez de média: um único lead esquecido no fim de semana
       // distorce a média e faz o corretor parecer pior do que é.
@@ -397,6 +401,42 @@ r.put("/score/pontos", roles("adm"), (req, res) => {
   const r2 = salvarPontos(req.user.org_id, req.user.id, req.body || {});
   if (r2.erro) return res.status(400).json({ error: r2.erro });
   res.json(r2);
+});
+
+/* A ORDEM DOS CARTÕES (25/11/2026): uma por operação. Lê toda a equipe (o
+   corretor também vê os cartões do próprio relatório); grava o gestor. A
+   lista guardada é a ordem; chave desconhecida é descartada, e lista vazia
+   volta ao padrão. */
+export const CARTOES = {
+  visao: ["recebidos", "atendidos", "perdidos_consequencia", "resposta", "responderam", "qualificados"],
+  pessoa: ["recebidos", "atendidos", "perdidos_consequencia", "qualificados", "agendados", "visitas", "vendas", "perdidos", "perdidos_outro"],
+};
+function cartoesDa(orgId) {
+  let v = {};
+  try { v = JSON.parse(db.prepare("SELECT cartoes_json FROM orgs WHERE id=?").get(orgId)?.cartoes_json || "{}") || {}; } catch {}
+  const out = {};
+  for (const [grupo, todos] of Object.entries(CARTOES)) {
+    const lista = Array.isArray(v[grupo]) ? v[grupo].filter(k => todos.includes(k)) : [];
+    out[grupo] = { ordem: lista.length ? lista : todos, personalizado: lista.length > 0, todos };
+  }
+  return out;
+}
+r.get("/cartoes", (req, res) => res.json(cartoesDa(req.user.org_id)));
+r.put("/cartoes", roles("adm"), (req, res) => {
+  const b = req.body || {};
+  const atual = cartoesDa(req.user.org_id);
+  const novo = {};
+  for (const [grupo, todos] of Object.entries(CARTOES)) {
+    const veio = b[grupo];
+    if (veio === null) continue; // volta ao padrão
+    if (veio === undefined) { if (atual[grupo].personalizado) novo[grupo] = atual[grupo].ordem; continue; }
+    if (!Array.isArray(veio)) return res.status(400).json({ error: "Envie a lista de cartões na ordem." });
+    const limpa = [...new Set(veio)].filter(k => todos.includes(k));
+    if (!limpa.length) return res.status(400).json({ error: "Deixe pelo menos um cartão à mostra." });
+    novo[grupo] = limpa;
+  }
+  db.prepare("UPDATE orgs SET cartoes_json=? WHERE id=?").run(Object.keys(novo).length ? JSON.stringify(novo) : null, req.user.org_id);
+  res.json(cartoesDa(req.user.org_id));
 });
 
 // Para quem mandar este lead. Vale só enquanto ele não está com um corretor —
