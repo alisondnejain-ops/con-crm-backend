@@ -327,11 +327,24 @@ r = conv(F16);
 assert.equal(r.por_responsavel.find(g => g.id === marina).base, 1);
 assert.ok(!r.por_responsavel.find(g => g.id === rafael));
 assert.equal(conv(F16, { ...PERIODO, responsavel: marina }).base, 1);
-assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 0);
+// O primeiro degrau é "dos recebidos, quantos já chegaram ao comercial" (25/11/2026):
+// o Rafael recebeu o lead já qualificado — conta para ele também.
+assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 1);
 // A troca de dono na mesma operação da entrada (automação do SDR) é o dono.
 const d16b = lead(F16, "Inbox", SET(11), marina); mover(F16, d16b, "Qualificado", SET(12)); repassar(d16b, marina, rafael, SET(12) + 50);
-assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 1);
+assert.equal(conv(F16, { ...PERIODO, responsavel: rafael }).base, 2);
 console.log("   repassado depois: continua da Marina · na mesma operação: do Rafael");
+// O print do Ali (333 recebidos · 99 chegaram a Lead): lead que a fila pôs em
+// Qualificado ANTES de chegar à pessoa conta no primeiro degrau dela.
+const F16c = novoFunil("Recebido já no comercial");
+const d16c = lead(F16c, "Inbox", SET(11), null); mover(F16c, d16c, "Qualificado", SET(11) + 1000);
+repassar(d16c, null, rafael, SET(14));
+lead(F16c, "Inbox", SET(14), rafael);   // recebido e ainda não chegou
+r = conv(F16c, { ...PERIODO, responsavel: rafael });
+assert.equal(r.base, 1, "recebido pelo Rafael que já estava no comercial conta");
+assert.equal(r.topo.chegaram, 2);
+assert.equal(r.topo.ainda_nao, 1);
+console.log("   recebido já no comercial (pela fila): conta no primeiro degrau de quem recebeu");
 
 console.log("17. Lead na fila na entrada fica em \"Sem responsável\"");
 const f17 = lead(F16, "Inbox", SET(11)); mover(F16, f17, "Qualificado", SET(12));
@@ -348,7 +361,7 @@ const PAGO = { de: "2026-08-15", ate: "2026-08-31" };
 r = conv(F18, PAGO);
 assert.equal(r.base, 1);
 assert.equal(r.por_responsavel[0].grupo, "desconhecido");
-assert.equal(conv(F18, { ...PAGO, responsavel: marina }).base, 0);
+assert.equal(conv(F18, { ...PAGO, responsavel: marina }).base, 1);  // está nos recebidos dela (25/11/2026)
 assert.equal(conv(F18, { ...PAGO, responsavel: marina }).cobertura.dono_desconhecido, 1);
 console.log("   entrou em 21/08: dono desconhecido, fora do filtro por pessoa, contado à parte");
 
@@ -443,16 +456,16 @@ const q = `de=${PERIODO.de}&ate=${PERIODO.ate}`;
 console.log("23. O corretor vê só a coorte dele, mande o filtro que mandar");
 let x = await get(tRafael, `/painel/funil/${F16.id}?${q}&responsavel=${marina}`);
 assert.equal(x.status, 200);
-assert.equal(x.d.conversao.base, 1, "só o lead que ERA dele na entrada");
+assert.equal(x.d.conversao.base, 2, "só os leads que ELE recebeu (o filtro da Marina é descartado)");
 x = await get(tAli, `/painel/funil/${F16.id}?${q}`);
 assert.equal(x.d.conversao.base, 3);
-console.log("   Rafael: 1 · gestão: 3");
+console.log("   Rafael: 2 · gestão: 3");
 
 console.log("24. Conferência pela rota: permissão e quem pode abrir");
 x = await get(tRafael, `/painel/funil/${F16.id}/conferencia?${q}&conjunto=base&responsavel=${marina}`);
-assert.equal(x.d.total, 1);
-assert.equal(x.d.itens[0].id, d16b);
-assert.equal(x.d.itens[0].pode_abrir, true);
+assert.equal(x.d.total, 2);
+assert.ok(x.d.itens.some(i => i.id === d16b));
+assert.ok(x.d.itens.every(i => i.pode_abrir === true));
 x = await get(tAli, `/painel/funil/${F16.id}/conferencia?${q}&conjunto=base&responsavel=${marina}`);
 assert.equal(x.d.itens[0].id, d16);
 assert.equal(x.d.itens[0].responsavel_atual, "Rafael");
