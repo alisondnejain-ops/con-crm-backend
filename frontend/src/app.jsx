@@ -11525,7 +11525,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
          quadro do próprio corretor), o período olha quando o lead chegou na
          mão dela; sem pessoa, quando o lead entrou. É a regra de "Leads
          recebidos" — o número daqui é o de lá. */
-      const quando=(porChegada&&l.assignedTo?(l.assignedAt||l.createdAt):l.createdAt)||0;
+      const quando=(f.data==="etapa"?(l.etapaEntrouEm||l.createdAt):porChegada&&l.assignedTo?(l.assignedAt||l.createdAt):l.createdAt)||0;
       if(inicio&&quando<inicio) return false;
       if(fim&&quando>fim) return false;
       return true;
@@ -11702,7 +11702,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             ?"Leads que chegaram no período e estão neste funil — o mesmo número de \"Oportunidades no Kanban\" da Visão geral e dos Relatórios com o mesmo funil, a mesma pessoa e o mesmo período."
             :"Leads que estão neste funil hoje, em todas as etapas. Ligue o período em Filtros para comparar com \"Oportunidades no Kanban\" da Visão geral."}
           style={{color:C.faint,fontSize:11.5,fontWeight:600,whiteSpace:"nowrap",cursor:"help"}}>
-          {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}{f.de||f.ate?" · chegaram no período":" · hoje no funil"}</span>
+          {visiveis.length} lead(s){visiveis.length!==doFunil.length?` de ${doFunil.length}`:""}{f.de||f.ate?(f.data==="etapa"?" · entraram na etapa no período":" · chegaram no período"):" · hoje no funil"}</span>
       </div>
       {/* ===== CRIAR UM FUNIL, SEM SAIR DO QUADRO =====
 
@@ -11808,7 +11808,16 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               return <button key={t} onClick={()=>setF({...f,de:on?"":de,ate:on?"":hoje})}
                 style={{fontSize:11.5,fontWeight:600,borderRadius:999,padding:"5px 10px",cursor:"pointer",
                   border:`1px solid ${on?C.green+"66":C.line}`,background:on?C.greenSoft:C.surface,color:on?C.green:C.sub}}>{t}</button>;});})()}
-          <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
+          {/* DOIS MODOS DE DATA (25/11/2026, pedido do Ali): a data em que o
+              lead foi criado/chegou, ou a data em que ele entrou na etapa em
+              que está — "o lead de três meses atrás que entrou em Atendimento
+              Qualificado neste mês" só aparece no segundo. */}
+          <select value={f.data==="etapa"?"etapa":"criacao"} onChange={e=>setF({...f,data:e.target.value==="etapa"?"etapa":""})}
+            title="Qual data o período olha"
+            style={{fontSize:11.5,fontWeight:600,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 6px",background:C.card,fontFamily:FONT}}>
+            <option value="criacao">Criação do lead, de</option>
+            <option value="etapa">Entrada na etapa, de</option>
+          </select>
           <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
             style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
@@ -23303,6 +23312,7 @@ function MetasDeConversao({pipelineId,linhas,acoes,aoFechar,aoSalvar,isMobile}){
 function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa,impressao,titulo,gestor,aoMudarMetas}){
   const [conf,setConf]=useState(null);   // {etapa,conjunto,titulo}
   const [metasAbertas,setMetasAbertas]=useState(false);
+  const [modoFunil,setModoFunil]=usarEscolha("funil.modo","etapa");
   const c=dados;
   if(!c) return <div style={{color:C.faint,fontSize:12.5}}>Carregando o funil de conversão…</div>;
   if(c.erro) return <div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"10px 12px"}}>{c.erro}</div>;
@@ -23325,7 +23335,13 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         comercial no período. A diferença vem aberta e soma: recebidos −
         ainda não entraram + recebidos antes que entraram agora = degrau. */}
     {c.entrada&&<div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginTop:3}}>
-      De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}. Cada etapa conta quem chegou a ela no período.
+      De {fmtData(c.periodo.de)} a {fmtData(c.periodo.ate)}. {c.modo==="criacao"?"Só os leads criados no período, e até onde eles chegaram.":"Cada etapa conta quem chegou a ela no período."}
+      {/* Os dois modos de data (25/11/2026, pedido do Ali e do Fernando). */}
+      {!impressao&&<div style={{display:"inline-flex",gap:4,marginLeft:8,verticalAlign:"middle"}}>
+        {[["etapa","Por entrada na etapa"],["criacao","Por criação do lead"]].map(([k,t])=>{const on=(modoFunil==="criacao"?"criacao":"etapa")===k;
+          return <button key={k} onClick={()=>setModoFunil(k)} style={{fontSize:11,fontWeight:600,borderRadius:999,padding:"3px 9px",cursor:"pointer",fontFamily:FONT,
+            border:`1px solid ${on?C.green+"66":C.line}`,background:on?C.greenSoft:C.card,color:on?C.green:C.sub}}>{t}</button>;})}
+      </div>}
       {/* Só os recebidos (25/11/2026, pedido do Ali: "o que nós queremos em
           leads recebidos é o total de lead que veio no período"). A conta
           "− ainda não entraram + recebidos antes" confundia mais do que
@@ -23461,7 +23477,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
         <div style={{color:C.faint,fontSize:10.5,lineHeight:1.6,marginTop:6}}>{legendaDoFunil(c,ganho)}</div>
         {filtros&&filtros.responsavel&&<div style={{marginTop:8}}>{avisos}</div>}
       </details>}
-    {conf&&<ConferenciaDoFunil acoes={acoes} pipelineId={pipelineId} filtros={filtros} conf={conf} isMobile={isMobile}
+    {conf&&<ConferenciaDoFunil acoes={acoes} pipelineId={pipelineId} filtros={{...filtros,modo_funil:c.modo==="criacao"?"criacao":undefined}} conf={conf} isMobile={isMobile}
       abrirConversa={abrirConversa} aoFechar={()=>setConf(null)}/>}
     {metasAbertas&&<MetasDeConversao pipelineId={pipelineId} linhas={linhas} acoes={acoes} isMobile={isMobile} aoFechar={()=>setMetasAbertas(false)} aoSalvar={aoMudarMetas}/>}
   </div>;
@@ -23546,6 +23562,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
   // nem existir no funil seguinte, e o detalhe ficaria descrevendo outra base.
   const [fatia,setFatia]=useState(null);
 
+  const [modoFunil]=usarEscolha("funil.modo","etapa");
   useEffect(()=>{acoes.painelOpcoes().then(setOp).catch(e=>setErro(e.message));},[]);
   useEffect(()=>{
     let vivo=true;
@@ -23558,10 +23575,10 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
        primeiro da lista, que podia ser o de pré-atendimento. */
     const pipe=f.pipeline_id||"comercial";
     setFunil(x=>x&&x.pipeline_pedido===pipe?x:null);
-    acoes.painelFunil(pipe,f).then(r=>vivo&&setFunil({...r,pipeline_pedido:pipe}))
+    acoes.painelFunil(pipe,{...f,modo_funil:modoFunil==="criacao"?"criacao":undefined}).then(r=>vivo&&setFunil({...r,pipeline_pedido:pipe}))
       .catch(e=>vivo&&setFunil({erro:e.message,pipeline_pedido:pipe}));
     return()=>{vivo=false;};
-  },[JSON.stringify(f),op&&op.pipelines.length,tick,recargaMetas]);
+  },[JSON.stringify(f),op&&op.pipelines.length,tick,recargaMetas,modoFunil]);
   // A fatia aberta só fecha quando o FILTRO muda, não na atualização automática.
   useEffect(()=>{setFatia(null);},[JSON.stringify(f)]);
 
@@ -26229,16 +26246,17 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
      padrão mostrava ao corretor um funil em que ele não tem lead nenhum. */
   const papelSel=dados&&(dados.atendentes.find(a=>a.id===sel)||{}).papel;
   const [funilEscolhido,setFunilEscolhido]=useState("");
+  const [modoFunilRel]=usarEscolha("funil.modo","etapa");
   const funilDoRelatorio=papelSel==="sdr"?funilPadrao:(funilEscolhido||"comercial");
   useEffect(()=>{
     if(!sel||!funilDoRelatorio){setRosca(null);return;}
     let vivo=true;
     setRosca(x=>x&&x.chave===sel+funilDoRelatorio+chavePeriodo?x:null);
-    acoes.painelFunil(funilDoRelatorio,{...periodo,responsavel:sel})
+    acoes.painelFunil(funilDoRelatorio,{...periodo,responsavel:sel,modo_funil:modoFunilRel==="criacao"?"criacao":undefined})
       .then(r=>vivo&&setRosca({...r,chave:sel+funilDoRelatorio+chavePeriodo,pipeline_pedido:funilDoRelatorio}))
       .catch(e=>vivo&&setRosca({erro:e.message}));
     return()=>{vivo=false;};
-  },[sel,chavePeriodo,funilDoRelatorio,tick]);
+  },[sel,chavePeriodo,funilDoRelatorio,tick,modoFunilRel]);
 
   useEffect(()=>{
     let vivo=true; setCarregando(true);

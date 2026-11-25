@@ -440,6 +440,26 @@ assert.equal(r.topo.entraram, 5, "quem nasceu numa etapa do comercial já entrou
 r = C.funilDeConversao(orgTopo, FT.id, { de: "2026-08-01", ate: "2026-09-20" }, AGORA);
 assert.equal(r.topo, null, "período antes do histórico de etapas: sem a linha, em vez de subcontar");
 
+console.log("28. Dois modos de data: entrada na etapa (padrão) x criação do lead");
+const F28 = novoFunil("Modos");
+// Antigo: criado em agosto, qualificado em setembro (dentro do período).
+const m1 = lead(F28, "Inbox", new Date(2026, 7, 20).getTime(), marina); mover(F28, m1, "Qualificado", SET(12));
+// Novo: criado e qualificado no período.
+const m2 = lead(F28, "Inbox", SET(11), marina); mover(F28, m2, "Qualificado", SET(12)); mover(F28, m2, "Agendamento", SET(13));
+r = conv(F28);
+assert.equal(r.modo, "etapa");
+r = conv(F28, { ...PERIODO, modo_funil: "criacao" });
+assert.equal(r.modo, "criacao");
+assert.equal(r.base, 1, "só o lead criado no período");
+assert.equal(linha(r, "Agendamento").chegaram, 1);
+const conf28 = C.conferenciaDoFunil(F28.o, F28.id, { ...PERIODO, modo_funil: "criacao" }, { conjunto: "base", supervisor: true }, AGORA);
+assert.deepEqual(conf28.itens.map(i => i.id), [m2], "a lista segue o mesmo modo");
+// No modo etapa, o agendamento do período de um lead antigo conta; na criação, não.
+mover(F28, m1, "Agendamento", SET(14));
+assert.equal(linha(conv(F28), "Agendamento").chegaram, 2);
+assert.equal(linha(conv(F28, { ...PERIODO, modo_funil: "criacao" }), "Agendamento").chegaram, 1);
+console.log("   etapa: conta o lead antigo que avançou agora · criação: só os criados no período");
+
 console.log("\n===== PELA ROTA =====");
 async function entrar(email) {
   const resp = await fetch(`${BASE}/auth/login`, { method: "POST", headers: { "content-type": "application/json" },

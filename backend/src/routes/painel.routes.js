@@ -37,6 +37,8 @@ const filtrosDe = (q) => ({
   responsavel: (() => { const l = listaDeDonos(q.responsavel); return l.length > 1 ? l : (l[0] || undefined); })(),
   origem: q.origem, source: q.source,
   campanha: q.campanha, campaign_id: q.campaign_id, produto_id: q.produto_id,
+  // Só o funil de conversão lê: "criacao" = só leads criados no período.
+  modo_funil: q.modo_funil === "criacao" ? "criacao" : undefined,
 });
 
 /* "Chegaram a <primeira etapa comercial>" na Visão geral (25/11/2026, pedido
