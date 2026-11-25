@@ -474,9 +474,31 @@ function topoDoFunil(cfg, ids, base0, periodo, corte) {
   };
 }
 
+/* OS DOIS MODOS DE DATA DO FUNIL (25/11/2026, pedido do Ali e do Fernando):
+   - "etapa" (o padrão, como sempre): cada etapa conta quem ENTROU NELA no
+     período, venha o lead de quando vier.
+   - "criacao": só os leads CRIADOS no período, e até onde eles chegaram — "dos
+     que se cadastraram no mês, quantos qualificaram, quantas propostas,
+     quantas vendas". Como a chegada a uma etapa nunca é anterior à criação,
+     basta manter só as unidades de leads criados no período. */
+const modoCriacao = (filtros) => (filtros || {}).modo_funil === "criacao";
+const criadoNoPeriodo = (c) => (l) => l.created_at >= c.periodo.de && l.created_at <= c.corte;
+function aplicarModo(c, filtros) {
+  if (!modoCriacao(filtros) || !c.unidades) return c;
+  const ok = criadoNoPeriodo(c);
+  return { ...c, unidades: c.unidades.filter(u => ok(u.lead)) };
+}
+function recebidosDoModo(orgId, pipelineId, filtros, c) {
+  const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
+  if (!modoCriacao(filtros) || !ids.length) return ids;
+  const criados = new Set(emLotes(ids, (m, lote) => db.prepare(
+    `SELECT id FROM leads WHERE org_id = ? AND id IN (${m}) AND created_at BETWEEN ? AND ?`).all(orgId, ...lote, c.periodo.de, c.corte)).map(r => r.id));
+  return ids.filter(id => criados.has(id));
+}
+
 /* ===== A RESPOSTA PARA AS TELAS ===== */
 export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.now()) {
-  const c = calcular(orgId, pipelineId, filtros, agora);
+  const c = aplicarModo(calcular(orgId, pipelineId, filtros, agora), filtros);
   if (c.erro) return c;
   const { cfg, unidades, periodo, corte } = c;
   /* O PRIMEIRO DEGRAU É DOS RECEBIDOS NO PERÍODO (25/11/2026, pedido do Ali:
@@ -485,7 +507,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
      o cliente entrou. O lead recebido antes do período que chegou à etapa
      agora não conta mais aqui. Antes de 14/08/2026 (sem histórico) fica a
      regra antiga. */
-  const recIds = periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoFunil(orgId, pipelineId, filtros, periodo, corte)) : null;
+  const recIds = periodo.de >= COBERTURA_ETAPAS ? new Set(recebidosDoModo(orgId, pipelineId, filtros, c)) : null;
   const base0 = recIds ? entraramNoComercial(orgId, cfg, pipelineId, [...recIds], corte)
     : new Set(unidades.filter(u => u.entrada !== null).map(u => u.lead.id));
   const daCoorte = (u) => base0.has(u.lead.id);
@@ -562,6 +584,7 @@ export function funilDeConversao(orgId, pipelineId, filtros = {}, agora = Date.n
 
   return {
     pipeline_id: pipelineId, pipeline: c.pipeline.name, unidade: "lead",
+    modo: modoCriacao(filtros) ? "criacao" : "etapa",
     periodo: { de: periodo.de, ate: periodo.ate, rotulo: periodo.rotulo }, corte,
     corte_no_fim_do_periodo: corte === periodo.ate,
     entrada: cfg.entrada ? { id: cfg.entrada.id, name: cfg.entrada.name, configurada: cfg.configurada } : null,
@@ -600,7 +623,7 @@ function itensDosIds(orgId, ids, unidades) {
 
 export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, conjunto = "base", pagina = 1, porPagina = 50, quem = null, supervisor = false } = {}, agora = Date.now()) {
   if (!CONJUNTOS.includes(conjunto)) return { erro: "Conjunto desconhecido." };
-  const c = calcular(orgId, pipelineId, filtros, agora);
+  const c = aplicarModo(calcular(orgId, pipelineId, filtros, agora), filtros);
   if (c.erro) return c;
   const { cfg, unidades } = c;
 
@@ -611,7 +634,7 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
     // O primeiro degrau: dos recebidos, quem chegou ao comercial (a mesma
     // conta de funilDeConversao → entraramNoComercial).
     const comCoorte = c.periodo.de >= COBERTURA_ETAPAS;
-    const ids = comCoorte ? recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte) : unidades.filter(u => u.entrada !== null).map(u => u.lead.id);
+    const ids = comCoorte ? recebidosDoModo(orgId, pipelineId, filtros, c) : unidades.filter(u => u.entrada !== null).map(u => u.lead.id);
     const entrou = comCoorte ? entraramNoComercial(orgId, cfg, pipelineId, ids, c.corte) : new Set(ids);
     const escolhidos = conjunto === "de_antes" ? []
       : conjunto === "recebidos" ? ids
@@ -635,7 +658,7 @@ export function conferenciaDoFunil(orgId, pipelineId, filtros = {}, { etapa, con
     lista = unidades.filter(filtro);
     // A etapa de cima do segundo degrau é o primeiro degrau (ver acima).
     if (i === 1 && conjunto === "anterior" && c.periodo.de >= COBERTURA_ETAPAS) {
-      const ids = recebidosDoFunil(orgId, pipelineId, filtros, c.periodo, c.corte);
+      const ids = recebidosDoModo(orgId, pipelineId, filtros, c);
       const entrou = entraramNoComercial(orgId, cfg, pipelineId, ids, c.corte);
       lista = itensDosIds(orgId, ids.filter(id => entrou.has(id)), unidades);
     }
