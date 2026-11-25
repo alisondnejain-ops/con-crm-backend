@@ -2956,6 +2956,14 @@ CREATE INDEX IF NOT EXISTS idx_cadencia_etapa ON cadencia_passos(org_id, stage_i
   }
 }
 
+/* A ORDEM DOS CARTÕES DOS RELATÓRIOS É DA OPERAÇÃO (25/11/2026, pedido do Ali:
+   "reorganizar esses quadrinhos da maneira que cada operação julgar
+   necessário"). JSON {visao:[chaves], pessoa:[chaves]} — a lista é a ordem e
+   o que não está nela não aparece. Nulo = a ordem padrão do sistema. */
+if (!db.prepare("PRAGMA table_info(orgs)").all().some(c => c.name === "cartoes_json")) {
+  db.exec("ALTER TABLE orgs ADD COLUMN cartoes_json TEXT");
+}
+
 db.exec(`CREATE TABLE IF NOT EXISTS produto_unidades (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,

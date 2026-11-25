@@ -39,7 +39,7 @@ const caso = async (n, f) => { try { await f(); console.log("  ✓ " + n); } cat
 let r;
 await caso("1. A tabela traz os 19 indicadores, na ordem do capítulo 17", async () => {
   r = await G("/reports/score?periodo=este_mes");
-  assert.equal(r.body.indicadores.length, 19); assert.equal(r.body.indicadores[0].chave, "score"); assert.equal(r.body.indicadores[18].chave, "perdidos");
+  assert.equal(r.body.indicadores.length, 20); assert.equal(r.body.indicadores[0].chave, "score"); assert.equal(r.body.indicadores[18].chave, "perdidos"); assert.equal(r.body.indicadores[19].chave, "perdidos_consequencia");
   const a = r.body.equipe.find(m => m.id === ana);
   assert.equal(a.mensagens, 2); assert.equal(a.trabalhados, 2); assert.equal(a.faladas, 1); assert.equal(a.na_mao, 2);
   assert.equal(a.tarefas_criadas, 2); assert.equal(a.tarefas_feitas, 1); assert.equal(a.atrasados, 1);
